@@ -104,6 +104,13 @@ class TimeSeriesInput(TimeSeries):
         The output bound to this input. If no input is bound this will be None.
         """
 
+    @output.setter
+    @abstractmethod
+    def output(self, value: TimeSeriesOutput):
+        """
+        Binds the output provided to this input.
+        """
+
     @property
     @abstractmethod
     def value(self) -> Any:

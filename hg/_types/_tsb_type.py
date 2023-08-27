@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from datetime import datetime
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type
 
@@ -70,6 +71,13 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
             return getattr(self._ts_value, item)
         else:
             raise ValueError(f"'{item}' is not a valid property of TSB")
+
+    @abstractmethod
+    def __getitem__(self, item: Union[int, str]) -> "TimeSeries":
+        """
+        If item is of type int, will return the item defined by the sequence of the schema. If it is a str, then
+        the item as named.
+        """
 
 
 class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):

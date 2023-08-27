@@ -6,7 +6,9 @@ from typing import Mapping, Optional, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hg._types import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
-    from hg._types._time_series_types import TimeSeriesInput, TimeSeries
+    from hg._types._time_series_types import TimeSeriesInput, TimeSeries, TimeSeriesOutput
+    from hg._types._tsb_type import TimeSeriesBundleInput
+
 
 
 __all__ = ("NodeSignature", "Node")
@@ -51,6 +53,15 @@ class Node(ABC):
 
     @property
     @abstractmethod
+    def input(self) -> Optional["TimeSeriesBundleInput"]:
+        """
+        The input as an Unnamed Bundle. This allows the input to be considered as a TSB
+        which is helpful for standardising handling of inputs. The bundle schema is the
+        collection of inputs that are of time-series types.
+        """
+
+    @property
+    @abstractmethod
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
         """
         The inputs associated to this node.
@@ -63,10 +74,19 @@ class Node(ABC):
         The output of this node.
         """
 
+    @property
+    @abstractmethod
+    def outputs(self) -> Optional[Mapping[str, "TimeSeriesOutput"]]:
+        """
+        The outputs of the node. If the node has a single defined output then this is just {"out": Output},
+        however if the node was defined with multiple outputs using the "un-named bundle" dictionary format,
+        then these are the outputs defined by the dictionary definition.
+        """
+
 
 @dataclass
 class Graph:
     """ The runtime graph """
 
-    nodes: tuple[Node]  # The nodes of the graph.
+    nodes: tuple[Node, ...]  # The nodes of the graph.
 
