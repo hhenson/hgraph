@@ -74,6 +74,12 @@ class TimeSeriesOutput(TimeSeries):
     value: Any
 
     @abstractmethod
+    def apply_result(self, Any):
+        """
+        Apply the result of calling a python method to the output.
+        """
+
+    @abstractmethod
     def subscribe_node(self, node: "Node"):
         """Add this node to receive notifications when this output changes
         (this is called by make_active by the bound input)"""

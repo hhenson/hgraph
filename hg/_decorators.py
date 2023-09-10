@@ -75,6 +75,9 @@ def generator(fn):
 
 
     This will cause an infinite sequence of ticks (with value of True) that will tick one a millisecond.
+
+    The generator will fetch the first tick during the start life-cycle of the node. If no tick is returned, the
+    generator WILL do NOTHING.
     ```
     """
     from hg._wiring._wiring import PythonGeneratorWiringNodeClass

@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Mapping, Optional, TYPE_CHECKING, Any
+
+from hg._lifecycle import ComponentLifeCycle
+from hg._types._tsb_type import TimeSeriesBundleOutput
 
 if TYPE_CHECKING:
     from hg._types import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
@@ -41,7 +45,7 @@ class NodeSignature:
     time_series_outputs: Mapping[str, "HgTimeSeriesTypeMetaData"]
 
 
-class Node(ABC):
+class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
@@ -69,9 +73,9 @@ class Node(ABC):
 
     @property
     @abstractmethod
-    def output(self) -> Optional["TimeSeries"]:
+    def output(self) -> Optional["TimeSeriesOutput"]:
         """
-        The output of this node.
+        The output of this node. This could be a TimeSeriesBundleOutput or a single output value.
         """
 
     @property
@@ -83,10 +87,20 @@ class Node(ABC):
         then these are the outputs defined by the dictionary definition.
         """
 
+    def eval(self):
+        """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
+
 
 @dataclass
-class Graph:
+class Graph(ComponentLifeCycle):
     """ The runtime graph """
 
     nodes: tuple[Node, ...]  # The nodes of the graph.
+
+
+@dataclass
+class ExecutionContext:
+    current_engine_time: datetime
+    wall_clock_time: datetime
+    engine_lag: timedelta
 

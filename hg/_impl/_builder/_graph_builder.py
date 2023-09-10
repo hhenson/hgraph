@@ -49,11 +49,17 @@ class GraphBuilder(Builder[GraphImpl]):
             output = self._extract_output(src_node, edge.output_path)
             input_ = self._extract_input(dst_node, edge.input_path)
             input_.output = output
+        for node in nodes:  # TODO: I think we want to initialise the nodes once wiring is complete but not sure, need to think about this
+            node.initialise()
         return GraphImpl(nodes=tuple(nodes))
 
     def release_instance(self, item: GraphImpl):
         for node, node_builder in zip(item.nodes, self.node_builders):
             node_builder.release_instance(node)
+        for node in item.nodes:  # TODO: This is not clean if the dispose should be called in the node builder or here
+            node.dispose()
+        item.dispose()
+
 
 
     

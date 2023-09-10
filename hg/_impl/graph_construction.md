@@ -24,6 +24,15 @@ The graph is described in topological sorted order and node-ids
 for the graph are set. The builder nodes know exactly how to construct
 a runtime instance node to evaluate the graph.
 
+The run-time graph is the actual node instances that will do the work
+of computing the results. This graph is constructed on demand by the builder
+graph.
+
+The run-time graph may be built on demand, for example when using the 
+branch or selector graphs, these are constructed based on run-time
+input, the builder graphs are used to efficiently build new instances
+of the graphs as required.
+
 In the Python implementation the builder nodes are largely to provide the 
 prototype structure, when re-implemented in C++ the builder graph
 provides for supporting efficient memory allocation for constructing
