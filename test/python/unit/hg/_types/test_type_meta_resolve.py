@@ -69,6 +69,9 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
         [TS[UnResolvedCompoundScalar2[int]], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2:str}],
         [TS[UnResolvedCompoundScalar2[SCALAR_2: str]], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2:str}],
         [TS[UnResolvedCompoundScalar2[SCALAR_2: str, SCALAR: int]], TS[UnResolvedCompoundScalar2[int, str]], {}],  # This is fully resolved
+        [type[SCALAR], type[int], {SCALAR: int}],
+        [type[int], type[int], {}], # Already fully resolved
+        [type[TS[SCALAR]], type[TS[int]], {SCALAR: int}]
     ]
 )
 def test_build_resolve_dict(ts, wiring_ts, expected_dict):

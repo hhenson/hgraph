@@ -7,6 +7,7 @@ __all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData")
 
 
 class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
+    """Parses TS[...]"""
 
     value_scalar_tp: HgScalarTypeMetaData
 
@@ -54,6 +55,7 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
 
 
 class HgTSOutTypeMetaData(HgTSTypeMetaData):
+    """Parses TSOut[...]"""
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

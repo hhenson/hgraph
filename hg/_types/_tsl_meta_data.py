@@ -6,6 +6,7 @@ from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMet
 
 
 class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
+    """Parses TSL[..., Size[...]]"""
 
     value_tp: HgTimeSeriesTypeMetaData
     size_tp: HgScalarTypeMetaData
@@ -20,6 +21,7 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def py_type(self) -> Type:
+        from hg._types import TSL
         return TSL[self.value_tp.py_type, self.size_tp.py_type]
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
@@ -65,6 +67,7 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
 
 
 class HgTSLOutTypeMetaData(HgTSLTypeMetaData):
+    """Parses TSLOut[..., Size[...]]"""
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

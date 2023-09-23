@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from datetime import datetime
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type
+from more_itertools import nth
 
 from hg._types import ParseError
 from hg._types._schema_type import AbstractSchema
@@ -72,12 +73,15 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         else:
             raise ValueError(f"'{item}' is not a valid property of TSB")
 
-    @abstractmethod
     def __getitem__(self, item: Union[int, str]) -> "TimeSeries":
         """
         If item is of type int, will return the item defined by the sequence of the schema. If it is a str, then
         the item as named.
         """
+        if type(item) is int:
+            return getattr(self, nth(item, iter(self.__schema__.__meta_data_schema__)))
+        else:
+            return getattr(self, item)
 
 
 class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
@@ -126,6 +130,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
     @property
     def last_modified_time(self) -> datetime:
         pass
+
 
 
 class TimeSeriesBundleOutput(TimeSeriesOutput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):

@@ -22,7 +22,7 @@ def test_simple_bundle():
     assert is_bundle(TSB[SimpleSchema])
     assert is_bundle(TSB[LessSimpleBundle])
     p1 = create_autospec(TS[int], spec_set=True, instance=True)
-    b1 = TSB[SimpleSchema](ts_value = SimpleSchema(p1=p1))
+    b1 = TSB[SimpleSchema](ts_value=SimpleSchema(p1=p1))
     assert b1.__schema__ == SimpleSchema
     assert b1.p1 is p1
     assert b1.ts_value.p1 is p1

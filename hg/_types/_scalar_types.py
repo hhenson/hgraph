@@ -27,6 +27,8 @@ class Size:
     """
     Size class, used by TSL to indicate the size attributes of the size.
     This represents either a fixed size or a variable size.
+
+    Use this as Size[n] where n is the size represented as an integer value.
     """
     SIZE: int = -1
     FIXED_SIZE: bool = False

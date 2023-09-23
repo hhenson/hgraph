@@ -10,6 +10,13 @@ __all__ = ("HgTimeSeriesSchemaTypeMetaData", "HgTSBTypeMetaData")
 
 
 class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
+    """
+    Parses time series schema types, for example:
+    ```python
+    class MySchema(TimeSeriesSchema):
+        p1: TS[str]
+    ```
+    """
 
     py_type: Type
 

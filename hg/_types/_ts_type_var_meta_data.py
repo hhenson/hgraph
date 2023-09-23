@@ -8,6 +8,10 @@ from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
 
 class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
+    """
+    Represent a time series type var, for example TIME_SERIES_TYPE.
+    The bound of the TypeVar must be of type TimeSeries or TimeSeriesSchema.
+    """
 
     py_type: Type
     is_generic: bool = True

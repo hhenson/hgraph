@@ -6,6 +6,7 @@ from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
 
 class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
+    """Parses TSS[...]"""
 
     value_scalar_tp: HgScalarTypeMetaData
 

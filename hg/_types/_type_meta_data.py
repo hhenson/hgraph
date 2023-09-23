@@ -8,10 +8,11 @@ class ParseError(RuntimeError):
 
 
 class HgTypeMetaData:
-    is_resolved: bool
+    is_resolved: bool  # Does this instance of metadata contain a generic entry, i.e. requires resolution
     is_scalar: bool
     is_atomic: bool = False
-    is_generic: bool = False
+    is_generic: bool = False  # Is this instance of metadata representing a template type (i.e. TypeVar)
+    is_injectable: bool = False # This indicates the type represent an injectable property (such as ExecutionContext)
     py_type: Type  # The python type that represents this type
 
     @classmethod

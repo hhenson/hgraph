@@ -18,7 +18,7 @@ class HgScalarTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":
         parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar]
+                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgInjectableType]
         for parser in parses:
             if meta_data := parser.parse(value):
                 return meta_data
@@ -135,6 +135,46 @@ class HgAtomicType(HgScalarTypeMetaData):
             time: lambda: HgAtomicType(time, (str,)),
             timedelta: lambda: HgAtomicType(timedelta, (float, str,)),
             str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
+        }.get(value_tp, lambda: None)()
+
+
+class HgInjectableType(HgScalarTypeMetaData):
+    """
+    Injectable types are marker types that are used to indicate an interesting a special injectable type to be
+    provided in a component signature. For example:
+
+    ``ExecutionContext`` which injects the runtime execution context into the node call.
+    """
+    is_atomic = False
+    is_resolved = True
+    is_injectable = True
+
+    def __init__(self, py_type: Type):
+        self.py_type = py_type
+
+    def __eq__(self, o: object) -> bool:
+        return type(o) is HgInjectableType and self.py_type is o.py_type
+
+    def __str__(self) -> str:
+        return f'{self.py_type.__name__}'
+
+    def __repr__(self) -> str:
+        return f'HgSpecialAtomicType({repr(self.py_type)})'
+
+    def __hash__(self) -> int:
+        return hash(self.py_type)
+
+    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().build_resolution_dict(resolution_dict, wired_type)
+        if self.py_type != wired_type.py_type:
+            raise f"Type '{str(self)}' is not the same as the wired type '{str(wired_type)}'"
+
+    @classmethod
+    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+        value_tp = value if isinstance(value, type) else type(value)
+        from hg._runtime import ExecutionContext
+        return {
+            ExecutionContext: lambda: HgInjectableType(ExecutionContext),
         }.get(value_tp, lambda: None)()
 
 
@@ -405,5 +445,76 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             v.build_resolution_dict(resolution_dict, w_v)
 
 
+class HgTypeOfTypeMetaData(HgTypeMetaData):
+    """
+    Represents a type[...]. The type represented can be of a scalar, time-series, or unknown type.
+    This is however a scalar type.
 
+    Deals with resolving type representations, for example:
+    ```python
+      Type[TIME_SERIES_TYPE]
+      Type[SCALAR]
+      Type[TS[SCALAR]]
+    ```
 
+    These are generally used to assist with type bounding or type resolution for outputs.
+
+    For example:
+
+    ```python
+
+    @generator
+    def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR]) -> TIME_SERIES_TYPE:
+        ...
+    ```
+
+    In this case there is no easy way to infer the output type from the inputs other than to provide it. In this case
+    we can also attempt to provide a reasonable default which will allow the type system to infer the likely type.
+    """
+
+    value_tp: HgTypeMetaData
+    is_scalar = True
+
+    def __init__(self, value_tp):
+        self.value_tp = value_tp
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.value_tp.is_resolved
+
+    @property
+    def py_type(self) -> Type:
+        return type[self.value_tp.py_type]
+
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+        if self.is_resolved:
+            return self
+        else:
+            return type(self)(self.value_tp.resolve(resolution_dict))
+
+    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        if not type(wired_type) == HgTypeOfTypeMetaData:
+            raise ParseError(f"Wired type '{wired_type}' is not a type value")
+        wired_type: HgTypeOfTypeMetaData
+        self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
+
+    @classmethod
+    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+        from hg._types._time_series_types import TimeSeries
+        from hg._types._tsb_type import TimeSeriesSchema
+        if isinstance(value, (_GenericAlias, GenericAlias)) and value.__origin__ in (type, Type):
+            value_tp = HgTypeMetaData.parse(value.__args__[0])
+            return HgTypeOfTypeMetaData(value_tp)
+        return None
+
+    def __eq__(self, o: object) -> bool:
+        return type(o) is HgTypeOfTypeMetaData and self.value_tp == o.value_tp
+
+    def __str__(self) -> str:
+        return self.py_type.__name__
+
+    def __repr__(self) -> str:
+        return f'HgTypeOfTypeMetaData({repr(self.value_tp)})'
+
+    def __hash__(self) -> int:
+        return hash(self.py_type)

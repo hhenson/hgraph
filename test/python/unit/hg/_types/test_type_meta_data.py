@@ -6,10 +6,11 @@ from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
 import pytest
 
 from hg import SIZE, Size
+from hg._runtime import ExecutionContext
 from hg._types._ts_type import TS, TS_OUT
 from hg._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
 from hg._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
-    HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType
+    HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType, HgTypeOfTypeMetaData, HgInjectableType
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
 from hg._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
@@ -52,6 +53,19 @@ def test_atomic_scalars(value, expected: Type):
 @pytest.mark.parametrize(
     ["value", "expected"],
     [
+        [ExecutionContext, ExecutionContext],
+    ]
+)
+def test_special_atomic_scalars(value, expected: Type):
+    meta_type = HgTypeMetaData.parse(value)
+    assert meta_type is not None
+    assert isinstance(meta_type, HgInjectableType)
+    assert meta_type.py_type == expected
+
+
+@pytest.mark.parametrize(
+    ["value", "expected"],
+    [
         [Tuple[bool, ...], HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(bool))],
         [tuple[bool, ...], HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(bool))],
         [Tuple[bool, int], HgTupleFixedScalarType([HgScalarTypeMetaData.parse(bool), HgScalarTypeMetaData.parse(int)])],
@@ -72,6 +86,8 @@ def test_atomic_scalars(value, expected: Type):
         [TSS_OUT[bool], HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TSD[int, TS[str]], HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
         [TSD_OUT[int, TS[str]], HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
+        [Type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
+        [type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
     ]
 )
 def test_collection_scalars(value, expected: HgScalarTypeMetaData):
@@ -96,6 +112,8 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
         frozendict[int, str],
         frozenset[int],
         Size[2],
+        type[bool],
+        ExecutionContext
     ]
 )
 def test_py_type(tp):
