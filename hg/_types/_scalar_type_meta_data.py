@@ -166,7 +166,7 @@ class HgInjectableType(HgScalarTypeMetaData):
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().build_resolution_dict(resolution_dict, wired_type)
-        if self.py_type != wired_type.py_type:
+        if wired_type is not None and self.py_type != wired_type.py_type:
             raise f"Type '{str(self)}' is not the same as the wired type '{str(wired_type)}'"
 
     @classmethod
@@ -490,7 +490,10 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.value_tp.resolve(resolution_dict))
+            resolved = self.value_tp.resolve(resolution_dict)
+            if not resolved.is_resolved:
+                raise ParseError(f"{self} was unable to resolve after two rounds, left with: {resolved}")
+            return type(self)(resolved)
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if not type(wired_type) == HgTypeOfTypeMetaData:

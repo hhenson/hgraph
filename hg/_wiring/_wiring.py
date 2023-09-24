@@ -1,12 +1,16 @@
 from dataclasses import dataclass
-from typing import Callable, Any, TypeVar
+from types import GenericAlias
+from typing import Callable, Any, TypeVar, _GenericAlias
 
 __all__ = (
     "WiringNodeClass", "CppWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext", "GraphWiringNodeClass",
     "PythonGeneratorWiringNodeClass")
 
+from frozendict import frozendict
+
 from hg._runtime import SourceCodeDetails, Node
-from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData
+from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
+from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 
@@ -49,9 +53,8 @@ class WiringNodeClass:
         raise NotImplementedError()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, unsafe_hash=True)
 class BaseWiringNodeClass(WiringNodeClass):
-
     signature: WiringNodeSignature
     fn: Callable
 
@@ -82,47 +85,97 @@ class BaseWiringNodeClass(WiringNodeClass):
                               f"expected: {[arg for arg in self.signature.args if arg not in kwargs_]}")
         return kwargs_
 
+    def _convert_kwargs_to_types(self, **kwargs) -> dict[str, HgTypeMetaData]:
+        """Attempt to convert input types to better support type resolution"""
+        # We only need to extract un-resolved values
+        kwarg_types = {}
+        for k, v in self.signature.input_types.items():
+            arg = kwargs.get(k, self.signature.defaults.get(k))
+            if arg is None:
+                if v.is_injectable:
+                    # For injectables we expect the value to be None, and the type must already be resolved.
+                    kwarg_types[k] = v
+                else:
+                    raise ParseError(f'{k}: {v} argument is required but not supplied')
+            if k in self.signature.time_series_args:
+                # This should then get a wiring node, and we would like to extract the output type,
+                # But this is optional so we should ensure that the type is present
+                if not isinstance(arg, WiringPort):
+                    raise ParseError(f'{k}: {v} = {arg}, argument is not a time-series value')
+                if arg.output_type:
+                    kwarg_types[k] = arg.output_type
+                else:
+                    raise ParseError(
+                        f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
+            elif type(v) is HgTypeOfTypeMetaData:
+                if not isinstance(arg, (type, GenericAlias, _GenericAlias)):
+                    raise ParseError(f"Input {k} in {self.signature.name} is expected to be a type, "
+                                     f"but got '{arg}' instead")
+                v = HgTypeMetaData.parse(arg)
+                kwarg_types[k] = HgTypeOfTypeMetaData(v)
+            else:
+                kwarg_types[k] = (tp := HgScalarTypeMetaData.parse(arg))
+                if tp is None:
+                    if k in self.signature.unresolved_args:
+                        raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
+                                         f"but we require type resolution")
+                    else:
+                        # If the signature was not unresolved, then we can use the signature, but the input value
+                        # May yet be incorrectly typed.
+                        kwarg_types[k] = v
+        return kwarg_types
 
-    def _validate_and_resolve_signature(self, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData], **kwargs) \
-            -> WiringNodeSignature:
+    def _validate_and_resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData], **kwargs) \
+            -> tuple[dict[str, Any], WiringNodeSignature]:
         """
-        Insure the inptuts wired in match the signature of this node and resolve any missing types.
+        Insure the inputs wired in match the signature of this node and resolve any missing types.
         """
-        # Do we need to parse the scalar values into types? I think so
-        kwarg_types = {k: v.output_type if k in self.signature.time_series_args else
-                        HgScalarTypeMetaData.parse(v) for k, v in kwargs.items()}
-        # Do the resolve to ensure types match as well as actually resolve the types.
-        resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
-        resolved_inputs = self.signature.resolve_inputs(resolution_dict)
-        resolved_output = self.signature.resolve_output(resolution_dict)
-        if self.signature.is_resolved:
-            return self.signature
-        else:
-            # Only need to re-create if we actually resolved the signature.
-            return WiringNodeSignature(self.signature.node_type, self.signature.name, self.signature.args,
-                                            self.signature.defaults, resolved_inputs, resolved_output,
-                                            self.signature.src_location, tuple(), self.signature.time_series_args,
-                                            self.signature.label)
-
-
-
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
-                 **kwargs) -> "WiringPort":
         # Validate that all inputs have been received and apply the defaults.
-        kwargs_ = self._prepare_kwargs(*args, **kwargs)
-        # Now validate types and resolve any un-resolved types and provide an updated signature.
+        kwargs = self._prepare_kwargs(*args, **kwargs)
         try:
-            resolved_signature = self._validate_and_resolve_signature(__pre_resolved_types__=__pre_resolved_types__,
-                                                                      **kwargs_)
-            assert resolved_signature.is_resolved, \
-                f"Call to {self.signature.name} did not successfully resolve all TypeVar's"
+            # Extract any additional required type resolution information from inputs
+            kwarg_types = self._convert_kwargs_to_types(**kwargs)
+            # Do the resolve to ensure types match as well as actually resolve the types.
+            resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
+            resolved_inputs = self.signature.resolve_inputs(resolution_dict)
+            resolved_output = self.signature.resolve_output(resolution_dict)
+            if self.signature.is_resolved:
+                return kwargs, self.signature
+            else:
+                # Only need to re-create if we actually resolved the signature.
+                resolve_signature = WiringNodeSignature(self.signature.node_type, self.signature.name,
+                                                        self.signature.args,
+                                                        self.signature.defaults, resolved_inputs, resolved_output,
+                                                        self.signature.src_location, tuple(),
+                                                        self.signature.time_series_args,
+                                                        self.signature.label)
+                if resolve_signature.is_resolved:
+                    return kwargs, resolve_signature
+                else:
+                    raise ParseError(f"{resolve_signature.name} was not able to resolve itself")
         except Exception as e:
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
             raise WiringError(f"Failure resolving signature, graph call stack:\n{path}") from e
 
-        wiring_node_instance = WiringNodeInstance(self, resolved_signature, kwargs_,
-                                                  rank=max((v.rank for k, v in kwargs_.items()
-                                                           if k in self.signature.time_series_args), default=1))
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+                 **kwargs) -> "WiringPort":
+        # Now validate types and resolve any un-resolved types and provide an updated signature.
+        kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
+                                                                           __pre_resolved_types__=__pre_resolved_types__,
+                                                                           **kwargs)
+
+        # TODO: This mechanism to work out rank may fail when using a delayed binding?
+        match resolved_signature.node_type:
+            case WiringNodeType.PUSH_SOURCE_NODE:
+                rank = 0
+            case WiringNodeType.PULL_SOURCE_NODE:
+                rank = 1
+            case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
+                rank = max(v.rank for k, v in kwargs_.items() if k in self.signature.time_series_args) + 1
+            case default:
+                rank = -1
+
+        wiring_node_instance = WiringNodeInstance(self, resolved_signature, frozendict(kwargs_), rank=rank)
         # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
         # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 
@@ -143,7 +196,7 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
     resolved_types: dict[TypeVar, HgTypeMetaData]
 
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
-        self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
+        return self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
 
     def __getitem__(self, item) -> WiringNodeClass:
         resolved_types = dict(self.resolved_types)
@@ -244,25 +297,26 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         # We don't want graph and node signatures to operate under different rules as this would make
         # moving between node and graph implementations problematic, so resolution rules of the signature
         # hold
-        wiring_port = super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+        kwargs_, resoled_signature = self._validate_and_resolve_signature(*args, __pre_resolved_types__=__pre_resolved_types__,
+                                                                 **kwargs)
 
         # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
         with WiringGraphContext(self) as g:
             out: WiringPort = self.fn(*args, **kwargs)
-            if (output_type := wiring_port.output_type):
+            if output_type := resoled_signature.output_type:
                 if output_type != out.output_type:
                     raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
                                       f"'{str(out.output_type)}' was returned from the graph")
             elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
-                    raise WiringError(f"'{self.signature.name}' does not seem to do anything")
+                raise WiringError(f"'{self.signature.name}' does not seem to do anything")
             return out
 
 
-@dataclass(frozen=True, unsafe_hash=True)
+@dataclass(frozen=True)
 class WiringNodeInstance:
     node: WiringNodeClass
     resolved_signature: WiringNodeSignature
-    inputs: dict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
+    inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
 
     @property
@@ -275,7 +329,7 @@ class WiringNodeInstance:
         # TODO: do construction
 
 
-@dataclass
+@dataclass(frozen=True)
 class WiringPort:
     node_instance: WiringNodeInstance
 
@@ -288,9 +342,9 @@ class WiringPort:
         return self.node_instance.rank
 
 
-@dataclass
+@dataclass(frozen=True)
 class TSB_WiringPort(WiringPort):
-    path: list[str]
+    path: tuple[str, ...]
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
@@ -298,5 +352,3 @@ class TSB_WiringPort(WiringPort):
         for p in self.path:
             # This is the parth within a TSB
             output_type = output_type[p]
-
-

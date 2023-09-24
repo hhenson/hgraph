@@ -2,7 +2,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Type, get_type_hints, Any, Optional, TypeVar
 
+from frozendict import frozendict
+
 from hg._runtime import SourceCodeDetails
+from hg._types import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._type_meta_data import HgTypeMetaData
@@ -53,8 +56,8 @@ class WiringNodeSignature:
     node_type: WiringNodeType
     name: str  # This will come from the function
     args: tuple[str]
-    defaults: dict[str, Any]
-    input_types: dict[str, HgTypeMetaData]
+    defaults: frozendict[str, Any]
+    input_types: frozendict[str, HgTypeMetaData]
     output_type: Optional[HgTypeMetaData]
     src_location: SourceCodeDetails
     unresolved_args: tuple[str]
@@ -70,20 +73,30 @@ class WiringNodeSignature:
     def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData],
                               **kwargs) -> dict[TypeVar, HgTypeMetaData]:
         """Expect kwargs to be a dict of arg to type mapping / value mapping"""
-        resolution_dict = dict(pre_resolved_types) if pre_resolved_types else {}
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = dict(pre_resolved_types) if pre_resolved_types else {}
         for arg, meta_data in self.input_types.items():
             # This will validate the input type against the signature's type so don't short-cut this logic!
-            meta_data.build_resolution_dict(resolution_dict, kwargs[arg])
-        return resolution_dict
+            meta_data.build_resolution_dict(resolution_dict, kwargs.get(arg))
+        # now ensures all "resolved" items are actually resolved
+        out_dict = {}
+        all_resolved = True
+        for k, v in resolution_dict.items():
+            out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
+            all_resolved &= out_dict[k].is_resolved
 
-    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> dict[str, HgTypeMetaData]:
+        if not all_resolved:
+            raise ParseError(f"Unable to build a resolved resolution dictionary, due to:"
+                             f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}")
+        return out_dict
+
+    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> frozendict[str, HgTypeMetaData]:
         if self.is_resolved:
             return self.input_types
 
         input_types = {}
         for arg, meta_data in self.input_types.items():
             input_types[arg] = meta_data.resolve(resolution_dict)
-        return input_types
+        return frozendict(input_types)
 
     def resolve_output(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> Optional[HgTypeMetaData]:
         if self.output_type is None:
@@ -104,12 +117,13 @@ def extract_signature(fn, wiring_node_type: WiringNodeType) -> WiringNodeSignatu
     filename = code.co_filename
     first_line = code.co_firstlineno
     if fn_defaults := fn.__defaults__:
-        defaults = {k: v for k, v in zip(args[len(args) - len(fn_defaults):], fn_defaults)}
+        defaults = frozendict((k, v) for k, v in zip(args[len(args) - len(fn_defaults):], fn_defaults))
     else:
-        defaults = {}
+        defaults = frozendict()
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
     # to know where to apply the defaults.
-    input_types: dict[str, HgTypeMetaData] = {k: extract_hg_type(v) for k, v in annotations.items() if k != "return"}
+    input_types: frozendict[str, HgTypeMetaData] = frozendict(
+        (k, extract_hg_type(v)) for k, v in annotations.items() if k != "return")
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     unresolved_inputs = tuple(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = tuple(a for a in args if not input_types[a].is_scalar)
@@ -141,6 +155,3 @@ def extract_signature(fn, wiring_node_type: WiringNodeType) -> WiringNodeSignatu
                                unresolved_args=unresolved_inputs,
                                time_series_args=time_series_inputs,
                                label=None)
-
-
-

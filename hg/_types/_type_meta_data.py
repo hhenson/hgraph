@@ -60,7 +60,7 @@ class HgTypeMetaData:
         The outputs are fully reliant on types to be resolved using the wired_types on the inputs to resolve the output
         types.
         """
-        if type(self) != type(wired_type):
+        if wired_type is not None and type(self) != type(wired_type):
             raise ParseError(f"The input type '{type(self)}' "
                              f"does not match the supplied wiring type '{type(wired_type)}'")
 

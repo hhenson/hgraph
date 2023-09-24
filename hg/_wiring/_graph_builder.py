@@ -37,7 +37,7 @@ def build_runtime_graph(graph, *args, **kwargs) -> Graph:
                 pending_nodes.append(node.inputs[arg].node_instance)
 
         # Now we can walk the tree in rank order and construct the nodes
-        node_map: dict[WiringNodeInstance, int]
+        node_map: dict[WiringNodeInstance, int] = {}
         nodes: [Node] = []
         for i in range(max_rank+1):
             wiring_node_set = ranked_nodes.get(i, set())

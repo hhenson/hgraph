@@ -32,7 +32,7 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSTypeMetaData
-        self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.value_scalar_tp)
+        self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.value_scalar_tp if wired_type else None)
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
