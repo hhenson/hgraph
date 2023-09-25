@@ -2,9 +2,9 @@ from datetime import datetime
 
 from hg._runtime import Graph
 
-from hg._wiring._graph_builder import build_runtime_graph
+from hg._wiring._graph_builder import wire_graph
 
-__all__ = ("run", "build_runtime_graph")
+__all__ = ("run", "wire_graph")
 
 
 class GraphEngine:
@@ -45,7 +45,7 @@ def run(graph, *args, realtime: bool=False, start_time: datetime, end_time: date
     :param kwargs: Any additional kwargs to pass to the graph.
     """
 
-    runtime_graph: Graph = build_runtime_graph(graph, *args, **kwargs)
+    runtime_graph: Graph = wire_graph(graph, *args, **kwargs)
     engine: GraphEngine
     if realtime:
         engine = RealTimeGraphEngine(graph)

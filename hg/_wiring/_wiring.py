@@ -8,6 +8,8 @@ __all__ = (
 
 from frozendict import frozendict
 
+from hg._impl._builder._graph_builder import Edge
+from hg._impl._builder._node_builder import NodeBuilder
 from hg._runtime import SourceCodeDetails, Node
 from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
@@ -50,6 +52,10 @@ class WiringNodeClass:
         my_node[SCALAR: int, TIME_SERIES_TYPE: TS[int]](...)
         ```
         """
+        raise NotImplementedError()
+
+    def create_node_builder_instance(self) -> NodeBuilder:
+        """Create the appropriate node builder for the node this wiring node represents"""
         raise NotImplementedError()
 
 
@@ -213,7 +219,9 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
-    ...
+
+    def create_node_builder_instance(self) -> NodeBuilder:
+        return
 
 
 class WiringGraphContext:
@@ -297,8 +305,9 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         # We don't want graph and node signatures to operate under different rules as this would make
         # moving between node and graph implementations problematic, so resolution rules of the signature
         # hold
-        kwargs_, resoled_signature = self._validate_and_resolve_signature(*args, __pre_resolved_types__=__pre_resolved_types__,
-                                                                 **kwargs)
+        kwargs_, resoled_signature = self._validate_and_resolve_signature(*args,
+                                                                          __pre_resolved_types__=__pre_resolved_types__,
+                                                                          **kwargs)
 
         # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
         with WiringGraphContext(self) as g:
@@ -323,10 +332,14 @@ class WiringNodeInstance:
     def output_type(self) -> HgTimeSeriesTypeMetaData:
         return self.resolved_signature.output_type
 
-    def create_node_instance(self, node_map: ["WiringNodeInstance", int], nodes: [Node]) -> Node:
+    def create_node_builder_and_edges(self, node_map: ["WiringNodeInstance", int], nodes: [Node]) -> tuple[
+        Node, set[Edge]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
-        # TODO: do construction
+        node_index = len(nodes)
+        # Extract out edges
+
+        return None
 
 
 @dataclass(frozen=True)

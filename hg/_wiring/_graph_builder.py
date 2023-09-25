@@ -1,9 +1,11 @@
 from collections import defaultdict
 
+from hg._impl._builder._graph_builder import GraphBuilder, Edge
+from hg._impl._builder._node_builder import NodeBuilder
 from hg._runtime import Graph, NodeTypeEnum, Node
 
 
-def build_runtime_graph(graph, *args, **kwargs) -> Graph:
+def wire_graph(graph, *args, **kwargs) -> GraphBuilder:
     """
     Evaluate the wiring graph and build a runtime graph.
     This graph is the actual graph objects that are used to be evaluated.
@@ -38,16 +40,18 @@ def build_runtime_graph(graph, *args, **kwargs) -> Graph:
 
         # Now we can walk the tree in rank order and construct the nodes
         node_map: dict[WiringNodeInstance, int] = {}
-        nodes: [Node] = []
+        node_builders: [NodeBuilder] = []
+        edges: set[Edge]
         for i in range(max_rank+1):
             wiring_node_set = ranked_nodes.get(i, set())
             for wiring_node in wiring_node_set:
-                ndx = len(nodes)
-                node = wiring_node.create_node_instance(node_map, nodes)
-                nodes.append(node)
+                ndx = len(node_builders)
+                node, input_edges = wiring_node.create_node_builder_and_edges(node_map, node_builders)
+                node_builders.append(node)
+                edges.update(input_edges)
                 node_map[wiring_node] = ndx
 
-    return Graph(tuple(nodes))
+    return GraphBuilder(node_builders=tuple[NodeBuilder, ...](node_builders), edges=tuple[Edge, ...](edges))
 
 
 

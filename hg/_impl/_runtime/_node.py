@@ -1,3 +1,4 @@
+import functools
 from dataclasses import dataclass
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any
 
@@ -15,15 +16,23 @@ class NodeImpl(Node):
     """
     Provide a basic implementation of the Node as a reference implementation.
     """
+    node_ndx: int
+    owning_graph_id: tuple[int, ...]
     signature: NodeSignature
-    input: Optional["TimeSeriesBundleInput"]
-    output: Optional["TimeSeriesOutput"]
+    node_ndx: int
+    scalars: frozendict[str, Any]
     eval_fn: Callable
-    scalars: dict[str, Any]
-    is_started: bool = False
     start_fn: Callable = None
     stop_fn: Callable = None
+    input: Optional["TimeSeriesBundleInput"] = None
+    output: Optional["TimeSeriesOutput"] = None
+    is_started: bool = False
     _kwargs: dict[str, Any] = None
+
+    @functools.cached_property
+    def node_id(self) -> tuple[int, ...]:
+        """ Computed once and then cached """
+        return self.owning_graph_id + (self.node_ndx,)
 
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:

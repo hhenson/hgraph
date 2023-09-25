@@ -49,6 +49,36 @@ class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
+    def node_ndx(self) -> int:
+        """
+        The relative index of this node within the parent graph's list of nodes.
+        """
+
+    @property
+    @abstractmethod
+    def owning_graph_id(self) -> tuple[int, ...]:
+        """
+        The path from the root graph to the graph containing this node. This is effectively
+        the node_id less the last entry. Thus, the root graph is referenced as (),
+        the first child if (node_ndx of nested_1), ...
+        """
+
+    @property
+    @abstractmethod
+    def node_id(self) -> tuple[int, ...]:
+        """
+        The unique path reference to this node from the root graph running in the system.
+        For a node directly attached to the root graph, the path will be:
+        (node_ndx)
+        For a node within a nested graph structure, it will be something like:
+        (node_ndx of nested_1, ..., node_ndx of nested_n, node_ndx)
+        For nodes with a dynamic nested structure such as a branch, a unique id (integer) is allocated to
+        a branch key and this id is used to represent the key in the path.
+        This is similar to the categorical concept in dataframes.
+        """
+
+    @property
+    @abstractmethod
     def signature(self) -> NodeSignature:
         """
         The signature of the Node provides useful information to describe the node.
@@ -94,7 +124,7 @@ class Node(ComponentLifeCycle, ABC):
 @dataclass
 class Graph(ComponentLifeCycle):
     """ The runtime graph """
-
+    graph_id: tuple[int, ...]
     nodes: tuple[Node, ...]  # The nodes of the graph.
 
 

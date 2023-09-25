@@ -12,9 +12,11 @@ class Builder(ABC, Generic[ITEM]):
     """
 
     @abstractmethod
-    def make_instance(self) -> ITEM:
+    def make_instance(self, **kwargs) -> ITEM:
         """
         Create a new instance of the item.
+        And additional attributes required for construction are passed in as kwargs.
+        Actual instance of the builder will fix these args for all instances of builder for the type.
         """
 
     @abstractmethod
