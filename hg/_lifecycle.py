@@ -97,3 +97,18 @@ def stop_guard(fn):
         self.is_started = False
 
     return _stop
+
+
+LIFE_CYCLABLE = typing.TypeVar("LIFE_CYCLABLE", bound=ComponentLifeCycle)
+
+
+@contextmanager
+def start_stop_context(component: LIFE_CYCLABLE) -> LIFE_CYCLABLE:
+    """
+    Use the context manager to ensure that the component is started and stopped correctly.
+    """
+    try:
+        component.start()
+        yield component
+    finally:
+        component.stop()

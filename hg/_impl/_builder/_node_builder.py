@@ -4,10 +4,12 @@ from typing import Callable, Any, Optional
 from _pytest.nodes import Node
 from frozendict import frozendict
 
-from hg._impl._builder._builder import Builder, ITEM
+from hg._impl._builder._builder import Builder
+from hg._impl._builder._input_builder import InputBuilder
+from hg._impl._builder._output_builder import OutputBuilder
 from hg._impl._runtime._node import NodeImpl
 from hg._runtime import NodeSignature
-from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
+from hg._types._time_series_types import TimeSeriesOutput
 from hg._types._tsb_type import TimeSeriesBundleInput
 
 
@@ -18,26 +20,6 @@ class NodeBuilder(Builder[Node]):
 
     def release_instance(self, item: Node):
         raise NotImplementedError()
-
-
-class InputBuilder(Builder[TimeSeriesInput]):
-
-    def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
-        """One of owning_node or owning_input must be defined."""
-        pass
-
-    def release_instance(self, item: TimeSeriesInput):
-        pass
-
-
-class OutputBuilder(Builder[TimeSeriesOutput]):
-
-    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
-        """One of owning_node or owning_output must be defined."""
-        pass
-
-    def release_instance(self, item: TimeSeriesOutput):
-        pass
 
 
 @dataclass

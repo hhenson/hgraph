@@ -4,7 +4,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any
 
 from frozendict import frozendict
 
-from hg._runtime import Node, NodeSignature
+from hg._runtime import Node, NodeSignature, Graph
 
 if TYPE_CHECKING:
     from hg._types._ts_type import TimeSeriesInput, TimeSeriesOutput
@@ -19,8 +19,8 @@ class NodeImpl(Node):
     node_ndx: int
     owning_graph_id: tuple[int, ...]
     signature: NodeSignature
-    node_ndx: int
     scalars: frozendict[str, Any]
+    graph: Graph
     eval_fn: Callable
     start_fn: Callable = None
     stop_fn: Callable = None
@@ -67,3 +67,7 @@ class NodeImpl(Node):
 
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.
+
+    def notify(self):
+        """Notify the graph that this node needs to be evaluated."""
+        # if self._
