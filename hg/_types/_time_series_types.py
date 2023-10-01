@@ -7,7 +7,8 @@ from hg._types._scalar_value import ScalarValue
 from hg._wiring._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
-    from hg._runtime import Node
+    from hg._runtime._graph import Graph
+    from hg._runtime._node import Node
 
 
 __all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TIME_SERIES_TYPE", "K", "V")
@@ -32,6 +33,34 @@ class TimeSeriesPullQueue(Protocol):
 
 
 class TimeSeries(ABC):
+
+    @property
+    @abstractmethod
+    def owning_node(self) -> "Node":
+        """
+        The node that owns this time-series.
+        """
+
+    @property
+    @abstractmethod
+    def owning_graph(self) -> "Graph":
+        """
+        The graph that owns the node that owns this time-series.
+        """
+
+    @property
+    @abstractmethod
+    def scalar_value(self) -> ScalarValue:
+        """
+        The time-series point-in-time value represented as a scalar value.
+        """
+
+    @property
+    @abstractmethod
+    def delta_scalar_value(self) -> ScalarValue:
+        """
+        The scalar value wrapper of the ticked_value.
+        """
 
     @property
     @abstractmethod
@@ -75,7 +104,19 @@ class TimeSeriesOutput(TimeSeries):
 
     @property
     @abstractmethod
-    def scalar_value(self) -> ScalarValue:
+    def parent_output(self) -> Optional["TimeSeriesOutput"]:
+        """
+        The output that this output is bound to. This will be None if this is the root output.
+        """
+
+    @property
+    @abstractmethod
+    def has_parent_output(self) -> bool:
+        """True if this output is a child of another output, False otherwise"""
+
+    @property
+    @abstractmethod
+    def scalar_value(self) -> Optional[ScalarValue]:
         """
         The time-series point-in-time value represented as a scalar value.
         """
@@ -90,17 +131,10 @@ class TimeSeriesOutput(TimeSeries):
 
     @property
     @abstractmethod
-    def value(self) -> Any:
+    def delta_scalar_value(self) -> Optional[ScalarValue]:
         """
-        The current value associated to this node. This will be typed based on the nature of the
-        node, for a simple TS this is the type of the of TS's scalar component. For a TSL this is a
-        tuple of values, etc.
+        The scalar value wrapper of the ticked_value.
         """
-
-    @value.setter
-    @abstractmethod
-    def value(self, value: Any):
-        """Allow the value to be set using a typed value"""
 
     @abstractmethod
     def apply_result(self, Any):
@@ -118,8 +152,38 @@ class TimeSeriesOutput(TimeSeries):
         """Remove this node from receiving notifications when this output changes
         (this is called by make_passive by the bound input)"""
 
+    @abstractmethod
+    def copy_from_output(self, output: "TimeSeriesOutput"):
+        """
+        Copy the value from the output provided to this output.
+        """
+
+    @abstractmethod
+    def copy_from_input(self, input: "TimeSeriesInput"):
+        """
+        Copy the value from the input provided to this output.
+        """
+
+    @abstractmethod
+    def mark_invalid(self):
+        """
+        Marks the output as invalid, this will cause the output to be scheduled for evaluation.
+        """
+
 
 class TimeSeriesInput(TimeSeries):
+
+    @property
+    @abstractmethod
+    def parent_input(self) -> Optional["TimeSeriesInput"]:
+        """
+        The input that this input is bound to. This will be None if this is the root input.
+        """
+
+    @property
+    @abstractmethod
+    def has_parent_input(self) -> bool:
+        """True if this input is a child of another input, False otherwise"""
 
     @property
     @abstractmethod
@@ -144,14 +208,6 @@ class TimeSeriesInput(TimeSeries):
     def output(self, value: TimeSeriesOutput):
         """
         Binds the output provided to this input.
-        """
-
-    @property
-    @abstractmethod
-    def value(self) -> Any:
-        """
-        The value returns a point-in-time representation of this input.
-        The type will depend on the actual time-series instance.
         """
 
     @property

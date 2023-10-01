@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from hg._runtime._constants import MIN_DT, MAX_DT
 from hg._runtime._graph_engine import GraphEngine, RunMode, GraphExecutorLifeCycleObserver
-from hg._runtime._lifecycle import start_stop_context
+from hg._runtime._lifecycle import start_stop_context, start_guard, stop_guard
 from hg._runtime import Graph, ExecutionContext
 
 
@@ -79,32 +79,30 @@ class PythonGraphEngine(GraphEngine):
     def initialise(self):
         self._scheduler = [MIN_DT] * len(self.graph.nodes)
 
+    @start_guard
     def start(self):
-        if not self.is_started:
-            self.is_started = True
-            self._stop_requested = False
-            match self._run_mode:
-                case RunMode.REAL_TIME:
-                    raise NotImplementedError()
-                case RunMode.BACK_TEST:
-                    self._execution_context = BackTestExecutionContext(self._start_time)
-            self.notify_before_start()
-            for node in self.graph.nodes:
-                self.notify_before_start_node(node)
-                node.start()
-                self.notify_after_start_node(node)
-            self.notify_after_start()
+        self._stop_requested = False
+        match self._run_mode:
+            case RunMode.REAL_TIME:
+                raise NotImplementedError()
+            case RunMode.BACK_TEST:
+                self._execution_context = BackTestExecutionContext(self._start_time)
+        self.notify_before_start()
+        for node in self.graph.nodes:
+            self.notify_before_start_node(node)
+            node.start()
+            self.notify_after_start_node(node)
+        self.notify_after_start()
 
+    @stop_guard
     def stop(self):
-        if self.is_started:
-            self.is_started = False
-            self.notify_before_stop()
-            for node in self.graph.nodes:
-                self.notify_before_stop_node(node)
-                node.stop()
-                self.notify_before_start_node(node)
-            self.notify_after_stop()
-            self._execution_context = None
+        self.notify_before_stop()
+        for node in self.graph.nodes:
+            self.notify_before_stop_node(node)
+            node.stop()
+            self.notify_before_start_node(node)
+        self.notify_after_stop()
+        self._execution_context = None
 
     def request_stop(self):
         self._stop_requested = True
