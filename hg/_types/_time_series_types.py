@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar, Any, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union
 
 from hg._types._scalar_types import SCALAR
-from hg._typing_utils import clone_typevar
+from hg._wiring._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
     from hg._runtime import Node

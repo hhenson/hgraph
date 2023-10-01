@@ -1,27 +1,16 @@
 from dataclasses import dataclass
 
-from hg._impl._builder._builder import Builder, ITEM
-from hg._impl._builder._node_builder import NodeBuilder
+from hg._builder._graph_builder import GraphBuilder
 from hg._impl._runtime._graph import GraphImpl
-from hg._runtime import Node, Graph
+from hg._runtime._graph import Graph
+from hg._runtime._node import Node
 
 
 @dataclass(frozen=True)
-class Edge:
-    src_node: int
-    output_path: tuple[int, ...]
-    dst_node: int
-    input_path: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class GraphBuilder(Builder[Graph]):
+class PythonGraphBuilder(GraphBuilder):
     """
     Builds a graph (set of nodes with edges)
     """
-
-    node_builders: tuple[NodeBuilder, ...]
-    edges: tuple[Edge, ...]
 
     @staticmethod
     def _extract_output(node: Node, path: [int]):

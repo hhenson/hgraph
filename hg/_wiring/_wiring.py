@@ -8,8 +8,8 @@ __all__ = (
 
 from frozendict import frozendict
 
-from hg._impl._builder._graph_builder import Edge
-from hg._impl._builder._node_builder import NodeBuilder
+from hg._builder._graph_builder import Edge
+from hg._builder._node_builder import NodeBuilder
 from hg._runtime import SourceCodeDetails, Node
 from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData

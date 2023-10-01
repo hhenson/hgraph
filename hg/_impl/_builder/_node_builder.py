@@ -1,37 +1,19 @@
 from dataclasses import dataclass
-from typing import Callable, Any, Optional
+from typing import Callable
 
 from _pytest.nodes import Node
-from frozendict import frozendict
 
-from hg._impl._builder._builder import Builder
-from hg._impl._builder._input_builder import InputBuilder
-from hg._impl._builder._output_builder import OutputBuilder
+from hg._builder._node_builder import NodeBuilder
 from hg._impl._runtime._node import NodeImpl
-from hg._runtime import NodeSignature
 from hg._types._time_series_types import TimeSeriesOutput
 from hg._types._tsb_type import TimeSeriesBundleInput
 
 
-class NodeBuilder(Builder[Node]):
-
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> Node:
-        raise NotImplementedError()
-
-    def release_instance(self, item: Node):
-        raise NotImplementedError()
-
-
-@dataclass
+@dataclass(frozen=True)
 class PythonNodeBuilder(NodeBuilder):
-    node_ndx: int
-    signature: NodeSignature
-    scalars: frozendict[str, Any]
-    eval_fn: Callable
-    start_fn: Callable
-    stop_fn: Callable
-    input_builder: Optional[InputBuilder] = None
-    output_builder: Optional[OutputBuilder] = None
+    eval_fn: Callable = None  # The eval fn must be supplied.
+    start_fn: Callable = None
+    stop_fn: Callable = None
 
     def make_instance(self, owning_graph_id: tuple[int, ...]) -> Node:
         node = NodeImpl(

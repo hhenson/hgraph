@@ -1,7 +1,8 @@
 from collections import defaultdict
 
-from hg._impl._builder._graph_builder import GraphBuilder, Edge
-from hg._impl._builder._node_builder import NodeBuilder
+from hg._impl._builder._graph_builder import GraphBuilder
+from hg._builder._graph_builder import Edge
+from hg._builder._node_builder import NodeBuilder
 from hg._runtime import Graph, NodeTypeEnum, Node
 
 

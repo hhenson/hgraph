@@ -3,8 +3,8 @@ from datetime import datetime
 from enum import Enum
 
 from hg._impl._builder._graph_builder import GraphBuilder
-from hg._lifecycle import ComponentLifeCycle
-from hg._runtime import Graph
+from hg._runtime._lifecycle import ComponentLifeCycle
+from hg._runtime._graph import Graph
 
 from hg._wiring._graph_builder import wire_graph
 

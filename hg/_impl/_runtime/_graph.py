@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from hg._lifecycle import start_guard, stop_guard
+from hg._runtime._lifecycle import start_guard, stop_guard
 from hg._runtime import Graph
 
 
