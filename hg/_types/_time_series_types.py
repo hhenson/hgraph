@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar, Any, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union
 
 from hg._types._scalar_types import SCALAR
+from hg._types._scalar_value import ScalarValue
 from hg._wiring._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
@@ -71,7 +72,35 @@ DELTA_SCALAR: TypeVar = clone_typevar(SCALAR, "DELTA_SCALAR")
 
 
 class TimeSeriesOutput(TimeSeries):
-    value: Any
+
+    @property
+    @abstractmethod
+    def scalar_value(self) -> ScalarValue:
+        """
+        The time-series point-in-time value represented as a scalar value.
+        """
+
+    @scalar_value.setter
+    @abstractmethod
+    def scalar_value(self, value: ScalarValue):
+        """
+        Allows the time-series output to have it's value set using the scalar value wrapped
+        value instance.
+        """
+
+    @property
+    @abstractmethod
+    def value(self) -> Any:
+        """
+        The current value associated to this node. This will be typed based on the nature of the
+        node, for a simple TS this is the type of the of TS's scalar component. For a TSL this is a
+        tuple of values, etc.
+        """
+
+    @value.setter
+    @abstractmethod
+    def value(self, value: Any):
+        """Allow the value to be set using a typed value"""
 
     @abstractmethod
     def apply_result(self, Any):

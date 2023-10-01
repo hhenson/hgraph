@@ -34,6 +34,15 @@ class ScalarValue(ABC):
         """
 
     @abstractmethod
+    def __set__(self, instance, value):
+        """
+        Provide the ability to set the value.
+        Sets the internal state given the value, for the C++ implementation this would convert
+        a python value into an internal representation.
+        Set should only be available to the output holding the value.
+        """
+
+    @abstractmethod
     def cast(self, tp: type):
         """
         Cast the value to the type provided. This will raise an exception if it is not possible
