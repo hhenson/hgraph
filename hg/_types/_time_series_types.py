@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 
 
 __all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
-           "TimeSeriesInput", "TimeSeriesSignalInput",
-           "TIME_SERIES_TYPE", "DELTA_SCALAR", "K", "V", "TimeSeriesIterable",)
+           "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR",
+           "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable",)
 
 
 class TimeSeriesPushQueue(Protocol):

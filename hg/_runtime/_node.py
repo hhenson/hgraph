@@ -11,6 +11,7 @@ if typing.TYPE_CHECKING:
     from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
     from hg._types._tsb_type import TimeSeriesBundleInput
     from hg._runtime._graph import Graph
+    from hg._wiring._source_code_details import SourceCodeDetails
 
 
 __all__ = ("Node", "NodeTypeEnum", "NodeSignature")
@@ -25,13 +26,16 @@ class NodeTypeEnum(Enum):
 
 @dataclass
 class NodeSignature:
+    """
+    This is the generic node signature that can be referenced by all instances of the node.
+    The resolved scalar values are stored on the instance only.
+    """
     name: str
     node_type: NodeTypeEnum
     args: tuple[str, ...]
-    scalars: Mapping[str, "HgScalarTypeMetaData"]
-    time_series_inputs: Mapping[str, "HgTimeSeriesTypeMetaData"]
-    defaults: Mapping[str, Any]
-    time_series_outputs: Mapping[str, "HgTimeSeriesTypeMetaData"]
+    time_series_inputs: Optional[Mapping[str, "HgTimeSeriesTypeMetaData"]]
+    time_series_output: Optional["HgTimeSeriesTypeMetaData"]
+    src_location: "SourceCodeDetails"
 
 
 class Node(ComponentLifeCycle, typing.Protocol):

@@ -1,9 +1,8 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Optional, Any, Mapping, List, Tuple
 
 from _pytest.nodes import Node
-from frozendict import frozendict
 
 from hg._builder._builder import Builder
 from hg._builder._input_builder import InputBuilder
@@ -17,7 +16,7 @@ __all__ = ("NodeBuilder",)
 class NodeBuilder(Builder[Node]):
     node_ndx: int
     signature: NodeSignature
-    scalars: frozendict[str, Any]
+    scalars: Mapping[str, Any]
     input_builder: Optional[InputBuilder] = None
     output_builder: Optional[OutputBuilder] = None
 

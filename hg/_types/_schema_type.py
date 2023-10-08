@@ -1,5 +1,5 @@
 from hashlib import sha1
-from typing import TYPE_CHECKING, Type, TypeVar
+from typing import TYPE_CHECKING, Type, TypeVar, Iterator
 
 if TYPE_CHECKING:
     from hg._types._scalar_type_meta_data import HgTypeMetaData
@@ -20,6 +20,18 @@ class AbstractSchema:
     __resolved__: dict[str, Type["AbstractSchema"]] = {}  # Cache of resolved classes
     __partial_resolution__: dict[TypeVar, Type]
     __partial_resolution_parent__: Type["AbstractSchema"]
+
+    @classmethod
+    def items(cls) -> Iterator[tuple[str, "HgTypeMetaData"]]:
+        return cls.__meta_data_schema__.items()
+
+    @classmethod
+    def values(cls) -> Iterator["HgTypeMetaData"]:
+        return cls.__meta_data_schema__.values()
+
+    @classmethod
+    def keys(cls) -> Iterator[str]:
+        return cls.__meta_data_schema__.keys()
 
     @classmethod
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
@@ -50,7 +62,7 @@ class AbstractSchema:
         return getattr(cls, "__partial_resolution_parent__", cls)
 
     @classmethod
-    def _create_resolved_class(cls, schema: dict[str, Type["HgTypeMetaData"]]) -> Type["AbstractSchema"]:
+    def _create_resolved_class(cls, schema: dict[str, "HgTypeMetaData"]) -> Type["AbstractSchema"]:
         """Create a 'resolved' instance class and cache as appropriate"""
         suffix = ','.join(f'{k}:{v}' for k, v in schema.items())
         root_cls = cls._root_cls()
@@ -109,4 +121,4 @@ class AbstractSchema:
             return cls._create_partial_resolved_class(resolution_dict)
 
         v: HgTypeMetaData
-        return cls._create_resolved_class( {k: v.resolve(resolution_dict) for k, v in cls.__meta_data_schema__.items()} )
+        return cls._create_resolved_class({k: v.resolve(resolution_dict) for k, v in cls.__meta_data_schema__.items()})

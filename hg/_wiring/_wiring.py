@@ -1,25 +1,25 @@
 import typing
 from dataclasses import dataclass
 from types import GenericAlias
-from typing import Callable, Any, TypeVar, _GenericAlias, Optional
+from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping
 
 from frozendict import frozendict
 
+from hg import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._builder._graph_builder import Edge
 from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
+from hg._types._tsb_type import UnNamedTimeSeriesSchema
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
-
 if typing.TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
-    from hg._runtime._node import Node
-
+    from hg._runtime._node import Node, NodeSignature, NodeTypeEnum
 
 __all__ = ("WiringError", "WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
-           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "TSBWiringPort", )
+           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "TSBWiringPort",)
 
 
 # TODO: Add ability to specify resolution of inputs / outputs at wiring time.
@@ -61,8 +61,13 @@ class WiringNodeClass:
         """
         raise NotImplementedError()
 
-    def create_node_builder_instance(self) -> "NodeBuilder":
-        """Create the appropriate node builder for the node this wiring node represents"""
+    def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature", scalars: Mapping[str, Any]) \
+            -> "NodeBuilder":
+        """Create the appropriate node builder for the node this wiring node represents
+        :param node_ndx:
+        :param node_signature:
+        :param scalars:
+        """
         raise NotImplementedError()
 
 
@@ -158,7 +163,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                 # Only need to re-create if we actually resolved the signature.
                 resolve_signature = WiringNodeSignature(self.signature.node_type, self.signature.name,
                                                         self.signature.args,
-                                                        self.signature.defaults, resolved_inputs, resolved_output,
+                                                        self.signature.defaults,
+                                                        resolved_inputs, resolved_output,
                                                         self.signature.src_location, tuple(),
                                                         self.signature.time_series_args,
                                                         self.signature.label)
@@ -201,7 +207,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             return WiringPort(wiring_node_instance)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, unsafe_hash=True)
 class PreResolvedWiringNodeWrapper(WiringNodeClass):
     """Wraps a WiringNodeClass_ instance with the associated resolution dictionary"""
 
@@ -225,10 +231,38 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
     ...
 
 
+@dataclass(frozen=True, unsafe_hash=True)
 class PythonWiringNodeClass(BaseWiringNodeClass):
+    start_fn: Callable = None
+    stop_fn: Callable = None
 
-    def create_node_builder_instance(self) -> "NodeBuilder":
-        return
+    # TODO: Put in logic to support the construction of start_fn and stop_fn
+    # Using the syntax:
+    #  @<my_node_name>.start  # / stop
+    #  def _(...):
+    #      ...
+
+    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+        from hg._impl._builder import PythonNodeBuilder
+        from hg import TimeSeriesBuilderFactory
+        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
+        if ts_inputs := self.signature.time_series_inputs:
+            un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
+                UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
+            ))
+            input_builder = factory.make_input_builder(HgTSBTypeMetaData(un_named_bundle))
+        else:
+            input_builder = None
+
+        return PythonNodeBuilder(node_ndx=node_ndx,
+                                 signature=node_signature,
+                                 scalars=scalars,
+                                 input_builder=input_builder,
+                                 output_builder=None if self.signature.output_type is None else \
+                                     factory.make_output_builder(self.signature.output_type),
+                                 eval_fn=self.fn,
+                                 start_fn=self.start_fn,
+                                 stop_fn=self.stop_fn)
 
 
 class WiringGraphContext:
@@ -343,14 +377,27 @@ class WiringNodeInstance:
     def output_type(self) -> HgTimeSeriesTypeMetaData:
         return self.resolved_signature.output_type
 
-    def create_node_builder_and_edges(self, node_map: ["WiringNodeInstance", int], nodes: ["Node"]) -> tuple[
-        "Node", set[Edge]]:
+    @property
+    def node_signature(self) -> "NodeSignature":
+        from hg._runtime import NodeSignature, NodeTypeEnum
+        return NodeSignature(name=self.resolved_signature.name,
+                             node_type=NodeTypeEnum(self.resolved_signature.node_type.value),
+                             args=self.resolved_signature.args,
+                             time_series_inputs=self.resolved_signature.time_series_inputs,
+                             time_series_output=self.resolved_signature.output_type,
+                             src_location=self.resolved_signature.src_location)
+
+    def create_node_builder_and_edges(self, node_map: ["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> tuple[
+        "NodeBuilder", set[Edge]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
+        scalars = frozendict(
+            {k: v for k, v in self.inputs.items() if k in self.resolved_signature.scalar_inputs}),
         # Extract out edges
+        node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
 
-        return None
+        return node_builder, set()
 
 
 @dataclass(frozen=True)

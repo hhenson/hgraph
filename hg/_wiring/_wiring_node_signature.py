@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Type, get_type_hints, Any, Optional, TypeVar
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping
 
 from frozendict import frozendict
 
@@ -58,8 +58,8 @@ class WiringNodeSignature:
     name: str  # This will come from the function
     args: tuple[str]
     defaults: frozendict[str, Any]
-    input_types: frozendict[str, HgTypeMetaData]
-    output_type: Optional[HgTypeMetaData]
+    input_types: Mapping[str, HgTypeMetaData]  # Inputs are both scalar and time-series at this point
+    output_type: Optional[HgTimeSeriesTypeMetaData]  # By definition outputs must be time-series if they are defined
     src_location: SourceCodeDetails
     unresolved_args: tuple[str]
     time_series_args: tuple[str]
@@ -70,6 +70,15 @@ class WiringNodeSignature:
     @property
     def is_resolved(self) -> bool:
         return not self.unresolved_args and (not self.output_type or self.output_type.is_resolved)
+
+    @property
+    def scalar_inputs(self) -> Mapping[str, HgScalarTypeMetaData]:
+        """Split out scalar inputs from time-series inputs """
+        return frozendict({k: v for k, v in self.input_types.items() if v.is_scalar})
+
+    @property
+    def time_series_inputs(self) -> Mapping[str, HgTimeSeriesTypeMetaData]:
+        return frozendict({k: v for k, v in self.input_types.items() if not v.is_scalar})
 
     def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData],
                               **kwargs) -> dict[TypeVar, HgTypeMetaData]:
@@ -90,7 +99,7 @@ class WiringNodeSignature:
                              f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}")
         return out_dict
 
-    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> frozendict[str, HgTypeMetaData]:
+    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> Mapping[str, HgTypeMetaData]:
         if self.is_resolved:
             return self.input_types
 
@@ -144,7 +153,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType) -> WiringNodeSignatu
         assert output_type is None, f"sink node '{name}' has an output (not a valid signature)"
 
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
-    # graph expaction logic.
+    # graph expansion logic.
 
     return WiringNodeSignature(node_type=wiring_node_type,
                                name=name,

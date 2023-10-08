@@ -1,3 +1,4 @@
+import typing
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Generic, Optional
@@ -13,6 +14,9 @@ from hg._types._ts_type import TimeSeriesValueOutput, TimeSeriesValueInput
 
 
 __all__ = ("PythonTimeSeriesValueOutput", "PythonTimeSeriesValueInput")
+
+if typing.TYPE_CHECKING:
+    from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 
 
 @dataclass

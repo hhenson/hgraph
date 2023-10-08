@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from hg._types._time_series_types import TimeSeriesInput
@@ -6,6 +7,7 @@ from hg._types._time_series_types import TimeSeriesInput
 __all__ = ("PythonTimeSeriesInput",)
 
 
+@dataclass
 class PythonTimeSeriesInput(TimeSeriesInput):
     _owning_node: "Node" = None
     _parent_input: "TimeSeriesInput" = None

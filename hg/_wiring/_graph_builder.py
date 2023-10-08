@@ -53,8 +53,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
             wiring_node_set = ranked_nodes.get(i, set())
             for wiring_node in wiring_node_set:
                 ndx = len(node_builders)
-                node, input_edges = wiring_node.create_node_builder_and_edges(node_map, node_builders)
-                node_builders.append(node)
+                node_builder, input_edges = wiring_node.create_node_builder_and_edges(node_map, node_builders)
+                node_builders.append(node_builder)
                 edges.update(input_edges)
                 node_map[wiring_node] = ndx
 
