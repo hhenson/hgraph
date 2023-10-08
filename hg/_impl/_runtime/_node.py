@@ -4,25 +4,24 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any
 
 from frozendict import frozendict
 
-from hg._runtime import Node, NodeSignature, Graph
+from hg._runtime import NodeSignature, Graph
 
 if TYPE_CHECKING:
     from hg._types._ts_type import TimeSeriesInput, TimeSeriesOutput
-    from hg._types._tsb_type import TimeSeriesBundleInput, TimeSeriesBundleOutput
-
+    from hg._types._tsb_type import TimeSeriesBundleInput
 
 __all__ = ("NodeImpl",)
 
 
 @dataclass
-class NodeImpl(Node):
+class NodeImpl:  # Node
     """
     Provide a basic implementation of the Node as a reference implementation.
     """
     node_ndx: int
     owning_graph_id: tuple[int, ...]
     signature: NodeSignature
-    scalars: frozendict[str, Any]
+    scalars: Mapping[str, Any]
     graph: Graph
     eval_fn: Callable
     start_fn: Callable = None
@@ -73,4 +72,3 @@ class NodeImpl(Node):
 
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
-        # if self._

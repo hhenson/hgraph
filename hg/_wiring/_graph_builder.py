@@ -1,21 +1,24 @@
+import typing
 from collections import defaultdict
 
-from hg._impl._builder._graph_builder import GraphBuilder
-from hg._builder._graph_builder import Edge
-from hg._builder._node_builder import NodeBuilder
-from hg._runtime._node import NodeTypeEnum
 
+if typing.TYPE_CHECKING:
+    from hg._builder._graph_builder import GraphBuilder
 
 __all__ = ("wire_graph",)
 
 
-def wire_graph(graph, *args, **kwargs) -> GraphBuilder:
+def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
     """
     Evaluate the wiring graph and build a runtime graph.
     This graph is the actual graph objects that are used to be evaluated.
     """
     from hg import WiringGraphContext
     from hg._wiring._wiring import WiringNodeInstance
+    from hg._builder._graph_builder import GraphBuilder
+    from hg._builder._graph_builder import Edge
+    from hg._builder._node_builder import NodeBuilder
+    from hg._runtime._node import NodeTypeEnum
 
     with WiringGraphContext(None) as context:
         out = graph(*args, **kwargs)

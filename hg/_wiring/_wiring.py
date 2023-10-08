@@ -1,3 +1,4 @@
+import typing
 from dataclasses import dataclass
 from types import GenericAlias
 from typing import Callable, Any, TypeVar, _GenericAlias, Optional
@@ -5,12 +6,15 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional
 from frozendict import frozendict
 
 from hg._builder._graph_builder import Edge
-from hg._builder._node_builder import NodeBuilder
-from hg._runtime._node import Node
 from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+
+
+if typing.TYPE_CHECKING:
+    from hg._builder._node_builder import NodeBuilder
+    from hg._runtime._node import Node
 
 
 __all__ = ("WiringError", "WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
@@ -57,7 +61,7 @@ class WiringNodeClass:
         """
         raise NotImplementedError()
 
-    def create_node_builder_instance(self) -> NodeBuilder:
+    def create_node_builder_instance(self) -> "NodeBuilder":
         """Create the appropriate node builder for the node this wiring node represents"""
         raise NotImplementedError()
 
@@ -223,7 +227,7 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self) -> NodeBuilder:
+    def create_node_builder_instance(self) -> "NodeBuilder":
         return
 
 
@@ -339,8 +343,8 @@ class WiringNodeInstance:
     def output_type(self) -> HgTimeSeriesTypeMetaData:
         return self.resolved_signature.output_type
 
-    def create_node_builder_and_edges(self, node_map: ["WiringNodeInstance", int], nodes: [Node]) -> tuple[
-        Node, set[Edge]]:
+    def create_node_builder_and_edges(self, node_map: ["WiringNodeInstance", int], nodes: ["Node"]) -> tuple[
+        "Node", set[Edge]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)

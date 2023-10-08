@@ -3,7 +3,7 @@ from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type
 
 from more_itertools import nth
 
-from hg._types import ParseError
+from hg._types._type_meta_data import ParseError
 from hg._types._schema_type import AbstractSchema
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, TimeSeriesDeltaValue, \
     TimeSeries

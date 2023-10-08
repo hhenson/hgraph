@@ -1,9 +1,10 @@
 from typing import Type, TypeVar, Optional, _GenericAlias
 
-from hg._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, HgTypeMetaData
-
 
 __all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData",)
+
+from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
+from hg._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 
 class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):

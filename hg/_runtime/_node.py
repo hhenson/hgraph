@@ -1,12 +1,16 @@
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Mapping, Any
 
 from hg._runtime._lifecycle import ComponentLifeCycle
-from hg._types import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
-from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
-from hg._types._tsb_type import TimeSeriesBundleInput
+
+if typing.TYPE_CHECKING:
+    from hg._types import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
+    from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
+    from hg._types._tsb_type import TimeSeriesBundleInput
+    from hg._runtime._graph import Graph
 
 
 __all__ = ("Node", "NodeTypeEnum", "NodeSignature")
@@ -30,7 +34,7 @@ class NodeSignature:
     time_series_outputs: Mapping[str, "HgTimeSeriesTypeMetaData"]
 
 
-class Node(ComponentLifeCycle, ABC):
+class Node(ComponentLifeCycle, typing.Protocol):
 
     @property
     @abstractmethod
@@ -68,6 +72,20 @@ class Node(ComponentLifeCycle, ABC):
         """
         The signature of the Node provides useful information to describe the node.
         This can be used for exception and debugging purposes.
+        """
+
+    @property
+    @abstractmethod
+    def scalars(self) -> Mapping[str, Any]:
+        """
+        The scalar values associated to this node. These are the values that are not time-series.
+        """
+
+    @property
+    @abstractmethod
+    def graph(self) -> "Graph":
+        """
+        The graph that this node is a member of.
         """
 
     @property

@@ -1,14 +1,16 @@
+import typing
 from abc import abstractmethod
 from datetime import datetime
 from enum import Enum
 
-from hg._impl._builder._graph_builder import GraphBuilder
 from hg._runtime._lifecycle import ComponentLifeCycle
 from hg._runtime._graph import Graph
 
-from hg._wiring._graph_builder import wire_graph
+if typing.TYPE_CHECKING:
+    from hg._impl._builder._graph_builder import GraphBuilder
 
-__all__ = ("run", "wire_graph", "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
+
+__all__ = ("run", "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
 
 
 class RunMode(Enum):
@@ -119,6 +121,7 @@ def run(graph, *args, run_mode: RunMode=RunMode.BACK_TEST, start_time: datetime,
     # For now this will evaluate the Python engine, as more engines become available there will be an engine factory
     # that can be used to select the engine to use.
     from hg._impl._runtime._graph_engine import PythonGraphEngine
-    runtime_graph: GraphBuilder = wire_graph(graph, *args, **kwargs)
+    from hg._wiring._graph_builder import wire_graph
+    runtime_graph: "GraphBuilder" = wire_graph(graph, *args, **kwargs)
     engine: PythonGraphEngine = PythonGraphEngine(runtime_graph.make_instance(tuple()), run_mode)
     engine.run(start_time, end_time)

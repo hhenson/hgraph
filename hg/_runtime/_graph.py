@@ -1,9 +1,12 @@
+import typing
 from abc import abstractmethod
 from dataclasses import dataclass
 
 from hg._runtime._execution_context import ExecutionContext
 from hg._runtime._lifecycle import ComponentLifeCycle
-from hg._runtime._node import Node
+
+if typing.TYPE_CHECKING:
+    from hg._runtime._node import Node
 
 
 __all__ = ("Graph",)
@@ -20,7 +23,7 @@ class Graph(ComponentLifeCycle):
 
     @property
     @abstractmethod
-    def nodes(self) -> tuple[Node, ...]:
+    def nodes(self) -> tuple["Node", ...]:
         """ The nodes of the graph """
 
     @property

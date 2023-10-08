@@ -1,10 +1,10 @@
 from abc import abstractmethod, ABC
 from datetime import datetime, timedelta
-from typing import Generic, TypeVar, Any, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union
+from typing import Generic, TypeVar, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union
 
 from hg._types._scalar_types import SCALAR
 from hg._types._scalar_value import ScalarValue
-from hg._wiring._typing_utils import clone_typevar
+from hg._types._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
     from hg._runtime._graph import Graph
