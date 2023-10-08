@@ -11,7 +11,9 @@ if TYPE_CHECKING:
     from hg._runtime._node import Node
 
 
-__all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TIME_SERIES_TYPE", "K", "V")
+__all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
+           "TimeSeriesInput", "TimeSeriesSignalInput",
+           "TIME_SERIES_TYPE", "DELTA_SCALAR", "K", "V", "TimeSeriesIterable",)
 
 
 class TimeSeriesPushQueue(Protocol):

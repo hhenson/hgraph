@@ -1,5 +1,3 @@
-__all__ = (
-    "compute_node", "sink_node", "graph", "service", "service_adaptor", "register_service", "generator")
 
 from functools import partial
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
@@ -8,6 +6,10 @@ from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
     from hg._wiring._wiring import WiringNodeClass
     from hg._wiring._wiring_node_signature import WiringNodeType
+
+__all__ = (
+    "compute_node", "pull_source_node", "push_source_node", "sink_node", "graph", "generator", "service",
+    "service_impl", "service_adaptor", "register_service",)
 
 
 def compute_node(fn=None, /, cpp_impl=None, ticked: Sequence[str] = None, valid: Sequence[str] = None):

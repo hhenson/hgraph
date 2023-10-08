@@ -6,6 +6,9 @@ from hg._impl._runtime._common import NodeSubscriber
 from hg._types._time_series_types import TimeSeriesOutput
 
 
+__all__ = ("PythonTimeSeriesOutput",)
+
+
 @dataclass
 class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     _owning_node: "Node" = None

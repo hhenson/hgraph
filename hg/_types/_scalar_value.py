@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 
 
+__all__ = ("ScalarValue", "KeyableScalarValue")
+
+
 class ScalarValue(ABC):
     """
     A basic wrapper that allows for basic operations on the value without knowing the type.

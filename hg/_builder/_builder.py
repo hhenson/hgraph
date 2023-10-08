@@ -3,6 +3,8 @@ from typing import TypeVar, Generic
 
 ITEM = TypeVar('ITEM')
 
+__all__ = ("Builder",)
+
 
 class Builder(ABC, Generic[ITEM]):
     """

@@ -1,10 +1,6 @@
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from typing import TypeVar, Type
-
-__all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "CompoundScalar")
-
 from typing import TYPE_CHECKING
+from typing import TypeVar, Type
 
 from frozendict import frozendict
 
@@ -12,6 +8,10 @@ from hg._types._schema_type import AbstractSchema
 
 if TYPE_CHECKING:
     from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
+
+
+__all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_scalar",
+           "is_compound_scalar")
 
 
 class _UnSet:

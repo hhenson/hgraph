@@ -1,6 +1,9 @@
 from hg._types._scalar_value import ScalarValue
 
 
+__all__ = ('PythonScalarValue', 'PythonKeyableScalarValue')
+
+
 class PythonScalarValue(ScalarValue):
     """
     A light-weight wrapper to provide the ScalarValue implementation over Python value types
@@ -14,7 +17,7 @@ class PythonScalarValue(ScalarValue):
         return str(self._value)
 
     def __eq__(self, other: "ScalarValue") -> bool:
-        if isinstance(other, PythonScalarValue) and self._tp == other._tp
+        if isinstance(other, PythonScalarValue) and self._tp == other._tp:
             return self._value == other._value
         else:
             return False

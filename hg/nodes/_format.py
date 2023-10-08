@@ -1,4 +1,7 @@
-from hg._types import TS
+from hg import TS
+
+
+__all__ = ("format_ts",)
 
 
 def format_ts(format_str: str, *args, **kwargs) -> TS[str]:

@@ -6,6 +6,9 @@ from hg._builder._node_builder import NodeBuilder
 from hg._runtime._graph import Graph
 
 
+__all__ = ("Edge", "GraphBuilder")
+
+
 @dataclass(frozen=True)
 class Edge:
     src_node: int

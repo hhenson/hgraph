@@ -10,6 +10,8 @@ from hg._builder._input_builder import InputBuilder
 from hg._builder._output_builder import OutputBuilder
 from hg._runtime._node import NodeSignature
 
+__all__ = ("NodeBuilder",)
+
 
 @dataclass(frozen=True)
 class NodeBuilder(Builder[Node]):

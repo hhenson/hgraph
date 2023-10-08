@@ -4,6 +4,9 @@ from hg._builder._builder import Builder
 from hg._types._time_series_types import TimeSeriesInput
 
 
+__all__ = ('InputBuilder',)
+
+
 class InputBuilder(Builder[TimeSeriesInput]):
 
     def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:

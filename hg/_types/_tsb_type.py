@@ -1,6 +1,6 @@
-from abc import abstractmethod
 from datetime import datetime
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type
+
 from more_itertools import nth
 
 from hg._types import ParseError
@@ -8,7 +8,8 @@ from hg._types._schema_type import AbstractSchema
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, TimeSeriesDeltaValue, \
     TimeSeries
 
-__all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle")
+__all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
+           "TimeSeriesBundleOutput")
 
 
 class TimeSeriesSchema(AbstractSchema):
@@ -27,7 +28,7 @@ TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
 
 
 class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Union[TS_SCHEMA, dict[str, Any]]],
-                                            Generic[TS_SCHEMA]):
+                       Generic[TS_SCHEMA]):
     """
     Represents a non-homogenous collection of time-series values.
     We call this a time-series bundle.
@@ -44,7 +45,7 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
             from hg._types._type_meta_data import HgTypeMetaData
             if HgTypeMetaData.parse(item).is_scalar:
                 raise ParseError(
-                f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+                    f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
         return super(TimeSeriesBundle, cls).__class_getitem__(item)
 
     def __init__(self, ts_value: TS_SCHEMA):
@@ -132,7 +133,6 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         pass
 
 
-
 class TimeSeriesBundleOutput(TimeSeriesOutput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
     """
     The output form of the bundle
@@ -145,4 +145,5 @@ TSB_OUT = TimeSeriesBundleOutput
 
 def is_bundle(bundle: Union[type, TimeSeriesBundle]) -> bool:
     """Is the value a TimeSeriesBundle type, or an instance of a TimeSeriesBundle"""
-    return (origin := get_origin(bundle)) and issubclass(origin, TimeSeriesBundle) or isinstance(bundle, TimeSeriesBundle)
+    return (origin := get_origin(bundle)) and issubclass(origin, TimeSeriesBundle) or isinstance(bundle,
+                                                                                                 TimeSeriesBundle)

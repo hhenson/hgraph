@@ -6,7 +6,7 @@ from hg._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hg._types._type_meta_data import ParseError
 
 
-__all__ = ("HgTimeSeriesSchemaTypeMetaData", "HgTSBTypeMetaData")
+__all__ = ("HgTimeSeriesSchemaTypeMetaData", "HgTSBTypeMetaData",)
 
 
 class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):

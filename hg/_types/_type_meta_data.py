@@ -1,5 +1,6 @@
 from typing import TypeVar, Type, Optional
 
+
 __all__ = ('ParseError', 'HgTypeMetaData')
 
 

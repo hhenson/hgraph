@@ -5,6 +5,9 @@ from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 
+__all__ = ("HgTSLTypeMetaData", "HgTSLOutTypeMetaData",)
+
+
 class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     """Parses TSL[..., Size[...]]"""
 

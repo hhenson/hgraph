@@ -8,7 +8,7 @@ from hg._runtime._graph import Graph
 
 from hg._wiring._graph_builder import wire_graph
 
-__all__ = ("run", "wire_graph")
+__all__ = ("run", "wire_graph", "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
 
 
 class RunMode(Enum):

@@ -5,6 +5,9 @@ if TYPE_CHECKING:
     from hg._types._scalar_type_meta_data import HgTypeMetaData
 
 
+__all__ = ("AbstractSchema",)
+
+
 class AbstractSchema:
     """
     Describes an the core concepts of a schema based object. The object contains a view of the schema in terms

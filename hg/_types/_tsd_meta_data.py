@@ -4,7 +4,7 @@ from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 
-__all__ = ("HgTSDTypeMetaData", "HgTSDOutTypeMetaData")
+__all__ = ("HgTSDTypeMetaData", "HgTSDOutTypeMetaData",)
 
 
 class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):

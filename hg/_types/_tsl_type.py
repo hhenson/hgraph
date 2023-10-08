@@ -6,7 +6,7 @@ from hg._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, Ti
     TimeSeriesDeltaValue
 
 
-__all__ = ("TSL", "TSL_OUT")
+__all__ = ("TSL", "TSL_OUT", "TimeSeriesList", "TimeSeriesListInput", "TimeSeriesListOutput")
 
 
 class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaValue[tuple, dict[int, Any]],

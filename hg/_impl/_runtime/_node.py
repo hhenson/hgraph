@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from hg._types._tsb_type import TimeSeriesBundleInput, TimeSeriesBundleOutput
 
 
+__all__ = ("NodeImpl",)
+
+
 @dataclass
 class NodeImpl(Node):
     """

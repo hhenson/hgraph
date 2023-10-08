@@ -1,6 +1,9 @@
 from typing import Optional
 
-from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
+from hg._types._time_series_types import TimeSeriesInput
+
+
+__all__ = ("PythonTimeSeriesInput",)
 
 
 class PythonTimeSeriesInput(TimeSeriesInput):

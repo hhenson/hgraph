@@ -8,9 +8,11 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias
 from hg._types._scalar_types import Size
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
 
+
 __all__ = ( "HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
             "HgAtomicType", "HgScalarTypeVar", "HgCompoundScalarType", "HgTupleFixedScalarType",
-            "HgTupleCollectionScalarType")
+            "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData")
+
 
 class HgScalarTypeMetaData(HgTypeMetaData):
     is_scalar = True

@@ -7,7 +7,7 @@ from hg._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, Ti
     TimeSeriesDeltaValue
 
 
-__all__ = ("TSD", "TSD_OUT")
+__all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput")
 
 
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):

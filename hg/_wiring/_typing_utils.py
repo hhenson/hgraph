@@ -1,5 +1,4 @@
 from typing import TypeVar
-from copy import deepcopy
 
 __all__ = ("clone_typevar",)
 

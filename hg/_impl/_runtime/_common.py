@@ -6,6 +6,9 @@ if typing.TYPE_CHECKING:
     from hg._impl._runtime._node import Node
 
 
+__all__ = ("NodeSubscriber",)
+
+
 @dataclass
 class NodeSubscriber:
     """

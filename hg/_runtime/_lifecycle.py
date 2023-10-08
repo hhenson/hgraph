@@ -2,6 +2,8 @@ import typing
 from contextlib import contextmanager
 from functools import wraps
 
+__all__ = ("ComponentLifeCycle", "start_guard", "stop_guard", "start_stop_context")
+
 
 class ComponentLifeCycle(typing.Protocol):
     """

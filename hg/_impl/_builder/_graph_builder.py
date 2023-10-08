@@ -6,6 +6,9 @@ from hg._runtime._graph import Graph
 from hg._runtime._node import Node
 
 
+__all__ = ("PythonGraphBuilder",)
+
+
 @dataclass(frozen=True)
 class PythonGraphBuilder(GraphBuilder):
     """

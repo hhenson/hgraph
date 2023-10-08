@@ -4,13 +4,14 @@ from typing import Type, get_type_hints, Any, Optional, TypeVar
 
 from frozendict import frozendict
 
-from hg._runtime import SourceCodeDetails
 from hg._types import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._type_meta_data import HgTypeMetaData
+from hg._wiring._source_code_details import SourceCodeDetails
 
-__all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature")
+__all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
+           "extract_hg_time_series_type", "extract_scalar_type")
 
 
 class WiringNodeType(Enum):

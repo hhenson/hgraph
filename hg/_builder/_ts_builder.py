@@ -8,6 +8,9 @@ from hg._types import HgScalarTypeMetaData
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 
 
+__all__ = ("TimeSeriesValueOutputBuilder", "TimeSeriesValueInputBuilder")
+
+
 @dataclass(frozen=True)
 class TimeSeriesValueOutputBuilder(OutputBuilder):
 

@@ -3,6 +3,9 @@ from hg._impl._types._ts import PythonTimeSeriesValueOutput
 from hg._types._ts_type import TimeSeriesValueOutput
 
 
+__all__ = ('PythonTimeSeriesValueOutputBuilder',)
+
+
 class PythonTimeSeriesValueOutputBuilder(TimeSeriesValueOutputBuilder):
 
     def make_instance(self, owning_node=None, owning_output=None):

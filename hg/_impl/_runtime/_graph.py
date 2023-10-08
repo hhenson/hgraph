@@ -7,6 +7,9 @@ from hg._runtime._graph import Graph
 from hg._runtime._node import NodeTypeEnum, Node
 
 
+__all__ = ("GraphImpl",)
+
+
 @dataclass
 class GraphImpl(Graph):
     """

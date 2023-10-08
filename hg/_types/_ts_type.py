@@ -1,12 +1,11 @@
 from abc import abstractmethod
 from typing import Generic, Optional
 
-from hg import TimeSeriesDeltaValue
 from hg._types._scalar_types import SCALAR
-from hg._types._scalar_value import ScalarValue
-from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, DELTA_SCALAR
+from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TimeSeriesDeltaValue
 
-__all__ = ("TS", "TS_OUT")
+
+__all__ = ("TS", "TS_OUT", "TimeSeriesValueOutput", "TimeSeriesValueInput")
 
 
 class TimeSeriesValueOutput(TimeSeriesOutput, TimeSeriesDeltaValue[SCALAR, SCALAR], Generic[SCALAR]):
@@ -32,9 +31,6 @@ class TimeSeriesValueInput(TimeSeriesInput, TimeSeriesDeltaValue[SCALAR, SCALAR]
     This is the wrapper class of the TimeSeriesValueOutput. It is not able to modify
     the value. It also supports the input behaviours of the TimeSeriesInput
     """
-
-
-
 
 
 # Shorthand for a TimeSeriesValueInput

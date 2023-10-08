@@ -1,10 +1,9 @@
-from typing import Type, TypeVar, Optional, TYPE_CHECKING
+from typing import Type, TypeVar, Optional
+
+from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hg._types._type_meta_data import ParseError, HgTypeMetaData
 
 __all__ = ("HgTsTypeVarTypeMetaData",)
-
-
-from hg._types._type_meta_data import ParseError, HgTypeMetaData
-from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
 
 class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):

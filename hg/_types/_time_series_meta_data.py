@@ -4,6 +4,7 @@ from hg._types._type_meta_data import HgTypeMetaData
 if TYPE_CHECKING:
     from hg._types._time_series_types import TimeSeriesInput, TimeSeriesPushQueue, TimeSeriesPullQueue, TimeSeriesOutput
 
+
 __all__ = ("HgTimeSeriesTypeMetaData",)
 
 

@@ -3,7 +3,10 @@ from collections import defaultdict
 from hg._impl._builder._graph_builder import GraphBuilder
 from hg._builder._graph_builder import Edge
 from hg._builder._node_builder import NodeBuilder
-from hg._runtime import Graph, NodeTypeEnum, Node
+from hg._runtime._node import NodeTypeEnum
+
+
+__all__ = ("wire_graph",)
 
 
 def wire_graph(graph, *args, **kwargs) -> GraphBuilder:
@@ -53,7 +56,3 @@ def wire_graph(graph, *args, **kwargs) -> GraphBuilder:
                 node_map[wiring_node] = ndx
 
     return GraphBuilder(node_builders=tuple[NodeBuilder, ...](node_builders), edges=tuple[Edge, ...](edges))
-
-
-
-

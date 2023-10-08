@@ -1,22 +1,25 @@
 from dataclasses import dataclass
 from types import GenericAlias
-from typing import Callable, Any, TypeVar, _GenericAlias
-
-__all__ = (
-    "WiringNodeClass", "CppWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext", "GraphWiringNodeClass",
-    "PythonGeneratorWiringNodeClass")
+from typing import Callable, Any, TypeVar, _GenericAlias, Optional
 
 from frozendict import frozendict
 
 from hg._builder._graph_builder import Edge
 from hg._builder._node_builder import NodeBuilder
-from hg._runtime import SourceCodeDetails, Node
+from hg._runtime._node import Node
 from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
+from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 
-# TODO: Add ability to speicify resolution of inputs / outputs at wiring time. In which case unresolved outputs are possible!
+__all__ = ("WiringError", "WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
+           "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
+           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "TSBWiringPort", )
+
+
+# TODO: Add ability to specify resolution of inputs / outputs at wiring time.
+#  In which case unresolved outputs are possible!
 
 class WiringError(RuntimeError):
     ...
@@ -267,7 +270,11 @@ class WiringGraphContext:
     def instance(cls) -> "WiringGraphContext":
         return WiringGraphContext.__stack__[-1]
 
-    def __init__(self, wiring_node: "GraphWiringNodeClass"):
+    def __init__(self, wiring_node: Optional["GraphWiringNodeClass"]):
+        """
+        If we are wiring the root graph, then there is no wiring node. In this case None is
+        passed in.
+        """
         self._graph_wiring_node_class: "GraphWiringNodeClass" = wiring_node
         self._sink_nodes: ["WiringNodeInstance"] = []
 
@@ -356,7 +363,7 @@ class WiringPort:
 
 
 @dataclass(frozen=True)
-class TSB_WiringPort(WiringPort):
+class TSBWiringPort(WiringPort):
     path: tuple[str, ...]
 
     @property
@@ -365,3 +372,4 @@ class TSB_WiringPort(WiringPort):
         for p in self.path:
             # This is the parth within a TSB
             output_type = output_type[p]
+        return output_type

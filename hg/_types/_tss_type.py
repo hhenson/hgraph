@@ -5,7 +5,7 @@ from hg._types._scalar_types import SCALAR
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, TimeSeriesDeltaValue
 
 
-__all__ = ("SetDelta", "TSS", "TSS_OUT")
+__all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput")
 
 
 class SetDelta(Protocol[SCALAR]):

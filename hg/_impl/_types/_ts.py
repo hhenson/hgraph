@@ -2,14 +2,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Generic, Optional
 
-from hg import SCALAR
 from hg._impl._types._input import PythonTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._impl._types._scalar_value import PythonScalarValue
 from hg._runtime._constants import MIN_DT
+from hg._types._scalar_types import SCALAR
 from hg._types._scalar_value import ScalarValue
 from hg._types._time_series_types import DELTA_SCALAR
 from hg._types._ts_type import TimeSeriesValueOutput, TimeSeriesValueInput
+
+
+__all__ = ("PythonTimeSeriesValueOutput", "PythonTimeSeriesValueInput")
 
 
 @dataclass
