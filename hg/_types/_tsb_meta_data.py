@@ -110,7 +110,7 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         return type(o) is HgTSBTypeMetaData and self.bundle_schema_tp == o.bundle_schema_tp
 
     def __str__(self) -> str:
-        return f'TS[{str(self.bundle_schema_tp)}]'
+        return f'TSB[{str(self.bundle_schema_tp)}]'
 
     def __repr__(self) -> str:
         return f'HgTSTypeMetaData({repr(self.bundle_schema_tp)})'

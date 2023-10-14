@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Optional
 
 from _pytest.nodes import Node
 
@@ -10,7 +10,6 @@ from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 from hg._types._tsb_type import TimeSeriesSchema
-
 
 __all__ = ("TSOutputBuilder", "TSInputBuilder", "TimeSeriesBuilderFactory")
 
@@ -51,24 +50,34 @@ class TSBInputBuilder(InputBuilder):
         ...
 
 
-class TimeSeriesBuilderFactory(ABC):
-    """
-    A factory for creating input and output builders for time series types provided.
-    A factory must be declared prior to building a graph.
-    """
+class TimeSeriesBuilderFactory:
 
-    _instance: ["TimeSeriesBuilderFactory"] = []
+    _instance: Optional["TimeSeriesBuilderFactory"] = None
 
-    def __enter__(self):
-        self._instance.append(self)
-        return self
+    @staticmethod
+    def declare_default_factory():
+        from hg._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
+        TimeSeriesBuilderFactory.declare(PythonTimeSeriesBuilderFactory())
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._instance.pop()
+    @staticmethod
+    def has_instance() -> bool:
+        return TimeSeriesBuilderFactory._instance is not None
 
     @staticmethod
     def instance() -> "TimeSeriesBuilderFactory":
-        return TimeSeriesBuilderFactory._instance[-1]
+        if TimeSeriesBuilderFactory._instance is None:
+            raise RuntimeError("No time-series builder factory has been declared")
+        return TimeSeriesBuilderFactory._instance
+
+    @staticmethod
+    def declare(factory: "TimeSeriesBuilderFactory"):
+        if TimeSeriesBuilderFactory._instance is not None:
+            raise RuntimeError("A time-series builder factory has already been declared")
+        TimeSeriesBuilderFactory._instance = factory
+
+    @staticmethod
+    def undeclare():
+        TimeSeriesBuilderFactory._instance = None
 
     @abstractmethod
     def make_input_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSInputBuilder:
@@ -77,3 +86,4 @@ class TimeSeriesBuilderFactory(ABC):
     @abstractmethod
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:
         """Return an instance of an output builder for the given type"""
+

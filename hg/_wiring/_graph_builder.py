@@ -1,9 +1,8 @@
 import typing
 from collections import defaultdict
 
-
 if typing.TYPE_CHECKING:
-    from hg._builder._graph_builder import GraphBuilder
+    from hg._builder._graph_builder import GraphBuilder, GraphBuilderFactory
 
 __all__ = ("wire_graph",)
 
@@ -15,12 +14,20 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
     """
     from hg import WiringGraphContext
     from hg._wiring._wiring import WiringNodeInstance
-    from hg._builder._graph_builder import GraphBuilder
     from hg._builder._graph_builder import Edge
     from hg._builder._node_builder import NodeBuilder
     from hg._runtime._node import NodeTypeEnum
 
-    with WiringGraphContext(None) as context:
+    from hg._builder._ts_builder import TimeSeriesBuilderFactory
+    from hg._builder._graph_builder import GraphBuilder, GraphBuilderFactory
+
+    if not TimeSeriesBuilderFactory.has_instance():
+        TimeSeriesBuilderFactory.declare_default_factory()
+
+    if not GraphBuilderFactory.has_instance():
+        GraphBuilderFactory.declare_default_factory()
+
+    with WiringGraphContext( None) as context:
         out = graph(*args, **kwargs)
         # For now let's ensure that top level graphs do not return anything.
         # Later we can consider default behaviour for graphs with outputs.
@@ -48,8 +55,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
         # Now we can walk the tree in rank order and construct the nodes
         node_map: dict[WiringNodeInstance, int] = {}
         node_builders: [NodeBuilder] = []
-        edges: set[Edge]
-        for i in range(max_rank+1):
+        edges: set[Edge] = set[Edge]()
+        for i in range(max_rank + 1):
             wiring_node_set = ranked_nodes.get(i, set())
             for wiring_node in wiring_node_set:
                 ndx = len(node_builders)
@@ -58,4 +65,4 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
                 edges.update(input_edges)
                 node_map[wiring_node] = ndx
 
-    return GraphBuilder(node_builders=tuple[NodeBuilder, ...](node_builders), edges=tuple[Edge, ...](edges))
+    return GraphBuilderFactory.instance()(node_builders=tuple[NodeBuilder, ...](node_builders), edges=tuple[Edge, ...](edges))

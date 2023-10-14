@@ -233,13 +233,13 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
         from hg._impl._builder import PythonGeneratorNodeBuilder
         from hg import TimeSeriesBuilderFactory
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
-
+        output_type = node_signature.time_series_output
+        assert output_type is not None, "PythonGeneratorWiringNodeClass must have a time series output"
         return PythonGeneratorNodeBuilder(node_ndx=node_ndx,
                                           signature=node_signature,
                                           scalars=scalars,
                                           input_builder=None,
-                                          output_builder=None if self.signature.output_type is None else \
-                                              factory.make_output_builder(self.signature.output_type),
+                                          output_builder=factory.make_output_builder(output_type),
                                           eval_fn=eval)
 
 
@@ -258,11 +258,12 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
         from hg._impl._builder import PythonNodeBuilder
         from hg import TimeSeriesBuilderFactory
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
-        if ts_inputs := self.signature.time_series_inputs:
+        output_type = node_signature.time_series_output
+        if ts_inputs := node_signature.time_series_inputs:
             un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
                 UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
             ))
-            input_builder = factory.make_input_builder(HgTSBTypeMetaData(un_named_bundle))
+            input_builder = factory.make_input_builder(un_named_bundle)
         else:
             input_builder = None
 
@@ -270,8 +271,8 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
                                  signature=node_signature,
                                  scalars=scalars,
                                  input_builder=input_builder,
-                                 output_builder=None if self.signature.output_type is None else \
-                                     factory.make_output_builder(self.signature.output_type),
+                                 output_builder=None if output_type is None else \
+                                     factory.make_output_builder(output_type),
                                  eval_fn=self.fn,
                                  start_fn=self.start_fn,
                                  stop_fn=self.stop_fn)

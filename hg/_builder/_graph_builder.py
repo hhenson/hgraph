@@ -36,3 +36,33 @@ class GraphBuilder(Builder["Graph"]):
         """
         Release resources constructed during the build process, plus the graph.
         """
+
+
+class GraphBuilderFactory:
+
+    _instance: typing.Optional[typing.Type[GraphBuilder]] = None
+
+    @staticmethod
+    def declare_default_factory():
+        from hg._impl._builder._graph_builder import PythonGraphBuilder
+        GraphBuilderFactory.declare(PythonGraphBuilder)
+
+    @staticmethod
+    def has_instance() -> bool:
+        return GraphBuilderFactory._instance is not None
+
+    @staticmethod
+    def instance() -> typing.Type[GraphBuilder]:
+        if GraphBuilderFactory._instance is None:
+            raise RuntimeError("No graph builder type has been declared")
+        return GraphBuilderFactory._instance
+
+    @staticmethod
+    def declare(factory: typing.Type[GraphBuilder]):
+        if GraphBuilderFactory._instance is not None:
+            raise RuntimeError("A graph builder type has already been declared")
+        GraphBuilderFactory._instance = factory
+
+    @staticmethod
+    def undeclare():
+        GraphBuilderFactory._instance = None
