@@ -1,13 +1,12 @@
-import typing
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Mapping, Any
+from typing import Optional, Mapping, TYPE_CHECKING, Any, Protocol
 
 from hg._runtime._lifecycle import ComponentLifeCycle
 
-if typing.TYPE_CHECKING:
-    from hg._types import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
+if TYPE_CHECKING:
+    from hg._types import HgTimeSeriesTypeMetaData
     from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
     from hg._types._tsb_type import TimeSeriesBundleInput
     from hg._runtime._graph import Graph
@@ -38,7 +37,7 @@ class NodeSignature:
     src_location: "SourceCodeDetails"
 
 
-class Node(ComponentLifeCycle, typing.Protocol):
+class Node(ComponentLifeCycle, Protocol):
 
     @property
     @abstractmethod

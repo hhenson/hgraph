@@ -1,11 +1,10 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from hg._runtime._constants import MIN_DT, MAX_DT
+from hg._runtime import Graph, ExecutionContext
+from hg._runtime._constants import MAX_DT
 from hg._runtime._graph_engine import GraphEngine, RunMode, GraphExecutorLifeCycleObserver
 from hg._runtime._lifecycle import start_stop_context, start_guard, stop_guard
-from hg._runtime import Graph, ExecutionContext
-
 
 __all__ = ("PythonGraphEngine",)
 
@@ -61,6 +60,7 @@ class PythonGraphEngine(GraphEngine):
     _start_time: datetime = None
     _end_time: datetime = None
     _scheduler: [datetime] = None
+    _scheduler: [datetime] = None
     _execution_context: ExecutionContext = None
     _run_mode: RunMode = None
     _life_cycle_observers: [GraphExecutorLifeCycleObserver] = field(default_factory=list)
@@ -80,7 +80,7 @@ class PythonGraphEngine(GraphEngine):
         return self._run_mode
 
     def initialise(self):
-        self._scheduler = [MIN_DT] * len(self.graph.nodes)
+        pass
 
     @start_guard
     def start(self):
@@ -142,7 +142,7 @@ class PythonGraphEngine(GraphEngine):
                 nodes[i].eval() # This is only to move nodes on, won't call the before and after node eval here
 
         for i in range(self.graph.push_source_nodes_end, len(nodes)):
-            scheduled_time, node = nodes[i]
+            scheduled_time, node = self._scheduler[i], nodes[i]
             if scheduled_time == now:
                 self.notify_before_node_evaluation(node)
                 node.eval()

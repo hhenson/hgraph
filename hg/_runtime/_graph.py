@@ -35,3 +35,7 @@ class Graph(ComponentLifeCycle):
     @abstractmethod
     def push_source_nodes_end(self) -> int:
         """ The index of the first compute node """
+
+    @abstractmethod
+    def schedule_node(self, node_id, time):
+        """Schedule the node with the given node_id to evaluate at the given time"""

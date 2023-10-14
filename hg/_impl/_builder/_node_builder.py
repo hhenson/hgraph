@@ -4,12 +4,11 @@ from typing import Callable
 from _pytest.nodes import Node
 
 from hg._builder._node_builder import NodeBuilder
-from hg._impl._runtime._node import NodeImpl
+from hg._impl._runtime._node import NodeImpl, GeneratorNodeImpl
 from hg._types._time_series_types import TimeSeriesOutput
 from hg._types._tsb_type import TimeSeriesBundleInput
 
-
-__all__ = ("PythonNodeBuilder",)
+__all__ = ("PythonNodeBuilder", "PythonGeneratorNodeBuilder")
 
 
 @dataclass(frozen=True)
@@ -32,6 +31,28 @@ class PythonNodeBuilder(NodeBuilder):
         if self.input_builder:
             ts_input: TimeSeriesBundleInput = self.input_builder.make_instance(owning_node=node)
             node.input = ts_input
+
+        if self.output_builder:
+            ts_output: TimeSeriesOutput = self.output_builder.make_instance(ownning_node=node)
+            node.output = ts_output
+
+        return node
+
+    def release_instance(self, item: Node):
+        pass
+
+@dataclass(frozen=True)
+class PythonGeneratorNodeBuilder(NodeBuilder):
+    eval_fn: Callable = None  # This is the generator function
+
+    def make_instance(self, owning_graph_id: tuple[int, ...]) -> Node:
+        node = GeneratorNodeImpl(
+            node_ndx=self.node_ndx,
+            owning_graph_id=owning_graph_id,
+            signature=self.signature,
+            scalars=self.scalars,
+            eval_fn=self.eval_fn
+        )
 
         if self.output_builder:
             ts_output: TimeSeriesOutput = self.output_builder.make_instance(ownning_node=node)

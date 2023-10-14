@@ -15,7 +15,7 @@ from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeTyp
 
 if typing.TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
-    from hg._runtime._node import Node, NodeSignature, NodeTypeEnum
+    from hg._runtime._node import NodeSignature, NodeTypeEnum
 
 __all__ = ("WiringError", "WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
@@ -228,7 +228,19 @@ class CppWiringNodeClass(BaseWiringNodeClass):
 
 
 class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
-    ...
+
+    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+        from hg._impl._builder import PythonGeneratorNodeBuilder
+        from hg import TimeSeriesBuilderFactory
+        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
+
+        return PythonGeneratorNodeBuilder(node_ndx=node_ndx,
+                                          signature=node_signature,
+                                          scalars=scalars,
+                                          input_builder=None,
+                                          output_builder=None if self.signature.output_type is None else \
+                                              factory.make_output_builder(self.signature.output_type),
+                                          eval_fn=eval)
 
 
 @dataclass(frozen=True, unsafe_hash=True)

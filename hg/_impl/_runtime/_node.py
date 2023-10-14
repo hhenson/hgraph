@@ -1,8 +1,6 @@
 import functools
 from dataclasses import dataclass
-from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any
-
-from frozendict import frozendict
+from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from hg._runtime import NodeSignature, Graph
 
@@ -72,3 +70,26 @@ class NodeImpl:  # Node
 
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
+
+
+class GeneratorNodeImpl(NodeImpl):  # Node
+    generator: Iterator = None
+    next_value: object = None
+
+    def start(self):
+        self.generator = self.eval_fn(**self._kwargs)
+        self.graph.schedule_node(self.node_id, self.graph.context.current_engine_time)
+
+    def eval(self):
+        time, out = next(self.generator, (None, None))
+        if out is not None and time is not None and time <= self.graph.context.current_engine_time:
+            self.output.apply_result(out)
+            self.next_value = None
+            return self.eval()
+
+        if self.next_value is not None:
+            self.output.apply_result(self.next_value)
+
+        if time is not None and out is not None:
+            self.next_value = out
+            self.graph.schedule_node(self.node_id, time)

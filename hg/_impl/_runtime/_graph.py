@@ -1,11 +1,12 @@
 import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
+from hg._runtime._constants import MIN_DT
 from hg._runtime._execution_context import ExecutionContext
-from hg._runtime._lifecycle import start_guard, stop_guard
 from hg._runtime._graph import Graph
+from hg._runtime._lifecycle import start_guard, stop_guard
 from hg._runtime._node import NodeTypeEnum, Node
-
 
 __all__ = ("GraphImpl",)
 
@@ -18,6 +19,7 @@ class GraphImpl(Graph):
     graph_id: tuple[int, ...]
     nodes: tuple[Node, ...]  # The nodes of the graph.
     context: ExecutionContext
+    schedule: list[datetime, ...] = field(default_factory=list)
 
     @functools.cached_property
     def push_source_nodes_end(self) -> int:
@@ -30,7 +32,10 @@ class GraphImpl(Graph):
     is_started: bool = False
 
     def initialise(self):
-        ...
+        self.schedule = [MIN_DT] * len(self.nodes)
+
+    def schedule_node(self, node_id, time):
+        self.schedule[node_id] = time
 
     @start_guard
     def start(self):
