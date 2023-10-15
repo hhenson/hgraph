@@ -76,7 +76,7 @@ class TimeSeriesBuilderFactory:
         TimeSeriesBuilderFactory._instance = factory
 
     @staticmethod
-    def undeclare():
+    def un_declare():
         TimeSeriesBuilderFactory._instance = None
 
     @abstractmethod

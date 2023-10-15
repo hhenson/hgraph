@@ -54,7 +54,6 @@ class PythonGraphEngine(GraphEngine):
     A graph engine that runs the graph in python.
     """
 
-    graph: "Graph"
     is_started: bool = False
     _stop_requested: bool = False
     _start_time: datetime = None

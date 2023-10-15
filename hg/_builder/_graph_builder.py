@@ -3,11 +3,10 @@ from abc import abstractmethod
 from dataclasses import dataclass
 
 from hg._builder._builder import Builder
+from hg._runtime._graph import Graph
 
 if typing.TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
-    from hg._runtime._graph import Graph
-
 
 __all__ = ("Edge", "GraphBuilder")
 
@@ -40,29 +39,42 @@ class GraphBuilder(Builder["Graph"]):
 
 class GraphBuilderFactory:
 
-    _instance: typing.Optional[typing.Type[GraphBuilder]] = None
+    _graph_builder_class: typing.Optional[typing.Type[GraphBuilder]] = None
 
     @staticmethod
-    def declare_default_factory():
+    def default():
         from hg._impl._builder._graph_builder import PythonGraphBuilder
-        GraphBuilderFactory.declare(PythonGraphBuilder)
+        return PythonGraphBuilder
 
     @staticmethod
-    def has_instance() -> bool:
-        return GraphBuilderFactory._instance is not None
+    def is_declared() -> bool:
+        return GraphBuilderFactory._graph_builder_class is not None
 
     @staticmethod
-    def instance() -> typing.Type[GraphBuilder]:
-        if GraphBuilderFactory._instance is None:
+    def declared() -> typing.Type[GraphBuilder]:
+        if GraphBuilderFactory._graph_builder_class is None:
             raise RuntimeError("No graph builder type has been declared")
-        return GraphBuilderFactory._instance
+        return GraphBuilderFactory._graph_builder_class
 
     @staticmethod
-    def declare(factory: typing.Type[GraphBuilder]):
-        if GraphBuilderFactory._instance is not None:
+    def declare(cls: typing.Type[GraphBuilder]):
+        if GraphBuilderFactory._graph_builder_class is not None:
             raise RuntimeError("A graph builder type has already been declared")
-        GraphBuilderFactory._instance = factory
+        GraphBuilderFactory._graph_builder_class = cls
 
     @staticmethod
-    def undeclare():
-        GraphBuilderFactory._instance = None
+    def un_declare():
+        GraphBuilderFactory._graph_builder_class = None
+
+    @staticmethod
+    def make(node_builders: tuple["NodeBuilder", ...], edges: tuple[Edge, ...]) -> GraphBuilder:
+        """
+        Make a graph builder instance. If no graph builder class is declared, the default builder will be used.
+        :param node_builders: The node builders to use
+        :param edges: The edges to use for binding the node outputs to inputs.
+        :return: The GraphBuilder instance.
+        """
+        if GraphBuilderFactory.is_declared():
+            return GraphBuilderFactory.declared()(node_builders=node_builders, edges=edges)
+        else:
+            return GraphBuilderFactory.default()(node_builders=node_builders, edges=edges)

@@ -11,6 +11,7 @@ from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELT
 if TYPE_CHECKING:
     from hg._types._type_meta_data import HgTypeMetaData
     from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+    from hg import ScalarValue
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
            "TimeSeriesBundleOutput")
@@ -144,6 +145,30 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
 
     @property
     def last_modified_time(self) -> datetime:
+        pass
+
+    @property
+    def parent_input(self) -> Optional["TimeSeriesInput"]:
+        pass
+
+    @property
+    def has_parent_input(self) -> bool:
+        pass
+
+    @property
+    def owning_node(self) -> "Node":
+        pass
+
+    @property
+    def owning_graph(self) -> "Graph":
+        pass
+
+    @property
+    def scalar_value(self) -> "ScalarValue":
+        pass
+
+    @property
+    def delta_scalar_value(self) -> "ScalarValue":
         pass
 
 

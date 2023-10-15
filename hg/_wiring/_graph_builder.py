@@ -24,9 +24,6 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
     if not TimeSeriesBuilderFactory.has_instance():
         TimeSeriesBuilderFactory.declare_default_factory()
 
-    if not GraphBuilderFactory.has_instance():
-        GraphBuilderFactory.declare_default_factory()
-
     with WiringGraphContext(None) as context:
         out = graph(*args, **kwargs)
         # For now let's ensure that top level graphs do not return anything.
@@ -65,8 +62,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
                 edges.update(input_edges)
                 node_map[wiring_node] = ndx
 
-    return GraphBuilderFactory.instance()(node_builders=tuple[NodeBuilder, ...](node_builders),
-                                          edges=tuple[Edge, ...](
-                                              sorted(edges,
-                                                     key=lambda e: (
-                                                     e.src_node, e.dst_node, e.output_path, e.input_path))))
+    return GraphBuilderFactory.make(node_builders=tuple[NodeBuilder, ...](node_builders),
+                                    edges=tuple[Edge, ...](
+                                        sorted(edges,
+                                               key=lambda e: (
+                                                   e.src_node, e.dst_node, e.output_path, e.input_path))))

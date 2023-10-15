@@ -6,11 +6,8 @@ from enum import Enum
 from hg._runtime._lifecycle import ComponentLifeCycle
 from hg._runtime._graph import Graph
 
-if typing.TYPE_CHECKING:
-    from hg._impl._builder._graph_builder import GraphBuilder
 
-
-__all__ = ("run", "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
+__all__ = ( "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
 
 
 class RunMode(Enum):
@@ -79,19 +76,23 @@ class GraphExecutorLifeCycleObserver:
 
 class GraphEngine(ComponentLifeCycle):
 
+    def __init__(self, graph: Graph, run_mode: RunMode):
+        self._graph = graph
+        self._run_mode = run_mode
+
     @property
-    @abstractmethod
     def run_mode(self) -> RunMode:
         """
         The run mode of the engine.
         """
+        return self._run_mode
 
     @property
-    @abstractmethod
     def graph(self) -> Graph:
         """
         The graph associated to this graph executor.
         """
+        return self._graph
 
     @abstractmethod
     def run(self, start_time: datetime, end_time: datetime):
@@ -102,26 +103,43 @@ class GraphEngine(ComponentLifeCycle):
         """
 
 
-def run(graph, *args, run_mode: RunMode=RunMode.BACK_TEST, start_time: datetime, end_time: datetime, **kwargs):
-    """
-    Use this to initiate the engine run loop.
+class GraphEngineFactory:
 
-    The run_mode indicates how the graph engine should evalute the graph, in RunMOde.REAL_TIME the graph will be
-    evaluated using the system clock, in RunMode.BACK_TEST the graph will be evaluated using a simulated clock.
-    The simulated clock is advanced as fast as possible without following the system clock timings. This allows a
-    back-test to be evaluated as fast as possible.
+    _graph_engine_class: typing.Optional[typing.Type[GraphEngine]] = None
 
-    :param graph: The graph to evaluate
-    :param args: Any arguments to pass to the graph
-    :param run_mode: The mode to evaluate the graph in
-    :param start_time: The time to start the graph
-    :param end_time: The time to end the graph
-    :param kwargs: Any additional kwargs to pass to the graph.
-    """
-    # For now this will evaluate the Python engine, as more engines become available there will be an engine factory
-    # that can be used to select the engine to use.
-    from hg._impl._runtime._graph_engine import PythonGraphEngine
-    from hg._wiring._graph_builder import wire_graph
-    runtime_graph: "GraphBuilder" = wire_graph(graph, *args, **kwargs)
-    engine: PythonGraphEngine = PythonGraphEngine(runtime_graph.make_instance(tuple()), run_mode)
-    engine.run(start_time, end_time)
+    @staticmethod
+    def default():
+        from hg._impl._runtime._graph_engine import  PythonGraphEngine
+        return PythonGraphEngine
+
+    @staticmethod
+    def is_declared() -> bool:
+        return GraphEngineFactory._graph_engine_class is not None
+
+    @staticmethod
+    def declared() -> typing.Type[GraphEngine]:
+        if GraphEngineFactory._graph_engine_class is None:
+            raise RuntimeError("No graph engine type has been declared")
+        return GraphEngineFactory._graph_engine_class
+
+    @staticmethod
+    def declare(factory: typing.Type[GraphEngine]):
+        if GraphEngineFactory._graph_engine_class is not None:
+            raise RuntimeError("A graph engine type has already been declared")
+        GraphEngineFactory._graph_engine_class = factory
+
+    @staticmethod
+    def un_declare():
+        GraphEngineFactory._graph_engine_class = None
+
+    def make(self, graph: Graph, run_mode: RunMode) -> GraphEngine:
+        """
+        Make a new graph engine. If no engine is declared, the default engine will be used.
+        :param graph: The graph to make the engine for
+        :param run_mode: The run mode of the engine
+        :return: A new graph engine
+        """
+        if self.is_declared():
+            return self.declared()(graph, run_mode)
+        else:
+            return self.default()(graph, run_mode)
