@@ -91,6 +91,13 @@ class Node(ComponentLifeCycle, Protocol):
         The graph that this node is a member of.
         """
 
+    @graph.setter
+    @abstractmethod
+    def graph(self, value: "Graph"):
+        """
+        The graph that this node is a member of.
+        """
+
     @property
     @abstractmethod
     def input(self) -> Optional["TimeSeriesBundleInput"]:

@@ -81,7 +81,7 @@ class GeneratorNodeImpl(NodeImpl):  # Node
 
     def start(self):
         self.generator = self.eval_fn(**self._kwargs)
-        self.graph.schedule_node(self.node_id, self.graph.context.current_engine_time)
+        self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
 
     def eval(self):
         time, out = next(self.generator, (None, None))

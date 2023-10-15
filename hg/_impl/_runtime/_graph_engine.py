@@ -61,22 +61,22 @@ class PythonGraphEngine:  # (GraphEngine):
     _end_time: datetime = None
     _scheduler: [datetime] = None
     _execution_context: ExecutionContext = None
-    _run_mode: RunMode = None
     _life_cycle_observers: [GraphExecutorLifeCycleObserver] = field(default_factory=list)
     _before_evaluation_notification: [callable] = field(default_factory=list)
     _after_evaluation_notification: [callable] = field(default_factory=list)
 
     def initialise(self):
-        pass
+        self.graph.initialise()
 
     @start_guard
     def start(self):
         self._stop_requested = False
-        match self._run_mode:
+        match self.run_mode:
             case RunMode.REAL_TIME:
                 raise NotImplementedError()
             case RunMode.BACK_TEST:
                 self._execution_context = BackTestExecutionContext(self._start_time)
+        self.graph.context = self._execution_context
         self.notify_before_start()
         for node in self.graph.nodes:
             self.notify_before_start_node(node)
@@ -98,7 +98,7 @@ class PythonGraphEngine:  # (GraphEngine):
         self._stop_requested = True
 
     def dispose(self):
-        ...
+        self.graph.dispose()
 
     def advance_engine_time(self):
         if self._stop_requested:

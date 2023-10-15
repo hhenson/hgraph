@@ -34,4 +34,8 @@ def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.BACK_TEST, sta
         graph_builder = graph
 
     engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
-    engine.run(start_time, end_time)
+    engine.initialise()
+    try:
+        engine.run(start_time, end_time)
+    finally:
+        engine.dispose()
