@@ -27,7 +27,7 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
     if not GraphBuilderFactory.has_instance():
         GraphBuilderFactory.declare_default_factory()
 
-    with WiringGraphContext( None) as context:
+    with WiringGraphContext(None) as context:
         out = graph(*args, **kwargs)
         # For now let's ensure that top level graphs do not return anything.
         # Later we can consider default behaviour for graphs with outputs.
@@ -65,4 +65,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
                 edges.update(input_edges)
                 node_map[wiring_node] = ndx
 
-    return GraphBuilderFactory.instance()(node_builders=tuple[NodeBuilder, ...](node_builders), edges=tuple[Edge, ...](edges))
+    return GraphBuilderFactory.instance()(node_builders=tuple[NodeBuilder, ...](node_builders),
+                                          edges=tuple[Edge, ...](
+                                              sorted(edges,
+                                                     key=lambda e: (
+                                                     e.src_node, e.dst_node, e.output_path, e.input_path))))

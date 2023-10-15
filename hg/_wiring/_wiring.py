@@ -19,7 +19,7 @@ if typing.TYPE_CHECKING:
 
 __all__ = ("WiringError", "WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
-           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "TSBWiringPort",)
+           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort",)
 
 
 # TODO: Add ability to specify resolution of inputs / outputs at wiring time.
@@ -400,22 +400,33 @@ class WiringNodeInstance:
                              time_series_output=self.resolved_signature.output_type,
                              src_location=self.resolved_signature.src_location)
 
-    def create_node_builder_and_edges(self, node_map: ["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> tuple[
+    def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> tuple[
         "NodeBuilder", set[Edge]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
+        node_map[self] = node_index  # Update this wiring nodes index in the graph
+
         scalars = frozendict(
             {k: v for k, v in self.inputs.items() if k in self.resolved_signature.scalar_inputs}),
-        # Extract out edges
-        node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
 
-        return node_builder, set()
+        node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
+        # Extract out edges
+
+        edges = set()
+        for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.time_series_inputs):
+            input_: WiringPort = self.inputs[arg]
+            edge = Edge(node_map[input_.node_instance], input_.path, node_index, (ndx,))
+            edges.add(edge)
+            # TODO: When dealing with more complex binding structures (such as TSBs) extracting the edges will be more complex.
+
+        return node_builder, edges
 
 
 @dataclass(frozen=True)
 class WiringPort:
     node_instance: WiringNodeInstance
+    path: [int, ...] = 0,  # The path from out (0,) to the time-series to be bound.
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
@@ -426,14 +437,19 @@ class WiringPort:
         return self.node_instance.rank
 
 
-@dataclass(frozen=True)
-class TSBWiringPort(WiringPort):
-    path: tuple[str, ...]
-
-    @property
-    def output_type(self) -> HgTimeSeriesTypeMetaData:
-        output_type = self.node_instance.output_type
-        for p in self.path:
-            # This is the parth within a TSB
-            output_type = output_type[p]
-        return output_type
+# @dataclass(frozen=True)
+# class TSBWiringPort(WiringPort):
+#     path: tuple[str, ...]  # The path through the node elements
+#
+#     def edge_path(self, node_map: Mapping["WiringNodeInstance", int]) -> tuple[int, ...]:
+#         path_ = [node_map[self.node_instance]]
+#         for p in self.path:
+#         return super().edge_path(node_map)
+#
+#     @property
+#     def output_type(self) -> HgTimeSeriesTypeMetaData:
+#         output_type = self.node_instance.output_type
+#         for p in self.path:
+#             # This is the parth within a TSB
+#             output_type = output_type[p]
+#         return output_type
