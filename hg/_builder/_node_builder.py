@@ -2,12 +2,10 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Any, Mapping, List, Tuple
 
-from _pytest.nodes import Node
-
 from hg._builder._builder import Builder
 from hg._builder._input_builder import InputBuilder
 from hg._builder._output_builder import OutputBuilder
-from hg._runtime._node import NodeSignature
+from hg._runtime._node import NodeSignature, Node
 
 __all__ = ("NodeBuilder",)
 

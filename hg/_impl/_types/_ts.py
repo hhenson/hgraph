@@ -105,6 +105,16 @@ class PythonTimeSeriesValueInput(PythonTimeSeriesInput, TimeSeriesValueInput[SCA
     def output(self) -> TimeSeriesValueOutput[SCALAR]:
         return self._output
 
+    @output.setter
+    def output(self, output: TimeSeriesValueOutput[SCALAR]):
+        active = self.active
+        self.make_passive()  # Ensure we are unsubscribed from the old output.
+        self._output = output
+        if active:
+            self.make_active()  # If we were active now subscribe to the new output,
+            # this is important even if we were not bound previously as this will ensure the new output gets
+            # subscribed to
+
     @property
     def bound(self) -> bool:
         return True

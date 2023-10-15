@@ -3,13 +3,14 @@ from typing import Mapping, cast
 
 from frozendict import frozendict
 
-from hg import TimeSeriesSchema
 from hg._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
                                      TSInputBuilder, TSBInputBuilder)
 from hg._impl._types._ts import PythonTimeSeriesValueOutput, PythonTimeSeriesValueInput
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hg._types._time_series_types import TimeSeriesOutput
 from hg._types._ts_meta_data import HgTSTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData
+from hg._runtime._node import Node
 from hg._impl._types._tsb import PythonUnboundTimeSeriesBundleInput
 
 __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBuilderFactory')
@@ -17,7 +18,7 @@ __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBui
 
 class PythonTSOutputBuilder(TSOutputBuilder):
 
-    def make_instance(self, owning_node=None, owning_output=None):
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         return PythonTimeSeriesValueOutput(_owning_node=owning_node, _parent_output=owning_output,
                                            _tp=self.value_tp.py_type)
 
@@ -47,6 +48,7 @@ class PythonTSBInputBuilder(TSBInputBuilder):
         tsb = PythonUnboundTimeSeriesBundleInput[self.schema](_owning_node=owning_node, _parent_input=owning_input)
         tsb._ts_value = {k: v.make_instance(owning_input=tsb) for k, v in
                          self.schema_builders.items()}
+        return tsb
 
     def release_instance(self, item):
         pass

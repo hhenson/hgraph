@@ -12,13 +12,15 @@ __all__ = ("GraphImpl",)
 
 
 @dataclass
-class GraphImpl(Graph):
+class GraphImpl:  # (Graph):
     """
     Provide a reference implementation of the Graph.
     """
+
     graph_id: tuple[int, ...]
     nodes: tuple[Node, ...]  # The nodes of the graph.
-    context: ExecutionContext
+    context: ExecutionContext = None
+    is_started: bool = False
     schedule: list[datetime, ...] = field(default_factory=list)
 
     @functools.cached_property
@@ -28,8 +30,6 @@ class GraphImpl(Graph):
             if self.nodes[i].signature.node_type != NodeTypeEnum.PUSH_SOURCE_NODE:
                 return i
         return len(self.nodes)  # In the very unlikely event that there are only push source nodes.
-
-    is_started: bool = False
 
     def initialise(self):
         self.schedule = [MIN_DT] * len(self.nodes)

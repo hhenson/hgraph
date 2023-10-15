@@ -240,7 +240,7 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
                                           scalars=scalars,
                                           input_builder=None,
                                           output_builder=factory.make_output_builder(output_type),
-                                          eval_fn=eval)
+                                          eval_fn=self.fn)
 
 
 @dataclass(frozen=True, unsafe_hash=True)
@@ -408,7 +408,7 @@ class WiringNodeInstance:
         node_map[self] = node_index  # Update this wiring nodes index in the graph
 
         scalars = frozendict(
-            {k: v for k, v in self.inputs.items() if k in self.resolved_signature.scalar_inputs}),
+            {k: v for k, v in self.inputs.items() if k in self.resolved_signature.scalar_inputs})
 
         node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
         # Extract out edges

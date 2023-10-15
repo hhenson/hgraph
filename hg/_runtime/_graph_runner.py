@@ -1,14 +1,15 @@
 from datetime import datetime
 from typing import Callable
 
+from hg._runtime._constants import MIN_ST, MAX_ET
 from hg._runtime._graph_engine import RunMode, GraphEngineFactory
 
 
 __all__ = ("run_graph",)
 
 
-def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.BACK_TEST, start_time: datetime, end_time: datetime,
-              **kwargs):
+def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.BACK_TEST, start_time: datetime = MIN_ST,
+              end_time: datetime = MAX_ET, **kwargs):
     """
     Use this to initiate the graph engine run loop.
 
@@ -32,5 +33,5 @@ def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.BACK_TEST, sta
     else:
         graph_builder = graph
 
-    engine = GraphEngineFactory.make(graph_builder.make_instance(tuple()), run_mode)
+    engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
     engine.run(start_time, end_time)

@@ -2,7 +2,7 @@ import functools
 from dataclasses import dataclass
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
-from hg._runtime import NodeSignature, Graph
+from hg._runtime import NodeSignature, Graph, Node
 
 if TYPE_CHECKING:
     from hg._types._ts_type import TimeSeriesInput, TimeSeriesOutput
@@ -20,8 +20,8 @@ class NodeImpl:  # Node
     owning_graph_id: tuple[int, ...]
     signature: NodeSignature
     scalars: Mapping[str, Any]
-    graph: Graph
-    eval_fn: Callable
+    graph: Graph = None
+    eval_fn: Callable = None
     start_fn: Callable = None
     stop_fn: Callable = None
     input: Optional["TimeSeriesBundleInput"] = None
@@ -46,7 +46,7 @@ class NodeImpl:  # Node
             return {k: self.output[k] for k in self.signature.time_series_outputs}
 
     def initialise(self):
-        # TODO: Simplistic intialisation, this does not take into account STATE, or wired Outputs, etc.
+        # TODO: Simplistic initialisation, this does not take into account STATE, or wired Outputs, etc.
         self._kwargs = {arg: self.input[arg] if arg in self.signature.time_series_inputs else self.scalars[arg] for arg
                         in self.signature.args}
 
@@ -72,9 +72,12 @@ class NodeImpl:  # Node
         """Notify the graph that this node needs to be evaluated."""
 
 
+
+
 class GeneratorNodeImpl(NodeImpl):  # Node
     generator: Iterator = None
     next_value: object = None
+
 
     def start(self):
         self.generator = self.eval_fn(**self._kwargs)

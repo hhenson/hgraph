@@ -49,34 +49,22 @@ class BackTestExecutionContext(ExecutionContext):
 
 
 @dataclass
-class PythonGraphEngine(GraphEngine):
+class PythonGraphEngine:  # (GraphEngine):
     """
     A graph engine that runs the graph in python.
     """
-
+    graph: Graph
+    run_mode: RunMode
     is_started: bool = False
     _stop_requested: bool = False
     _start_time: datetime = None
     _end_time: datetime = None
-    _scheduler: [datetime] = None
     _scheduler: [datetime] = None
     _execution_context: ExecutionContext = None
     _run_mode: RunMode = None
     _life_cycle_observers: [GraphExecutorLifeCycleObserver] = field(default_factory=list)
     _before_evaluation_notification: [callable] = field(default_factory=list)
     _after_evaluation_notification: [callable] = field(default_factory=list)
-
-    def __init__(self, graph: Graph, run_mode: RunMode):
-        self._graph = graph
-        self._run_mode = run_mode
-
-    @property
-    def graph(self) -> Graph:
-        return self._graph
-
-    @property
-    def run_mode(self) -> RunMode:
-        return self._run_mode
 
     def initialise(self):
         pass

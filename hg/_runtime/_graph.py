@@ -1,6 +1,5 @@
 import typing
 from abc import abstractmethod
-from dataclasses import dataclass
 
 from hg._runtime._execution_context import ExecutionContext
 from hg._runtime._lifecycle import ComponentLifeCycle
@@ -12,8 +11,7 @@ if typing.TYPE_CHECKING:
 __all__ = ("Graph",)
 
 
-@dataclass
-class Graph(ComponentLifeCycle):
+class Graph(ComponentLifeCycle, typing.Protocol):
     """ The runtime graph """
 
     @property

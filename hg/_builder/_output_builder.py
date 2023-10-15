@@ -1,6 +1,6 @@
-from _pytest.nodes import Node
 
 from hg._builder._builder import Builder
+from hg._runtime._node import Node
 from hg._types._time_series_types import TimeSeriesOutput
 
 

@@ -36,9 +36,11 @@ class PythonGraphBuilder(GraphBuilder):
     def make_instance(self, graph_id: tuple[int, ...]) -> Graph:
         nodes = [nb.make_instance(graph_id) for nb in self.node_builders]
         for edge in self.edges:
-            src_node = nodes[edge.src_node]
-            dst_node = nodes[edge.dst_node]
-            output = self._extract_output(src_node, edge.output_path)
+            src_node: Node = nodes[edge.src_node]
+            dst_node: Node = nodes[edge.dst_node]
+            # TODO: Should we normalise outputs to always be an UnnamedBundleOutput? For now if the path is (0,) assume
+            #  the output is the node output
+            output = src_node.output if edge.output_path == (0,) else self._extract_output(src_node, edge.output_path)
             input_ = self._extract_input(dst_node, edge.input_path)
             input_.output = output
         for node in nodes:  # TODO: I think we want to initialise the nodes once wiring is complete but not sure, need to think about this

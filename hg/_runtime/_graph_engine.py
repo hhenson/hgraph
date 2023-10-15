@@ -3,9 +3,8 @@ from abc import abstractmethod
 from datetime import datetime
 from enum import Enum
 
-from hg._runtime._lifecycle import ComponentLifeCycle
 from hg._runtime._graph import Graph
-
+from hg._runtime._lifecycle import ComponentLifeCycle
 
 __all__ = ( "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
 
@@ -74,25 +73,21 @@ class GraphExecutorLifeCycleObserver:
         """
 
 
-class GraphEngine(ComponentLifeCycle):
-
-    def __init__(self, graph: Graph, run_mode: RunMode):
-        self._graph = graph
-        self._run_mode = run_mode
+class GraphEngine(ComponentLifeCycle, typing.Protocol):
 
     @property
+    @abstractmethod
     def run_mode(self) -> RunMode:
         """
         The run mode of the engine.
         """
-        return self._run_mode
 
     @property
+    @abstractmethod
     def graph(self) -> Graph:
         """
         The graph associated to this graph executor.
         """
-        return self._graph
 
     @abstractmethod
     def run(self, start_time: datetime, end_time: datetime):
@@ -132,14 +127,15 @@ class GraphEngineFactory:
     def un_declare():
         GraphEngineFactory._graph_engine_class = None
 
-    def make(self, graph: Graph, run_mode: RunMode) -> GraphEngine:
+    @staticmethod
+    def make(graph: Graph, run_mode: RunMode) -> GraphEngine:
         """
         Make a new graph engine. If no engine is declared, the default engine will be used.
         :param graph: The graph to make the engine for
         :param run_mode: The run mode of the engine
         :return: A new graph engine
         """
-        if self.is_declared():
-            return self.declared()(graph, run_mode)
+        if GraphEngineFactory.is_declared():
+            return GraphEngineFactory.declared()(graph=graph, run_mode=run_mode)
         else:
-            return self.default()(graph, run_mode)
+            return GraphEngineFactory.default()(graph=graph, run_mode=run_mode)

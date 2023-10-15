@@ -95,7 +95,7 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         the item as named.
         """
         if type(item) is int:
-            return getattr(self, nth(item, iter(self.__schema__.__meta_data_schema__)))
+            return getattr(self, nth(iter(self.__schema__.__meta_data_schema__), item))
         else:
             return getattr(self, item)
 

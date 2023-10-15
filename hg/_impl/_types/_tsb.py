@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Any, Mapping, Generic
 
-from hg import TimeSeriesDeltaValue
+from hg import TimeSeriesDeltaValue, TimeSeries
 from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, DELTA_SCALAR
 from hg._types._tsb_type import TimeSeriesBundleInput, TS_SCHEMA
 from hg._types._scalar_value import ScalarValue
@@ -20,6 +20,13 @@ from hg._impl._types._output import PythonTimeSeriesOutput
 class PythonUnboundTimeSeriesBundleInput(PythonTimeSeriesInput, TimeSeriesBundleInput[TS_SCHEMA], Generic[TS_SCHEMA]):
 
     _ts_value: Mapping[str, PythonTimeSeriesInput]
+
+    def __getattr__(self, item) -> TimeSeries:
+        # TODO: Should the _ts_value be a dict or a wrapper to support attribute retrieval?
+        if item in self._ts_value:
+            return self._ts_value[item]
+        else:
+            raise ValueError(f"'{item}' is not a valid property of TSB")
 
     @property
     def scalar_value(self) -> ScalarValue:
