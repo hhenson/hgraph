@@ -32,7 +32,7 @@ class NodeImpl:  # Node
     @functools.cached_property
     def node_id(self) -> tuple[int, ...]:
         """ Computed once and then cached """
-        return self.owning_graph_id + (self.node_ndx,)
+        return self.owning_graph_id + tuple([self.node_ndx])
 
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
@@ -54,10 +54,22 @@ class NodeImpl:  # Node
         for k, s in self.scalars.items():
             if isinstance(s, Injector):
                 extras[k] = s(self)
-                self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
+        self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
                                 k in self.signature.args}
 
+    def _initialise_inputs(self):
+        if self.input:
+            for k, ts in self.input.items():
+                ts: TimeSeriesInput
+                if self.signature.active_inputs is None or k in self.signature.active_inputs:
+                    ts.make_active()
+
     def eval(self):
+        if self.input:
+            args = self.signature.valid_inputs if self.signature.valid_inputs else self.signature.time_series_inputs.keys()
+            if not all(self.input[k].valid for k in args):
+                return  # We should look into caching the result of this check.
+                # This check could perhaps be set on a separate call?
         out = self.eval_fn(**self._kwargs)
         if out is not None:
             self.output.apply_result(out)
@@ -65,6 +77,7 @@ class NodeImpl:  # Node
     def start(self):
         # TODO: Ultimately the start fn should have it's own call signature.
         self._initialise_kwargs()
+        self._initialise_inputs()
         if self.start_fn is not None:
             self.start_fn(**self._kwargs)
 
@@ -78,14 +91,12 @@ class NodeImpl:  # Node
 
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
-
-
+        self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
 
 
 class GeneratorNodeImpl(NodeImpl):  # Node
     generator: Iterator = None
     next_value: object = None
-
 
     def start(self):
         self._initialise_kwargs()
@@ -97,11 +108,12 @@ class GeneratorNodeImpl(NodeImpl):  # Node
         if out is not None and time is not None and time <= self.graph.context.current_engine_time:
             self.output.apply_result(out)
             self.next_value = None
-            return self.eval()
+            self.eval()  # We are going to apply now! Prepare next step,
+            # This should ultimately either produce no result or a result that is to be scheduled
 
         if self.next_value is not None:
             self.output.apply_result(self.next_value)
 
         if time is not None and out is not None:
             self.next_value = out
-            self.graph.schedule_node(self.node_id, time)
+            self.graph.schedule_node(self.node_ndx, time)

@@ -1,5 +1,6 @@
 import typing
 from abc import abstractmethod
+from datetime import datetime
 
 from hg._runtime._execution_context import ExecutionContext
 from hg._runtime._lifecycle import ComponentLifeCycle
@@ -37,3 +38,8 @@ class Graph(ComponentLifeCycle, typing.Protocol):
     @abstractmethod
     def schedule_node(self, node_id, time):
         """Schedule the node with the given node_id to evaluate at the given time"""
+
+    @property
+    @abstractmethod
+    def schedule(self) -> list[datetime, ...]:
+        """The schedule of the graph"""

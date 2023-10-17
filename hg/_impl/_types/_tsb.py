@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Any, Mapping, Generic, KeysView
+from typing import Optional, Any, Mapping, Generic, KeysView, ItemsView, ValuesView
 
 from hg import TimeSeriesDeltaValue, TimeSeries
 from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, DELTA_SCALAR
@@ -30,6 +30,12 @@ class PythonUnboundTimeSeriesBundleInput(PythonTimeSeriesInput, TimeSeriesBundle
 
     def keys(self) -> KeysView[str]:
         return self._ts_value.keys()
+
+    def items(self) -> ItemsView[str, TimeSeries]:
+        return self._ts_value.items()
+
+    def values(self) -> ValuesView[TimeSeries]:
+        return self._ts_value.values()
 
     @property
     def scalar_value(self) -> ScalarValue:

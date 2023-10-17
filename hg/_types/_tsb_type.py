@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping
+from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
+    ItemsView, ValuesView
 
 from more_itertools import nth
 
@@ -98,6 +99,15 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
             return getattr(self, nth(iter(self.__schema__.__meta_data_schema__), item))
         else:
             return getattr(self, item)
+
+    def keys(self) -> KeysView[str]:
+        """The keys of the schema defining the bundle"""
+
+    def items(self) -> ItemsView[str, TimeSeries]:
+        """The values of the bundle"""
+
+    def values(self) -> ValuesView[TimeSeries]:
+        """The values of the bundle"""
 
 
 class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):

@@ -36,6 +36,8 @@ class NodeSignature:
     time_series_output: Optional["HgTimeSeriesTypeMetaData"]
     scalars: Optional[Mapping[str, "HgScalarTypeMetaData"]]
     src_location: "SourceCodeDetails"
+    active_inputs: Optional[set[str]] = None
+    valid_inputs: Optional[set[str]] = None
 
 
 class Node(ComponentLifeCycle, Protocol):
@@ -134,4 +136,5 @@ class Node(ComponentLifeCycle, Protocol):
     def eval(self):
         """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
 
-
+    def notify(self):
+        """Notify the node that it is need of scheduling"""
