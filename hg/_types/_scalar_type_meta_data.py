@@ -1,9 +1,10 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from types import GenericAlias
 
 from frozendict import frozendict
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable
 
 from hg._types._scalar_types import Size
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
@@ -174,10 +175,37 @@ class HgInjectableType(HgScalarTypeMetaData):
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         value_tp = value if isinstance(value, type) else type(value)
-        from hg._runtime import ExecutionContext
+        from hg import ExecutionContext
         return {
-            ExecutionContext: lambda: HgInjectableType(ExecutionContext),
+            ExecutionContext: lambda: HgExecutionContextType(),
+            object: lambda: HgStateType(),
         }.get(value_tp, lambda: None)()
+
+@dataclass
+class Injector:
+    fn: Callable
+
+    def __call__(self, *args, **kwargs):
+        return self.fn(*args, **kwargs)
+
+
+class HgExecutionContextType(HgInjectableType):
+    def __init__(self):
+        from hg._runtime import ExecutionContext
+        super().__init__(ExecutionContext)
+
+    @property
+    def injector(self):
+        return Injector(lambda node: node.graph.context)
+
+
+class HgStateType(HgInjectableType):
+    def __init__(self):
+        super().__init__(object)
+
+    @property
+    def injector(self):
+        return Injector(lambda node: object())
 
 
 class HgCollectionType(HgScalarTypeMetaData):

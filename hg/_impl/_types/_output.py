@@ -29,7 +29,7 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
 
     @property
     def owning_graph(self) -> "Graph":
-        return self._owning_node.owning_graph
+        return self._owning_node.graph
 
     def subscribe_node(self, node: "Node"):
         self._subscribers.subscribe_node(node)

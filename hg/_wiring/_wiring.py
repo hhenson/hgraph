@@ -398,6 +398,7 @@ class WiringNodeInstance:
                              args=self.resolved_signature.args,
                              time_series_inputs=self.resolved_signature.time_series_inputs,
                              time_series_output=self.resolved_signature.output_type,
+                             scalars=self.resolved_signature.scalar_inputs,
                              src_location=self.resolved_signature.src_location)
 
     def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> tuple[
@@ -407,8 +408,7 @@ class WiringNodeInstance:
         node_index = len(nodes)
         node_map[self] = node_index  # Update this wiring nodes index in the graph
 
-        scalars = frozendict(
-            {k: v for k, v in self.inputs.items() if k in self.resolved_signature.scalar_inputs})
+        scalars = frozendict({k: t.injector if t.is_injectable else self.inputs[k] for k, t in self.resolved_signature.scalar_inputs.items()})
 
         node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
         # Extract out edges

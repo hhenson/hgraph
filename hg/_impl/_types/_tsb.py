@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Any, Mapping, Generic
+from typing import Optional, Any, Mapping, Generic, KeysView
 
 from hg import TimeSeriesDeltaValue, TimeSeries
 from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, DELTA_SCALAR
@@ -27,6 +27,9 @@ class PythonUnboundTimeSeriesBundleInput(PythonTimeSeriesInput, TimeSeriesBundle
             return self._ts_value[item]
         else:
             raise ValueError(f"'{item}' is not a valid property of TSB")
+
+    def keys(self) -> KeysView[str]:
+        return self._ts_value.keys()
 
     @property
     def scalar_value(self) -> ScalarValue:

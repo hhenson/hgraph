@@ -46,9 +46,16 @@ class NodeImpl:  # Node
             return {k: self.output[k] for k in self.signature.time_series_outputs}
 
     def initialise(self):
-        # TODO: Simplistic initialisation, this does not take into account STATE, or wired Outputs, etc.
-        self._kwargs = {arg: self.input[arg] if arg in self.signature.time_series_inputs else self.scalars[arg] for arg
-                        in self.signature.args}
+        pass
+
+    def _initialise_kwargs(self):
+        from hg._types._scalar_type_meta_data import Injector
+        extras = {}
+        for k, s in self.scalars.items():
+            if isinstance(s, Injector):
+                extras[k] = s(self)
+                self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
+                                k in self.signature.args}
 
     def eval(self):
         out = self.eval_fn(**self._kwargs)
@@ -57,6 +64,7 @@ class NodeImpl:  # Node
 
     def start(self):
         # TODO: Ultimately the start fn should have it's own call signature.
+        self._initialise_kwargs()
         if self.start_fn is not None:
             self.start_fn(**self._kwargs)
 
@@ -80,6 +88,7 @@ class GeneratorNodeImpl(NodeImpl):  # Node
 
 
     def start(self):
+        self._initialise_kwargs()
         self.generator = self.eval_fn(**self._kwargs)
         self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
 

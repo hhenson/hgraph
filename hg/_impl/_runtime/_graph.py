@@ -35,6 +35,8 @@ class GraphImpl:  # (Graph):
         self.schedule = [MIN_DT] * len(self.nodes)
         for node in self.nodes:
             node.graph = self
+        for node in self.nodes:
+            node.initialise()
 
     def schedule_node(self, node_id, time):
         self.schedule[node_id] = time

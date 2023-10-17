@@ -59,7 +59,6 @@ class PythonGraphEngine:  # (GraphEngine):
     _stop_requested: bool = False
     _start_time: datetime = None
     _end_time: datetime = None
-    _scheduler: [datetime] = None
     _execution_context: ExecutionContext = None
     _life_cycle_observers: [GraphExecutorLifeCycleObserver] = field(default_factory=list)
     _before_evaluation_notification: [callable] = field(default_factory=list)
@@ -129,7 +128,7 @@ class PythonGraphEngine:  # (GraphEngine):
                 nodes[i].eval() # This is only to move nodes on, won't call the before and after node eval here
 
         for i in range(self.graph.push_source_nodes_end, len(nodes)):
-            scheduled_time, node = self._scheduler[i], nodes[i]
+            scheduled_time, node = self.graph.schedule[i], nodes[i]
             if scheduled_time == now:
                 self.notify_before_node_evaluation(node)
                 node.eval()

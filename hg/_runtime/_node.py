@@ -34,6 +34,7 @@ class NodeSignature:
     args: tuple[str, ...]
     time_series_inputs: Optional[Mapping[str, "HgTimeSeriesTypeMetaData"]]
     time_series_output: Optional["HgTimeSeriesTypeMetaData"]
+    scalars: Optional[Mapping[str, "HgScalarTypeMetaData"]]
     src_location: "SourceCodeDetails"
 
 
