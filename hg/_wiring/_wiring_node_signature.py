@@ -61,6 +61,8 @@ class WiringNodeSignature:
     input_types: Mapping[str, HgTypeMetaData]  # Inputs are both scalar and time-series at this point
     output_type: Optional[HgTimeSeriesTypeMetaData]  # By definition outputs must be time-series if they are defined
     src_location: SourceCodeDetails
+    active_inputs: Optional[frozenset[str]]
+    valid_inputs: Optional[frozenset[str]]
     unresolved_args: tuple[str]
     time_series_args: tuple[str]
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
@@ -114,7 +116,9 @@ class WiringNodeSignature:
         return self.output_type.resolve(resolution_dict)
 
 
-def extract_signature(fn, wiring_node_type: WiringNodeType) -> WiringNodeSignature:
+def extract_signature(fn, wiring_node_type: WiringNodeType,
+                      active_inputs: Optional[frozenset[str]]=None,
+                      valid_inputs: Optional[frozenset[str]]=None) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
     :param fn:
@@ -152,6 +156,12 @@ def extract_signature(fn, wiring_node_type: WiringNodeType) -> WiringNodeSignatu
             f"sink node '{name}' has no time-series inputs (not a valid signature)"
         assert output_type is None, f"sink node '{name}' has an output (not a valid signature)"
 
+    if active_inputs:
+        assert all(a in input_types for a in active_inputs), \
+            f"active inputs {active_inputs} are not in the signature for {name}"
+    if valid_inputs:
+        assert all(a in input_types for a in valid_inputs), \
+            f"valid inputs {valid_inputs} are not in the signature for {name}"
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
 
@@ -161,6 +171,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType) -> WiringNodeSignatu
                                defaults=defaults,
                                input_types=input_types,
                                output_type=output_type,
+                               active_inputs=active_inputs,
+                               valid_inputs=valid_inputs,
                                src_location=SourceCodeDetails(file=filename, start_line=first_line),
                                unresolved_args=unresolved_inputs,
                                time_series_args=time_series_inputs,

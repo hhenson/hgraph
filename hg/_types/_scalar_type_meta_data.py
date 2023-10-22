@@ -122,7 +122,7 @@ class HgAtomicType(HgScalarTypeMetaData):
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().build_resolution_dict(resolution_dict, wired_type)
         if self.py_type != wired_type.py_type:
-            raise f"Type '{str(self)}' is not the same as the wired type '{str(wired_type)}'"
+            raise ParseError(f"Type '{str(self)}' is not the same as the wired type '{str(wired_type)}'")
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

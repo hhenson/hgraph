@@ -35,6 +35,10 @@ class WiringNodeClass:
     The template is instantiable to form a WiringNodeInstance, the instance can be used to build a wiring graph.
     """
 
+    def __init__(self, signature: WiringNodeSignature, fn: Callable):
+        self.signature: WiringNodeSignature = signature
+        self.fn: Callable = fn
+
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         raise NotImplementedError()
 
@@ -161,13 +165,19 @@ class BaseWiringNodeClass(WiringNodeClass):
                 return kwargs, self.signature
             else:
                 # Only need to re-create if we actually resolved the signature.
-                resolve_signature = WiringNodeSignature(self.signature.node_type, self.signature.name,
-                                                        self.signature.args,
-                                                        self.signature.defaults,
-                                                        resolved_inputs, resolved_output,
-                                                        self.signature.src_location, tuple(),
-                                                        self.signature.time_series_args,
-                                                        self.signature.label)
+                resolve_signature = WiringNodeSignature(
+                    node_type=self.signature.node_type,
+                    name=self.signature.name,
+                    args=self.signature.args,
+                    defaults=self.signature.defaults,
+                    input_types=resolved_inputs,
+                    output_type=resolved_output,
+                    src_location=self.signature.src_location,
+                    active_inputs=self.signature.active_inputs,
+                    valid_inputs=self.signature.valid_inputs,
+                    unresolved_args=tuple(),
+                    time_series_args=self.signature.time_series_args,
+                    label=self.signature.label)
                 if resolve_signature.is_resolved:
                     return kwargs, resolve_signature
                 else:
@@ -399,16 +409,19 @@ class WiringNodeInstance:
                              time_series_inputs=self.resolved_signature.time_series_inputs,
                              time_series_output=self.resolved_signature.output_type,
                              scalars=self.resolved_signature.scalar_inputs,
-                             src_location=self.resolved_signature.src_location)
+                             src_location=self.resolved_signature.src_location,
+                             active_inputs=self.resolved_signature.active_inputs,
+                             valid_inputs=self.resolved_signature.valid_inputs)
 
-    def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> tuple[
-        "NodeBuilder", set[Edge]]:
+    def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> \
+            tuple["NodeBuilder", set[Edge]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
         node_map[self] = node_index  # Update this wiring nodes index in the graph
 
-        scalars = frozendict({k: t.injector if t.is_injectable else self.inputs[k] for k, t in self.resolved_signature.scalar_inputs.items()})
+        scalars = frozendict({k: t.injector if t.is_injectable else self.inputs[k] for k, t in
+                              self.resolved_signature.scalar_inputs.items()})
 
         node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
         # Extract out edges
@@ -435,7 +448,6 @@ class WiringPort:
     @property
     def rank(self) -> int:
         return self.node_instance.rank
-
 
 # @dataclass(frozen=True)
 # class TSBWiringPort(WiringPort):

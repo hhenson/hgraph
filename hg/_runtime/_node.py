@@ -36,8 +36,8 @@ class NodeSignature:
     time_series_output: Optional["HgTimeSeriesTypeMetaData"]
     scalars: Optional[Mapping[str, "HgScalarTypeMetaData"]]
     src_location: "SourceCodeDetails"
-    active_inputs: Optional[set[str]] = None
-    valid_inputs: Optional[set[str]] = None
+    active_inputs: Optional[frozenset[str]] = None
+    valid_inputs: Optional[frozenset[str]] = None
 
 
 class Node(ComponentLifeCycle, Protocol):

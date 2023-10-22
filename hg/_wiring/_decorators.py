@@ -1,7 +1,5 @@
-
 from functools import partial
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
-
 
 if TYPE_CHECKING:
     from hg._wiring._wiring import WiringNodeClass
@@ -43,7 +41,7 @@ def push_source_node(cpp_impl):
     return partial(_create_node, WiringNodeType.PUSH_SOURCE_NODE, CppWiringNodeClass, cpp_impl)
 
 
-def sink_node(fn = None, /, cpp_impl=None, ticked: Sequence[str] = None, valid: Sequence[str] = None):
+def sink_node(fn=None, /, cpp_impl=None, ticked: Sequence[str] = None, valid: Sequence[str] = None):
     """
     Indicates the function definition represents a sink node. This type of node has no return type.
     Other than that it behaves in much the same way as compute node.
@@ -161,6 +159,10 @@ def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ti
 
     if node_type is WiringNodeType.GRPAH:
         kwargs['node_class'] = GraphWiringNodeClass
+        if ticked is not None:
+            raise ValueError("Graphs do not support ticked")
+        if valid is not None:
+            raise ValueError("Graphs do not support valid")
 
     if signature_fn is None:
         return partial(_create_node, **kwargs)
@@ -168,9 +170,8 @@ def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ti
         return _create_node(signature_fn, **kwargs)
 
 
-def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType"=None, node_class: Type[
-    "WiringNodeClass"] = None,
-                 ticked: Sequence[str] = None, valid: Sequence[str] = None) -> "WiringNodeClass":
+def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None, node_class: Type[
+    "WiringNodeClass"] = None, ticked: Sequence[str] = None, valid: Sequence[str] = None) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
@@ -179,4 +180,8 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType"=None, n
     if impl_fn is None:
         impl_fn = signature_fn
 
-    return node_class(extract_signature(signature_fn, node_type), impl_fn)
+    return node_class(
+        extract_signature(signature_fn, node_type,
+                          active_inputs=frozenset(ticked) if ticked else None,
+                          valid_inputs=frozenset(valid) if valid else None),
+        impl_fn)
