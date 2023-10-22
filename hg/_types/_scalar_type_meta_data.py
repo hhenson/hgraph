@@ -6,6 +6,7 @@ from types import GenericAlias
 from frozendict import frozendict
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable
 
+from hg._types._scalar_value import ScalarValue
 from hg._types._scalar_types import Size
 from hg._types._type_meta_data import HgTypeMetaData, ParseError, IncorrectTypeBinding
 
@@ -137,6 +138,7 @@ class HgAtomicType(HgScalarTypeMetaData):
             time: lambda: HgAtomicType(time, (str,)),
             timedelta: lambda: HgAtomicType(timedelta, (float, str,)),
             str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
+            ScalarValue: lambda: HgAtomicType(ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)),
         }.get(value_tp, lambda: None)()
 
 
