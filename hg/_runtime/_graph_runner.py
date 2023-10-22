@@ -9,7 +9,7 @@ __all__ = ("run_graph",)
 
 
 def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.BACK_TEST, start_time: datetime = MIN_ST,
-              end_time: datetime = MAX_ET, **kwargs):
+              end_time: datetime = MAX_ET, print_progress: bool=True, **kwargs):
     """
     Use this to initiate the graph engine run loop.
 
@@ -23,19 +23,29 @@ def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.BACK_TEST, sta
     :param run_mode: The mode to evaluate the graph in
     :param start_time: The time to start the graph
     :param end_time: The time to end the graph
+    :param print_progress: If true, print the progress of the graph (will go away and be replaced with logging later)
     :param kwargs: Any additional kwargs to pass to the graph.
     """
     from hg._builder._graph_builder import GraphBuilder
     from hg._wiring._graph_builder import wire_graph
-
+    if print_progress:
+        print()
+        print(f"Wiring Graph")
     if not isinstance(graph, GraphBuilder):
         graph_builder = wire_graph(graph, *args, **kwargs)
     else:
         graph_builder = graph
-
+    if print_progress:
+        print(f"Initialising Graph Engine")
     engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
     engine.initialise()
     try:
+        if print_progress:
+            print(f"Running Graph from: {start_time} to {end_time}")
         engine.run(start_time, end_time)
+        if print_progress:
+            print(f"Graph Complete")
     finally:
         engine.dispose()
+    if print_progress:
+        print("Done")

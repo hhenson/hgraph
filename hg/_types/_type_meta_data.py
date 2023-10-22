@@ -1,11 +1,28 @@
 from typing import TypeVar, Type, Optional
 
-
-__all__ = ('ParseError', 'HgTypeMetaData')
+__all__ = ('ParseError', 'HgTypeMetaData', 'WiringError', 'IncorrectTypeBinding')
 
 
 class ParseError(RuntimeError):
     ...
+
+
+class WiringError(RuntimeError):
+    ...
+
+
+class IncorrectTypeBinding(WiringError):
+
+    def __init__(self, expected_type: "HgTypeMetaData", actual_type: "HgTypeMetaData",
+                 arg: str = None,  *args, **kwargs):
+        if arg is None:
+            super().__init__(f"Type '{str(expected_type)}' is not the same as the wired type '{str(actual_type)}'", *args,
+                         **kwargs)
+        else:
+            super().__init__(f"{arg}: {str(expected_type)} <- {str(actual_type)} is not type compatible")
+        self.expected_type = expected_type  # The type expected by the signature
+        self.actual_type = actual_type  # The actual type wired in
+        self.arg = arg  # The argument name that was being wired
 
 
 class HgTypeMetaData:
@@ -13,7 +30,7 @@ class HgTypeMetaData:
     is_scalar: bool
     is_atomic: bool = False
     is_generic: bool = False  # Is this instance of metadata representing a template type (i.e. TypeVar)
-    is_injectable: bool = False # This indicates the type represent an injectable property (such as ExecutionContext)
+    is_injectable: bool = False  # This indicates the type represent an injectable property (such as ExecutionContext)
     py_type: Type  # The python type that represents this type
 
     @classmethod
@@ -64,6 +81,3 @@ class HgTypeMetaData:
         if wired_type is not None and type(self) != type(wired_type):
             raise ParseError(f"The input type '{type(self)}' "
                              f"does not match the supplied wiring type '{type(wired_type)}'")
-
-
-

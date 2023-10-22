@@ -33,7 +33,7 @@ class PythonNodeBuilder(NodeBuilder):
             node.input = ts_input
 
         if self.output_builder:
-            ts_output: TimeSeriesOutput = self.output_builder.make_instance(ownning_node=node)
+            ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
             node.output = ts_output
 
         return node

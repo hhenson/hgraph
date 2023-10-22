@@ -10,6 +10,7 @@ from hg._builder._graph_builder import Edge
 from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema
+from hg._types._type_meta_data import IncorrectTypeBinding, WiringError
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
@@ -17,16 +18,13 @@ if typing.TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
     from hg._runtime._node import NodeSignature, NodeTypeEnum
 
-__all__ = ("WiringError", "WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
+__all__ = ("WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
            "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort",)
 
 
 # TODO: Add ability to specify resolution of inputs / outputs at wiring time.
 #  In which case unresolved outputs are possible!
-
-class WiringError(RuntimeError):
-    ...
 
 
 class WiringNodeClass:
@@ -158,7 +156,23 @@ class BaseWiringNodeClass(WiringNodeClass):
             # Extract any additional required type resolution information from inputs
             kwarg_types = self._convert_kwargs_to_types(**kwargs)
             # Do the resolve to ensure types match as well as actually resolve the types.
-            resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
+            try:
+                resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
+            except IncorrectTypeBinding as e:
+                inp_value = kwargs[e.arg]
+                if isinstance(inp_value, WiringPort):
+                    inp_value = inp_value.node_instance.resolved_signature.signature
+                else:
+                    inp_value = str(inp_value)
+                msg = f"When resolving '{self.signature.signature}' \n" \
+                      f"Argument '{e.arg}: {e.expected_type}' <- '{e.actual_type}' from '{inp_value}'"
+                import sys
+                print(f"\n"
+                      f"Wiring Error\n"
+                      f"============\n"
+                      f"\n"
+                      f"{msg}", file=sys.stderr)
+                raise WiringError(msg) from e
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
             if self.signature.is_resolved:
@@ -181,7 +195,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 if resolve_signature.is_resolved:
                     return kwargs, resolve_signature
                 else:
-                    raise ParseError(f"{resolve_signature.name} was not able to resolve itself")
+                    raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
         except Exception as e:
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
             raise WiringError(f"Failure resolving signature, graph call stack:\n{path}") from e

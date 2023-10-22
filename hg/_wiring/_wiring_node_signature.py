@@ -7,7 +7,7 @@ from frozendict import frozendict
 from hg._types import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hg._types._type_meta_data import HgTypeMetaData
+from hg._types._type_meta_data import HgTypeMetaData, IncorrectTypeBinding
 from hg._wiring._source_code_details import SourceCodeDetails
 
 __all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
@@ -70,6 +70,13 @@ class WiringNodeSignature:
     label: Optional[str] = None  # A label if provided, this can help to disambiguate the node
 
     @property
+    def signature(self) -> str:
+        args = (f'{arg}: {str(self.input_types[arg])}'
+                for arg in self.args)
+        return_ = '' if self.output_type is None else f" -> {str(self.output_type)}"
+        return f"{self.name}({', '.join(args)}){return_}"
+
+    @property
     def is_resolved(self) -> bool:
         return not self.unresolved_args and (not self.output_type or self.output_type.is_resolved)
 
@@ -88,7 +95,10 @@ class WiringNodeSignature:
         resolution_dict: dict[TypeVar, HgTypeMetaData] = dict(pre_resolved_types) if pre_resolved_types else {}
         for arg, meta_data in self.input_types.items():
             # This will validate the input type against the signature's type so don't short-cut this logic!
-            meta_data.build_resolution_dict(resolution_dict, kwargs.get(arg))
+            try:
+                meta_data.build_resolution_dict(resolution_dict, kwargs.get(arg))
+            except IncorrectTypeBinding as e:
+                raise IncorrectTypeBinding(meta_data, kwargs[arg], arg) from e
         # now ensures all "resolved" items are actually resolved
         out_dict = {}
         all_resolved = True
@@ -117,8 +127,8 @@ class WiringNodeSignature:
 
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,
-                      active_inputs: Optional[frozenset[str]]=None,
-                      valid_inputs: Optional[frozenset[str]]=None) -> WiringNodeSignature:
+                      active_inputs: Optional[frozenset[str]] = None,
+                      valid_inputs: Optional[frozenset[str]] = None) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
     :param fn:
