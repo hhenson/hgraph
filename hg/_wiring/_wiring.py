@@ -63,6 +63,12 @@ class WiringNodeClass:
         """
         raise NotImplementedError()
 
+    def __eq__(self, other):
+        return self.signature == other.signature and self.fn == other.fn
+
+    def __hash__(self):
+        return hash(self.signature)
+
     def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature", scalars: Mapping[str, Any]) \
             -> "NodeBuilder":
         """Create the appropriate node builder for the node this wiring node represents
@@ -73,10 +79,12 @@ class WiringNodeClass:
         raise NotImplementedError()
 
 
-@dataclass(frozen=True, unsafe_hash=True)
 class BaseWiringNodeClass(WiringNodeClass):
-    signature: WiringNodeSignature
-    fn: Callable
+
+    def __init__(self, signature: WiringNodeSignature, fn: Callable):
+        super().__init__(signature, fn)
+        self.start_fn: Callable = None
+        self.stop_fn: Callable = None
 
     def __getitem__(self, item) -> WiringNodeClass:
         return PreResolvedWiringNodeWrapper(self, self._convert_item(item))
@@ -230,13 +238,30 @@ class BaseWiringNodeClass(WiringNodeClass):
             # output
             return WiringPort(wiring_node_instance)
 
+    def start(self, fn: Callable):
+        """Decorator to indicate the start function for a node"""
+        # TODO: validate the signature of the start function.
+        self.start_fn = fn
+        return self
 
-@dataclass(frozen=True, unsafe_hash=True)
+    def stop(self, fn: Callable):
+        """Decorator to indicate the stop function for a node"""
+        # TODO: validate the signature of the stop function.
+        self.stop_fn = fn
+        return self
+
+
 class PreResolvedWiringNodeWrapper(WiringNodeClass):
     """Wraps a WiringNodeClass_ instance with the associated resolution dictionary"""
 
     underlying_node: BaseWiringNodeClass
     resolved_types: dict[TypeVar, HgTypeMetaData]
+
+    def __init__(self, signature: WiringNodeSignature, fn: Callable,
+                 underlying_node: BaseWiringNodeClass, resolved_types: dict[TypeVar, HgTypeMetaData]):
+        super().__init__(signature, fn)
+        self.underlying_node = underlying_node
+        self.resolved_types = resolved_types
 
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         return self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
@@ -267,10 +292,7 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
                                           eval_fn=self.fn)
 
 
-@dataclass(frozen=True, unsafe_hash=True)
 class PythonWiringNodeClass(BaseWiringNodeClass):
-    start_fn: Callable = None
-    stop_fn: Callable = None
 
     # TODO: Put in logic to support the construction of start_fn and stop_fn
     # Using the syntax:

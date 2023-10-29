@@ -7,7 +7,7 @@ from frozendict import frozendict
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable
 
 from hg._types._scalar_value import ScalarValue
-from hg._types._scalar_types import Size
+from hg._types._scalar_types import Size, STATE
 from hg._types._type_meta_data import HgTypeMetaData, ParseError, IncorrectTypeBinding
 
 __all__ = ( "HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
@@ -179,7 +179,7 @@ class HgInjectableType(HgScalarTypeMetaData):
         from hg import ExecutionContext
         return {
             ExecutionContext: lambda: HgExecutionContextType(),
-            object: lambda: HgStateType(),
+            STATE: lambda: HgStateType(),
         }.get(value_tp, lambda: None)()
 
 @dataclass

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_scalar",
-           "is_compound_scalar")
+           "is_compound_scalar", "STATE")
 
 
 class _UnSet:
@@ -56,6 +56,12 @@ SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict, _UnSet,
                  CompoundScalar)
+
+
+class STATE:
+    """
+    State is basically just and object, used as a marker to indicate that this is a state object.
+    """
 
 
 def is_scalar(value) -> bool:
