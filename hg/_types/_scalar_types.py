@@ -58,10 +58,17 @@ SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, st
                  CompoundScalar)
 
 
-class STATE:
+class STATE(dict):
     """
-    State is basically just and object, used as a marker to indicate that this is a state object.
+    State is basically just a dictionary.
+    Add the ability to access the state as attributes.
     """
+
+    def __getattr__(self, item):
+        return self[item]
+
+    def __setattr__(self, key, value):
+        self[key] = value
 
 
 def is_scalar(value) -> bool:

@@ -1,5 +1,6 @@
 import functools
 from dataclasses import dataclass
+from inspect import signature
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from hg._runtime import NodeSignature, Graph, Node
@@ -79,12 +80,12 @@ class NodeImpl:  # Node
         self._initialise_kwargs()
         self._initialise_inputs()
         if self.start_fn is not None:
-            self.start_fn(**self._kwargs)
+            self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
 
     def stop(self):
         # TODO: Ultimately the stop fn should have it's own call signature.
         if self.stop_fn is not None:
-            self.stop_fn(**self._kwargs)
+            self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.

@@ -206,7 +206,7 @@ class HgStateType(HgInjectableType):
 
     @property
     def injector(self):
-        return Injector(lambda node: object())
+        return Injector(lambda node: STATE())
 
 
 class HgCollectionType(HgScalarTypeMetaData):

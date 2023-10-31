@@ -10,8 +10,9 @@ def record(ts: TIME_SERIES_TYPE, label: str = "out", record_delta_values: bool =
     """
     This node will record the values of the time series into the provided list.
     """
-    state.record_value.append(tuple(context.current_engine_time,
-                                                ts.delta_scalar_value if record_delta_values else ts.scalar_value))
+    state.record_value.append((context.current_engine_time,
+                               ts.delta_scalar_value.cast(object) if record_delta_values else ts.scalar_value.cast(
+                                   object)))
 
 
 @record.start

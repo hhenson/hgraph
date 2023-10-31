@@ -32,8 +32,10 @@ class PythonScalarValue(ScalarValue):
             return False
 
     def cast(self, tp: type):
+        if tp == object:
+            return self._value
         if tp == self._tp:
-            return self
+            return self._value
         else:
             raise TypeError(f"Cannot cast {self._tp} to {tp}")
 
