@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from hg._runtime import Graph, ExecutionContext
-from hg._runtime._constants import MAX_DT
+from hg._runtime._constants import MAX_DT, MIN_TD
 from hg._runtime._graph_engine import GraphEngine, RunMode, GraphExecutorLifeCycleObserver
 from hg._runtime._lifecycle import start_stop_context, start_guard, stop_guard
 
@@ -31,6 +31,7 @@ class BackTestExecutionContext(ExecutionContext):
     def current_engine_time(self, value: datetime):
         self._current_time = value
         self._wall_clock_time_at_current_time = datetime.now()
+        self._proposed_next_engine_time = MAX_DT
 
     @property
     def wall_clock_time(self) -> datetime:
@@ -46,6 +47,16 @@ class BackTestExecutionContext(ExecutionContext):
 
     def reset_push_has_pending_values(self):
         pass  # Nothing to do
+
+    def update_next_proposed_time(self, next_time: datetime):
+        if next_time == self._current_time:
+            return  # No proposals necessary
+        self._proposed_next_engine_time = max(self.next_cycle_engine_time,
+                                              min(self._proposed_next_engine_time, next_time))
+
+    @property
+    def next_cycle_engine_time(self) -> datetime:
+        return self._current_time + MIN_TD
 
 
 @dataclass
@@ -125,7 +136,7 @@ class PythonGraphEngine:  # (GraphEngine):
         if self._execution_context.push_has_pending_values:
             self._execution_context.reset_push_has_pending_values()
             for i in range(self.graph.push_source_nodes_end):
-                nodes[i].eval() # This is only to move nodes on, won't call the before and after node eval here
+                nodes[i].eval()  # This is only to move nodes on, won't call the before and after node eval here
 
         for i in range(self.graph.push_source_nodes_end, len(nodes)):
             scheduled_time, node = self.graph.schedule[i], nodes[i]

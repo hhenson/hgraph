@@ -61,3 +61,18 @@ class ExecutionContext:
         Wait until the proposed engine time is reached. In the case of a runtime context, this may end early if a
         push node is scheduled whilst waiting for the proposed engine time.
         """
+
+    @abstractmethod
+    def update_next_proposed_time(self, next_time: datetime):
+        """
+        This provides hints to the execution context as to the next potential update time. This method will
+        ensure the smallest next meaningful engine time is returned at the end of the evaluation cycle when
+        proposed_next_engine_time is called.
+        """
+
+    @property
+    @abstractmethod
+    def next_cycle_engine_time(self) -> datetime:
+        """
+        The next meaningful engine time after the current evaluation cycle.
+        """

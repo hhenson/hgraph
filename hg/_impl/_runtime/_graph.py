@@ -38,8 +38,13 @@ class GraphImpl:  # (Graph):
         for node in self.nodes:
             node.initialise()
 
-    def schedule_node(self, node_id, time):
-        self.schedule[node_id] = time
+    def schedule_node(self, node_ndx, time):
+        if time < self.context.current_engine_time:
+            raise RuntimeError(
+                f"Graph[{self.graph_id}] Trying to schedule node: {self.nodes[node_ndx].signature.signature}[{node_ndx}]"
+                f" for {time} but current time is {self.context.current_engine_time}")
+        self.schedule[node_ndx] = time
+        self.context.update_next_proposed_time(time)
 
     @start_guard
     def start(self):
@@ -53,4 +58,3 @@ class GraphImpl:  # (Graph):
 
     def dispose(self):
         ...
-

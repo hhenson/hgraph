@@ -109,10 +109,12 @@ class GeneratorNodeImpl(NodeImpl):  # Node
             self.output.apply_result(out)
             self.next_value = None
             self.eval()  # We are going to apply now! Prepare next step,
+            return
             # This should ultimately either produce no result or a result that is to be scheduled
 
         if self.next_value is not None:
             self.output.apply_result(self.next_value)
+            self.next_value = None
 
         if time is not None and out is not None:
             self.next_value = out
