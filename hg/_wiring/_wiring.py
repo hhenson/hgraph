@@ -124,7 +124,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                     # For injectables we expect the value to be None, and the type must already be resolved.
                     kwarg_types[k] = v
                 else:
-                    raise ParseError(f'{k}: {v} argument is required but not supplied')
+                    raise ParseError(
+                        f"In {self.signature.signature} the argument '{k}: {v}' is required but not supplied")
             if k in self.signature.time_series_args:
                 # This should then get a wiring node, and we would like to extract the output type,
                 # But this is optional so we should ensure that the type is present
@@ -210,6 +211,8 @@ class BaseWiringNodeClass(WiringNodeClass):
 
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
+        # TODO: Capture the call site information (line number / file etc.) for better error reporting.
+
         # Now validate types and resolve any un-resolved types and provide an updated signature.
         kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
                                                                            __pre_resolved_types__=__pre_resolved_types__,

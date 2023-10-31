@@ -17,7 +17,7 @@ class ReplaySource(Protocol):
 
 class SimpleArrayReplaySource(ReplaySource):
 
-    def __init__(self, values: list[Any], start_time: datetime=MIN_ST):
+    def __init__(self, values: list[Any], start_time: datetime = MIN_ST):
         self.values = values
         self.start_time = start_time
 
@@ -37,7 +37,7 @@ def set_replay_values(label: str, value: ReplaySource):
 
 
 @generator
-def replay(label: str, tp: type[TIME_SERIES_TYPE], context: ExecutionContext) -> TIME_SERIES_TYPE:
+def replay(label: str, tp: type[TIME_SERIES_TYPE], context: ExecutionContext = None) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
     The type of the elements of the sequence must be a delta value of the time series type.

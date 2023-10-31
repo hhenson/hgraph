@@ -78,3 +78,6 @@ class GlobalState(object):
 
     def __setstate__(self, state):
         self._state = state
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._state.get(key, default)
