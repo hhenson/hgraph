@@ -1,5 +1,5 @@
 from hg import graph, TS, run_graph, MIN_ST, MIN_TD
-from hg.nodes import set_replay_values, SimpleArrayReplaySource, replay, record, get_recorded_value
+from hg.nodes import set_replay_values, SimpleArrayReplaySource, replay, record, get_recorded_value, write_str
 
 
 def test_recorder():
@@ -15,6 +15,7 @@ def test_recorder():
     def main():
         value_ts = replay("test", TS[str])
         record(value_ts)
+        write_str(value_ts)
 
     run_graph(main)
 

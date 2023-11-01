@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -9,15 +10,11 @@ from hg._runtime._lifecycle import start_stop_context, start_guard, stop_guard
 __all__ = ("PythonGraphEngine",)
 
 
-class BackTestExecutionContext(ExecutionContext):
+class BaseExecutionContext(ExecutionContext):
 
     def __init__(self, current_time: datetime):
         self.current_engine_time = current_time
         self._proposed_next_engine_time: datetime = MAX_DT
-
-    def wait_until_proposed_engine_time(self, proposed_engine_time: datetime) -> datetime:
-        self._current_time = proposed_engine_time
-        return proposed_engine_time
 
     @property
     def proposed_next_engine_time(self) -> datetime:
@@ -30,23 +27,7 @@ class BackTestExecutionContext(ExecutionContext):
     @current_engine_time.setter
     def current_engine_time(self, value: datetime):
         self._current_time = value
-        self._wall_clock_time_at_current_time = datetime.now()
         self._proposed_next_engine_time = MAX_DT
-
-    @property
-    def wall_clock_time(self) -> datetime:
-        return self._current_time + self.engine_lag
-
-    @property
-    def engine_lag(self) -> timedelta:
-        return datetime.now() - self._wall_clock_time_at_current_time
-
-    @property
-    def push_has_pending_values(self) -> bool:
-        return False
-
-    def reset_push_has_pending_values(self):
-        pass  # Nothing to do
 
     def update_next_proposed_time(self, next_time: datetime):
         if next_time == self._current_time:
@@ -57,6 +38,80 @@ class BackTestExecutionContext(ExecutionContext):
     @property
     def next_cycle_engine_time(self) -> datetime:
         return self._current_time + MIN_TD
+
+
+class BackTestExecutionContext(BaseExecutionContext):
+
+    def __init__(self, current_time: datetime):
+        super().__init__(current_time)
+        self._wall_clock_time_at_current_time = datetime.utcnow()
+
+    def wait_until_proposed_engine_time(self, proposed_engine_time: datetime):
+        self.current_engine_time = proposed_engine_time
+
+    @property
+    def current_engine_time(self) -> datetime:
+        return self._current_time
+
+    @current_engine_time.setter
+    def current_engine_time(self, value: datetime):
+        self._current_time = value
+        self._wall_clock_time_at_current_time = datetime.utcnow()
+        self._proposed_next_engine_time = MAX_DT
+
+    @property
+    def wall_clock_time(self) -> datetime:
+        return self._current_time + self.engine_lag
+
+    @property
+    def engine_lag(self) -> timedelta:
+        return datetime.utcnow() - self._wall_clock_time_at_current_time
+
+    def mark_push_has_pending_values(self):
+        raise NotImplementedError("Back test engines should not contain push source nodes")
+
+    @property
+    def push_has_pending_values(self) -> bool:
+        return False
+
+    def reset_push_has_pending_values(self):
+        pass  # Nothing to do
+
+
+class RealtimeExecutionContext(BaseExecutionContext):
+
+    def __init__(self, current_time: datetime):
+        super().__init__(current_time)
+        self._push_has_pending_values: bool = False
+        self._push_pending_condition = threading.Condition()
+
+    def wait_until_proposed_engine_time(self, proposed_engine_time: datetime):
+        with self._push_pending_condition:
+            while datetime.utcnow() < proposed_engine_time and not self._push_has_pending_values:
+                sleep_time = (proposed_engine_time - datetime.utcnow()).total_seconds()
+                self._push_pending_condition.wait(sleep_time)
+            # It could be that a push node has triggered
+        self.current_engine_time = min(proposed_engine_time, datetime.utcnow())
+
+    @property
+    def wall_clock_time(self) -> datetime:
+        return datetime.utcnow()
+
+    @property
+    def engine_lag(self) -> timedelta:
+        return datetime.utcnow() - self.current_engine_time
+
+    def mark_push_has_pending_values(self):
+        with self._push_pending_condition:
+            self._push_has_pending_values = True
+            self._push_pending_condition.notify()
+
+    @property
+    def push_has_pending_values(self) -> bool:
+        return self._push_has_pending_values
+
+    def reset_push_has_pending_values(self):
+        self._push_has_pending_values = False
 
 
 @dataclass
@@ -83,7 +138,7 @@ class PythonGraphEngine:  # (GraphEngine):
         self._stop_requested = False
         match self.run_mode:
             case RunMode.REAL_TIME:
-                raise NotImplementedError()
+                self._execution_context = RealtimeExecutionContext(self._start_time)
             case RunMode.BACK_TEST:
                 self._execution_context = BackTestExecutionContext(self._start_time)
         self.graph.context = self._execution_context

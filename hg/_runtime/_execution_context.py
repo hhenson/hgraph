@@ -42,6 +42,12 @@ class ExecutionContext:
         The proposed next engine time, this is the time that the engine will advance to after the current evaluation.
         """
 
+    @abstractmethod
+    def mark_push_has_pending_values(self):
+        """
+        Mark that there are pending changes for push nodes.
+        """
+
     @property
     @abstractmethod
     def push_has_pending_values(self) -> bool:
@@ -56,7 +62,7 @@ class ExecutionContext:
         """
 
     @abstractmethod
-    def wait_until_proposed_engine_time(self, proposed_engine_time: datetime) -> datetime:
+    def wait_until_proposed_engine_time(self, proposed_engine_time: datetime):
         """
         Wait until the proposed engine time is reached. In the case of a runtime context, this may end early if a
         push node is scheduled whilst waiting for the proposed engine time.
