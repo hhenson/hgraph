@@ -1,6 +1,10 @@
 from functools import partial
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
+from frozendict import frozendict
+
+from hg import TIME_SERIES_TYPE
+
 if TYPE_CHECKING:
     from hg._wiring._wiring import WiringNodeClass
     from hg._wiring._wiring_node_signature import WiringNodeType
@@ -83,6 +87,29 @@ def generator(fn):
     from hg._wiring._wiring import PythonGeneratorWiringNodeClass
     from hg._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_class=PythonGeneratorWiringNodeClass)
+
+
+def push_queue(tp: type[TIME_SERIES_TYPE]):
+    """
+    Creates a push source node that supports injecting values into the graph asynchronously.
+    The function that is wrapped by this decorator will be called as a start lifecycle method.
+    The function must take as it's first parameter the sender callable.
+    It is possible to take additional scalar values that will be provided as kwargs.
+
+    For example:
+    ```Python
+        @push_queue(TS[bool])
+        def my_message_sender(sender: Callable[[SCALAR], None):
+            ...
+    """
+    from hg._wiring._wiring import PythonPushQueueWiringNodeClass
+    from hg._wiring._wiring_node_signature import WiringNodeType
+
+    return lambda fn: _create_node(_create_node_signature(
+        fn.__name__,
+        {k: v for k, v in fn.__annotations__.items() if k != fn.__code__.co_varnames[0]}, tp,
+        WiringNodeType.PUSH_SOURCE_NODE), impl_fn=fn,
+        node_type=WiringNodeType.PUSH_SOURCE_NODE, node_class=PythonPushQueueWiringNodeClass)
 
 
 def service(fn):
@@ -179,9 +206,34 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
     from hg._wiring._wiring_node_signature import extract_signature
     if impl_fn is None:
         impl_fn = signature_fn
+    from hg._wiring._wiring import WiringNodeSignature
+    signature = signature_fn if isinstance(signature_fn, WiringNodeSignature) else \
+        extract_signature(signature_fn, node_type, active_inputs=frozenset(ticked) if ticked else None,
+                          valid_inputs=frozenset(valid) if valid else None)
+    return node_class(signature, impl_fn)
 
-    return node_class(
-        extract_signature(signature_fn, node_type,
-                          active_inputs=frozenset(ticked) if ticked else None,
-                          valid_inputs=frozenset(valid) if valid else None),
-        impl_fn)
+
+def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType") -> Callable:
+    """
+    Create a function that takes the kwargs and returns the kwargs. This is used to create a function that
+    can be used to create a signature.
+    """
+    from hg._wiring._wiring import WiringNodeSignature
+    from hg import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
+
+    from hg import SourceCodeDetails
+    from pathlib import Path
+    signature = WiringNodeSignature(
+        node_type=node_type,
+        name=name,
+        args=tuple(kwargs.keys()),
+        defaults=frozendict(),
+        input_types=frozendict({k: HgScalarTypeMetaData.parse(v) for k, v in kwargs.items()}),
+        output_type=HgTimeSeriesTypeMetaData.parse(ret_type) if ret_type is not None else None,
+        src_location=SourceCodeDetails(Path(),0), # TODO: make this point to a real place in code.
+        active_inputs=None,
+        valid_inputs=None,
+        unresolved_args=tuple(),
+        time_series_args=tuple(),
+    )
+    return signature

@@ -302,6 +302,22 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
                                           eval_fn=self.fn)
 
 
+class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
+
+    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+        from hg._impl._builder import PythonPushQueueNodeBuilder
+        from hg import TimeSeriesBuilderFactory
+        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
+        output_type = node_signature.time_series_output
+        assert output_type is not None, "PythonPushQueueWiringNodeClass must have a time series output"
+        return PythonPushQueueNodeBuilder(node_ndx=node_ndx,
+                                        signature=node_signature,
+                                        scalars=scalars,
+                                        input_builder=None,
+                                        output_builder=factory.make_output_builder(output_type),
+                                        eval_fn=self.fn)
+
+
 class PythonWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":

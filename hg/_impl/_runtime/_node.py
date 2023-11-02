@@ -1,8 +1,11 @@
 import functools
+import threading
+from collections import deque
 from dataclasses import dataclass
 from inspect import signature
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
+from hg import ExecutionContext
 from hg._runtime import NodeSignature, Graph, Node
 
 if TYPE_CHECKING:
@@ -76,14 +79,12 @@ class NodeImpl:  # Node
             self.output.apply_result(out)
 
     def start(self):
-        # TODO: Ultimately the start fn should have it's own call signature.
         self._initialise_kwargs()
         self._initialise_inputs()
         if self.start_fn is not None:
             self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
 
     def stop(self):
-        # TODO: Ultimately the stop fn should have it's own call signature.
         if self.stop_fn is not None:
             self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 
@@ -120,3 +121,56 @@ class GeneratorNodeImpl(NodeImpl):  # Node
         if time is not None and out is not None:
             self.next_value = out
             self.graph.schedule_node(self.node_ndx, time)
+
+
+@dataclass
+class PythonPushQueueNodeImpl(NodeImpl):  # Node
+
+    receiver: "_SenderReceiverState" = None
+
+    def start(self):
+        self._initialise_kwargs()
+        self.receiver = _SenderReceiverState(lock=threading.RLock(), queue=deque(), context=self.graph.context)
+        self.eval_fn(self.receiver, **self._kwargs)
+
+    def eval(self):
+        value = self.receiver.dequeue()
+        if self.receiver:
+            self.graph.context.mark_push_has_pending_values()
+        return value
+
+    def stop(self):
+        self.receiver.stopped = True
+        self.receiver = None
+
+
+@dataclass
+class _SenderReceiverState:
+    lock: threading.RLock
+    queue: deque
+    context: ExecutionContext
+    stopped: bool = False
+
+    def __call__(self, value):
+        self.enqueue(value)
+
+    def enqueue(self, value):
+        with self.lock:
+            if self.stopped:
+                raise RuntimeError("Cannot enqueue into a stopped receiver")
+            self.queue.append(value)
+            self.context.mark_push_has_pending_values()
+
+    def dequeue(self):
+        with self.lock:
+            return self.queue.popleft() if self.queue else None
+
+    def __bool__(self):
+        with self.lock:
+            return bool(self.queue)
+
+    def __enter__(self):
+        self.lock.acquire()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.lock.release()
