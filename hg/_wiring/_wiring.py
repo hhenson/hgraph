@@ -1,3 +1,4 @@
+import inspect
 import typing
 from dataclasses import dataclass
 from types import GenericAlias
@@ -241,15 +242,21 @@ class BaseWiringNodeClass(WiringNodeClass):
             # output
             return WiringPort(wiring_node_instance)
 
+    def _validate_signature(self, fn):
+        sig = inspect.signature(fn)
+        args = self.signature.args
+        if not all(arg in args for arg in sig.parameters.keys()):
+            raise WiringError(f"{fn.__name__} has arguments that are not named in main signature {self.signature.name}")
+
     def start(self, fn: Callable):
         """Decorator to indicate the start function for a node"""
-        # TODO: validate the signature of the start function.
+        self._validate_signature(fn)
         self.start_fn = fn
         return self
 
     def stop(self, fn: Callable):
         """Decorator to indicate the stop function for a node"""
-        # TODO: validate the signature of the stop function.
+        self._validate_signature(fn)
         self.stop_fn = fn
         return self
 
@@ -296,12 +303,6 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
-
-    # TODO: Put in logic to support the construction of start_fn and stop_fn
-    # Using the syntax:
-    #  @<my_node_name>.start  # / stop
-    #  def _(...):
-    #      ...
 
     def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
         from hg._impl._builder import PythonNodeBuilder
