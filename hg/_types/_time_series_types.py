@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 __all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
            "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR",
-           "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable",)
+           "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable", "SIGNAL")
 
 
 class TimeSeriesPushQueue(Protocol):
@@ -347,3 +347,6 @@ class TimeSeriesIterable(Generic[K, V]):
         """
         Iterator over the keys and values of the values that have been deemed valid.
         """
+
+
+SIGNAL = TimeSeriesSignalInput

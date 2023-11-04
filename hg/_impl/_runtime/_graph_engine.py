@@ -1,20 +1,22 @@
 import threading
+from abc import ABC
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from hg._runtime import Graph, ExecutionContext
 from hg._runtime._constants import MAX_DT, MIN_TD
-from hg._runtime._graph_engine import GraphEngine, RunMode, GraphExecutorLifeCycleObserver
+from hg._runtime._graph_engine import RunMode, GraphExecutorLifeCycleObserver
 from hg._runtime._lifecycle import start_stop_context, start_guard, stop_guard
 
 __all__ = ("PythonGraphEngine",)
 
 
-class BaseExecutionContext(ExecutionContext):
+class BaseExecutionContext(ExecutionContext, ABC):
 
     def __init__(self, current_time: datetime):
         self.current_engine_time = current_time
         self._proposed_next_engine_time: datetime = MAX_DT
+        self._stop_requested = False
 
     @property
     def proposed_next_engine_time(self) -> datetime:
@@ -38,6 +40,13 @@ class BaseExecutionContext(ExecutionContext):
     @property
     def next_cycle_engine_time(self) -> datetime:
         return self._current_time + MIN_TD
+
+    def request_engine_stop(self):
+        self._stop_requested = True
+
+    @property
+    def is_stop_requested(self) -> bool:
+        return self._stop_requested
 
 
 class BackTestExecutionContext(BaseExecutionContext):
@@ -122,10 +131,9 @@ class PythonGraphEngine:  # (GraphEngine):
     graph: Graph
     run_mode: RunMode
     is_started: bool = False
-    _stop_requested: bool = False
     _start_time: datetime = None
     _end_time: datetime = None
-    _execution_context: ExecutionContext = None
+    _execution_context: ExecutionContext | None = None
     _life_cycle_observers: [GraphExecutorLifeCycleObserver] = field(default_factory=list)
     _before_evaluation_notification: [callable] = field(default_factory=list)
     _after_evaluation_notification: [callable] = field(default_factory=list)
@@ -135,7 +143,6 @@ class PythonGraphEngine:  # (GraphEngine):
 
     @start_guard
     def start(self):
-        self._stop_requested = False
         match self.run_mode:
             case RunMode.REAL_TIME:
                 self._execution_context = RealtimeExecutionContext(self._start_time)
@@ -159,14 +166,11 @@ class PythonGraphEngine:  # (GraphEngine):
         self.notify_after_stop()
         self._execution_context = None
 
-    def request_stop(self):
-        self._stop_requested = True
-
     def dispose(self):
         self.graph.dispose()
 
     def advance_engine_time(self):
-        if self._stop_requested:
+        if self._execution_context.is_stop_requested:
             self._execution_context.current_engine_time = self._end_time
             return
 

@@ -82,3 +82,16 @@ class ExecutionContext:
         """
         The next meaningful engine time after the current evaluation cycle.
         """
+
+    @abstractmethod
+    def request_engine_stop(self):
+        """
+        Request the engine to evaluation.
+        """
+
+    @property
+    @abstractmethod
+    def is_stop_requested(self) -> bool:
+        """
+        Returns True if the engine has been requested to stop.
+        """

@@ -1,7 +1,6 @@
 import pytest
 
-from hg import ParseError
-from hg._wiring._wiring_errors import WiringError
+from hg import WiringError
 from hg.nodes import add_
 from hg.test import eval_node
 

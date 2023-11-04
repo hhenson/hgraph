@@ -1,14 +1,16 @@
+from abc import ABC
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
-from hg._types._time_series_types import TimeSeriesInput
-
+from hg._impl._types._output import PythonTimeSeriesOutput
+from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 
 __all__ = ("PythonTimeSeriesInput",)
 
 
 @dataclass
-class PythonTimeSeriesInput(TimeSeriesInput):
+class PythonTimeSeriesInput(TimeSeriesInput, ABC):
     _owning_node: "Node" = None
     _parent_input: "TimeSeriesInput" = None
 
@@ -28,3 +30,70 @@ class PythonTimeSeriesInput(TimeSeriesInput):
     def has_parent_input(self) -> bool:
         return self._parent_input is not None
 
+
+@dataclass
+class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
+    """
+    Bound time-series values will have a single output mapped to it.
+    This allows for the simple implementation of the active/passive state.
+    Also for the Python implementation we can just drop the typing on the properties for value and delta_value
+    and these can be supported directly.
+    """
+    _output: TimeSeriesOutput = None
+    _active: bool = False
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    def make_active(self):
+        if not self._active:
+            self._active = True
+            self._output.subscribe_node(self.owning_node)
+
+    def make_passive(self):
+        if self._active:
+            self._active = False
+            self._output.un_subscribe_node(self.owning_node)
+
+    @property
+    def output(self) -> TimeSeriesOutput:
+        return self._output
+
+    @output.setter
+    def output(self, output: TimeSeriesOutput):
+        active = self.active
+        self.make_passive()  # Ensure we are unsubscribed from the old output.
+        self._output = output
+        if active:
+            self.make_active()  # If we were active now subscribe to the new output,
+            # this is important even if we were not bound previously as this will ensure the new output gets
+            # subscribed to
+
+    @property
+    def bound(self) -> bool:
+        return self._output is not None
+
+    @property
+    def value(self):
+        return self._output.value
+
+    @property
+    def delta_value(self):
+        return self._output.delta_value
+
+    @property
+    def modified(self) -> bool:
+        return self._output.modified
+
+    @property
+    def valid(self) -> bool:
+        return self._output.valid
+
+    @property
+    def all_valid(self) -> bool:
+        return self._output.all_valid
+
+    @property
+    def last_modified_time(self) -> datetime:
+        return self._output.last_modified_time

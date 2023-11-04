@@ -36,10 +36,11 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         from hg._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
         from hg._types._tsl_meta_data import HgTSLTypeMetaData, HgTSLOutTypeMetaData
         from hg._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
+        from hg._types._ts_signal_meta_data import HgSignalMetaData
 
         parses = [HgTSTypeMetaData, HgTSOutTypeMetaData, HgTSLTypeMetaData, HgTSLOutTypeMetaData, HgTSSTypeMetaData,
                   HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
-                  HgTSBTypeMetaData, HgTsTypeVarTypeMetaData]
+                  HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgSignalMetaData]
 
         for parser in parses:
             if meta_data := parser.parse(value):

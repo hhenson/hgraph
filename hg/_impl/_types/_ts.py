@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Generic, Optional
 
-from hg._impl._types._input import PythonTimeSeriesInput
+from hg._impl._types._input import PythonTimeSeriesInput, PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._impl._types._scalar_value import PythonScalarValue
 from hg._runtime._constants import MIN_DT
@@ -80,63 +80,8 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
 
 
 @dataclass
-class PythonTimeSeriesValueInput(PythonTimeSeriesInput, TimeSeriesValueInput[SCALAR], Generic[SCALAR]):
-
-    _output: PythonTimeSeriesValueOutput = None
-    _active: bool = False
-
-    @property
-    def output(self) -> TimeSeriesValueOutput[SCALAR]:
-        return self._output
-
-    @output.setter
-    def output(self, output: TimeSeriesValueOutput[SCALAR]):
-        active = self.active
-        self.make_passive()  # Ensure we are unsubscribed from the old output.
-        self._output = output
-        if active:
-            self.make_active()  # If we were active now subscribe to the new output,
-            # this is important even if we were not bound previously as this will ensure the new output gets
-            # subscribed to
-
-    @property
-    def bound(self) -> bool:
-        return True
-
-    @property
-    def active(self) -> bool:
-        return self._active
-
-    def make_active(self):
-        if not self._active:
-            self._active = True
-            self._output.subscribe_node(self.owning_node)
-
-    def make_passive(self):
-        if self._active:
-            self._active = False
-            self._output.un_subscribe_node(self.owning_node)
-
-    @property
-    def value(self) -> Optional[SCALAR]:
-        return self._output.value
-
-    @property
-    def delta_value(self) -> Optional[DELTA_SCALAR]:
-        return self._output.delta_value
-
-    @property
-    def modified(self) -> bool:
-        return self._output.modified
-
-    @property
-    def valid(self) -> bool:
-        return self._output.valid
-
-    @property
-    def all_valid(self) -> bool:
-        return self._output.all_valid
-
-    @property
-    def last_modified_time(self) -> datetime:
-        return self._output.last_modified_time
+class PythonTimeSeriesValueInput(PythonBoundTimeSeriesInput, TimeSeriesValueInput[SCALAR], Generic[SCALAR]):
+    """
+    The only difference between a PythonBoundTimeSeriesInput and a PythonTimeSeriesValueInput is that the
+    signature of value etc.
+    """
