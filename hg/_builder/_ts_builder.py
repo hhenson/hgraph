@@ -38,6 +38,15 @@ class TSInputBuilder(InputBuilder):
         ...
 
 
+class TSSignalInputBuilder(InputBuilder):
+
+    def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
+        ...
+
+    def release_instance(self, item: TimeSeriesInput):
+        ...
+
+
 @dataclass(frozen=True)
 class TSBInputBuilder(InputBuilder):
 

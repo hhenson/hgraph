@@ -1,6 +1,6 @@
 from typing import Any
 
-from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST
+from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, MIN_DT
 from hg.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
 
 
@@ -33,7 +33,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
                             f"signature type is '{node.signature.input_types[ts_arg]}'")
                     ts_type = HgTSTypeMetaData(ts_type)
                     print(f"Auto resolved type for '{ts_arg}' to '{ts_type}'")
-                    ts_type = ts_type.py_type
+                ts_type = ts_type.py_type
             inputs[ts_arg] = replay(ts_arg, ts_type)
         for scalar_args in node.signature.scalar_inputs.keys():
             inputs[scalar_args] = kwargs_[scalar_args]
@@ -53,6 +53,9 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     run_graph(eval_node_graph)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
+    if max_count == 0 and results:
+        # For push nodes, there are no time-series inputs, so we compute size of the result from the result.
+        max_count = int((results[-1][0] - MIN_DT) / MIN_TD)
     # Extract the results into a list of values without time-stamps, place a None when there is no recorded value.
     if results:
         out = []

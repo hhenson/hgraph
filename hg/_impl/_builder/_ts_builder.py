@@ -4,14 +4,13 @@ from typing import Mapping, cast
 from frozendict import frozendict
 
 from hg._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
-                                     TSInputBuilder, TSBInputBuilder)
-from hg._impl._types._ts import PythonTimeSeriesValueOutput, PythonTimeSeriesValueInput
+                                     TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder)
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._time_series_types import TimeSeriesOutput
 from hg._types._ts_meta_data import HgTSTypeMetaData
+from hg._types._ts_signal_meta_data import HgSignalMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData
 from hg._runtime._node import Node
-from hg._impl._types._tsb import PythonUnboundTimeSeriesBundleInput
 
 __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBuilderFactory')
 
@@ -19,6 +18,7 @@ __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBui
 class PythonTSOutputBuilder(TSOutputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hg import PythonTimeSeriesValueOutput
         return PythonTimeSeriesValueOutput(_owning_node=owning_node, _parent_output=owning_output,
                                            _tp=self.value_tp.py_type)
 
@@ -29,7 +29,18 @@ class PythonTSOutputBuilder(TSOutputBuilder):
 class PythonTSInputBuilder(TSInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
+        from hg import PythonTimeSeriesValueInput
         return PythonTimeSeriesValueInput(_owning_node=owning_node, _parent_input=owning_input)
+
+    def release_instance(self, item):
+        pass
+
+
+class PythonSignalInputBuilder(TSSignalInputBuilder):
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hg import PythonTimeSeriesSignal
+        return PythonTimeSeriesSignal(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
         pass
@@ -45,6 +56,7 @@ class PythonTSBInputBuilder(TSBInputBuilder):
             {k: factory.make_input_builder(v) for k, v in self.schema.items()}))
 
     def make_instance(self, owning_node=None, owning_input=None):
+        from hg import PythonUnboundTimeSeriesBundleInput
         tsb = PythonUnboundTimeSeriesBundleInput[self.schema](_owning_node=owning_node, _parent_input=owning_input)
         tsb._ts_value = {k: v.make_instance(owning_input=tsb) for k, v in
                          self.schema_builders.items()}
@@ -64,7 +76,8 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
         return {
             HgTSTypeMetaData: lambda: PythonTSInputBuilder(value_tp=cast(HgTSTypeMetaData, value_tp).value_scalar_tp),
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
-                schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type)
+                schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type),
+            HgSignalMetaData: lambda: PythonSignalInputBuilder(),
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:

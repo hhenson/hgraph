@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from hg import TS, run_graph, RunMode, GlobalState, push_queue, graph
-from hg.nodes import write_str, record, get_recorded_value
+from hg.nodes import write_str, record, get_recorded_value, const, stop_engine, if_, eq_, empty_ts, debug_print
 
 
 def test_push_queue():
@@ -23,6 +23,9 @@ def test_push_queue():
         messages = my_message_sender(("1", "2", "3"))
         write_str(messages)
         record(messages)
+        eq_check = eq_(messages, const("3"))
+        trigger = if_(eq_check, messages, empty_ts(TS[str]))
+        stop_engine(trigger, "Completed Processing request")
 
     now = datetime.utcnow()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.

@@ -72,17 +72,19 @@ def generator(fn):
 
     For example:
     ```Python
+
     @generator
     def signal() -> TS[bool]:
         while True:
             yield (timedelta(milliseconds=1), True)
 
+    ```
 
     This will cause an infinite sequence of ticks (with value of True) that will tick one a millisecond.
 
     The generator will fetch the first tick during the start life-cycle of the node. If no tick is returned, the
     generator WILL do NOTHING.
-    ```
+
     """
     from hg._wiring._wiring import PythonGeneratorWiringNodeClass
     from hg._wiring._wiring_node_signature import WiringNodeType
@@ -101,6 +103,7 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
         @push_queue(TS[bool])
         def my_message_sender(sender: Callable[[SCALAR], None):
             ...
+    ```
     """
     from hg._wiring._wiring import PythonPushQueueWiringNodeClass
     from hg._wiring._wiring_node_signature import WiringNodeType

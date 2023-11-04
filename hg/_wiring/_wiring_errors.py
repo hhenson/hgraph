@@ -7,8 +7,8 @@ from hg._wiring._wiring_context import WIRING_CONTEXT
 if typing.TYPE_CHECKING:
     from hg._types._type_meta_data import HgTypeMetaData
 
-
-__all__ = ("WiringError", "ArgumentBindingErrors", "IncorrectTypeBinding", "TemplateTypeIncompatibleResolution")
+__all__ = ("WiringError", "ArgumentBindingErrors", "IncorrectTypeBinding", "TemplateTypeIncompatibleResolution",
+           "MissingInputsError")
 
 
 class WiringError(RuntimeError, ABC):
@@ -96,4 +96,21 @@ class TemplateTypeIncompatibleResolution(ArgumentBindingErrors):
               f"Argument '{self.arg}: {self.signature.input_types[self.arg]}' " \
               f" <- '{self.input_value}'\n" \
               f"Redefines template to '{self.new_resolution}'"
+        self._print_error(msg)
+
+
+class MissingInputsError(WiringError):
+
+    def __init__(self, kwargs):
+        self.kwargs = kwargs
+        self.signature = WIRING_CONTEXT.current_signature
+        self.missing_inputs = {k: self.signature.input_types[k] for k in self.signature.args if k not in self.kwargs}
+        super().__init__(f"Missing inputs: {self.missing_inputs}")
+
+    def print_error(self):
+        from hg import WiringPort
+        provided_inputs = {k: str(v.output_type) if isinstance(v, WiringPort) else str(v) for k, v in self.kwargs.items()}
+        msg = f"When resolving '{self.signature.signature}' \n" \
+              f"Missing Inputs: {self.missing_inputs}\n" \
+              f"Provided Inputs: {provided_inputs}"
         self._print_error(msg)

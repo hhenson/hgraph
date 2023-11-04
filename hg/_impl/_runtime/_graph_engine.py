@@ -171,7 +171,7 @@ class PythonGraphEngine:  # (GraphEngine):
 
     def advance_engine_time(self):
         if self._execution_context.is_stop_requested:
-            self._execution_context.current_engine_time = self._end_time
+            self._execution_context.current_engine_time = self._end_time + MIN_TD
             return
 
         proposed_next_engine_time = min(self._execution_context.proposed_next_engine_time, self._end_time + MIN_TD)

@@ -7,14 +7,14 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping
 from frozendict import frozendict
 
 from hg._builder._graph_builder import Edge
-from hg._types._type_meta_data import HgTypeMetaData, ParseError
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema
+from hg._types._type_meta_data import HgTypeMetaData, ParseError
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
-from hg._wiring._wiring_errors import WiringError
+from hg._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 if typing.TYPE_CHECKING:
@@ -97,8 +97,7 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, **kwargs) -> dict[str,
     kwargs_ |= kwargs  # Merge in the current kwargs
     kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
     if len(kwargs_) < len(signature.args):
-        raise SyntaxError(
-            f"[{signature.signature}] Missing the following inputs: {[k for k in signature.args if k not in kwargs_]}")
+        raise MissingInputsError(kwargs_)
     if any(arg not in kwargs_ for arg in signature.args):
         raise SyntaxError(f"[{signature.signature}] Has incorrect kwargs names "
                           f"{[arg for arg in kwargs_ if arg not in signature.args]} "
@@ -130,40 +129,41 @@ class BaseWiringNodeClass(WiringNodeClass):
         # We only need to extract un-resolved values
         kwarg_types = {}
         for k, v in self.signature.input_types.items():
-            arg = kwargs.get(k, self.signature.defaults.get(k))
-            if arg is None:
-                if v.is_injectable:
-                    # For injectables we expect the value to be None, and the type must already be resolved.
-                    kwarg_types[k] = v
-                else:
-                    raise ParseError(
-                        f"In {self.signature.signature} the argument '{k}: {v}' is required but not supplied")
-            if k in self.signature.time_series_args:
-                # This should then get a wiring node, and we would like to extract the output type,
-                # But this is optional so we should ensure that the type is present
-                if not isinstance(arg, WiringPort):
-                    raise ParseError(f'{k}: {v} = {arg}, argument is not a time-series value')
-                if arg.output_type:
-                    kwarg_types[k] = arg.output_type
-                else:
-                    raise ParseError(
-                        f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
-            elif type(v) is HgTypeOfTypeMetaData:
-                if not isinstance(arg, (type, GenericAlias, _GenericAlias)):
-                    raise ParseError(f"Input {k} in {self.signature.name} is expected to be a type, "
-                                     f"but got '{arg}' instead")
-                v = HgTypeMetaData.parse(arg)
-                kwarg_types[k] = HgTypeOfTypeMetaData(v)
-            else:
-                kwarg_types[k] = (tp := HgScalarTypeMetaData.parse(arg))
-                if tp is None:
-                    if k in self.signature.unresolved_args:
-                        raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
-                                         f"but we require type resolution")
-                    else:
-                        # If the signature was not unresolved, then we can use the signature, but the input value
-                        # May yet be incorrectly typed.
+            with WiringContext(current_arg=k):
+                arg = kwargs.get(k, self.signature.defaults.get(k))
+                if arg is None:
+                    if v.is_injectable:
+                        # For injectables we expect the value to be None, and the type must already be resolved.
                         kwarg_types[k] = v
+                    else:
+                        raise ParseError(
+                            f"In {self.signature.signature} the argument '{k}: {v}' is required but not supplied")
+                if k in self.signature.time_series_args:
+                    # This should then get a wiring node, and we would like to extract the output type,
+                    # But this is optional so we should ensure that the type is present
+                    if not isinstance(arg, WiringPort):
+                        raise ParseError(f'{k}: {v} = {arg}, argument is not a time-series value')
+                    if arg.output_type:
+                        kwarg_types[k] = arg.output_type
+                    else:
+                        raise ParseError(
+                            f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
+                elif type(v) is HgTypeOfTypeMetaData:
+                    if not isinstance(arg, (type, GenericAlias, _GenericAlias)):
+                        # This is not a type of something (Have seen this as being an instance of HgTypeMetaData)
+                        raise IncorrectTypeBinding(v, arg)
+                    v = HgTypeMetaData.parse(arg)
+                    kwarg_types[k] = HgTypeOfTypeMetaData(v)
+                else:
+                    kwarg_types[k] = (tp := HgScalarTypeMetaData.parse(arg))
+                    if tp is None:
+                        if k in self.signature.unresolved_args:
+                            raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
+                                             f"but we require type resolution")
+                        else:
+                            # If the signature was not unresolved, then we can use the signature, but the input value
+                            # May yet be incorrectly typed.
+                            kwarg_types[k] = v
         return kwarg_types
 
     def _validate_and_resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData], **kwargs) \

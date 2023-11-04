@@ -16,4 +16,4 @@ def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, cont
         value = ts.delta_value
     else:
         value = ts.value
-    print(f"[{context.current_engine_time}] {label}: {value}")
+    print(f"[{context.wall_clock_time}][{context.current_engine_time}] {label}: {value}")

@@ -1,9 +1,8 @@
 from typing import Type
 
-from hg import generator, SCALAR, TIME_SERIES_TYPE, ExecutionContext, TS
+from hg import generator, SCALAR, TIME_SERIES_TYPE, ExecutionContext, TS, MIN_DT
 
-
-__all__ = ("const",)
+__all__ = ("const", "empty_ts")
 
 
 @generator
@@ -19,3 +18,17 @@ def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], context: Execu
     """
     yield context.current_engine_time, value
 
+
+@generator
+def empty_ts(tp: Type[TIME_SERIES_TYPE] ) -> TIME_SERIES_TYPE:
+    """
+    Produces an empty time-series.
+    In order to use this the user must define the type of the time-series expected by the input, for example:
+
+    ```Python
+
+        if_(condition, const("True"), empty_ts(TS[str]))
+
+    ```
+    """
+    yield (MIN_DT, None)
