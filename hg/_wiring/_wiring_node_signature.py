@@ -7,8 +7,9 @@ from frozendict import frozendict
 from hg._types import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hg._types._type_meta_data import HgTypeMetaData, IncorrectTypeBinding
+from hg._types._type_meta_data import HgTypeMetaData
 from hg._wiring._source_code_details import SourceCodeDetails
+from hg._wiring._wiring_context import WiringContext
 
 __all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
            "extract_hg_time_series_type", "extract_scalar_type")
@@ -19,7 +20,7 @@ class WiringNodeType(Enum):
     PULL_SOURCE_NODE = 1
     COMPUTE_NODE = 2
     SINK_NODE = 3
-    GRPAH = 4
+    GRAPH = 4
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
@@ -95,10 +96,8 @@ class WiringNodeSignature:
         resolution_dict: dict[TypeVar, HgTypeMetaData] = dict(pre_resolved_types) if pre_resolved_types else {}
         for arg, meta_data in self.input_types.items():
             # This will validate the input type against the signature's type so don't short-cut this logic!
-            try:
+            with WiringContext(current_arg=arg):
                 meta_data.build_resolution_dict(resolution_dict, kwargs.get(arg))
-            except IncorrectTypeBinding as e:
-                raise IncorrectTypeBinding(meta_data, kwargs[arg], arg) from e
         # now ensures all "resolved" items are actually resolved
         out_dict = {}
         all_resolved = True

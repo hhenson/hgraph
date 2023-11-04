@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from hg import ScalarValue
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
-           "TimeSeriesBundleOutput")
+           "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema")
 
 
 class TimeSeriesSchema(AbstractSchema):

@@ -1,6 +1,6 @@
 from typing import Any
 
-from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData
+from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST
 from hg.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
 
 
@@ -14,8 +14,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     in resolving correct types when setting up the replay nodes.
     """
 
-    # kwargs_ = prepare_kwargs(node, *args, **kwargs)  # TODO extract values when args are supplied
-    kwargs_ = kwargs
+    kwargs_ = prepare_kwargs(node.signature, *args, **kwargs)
 
     @graph
     def eval_node_graph():
@@ -27,7 +26,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
                 ts_type: HgTypeMetaData = node.signature.input_types[ts_arg]
                 if not ts_type.is_resolved:
                     # Attempt auto resolve
-                    ts_type = HgTypeMetaData.parse(kwargs_[ts_arg][0])
+                    ts_type = HgTypeMetaData.parse(next(i for i in kwargs_[ts_arg] if i is not None))
                     if ts_type is None or not ts_type.is_resolved:
                         raise RuntimeError(
                             f"Unable to auto resolve type for '{ts_arg}', "
@@ -46,8 +45,11 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
             record(out)
 
     GlobalState.reset()
+    max_count = 0
     for ts_arg in node.signature.time_series_inputs.keys():
-        set_replay_values(ts_arg, SimpleArrayReplaySource(kwargs_[ts_arg]))
+        v = kwargs_[ts_arg]
+        max_count = max(max_count, len(v))
+        set_replay_values(ts_arg, SimpleArrayReplaySource(v))
     run_graph(eval_node_graph)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
@@ -56,8 +58,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
         out = []
         result_iter = iter(results)
         result = next(result_iter)
-        for t in _time_iter(results[0][0], results[-1][0], MIN_TD):
-            if t == result[0]:
+        for t in _time_iter(MIN_ST, MIN_ST + max_count*MIN_TD, MIN_TD):
+            if result and t == result[0]:
                 out.append(result[1])
                 result = next(result_iter, None)
             else:
@@ -67,6 +69,6 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
 
 def _time_iter(start, end, delta):
     t = start
-    while t <= end:
+    while t < end:
         yield t
         t += delta

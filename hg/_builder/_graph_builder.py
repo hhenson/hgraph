@@ -8,7 +8,7 @@ from hg._runtime._graph import Graph
 if typing.TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
 
-__all__ = ("Edge", "GraphBuilder")
+__all__ = ("Edge", "GraphBuilder", "GraphBuilderFactory")
 
 
 @dataclass(frozen=True)

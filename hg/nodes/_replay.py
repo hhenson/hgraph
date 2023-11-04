@@ -49,4 +49,5 @@ def replay(label: str, tp: type[TIME_SERIES_TYPE], context: ExecutionContext = N
     if source is None:
         raise ValueError(f"Replay source with label '{label}' does not exist")
     for ts, v in source:
-        yield ts, v
+        if v is not None:
+            yield ts, v

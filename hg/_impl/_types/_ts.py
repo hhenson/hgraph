@@ -55,7 +55,7 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
 
     @property
     def valid(self) -> bool:
-        return self.owning_graph.context.current_engine_time > MIN_DT
+        return self.last_modified_time > MIN_DT
 
     @property
     def all_valid(self) -> bool:

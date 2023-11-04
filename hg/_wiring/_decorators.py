@@ -3,7 +3,7 @@ from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
-from hg import TIME_SERIES_TYPE
+from hg._types._time_series_types import TIME_SERIES_TYPE
 
 if TYPE_CHECKING:
     from hg._wiring._wiring import WiringNodeClass
@@ -61,7 +61,7 @@ def graph(fn):
     any application. The main graph.
     """
     from hg._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.GRPAH, fn)
+    return _node_decorator(WiringNodeType.GRAPH, fn)
 
 
 def generator(fn):
@@ -184,7 +184,7 @@ def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ti
         kwargs['node_class'] = CppWiringNodeClass
         kwargs['impl_fn'] = cpp_impl
 
-    if node_type is WiringNodeType.GRPAH:
+    if node_type is WiringNodeType.GRAPH:
         kwargs['node_class'] = GraphWiringNodeClass
         if ticked is not None:
             raise ValueError("Graphs do not support ticked")

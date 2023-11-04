@@ -7,7 +7,7 @@ def test_extract_fn():
     def my_fn(a: TS[int], b: str = "const") -> TS[str]:
         pass
 
-    signature = extract_signature(my_fn, WiringNodeType.GRPAH)
+    signature = extract_signature(my_fn, WiringNodeType.GRAPH)
 
     assert signature.args == ("a", "b")
     assert len(signature.defaults) == 1

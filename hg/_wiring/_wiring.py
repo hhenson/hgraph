@@ -6,13 +6,15 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping
 
 from frozendict import frozendict
 
-from hg import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._builder._graph_builder import Edge
-from hg._types import HgTypeMetaData, HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, ParseError
-from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData
+from hg._types._type_meta_data import HgTypeMetaData, ParseError
+from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
+from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema
-from hg._types._type_meta_data import IncorrectTypeBinding, WiringError
 from hg._wiring._source_code_details import SourceCodeDetails
+from hg._wiring._wiring_context import WiringContext
+from hg._wiring._wiring_errors import WiringError
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 if typing.TYPE_CHECKING:
@@ -21,7 +23,7 @@ if typing.TYPE_CHECKING:
 
 __all__ = ("WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
-           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort",)
+           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "prepare_kwargs")
 
 
 # TODO: Add ability to specify resolution of inputs / outputs at wiring time.
@@ -80,6 +82,30 @@ class WiringNodeClass:
         raise NotImplementedError()
 
 
+def prepare_kwargs(signature: WiringNodeSignature, *args, **kwargs) -> dict[str, Any]:
+    """
+    Extract the args and kwargs, apply defaults and validate the input shape as correct.
+    This does not validate the types, just that all args are provided.
+    """
+    if len(args) + len(kwargs) > len(signature.args):
+        raise SyntaxError(
+            f"[{signature.signature}] More arguments are provided than are defined for this function")
+    kwargs_ = {k: arg for k, arg in zip(signature.args, args)}  # Map the *args to keys
+    if any(k in kwargs for k in kwargs_):
+        raise SyntaxError(
+            f"[{signature.signature}] The following keys are duplicated: {[k for k in kwargs_ if k in kwargs]}")
+    kwargs_ |= kwargs  # Merge in the current kwargs
+    kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
+    if len(kwargs_) < len(signature.args):
+        raise SyntaxError(
+            f"[{signature.signature}] Missing the following inputs: {[k for k in signature.args if k not in kwargs_]}")
+    if any(arg not in kwargs_ for arg in signature.args):
+        raise SyntaxError(f"[{signature.signature}] Has incorrect kwargs names "
+                          f"{[arg for arg in kwargs_ if arg not in signature.args]} "
+                          f"expected: {[arg for arg in signature.args if arg not in kwargs_]}")
+    return kwargs_
+
+
 class BaseWiringNodeClass(WiringNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
@@ -95,23 +121,8 @@ class BaseWiringNodeClass(WiringNodeClass):
         Extract the args and kwargs, apply defaults and validate the input shape as correct.
         This does not validate the types, just that all args are provided.
         """
-        if len(args) + len(kwargs) > len(self.signature.args):
-            raise SyntaxError(
-                f"[{self.signature.name}] More arguments are provided than are defined for this function")
-        kwargs_ = {k: arg for k, arg in zip(self.signature.args, args)}  # Map the *args to keys
-        if any(k in kwargs for k in kwargs_):
-            raise SyntaxError(
-                f"[{self.signature.name}] The following keys are duplicated: {[k for k in kwargs_ if k in kwargs]}")
-        kwargs_ |= kwargs  # Merge in the current kwargs
-        kwargs_ |= {k: v for k, v in self.signature.defaults.items() if k not in kwargs_}  # Add in defaults
+        kwargs_ = prepare_kwargs(self.signature, *args, **kwargs)
         # TODO: add support for useful defaults for things like null_source inputs.
-        if len(kwargs_) < len(self.signature.args):
-            raise SyntaxError(
-                f"[{self.signature.name}] Missing the following inputs: {[k for k in self.signature.args if k not in kwargs_]}")
-        if any(arg not in kwargs_ for arg in self.signature.args):
-            raise SyntaxError(f"[{self.signature.name}] Has incorrect kwargs names "
-                              f"{[arg for arg in kwargs_ if arg not in self.signature.args]} "
-                              f"expected: {[arg for arg in self.signature.args if arg not in kwargs_]}")
         return kwargs_
 
     def _convert_kwargs_to_types(self, **kwargs) -> dict[str, HgTypeMetaData]:
@@ -162,27 +173,12 @@ class BaseWiringNodeClass(WiringNodeClass):
         """
         # Validate that all inputs have been received and apply the defaults.
         kwargs = self._prepare_kwargs(*args, **kwargs)
+        WiringContext.current_kwargs = kwargs
         try:
             # Extract any additional required type resolution information from inputs
             kwarg_types = self._convert_kwargs_to_types(**kwargs)
             # Do the resolve to ensure types match as well as actually resolve the types.
-            try:
-                resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
-            except IncorrectTypeBinding as e:
-                inp_value = kwargs[e.arg]
-                if isinstance(inp_value, WiringPort):
-                    inp_value = inp_value.node_instance.resolved_signature.signature
-                else:
-                    inp_value = str(inp_value)
-                msg = f"When resolving '{self.signature.signature}' \n" \
-                      f"Argument '{e.arg}: {e.expected_type}' <- '{e.actual_type}' from '{inp_value}'"
-                import sys
-                print(f"\n"
-                      f"Wiring Error\n"
-                      f"============\n"
-                      f"\n"
-                      f"{msg}", file=sys.stderr)
-                raise WiringError(msg) from e
+            resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
             if self.signature.is_resolved:
@@ -207,40 +203,42 @@ class BaseWiringNodeClass(WiringNodeClass):
                 else:
                     raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
         except Exception as e:
+            if isinstance(e, WiringError):
+                raise e
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
             raise WiringError(f"Failure resolving signature, graph call stack:\n{path}") from e
 
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
+        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+            # Now validate types and resolve any un-resolved types and provide an updated signature.
+            kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
+                                                                               __pre_resolved_types__=__pre_resolved_types__,
+                                                                               **kwargs)
 
-        # Now validate types and resolve any un-resolved types and provide an updated signature.
-        kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
-                                                                           __pre_resolved_types__=__pre_resolved_types__,
-                                                                           **kwargs)
+            # TODO: This mechanism to work out rank may fail when using a delayed binding?
+            match resolved_signature.node_type:
+                case WiringNodeType.PUSH_SOURCE_NODE:
+                    rank = 0
+                case WiringNodeType.PULL_SOURCE_NODE:
+                    rank = 1
+                case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
+                    rank = max(v.rank for k, v in kwargs_.items() if k in self.signature.time_series_args) + 1
+                case default:
+                    rank = -1
 
-        # TODO: This mechanism to work out rank may fail when using a delayed binding?
-        match resolved_signature.node_type:
-            case WiringNodeType.PUSH_SOURCE_NODE:
-                rank = 0
-            case WiringNodeType.PULL_SOURCE_NODE:
-                rank = 1
-            case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
-                rank = max(v.rank for k, v in kwargs_.items() if k in self.signature.time_series_args) + 1
-            case default:
-                rank = -1
+            wiring_node_instance = WiringNodeInstance(self, resolved_signature, frozendict(kwargs_), rank=rank)
+            # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
+            # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 
-        wiring_node_instance = WiringNodeInstance(self, resolved_signature, frozendict(kwargs_), rank=rank)
-        # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
-        # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
-
-        if resolved_signature.node_type is WiringNodeType.SINK_NODE:
-            WiringGraphContext.instance().add_sink_node(wiring_node_instance)
-        else:
-            # Whilst a graph could represent a sink signature, it is not a node, we return the wiring port
-            # as it is used by the GraphWiringNodeClass to validate the resolved signature with that of the returned
-            # output
-            return WiringPort(wiring_node_instance)
+            if resolved_signature.node_type is WiringNodeType.SINK_NODE:
+                WiringGraphContext.instance().add_sink_node(wiring_node_instance)
+            else:
+                # Whilst a graph could represent a sink signature, it is not a node, we return the wiring port
+                # as it is used by the GraphWiringNodeClass to validate the resolved signature with that of the returned
+                # output
+                return WiringPort(wiring_node_instance)
 
     def _validate_signature(self, fn):
         sig = inspect.signature(fn)
@@ -311,11 +309,11 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonPushQueueWiringNodeClass must have a time series output"
         return PythonPushQueueNodeBuilder(node_ndx=node_ndx,
-                                        signature=node_signature,
-                                        scalars=scalars,
-                                        input_builder=None,
-                                        output_builder=factory.make_output_builder(output_type),
-                                        eval_fn=self.fn)
+                                          signature=node_signature,
+                                          scalars=scalars,
+                                          input_builder=None,
+                                          output_builder=factory.make_output_builder(output_type),
+                                          eval_fn=self.fn)
 
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
@@ -429,20 +427,21 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         # We don't want graph and node signatures to operate under different rules as this would make
         # moving between node and graph implementations problematic, so resolution rules of the signature
         # hold
-        kwargs_, resoled_signature = self._validate_and_resolve_signature(*args,
-                                                                          __pre_resolved_types__=__pre_resolved_types__,
-                                                                          **kwargs)
+        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+            kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
+                                                                               __pre_resolved_types__=__pre_resolved_types__,
+                                                                               **kwargs)
 
-        # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
-        with WiringGraphContext(self) as g:
-            out: WiringPort = self.fn(*args, **kwargs)
-            if output_type := resoled_signature.output_type:
-                if output_type != out.output_type:
-                    raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
-                                      f"'{str(out.output_type)}' was returned from the graph")
-            elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
-                raise WiringError(f"'{self.signature.name}' does not seem to do anything")
-            return out
+            # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
+            with WiringGraphContext(self) as g:
+                out: WiringPort = self.fn(*args, **kwargs)
+                if output_type := resolved_signature.output_type:
+                    if output_type != out.output_type:
+                        raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
+                                          f"'{str(out.output_type)}' was returned from the graph")
+                elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
+                    raise WiringError(f"'{self.signature.name}' does not seem to do anything")
+                return out
 
 
 @dataclass(frozen=True)

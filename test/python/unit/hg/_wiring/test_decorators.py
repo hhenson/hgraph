@@ -53,6 +53,6 @@ def test_graph():
 
     assert type(simple_graph) is GraphWiringNodeClass
     signature: WiringNodeSignature = simple_graph.signature
-    assert signature.node_type is WiringNodeType.GRPAH
+    assert signature.node_type is WiringNodeType.GRAPH
     assert signature.name is "simple_graph"
     assert simple_graph.fn is not None

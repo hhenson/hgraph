@@ -1,28 +1,10 @@
 from typing import TypeVar, Type, Optional
 
-__all__ = ('ParseError', 'HgTypeMetaData', 'WiringError', 'IncorrectTypeBinding')
+__all__ = ('ParseError', 'HgTypeMetaData')
 
 
 class ParseError(RuntimeError):
     ...
-
-
-class WiringError(RuntimeError):
-    ...
-
-
-class IncorrectTypeBinding(WiringError):
-
-    def __init__(self, expected_type: "HgTypeMetaData", actual_type: "HgTypeMetaData",
-                 arg: str = None,  *args, **kwargs):
-        if arg is None:
-            super().__init__(f"Type '{str(expected_type)}' is not the same as the wired type '{str(actual_type)}'", *args,
-                         **kwargs)
-        else:
-            super().__init__(f"{arg}: {str(expected_type)} <- {str(actual_type)} is not type compatible")
-        self.expected_type = expected_type  # The type expected by the signature
-        self.actual_type = actual_type  # The actual type wired in
-        self.arg = arg  # The argument name that was being wired
 
 
 class HgTypeMetaData:
