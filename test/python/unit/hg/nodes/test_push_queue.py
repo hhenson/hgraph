@@ -3,9 +3,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable
 
-from hg import TS, run_graph, RunMode
-from hg._wiring._decorators import push_queue, graph
-from hg.nodes import write_str
+from hg import TS, run_graph, RunMode, GlobalState, push_queue, graph
+from hg.nodes import write_str, record, get_recorded_value
 
 
 def test_push_queue():
@@ -23,6 +22,12 @@ def test_push_queue():
     def main():
         messages = my_message_sender(("1", "2", "3"))
         write_str(messages)
+        record(messages)
 
     now = datetime.utcnow()
-    run_graph(main, run_mode=RunMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=3))
+    # Note that it is possible that the time-out here may be insufficient to allow the task to complete.
+    GlobalState.reset()
+    run_graph(main, run_mode=RunMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=1))
+    values = get_recorded_value()
+    # The exact timings are not that important.
+    assert [v[1] for v in values] == ["1", "2", "3"]

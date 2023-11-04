@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     "compute_node", "pull_source_node", "push_source_node", "sink_node", "graph", "generator", "service",
-    "service_impl", "service_adaptor", "register_service",)
+    "service_impl", "service_adaptor", "register_service", "push_queue")
 
 
 def compute_node(fn=None, /, cpp_impl=None, ticked: Sequence[str] = None, valid: Sequence[str] = None):

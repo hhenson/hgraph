@@ -1,6 +1,6 @@
 from abc import abstractmethod, ABC
 from datetime import datetime, timedelta
-from typing import Generic, TypeVar, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union
+from typing import Generic, TypeVar, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union, Any
 
 from hg._types._scalar_types import SCALAR
 from hg._types._scalar_value import ScalarValue
@@ -52,16 +52,21 @@ class TimeSeries(ABC):
 
     @property
     @abstractmethod
-    def scalar_value(self) -> ScalarValue:
+    def value(self):
         """
-        The time-series point-in-time value represented as a scalar value.
+        All time-series objects should support a value property that returns a python object representation
+        of the current (point-in-time) state. In C++ implementation this is the ScalarValue concept that supports
+        type erased values allowing for generic operations without knowledge of the underlying type. In Python
+        a python object is the equivalent.
         """
 
     @property
     @abstractmethod
-    def delta_scalar_value(self) -> ScalarValue:
+    def delta_value(self):
         """
-        The scalar value wrapper of the ticked_value.
+        All time-series objects should support a delta_value property that returns a python object representation
+        of the changes between the last tick and the current tick. In C++ implementation this is the ScalarValue which
+        holds a delta representation.
         """
 
     @property
@@ -118,14 +123,14 @@ class TimeSeriesOutput(TimeSeries):
 
     @property
     @abstractmethod
-    def scalar_value(self) -> Optional[ScalarValue]:
+    def value(self) -> Optional[ScalarValue]:
         """
         The time-series point-in-time value represented as a scalar value.
         """
 
-    @scalar_value.setter
+    @value.setter
     @abstractmethod
-    def scalar_value(self, value: ScalarValue):
+    def value(self, value: Any):
         """
         Allows the time-series output to have it's value set using the scalar value wrapped
         value instance.
@@ -133,7 +138,7 @@ class TimeSeriesOutput(TimeSeries):
 
     @property
     @abstractmethod
-    def delta_scalar_value(self) -> Optional[ScalarValue]:
+    def delta_value(self) -> Optional[ScalarValue]:
         """
         The scalar value wrapper of the ticked_value.
         """

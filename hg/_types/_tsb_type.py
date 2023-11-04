@@ -174,11 +174,11 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         pass
 
     @property
-    def scalar_value(self) -> "ScalarValue":
+    def value(self) -> "ScalarValue":
         pass
 
     @property
-    def delta_scalar_value(self) -> "ScalarValue":
+    def delta_value(self) -> "ScalarValue":
         pass
 
 

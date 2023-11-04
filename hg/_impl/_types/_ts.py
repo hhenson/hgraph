@@ -27,22 +27,6 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
     _last_modified_time: datetime = MIN_DT
 
     @property
-    def scalar_value(self) -> Optional[ScalarValue]:
-        if self._value is None:
-            return None
-        return PythonScalarValue(self._tp, self._value)
-
-    @scalar_value.setter
-    def scalar_value(self, value: ScalarValue):
-        self._value = value.cast(self._tp)
-
-    @property
-    def delta_scalar_value(self) -> Optional[ScalarValue]:
-        if self._value is None:
-            return None
-        return PythonScalarValue(self._tp, self._value)
-
-    @property
     def value(self) -> SCALAR:
         return self._value
 
@@ -140,14 +124,6 @@ class PythonTimeSeriesValueInput(PythonTimeSeriesInput, TimeSeriesValueInput[SCA
     @property
     def delta_value(self) -> Optional[DELTA_SCALAR]:
         return self._output.delta_value
-
-    @property
-    def scalar_value(self) -> ScalarValue:
-        return self._output.scalar_value
-
-    @property
-    def delta_scalar_value(self) -> ScalarValue:
-        return self._output.delta_scalar_value
 
     @property
     def modified(self) -> bool:

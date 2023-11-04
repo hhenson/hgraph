@@ -38,14 +38,6 @@ class PythonUnboundTimeSeriesBundleInput(PythonTimeSeriesInput, TimeSeriesBundle
         return self._ts_value.values()
 
     @property
-    def scalar_value(self) -> ScalarValue:
-        pass
-
-    @property
-    def delta_scalar_value(self) -> ScalarValue:
-        pass
-
-    @property
     def bound(self) -> bool:
         return False
 
