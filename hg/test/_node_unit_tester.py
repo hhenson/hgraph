@@ -1,6 +1,7 @@
 from typing import Any
 
-from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, MIN_DT
+from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, MIN_DT, \
+    WiringContext, WiringError
 from hg.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
 
 
@@ -13,8 +14,12 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     For nodes that require resolution, it is possible to supply a resolution dictionary to assist
     in resolving correct types when setting up the replay nodes.
     """
-
-    kwargs_ = prepare_kwargs(node.signature, *args, **kwargs)
+    try:
+        with WiringContext(current_signature=node.signature):
+            kwargs_ = prepare_kwargs(node.signature, *args, **kwargs)
+    except WiringError as e:
+        e.print_error()
+        raise e
 
     @graph
     def eval_node_graph():

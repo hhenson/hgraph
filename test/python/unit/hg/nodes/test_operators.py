@@ -1,6 +1,7 @@
 import pytest
 
 from hg.nodes import eq_, if_
+from hg.nodes._operators import if_true
 from hg.test import eval_node
 
 
@@ -19,3 +20,11 @@ def test_eq(lhs, rhs, expected):
 ])
 def test_if(condition, true_value, false_value, tick_on_condition, expected):
     assert eval_node(if_, condition, true_value, false_value, tick_on_condition) == expected
+
+
+@pytest.mark.parametrize("condition,tick_once_only,expected", [
+    ([True, False, True], False, [True, None, True]),
+    ([True, False, True], True, [True, None, None]),
+])
+def test_if_true(condition, tick_once_only, expected):
+    assert eval_node(if_true, condition, tick_once_only) == expected

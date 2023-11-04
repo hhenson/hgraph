@@ -1,5 +1,4 @@
-from hg import compute_node, TIME_SERIES_TYPE, TS
-
+from hg import compute_node, TIME_SERIES_TYPE, TS, TS_OUT
 
 __all__ = ("eq_", "if_")
 
@@ -29,3 +28,15 @@ def if_(condition: TS[bool], true_value: TIME_SERIES_TYPE, false_value: TIME_SER
     if not condition.value and false_value.modified:
         return false_value.delta_value
 
+
+@compute_node
+def if_true(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
+    """
+    Emits a tick with value True when the input condition ticks with True.
+    If tick_once_only is True then this will only tick once, otherwise this will tick with every tick of the condition,
+    when the condition is True.
+    """
+    if condition.value:
+        if tick_once_only:
+            condition.make_passive()
+        return True
