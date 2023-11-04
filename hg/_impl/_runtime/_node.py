@@ -70,6 +70,7 @@ class NodeImpl:  # Node
 
     def eval(self):
         if self.input:
+            # Perform validity check of inputs
             args = self.signature.valid_inputs if self.signature.valid_inputs else self.signature.time_series_inputs.keys()
             if not all(self.input[k].valid for k in args):
                 return  # We should look into caching the result of this check.
@@ -135,9 +136,10 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
 
     def eval(self):
         value = self.receiver.dequeue()
-        if self.receiver:
-            self.graph.context.mark_push_has_pending_values()
-        return value
+        if value is None:
+            return
+        self.graph.context.mark_push_has_pending_values()
+        self.output.apply_result(value)
 
     def stop(self):
         self.receiver.stopped = True

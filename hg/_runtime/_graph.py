@@ -30,6 +30,13 @@ class Graph(ComponentLifeCycle, typing.Protocol):
     def context(self) -> ExecutionContext:
         """The execution context"""
 
+    @context.setter
+    @abstractmethod
+    def context(self, value):
+        """
+        Set the execution context. This should only be done by the graph engine.
+        """
+
     @property
     @abstractmethod
     def push_source_nodes_end(self) -> int:

@@ -170,7 +170,7 @@ class PythonGraphEngine:  # (GraphEngine):
             self._execution_context.current_engine_time = self._end_time
             return
 
-        proposed_next_engine_time = self._execution_context.proposed_next_engine_time
+        proposed_next_engine_time = min(self._execution_context.proposed_next_engine_time, self._end_time + MIN_TD)
         wall_clock_time = self._execution_context.wall_clock_time
         if wall_clock_time >= proposed_next_engine_time:
             self._execution_context.current_engine_time = proposed_next_engine_time
@@ -199,6 +199,9 @@ class PythonGraphEngine:  # (GraphEngine):
                 self.notify_before_node_evaluation(node)
                 node.eval()
                 self.notify_after_node_evaluation(node)
+            elif scheduled_time > now:
+                # If the node has a scheduled time in the future, we need to let the execution context know.
+                self._execution_context.update_next_proposed_time(scheduled_time)
 
         self.notify_after_evaluation()
 

@@ -25,4 +25,4 @@ def test_push_queue():
         write_str(messages)
 
     now = datetime.utcnow()
-    run_graph(main, run_mode=RunMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=5))
+    run_graph(main, run_mode=RunMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=3))
