@@ -6,14 +6,12 @@ from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYP
 from more_itertools import nth
 
 from hg._types._schema_type import AbstractSchema
-from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, TimeSeriesDeltaValue, \
+from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, SCALAR, DELTA_SCALAR, TimeSeriesDeltaValue, \
     TimeSeries
 from hg._types._type_meta_data import ParseError
 
 if TYPE_CHECKING:
-    from hg._types._type_meta_data import HgTypeMetaData
-    from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-    from hg import ScalarValue
+    from hg import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
            "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema")
@@ -114,10 +112,73 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         return self._ts_value.values()
 
 
-class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], ABC, Generic[TS_SCHEMA]):
+class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
     """
-    The input form of the bundle
+    The input form of the bundle. This serves two purposes, one to describe the shape of the code.
+    The other is to use as a Marker class for typing system. To make this work we need to implement
+    the abstract methods.
     """
+
+    @property
+    def parent_input(self) -> Optional["TimeSeriesInput"]:
+        raise NotImplementedError()
+
+    @property
+    def has_parent_input(self) -> bool:
+        raise NotImplementedError()
+
+    @property
+    def bound(self) -> bool:
+        raise NotImplementedError()
+
+    @property
+    def output(self) -> Optional[TimeSeriesOutput]:
+        raise NotImplementedError()
+
+    def bind_output(self, value: TimeSeriesOutput):
+        raise NotImplementedError()
+
+    @property
+    def active(self) -> bool:
+        raise NotImplementedError()
+
+    def make_active(self):
+        raise NotImplementedError()
+
+    def make_passive(self):
+        raise NotImplementedError()
+
+    @property
+    def value(self) -> Optional[SCALAR]:
+        raise NotImplementedError()
+
+    @property
+    def delta_value(self) -> Optional[DELTA_SCALAR]:
+        raise NotImplementedError()
+
+    @property
+    def owning_node(self) -> "Node":
+        raise NotImplementedError()
+
+    @property
+    def owning_graph(self) -> "Graph":
+        raise NotImplementedError()
+
+    @property
+    def modified(self) -> bool:
+        raise NotImplementedError()
+
+    @property
+    def valid(self) -> bool:
+        raise NotImplementedError()
+
+    @property
+    def all_valid(self) -> bool:
+        raise NotImplementedError()
+
+    @property
+    def last_modified_time(self) -> datetime:
+        raise NotImplementedError()
 
 
 class TimeSeriesBundleOutput(TimeSeriesOutput, TimeSeriesBundle[TS_SCHEMA], ABC, Generic[TS_SCHEMA]):
