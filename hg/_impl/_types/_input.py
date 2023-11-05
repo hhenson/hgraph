@@ -60,8 +60,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def output(self) -> TimeSeriesOutput:
         return self._output
 
-    @output.setter
-    def output(self, output: TimeSeriesOutput):
+    def bind_output(self, output: TimeSeriesOutput):
         active = self.active
         self.make_passive()  # Ensure we are unsubscribed from the old output.
         self._output = output

@@ -59,6 +59,18 @@ class TSBInputBuilder(InputBuilder):
         ...
 
 
+@dataclass(frozen=True)
+class TSBOutputBuilder(OutputBuilder):
+
+    schema: TimeSeriesSchema
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
+        ...
+
+    def release_instance(self, item: TimeSeriesOutput):
+        ...
+
+
 class TimeSeriesBuilderFactory:
 
     _instance: Optional["TimeSeriesBuilderFactory"] = None

@@ -42,7 +42,7 @@ class PythonGraphBuilder(GraphBuilder):
             #  the output is the node output
             output = src_node.output if edge.output_path == (0,) else self._extract_output(src_node, edge.output_path)
             input_ = self._extract_input(dst_node, edge.input_path)
-            input_.output = output
+            input_.bind_output(output)
         # for node in nodes:  # TODO: I think we want to initialise the nodes once wiring is complete but not sure, need to think about this
         #     node.initialise()  # AB: I it would be nice to initialise the nodes once they are in a graph i.e. from within the graph's initialise?
         return GraphImpl(graph_id=graph_id, nodes=tuple(nodes))

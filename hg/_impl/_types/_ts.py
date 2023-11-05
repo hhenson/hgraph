@@ -24,7 +24,6 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
 
     _tp: type = None
     _value: SCALAR = None
-    _last_modified_time: datetime = MIN_DT
 
     @property
     def value(self) -> SCALAR:
@@ -36,39 +35,19 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
 
     @value.setter
     def value(self, v: SCALAR):
+        if v is None:
+            return
         if not isinstance(v, self._tp):
             raise TypeError(f"Expected {self._tp}, got {type(v)}")
         self._value = v
-        context = self.owning_graph.context
-        et = context.current_engine_time
-        if self._last_modified_time < et:
-            self._last_modified_time = et
-            self._notify()
+        self.mark_modified()
 
     def apply_result(self, value: SCALAR):
         self.value = value
 
-    @property
-    def modified(self) -> bool:
-        context = self.owning_graph.context
-        return context.current_engine_time == self._last_modified_time
-
-    @property
-    def valid(self) -> bool:
-        return self.last_modified_time > MIN_DT
-
-    @property
-    def all_valid(self) -> bool:
-        return self.valid
-
-    @property
-    def last_modified_time(self) -> datetime:
-        return self._last_modified_time
-
     def mark_invalid(self):
         self._value = None
-        self._last_modified_time = MIN_DT
-        self._notify()
+        super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         assert isinstance(output, PythonTimeSeriesValueOutput)

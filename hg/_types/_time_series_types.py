@@ -123,7 +123,7 @@ class TimeSeriesOutput(TimeSeries):
 
     @property
     @abstractmethod
-    def value(self) -> Optional[ScalarValue]:
+    def value(self):
         """
         The time-series point-in-time value represented as a scalar value.
         """
@@ -138,7 +138,7 @@ class TimeSeriesOutput(TimeSeries):
 
     @property
     @abstractmethod
-    def delta_value(self) -> Optional[ScalarValue]:
+    def delta_value(self):
         """
         The scalar value wrapper of the ticked_value.
         """
@@ -177,6 +177,13 @@ class TimeSeriesOutput(TimeSeries):
         Marks the output as invalid, this will cause the output to be scheduled for evaluation.
         """
 
+    @abstractmethod
+    def mark_modified(self):
+        """
+        Marks the output as modified, this will cause the output to be scheduled for evaluation if it hasn't already.
+        This will also mark the parent output as modified if it exists.
+        """
+
 
 class TimeSeriesInput(TimeSeries):
 
@@ -210,9 +217,8 @@ class TimeSeriesInput(TimeSeries):
         The output bound to this input. If no input is bound this will be None.
         """
 
-    @output.setter
     @abstractmethod
-    def output(self, value: TimeSeriesOutput):
+    def bind_output(self, value: TimeSeriesOutput):
         """
         Binds the output provided to this input.
         """

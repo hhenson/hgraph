@@ -1,5 +1,5 @@
 from hashlib import sha1
-from typing import TYPE_CHECKING, Type, TypeVar, Iterator
+from typing import TYPE_CHECKING, Type, TypeVar, Iterator, KeysView, ItemsView, ValuesView
 
 if TYPE_CHECKING:
     from hg._types._scalar_type_meta_data import HgTypeMetaData
@@ -22,15 +22,15 @@ class AbstractSchema:
     __partial_resolution_parent__: Type["AbstractSchema"]
 
     @classmethod
-    def items(cls) -> Iterator[tuple[str, "HgTypeMetaData"]]:
+    def items(cls) -> ItemsView[str, "HgTypeMetaData"]:
         return cls.__meta_data_schema__.items()
 
     @classmethod
-    def values(cls) -> Iterator["HgTypeMetaData"]:
+    def values(cls) -> ValuesView["HgTypeMetaData"]:
         return cls.__meta_data_schema__.values()
 
     @classmethod
-    def keys(cls) -> Iterator[str]:
+    def keys(cls) -> KeysView[str]:
         return cls.__meta_data_schema__.keys()
 
     @classmethod

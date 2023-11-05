@@ -1,13 +1,14 @@
+from abc import ABC
 from datetime import datetime
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
     ItemsView, ValuesView
 
 from more_itertools import nth
 
-from hg._types._type_meta_data import ParseError
 from hg._types._schema_type import AbstractSchema
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, TimeSeriesDeltaValue, \
     TimeSeries
+from hg._types._type_meta_data import ParseError
 
 if TYPE_CHECKING:
     from hg._types._type_meta_data import HgTypeMetaData
@@ -43,7 +44,7 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
         return cls._create_resolved_class(schema)
 
 
-class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Union[TS_SCHEMA, dict[str, Any]]],
+class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Union[TS_SCHEMA, dict[str, Any]]], ABC,
                        Generic[TS_SCHEMA]):
     """
     Represents a non-homogenous collection of time-series values.
@@ -102,87 +103,24 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
 
     def keys(self) -> KeysView[str]:
         """The keys of the schema defining the bundle"""
+        return self._ts_value.keys()
 
     def items(self) -> ItemsView[str, TimeSeries]:
         """The values of the bundle"""
+        return self._ts_value.items()
 
     def values(self) -> ValuesView[TimeSeries]:
         """The values of the bundle"""
+        return self._ts_value.values()
 
 
-class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
+class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], ABC, Generic[TS_SCHEMA]):
     """
     The input form of the bundle
     """
 
-    @property
-    def bound(self) -> bool:
-        pass
 
-    @property
-    def output(self) -> Optional[TimeSeriesOutput]:
-        pass
-
-    @property
-    def value(self) -> Any:
-        pass
-
-    @property
-    def active(self) -> bool:
-        pass
-
-    def make_active(self):
-        pass
-
-    def make_passive(self):
-        pass
-
-    @property
-    def delta_value(self) -> Optional[DELTA_SCALAR]:
-        pass
-
-    @property
-    def modified(self) -> bool:
-        pass
-
-    @property
-    def valid(self) -> bool:
-        pass
-
-    @property
-    def all_valid(self) -> bool:
-        pass
-
-    @property
-    def last_modified_time(self) -> datetime:
-        pass
-
-    @property
-    def parent_input(self) -> Optional["TimeSeriesInput"]:
-        pass
-
-    @property
-    def has_parent_input(self) -> bool:
-        pass
-
-    @property
-    def owning_node(self) -> "Node":
-        pass
-
-    @property
-    def owning_graph(self) -> "Graph":
-        pass
-
-    @property
-    def value(self) -> "ScalarValue":
-        pass
-
-    @property
-    def delta_value(self) -> "ScalarValue":
-        pass
-
-
-class TimeSeriesBundleOutput(TimeSeriesOutput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
+class TimeSeriesBundleOutput(TimeSeriesOutput, TimeSeriesBundle[TS_SCHEMA], ABC, Generic[TS_SCHEMA]):
     """
     The output form of the bundle
     """
