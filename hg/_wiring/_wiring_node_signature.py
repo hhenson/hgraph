@@ -165,10 +165,10 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
             f"sink node '{name}' has no time-series inputs (not a valid signature)"
         assert output_type is None, f"sink node '{name}' has an output (not a valid signature)"
 
-    if active_inputs:
+    if active_inputs is not None:
         assert all(a in input_types for a in active_inputs), \
             f"active inputs {active_inputs} are not in the signature for {name}"
-    if valid_inputs:
+    if valid_inputs is not None:
         assert all(a in input_types for a in valid_inputs), \
             f"valid inputs {valid_inputs} are not in the signature for {name}"
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the

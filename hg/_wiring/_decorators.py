@@ -14,14 +14,14 @@ __all__ = (
     "service_impl", "service_adaptor", "register_service", "push_queue")
 
 
-def compute_node(fn=None, /, cpp_impl=None, ticked: Sequence[str] = None, valid: Sequence[str] = None):
+def compute_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None):
     """
     Used to define a python function to be a compute-node. A compute-node is the worker unit in the graph and
     will be called each time of the inputs to the compute node ticks.
     A compute-node requires inputs and outputs.
     """
     from hg._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, cpp_impl, ticked, valid)
+    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, cpp_impl, active, valid)
 
 
 def pull_source_node(cpp_impl):
@@ -45,13 +45,13 @@ def push_source_node(cpp_impl):
     return partial(_create_node, WiringNodeType.PUSH_SOURCE_NODE, CppWiringNodeClass, cpp_impl)
 
 
-def sink_node(fn=None, /, cpp_impl=None, ticked: Sequence[str] = None, valid: Sequence[str] = None):
+def sink_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None):
     """
     Indicates the function definition represents a sink node. This type of node has no return type.
     Other than that it behaves in much the same way as compute node.
     """
     from hg._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SINK_NODE, fn, cpp_impl, ticked, valid)
+    return _node_decorator(WiringNodeType.SINK_NODE, fn, cpp_impl, active, valid)
 
 
 def graph(fn):
@@ -174,14 +174,14 @@ def service_adaptor(interface):
     """
 
 
-def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ticked: Sequence[str] = None,
+def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, active: Sequence[str] = None,
                     valid: Sequence[str] = None, node_class: Type["WiringNodeClass"] = None):
     from hg._wiring._wiring import CppWiringNodeClass, GraphWiringNodeClass, PythonWiringNodeClass
     from hg._wiring._wiring_node_signature import WiringNodeType
 
     kwargs = dict(node_type=node_type,
                   node_class=PythonWiringNodeClass if node_class is None else node_class,
-                  ticked=ticked,
+                  active=active,
                   valid=valid)
     if cpp_impl is not None:
         kwargs['node_class'] = CppWiringNodeClass
@@ -189,7 +189,7 @@ def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ti
 
     if node_type is WiringNodeType.GRAPH:
         kwargs['node_class'] = GraphWiringNodeClass
-        if ticked is not None:
+        if active is not None:
             raise ValueError("Graphs do not support ticked")
         if valid is not None:
             raise ValueError("Graphs do not support valid")
@@ -201,7 +201,7 @@ def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ti
 
 
 def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None, node_class: Type[
-    "WiringNodeClass"] = None, ticked: Sequence[str] = None, valid: Sequence[str] = None) -> "WiringNodeClass":
+    "WiringNodeClass"] = None, active: Sequence[str] = None, valid: Sequence[str] = None) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
@@ -211,12 +211,13 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
         impl_fn = signature_fn
     from hg._wiring._wiring import WiringNodeSignature
     signature = signature_fn if isinstance(signature_fn, WiringNodeSignature) else \
-        extract_signature(signature_fn, node_type, active_inputs=frozenset(ticked) if ticked else None,
-                          valid_inputs=frozenset(valid) if valid else None)
+        extract_signature(signature_fn, node_type, active_inputs=frozenset(active) if active is not None else None,
+                          valid_inputs=frozenset(valid) if valid is not None else None)
     return node_class(signature, impl_fn)
 
 
-def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType") -> Callable:
+def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType",
+                           active_inputs: frozenset[str] = None, valid_inputs: frozenset[str] = None) -> Callable:
     """
     Create a function that takes the kwargs and returns the kwargs. This is used to create a function that
     can be used to create a signature.
@@ -233,10 +234,10 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         defaults=frozendict(),
         input_types=frozendict({k: HgScalarTypeMetaData.parse(v) for k, v in kwargs.items()}),
         output_type=HgTimeSeriesTypeMetaData.parse(ret_type) if ret_type is not None else None,
-        src_location=SourceCodeDetails(Path(),0), # TODO: make this point to a real place in code.
-        active_inputs=None,
-        valid_inputs=None,
+        src_location=SourceCodeDetails(Path(), 0),  # TODO: make this point to a real place in code.
+        active_inputs=active_inputs,
+        valid_inputs=valid_inputs,
         unresolved_args=tuple(),
-        time_series_args=tuple(),
+        time_series_args=tuple()
     )
     return signature

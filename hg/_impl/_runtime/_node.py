@@ -71,7 +71,7 @@ class NodeImpl:  # Node
     def eval(self):
         if self.input:
             # Perform validity check of inputs
-            args = self.signature.valid_inputs if self.signature.valid_inputs else self.signature.time_series_inputs.keys()
+            args = self.signature.valid_inputs if self.signature.valid_inputs is not None else self.signature.time_series_inputs.keys()
             if not all(self.input[k].valid for k in args):
                 return  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
