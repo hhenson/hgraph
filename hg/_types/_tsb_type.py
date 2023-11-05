@@ -1,7 +1,8 @@
-from abc import ABC
+import functools
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
-    ItemsView, ValuesView
+    ItemsView, ValuesView, Self, cast
 
 from more_itertools import nth
 
@@ -49,34 +50,33 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
     We call this a time-series bundle.
     """
 
-    # TODO: This only works if we are creating new sub-classes (i.e. class MyTSB(schema=...))
-    @property
-    def __schema__(self) -> TS_SCHEMA:
-        return self.__orig_class__.__args__[0]
+    def __init__(self, __schema__: TS_SCHEMA, **kwargs):
+        self.__schema__: TS_SCHEMA = __schema__
+        self._ts_values: Mapping[str, TimeSeriesInput] = {
+            k: kwargs.get(k, None) for k in self.__schema__.__meta_data_schema__.keys()
+        }  # Initialise the values to None or kwargs provided
+
 
     def __class_getitem__(cls, item) -> Any:
         # For now limit to validation of item
+        out = super(TimeSeriesBundle, cls).__class_getitem__(item)
         if item is not TS_SCHEMA:
             from hg._types._type_meta_data import HgTypeMetaData
             if HgTypeMetaData.parse(item).is_scalar:
                 raise ParseError(
                     f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
-        return super(TimeSeriesBundle, cls).__class_getitem__(item)
-
-    def __init__(self, ts_value: TS_SCHEMA = None):
-        """
-        Create an instance of a bundle with the value provided. The value is an instance of the appropriate
-        TS_SCHEMA type defining this Bundle definition.
-        """
-        self._ts_value = ts_value
+            if hasattr(out, "from_ts"):
+                out.from_ts = functools.partial(out.from_ts, __schema__=item)
+        return out
 
     @property
-    def ts_value(self) -> TS_SCHEMA:
+    def as_schema(self) -> TS_SCHEMA:
         """
-        The value of the bundle as it's collection of time-series properties.
-        This is different to ``value`` which is instead the point in time representation of the values of the bundle.
+        Exposes the TSB as the schema type. This is useful for type completion in tools such as PyCharm / VSCode.
+        It is a convenience method, it is possible to access the properties of the schema directly from the TSB
+        instances as well.
         """
-        return self._ts_value
+        return self
 
     def __getattr__(self, item) -> TimeSeries:
         """
@@ -84,10 +84,15 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         :param item:
         :return:
         """
-        if item in self.__schema__.__meta_data_schema__:
-            return getattr(self._ts_value, item)
+        ts_values = self.__dict__.get("_ts_values")
+        if item == "_ts_values":
+            if ts_values is None:
+                raise AttributeError(item)
+            return ts_values
+        if ts_values and item in ts_values:
+            return ts_values[item]
         else:
-            raise ValueError(f"'{item}' is not a valid property of TSB")
+            return super().__getattribute__(item)
 
     def __getitem__(self, item: Union[int, str]) -> "TimeSeries":
         """
@@ -95,21 +100,23 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         the item as named.
         """
         if type(item) is int:
-            return getattr(self, nth(iter(self.__schema__.__meta_data_schema__), item))
+            return self._ts_values[nth(iter(self.__schema__.__meta_data_schema__), item)]
         else:
-            return getattr(self, item)
+            return self._ts_values[item]
 
     def keys(self) -> KeysView[str]:
         """The keys of the schema defining the bundle"""
-        return self._ts_value.keys()
+        return self._ts_values.keys()
 
+    @abstractmethod
     def items(self) -> ItemsView[str, TimeSeries]:
-        """The values of the bundle"""
-        return self._ts_value.items()
+        """The items of the bundle"""
+        return self._ts_values.items()
 
+    @abstractmethod
     def values(self) -> ValuesView[TimeSeries]:
         """The values of the bundle"""
-        return self._ts_value.values()
+        return self._ts_values.values()
 
 
 class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
@@ -118,6 +125,49 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
     The other is to use as a Marker class for typing system. To make this work we need to implement
     the abstract methods.
     """
+
+    @staticmethod
+    def _validate_kwargs(schema: TS_SCHEMA, **kwargs):
+        meta_data_schema: dict[str, "HgTypeMetaData"] = schema.__meta_data_schema__
+        if any(k not in meta_data_schema for k in kwargs.keys()):
+            from hg._wiring._wiring_errors import InvalidArgumentsProvided
+            raise InvalidArgumentsProvided(tuple(k for k in kwargs.keys() if k not in meta_data_schema))
+
+        from hg._wiring._wiring import WiringPort
+        for k, v in kwargs.items():
+            # If v is a wiring port then we perform a validation of the output type to the expected input type.
+            if isinstance(v, WiringPort):
+                if cast(WiringPort, v).output_type != meta_data_schema[k]:
+                    from hg import IncorrectTypeBinding
+                    from hg import WiringContext
+                    from hg import STATE
+                    with WiringContext(current_arg=k, current_signature=STATE(
+                            signature=f"TSB[{schema.__name__}].from_ts({', '.join(kwargs.keys())})")):
+                        raise IncorrectTypeBinding(expected_type=meta_data_schema[k], actual_type=v.output_type)
+
+    @staticmethod
+    def from_ts(**kwargs) -> "TimeSeriesBundleInput[TS_SCHEMA]":
+        """
+        Create an instance of the TSB[SCHEMA] from the kwargs provided.
+        This should be used in a graph instance only. It produces an instance of an un-bound time-series bundle with
+        the time-series values set to the values provided.
+        This does not require all values be present, but before wiring the bundle into an input, this will be a
+        requirement.
+        """
+        schema = kwargs.pop("__schema__")
+        TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
+        out = TimeSeriesBundleInput[schema](schema, **kwargs)
+        return out
+
+    def copy_with(self, **kwargs):
+        """
+        Creates a new instance of a wiring time bundle using the values of this instance combined / overridden from
+        the kwargs provided.
+        # TODO: support k: REMOVE semantics to remove a value from the bundle?
+        """
+        self._validate_kwargs(**kwargs)
+        value = self.__class__[self.__schema__]()
+        value._ts_values = self._ts_values | kwargs
 
     @property
     def parent_input(self) -> Optional["TimeSeriesInput"]:
@@ -180,11 +230,23 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
     def last_modified_time(self) -> datetime:
         raise NotImplementedError()
 
+    def items(self) -> ItemsView[str, TimeSeriesInput]:
+        return super().items()
+
+    def values(self) -> ValuesView[TimeSeriesInput]:
+        return super().values()
+
 
 class TimeSeriesBundleOutput(TimeSeriesOutput, TimeSeriesBundle[TS_SCHEMA], ABC, Generic[TS_SCHEMA]):
     """
     The output form of the bundle
     """
+
+    def items(self) -> ItemsView[str, TimeSeriesOutput]:
+        return super().items()
+
+    def values(self) -> ValuesView[TimeSeriesOutput]:
+        return super().values()
 
 
 TSB = TimeSeriesBundleInput

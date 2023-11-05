@@ -58,7 +58,7 @@ class PythonTSBOutputBuilder(TSBOutputBuilder):
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hg import PythonTimeSeriesBundleOutput
         tsb = PythonTimeSeriesBundleOutput[self.schema](_owning_node=owning_node, _parent_output=owning_output)
-        tsb._ts_value = {k: v.make_instance(owning_output=tsb) for k, v in
+        tsb._ts_values = {k: v.make_instance(owning_output=tsb) for k, v in
                          self.schema_builders.items()}
         return tsb
 
@@ -77,9 +77,9 @@ class PythonTSBInputBuilder(TSBInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hg import PythonTimeSeriesBundleInput
-        tsb = PythonTimeSeriesBundleInput[self.schema](_owning_node=owning_node, _parent_input=owning_input)
-        tsb._ts_value = {k: v.make_instance(owning_input=tsb) for k, v in
-                         self.schema_builders.items()}
+        tsb = PythonTimeSeriesBundleInput[self.schema](self.schema, owning_node=owning_node, parent_input=owning_input)
+        tsb._ts_values = {k: v.make_instance(owning_input=tsb) for k, v in
+                          self.schema_builders.items()}
         return tsb
 
     def release_instance(self, item):

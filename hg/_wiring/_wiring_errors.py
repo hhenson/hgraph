@@ -114,3 +114,16 @@ class MissingInputsError(WiringError):
               f"Missing Inputs: {self.missing_inputs}\n" \
               f"Provided Inputs: {provided_inputs}"
         self._print_error(msg)
+
+
+class InvalidArgumentsProvided(WiringError):
+
+    def __init__(self, bad_arguments: typing.Sequence[str]):
+        self.bad_arguments = tuple(bad_arguments)
+        self.signature = WIRING_CONTEXT.current_signature
+        super().__init__(f"Invalid arguments: {self.bad_arguments}")
+
+    def print_error(self):
+        msg = f"When resolving '{self.signature.signature}' \n" \
+              f"Invalid inputs provided: {self.bad_arguments}"
+        self._print_error(msg)

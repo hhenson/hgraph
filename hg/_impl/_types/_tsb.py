@@ -16,47 +16,31 @@ from hg._types._tsb_type import TimeSeriesBundleInput, TS_SCHEMA, TimeSeriesBund
 
 @dataclass
 class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutput[TS_SCHEMA], Generic[TS_SCHEMA]):
-    _ts_value: Mapping[str, PythonTimeSeriesOutput] = field(default_factory=dict)
 
     @property
     def value(self):
-        return {k: ts.value for k, ts in self._ts_value.items() if ts.valid}
+        return {k: ts.value for k, ts in self.items() if ts.valid}
 
     @property
     def delta_value(self):
-        return {k: ts.delta_value for k, ts in self._ts_value.items() if ts.modified}
-
-    def __getattr__(self, item) -> TimeSeries:
-        if item in self._ts_value:
-            return self._ts_value[item]
-        else:
-            raise ValueError(f"'{item}' is not a valid property of TSB")
-
-    def keys(self) -> KeysView[str]:
-        return self._ts_value.keys()
-
-    def items(self) -> ItemsView[str, TimeSeries]:
-        return self._ts_value.items()
-
-    def values(self) -> ValuesView[TimeSeries]:
-        return self._ts_value.values()
+        return {k: ts.delta_value for k, ts in self.items() if ts.modified}
 
     def apply_result(self, value: Mapping[str, Any]):
         for k, v in value.items():
-            self._ts_value[k].apply_result(v)
+            self[k].apply_result(v)
 
-    def copy_from_output(self, output: "TimeSeriesOutput"):
+    def copy_from_output(self, output: TimeSeriesOutput):
         if not isinstance(output, PythonTimeSeriesBundleOutput):
             raise TypeError(f"Expected {PythonTimeSeriesBundleOutput}, got {type(output)}")
         # TODO: Put in some validation that the signatures are compatible?
-        for k, v in output._ts_value.items():
-            self._ts_value[k].copy_from_output(v)
+        for k, v in output.items():
+            self[k].copy_from_output(v)
 
-    def copy_from_input(self, input: "TimeSeriesInput"):
+    def copy_from_input(self, input: TimeSeriesInput):
         if not isinstance(input, TimeSeriesBundleInput):
             raise TypeError(f"Expected {TimeSeriesBundleInput}, got {type(input)}")
         for k, v in input.items():
-            self._ts_value[k].copy_from_input(v)
+            self[k].copy_from_input(v)
 
     def mark_invalid(self):
         if self.valid:
@@ -75,27 +59,14 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
     This means most all methods can be delegated to the output. This is slightly more efficient than the unbound version.
     """
 
-    _ts_value: Mapping[str, PythonTimeSeriesInput]
-
-    def __getattr__(self, item) -> TimeSeries:
-        # TODO: Should the _ts_value be a dict or a wrapper to support attribute retrieval?
-        if item in self._ts_value:
-            return self._ts_value[item]
-        else:
-            raise ValueError(f"'{item}' is not a valid property of TSB")
-
-    def keys(self) -> KeysView[str]:
-        return self._ts_value.keys()
-
-    def items(self) -> ItemsView[str, TimeSeries]:
-        return self._ts_value.items()
-
-    def values(self) -> ValuesView[TimeSeries]:
-        return self._ts_value.values()
+    def __init__(self, schema: TS_SCHEMA, owning_node: "Node" = None, parent_input: "TimeSeriesInput" = None):
+        Generic.__init__(self)
+        TimeSeriesBundleInput.__init__(self, schema)
+        PythonBoundTimeSeriesInput.__init__(self, _owning_node=owning_node, _parent_input=parent_input)
 
     @property
     def all_valid(self) -> bool:
-        return all(ts.valid for ts in self._ts_value.values())
+        return all(ts.valid for ts in self.values())
 
     @property
     def has_peer(self) -> bool:
@@ -103,12 +74,12 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
 
     @property
     def bound(self) -> bool:
-        return super().bound or any(ts.bound for ts in self._ts_value.values())
+        return super().bound or any(ts.bound for ts in self.values())
 
     def bind_output(self, output: TimeSeriesOutput):
         output: PythonTimeSeriesBundleOutput
         super().bind_output(output)
-        for k, ts in self._ts_value.items():
+        for k, ts in self.items():
             ts.bind_output(output[k])
 
     @property
@@ -116,14 +87,14 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().value
         else:
-            return {K: ts.value for K, ts in self._ts_value.items() if ts.valid}
+            return {K: ts.value for K, ts in self.items() if ts.valid}
 
     @property
     def delta_value(self) -> Mapping[str, Any]:
         if self.has_peer:
             return super().delta_value
         else:
-            return {k: ts.delta_value for k, ts in self._ts_value.items() if ts.modified}
+            return {k: ts.delta_value for k, ts in self.items() if ts.modified}
 
     @property
     def active(self) -> bool:
@@ -135,20 +106,20 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().active
         else:
-            return any(ts.active for ts in self._ts_value.values())
+            return any(ts.active for ts in self.values())
 
     def make_active(self):
         if self.has_peer:
             super().make_active()
         else:
-            for ts in self._ts_value.values():
+            for ts in self.values():
                 ts.make_active()
 
     def make_passive(self):
         if self.has_peer:
             super().make_passive()
         else:
-            for ts in self._ts_value.values():
+            for ts in self.values():
                 ts.make_passive()
 
     @property
@@ -156,18 +127,18 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().modified
         else:
-            return any(ts.modified for ts in self._ts_value.values())
+            return any(ts.modified for ts in self.values())
 
     @property
     def valid(self) -> bool:
         if self.has_peer:
             return super().valid
         else:
-            return any(ts.valid for ts in self._ts_value.values())
+            return any(ts.valid for ts in self.values())
 
     @property
     def last_modified_time(self) -> datetime:
         if self.has_peer:
             return super().last_modified_time
         else:
-            return max(ts.last_modified_time for ts in self._ts_value.values())
+            return max(ts.last_modified_time for ts in self.values())
