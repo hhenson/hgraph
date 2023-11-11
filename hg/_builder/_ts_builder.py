@@ -71,6 +71,30 @@ class TSBOutputBuilder(OutputBuilder):
         ...
 
 
+@dataclass(frozen=True)
+class TSSOutputBuilder(OutputBuilder):
+
+    value_tp: HgScalarTypeMetaData
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
+        ...
+
+    def release_instance(self, item: TimeSeriesOutput):
+        ...
+
+
+@dataclass(frozen=True)
+class TSSInputBuilder(InputBuilder):
+
+    value_tp: HgScalarTypeMetaData
+
+    def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
+        ...
+
+    def release_instance(self, item: TimeSeriesInput):
+        ...
+
+
 class TimeSeriesBuilderFactory:
 
     _instance: Optional["TimeSeriesBuilderFactory"] = None

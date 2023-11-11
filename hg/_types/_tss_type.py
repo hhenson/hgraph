@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Protocol, Iterable, Generic, Set
+from typing import Protocol, Iterable, Generic, Set, runtime_checkable
 
 from hg._types._scalar_types import SCALAR
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, TimeSeriesDeltaValue
@@ -8,7 +8,8 @@ from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, Time
 __all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput")
 
 
-class SetDelta(Protocol[SCALAR]):
+@runtime_checkable
+class SetDelta(Protocol[SCALAR],Generic[SCALAR]):
 
     @property
     @abstractmethod
@@ -74,9 +75,15 @@ class TimeSeriesSetOutput(TimeSeriesOutput, TimeSeriesSet[SCALAR], Generic[SCALA
     The output version of the set
     """
 
-    value: Set[SCALAR]
+    @property
+    @abstractmethod
+    def value(self) -> Set[SCALAR]:
+        ...
 
-    delta_value: SetDelta[SCALAR]
+    @property
+    @abstractmethod
+    def delta_value(self) -> SetDelta[SCALAR]:
+        ...
 
     def add(self, element: SCALAR):
         """Add an element to the set"""

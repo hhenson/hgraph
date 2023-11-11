@@ -4,12 +4,14 @@ from typing import Mapping, cast
 from frozendict import frozendict
 
 from hg._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
-                                     TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder)
+                                     TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder,
+                                     TSSOutputBuilder, TSSInputBuilder)
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hg._types._time_series_types import TimeSeriesOutput
+from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 from hg._types._ts_meta_data import HgTSTypeMetaData
 from hg._types._ts_signal_meta_data import HgSignalMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData
+from hg._types._tss_meta_data import HgTSSTypeMetaData
 from hg._runtime._node import Node
 
 __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBuilderFactory')
@@ -86,6 +88,29 @@ class PythonTSBInputBuilder(TSBInputBuilder):
         pass
 
 
+@dataclass(frozen=True)
+class PythonTSSOutputBuilder(TSSOutputBuilder):
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
+        from hg import PythonTimeSeriesSetOutput
+        return PythonTimeSeriesSetOutput(_owning_node=owning_node, _parent_output=owning_output,
+                                           _tp=self.value_tp.py_type)
+
+    def release_instance(self, item: TimeSeriesOutput):
+        pass
+
+
+@dataclass(frozen=True)
+class PythonTSSInputBuilder(TSSInputBuilder):
+
+    def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
+        from hg import PythonTimeSeriesSetInput
+        return PythonTimeSeriesSetInput(_owning_node=owning_node, _parent_input=owning_input)
+
+    def release_instance(self, item: TimeSeriesInput):
+        super().release_instance(item)
+
+
 def _throw(value_tp):
     raise TypeError(f"Got unexpected value type {type(value_tp)}: {value_tp}")
 
@@ -98,10 +123,12 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
                 schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type),
             HgSignalMetaData: lambda: PythonSignalInputBuilder(),
+            HgTSSTypeMetaData: lambda: PythonTSSInputBuilder(value_tp=cast(HgTSSTypeMetaData, value_tp).value_scalar_tp),
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:
         return {
             HgTSTypeMetaData: lambda: PythonTSOutputBuilder(value_tp=value_tp.value_scalar_tp),
             HgTSBTypeMetaData: lambda: PythonTSBOutputBuilder(schema=value_tp.bundle_schema_tp.py_type),
+            HgTSSTypeMetaData: lambda: PythonTSSOutputBuilder(value_tp=value_tp.value_scalar_tp),
         }.get(type(value_tp), lambda: _throw(value_tp))()

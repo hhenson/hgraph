@@ -95,3 +95,17 @@ class ExecutionContext:
         """
         Returns True if the engine has been requested to stop.
         """
+
+    @abstractmethod
+    def add_before_evaluation_notification(self, fn: callable):
+        """
+        Add a before evaluation notification observer.
+        The notification is called once before the evaluation cycle.
+        """
+
+    @abstractmethod
+    def add_after_evaluation_notification(self, fn: callable):
+        """
+        Add an after evaluation notification observer.
+        The notification is called once after the evaluation cycle.
+        """

@@ -13,10 +13,11 @@ __all__ = ("PythonGraphEngine",)
 
 class BaseExecutionContext(ExecutionContext, ABC):
 
-    def __init__(self, current_time: datetime):
+    def __init__(self, current_time: datetime, graph_engine: "PythonGraphEngine"):
         self.current_engine_time = current_time
         self._proposed_next_engine_time: datetime = MAX_DT
         self._stop_requested = False
+        self._graph_engine = graph_engine
 
     @property
     def proposed_next_engine_time(self) -> datetime:
@@ -51,8 +52,8 @@ class BaseExecutionContext(ExecutionContext, ABC):
 
 class BackTestExecutionContext(BaseExecutionContext):
 
-    def __init__(self, current_time: datetime):
-        super().__init__(current_time)
+    def __init__(self, current_time: datetime, graph_engine: "PythonGraphEngine"):
+        super().__init__(current_time, graph_engine)
         self._wall_clock_time_at_current_time = datetime.utcnow()
 
     def wait_until_proposed_engine_time(self, proposed_engine_time: datetime):
@@ -86,11 +87,17 @@ class BackTestExecutionContext(BaseExecutionContext):
     def reset_push_has_pending_values(self):
         pass  # Nothing to do
 
+    def add_before_evaluation_notification(self, fn: callable):
+        self._graph_engine._before_evaluation_notification.append(fn)
+
+    def add_after_evaluation_notification(self, fn: callable):
+        self._graph_engine._after_evaluation_notification.append(fn)
+
 
 class RealtimeExecutionContext(BaseExecutionContext):
 
-    def __init__(self, current_time: datetime):
-        super().__init__(current_time)
+    def __init__(self, current_time: datetime, graph_engine: "PythonGraphEngine"):
+        super().__init__(current_time, graph_engine)
         self._push_has_pending_values: bool = False
         self._push_pending_condition = threading.Condition()
 
@@ -145,9 +152,9 @@ class PythonGraphEngine:  # (GraphEngine):
     def start(self):
         match self.run_mode:
             case RunMode.REAL_TIME:
-                self._execution_context = RealtimeExecutionContext(self._start_time)
+                self._execution_context = RealtimeExecutionContext(self._start_time, self)
             case RunMode.BACK_TEST:
-                self._execution_context = BackTestExecutionContext(self._start_time)
+                self._execution_context = BackTestExecutionContext(self._start_time, self)
         self.graph.context = self._execution_context
         self.notify_before_start()
         for node in self.graph.nodes:
@@ -235,7 +242,7 @@ class PythonGraphEngine:  # (GraphEngine):
             life_cycle_observer.on_before_evaluation(self.graph)
 
     def notify_after_evaluation(self):
-        for notification_receiver in self._after_evaluation_notification:
+        for notification_receiver in reversed(self._after_evaluation_notification):
             notification_receiver()
         self._after_evaluation_notification.clear()
         for life_cycle_observer in self._life_cycle_observers:
