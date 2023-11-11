@@ -57,7 +57,7 @@ class PythonTSBOutputBuilder(TSBOutputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hg import PythonTimeSeriesBundleOutput
-        tsb = PythonTimeSeriesBundleOutput[self.schema](_owning_node=owning_node, _parent_output=owning_output)
+        tsb = PythonTimeSeriesBundleOutput[self.schema](self.schema, _owning_node=owning_node, _parent_output=owning_output)
         tsb._ts_values = {k: v.make_instance(owning_output=tsb) for k, v in
                          self.schema_builders.items()}
         return tsb

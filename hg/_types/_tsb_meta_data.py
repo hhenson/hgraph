@@ -1,6 +1,8 @@
 from hashlib import sha1
 from typing import Type, Optional, TypeVar, _GenericAlias
 
+from more_itertools import nth
+
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hg._types._type_meta_data import ParseError
@@ -24,7 +26,10 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         self.py_type = py_type
 
     def __getitem__(self, item):
-        return self.meta_data_schema[item]
+        if type(item) is int:
+            return nth(self.meta_data_schema.values(), item)
+        else:
+            return self.meta_data_schema[item]
 
     @property
     def meta_data_schema(self) -> dict[str, "HgTimeSeriesTypeMetaData"]:
@@ -118,3 +123,6 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     def __hash__(self) -> int:
         from hg._types import TSB
         return hash(TSB) ^ hash(self.bundle_schema_tp)
+
+    def __getitem__(self, item):
+        return self.bundle_schema_tp[item]

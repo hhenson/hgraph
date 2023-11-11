@@ -239,7 +239,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 # Whilst a graph could represent a sink signature, it is not a node, we return the wiring port
                 # as it is used by the GraphWiringNodeClass to validate the resolved signature with that of the returned
                 # output
-                return _wiring_port_for(resolved_signature.output_type, wiring_node_instance, (0,))
+                return _wiring_port_for(resolved_signature.output_type, wiring_node_instance, tuple())
 
     def _validate_signature(self, fn):
         sig = inspect.signature(fn)
@@ -501,12 +501,12 @@ def _wiring_port_for(tp: HgTypeMetaData, node_instance: WiringNodeInstance, path
 @dataclass(frozen=True)
 class WiringPort:
     node_instance: WiringNodeInstance
-    path: [int, ...] = 0,  # The path from out (0,) to the time-series to be bound.
+    path: [int, ...] = tuple()  # The path from out () to the time-series to be bound.
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
         output_type = self.node_instance.output_type
-        for p in self.path[1:]:
+        for p in self.path:
             # This is the path within a TSB
             output_type = output_type[p]
         return output_type
@@ -525,6 +525,9 @@ class TSBWiringPort(WiringPort):
         return self
 
     def __getattr__(self, item):
+        return self._wiring_port_for(item)
+
+    def _wiring_port_for(self, item):
         """Support the path selection using property names"""
         if type(item) == str:
             output_type: HgTSBTypeMetaData = self.output_type
@@ -536,8 +539,11 @@ class TSBWiringPort(WiringPort):
             output_type: HgTSBTypeMetaData = self.output_type
             schema: TimeSeriesSchema = output_type.bundle_schema_tp.py_type  # This will raise a key error if the item is not in the schema
             path = self.path + (item,)
-            tp = nth(schema.__meta_data_schema__, item)
+            tp = nth(schema.__meta_data_schema__.values(), item)
         else:
             raise AttributeError(f"'{item}' is not typeof str or int")
         return _wiring_port_for(tp, self.node_instance, path)
+
+    def __getitem__(self, item):
+        return self._wiring_port_for(item)
 

@@ -1,12 +1,13 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping, Generic, KeysView, ItemsView, ValuesView
+from typing import Any, Mapping, Generic
 
-from hg._impl._types._input import PythonTimeSeriesInput, PythonBoundTimeSeriesInput
+from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
-from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TimeSeries
+from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 from hg._types._tsb_type import TimeSeriesBundleInput, TS_SCHEMA, TimeSeriesBundleOutput
 
+__all__ = ("PythonTimeSeriesBundleOutput", "PythonTimeSeriesBundleInput")
 
 # With Bundles there are two implementation types, namely bound and un-bound.
 # Bound bundles are those that are bound to a specific output, and un-bound bundles are those that are not.
@@ -14,8 +15,14 @@ from hg._types._tsb_type import TimeSeriesBundleInput, TS_SCHEMA, TimeSeriesBund
 # has a higher performance characteristic, as it does not need to loop over all the inputs to determine
 # things such as active, modified, etc.
 
+
 @dataclass
 class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutput[TS_SCHEMA], Generic[TS_SCHEMA]):
+
+    def __init__(self, schema: TS_SCHEMA,*args, **kwargs):
+        Generic.__init__(self)
+        TimeSeriesBundleOutput.__init__(self, schema)
+        PythonTimeSeriesOutput.__init__(self, *args, **kwargs)
 
     @property
     def value(self):
