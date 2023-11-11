@@ -5,12 +5,13 @@ from types import GenericAlias
 from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping
 
 from frozendict import frozendict
+from more_itertools import nth
 
 from hg._builder._graph_builder import Edge
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
-from hg._types._tsb_type import UnNamedTimeSeriesSchema
+from hg._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
@@ -238,7 +239,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 # Whilst a graph could represent a sink signature, it is not a node, we return the wiring port
                 # as it is used by the GraphWiringNodeClass to validate the resolved signature with that of the returned
                 # output
-                return WiringPort(wiring_node_instance)
+                return _wiring_port_for(resolved_signature.output_type, wiring_node_instance, (0,))
 
     def _validate_signature(self, fn):
         sig = inspect.signature(fn)
@@ -491,6 +492,12 @@ class WiringNodeInstance:
         return node_builder, edges
 
 
+def _wiring_port_for(tp: HgTypeMetaData, node_instance: WiringNodeInstance, path: [int, ...]) -> "WiringPort":
+    return {
+        HgTSBTypeMetaData: lambda: TSBWiringPort(node_instance, path),
+    }.get(type(tp), lambda:  WiringPort(node_instance, path))()
+
+
 @dataclass(frozen=True)
 class WiringPort:
     node_instance: WiringNodeInstance
@@ -498,25 +505,39 @@ class WiringPort:
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
-        return self.node_instance.output_type
+        output_type = self.node_instance.output_type
+        for p in self.path[1:]:
+            # This is the path within a TSB
+            output_type = output_type[p]
+        return output_type
 
     @property
     def rank(self) -> int:
         return self.node_instance.rank
 
-# @dataclass(frozen=True)
-# class TSBWiringPort(WiringPort):
-#     path: tuple[str, ...]  # The path through the node elements
-#
-#     def edge_path(self, node_map: Mapping["WiringNodeInstance", int]) -> tuple[int, ...]:
-#         path_ = [node_map[self.node_instance]]
-#         for p in self.path:
-#         return super().edge_path(node_map)
-#
-#     @property
-#     def output_type(self) -> HgTimeSeriesTypeMetaData:
-#         output_type = self.node_instance.output_type
-#         for p in self.path:
-#             # This is the parth within a TSB
-#             output_type = output_type[p]
-#         return output_type
+
+@dataclass(frozen=True)
+class TSBWiringPort(WiringPort):
+
+    @property
+    def as_schema(self):
+        """Support the as_schema syntax"""
+        return self
+
+    def __getattr__(self, item):
+        """Support the path selection using property names"""
+        if type(item) == str:
+            output_type: HgTSBTypeMetaData = self.output_type
+            schema: TimeSeriesSchema = output_type.bundle_schema_tp.py_type  # This will raise a key error if the item is not in the schema
+            ndx = schema.index_of(item)
+            path = self.path + (ndx,)
+            tp = schema.__meta_data_schema__[item]
+        elif type(item) == int:
+            output_type: HgTSBTypeMetaData = self.output_type
+            schema: TimeSeriesSchema = output_type.bundle_schema_tp.py_type  # This will raise a key error if the item is not in the schema
+            path = self.path + (item,)
+            tp = nth(schema.__meta_data_schema__, item)
+        else:
+            raise AttributeError(f"'{item}' is not typeof str or int")
+        return _wiring_port_for(tp, self.node_instance, path)
+

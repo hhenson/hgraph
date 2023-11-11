@@ -22,6 +22,10 @@ class AbstractSchema:
     __partial_resolution_parent__: Type["AbstractSchema"]
 
     @classmethod
+    def index_of(cls, key: str) -> int:
+        return list(cls.__meta_data_schema__.keys()).index(key)
+
+    @classmethod
     def items(cls) -> ItemsView[str, "HgTypeMetaData"]:
         return cls.__meta_data_schema__.items()
 
