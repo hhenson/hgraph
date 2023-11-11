@@ -62,3 +62,12 @@ def test_tsb_input_not_peered():
         return split_my_tsb(tsb)
 
     assert eval_node(tsb_in_non_peered, [1, 2], ["a", "b"]) == [1, 2]
+
+
+def test_tsb_input_peered():
+    @graph
+    def tsb_in_non_peered(ts1: TS[int], ts2: TS[str]) -> TS[int]:
+        tsb: TSB[MyTsb] = create_my_tsb(ts1, ts2)
+        return split_my_tsb(tsb)
+
+    assert eval_node(tsb_in_non_peered, [1, 2], ["a", "b"]) == [1, 2]
