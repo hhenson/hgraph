@@ -1,5 +1,5 @@
 from hg import graph, TS, TSS, compute_node, PythonSetDelta
-from hg.nodes._pass_through import pass_through
+from hg.nodes import pass_through
 from hg.test import eval_node
 
 
