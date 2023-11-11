@@ -1,4 +1,5 @@
 from hg import graph, TS, TSS, compute_node, PythonSetDelta
+from hg.nodes._pass_through import pass_through
 from hg.test import eval_node
 
 
@@ -16,3 +17,16 @@ def test_tss_strait():
         PythonSetDelta(frozenset("a"), frozenset()),
         PythonSetDelta(frozenset("b"), frozenset()),
         PythonSetDelta(frozenset(), frozenset("a"))]
+
+
+def test_tss_pass_through():
+
+        @graph
+        def pass_through_test(key: TS[str], add: TS[bool]) -> TSS[str]:
+            tss = create_tss(key, add)
+            return pass_through(tss)
+
+        assert eval_node(pass_through_test, key=["a", "b", "a"], add=[True, True, False]) == [
+            PythonSetDelta(frozenset("a"), frozenset()),
+            PythonSetDelta(frozenset("b"), frozenset()),
+            PythonSetDelta(frozenset(), frozenset("a"))]
