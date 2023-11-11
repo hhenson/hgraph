@@ -58,6 +58,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
             for i in range(max_rank + 1):
                 wiring_node_set = ranked_nodes.get(i, set())
                 for wiring_node in wiring_node_set:
+                    if wiring_node.is_stub:
+                        continue
                     ndx = len(node_builders)
                     node_builder, input_edges = wiring_node.create_node_builder_and_edges(node_map, node_builders)
                     node_builders.append(node_builder)

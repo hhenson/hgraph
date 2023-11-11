@@ -1,9 +1,11 @@
 import functools
 from abc import ABC, abstractmethod
 from datetime import datetime
+from functools import wraps
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
-    ItemsView, ValuesView, Self, cast
+    ItemsView, ValuesView, cast
 
+from frozendict import frozendict
 from more_itertools import nth
 
 from hg._types._schema_type import AbstractSchema
@@ -12,7 +14,8 @@ from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, SCAL
 from hg._types._type_meta_data import ParseError
 
 if TYPE_CHECKING:
-    from hg import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData
+    from hg import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
+        HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, WiringNodeInstance
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
            "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema")
@@ -56,7 +59,6 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
             k: kwargs.get(k, None) for k in self.__schema__.__meta_data_schema__.keys()
         }  # Initialise the values to None or kwargs provided
 
-
     def __class_getitem__(cls, item) -> Any:
         # For now limit to validation of item
         out = super(TimeSeriesBundle, cls).__class_getitem__(item)
@@ -66,7 +68,10 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
                 raise ParseError(
                     f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
             if hasattr(out, "from_ts"):
-                out.from_ts = functools.partial(out.from_ts, __schema__=item)
+                fn = out.from_ts
+                code = fn.__code__
+                out.from_ts = functools.partial(fn, __schema__=item)
+                out.from_ts.__code__ = code
         return out
 
     @property
@@ -154,10 +159,33 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         This does not require all values be present, but before wiring the bundle into an input, this will be a
         requirement.
         """
-        schema = kwargs.pop("__schema__")
+        schema: TS_SCHEMA = kwargs.pop("__schema__")
+        fn_details = TimeSeriesBundleInput.from_ts.__code__
+        from hg import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSBTypeMetaData, \
+            HgTimeSeriesSchemaTypeMetaData, WiringNodeInstance
+        wiring_node_signature = WiringNodeSignature(
+            node_type=WiringNodeType.STUB,
+            name=f"TSB[{schema.__name__}].from_ts",
+            args=tuple(kwargs.keys()),
+            defaults=frozendict(),
+            input_types=frozendict(schema.__meta_data_schema__),
+            output_type=HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(schema)),
+            src_location=SourceCodeDetails(fn_details.co_filename, fn_details.co_firstlineno),
+            active_inputs=None,
+            valid_inputs=None,
+            unresolved_args=tuple(),
+            time_series_args=tuple(kwargs.keys()),
+        )
         TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
-        out = TimeSeriesBundleInput[schema](schema, **kwargs)
-        return out
+        from hg._wiring._wiring import TSBWiringPort, NonPeeredWiringNodeClass
+        wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
+        wiring_node_instance = WiringNodeInstance(
+            node=wiring_node,
+            resolved_signature=wiring_node_signature,
+            inputs=frozendict(kwargs),
+            rank=max(v.rank for k, v in kwargs.items())
+        )
+        return TSBWiringPort(wiring_node_instance, tuple())
 
     def copy_with(self, **kwargs):
         """

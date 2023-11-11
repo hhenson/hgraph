@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from unittest.mock import create_autospec
 
 from hg import CompoundScalar, SCALAR
+from hg._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
 from hg._types._scalar_types import is_compound_scalar
 from hg._types._ts_type import TS
-from hg._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
+from hg._wiring._wiring import WiringPort, WiringNodeInstance
 
 
 @dataclass
@@ -21,11 +21,12 @@ class LessSimpleBundle(SimpleSchema):
 def test_simple_bundle():
     assert is_bundle(TSB[SimpleSchema])
     assert is_bundle(TSB[LessSimpleBundle])
-    p1 = create_autospec(TS[int], spec_set=True, instance=True)
+    from hg.nodes import const
+    p1 = const(1)
     b1 = TSB[SimpleSchema].from_ts(p1=p1)
     assert b1.__schema__ == SimpleSchema
-    assert b1.p1 is p1
-    assert b1.as_schema.p1 is p1
+    assert b1.p1 == p1
+    assert b1.as_schema.p1 == p1
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,8 @@
 import inspect
-import typing
 from dataclasses import dataclass
+from functools import cached_property
 from types import GenericAlias
-from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping
+from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING
 
 from frozendict import frozendict
 from more_itertools import nth
@@ -18,7 +18,7 @@ from hg._wiring._wiring_context import WiringContext
 from hg._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
     from hg._runtime._node import NodeSignature, NodeTypeEnum
 
@@ -445,12 +445,26 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 return out
 
 
+class NonPeeredWiringNodeClass(BaseWiringNodeClass):
+    """Used to represent Non-graph nodes to use when creating non-peered wiring ports"""
+
+    def __call__(self, _tsb_meta_type: HgTSBTypeMetaData, **kwargs) -> "WiringPort":
+        ...
+
+    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+        raise NotImplementedError()
+
+
 @dataclass(frozen=True)
 class WiringNodeInstance:
     node: WiringNodeClass
     resolved_signature: WiringNodeSignature
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
+
+    @property
+    def is_stub(self) -> bool:
+        return isinstance(self.node, NonPeeredWiringNodeClass)
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
@@ -485,9 +499,7 @@ class WiringNodeInstance:
         edges = set()
         for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.time_series_inputs):
             input_: WiringPort = self.inputs[arg]
-            edge = Edge(node_map[input_.node_instance], input_.path, node_index, (ndx,))
-            edges.add(edge)
-            # TODO: When dealing with more complex binding structures (such as TSBs) extracting the edges will be more complex.
+            edges.update(input_.edges_for(node_map, node_index, (ndx,)))
 
         return node_builder, edges
 
@@ -495,13 +507,24 @@ class WiringNodeInstance:
 def _wiring_port_for(tp: HgTypeMetaData, node_instance: WiringNodeInstance, path: [int, ...]) -> "WiringPort":
     return {
         HgTSBTypeMetaData: lambda: TSBWiringPort(node_instance, path),
-    }.get(type(tp), lambda:  WiringPort(node_instance, path))()
+    }.get(type(tp), lambda: WiringPort(node_instance, path))()
 
 
 @dataclass(frozen=True)
 class WiringPort:
     node_instance: WiringNodeInstance
-    path: [int, ...] = tuple()  # The path from out () to the time-series to be bound.
+    path: tuple[int, ...] = tuple()  # The path from out () to the time-series to be bound.
+
+    @property
+    def has_peer(self) -> bool:
+        return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
+
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) \
+            -> set[Edge]:
+        """Return the edges required to bind this output to the dst_node"""
+        assert self.has_peer, \
+            "Can not bind a non-peered node, the WiringPort must be sub-classed and override this method"
+        return {Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path)}
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
@@ -519,6 +542,10 @@ class WiringPort:
 @dataclass(frozen=True)
 class TSBWiringPort(WiringPort):
 
+    @cached_property
+    def __schema__(self) -> TimeSeriesSchema:
+        return self.output_type.bundle_schema_tp.py_type
+
     @property
     def as_schema(self):
         """Support the as_schema syntax"""
@@ -529,21 +556,32 @@ class TSBWiringPort(WiringPort):
 
     def _wiring_port_for(self, item):
         """Support the path selection using property names"""
+        schema: TimeSeriesSchema = self.__schema__
         if type(item) == str:
-            output_type: HgTSBTypeMetaData = self.output_type
-            schema: TimeSeriesSchema = output_type.bundle_schema_tp.py_type  # This will raise a key error if the item is not in the schema
+            arg = item
             ndx = schema.index_of(item)
-            path = self.path + (ndx,)
-            tp = schema.__meta_data_schema__[item]
         elif type(item) == int:
-            output_type: HgTSBTypeMetaData = self.output_type
-            schema: TimeSeriesSchema = output_type.bundle_schema_tp.py_type  # This will raise a key error if the item is not in the schema
-            path = self.path + (item,)
-            tp = nth(schema.__meta_data_schema__.values(), item)
+            ndx = item
+            arg = nth(schema.__meta_data_schema__.keys(), item)
         else:
             raise AttributeError(f"'{item}' is not typeof str or int")
-        return _wiring_port_for(tp, self.node_instance, path)
+        tp = schema.__meta_data_schema__[arg]
+        if self.has_peer:
+            path = self.path + (ndx,)
+            node_instance = self.node_instance
+        else:
+            input_wiring_port = self.node_instance.inputs[arg]
+            node_instance = input_wiring_port.node_instance
+            path = input_wiring_port.path
+        return _wiring_port_for(tp, node_instance, path)
 
     def __getitem__(self, item):
         return self._wiring_port_for(item)
 
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
+            set[Edge]:
+        edges = set()
+        for ndx, arg in enumerate(self.__schema__.__meta_data_schema__):
+            wiring_port = self._wiring_port_for(arg)
+            edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
+        return edges
