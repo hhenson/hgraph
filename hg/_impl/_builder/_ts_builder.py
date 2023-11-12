@@ -5,14 +5,17 @@ from frozendict import frozendict
 
 from hg._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
                                      TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder,
-                                     TSSOutputBuilder, TSSInputBuilder)
+                                     TSSOutputBuilder, TSSInputBuilder, TSLOutputBuilder, TSLInputBuilder,
+                                     )
+from hg._runtime._node import Node
+from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 from hg._types._ts_meta_data import HgTSTypeMetaData
 from hg._types._ts_signal_meta_data import HgSignalMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData
+from hg._types._tsl_meta_data import HgTSLTypeMetaData
 from hg._types._tss_meta_data import HgTSSTypeMetaData
-from hg._runtime._node import Node
 
 __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBuilderFactory')
 
@@ -59,9 +62,10 @@ class PythonTSBOutputBuilder(TSBOutputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hg import PythonTimeSeriesBundleOutput
-        tsb = PythonTimeSeriesBundleOutput[self.schema](self.schema, _owning_node=owning_node, _parent_output=owning_output)
+        tsb = PythonTimeSeriesBundleOutput[self.schema](self.schema, _owning_node=owning_node,
+                                                        _parent_output=owning_output)
         tsb._ts_values = {k: v.make_instance(owning_output=tsb) for k, v in
-                         self.schema_builders.items()}
+                          self.schema_builders.items()}
         return tsb
 
     def release_instance(self, item):
@@ -89,12 +93,65 @@ class PythonTSBInputBuilder(TSBInputBuilder):
 
 
 @dataclass(frozen=True)
+class PythonTSLOutputBuilder(TSLOutputBuilder):
+    value_tp: HgTimeSeriesTypeMetaData
+    size_tp: HgScalarTypeMetaData
+    value_builder: TSOutputBuilder = None
+
+    def __post_init__(self):
+        factory = TimeSeriesBuilderFactory.instance()
+        object.__setattr__(self, 'value_builder', factory.make_output_builder(self.value_tp))
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hg import Size
+        from hg._impl._types._tsl import PythonTimeSeriesListOutput
+        tsl = PythonTimeSeriesListOutput[self.value_tp.py_type, self.size_tp.py_type](
+            __type__=self.value_tp.py_type,
+            __size__=self.size_tp.py_type,
+            _owning_node=owning_node,
+            _parent_output=owning_output
+        )
+        tsl._ts_values = [self.value_builder.make_instance(owning_output=tsl) for _ in
+                          range(cast(Size, self.size_tp.py_type).SIZE)]
+        return tsl
+
+    def release_instance(self, item):
+        pass
+
+
+@dataclass(frozen=True)
+class PythonTSLInputBuilder(TSLInputBuilder):
+    value_tp: HgTimeSeriesTypeMetaData
+    size_tp: HgScalarTypeMetaData
+    value_builder: TSOutputBuilder = None
+
+    def __post_init__(self):
+        factory = TimeSeriesBuilderFactory.instance()
+        object.__setattr__(self, 'value_builder', factory.make_input_builder(self.value_tp))
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hg import PythonTimeSeriesListInput, Size
+        tsl = PythonTimeSeriesListInput[self.value_tp.py_type, self.size_tp.py_type](
+            __type__=self.value_tp.py_type,
+            __size__=self.size_tp.py_type,
+            _owning_node=owning_node,
+            _parent_input=owning_input
+        )
+        tsl._ts_values = [self.value_builder.make_instance(owning_input=tsl) for _ in
+                          range(cast(Size, self.size_tp.py_type).SIZE)]
+        return tsl
+
+    def release_instance(self, item):
+        pass
+
+
+@dataclass(frozen=True)
 class PythonTSSOutputBuilder(TSSOutputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
         from hg import PythonTimeSeriesSetOutput
         return PythonTimeSeriesSetOutput(_owning_node=owning_node, _parent_output=owning_output,
-                                           _tp=self.value_tp.py_type)
+                                         _tp=self.value_tp.py_type)
 
     def release_instance(self, item: TimeSeriesOutput):
         pass
@@ -123,7 +180,10 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
                 schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type),
             HgSignalMetaData: lambda: PythonSignalInputBuilder(),
-            HgTSSTypeMetaData: lambda: PythonTSSInputBuilder(value_tp=cast(HgTSSTypeMetaData, value_tp).value_scalar_tp),
+            HgTSSTypeMetaData: lambda: PythonTSSInputBuilder(
+                value_tp=cast(HgTSSTypeMetaData, value_tp).value_scalar_tp),
+            HgTSLTypeMetaData: lambda: PythonTSLInputBuilder(value_tp=cast(HgTSLTypeMetaData, value_tp).value_tp,
+                                                             size_tp=cast(HgTSLTypeMetaData, value_tp).size_tp),
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:
@@ -131,4 +191,6 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSTypeMetaData: lambda: PythonTSOutputBuilder(value_tp=value_tp.value_scalar_tp),
             HgTSBTypeMetaData: lambda: PythonTSBOutputBuilder(schema=value_tp.bundle_schema_tp.py_type),
             HgTSSTypeMetaData: lambda: PythonTSSOutputBuilder(value_tp=value_tp.value_scalar_tp),
+            HgTSLTypeMetaData: lambda: PythonTSLOutputBuilder(value_tp=cast(HgTSLTypeMetaData, value_tp).value_tp,
+                                                              size_tp=cast(HgTSLTypeMetaData, value_tp).size_tp),
         }.get(type(value_tp), lambda: _throw(value_tp))()

@@ -8,7 +8,7 @@ if typing.TYPE_CHECKING:
     from hg._types._type_meta_data import HgTypeMetaData
 
 __all__ = ("WiringError", "ArgumentBindingErrors", "IncorrectTypeBinding", "TemplateTypeIncompatibleResolution",
-           "MissingInputsError")
+           "MissingInputsError", "NoTimeSeriesInputsError", "InvalidArgumentsProvided")
 
 
 class WiringError(RuntimeError, ABC):
@@ -116,6 +116,18 @@ class MissingInputsError(WiringError):
         self._print_error(msg)
 
 
+class NoTimeSeriesInputsError(WiringError):
+
+    def __init__(self):
+        self.signature = WIRING_CONTEXT.current_signature
+        super().__init__(f"No time-series inputs provided")
+
+    def print_error(self):
+        msg = f"When resolving '{self.signature.signature}' \n" \
+              f"No time-series inputs provided"
+        self._print_error(msg)
+
+
 class InvalidArgumentsProvided(WiringError):
 
     def __init__(self, bad_arguments: typing.Sequence[str]):
@@ -126,4 +138,15 @@ class InvalidArgumentsProvided(WiringError):
     def print_error(self):
         msg = f"When resolving '{self.signature.signature}' \n" \
               f"Invalid inputs provided: {self.bad_arguments}"
+        self._print_error(msg)
+
+
+class CustomMessageWiringError(WiringError):
+    def __init__(self, message: str):
+        self.message = message
+        self.signature = WIRING_CONTEXT.current_signature
+        super().__init__(self.message)
+
+    def print_error(self):
+        msg = f"When resolving '{self.signature.signature}' \n{self.message}"
         self._print_error(msg)

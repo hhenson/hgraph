@@ -11,7 +11,9 @@ from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 from hg._types._tsb_type import TimeSeriesSchema
 
-__all__ = ("TSOutputBuilder", "TSInputBuilder", "TimeSeriesBuilderFactory")
+__all__ = ("TSOutputBuilder", "TSInputBuilder", "TimeSeriesBuilderFactory", "TSSInputBuilder", "TSLOutputBuilder",
+           "TSLInputBuilder", "TSBOutputBuilder", "TSBInputBuilder", "TSSOutputBuilder", "TSSInputBuilder",
+           "TSSignalInputBuilder")
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,32 @@ class TSBInputBuilder(InputBuilder):
 class TSBOutputBuilder(OutputBuilder):
 
     schema: TimeSeriesSchema
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
+        ...
+
+    def release_instance(self, item: TimeSeriesOutput):
+        ...
+
+
+@dataclass(frozen=True)
+class TSLInputBuilder(InputBuilder):
+
+    value_tp: HgTimeSeriesTypeMetaData
+    size_tp: HgScalarTypeMetaData
+
+    def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
+        ...
+
+    def release_instance(self, item: TimeSeriesInput):
+        ...
+
+
+@dataclass(frozen=True)
+class TSLOutputBuilder(OutputBuilder):
+
+    value_tp: HgTimeSeriesTypeMetaData
+    size_tp: HgScalarTypeMetaData
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
         ...

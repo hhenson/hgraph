@@ -1,18 +1,21 @@
+from typing import TYPE_CHECKING
 
 from hg._builder._builder import Builder
-from hg._runtime._node import Node
-from hg._types._time_series_types import TimeSeriesOutput
+
+if TYPE_CHECKING:
+    from hg._runtime._node import Node
+    from hg._types._time_series_types import TimeSeriesOutput
 
 
 __all__ = ('OutputBuilder',)
 
 
-class OutputBuilder(Builder[TimeSeriesOutput]):
+class OutputBuilder(Builder["TimeSeriesOutput"]):
 
-    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
+    def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
         """One of owning_node or owning_output must be defined."""
         pass
 
-    def release_instance(self, item: TimeSeriesOutput):
+    def release_instance(self, item: "TimeSeriesOutput"):
         pass
 

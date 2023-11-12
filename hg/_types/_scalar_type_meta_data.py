@@ -178,11 +178,12 @@ class HgInjectableType(HgScalarTypeMetaData):
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         value_tp = value if isinstance(value, type) else type(value)
-        from hg import ExecutionContext
+        from hg._runtime._execution_context import ExecutionContext
         return {
             ExecutionContext: lambda: HgExecutionContextType(),
             STATE: lambda: HgStateType(),
         }.get(value_tp, lambda: None)()
+
 
 @dataclass
 class Injector:

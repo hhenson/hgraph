@@ -7,6 +7,7 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 from frozendict import frozendict
 from more_itertools import nth
 
+from hg import HgTSLTypeMetaData
 from hg._builder._graph_builder import Edge
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -15,7 +16,7 @@ from hg._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
-from hg._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError
+from hg._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, CustomMessageWiringError
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 if TYPE_CHECKING:
@@ -57,6 +58,7 @@ class WiringNodeClass:
             out[s.start] = (parsed := HgTypeMetaData.parse(s.stop))
             assert parsed is not None, f"Can not resolve {s.stop} into a valid scalar or time-series type"
             assert parsed.is_resolved, f"The resolved value {s.stop} is not resolved, this is not supported."
+        return out
 
     def __getitem__(self, item) -> "WiringNodeClass":
         """
@@ -114,7 +116,8 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.stop_fn: Callable = None
 
     def __getitem__(self, item) -> WiringNodeClass:
-        return PreResolvedWiringNodeWrapper(self, self._convert_item(item))
+        return PreResolvedWiringNodeWrapper(signature=self.signature,fn=self.fn,
+                 underlying_node=self, resolved_types=self._convert_item(item))
 
     def _prepare_kwargs(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -269,16 +272,15 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
     def __init__(self, signature: WiringNodeSignature, fn: Callable,
                  underlying_node: BaseWiringNodeClass, resolved_types: dict[TypeVar, HgTypeMetaData]):
         super().__init__(signature, fn)
+        if isinstance(underlying_node, PreResolvedWiringNodeWrapper):
+            # We don't want to create unnecessary chains so unwrap and create the super set result.
+            underlying_node = underlying_node.underlying_node
+            resolved_types = underlying_node.resolved_types | resolved_types
         self.underlying_node = underlying_node
         self.resolved_types = resolved_types
 
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         return self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
-
-    def __getitem__(self, item) -> WiringNodeClass:
-        resolved_types = dict(self.resolved_types)
-        resolved_types |= self._convert_item(item)
-        return PreResolvedWiringNodeWrapper(self.underlying_node, resolved_types)
 
 
 class CppWiringNodeClass(BaseWiringNodeClass):
@@ -581,7 +583,48 @@ class TSBWiringPort(WiringPort):
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
             set[Edge]:
         edges = set()
-        for ndx, arg in enumerate(self.__schema__.__meta_data_schema__):
-            wiring_port = self._wiring_port_for(arg)
-            edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
+        if self.has_peer:
+            edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
+        else:
+            for ndx, arg in enumerate(self.__schema__.__meta_data_schema__):
+                wiring_port = self._wiring_port_for(arg)
+                edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
+        return edges
+
+
+@dataclass(frozen=True)
+class TSLWiringPort(WiringPort):
+
+    def __getitem__(self, item):
+        """Return the wiring port for an individual TSL element"""
+        output_type: HgTSLTypeMetaData = self.output_type
+        tp_ = output_type.value_tp
+        size_ = output_type.size
+        if not size_.FIXED_SIZE:
+            raise CustomMessageWiringError(
+                "Currently we are unable to select a time-series element from an unbounded TSL")
+        elif item >= size_.SIZE:
+            raise CustomMessageWiringError(
+                f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}")
+
+        if self.has_peer:
+            path = self.path + (item,)
+            node_instance = self.node_instance
+        else:
+            arg = nth(self.node_instance.resolved_signature.time_series_args, item)
+            input_wiring_port = self.node_instance.inputs[arg]
+            node_instance = input_wiring_port.node_instance
+            path = input_wiring_port.path
+        return _wiring_port_for(tp_, node_instance, path)
+
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
+            set[Edge]:
+        edges = set()
+        if self.has_peer:
+            edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
+        else:
+            # This should work as we don't support unbounded TSLs as non-peered nodes at the moment.
+            for ndx in range(self.output_type.size.SIZE):
+                wiring_port = self[ndx]
+                edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
         return edges

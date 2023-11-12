@@ -1,9 +1,11 @@
-from typing import Type, TypeVar, Optional, _GenericAlias
+from typing import Type, TypeVar, Optional, _GenericAlias, TYPE_CHECKING, cast
 
 from hg._types._type_meta_data import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
+if TYPE_CHECKING:
+    from hg._types._scalar_types import Size
 
 __all__ = ("HgTSLTypeMetaData", "HgTSLOutTypeMetaData",)
 
@@ -17,6 +19,10 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     def __init__(self, value_tp: HgTimeSeriesTypeMetaData, size_tp: HgScalarTypeMetaData):
         self.value_tp = value_tp
         self.size_tp = size_tp
+
+    @property
+    def size(self) -> "Size":
+        return cast("Size", self.size_tp.py_type)
 
     @property
     def is_resolved(self) -> bool:
