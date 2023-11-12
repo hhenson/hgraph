@@ -10,7 +10,7 @@ def test_hello_world():
         c = const("Hello World")
         write_str(c)
 
-    run_graph(hello_world, run_mode=RunMode.BACK_TEST)
+    run_graph(hello_world, run_mode=RunMode.SIMULATION)
 
 
 def test_compute_node():
@@ -25,4 +25,4 @@ def test_compute_node():
         t = tick(c)
         debug_print("t", t)
 
-    run_graph(hello_world, run_mode=RunMode.BACK_TEST)
+    run_graph(hello_world, run_mode=RunMode.SIMULATION)

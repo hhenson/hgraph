@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from hg._runtime import Graph, ExecutionContext
 from hg._runtime._constants import MAX_DT, MIN_TD
-from hg._runtime._graph_engine import RunMode, GraphExecutorLifeCycleObserver
+from hg._runtime._graph_engine import RunMode, GraphEngineLifeCycleObserver
 from hg._runtime._lifecycle import start_stop_context, start_guard, stop_guard
 
 __all__ = ("PythonGraphEngine",)
@@ -141,7 +141,7 @@ class PythonGraphEngine:  # (GraphEngine):
     _start_time: datetime = None
     _end_time: datetime = None
     _execution_context: ExecutionContext | None = None
-    _life_cycle_observers: [GraphExecutorLifeCycleObserver] = field(default_factory=list)
+    _life_cycle_observers: [GraphEngineLifeCycleObserver] = field(default_factory=list)
     _before_evaluation_notification: [callable] = field(default_factory=list)
     _after_evaluation_notification: [callable] = field(default_factory=list)
 
@@ -153,7 +153,7 @@ class PythonGraphEngine:  # (GraphEngine):
         match self.run_mode:
             case RunMode.REAL_TIME:
                 self._execution_context = RealtimeExecutionContext(self._start_time, self)
-            case RunMode.BACK_TEST:
+            case RunMode.SIMULATION:
                 self._execution_context = BackTestExecutionContext(self._start_time, self)
         self.graph.context = self._execution_context
         self.notify_before_start()
@@ -228,10 +228,10 @@ class PythonGraphEngine:  # (GraphEngine):
                 self.evaluate_graph()
                 self.advance_engine_time()
 
-    def add_life_cycle_observer(self, observer: GraphExecutorLifeCycleObserver):
+    def add_life_cycle_observer(self, observer: GraphEngineLifeCycleObserver):
         self._life_cycle_observers.append(observer)
 
-    def remove_life_cycle_observer(self, observer: GraphExecutorLifeCycleObserver):
+    def remove_life_cycle_observer(self, observer: GraphEngineLifeCycleObserver):
         self._life_cycle_observers.remove(observer)
 
     def notify_before_evaluation(self):

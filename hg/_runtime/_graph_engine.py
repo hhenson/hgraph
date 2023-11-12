@@ -6,7 +6,7 @@ from enum import Enum
 from hg._runtime._graph import Graph
 from hg._runtime._lifecycle import ComponentLifeCycle
 
-__all__ = ( "RunMode", "GraphEngine", "GraphExecutorLifeCycleObserver")
+__all__ = ( "RunMode", "GraphEngine", "GraphEngineLifeCycleObserver")
 
 
 class RunMode(Enum):
@@ -14,10 +14,10 @@ class RunMode(Enum):
     The run mode of the engine.
     """
     REAL_TIME = 0
-    BACK_TEST = 1
+    SIMULATION = 1
 
 
-class GraphExecutorLifeCycleObserver:
+class GraphEngineLifeCycleObserver:
     """
     An observer of the graph executor's life cycle.
     """
