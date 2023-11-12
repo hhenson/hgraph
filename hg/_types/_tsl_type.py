@@ -1,3 +1,4 @@
+import functools
 from abc import abstractmethod
 from typing import Any, Generic, Iterable
 
@@ -36,6 +37,26 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
     """
     The input of a time series list.
     """
+
+    def __class_getitem__(cls, item) -> Any:
+        # For now limit to validation of item
+        out = super(TimeSeriesListInput, cls).__class_getitem__(item)
+        if item is not (TIME_SERIES_TYPE, SIZE):
+            from hg._types._type_meta_data import HgTypeMetaData
+            if HgTypeMetaData.parse(item[0]).is_scalar:
+                from hg import ParseError
+                raise ParseError(
+                    f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+            if hasattr(out, "from_ts"):
+                fn = out.from_ts
+                code = fn.__code__
+                out.from_ts = functools.partial(fn, __schema__=item)
+                out.from_ts.__code__ = code
+        return out
+
+    @staticmethod
+    def from_ts(**kwargs) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
+        ...
 
 
 class TimeSeriesListOutput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, Generic[TIME_SERIES_TYPE, SIZE]):
