@@ -33,7 +33,7 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
         if (is_not_tuple := type(item) is not tuple) or len(item) != 2:
             item = (item if is_not_tuple else item[0] if item else TIME_SERIES_TYPE, SIZE)
         out = super(TimeSeriesList, cls).__class_getitem__(item)
-        if item is not (TIME_SERIES_TYPE, SIZE):
+        if item != (TIME_SERIES_TYPE, SIZE):
             from hg._types._type_meta_data import HgTypeMetaData
             if HgTypeMetaData.parse(item[0]).is_scalar:
                 from hg import ParseError
