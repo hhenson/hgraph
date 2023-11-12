@@ -32,8 +32,8 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
     def delta_value(self):
         return {k: ts.delta_value for k, ts in self.items() if ts.modified}
 
-    def apply_result(self, value: Mapping[str, Any]):
-        for k, v in value.items():
+    def apply_result(self, result: Mapping[str, Any]):
+        for k, v in result.items():
             self[k].apply_result(v)
 
     def copy_from_output(self, output: TimeSeriesOutput):

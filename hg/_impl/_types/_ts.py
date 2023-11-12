@@ -37,13 +37,14 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
     def value(self, v: SCALAR):
         if v is None:
             return
-        if not isinstance(v, self._tp):
+        tp_ = origin if (origin := typing.get_origin(self._tp)) else self._tp
+        if not isinstance(v, tp_):
             raise TypeError(f"Expected {self._tp}, got {type(v)}")
         self._value = v
         self.mark_modified()
 
-    def apply_result(self, value: SCALAR):
-        self.value = value
+    def apply_result(self, result: SCALAR):
+        self.value = result
 
     def mark_invalid(self):
         self._value = None

@@ -1,9 +1,10 @@
 import functools
-from abc import abstractmethod
-from typing import Any, Generic, Iterable, TYPE_CHECKING
+from abc import abstractmethod, ABC
+from typing import Any, Generic, Iterable, TYPE_CHECKING, Tuple
 
 from frozendict import frozendict
 
+from hg._types._time_series_types import K, V
 from hg._types._scalar_types import SIZE, Size, STATE
 from hg._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, TIME_SERIES_TYPE, \
     TimeSeriesDeltaValue
@@ -11,9 +12,7 @@ from hg._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, Ti
 if TYPE_CHECKING:
     from hg._wiring._wiring_context import WiringContext
 
-
 __all__ = ("TSL", "TSL_OUT", "TimeSeriesList", "TimeSeriesListInput", "TimeSeriesListOutput")
-
 
 
 class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaValue[tuple, dict[int, Any]],
@@ -46,23 +45,50 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
                 out.from_ts.__code__ = code
         return out
 
-    @abstractmethod
     def __getitem__(self, item: int) -> TIME_SERIES_TYPE:
         """
         Returns the time series at this index position
         :param item:
         :return:
         """
+        return self._ts_values[item]
 
-    @abstractmethod
     def __iter__(self) -> Iterable[TIME_SERIES_TYPE]:
         """
         Iterator over the time-series values
         :return:
         """
+        return iter(self._ts_values)
+
+    def keys(self) -> Iterable[K]:
+        return range(len(self._ts_values))
+
+    def values(self) -> Iterable[V]:
+        return self._ts_values
+
+    def items(self) -> Iterable[Tuple[K, V]]:
+        return enumerate(self._ts_values)
+
+    def modified_keys(self) -> Iterable[K]:
+        return (i for i in self.keys() if self._ts_values[i].modified)
+
+    def modified_values(self) -> Iterable[V]:
+        return (v for v in self.values() if v.modified)
+
+    def modified_items(self) -> Iterable[Tuple[K, V]]:
+        return ((i, v) for i, v in self.items() if v.modified)
+
+    def valid_keys(self) -> Iterable[K]:
+        return (i for i in self.keys() if self._ts_values[i].valid)
+
+    def valid_values(self) -> Iterable[V]:
+        return (v for v in self.values() if v.valid)
+
+    def valid_items(self) -> Iterable[Tuple[K, V]]:
+        return ((i, v) for i, v in self.items() if v.valid)
 
 
-class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInput, Generic[TIME_SERIES_TYPE, SIZE]):
+class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):
     """
     The input of a time series list.
     """
@@ -135,7 +161,7 @@ def _from_ts_wiring_context(tp_, size_) -> "WiringContext":
         current_signature=STATE(signature=f"TSL[{tp_}, {size_}].from_ts(**kwargs) -> TSL[{tp_}, {size_}]"))
 
 
-class TimeSeriesListOutput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, Generic[TIME_SERIES_TYPE, SIZE]):
+class TimeSeriesListOutput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):
     """
     The output type of a time series list
     """

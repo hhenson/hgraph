@@ -144,7 +144,7 @@ class TimeSeriesOutput(TimeSeries):
         """
 
     @abstractmethod
-    def apply_result(self, Any):
+    def apply_result(self, result: Any):
         """
         Apply the result of calling a python method to the output.
         """

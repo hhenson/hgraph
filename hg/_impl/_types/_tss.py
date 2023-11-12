@@ -30,8 +30,8 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     _tp: type = None
     _value: set[SCALAR] = field(default_factory=set)
-    _added: set[SCALAR] = None
-    _removed: set[SCALAR] = None
+    _added: frozenset[SCALAR] | None = None
+    _removed: frozenset[SCALAR] | None = None
 
     @property
     def value(self) -> Set[SCALAR]:
@@ -45,28 +45,41 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         if result is None:
             return
         if isinstance(result, SetDelta):
-            self._added = set(result.added_elements)
-            self._removed = set(result.removed_elements)
-            self._value = self._value.union(self._added).difference(self._removed)
+            self._added = frozenset(e for e in result.added_elements if e not in self._value)
+            self._removed = frozenset(e for e in result.removed_elements if e in self._value)
+            if self._removed.intersection(self._added):
+                raise ValueError("Cannot remove and add the same element")
+            self._value.update(self._added)
+            self._value.difference_update(self._removed)
         else:
             # Assume that the result is a set, and then we are adding all the elements
-            self._added = set(result)
-            self._value = self._value.union(self._added)
-        self.mark_modified()
+            self._added = frozenset(result)
+            self._removed = frozenset()
+            self._value.update(self._added)
+        if self._added or self._removed or not self.valid:
+            self.mark_modified()
 
     def mark_modified(self):
         super().mark_modified()
         self.owning_graph.context.add_after_evaluation_notification(self._reset)
 
     def _reset(self):
-        self._added = set()
-        self._removed = set()
+        self._added = None
+        self._removed = None
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        pass
+        self._added = frozenset(output.value.difference(self._value))
+        self._removed = frozenset()
+        if self._added:
+            self._value.update(self._added)
+            self.mark_modified()
 
     def copy_from_input(self, input: "TimeSeriesInput"):
-        pass
+        self._added = frozenset(input.value.difference(self._value))
+        self._removed = frozenset()
+        if self._added:
+            self._value.update(self._added)
+            self.mark_modified()
 
     def __contains__(self, item: SCALAR) -> bool:
         return item in self._value

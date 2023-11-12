@@ -1,10 +1,12 @@
-from typing import Generic, Iterable, Tuple, Optional
+from datetime import datetime
+from typing import Generic, Optional, Any
 
-from hg import K, V, DELTA_SCALAR
+from frozendict import frozendict
+
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
-from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TIME_SERIES_TYPE
 from hg._types._scalar_types import SIZE
+from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TIME_SERIES_TYPE
 from hg._types._tsl_type import TimeSeriesListInput, TimeSeriesListOutput
 
 __all__ = ("PythonTimeSeriesListOutput", "PythonTimeSeriesListInput")
@@ -18,51 +20,42 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
         TimeSeriesListInput.__init__(self, __type__, __size__)
         PythonTimeSeriesOutput.__init__(self, *args, **kwargs)
 
-    def __getitem__(self, item: int) -> TIME_SERIES_TYPE:
-        pass
-
-    def __iter__(self) -> Iterable[TIME_SERIES_TYPE]:
-        pass
-
-    def keys(self) -> Iterable[K]:
-        pass
-
-    def values(self) -> Iterable[V]:
-        pass
-
-    def items(self) -> Iterable[Tuple[K, V]]:
-        pass
-
-    def modified_keys(self) -> Iterable[K]:
-        pass
-
-    def modified_values(self) -> Iterable[V]:
-        pass
-
-    def modified_items(self) -> Iterable[Tuple[K, V]]:
-        pass
-
-    def valid_keys(self) -> Iterable[K]:
-        pass
-
-    def valid_values(self) -> Iterable[V]:
-        pass
-
-    def valid_items(self) -> Iterable[Tuple[K, V]]:
-        pass
+    def value(self) -> Optional[tuple]:
+        return tuple(ts.value if ts.valid else None for ts in self._ts_values)
 
     @property
-    def delta_value(self) -> Optional[DELTA_SCALAR]:
-        pass
+    def delta_value(self) -> Optional[dict[int, Any]]:
+        return {i: ts.delta_value for i, ts in enumerate(self._ts_values) if ts.modified}
 
-    def apply_result(self, Any):
-        pass
+    def apply_result(self, result: Any):
+        if result is None:
+            return
+        if isinstance(result, (dict, frozendict)):
+            for k, v in result.items():
+                self[k].apply_result(v)
+        elif isinstance(result, (tuple, list)):
+            if len(result) != len(self._ts_values):
+                raise ValueError(f"Expected {len(self._ts_values)} elements, got {len(result)}")
+            for ts, value in zip(self._ts_values, result):
+                ts.apply_result(value)
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        pass
+        for ts_self, ts_output in zip(self.values(), output.values()):
+            ts_self.copy_from_output(ts_output)
 
     def copy_from_input(self, input: "TimeSeriesInput"):
-        pass
+        for ts_self, ts_input in zip(self.values(), input.values()):
+            ts_self.copy_from_input(ts_input)
+
+    def mark_invalid(self):
+        if self.valid:
+            for v in self.values():
+                v.mark_invalid()
+            super().mark_invalid()
+
+    @property
+    def all_valid(self) -> bool:
+        return all(ts.valid for ts in self.values())
 
 
 class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[TIME_SERIES_TYPE, SIZE],
@@ -74,35 +67,83 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
         TimeSeriesListInput.__init__(self, __type__, __size__)
         PythonBoundTimeSeriesInput.__init__(self, _owning_node=_owning_node, _parent_input=_parent_input)
 
-    def __getitem__(self, item: int) -> TIME_SERIES_TYPE:
-        pass
+    @property
+    def has_peer(self) -> bool:
+        return super().bound
 
-    def __iter__(self) -> Iterable[TIME_SERIES_TYPE]:
-        pass
+    @property
+    def bound(self) -> bool:
+        return super().bound or any(ts.bound for ts in self.values())
 
-    def keys(self) -> Iterable[K]:
-        pass
+    def bind_output(self, output: TimeSeriesOutput):
+        output: PythonTimeSeriesListOutput
+        super().bind_output(output)
+        for ts_input, ts_output in zip(self.values(), output.values()):
+            ts_input.bind_output(ts_output)
 
-    def values(self) -> Iterable[V]:
-        pass
+    @property
+    def active(self) -> bool:
+        """
+        For UnBound TS, if any of the elements are active we report the input as active,
+        Note, that make active / make passive will make ALL instances active / passive.
+        Thus, just because the input returns True for active, it does not mean that make_active is a no-op.
+        """
+        if self.has_peer:
+            return super().active
+        else:
+            return any(ts.active for ts in self.values())
 
-    def items(self) -> Iterable[Tuple[K, V]]:
-        pass
+    def make_active(self):
+        if self.has_peer:
+            super().make_active()
+        else:
+            for ts in self.values():
+                ts.make_active()
 
-    def modified_keys(self) -> Iterable[K]:
-        pass
+    def make_passive(self):
+        if self.has_peer:
+            super().make_passive()
+        else:
+            for ts in self.values():
+                ts.make_passive()
 
-    def modified_values(self) -> Iterable[V]:
-        pass
+    @property
+    def value(self):
+        if self.has_peer:
+            return super().value
+        else:
+            return tuple(ts.value if ts.valid else None for ts in self.values())
 
-    def modified_items(self) -> Iterable[Tuple[K, V]]:
-        pass
+    @property
+    def delta_value(self):
+        if self.has_peer:
+            return super().delta_value
+        else:
+            return {k: ts.delta_value for k, ts in self.modified_items()}
 
-    def valid_keys(self) -> Iterable[K]:
-        pass
+    @property
+    def modified(self) -> bool:
+        if self.has_peer:
+            return super().modified
+        else:
+            return any(ts.modified for ts in self.values())
 
-    def valid_values(self) -> Iterable[V]:
-        pass
+    @property
+    def valid(self) -> bool:
+        if self.has_peer:
+            return super().valid
+        else:
+            return any(ts.valid for ts in self.values())
 
-    def valid_items(self) -> Iterable[Tuple[K, V]]:
-        pass
+    @property
+    def all_valid(self) -> bool:
+        return all(ts.valid for ts in self.values())
+
+    @property
+    def last_modified_time(self) -> datetime:
+        if self.has_peer:
+            return super().last_modified_time
+        else:
+            return max(ts.last_modified_time for ts in self.values())
+
+
