@@ -42,6 +42,9 @@ class Size:
             __CACHED_SIZES__[item] = (tp := type(f"Size_{item}", (Size,), {'SIZE': item, 'FIXED_SIZE': True}))
         return tp
 
+    def __str__(self):
+        return f"Size[{str(self.SIZE) if self.FIXED_SIZE else ''}]"
+
 
 class CompoundScalar(AbstractSchema):
 

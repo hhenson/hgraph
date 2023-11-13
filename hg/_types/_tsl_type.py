@@ -140,25 +140,27 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
                     from hg._wiring._wiring_errors import CustomMessageWiringError
                     raise CustomMessageWiringError(
                         f"Incorrect number of inputs provided, declared as {size_} but received {len(args)} inputs")
+        inputs = iter(args)
         if tp_ is TIME_SERIES_TYPE:  # Check the types all match, if they do we have a resolved type!
             # Try resolve the input types
-            inputs = iter(args)
             tp_ = next(inputs).output_type
-            for v in inputs:
-                if v.output_type != tp_:
-                    from hg import ParseError
-                    with _from_ts_wiring_context(tp_, size_):
-                        from hg._wiring._wiring_errors import CustomMessageWiringError
-                        raise CustomMessageWiringError(
-                            f"Input types must be the same type, found {[v.output_type for v in args]}")
-            tp_ = tp_.py_type  # This would be in HgTypeMetaData format, need to put back into python type form
+        else:
+            from hg import HgTimeSeriesTypeMetaData
+            tp_ = HgTimeSeriesTypeMetaData.parse(tp_)
+        for v in inputs:
+            if v.output_type != tp_:
+                with _from_ts_wiring_context(tp_, size_):
+                    from hg._wiring._wiring_errors import CustomMessageWiringError
+                    raise CustomMessageWiringError(
+                        f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]")
+        tp_ = tp_.py_type  # This would be in HgTypeMetaData format, need to put back into python type form
         return size_, tp_
 
 
 def _from_ts_wiring_context(tp_, size_) -> "WiringContext":
     from hg._wiring._wiring_context import WiringContext
     return WiringContext(
-        current_signature=STATE(signature=f"TSL[{tp_}, {size_}].from_ts(**kwargs) -> TSL[{tp_}, {size_}]"))
+        current_signature=STATE(signature=f"TSL[{tp_}, {size_()}].from_ts(**kwargs) -> TSL[{tp_}, {size_()}]"))
 
 
 class TimeSeriesListOutput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):
