@@ -74,6 +74,9 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types._ts_type import TS
         return hash(TS) ^ hash(self.value_tp) ^ hash(self.size_tp)
 
+    def __getitem__(self, item):
+        return self.value_tp  # All instances of TSL are the same type
+
 
 class HgTSLOutTypeMetaData(HgTSLTypeMetaData):
     """Parses TSLOut[..., Size[...]]"""

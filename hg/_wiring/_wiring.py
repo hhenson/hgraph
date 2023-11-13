@@ -509,6 +509,7 @@ class WiringNodeInstance:
 def _wiring_port_for(tp: HgTypeMetaData, node_instance: WiringNodeInstance, path: [int, ...]) -> "WiringPort":
     return {
         HgTSBTypeMetaData: lambda: TSBWiringPort(node_instance, path),
+        HgTSLTypeMetaData: lambda: TSLWiringPort(node_instance, path),
     }.get(type(tp), lambda: WiringPort(node_instance, path))()
 
 
