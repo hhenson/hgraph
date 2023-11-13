@@ -14,6 +14,11 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     For nodes that require resolution, it is possible to supply a resolution dictionary to assist
     in resolving correct types when setting up the replay nodes.
     """
+    if not hasattr(node, "signature"):
+        if callable(node):
+            raise RuntimeError(f"The node '{node}' should be decorated with either a node or graph decorator")
+        else:
+            raise RuntimeError(f"The node '{node}' does not appear to be a node or graph function")
     try:
         with WiringContext(current_signature=node.signature):
             kwargs_ = prepare_kwargs(node.signature, *args, **kwargs)

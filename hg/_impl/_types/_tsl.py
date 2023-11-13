@@ -20,6 +20,7 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
         TimeSeriesListInput.__init__(self, __type__, __size__)
         PythonTimeSeriesOutput.__init__(self, *args, **kwargs)
 
+    @property
     def value(self) -> Optional[tuple]:
         return tuple(ts.value if ts.valid else None for ts in self._ts_values)
 
