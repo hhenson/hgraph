@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 __all__ = ("TSOutputBuilder", "TSInputBuilder", "TimeSeriesBuilderFactory", "TSSInputBuilder", "TSLOutputBuilder",
            "TSLInputBuilder", "TSBOutputBuilder", "TSBInputBuilder", "TSSOutputBuilder", "TSSInputBuilder",
-           "TSSignalInputBuilder")
+           "TSSignalInputBuilder", "TSDOutputBuilder", "TSDInputBuilder")
 
 
 @dataclass(frozen=True)
