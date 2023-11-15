@@ -2,7 +2,6 @@ from typing import Generic, Any, Iterable, Tuple
 
 from frozendict import frozendict
 
-from hg import TimeSeriesOutput, PythonTimeSeriesBuilderFactory, TSOutputBuilder, TSInputBuilder
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._time_series_types import K, V
@@ -33,6 +32,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         TimeSeriesDictOutput.__init__(self, __key_tp__, __value_tp__)
         super().__init__(*args, **kwargs)
         self._key_observers: list[TSDKeyObserver] = []
+        from hg._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
+        from hg._builder._ts_builder import TSOutputBuilder
         self._ts_builder: TSOutputBuilder = PythonTimeSeriesBuilderFactory.instance().make_output_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
         self._added_keys: set[str] = set()
@@ -117,10 +118,12 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         Generic.__init__(self)
         TimeSeriesDictInput.__init__(self, __key_tp__, __value_tp__)
         PythonBoundTimeSeriesInput.__init__(self, *args, **kwargs)
+        from hg._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
+        from hg._builder._ts_builder import TSInputBuilder
         self._ts_builder: TSInputBuilder = PythonTimeSeriesBuilderFactory.instance().make_input_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
 
-    def bind_output(self, output: TimeSeriesOutput):
+    def bind_output(self, output: "TimeSeriesOutput"):
         super().bind_output(output)
         output: PythonTimeSeriesDictOutput
         output.add_key_observer(self)

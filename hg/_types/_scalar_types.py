@@ -4,6 +4,7 @@ from typing import TypeVar, Type
 
 from frozendict import frozendict
 
+from hg._types._typing_utils import clone_typevar
 from hg._types._schema_type import AbstractSchema
 
 if TYPE_CHECKING:
@@ -11,7 +12,7 @@ if TYPE_CHECKING:
 
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_scalar",
-           "is_compound_scalar", "STATE")
+           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2")
 
 
 class _UnSet:
@@ -59,7 +60,8 @@ SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict, _UnSet,
                  CompoundScalar)
-
+SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
+SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
 
 class STATE(dict):
     """

@@ -7,12 +7,12 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 from frozendict import frozendict
 from more_itertools import nth
 
-from hg import HgTSLTypeMetaData
 from hg._builder._graph_builder import Edge
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
+from hg._types._tsl_meta_data import HgTSLTypeMetaData
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
@@ -85,7 +85,7 @@ class WiringNodeClass:
         raise NotImplementedError()
 
 
-def prepare_kwargs(signature: WiringNodeSignature, *args, **kwargs) -> dict[str, Any]:
+def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool=False, **kwargs) -> dict[str, Any]:
     """
     Extract the args and kwargs, apply defaults and validate the input shape as correct.
     This does not validate the types, just that all args are provided.
@@ -98,7 +98,11 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, **kwargs) -> dict[str,
         raise SyntaxError(
             f"[{signature.signature}] The following keys are duplicated: {[k for k in kwargs_ if k in kwargs]}")
     kwargs_ |= kwargs  # Merge in the current kwargs
-    kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
+    if not _ignore_defaults:
+        kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
+    else:
+        # Ensure we have all blanks filled in to make validations work
+        kwargs_ |= {k: v if k in signature.defaults else None for k, v in signature.defaults.items() if k not in kwargs_}
     if len(kwargs_) < len(signature.args):
         raise MissingInputsError(kwargs_)
     if any(arg not in kwargs_ for arg in signature.args):
@@ -140,11 +144,16 @@ class BaseWiringNodeClass(WiringNodeClass):
                         # For injectables we expect the value to be None, and the type must already be resolved.
                         kwarg_types[k] = v
                     else:
-                        raise ParseError(
-                            f"In {self.signature.signature} the argument '{k}: {v}' is required but not supplied")
+                        # We should wire in a null source
+                        if k in self.signature.defaults:
+                            kwarg_types[k] = v
+                        else:
+                            raise CustomMessageWiringError(f"Argument '{k}' is not marked as optional, but no value was supplied")
                 if k in self.signature.time_series_args:
                     # This should then get a wiring node, and we would like to extract the output type,
                     # But this is optional so we should ensure that the type is present
+                    if arg is None:
+                        continue  # We will wire in a null source later
                     if not isinstance(arg, WiringPort):
                         raise ParseError(f'{k}: {v} = {arg}, argument is not a time-series value')
                     if arg.output_type:

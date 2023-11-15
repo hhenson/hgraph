@@ -3,6 +3,7 @@ from typing import Type, TypeVar, Optional, _GenericAlias
 
 __all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData",)
 
+from hg._types._type_meta_data import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
@@ -39,6 +40,9 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         from hg._types._ts_type import TimeSeriesValueInput
         if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesValueInput:
+            scalar = HgScalarTypeMetaData.parse(value.__args__[0])
+            if scalar is None:
+                raise ParseError(f"While parsing 'TS[{str(value.__args__[0])}]' unable to parse scalar type from '{str(value.__args__[0])}'")
             return HgTSTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]))
 
     def __eq__(self, o: object) -> bool:

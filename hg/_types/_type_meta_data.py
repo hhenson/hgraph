@@ -3,6 +3,9 @@ from typing import TypeVar, Type, Optional
 __all__ = ('ParseError', 'HgTypeMetaData')
 
 
+AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
+
+
 class ParseError(RuntimeError):
     ...
 

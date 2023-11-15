@@ -1,3 +1,4 @@
+from traceback import print_exc
 from typing import Any
 
 from hg import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, MIN_DT, \
@@ -21,7 +22,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
             raise RuntimeError(f"The node '{node}' does not appear to be a node or graph function")
     try:
         with WiringContext(current_signature=node.signature):
-            kwargs_ = prepare_kwargs(node.signature, *args, **kwargs)
+            kwargs_ = prepare_kwargs(node.signature, *args, _ignore_defaults=True, **kwargs)
     except WiringError as e:
         e.print_error()
         raise e
@@ -30,6 +31,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     def eval_node_graph():
         inputs = {}
         for ts_arg in node.signature.time_series_inputs.keys():
+            if kwargs_[ts_arg] is None:
+                continue
             if resolution_dict is not None and ts_arg in resolution_dict:
                 ts_type = resolution_dict[ts_arg]
             else:
@@ -58,6 +61,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     max_count = 0
     for ts_arg in node.signature.time_series_inputs.keys():
         v = kwargs_[ts_arg]
+        if v is None:
+            continue
         max_count = max(max_count, len(v))
         set_replay_values(ts_arg, SimpleArrayReplaySource(v))
     run_graph(eval_node_graph)

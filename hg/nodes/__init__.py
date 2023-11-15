@@ -7,5 +7,6 @@ from hg.nodes._pass_through import *
 from hg.nodes._print import *
 from hg.nodes._record import *
 from hg.nodes._replay import *
+from hg.nodes._tsd_operators import *
 from hg.nodes._tsl_operators import *
 from hg.nodes._write import *
