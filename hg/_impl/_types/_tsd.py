@@ -92,7 +92,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         return (self[k] for k in self._added_keys)
 
     def added_items(self) -> Iterable[Tuple[K, V]]:
-        return (k, self[k] for k in self._added_keys)
+        return ((k, self[k]) for k in self._added_keys)
 
     def removed_keys(self) -> Iterable[K]:
         return self._removed_items.keys()
@@ -108,6 +108,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     # At the moment the only supported inptut type is a bound input. When we start to support time-series references
     # this will need to change
+    # Also no clever lazy mapping of input wrappers. That can come later.
 
     def __init__(self, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)

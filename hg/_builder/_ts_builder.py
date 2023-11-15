@@ -101,6 +101,31 @@ class TSLOutputBuilder(OutputBuilder):
         ...
 
 
+class TSDInputBuilder(InputBuilder):
+
+    key_tp: "HgScalarTypeMetaData"
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
+        ...
+
+    def release_instance(self, item: "TimeSeriesInput"):
+        ...
+
+
+@dataclass(frozen=True)
+class TSDOutputBuilder(OutputBuilder):
+
+    key_tp: "HgScalarTypeMetaData"
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
+        ...
+
+    def release_instance(self, item: "TimeSeriesOutput"):
+        ...
+
+
 @dataclass(frozen=True)
 class TSSOutputBuilder(OutputBuilder):
 
