@@ -371,7 +371,7 @@ class HgSetScalarType(HgCollectionType):
 
 
 class HgDictScalarType(HgCollectionType):
-    py_collection_type = frozendict  # This is an immutable dict
+    py_collection_type = Mapping  # This is an immutable dict
     key_type: HgScalarTypeMetaData
     value_type: HgScalarTypeMetaData
 
