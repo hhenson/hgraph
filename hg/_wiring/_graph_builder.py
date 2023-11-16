@@ -49,7 +49,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
                     rank = max_rank
                 ranked_nodes[node.rank].add(node)
                 for arg in node.resolved_signature.time_series_args:
-                    pending_nodes.append(node.inputs[arg].node_instance)
+                    if (input_ := node.inputs[arg]):
+                        pending_nodes.append(input_.node_instance)
 
             # Now we can walk the tree in rank order and construct the nodes
             node_map: dict[WiringNodeInstance, int] = {}

@@ -194,6 +194,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
+            valid_inputs =    self.signature.resolve_valid_inputs(**kwargs)
             if self.signature.is_resolved:
                 return kwargs, self.signature
             else:
@@ -207,7 +208,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     output_type=resolved_output,
                     src_location=self.signature.src_location,
                     active_inputs=self.signature.active_inputs,
-                    valid_inputs=self.signature.valid_inputs,
+                    valid_inputs=valid_inputs,
                     unresolved_args=tuple(),
                     time_series_args=self.signature.time_series_args,
                     label=self.signature.label)
@@ -237,7 +238,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 case WiringNodeType.PULL_SOURCE_NODE:
                     rank = 1
                 case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
-                    rank = max(v.rank for k, v in kwargs_.items() if k in self.signature.time_series_args) + 1
+                    rank = max(v.rank for k, v in kwargs_.items() if v is not None and k in self.signature.time_series_args) + 1
                 case default:
                     rank = -1
 
@@ -510,7 +511,8 @@ class WiringNodeInstance:
         edges = set()
         for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.time_series_inputs):
             input_: WiringPort = self.inputs[arg]
-            edges.update(input_.edges_for(node_map, node_index, (ndx,)))
+            if input_ is not None:
+                edges.update(input_.edges_for(node_map, node_index, (ndx,)))
 
         return node_builder, edges
 

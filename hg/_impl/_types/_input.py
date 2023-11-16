@@ -49,12 +49,14 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def make_active(self):
         if not self._active:
             self._active = True
-            self._output.subscribe_node(self.owning_node)
+            if self.bound:
+                self._output.subscribe_node(self.owning_node)
 
     def make_passive(self):
         if self._active:
             self._active = False
-            self._output.un_subscribe_node(self.owning_node)
+            if self.bound:
+                self._output.un_subscribe_node(self.owning_node)
 
     @property
     def output(self) -> TimeSeriesOutput:
@@ -87,7 +89,10 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def valid(self) -> bool:
-        return self._output.valid
+        if self.bound:
+            return self._output.valid
+        else:
+            return False
 
     @property
     def all_valid(self) -> bool:
