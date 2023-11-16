@@ -51,6 +51,6 @@ values, for example:
 
 ```python
 @graph
-def my~_component() -> {"out1": TS[str], "out2": TS[float]}:
+def my_component() -> {"out1": TS[str], "out2": TS[float]}:
     ...
 ```
