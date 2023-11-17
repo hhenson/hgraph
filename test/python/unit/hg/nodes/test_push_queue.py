@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from hg import TS, run_graph, RunMode, GlobalState, push_queue, graph
-from hg.nodes import write_str, record, get_recorded_value, const, stop_engine, eq_
+from hg.nodes import record, get_recorded_value, const, stop_engine, eq_
 from hg.nodes._operators import if_true
 
 
