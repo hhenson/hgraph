@@ -374,7 +374,7 @@ class HgSetScalarType(HgCollectionType):
         return type(o) is HgSetScalarType and self.element_type == o.element_type
 
     def __str__(self) -> str:
-        return f'frozenset[{str(self.element_type)}]'
+        return f'Set[{str(self.element_type)}]'
 
     def __repr__(self) -> str:
         return f'HgSetScalarType({repr(self.element_type)})'
@@ -423,7 +423,7 @@ class HgDictScalarType(HgCollectionType):
             return type(o) is HgDictScalarType and self.key_type == o.key_type and self.value_type == o.value_type
 
     def __str__(self) -> str:
-        return f'dict[{str(self.key_type)}, {str(self.value_type)}]'
+        return f'Mapping[{str(self.key_type)}, {str(self.value_type)}]'
 
     def __repr__(self) -> str:
         return f'HgDictScalarType({repr(self.key_type)}, {repr(self.value_type)})'
