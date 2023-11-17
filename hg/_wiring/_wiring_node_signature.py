@@ -157,7 +157,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
     # to know where to apply the defaults.
     input_types: frozendict[str, HgTypeMetaData] = frozendict(
-        (k, extract_hg_type(v) if k != "output" else HgOutputType(v)) for k, v in annotations.items() if k != "return")
+        (k, extract_hg_type(v) if (k != "output" and defaults.get("output", True) is None) else HgOutputType(v)) for
+        k, v in annotations.items() if k != "return")
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     unresolved_inputs = tuple(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = tuple(a for a in args if not input_types[a].is_scalar)
