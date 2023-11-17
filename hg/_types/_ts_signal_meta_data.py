@@ -1,9 +1,7 @@
-from typing import Type, TypeVar, Optional, _GenericAlias
-
+from typing import Type, TypeVar, Optional
 
 __all__ = ("HgSignalMetaData",)
 
-from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 

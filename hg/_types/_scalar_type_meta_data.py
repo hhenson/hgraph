@@ -180,10 +180,12 @@ class HgInjectableType(HgScalarTypeMetaData):
         value_tp = value if isinstance(value, type) else type(value)
         from hg._runtime._execution_context import ExecutionContext
         from hg._types._time_series_types import OUTPUT_TYPE
+        from hg._runtime._node import SCHEDULER
         return {
             ExecutionContext: lambda: HgExecutionContextType(),
             STATE: lambda: HgStateType(),
             OUTPUT_TYPE: lambda: HgOutputType(),
+            SCHEDULER: lambda: HgSchedulerType(),
         }.get(value_tp, lambda: None)()
 
 
@@ -223,6 +225,20 @@ class HgOutputType(HgInjectableType):
     @property
     def injector(self):
         return Injector(lambda node: node.output)
+
+
+class HgSchedulerType(HgInjectableType):
+
+    def __init__(self):
+        from hg._runtime._node import SCHEDULER
+        super().__init__(SCHEDULER)
+
+    @property
+    def injector(self):
+        return Injector(lambda node: node.scheduler)
+
+    def __str__(self):
+        return "SCHEDULER"
 
 
 class HgCollectionType(HgScalarTypeMetaData):

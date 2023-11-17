@@ -68,9 +68,9 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
     run_graph(eval_node_graph)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
-    if max_count == 0 and results:
+    if results:
         # For push nodes, there are no time-series inputs, so we compute size of the result from the result.
-        max_count = int((results[-1][0] - MIN_DT) / MIN_TD)
+        max_count = max(max_count, int((results[-1][0] - MIN_DT) / MIN_TD))
     # Extract the results into a list of values without time-stamps, place a None when there is no recorded value.
     if results:
         out = []

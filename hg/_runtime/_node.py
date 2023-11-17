@@ -1,5 +1,6 @@
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Optional, Mapping, TYPE_CHECKING, Any, Protocol
 
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from hg._wiring._source_code_details import SourceCodeDetails
 
 
-__all__ = ("Node", "NodeTypeEnum", "NodeSignature")
+__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler")
 
 
 class NodeTypeEnum(Enum):
@@ -141,8 +142,68 @@ class Node(ComponentLifeCycle, Protocol):
         then these are the outputs defined by the dictionary definition.
         """
 
+    @property
+    @abstractmethod
+    def scheduler(self) -> "NodeScheduler":
+        """
+        The scheduler for this node.
+        """
+
     def eval(self):
         """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
 
     def notify(self):
         """Notify the node that it is need of scheduling"""
+
+
+class NodeScheduler(ABC):
+    """
+    An input that is scheduled to be evaluated at a particular time. This is used for time-series
+    inputs that are not bound to an output, but are still required to be evaluated at a particular time.
+    """
+
+    @property
+    @abstractmethod
+    def next_scheduled_time(self) -> datetime:
+        """
+        The time that this input is scheduled to be evaluated.
+        """
+
+    @property
+    @abstractmethod
+    def is_scheduled(self) -> bool:
+        """
+        Are there any pending scheduling events.
+        """
+
+    @property
+    @abstractmethod
+    def is_scheduled_now(self) -> bool:
+        """
+        Was this scheduled in this engine cycle. That is, was the node scheduled for evaluation at the current
+        engine_time.
+        """
+
+    @abstractmethod
+    def schedule(self, when: datetime, tag: str = None):
+        """
+        Schedule the node to be evaluated at the time specified. If tag is set, then the scheduled event will be
+        associated to the tag, if a schedule is already set against the tag, it will be replaced with the new entry.
+        """
+
+    @abstractmethod
+    def un_schedule(self, tag: str = None):
+        """
+        If tag is set, this will remove the scheduled event associated with this tag, if there is nothing scheduled
+        for the tag, nothing is done.
+        If the tag is not set, then remove the next scheduled item.
+        """
+
+    @abstractmethod
+    def reset(self):
+        """
+        Remove all scheduled events.
+        """
+
+
+SCHEDULER = NodeScheduler

@@ -2,11 +2,14 @@ import functools
 import threading
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from inspect import signature
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
-from hg import ExecutionContext
-from hg._runtime import NodeSignature, Graph, Node
+from sortedcontainers import SortedList
+
+from hg import ExecutionContext, MIN_DT, MAX_DT
+from hg._runtime import NodeSignature, Graph, NodeScheduler
 
 if TYPE_CHECKING:
     from hg._types._ts_type import TimeSeriesInput, TimeSeriesOutput
@@ -31,6 +34,7 @@ class NodeImpl:  # Node
     input: Optional["TimeSeriesBundleInput"] = None
     output: Optional["TimeSeriesOutput"] = None
     is_started: bool = False
+    _scheduler: Optional["NodeSchedulerImpl"] = None
     _kwargs: dict[str, Any] = None
 
     @functools.cached_property
@@ -49,6 +53,12 @@ class NodeImpl:  # Node
         else:
             return {k: self.output[k] for k in self.signature.time_series_outputs}
 
+    @property
+    def scheduler(self) -> "NodeScheduler":
+        if self._scheduler is None:
+            self._scheduler = NodeSchedulerImpl(self)
+        return self._scheduler
+
     def initialise(self):
         pass
 
@@ -59,7 +69,7 @@ class NodeImpl:  # Node
             if isinstance(s, Injector):
                 extras[k] = s(self)
         self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
-                                k in self.signature.args}
+                        k in self.signature.args}
 
     def _initialise_inputs(self):
         if self.input:
@@ -69,15 +79,23 @@ class NodeImpl:  # Node
                     ts.make_active()
 
     def eval(self):
+        scheduled = False if self._scheduler is None else self._scheduler.is_scheduled_now
         if self.input:
             # Perform validity check of inputs
             args = self.signature.valid_inputs if self.signature.valid_inputs is not None else self.signature.time_series_inputs.keys()
             if not all(self.input[k].valid for k in args):
                 return  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
+            if self._scheduler is not None:
+                # It is possible we have scheduled and then remove the schedule,
+                # so we need to check that something has caused this to be scheduled.
+                if not scheduled and not any(self.input[k].valid for k in args):
+                    return
         out = self.eval_fn(**self._kwargs)
         if out is not None:
             self.output.apply_result(out)
+        if scheduled:
+            self._scheduler.advance()
 
     def start(self):
         self._initialise_kwargs()
@@ -95,6 +113,56 @@ class NodeImpl:  # Node
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
         self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
+
+
+class NodeSchedulerImpl(NodeScheduler):
+
+    def __init__(self, node: NodeImpl):
+        self._node = node
+        self._scheduled_events: SortedList[tuple[datetime, str]] = SortedList[tuple[datetime, str]]()
+        self._tags: dict[str, datetime] = {}
+
+    @property
+    def next_scheduled_time(self) -> datetime:
+        return self._scheduled_events[0][0] if self._scheduled_events else MIN_DT
+
+    @property
+    def is_scheduled(self) -> bool:
+        return bool(self._scheduled_events)
+
+    @property
+    def is_scheduled_now(self) -> bool:
+        return self._scheduled_events and self._scheduled_events[0][0] == self._node.graph.context.current_engine_time
+
+    def schedule(self, when: datetime, tag: str = None):
+        if tag is not None:
+            if tag in self._tags:
+                self._scheduled_events.remove((self._tags[tag], tag))
+        if when > self._node.graph.context.current_engine_time:
+            self._tags[tag] = when
+            current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
+            self._scheduled_events.add((when, "" if tag is None else tag))
+            if current_first > (next := self.next_scheduled_time):
+                self._node.graph.schedule_node(self._node.node_ndx, next)
+
+    def un_schedule(self, tag: str = None):
+        if tag is not None:
+            if tag in self._tags:
+                self._scheduled_events.remove((self._tags[tag], tag))
+                del self._tags[tag]
+        elif self._scheduled_events:
+            self._scheduled_events.pop(0)
+
+    def reset(self):
+        self._scheduled_events.clear()
+        self._tags.clear()
+
+    def advance(self):
+        until = self._node.graph.context.current_engine_time
+        while self._scheduled_events and self._scheduled_events[0][0] <= until:
+            self._scheduled_events.pop(0)
+        if self._scheduled_events:
+            self._node.graph.schedule_node(self._node.node_ndx, self._scheduled_events[0][0])
 
 
 class GeneratorNodeImpl(NodeImpl):  # Node
