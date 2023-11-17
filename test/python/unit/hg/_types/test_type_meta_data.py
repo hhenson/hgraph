@@ -1,3 +1,4 @@
+from collections.abc import Mapping as Mapping_, Set as Set_
 from datetime import time, datetime, date, timedelta
 
 from frozendict import frozendict
@@ -109,8 +110,6 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
         timedelta,
         tuple[bool, ...],
         tuple[bool, int],
-        frozendict[int, str],
-        frozenset[int],
         Size[2],
         type[bool],
         ExecutionContext
@@ -119,6 +118,21 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
 def test_py_type(tp):
     assert tp == HgTypeMetaData.parse(tp).py_type
 
+
+@pytest.mark.parametrize(
+    ["tp", "py_tp"],
+    [
+        [frozendict[int, str], Mapping_[int, str]],
+        [dict[int, str], Mapping_[int, str]],
+        [Mapping_[int, str], Mapping_[int, str]],
+        [Mapping[int, str], Mapping_[int, str]],
+        [frozenset[int], Set_[int]],
+        [set[int], Set_[int]],
+        [Set[int], Set_[int]],
+    ]
+)
+def test_py_type_collections(tp, py_tp):
+    assert py_tp == HgTypeMetaData.parse(tp).py_type
 
 def test_size():
     sz = Size[20]

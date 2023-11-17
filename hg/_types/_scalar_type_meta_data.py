@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from types import GenericAlias
@@ -340,7 +340,7 @@ class HgTupleFixedScalarType(HgTupleScalarType):
 
 
 class HgSetScalarType(HgCollectionType):
-    py_collection_type = frozenset  # This is an immutable set
+    py_collection_type = Set  # This is an immutable set
     element_type: HgScalarTypeMetaData  # The type items in the set
 
     def __init__(self, element_type: HgScalarTypeMetaData):
@@ -356,7 +356,7 @@ class HgSetScalarType(HgCollectionType):
 
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":
-        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [set, frozenset]:
+        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [set, frozenset, Set]:
             if scalar_type := HgScalarTypeMetaData.parse(value.__args__[0]):
                 return HgSetScalarType(scalar_type)
 
