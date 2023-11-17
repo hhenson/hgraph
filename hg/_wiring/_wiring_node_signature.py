@@ -5,7 +5,7 @@ from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping
 from frozendict import frozendict
 
 from hg._types import ParseError
-from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
+from hg._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._type_meta_data import HgTypeMetaData
 from hg._wiring._source_code_details import SourceCodeDetails
@@ -157,7 +157,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
     # to know where to apply the defaults.
     input_types: frozendict[str, HgTypeMetaData] = frozendict(
-        (k, extract_hg_type(v)) for k, v in annotations.items() if k != "return")
+        (k, extract_hg_type(v) if k != "output" else HgOutputType(v)) for k, v in annotations.items() if k != "return")
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     unresolved_inputs = tuple(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = tuple(a for a in args if not input_types[a].is_scalar)

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 __all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
-           "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR",
+           "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR", 'OUTPUT_TYPE',
            "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable", "SIGNAL")
 
 
@@ -105,6 +105,7 @@ class TimeSeries(ABC):
 
 TIME_SERIES_TYPE = TypeVar("TIME_SERIES_TYPE", bound=TimeSeries)
 DELTA_SCALAR: TypeVar = clone_typevar(SCALAR, "DELTA_SCALAR")
+OUTPUT_TYPE = TypeVar("OUTPUT_TYPE", bound="TimeSeriesOutput")
 
 
 class TimeSeriesOutput(TimeSeries):

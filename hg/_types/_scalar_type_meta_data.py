@@ -179,9 +179,11 @@ class HgInjectableType(HgScalarTypeMetaData):
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         value_tp = value if isinstance(value, type) else type(value)
         from hg._runtime._execution_context import ExecutionContext
+        from hg._types._time_series_types import OUTPUT_TYPE
         return {
             ExecutionContext: lambda: HgExecutionContextType(),
             STATE: lambda: HgStateType(),
+            OUTPUT_TYPE: lambda: HgOutputType(),
         }.get(value_tp, lambda: None)()
 
 
@@ -210,6 +212,17 @@ class HgStateType(HgInjectableType):
     @property
     def injector(self):
         return Injector(lambda node: STATE())
+
+
+class HgOutputType(HgInjectableType):
+
+    def __init__(self, py_type: Type = None):
+        from hg._types._time_series_types import OUTPUT_TYPE
+        super().__init__(OUTPUT_TYPE if py_type is None else py_type)
+
+    @property
+    def injector(self):
+        return Injector(lambda node: node.output)
 
 
 class HgCollectionType(HgScalarTypeMetaData):
