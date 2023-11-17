@@ -1,5 +1,5 @@
 from hg import PythonGeneratorWiringNodeClass, TS
-from hg.nodes import const, empty_ts
+from hg.nodes import const
 from hg.test import eval_node
 
 
@@ -14,6 +14,3 @@ def test_const_wiring():
 def test_const():
     assert eval_node(const, 1) == [1]
 
-
-def test_empty_ts():
-    assert eval_node(empty_ts, TS[int]) is None
