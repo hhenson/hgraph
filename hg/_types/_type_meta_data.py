@@ -63,6 +63,14 @@ class HgTypeMetaData:
         The outputs are fully reliant on types to be resolved using the wired_types on the inputs to resolve the output
         types.
         """
+        from hg import HgREFTypeMetaData
+        self.do_build_resolution_dict(resolution_dict,
+                                      wired_type.value_tp if isinstance(wired_type, HgREFTypeMetaData) else wired_type)
+
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        """
+        Implementation method for build_resolution_dict - to be overriden by the derived classes
+        """
         if wired_type is not None and type(self) != type(wired_type):
             raise ParseError(f"The input type '{type(self)}' "
                              f"does not match the supplied wiring type '{type(wired_type)}'")

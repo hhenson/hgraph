@@ -31,8 +31,8 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return type(self)(self.key_tp.resolve(resolution_dict), self.value_tp.resolve(resolution_dict))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSDTypeMetaData
         self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
         self.key_tp.build_resolution_dict(resolution_dict, wired_type.key_tp)

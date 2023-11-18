@@ -46,8 +46,8 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             schema = {k: v.resolve(resolution_dict) for k, v in self.meta_data_schema.items()}
             return HgTimeSeriesSchemaTypeMetaData(self.py_type._create_resolved_class(schema))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTimeSeriesSchemaTypeMetaData
         if len(self.meta_data_schema) != len(wired_type.meta_data_schema):
             raise ParseError(f"'{self.py_type}' schema does not match '{wired_type.py_type}'")
@@ -97,8 +97,8 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return type(self)(self.bundle_schema_tp.resolve(resolution_dict))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSBTypeMetaData
         self.bundle_schema_tp.build_resolution_dict(resolution_dict, wired_type.bundle_schema_tp)
 

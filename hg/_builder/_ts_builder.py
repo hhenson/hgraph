@@ -150,6 +150,27 @@ class TSSInputBuilder(InputBuilder):
         ...
 
 
+class REFInputBuilder(InputBuilder):
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
+        ...
+
+    def release_instance(self, item: "TimeSeriesInput"):
+        ...
+
+
+@dataclass(frozen=True)
+class REFOutputBuilder(OutputBuilder):
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
+        ...
+
+    def release_instance(self, item: "TimeSeriesOutput"):
+        ...
+
+
 class TimeSeriesBuilderFactory:
 
     _instance: Optional["TimeSeriesBuilderFactory"] = None

@@ -8,6 +8,8 @@ import pytest
 
 from hg import SIZE, Size
 from hg._runtime import ExecutionContext
+from hg._types._ref_meta_data import HgREFTypeMetaData
+from hg._types._ref_type import REF
 from hg._types._ts_type import TS, TS_OUT
 from hg._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
 from hg._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
@@ -87,6 +89,7 @@ def test_special_atomic_scalars(value, expected: Type):
         [TSS_OUT[bool], HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TSD[int, TS[str]], HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
         [TSD_OUT[int, TS[str]], HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
+        [REF[TS[bool]], HgREFTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)))],
         [Type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
     ]

@@ -5,7 +5,7 @@ import pytest
 
 from hg import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar
 from hg._types._ts_type import TS, TS_OUT
-from hg._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB
+from hg._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB, REF
 from hg._types._typing_utils import clone_typevar
 
 
@@ -60,6 +60,8 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
         [TSD[str, TIME_SERIES_TYPE], TSD[str, TS[int]], {TIME_SERIES_TYPE: TS[int]}],
         [TSD[SCALAR, TS[int]], TSD[str, TS[int]], {SCALAR: str}],
         [TSD_OUT[SCALAR, TS[int]], TSD_OUT[str, TS[int]], {SCALAR: str}],
+        [REF[TS[SCALAR]], REF[TS[int]], {SCALAR: int}],
+        [REF[TIME_SERIES_TYPE], REF[TS[int]], {TIME_SERIES_TYPE: TS[int]}],
         [TSB[SimpleSchema], TSB[SimpleSchema], {}],
         [TSB[UnResolvedSchema], TSB[UnResolvedSchema[TS[int]]], {TIME_SERIES_TYPE: TS[int]}],
         [TSB[UnResolvedSchema2], TSB[UnResolvedSchema2[TS[int], TS[str]]], {TIME_SERIES_TYPE: TS[int], TIME_SERIES_TYPE_2: TS[str]}],
@@ -86,3 +88,26 @@ def test_build_resolve_dict(ts, wiring_ts, expected_dict):
 
     resolved_meta_data = ts_meta_data.resolve(actual_dict)
     assert resolved_meta_data == wiring_ts_meta_data
+
+
+@pytest.mark.parametrize(
+    ('ts', 'wiring_ts', 'expected_dict', 'resolved_ts'),
+    [
+        [REF[TS[SCALAR]], TS[int], {SCALAR: int}, REF[TS[int]]],
+        [TS[SCALAR], REF[TS[int]], {SCALAR: int}, TS[int]],
+        [REF[TIME_SERIES_TYPE], TS[int], {TIME_SERIES_TYPE: TS[int]}, REF[TS[int]]],
+        [TIME_SERIES_TYPE, REF[TS[int]], {TIME_SERIES_TYPE: TS[int]}, TS[int]],
+    ]
+)
+def test_build_resolve_dict_ref(ts, wiring_ts, expected_dict, resolved_ts):
+    # Convert to HgTypeMetaData values
+    expected_dict = {k: HgTypeMetaData.parse(v) for k, v in expected_dict.items()}
+    actual_dict = {}
+    ts_meta_data = HgTypeMetaData.parse(ts)
+    wiring_ts_meta_data = HgTypeMetaData.parse(wiring_ts)
+    ts_meta_data.build_resolution_dict(actual_dict, wiring_ts_meta_data)
+
+    assert actual_dict == expected_dict
+
+    resolved_meta_data = ts_meta_data.resolve(actual_dict)
+    assert resolved_meta_data == HgTypeMetaData.parse(resolved_ts)

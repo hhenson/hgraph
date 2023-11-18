@@ -31,8 +31,8 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return type(self)(self.value_scalar_tp.resolve(resolution_dict))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSTypeMetaData
         self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.value_scalar_tp if wired_type else None)
 
@@ -43,7 +43,7 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
             scalar = HgScalarTypeMetaData.parse(value.__args__[0])
             if scalar is None:
                 raise ParseError(f"While parsing 'TS[{str(value.__args__[0])}]' unable to parse scalar type from '{str(value.__args__[0])}'")
-            return HgTSTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]))
+            return HgTSTypeMetaData(scalar)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSTypeMetaData and self.value_scalar_tp == o.value_scalar_tp
