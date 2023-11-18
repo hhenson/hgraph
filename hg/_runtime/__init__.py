@@ -5,4 +5,6 @@ from hg._runtime._graph import *
 from hg._runtime._graph_engine import *
 from hg._runtime._graph_runner import *
 from hg._runtime._lifecycle import *
+from hg._runtime._map import *
 from hg._runtime._node import *
+from hg._runtime._switch import *

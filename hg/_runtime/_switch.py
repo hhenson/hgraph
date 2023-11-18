@@ -1,37 +1,38 @@
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Optional
 
+from hg._types._time_series_types import TIME_SERIES_TYPE
 from hg._types._scalar_types import SCALAR
 from hg._types._ts_type import TS
 
-__all__ = ("switch",)
-
-SWITCH_SIGNATURE = TypeVar("SWITCH_SIGNATURE", bound=Callable)
+__all__ = ("ts_switch",)
 
 
-def switch(switches: dict[SCALAR, SWITCH_SIGNATURE], ts: TS[SCALAR],
-           reload_on_ticked: bool = False) -> SWITCH_SIGNATURE:
+def ts_switch(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], key: TS[SCALAR], *args,
+              reload_on_ticked: bool = False, **kwargs) -> Optional[TIME_SERIES_TYPE]:
     """
-    A switch statement that will select and instantiate a graph instance based on the value of the switch time-series.
-    The return value is a node of the same input and output signature as teh switch statement.
+    The ability to select and instantiate a graph based on the value of the key time-series input.
+    By default, when the key changes, a new instance of graph is created and run.
+    The graph will be evaluated when it is initially created and then as the values are ticked as per normal.
+    If the code depends on inputs to have ticked, they will only be evaluated when the inputs next tick (unless
+    they have ticked when the graph is wired in).
 
-    Each time the ts actually changes value, a new instance of the component associated with the value will be
-    instantiated. If the ts ticks, but the value is not changed, then the same instance will be used unless
-    reload_on_ticked is set to True, in that case the component will be re-instantiated each time the value ticks.
+    The selector is part of the graph shaping operators. This allows for different shapes that operate on the same
+    inputs nad return the same output. An example of using this is when you have different order types, and then you
+    dynamically choose which graph to evaluate based on the order type.
 
-    Note: The contributed components can only take time-series values, any scalar values will need to be
-          wrapped inside a graph.
+    This node has the overhead of instantiating and tearing down the sub-graphs as the key changes. The use of switch
+    should consider this overhead, the positive side is that once the graph is instantiated the performance is the same
+    as if it were wired in directly. This is great when the key changes infrequently.
 
-    Usage:
+    The mapped graphs / nodes can have a first argument which is of the same type as the key. In this case the key
+    will be mapped into this argument. If the first argument is not of the same type as the key, or the kwargs match
+    the argument name of the first argument, the key will be not be mapped into the argument.
 
-        @graph
-        def graph1(ts1, ..., tsn):
-            ...
+    Example:
+        key: TS[str] = ...
+        ts1: TS[int] = ...
+        ts2: TS[int] = ...
+        out = switch({'add': add_, "sub": sub_}, key, ts1, ts2)
 
-        @graph
-        def graph2(ts1, ..., tsn):
-            ...
-
-        ts: TS[int] = ...
-
-        switch( {1: graph1, 2: graph2}, ts)(ts1, ..., tsn)
+    Which will perform the computation based on the key's value.
     """
