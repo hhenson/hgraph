@@ -76,10 +76,6 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         return all(ts.valid for ts in self.values())
 
     @property
-    def has_peer(self) -> bool:
-        return super().bound
-
-    @property
     def bound(self) -> bool:
         return super().bound or any(ts.bound for ts in self.values())
 

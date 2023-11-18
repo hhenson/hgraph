@@ -76,6 +76,12 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
         return self._output is not None
 
     @property
+    def has_peer(self) -> bool:
+        # By default we assume that if there is an output then we are peered.
+        # This is not always True, but is a good general assumption.
+        return self._output is not None
+
+    @property
     def value(self):
         return self._output.value
 

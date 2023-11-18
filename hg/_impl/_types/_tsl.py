@@ -68,9 +68,7 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
         TimeSeriesListInput.__init__(self, __type__, __size__)
         PythonBoundTimeSeriesInput.__init__(self, _owning_node=_owning_node, _parent_input=_parent_input)
 
-    @property
-    def has_peer(self) -> bool:
-        return super().bound
+    # TODO: With the introduction of REF inputs, we need to revisit the definition of has_peer.
 
     @property
     def bound(self) -> bool:

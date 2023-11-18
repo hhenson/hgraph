@@ -213,6 +213,20 @@ class TimeSeriesInput(TimeSeries):
 
     @property
     @abstractmethod
+    def has_peer(self) -> bool:
+        """
+        If the input is bound directly to a single output then this input is peered, however if the input
+        is bound to more then one output making up the structure of this input, then the input is not peered.
+        This is generally only going to related to collection types such as TSL and TSB where the input may be
+        a collection of independent time-series outputs.
+
+        Note that if the input is not bound, it has no peer.
+
+        :return: True if this input is peered.
+        """
+
+    @property
+    @abstractmethod
     def output(self) -> Optional[TimeSeriesOutput]:
         """
         The output bound to this input. If no input is bound this will be None.
