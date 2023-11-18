@@ -3,10 +3,11 @@ from typing import Mapping, cast
 
 from frozendict import frozendict
 
+from hg import HgREFTypeMetaData
 from hg._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
                                      TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder,
                                      TSSOutputBuilder, TSSInputBuilder, TSLOutputBuilder, TSLInputBuilder,
-                                     TSDOutputBuilder, TSDInputBuilder,
+                                     TSDOutputBuilder, TSDInputBuilder, REFOutputBuilder, REFInputBuilder,
                                      )
 from hg._runtime._node import Node
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
@@ -218,6 +219,45 @@ class PythonTSSInputBuilder(TSSInputBuilder):
         super().release_instance(item)
 
 
+@dataclass(frozen=True)
+class PythonREFOutputBuilder(REFOutputBuilder):
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hg._impl._types._ref import PythonTimeSeriesReferenceOutput
+        ref = PythonTimeSeriesReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _owning_node=owning_node,
+            _parent_output=owning_output
+        )
+        return ref
+
+    def release_instance(self, item):
+        pass
+
+
+@dataclass(frozen=True)
+class PythonREFInputBuilder(REFInputBuilder):
+    value_tp: "HgTimeSeriesTypeMetaData"
+    value_builder: TSOutputBuilder = None
+
+    def __post_init__(self):
+        factory = TimeSeriesBuilderFactory.instance()
+        object.__setattr__(self, 'value_builder', factory.make_input_builder(self.value_tp))
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hg._impl._types._ref import PythonTimeSeriesReferenceInput
+        ref = PythonTimeSeriesReferenceInput[self.value_tp.py_type](
+            _input_impl_builder=self.value_builder,
+            _owning_node=owning_node,
+            _parent_input=owning_input
+        )
+        return ref
+
+    def release_instance(self, item):
+        pass
+
+
 def _throw(value_tp):
     raise TypeError(f"Got unexpected value type {type(value_tp)}: {value_tp}")
 
@@ -235,7 +275,8 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSLTypeMetaData: lambda: PythonTSLInputBuilder(value_tp=cast(HgTSLTypeMetaData, value_tp).value_tp,
                                                              size_tp=cast(HgTSLTypeMetaData, value_tp).size_tp),
             HgTSDTypeMetaData: lambda: PythonTSDInputBuilder(key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp,
-                                                             value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp)
+                                                             value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp),
+            HgREFTypeMetaData: lambda: PythonREFInputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp)
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:
@@ -246,5 +287,6 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSLTypeMetaData: lambda: PythonTSLOutputBuilder(value_tp=cast(HgTSLTypeMetaData, value_tp).value_tp,
                                                               size_tp=cast(HgTSLTypeMetaData, value_tp).size_tp),
             HgTSDTypeMetaData: lambda: PythonTSDOutputBuilder(key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp,
-                                                             value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp)
+                                                             value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp),
+            HgREFTypeMetaData: lambda: PythonREFOutputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp)
         }.get(type(value_tp), lambda: _throw(value_tp))()

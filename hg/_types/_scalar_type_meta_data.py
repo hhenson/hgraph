@@ -63,7 +63,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         else:
             raise ParseError(f"No resolution available for '{str(self)}'")
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if not wired_type.is_scalar:
             raise ParseError(f"Scalar TypeVar '{str(self)}' does not match non-scalar type: '{str(wired_type)}'")
         type_var: TypeVar = cast(TypeVar, self.py_type)
@@ -120,8 +120,8 @@ class HgAtomicType(HgScalarTypeMetaData):
     def is_convertable(self, tp: "HgTypeMetaData") -> bool:
         return tp is HgAtomicType and self.py_type in tp.convertable_types
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         if self.py_type != wired_type.py_type:
             from hg._wiring._wiring_errors import IncorrectTypeBinding
             raise IncorrectTypeBinding(self, wired_type)
@@ -170,8 +170,8 @@ class HgInjectableType(HgScalarTypeMetaData):
     def __hash__(self) -> int:
         return hash(self.py_type)
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         if wired_type is not None and self.py_type != wired_type.py_type:
             raise f"Type '{str(self)}' is not the same as the wired type '{str(wired_type)}'"
 
@@ -288,8 +288,8 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         else:
             return HgTupleCollectionScalarType(self.element_type.resolve(resolution_dict))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTupleCollectionScalarType
         self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
 
@@ -333,8 +333,8 @@ class HgTupleFixedScalarType(HgTupleScalarType):
             tps = tuple(tp.resolve(resolution_dict) for tp in self.element_types)
             return HgTupleFixedScalarType(tps)
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         if len(self.element_types) != len(wired_type.element_types):
             raise ParseError(f"tuple types do not match input type: '{str(self)}' "
                              f"not the same as the wired input: '{str(wired_type)}'")
@@ -382,8 +382,8 @@ class HgSetScalarType(HgCollectionType):
         else:
             return HgSetScalarType(self.element_type.resolve(resolution_dict))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
 
     def __eq__(self, o: object) -> bool:
@@ -429,8 +429,8 @@ class HgDictScalarType(HgCollectionType):
         else:
             return HgDictScalarType(self.key_type.resolve(resolution_dict), self.value_type.resolve(resolution_dict))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgDictScalarType
         self.key_type.build_resolution_dict(resolution_dict, wired_type.key_type)
         self.value_type.build_resolution_dict(resolution_dict, wired_type.value_type)
@@ -497,8 +497,8 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             schema = {k: v.resolve(resolution_dict) for k, v in self.meta_data_schema.items()}
             return HgCompoundScalarType(self.py_type._create_resolved_class(schema))
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().build_resolution_dict(resolution_dict, wired_type)
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgCompoundScalarType
         if len(self.meta_data_schema) != len(wired_type.meta_data_schema):
             raise ParseError(f"'{self.py_type}' schema does not match '{wired_type.py_type}'")
@@ -558,7 +558,7 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
                 raise ParseError(f"{self} was unable to resolve after two rounds, left with: {resolved}")
             return type(self)(resolved)
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if not type(wired_type) == HgTypeOfTypeMetaData:
             raise ParseError(f"Wired type '{wired_type}' is not a type value")
         wired_type: HgTypeOfTypeMetaData

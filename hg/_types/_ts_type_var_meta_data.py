@@ -25,7 +25,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             raise ParseError(f"No resolution available for '{str(self)}'")
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if wired_type.is_scalar:
             raise ParseError(f"TimeSeries TypeVar '{str(self)}' does not match scalar type: '{str(wired_type)}'")
         if self in resolution_dict:

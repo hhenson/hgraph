@@ -17,7 +17,7 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
 
     def __init__(self, __type__: TIME_SERIES_TYPE, __size__: SIZE, *args, **kwargs):
         Generic.__init__(self)
-        TimeSeriesListInput.__init__(self, __type__, __size__)
+        TimeSeriesListOutput.__init__(self, __type__, __size__)
         PythonTimeSeriesOutput.__init__(self, *args, **kwargs)
 
     @property
