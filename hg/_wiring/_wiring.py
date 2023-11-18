@@ -85,7 +85,7 @@ class WiringNodeClass:
         raise NotImplementedError()
 
 
-def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool=False, **kwargs) -> dict[str, Any]:
+def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool = False, **kwargs) -> dict[str, Any]:
     """
     Extract the args and kwargs, apply defaults and validate the input shape as correct.
     This does not validate the types, just that all args are provided.
@@ -102,7 +102,8 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool
         kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
     else:
         # Ensure we have all blanks filled in to make validations work
-        kwargs_ |= {k: v if k in signature.defaults else None for k, v in signature.defaults.items() if k not in kwargs_}
+        kwargs_ |= {k: v if k in signature.defaults else None for k, v in signature.defaults.items() if
+                    k not in kwargs_}
     if len(kwargs_) < len(signature.args):
         raise MissingInputsError(kwargs_)
     if any(arg not in kwargs_ for arg in signature.args):
@@ -120,8 +121,8 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.stop_fn: Callable = None
 
     def __getitem__(self, item) -> WiringNodeClass:
-        return PreResolvedWiringNodeWrapper(signature=self.signature,fn=self.fn,
-                 underlying_node=self, resolved_types=self._convert_item(item))
+        return PreResolvedWiringNodeWrapper(signature=self.signature, fn=self.fn,
+                                            underlying_node=self, resolved_types=self._convert_item(item))
 
     def _prepare_kwargs(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -148,7 +149,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                         if k in self.signature.defaults:
                             kwarg_types[k] = v
                         else:
-                            raise CustomMessageWiringError(f"Argument '{k}' is not marked as optional, but no value was supplied")
+                            raise CustomMessageWiringError(
+                                f"Argument '{k}' is not marked as optional, but no value was supplied")
                 if k in self.signature.time_series_args:
                     # This should then get a wiring node, and we would like to extract the output type,
                     # But this is optional so we should ensure that the type is present
@@ -194,7 +196,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
-            valid_inputs =    self.signature.resolve_valid_inputs(**kwargs)
+            valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
             if self.signature.is_resolved:
                 return kwargs, self.signature
             else:
@@ -211,6 +213,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     valid_inputs=valid_inputs,
                     unresolved_args=tuple(),
                     time_series_args=self.signature.time_series_args,
+                    uses_scheduler=self.signature.uses_scheduler,  # This should not differ based on resolution
                     label=self.signature.label)
                 if resolve_signature.is_resolved:
                     return kwargs, resolve_signature
@@ -238,7 +241,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                 case WiringNodeType.PULL_SOURCE_NODE:
                     rank = 1
                 case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
-                    rank = max(v.rank for k, v in kwargs_.items() if v is not None and k in self.signature.time_series_args) + 1
+                    rank = max(v.rank for k, v in kwargs_.items() if
+                               v is not None and k in self.signature.time_series_args) + 1
                 case default:
                     rank = -1
 
@@ -485,15 +489,18 @@ class WiringNodeInstance:
     @property
     def node_signature(self) -> "NodeSignature":
         from hg._runtime import NodeSignature, NodeTypeEnum
-        return NodeSignature(name=self.resolved_signature.name,
-                             node_type=NodeTypeEnum(self.resolved_signature.node_type.value),
-                             args=self.resolved_signature.args,
-                             time_series_inputs=self.resolved_signature.time_series_inputs,
-                             time_series_output=self.resolved_signature.output_type,
-                             scalars=self.resolved_signature.scalar_inputs,
-                             src_location=self.resolved_signature.src_location,
-                             active_inputs=self.resolved_signature.active_inputs,
-                             valid_inputs=self.resolved_signature.valid_inputs)
+        return NodeSignature(
+            name=self.resolved_signature.name,
+            node_type=NodeTypeEnum(self.resolved_signature.node_type.value),
+            args=self.resolved_signature.args,
+            time_series_inputs=self.resolved_signature.time_series_inputs,
+            time_series_output=self.resolved_signature.output_type,
+            scalars=self.resolved_signature.scalar_inputs,
+            src_location=self.resolved_signature.src_location,
+            active_inputs=self.resolved_signature.active_inputs,
+            valid_inputs=self.resolved_signature.valid_inputs,
+            uses_scheduler=self.resolved_signature.uses_scheduler
+        )
 
     def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> \
             tuple["NodeBuilder", set[Edge]]:

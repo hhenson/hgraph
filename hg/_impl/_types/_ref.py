@@ -109,6 +109,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         else:
             self._input_impl.bind_output(output)
             self._value = PythonTimeSeriesReference(self._input_impl)
+            self.owning_node.notify()
 
     def value(self):
         if self._value:

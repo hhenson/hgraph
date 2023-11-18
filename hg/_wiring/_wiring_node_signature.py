@@ -5,7 +5,7 @@ from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping
 from frozendict import frozendict
 
 from hg._types import ParseError
-from hg._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType
+from hg._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._type_meta_data import HgTypeMetaData
 from hg._wiring._source_code_details import SourceCodeDetails
@@ -67,6 +67,7 @@ class WiringNodeSignature:
     valid_inputs: Optional[frozenset[str]]
     unresolved_args: tuple[str]
     time_series_args: tuple[str]
+    uses_scheduler: bool
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
     # supplied via inputs
     label: Optional[str] = None  # A label if provided, this can help to disambiguate the node
@@ -186,15 +187,18 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
 
-    return WiringNodeSignature(node_type=wiring_node_type,
-                               name=name,
-                               args=args,
-                               defaults=defaults,
-                               input_types=input_types,
-                               output_type=output_type,
-                               active_inputs=active_inputs,
-                               valid_inputs=valid_inputs,
-                               src_location=SourceCodeDetails(file=filename, start_line=first_line),
-                               unresolved_args=unresolved_inputs,
-                               time_series_args=time_series_inputs,
-                               label=None)
+    return WiringNodeSignature(
+        node_type=wiring_node_type,
+        name=name,
+        args=args,
+        defaults=defaults,
+        input_types=input_types,
+        output_type=output_type,
+        active_inputs=active_inputs,
+        valid_inputs=valid_inputs,
+        src_location=SourceCodeDetails(file=filename, start_line=first_line),
+        unresolved_args=unresolved_inputs,
+        time_series_args=time_series_inputs,
+        uses_scheduler=any(type(v) is HgSchedulerType for v in input_types.values()),
+        label=None
+    )

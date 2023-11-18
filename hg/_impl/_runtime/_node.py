@@ -2,13 +2,13 @@ import functools
 import threading
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from inspect import signature
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hg import ExecutionContext, MIN_DT, MAX_DT
+from hg import ExecutionContext, MIN_DT, MAX_DT, MIN_ST, start_guard, stop_guard
 from hg._runtime import NodeSignature, Graph, NodeScheduler
 
 if TYPE_CHECKING:
@@ -97,12 +97,21 @@ class NodeImpl:  # Node
         if scheduled:
             self._scheduler.advance()
 
+    @start_guard
     def start(self):
         self._initialise_kwargs()
         self._initialise_inputs()
         if self.start_fn is not None:
             self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
+        if self._scheduler is not None:
+            if self._scheduler.pop_tag("start", None) is not None:
+                self.notify()
+                if not self.signature.uses_scheduler:
+                    self._scheduler = None
+            else:
+                self._scheduler.advance()
 
+    @stop_guard
     def stop(self):
         if self.stop_fn is not None:
             self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
@@ -112,7 +121,10 @@ class NodeImpl:  # Node
 
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
-        self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
+        if self.is_started:
+           self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
+        else:
+            self.scheduler.schedule(when=MIN_ST, tag="start")
 
 
 class NodeSchedulerImpl(NodeScheduler):
@@ -134,15 +146,28 @@ class NodeSchedulerImpl(NodeScheduler):
     def is_scheduled_now(self) -> bool:
         return self._scheduled_events and self._scheduled_events[0][0] == self._node.graph.context.current_engine_time
 
-    def schedule(self, when: datetime, tag: str = None):
+    def has_tag(self, tag: str) -> bool:
+        return tag in self._tags
+
+    def pop_tag(self, tag: str, default=None) -> datetime:
+        if tag in self._tags:
+            dt = self._tags.pop(tag)
+            self._scheduled_events.remove((dt, tag))
+            return dt
+        else:
+            return default
+
+    def schedule(self, when: datetime | timedelta, tag: str = None):
         if tag is not None:
             if tag in self._tags:
                 self._scheduled_events.remove((self._tags[tag], tag))
-        if when > self._node.graph.context.current_engine_time:
+        if type(when) is timedelta:
+            when = self._node.graph.context.current_engine_time + when
+        if when > (self._node.graph.context.current_engine_time if (is_stated := self._node.is_started) else MIN_DT):
             self._tags[tag] = when
             current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
             self._scheduled_events.add((when, "" if tag is None else tag))
-            if current_first > (next := self.next_scheduled_time):
+            if is_stated and current_first > (next := self.next_scheduled_time):
                 self._node.graph.schedule_node(self._node.node_ndx, next)
 
     def un_schedule(self, tag: str = None):
@@ -169,6 +194,7 @@ class GeneratorNodeImpl(NodeImpl):  # Node
     generator: Iterator = None
     next_value: object = None
 
+    @start_guard
     def start(self):
         self._initialise_kwargs()
         self.generator = self.eval_fn(**self._kwargs)
@@ -197,6 +223,7 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
 
     receiver: "_SenderReceiverState" = None
 
+    @start_guard
     def start(self):
         self._initialise_kwargs()
         self.receiver = _SenderReceiverState(lock=threading.RLock(), queue=deque(), context=self.graph.context)
@@ -209,6 +236,7 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         self.graph.context.mark_push_has_pending_values()
         self.output.apply_result(value)
 
+    @stop_guard
     def stop(self):
         self.receiver.stopped = True
         self.receiver = None

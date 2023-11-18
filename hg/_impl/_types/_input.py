@@ -1,10 +1,13 @@
 from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
+
+if TYPE_CHECKING:
+    from hg._builder._node_builder import Node
+    from hg._builder._graph_builder import Graph
 
 __all__ = ("PythonTimeSeriesInput",)
 

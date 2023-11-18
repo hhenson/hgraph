@@ -3,6 +3,7 @@ from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hg._types._scalar_type_meta_data import HgSchedulerType
 from hg._types._time_series_types import TIME_SERIES_TYPE
 
 if TYPE_CHECKING:
@@ -238,6 +239,7 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,
         unresolved_args=tuple(),
-        time_series_args=tuple()
+        time_series_args=tuple(),
+        uses_scheduler=any(type(v) is HgSchedulerType for v in kwargs.values())
     )
     return signature

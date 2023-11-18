@@ -175,6 +175,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             valid_inputs=None,
             unresolved_args=tuple(),
             time_series_args=tuple(kwargs.keys()),
+            uses_scheduler=False
         )
         TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
         from hg._wiring._wiring import TSBWiringPort, NonPeeredWiringNodeClass

@@ -112,6 +112,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             valid_inputs=None,
             unresolved_args=tuple(),
             time_series_args=args_,
+            uses_scheduler=False
         )
         from hg._wiring._wiring import TSLWiringPort, NonPeeredWiringNodeClass
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)

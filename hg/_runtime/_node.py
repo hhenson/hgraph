@@ -1,6 +1,6 @@
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, Mapping, TYPE_CHECKING, Any, Protocol
 
@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from hg._types._tsb_type import TimeSeriesBundleInput
     from hg._runtime._graph import Graph
     from hg._wiring._source_code_details import SourceCodeDetails
-
 
 __all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler")
 
@@ -39,6 +38,7 @@ class NodeSignature:
     src_location: "SourceCodeDetails"
     active_inputs: Optional[frozenset[str]] = None
     valid_inputs: Optional[frozenset[str]] = None
+    uses_scheduler: bool = False
 
     @property
     def signature(self) -> str:
@@ -185,7 +185,20 @@ class NodeScheduler(ABC):
         """
 
     @abstractmethod
-    def schedule(self, when: datetime, tag: str = None):
+    def has_tag(self, tag: str) -> bool:
+        """
+        Does this scheduler have the tag specified.
+        """
+
+    @abstractmethod
+    def pop_tag(self, tag: str, default: datetime = None) -> datetime | None:
+        """
+        Removes the tag and returns the value associated to it. If the tag is not found, then the default value
+        is returned.
+        """
+
+    @abstractmethod
+    def schedule(self, when: datetime | timedelta, tag: str = None):
         """
         Schedule the node to be evaluated at the time specified. If tag is set, then the scheduled event will be
         associated to the tag, if a schedule is already set against the tag, it will be replaced with the new entry.
