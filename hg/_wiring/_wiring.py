@@ -337,6 +337,14 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
                                           eval_fn=self.fn)
 
 
+class TsdMapWiringNodeClass(BaseWiringNodeClass):
+
+    def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature",
+                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+        # TODO: implement
+        ...
+
+
 class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
