@@ -16,6 +16,9 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         self.value_tp = value_tp
         self.key_tp = key_tp
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return isinstance(tp, HgTSDTypeMetaData) and self.key_tp.matches(tp.key_tp) and self.value_tp.matches(tp.value_tp)
+
     @property
     def is_resolved(self) -> bool:
         return self.value_tp.is_resolved and self.key_tp.is_resolved

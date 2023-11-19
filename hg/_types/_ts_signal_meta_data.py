@@ -17,6 +17,9 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
         from hg._types._time_series_types import SIGNAL
         return SIGNAL
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return isinstance(tp, HgTimeSeriesTypeMetaData)
+
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         return self
 

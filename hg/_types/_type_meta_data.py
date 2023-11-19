@@ -30,6 +30,17 @@ class HgTypeMetaData:
                 return meta_data
         raise ParseError(f"Unable to parse '{value}'")
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        """
+        Can this instance of meta-date match the supplied type?
+        This is used to determine if a type can be wired to another type.
+        It does not provide a guarantee that the types are compatible, only that they could match.
+        For example: add_(lhs: TS[NUMERIC], rhs: TS[NUMERIC]), in this case TS[int] and TS[float] could match,
+        but if the inputs to lhs and rhs were TS[int] and TS[float] respectively, then the types would not be a match
+        for each individual input but not for the function as a whole.
+        """
+        return self.py_type == tp.py_type  # By default if the python types are the same, then the types match.
+
     def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
         """
         If this meta data a sub-class of the other, determines convertibility. That is in a wiring context,

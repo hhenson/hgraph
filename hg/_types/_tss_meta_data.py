@@ -16,6 +16,9 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
     def __init__(self, scalar_type: HgScalarTypeMetaData):
         self.value_scalar_tp = scalar_type
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return isinstance(tp, HgTSSTypeMetaData) and self.value_scalar_tp.matches(tp.value_scalar_tp)
+
     @property
     def is_resolved(self) -> bool:
         return self.value_scalar_tp.is_resolved

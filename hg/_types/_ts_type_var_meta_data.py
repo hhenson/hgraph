@@ -19,6 +19,9 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
     def __init__(self, py_type):
         self.py_type = py_type
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return not tp.is_scalar
+
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
             return tp

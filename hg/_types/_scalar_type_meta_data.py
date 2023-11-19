@@ -10,10 +10,9 @@ from hg._types._scalar_value import ScalarValue
 from hg._types._scalar_types import Size, STATE
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
 
-
-__all__ = ( "HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
-            "HgAtomicType", "HgScalarTypeVar", "HgCompoundScalarType", "HgTupleFixedScalarType",
-            "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData")
+__all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
+           "HgAtomicType", "HgScalarTypeVar", "HgCompoundScalarType", "HgTupleFixedScalarType",
+           "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData")
 
 
 class HgScalarTypeMetaData(HgTypeMetaData):
@@ -46,6 +45,9 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
 
     def __hash__(self) -> int:
         return hash(self.py_type)
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return tp.is_scalar
 
     @property
     def type_var(self) -> TypeVar:
@@ -276,6 +278,9 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
     def __init__(self, element_type: HgScalarTypeMetaData):
         self.element_type = element_type
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgTupleCollectionScalarType and self.element_type.matches(tp.element_type)
+
     @property
     def py_type(self) -> Type:
         return self.py_collection_type[self.element_type.py_type, ...]
@@ -312,6 +317,10 @@ class HgTupleFixedScalarType(HgTupleScalarType):
 
     def __init__(self, tp_s: Sequence[HgScalarTypeMetaData]):
         self.element_types: tuple[HgScalarTypeMetaData] = tuple(tp_s)
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgTupleFixedScalarType and len(self.element_types) == len(tp.element_types) and \
+            all(e.matches(w_e) for e, w_e in zip(self.element_types, tp.element_types))
 
     def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
         return False
@@ -364,6 +373,9 @@ class HgSetScalarType(HgCollectionType):
     def __init__(self, element_type: HgScalarTypeMetaData):
         self.element_type = element_type
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgSetScalarType and self.element_type.matches(tp.element_type)
+
     @property
     def py_type(self) -> Type:
         return self.py_collection_type[self.element_type.py_type]
@@ -410,6 +422,10 @@ class HgDictScalarType(HgCollectionType):
         self.key_type = key_type
         self.value_type = value_type
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgDictScalarType and self.key_type.matches(tp.key_type) and self.value_type.matches(
+            tp.value_type)
+
     @property
     def py_type(self) -> Type:
         return self.py_collection_type[self.key_type.py_type, self.value_type.py_type]
@@ -422,7 +438,7 @@ class HgDictScalarType(HgCollectionType):
     def parse(cls, value) -> "HgScalarTypeMetaData":
         if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [frozendict, dict, Mapping]:
             if (key_tp := HgScalarTypeMetaData.parse(value.__args__[0])) and (
-            value_tp := HgScalarTypeMetaData.parse(value.__args__[1])):
+                    value_tp := HgScalarTypeMetaData.parse(value.__args__[1])):
                 return HgDictScalarType(key_tp, value_tp)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
@@ -439,7 +455,7 @@ class HgDictScalarType(HgCollectionType):
         self.value_type.build_resolution_dict(resolution_dict, wired_type.value_type)
 
     def __eq__(self, o: object) -> bool:
-            return type(o) is HgDictScalarType and self.key_type == o.key_type and self.value_type == o.value_type
+        return type(o) is HgDictScalarType and self.key_type == o.key_type and self.value_type == o.value_type
 
     def __str__(self) -> str:
         return f'Mapping[{str(self.key_type)}, {str(self.value_type)}]'
@@ -452,7 +468,6 @@ class HgDictScalarType(HgCollectionType):
 
 
 class HgCompoundScalarType(HgScalarTypeMetaData):
-
     is_atomic = False  # This has the __meta_data_schema__ associated to the type with additional type information.
 
     @property
@@ -473,6 +488,11 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     def __hash__(self) -> int:
         return hash(self.py_type)
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgCompoundScalarType and all(v.meta_data_schema.matches(v_tp.meta_data_schema) for v, v_tp in
+                                                        zip(self.meta_data_schema.values(),
+                                                            tp.meta_data_schema.values()))
 
     @property
     def is_resolved(self) -> bool:
@@ -543,6 +563,9 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
 
     def __init__(self, value_tp):
         self.value_tp = value_tp
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgTypeOfTypeMetaData and self.value_tp.matches(tp.value_tp)
 
     @property
     def is_resolved(self) -> bool:

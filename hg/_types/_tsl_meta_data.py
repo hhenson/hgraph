@@ -20,6 +20,10 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         self.value_tp = value_tp
         self.size_tp = size_tp
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return isinstance(tp, HgTSLTypeMetaData) and self.value_tp.matches(tp.value_tp) and self.size_tp.matches(
+            tp.size_tp)
+
     @property
     def size(self) -> "Size":
         return cast("Size", self.size_tp.py_type)

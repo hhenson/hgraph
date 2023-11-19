@@ -7,7 +7,6 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 from frozendict import frozendict
 from more_itertools import nth
 
-from hg._builder._graph_builder import Edge
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
@@ -22,6 +21,7 @@ from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeTyp
 if TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
     from hg._runtime._node import NodeSignature, NodeTypeEnum
+    from hg._builder._graph_builder import Edge
 
 __all__ = ("WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
@@ -85,14 +85,17 @@ class WiringNodeClass:
         raise NotImplementedError()
 
 
-def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool = False, **kwargs) -> dict[str, Any]:
+def extract_kwargs(signature: WiringNodeSignature, *args,
+                   _ignore_defaults: bool = False,
+                   _ensure_match: bool = True,
+                   _allow_missing_count: int = 0,
+                   **kwargs) -> dict[str, Any]:
     """
-    Extract the args and kwargs, apply defaults and validate the input shape as correct.
-    This does not validate the types, just that all args are provided.
+    Converts args to kwargs based on the signature.
+    If _ignore_defaults is True, then the defaults are not applied.
+    If _ensure_match is True, then the final kwargs must match the signature exactly.
+    _allow_missing_count is the number of missing arguments that are allowed.
     """
-    if len(args) + len(kwargs) > len(signature.args):
-        raise SyntaxError(
-            f"[{signature.signature}] More arguments are provided than are defined for this function")
     kwargs_ = {k: arg for k, arg in zip(signature.args, args)}  # Map the *args to keys
     if any(k in kwargs for k in kwargs_):
         raise SyntaxError(
@@ -104,12 +107,26 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool
         # Ensure we have all blanks filled in to make validations work
         kwargs_ |= {k: v if k in signature.defaults else None for k, v in signature.defaults.items() if
                     k not in kwargs_}
-    if len(kwargs_) < len(signature.args):
-        raise MissingInputsError(kwargs_)
-    if any(arg not in kwargs_ for arg in signature.args):
+    if _ensure_match and any(arg not in kwargs_ for arg in signature.args):
         raise SyntaxError(f"[{signature.signature}] Has incorrect kwargs names "
                           f"{[arg for arg in kwargs_ if arg not in signature.args]} "
                           f"expected: {[arg for arg in signature.args if arg not in kwargs_]}")
+    # Filter kwargs to ensure only valid keys are present, this will also align the order of kwargs with args.
+    kwargs_ = {k: kwargs_[k] for k in signature.args if k in kwargs_}
+    if len(kwargs_) < len(signature.args) - _allow_missing_count:
+        raise MissingInputsError(kwargs_)
+    return kwargs_
+
+
+def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool = False, **kwargs) -> dict[str, Any]:
+    """
+    Extract the args and kwargs, apply defaults and validate the input shape as correct.
+    This does not validate the types, just that all args are provided.
+    """
+    if len(args) + len(kwargs) > len(signature.args):
+        raise SyntaxError(
+            f"[{signature.signature}] More arguments are provided than are defined for this function")
+    kwargs_ = extract_kwargs(signature, *args, _ignore_defaults=_ignore_defaults, **kwargs)
     return kwargs_
 
 
@@ -197,7 +214,8 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
             valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
-            resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs, resolved_inputs)
+            resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
+                                                                         resolved_inputs)
             if self.signature.is_resolved:
                 return kwargs, self.signature
             else:
@@ -505,7 +523,7 @@ class WiringNodeInstance:
         )
 
     def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> \
-            tuple["NodeBuilder", set[Edge]]:
+            tuple["NodeBuilder", set["Edge"]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
@@ -543,10 +561,12 @@ class WiringPort:
         return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
 
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) \
-            -> set[Edge]:
+            -> set["Edge"]:
         """Return the edges required to bind this output to the dst_node"""
         assert self.has_peer, \
             "Can not bind a non-peered node, the WiringPort must be sub-classed and override this method"
+
+        from hg._builder._graph_builder import Edge
         return {Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path)}
 
     @property
@@ -602,9 +622,10 @@ class TSBWiringPort(WiringPort):
         return self._wiring_port_for(item)
 
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
-            set[Edge]:
+            set["Edge"]:
         edges = set()
         if self.has_peer:
+            from hg._builder._graph_builder import Edge
             edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
         else:
             for ndx, arg in enumerate(self.__schema__.__meta_data_schema__):
@@ -639,9 +660,10 @@ class TSLWiringPort(WiringPort):
         return _wiring_port_for(tp_, node_instance, path)
 
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
-            set[Edge]:
+            set["Edge"]:
         edges = set()
         if self.has_peer:
+            from hg._builder._graph_builder import Edge
             edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
         else:
             # This should work as we don't support unbounded TSLs as non-peered nodes at the moment.

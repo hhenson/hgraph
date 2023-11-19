@@ -98,6 +98,7 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
     meta_type = HgTypeMetaData.parse(value)
     assert meta_type is not None
     assert meta_type == expected
+    assert meta_type.matches(expected)
 
 
 @pytest.mark.parametrize(

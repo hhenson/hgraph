@@ -7,7 +7,6 @@ from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hg._types._type_meta_data import ParseError
 
-
 __all__ = ("HgTimeSeriesSchemaTypeMetaData", "HgTSBTypeMetaData",)
 
 
@@ -30,6 +29,12 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return nth(self.meta_data_schema.values(), item)
         else:
             return self.meta_data_schema[item]
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return isinstance(tp,
+                          HgTimeSeriesSchemaTypeMetaData) and \
+            self.meta_data_schema().keys() == tp.meta_data_schema().keys() and \
+            all( v.matches(w_v) for v, w_v in zip(self.meta_data_schema.values(), tp.meta_data_schema.values()))
 
     @property
     def meta_data_schema(self) -> dict[str, "HgTimeSeriesTypeMetaData"]:
@@ -117,7 +122,8 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types._tsb_type import TimeSeriesBundleInput
         if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesBundleInput:
             bundle_tp = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
-            if bundle_tp is None or not isinstance(bundle_tp, (HgTimeSeriesSchemaTypeMetaData, HgTsTypeVarTypeMetaData)):
+            if bundle_tp is None or not isinstance(bundle_tp,
+                                                   (HgTimeSeriesSchemaTypeMetaData, HgTsTypeVarTypeMetaData)):
                 raise ParseError(f"'{value.__args__[0]}' is not a valid input to TSB")
             return HgTSBTypeMetaData(bundle_tp)
 
