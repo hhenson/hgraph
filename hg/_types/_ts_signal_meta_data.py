@@ -17,7 +17,7 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
         from hg._types._time_series_types import SIGNAL
         return SIGNAL
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         return self
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):

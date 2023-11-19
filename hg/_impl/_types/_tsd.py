@@ -1,4 +1,4 @@
-from typing import Generic, Any, Iterable, Tuple
+from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING
 
 from frozendict import frozendict
 
@@ -7,6 +7,8 @@ from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._time_series_types import K, V
 from hg._types._tsd_type import TimeSeriesDictOutput, TimeSeriesDictInput, REMOVE_KEY_IF_EXISTS, REMOVE_KEY
 
+if TYPE_CHECKING:
+    from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 
 __all__ = ("PythonTimeSeriesDictOutput", "PythonTimeSeriesDictInput", "TSDKeyObserver")
 
@@ -123,8 +125,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._ts_builder: TSInputBuilder = PythonTimeSeriesBuilderFactory.instance().make_input_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
 
-    def bind_output(self, output: "TimeSeriesOutput"):
-        super().bind_output(output)
+    def do_bind_output(self, output: "TimeSeriesOutput"):
+        super().do_bind_output(output)
         output: PythonTimeSeriesDictOutput
         output.add_key_observer(self)
 

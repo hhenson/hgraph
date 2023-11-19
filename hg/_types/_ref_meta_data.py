@@ -25,14 +25,11 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types._ref_type import REF
         return REF[self.value_tp.py_type]
 
-    def dereference(self) -> "HgTimeSeriesTypeMetaData":
-        return self.value_tp
-
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.value_tp.resolve(resolution_dict))
+            return type(self)(self.value_tp.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if isinstance(wired_type, HgREFTypeMetaData):
@@ -48,6 +45,13 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
             if value is None:
                 raise ParseError(f"While parsing 'REF[{str(value.__args__[0])}]' unable to parse time series type from '{str(value.__args__[0])}'")
             return HgREFTypeMetaData(value)
+
+    @property
+    def has_references(self) -> bool:
+        return True
+
+    def dereference(self) -> "HgTimeSeriesTypeMetaData":
+        return self.value_tp
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgREFTypeMetaData and self.value_tp == o.value_tp

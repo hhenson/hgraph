@@ -214,7 +214,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
     def output(self) -> Optional[TimeSeriesOutput]:
         raise NotImplementedError()
 
-    def bind_output(self, value: TimeSeriesOutput):
+    def do_bind_output(self, value: TimeSeriesOutput):
         raise NotImplementedError()
 
     @property

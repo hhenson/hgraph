@@ -33,6 +33,7 @@ class NodeImpl:  # Node
     stop_fn: Callable = None
     input: Optional["TimeSeriesBundleInput"] = None
     output: Optional["TimeSeriesOutput"] = None
+    is_starting: bool = False
     is_started: bool = False
     _scheduler: Optional["NodeSchedulerImpl"] = None
     _kwargs: dict[str, Any] = None
@@ -121,7 +122,7 @@ class NodeImpl:  # Node
 
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
-        if self.is_started:
+        if self.is_started or self.is_starting:
            self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
         else:
             self.scheduler.schedule(when=MIN_ST, tag="start")

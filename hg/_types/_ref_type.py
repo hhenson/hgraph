@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from typing import Generic, Optional
 
 from hg._types._scalar_types import SCALAR
@@ -9,14 +9,13 @@ __all__ = ("REF", "REF_OUT", "TimeSeriesReferenceOutput", "TimeSeriesReferenceIn
 
 class TimeSeriesReference:
     @abstractmethod
-    def __init__(self, i: TimeSeriesInput):
+    def __init__(self, input_: TimeSeriesInput = None):
         """Creates an instance of Reference form an input object, captures both peer and non-peer bindings"""
         pass
 
     @abstractmethod
-    def bind_input(self, i: TimeSeriesInput):
+    def bind_input(self, input_: TimeSeriesInput):
         """Binds given input to the value of this reference"""
-        pass
 
 
 class TimeSeriesReferenceOutput(TimeSeriesOutput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], Generic[TIME_SERIES_TYPE]):
@@ -36,8 +35,14 @@ class TimeSeriesReferenceOutput(TimeSeriesOutput, TimeSeriesDeltaValue[TimeSerie
     def value(self, value: TimeSeriesReference):
         """The output can set the value"""
 
+    def observe_reference(self, input_: TimeSeriesInput):
+        """Registers an input as observing the reference value"""
 
-class TimeSeriesReferenceInput(TimeSeriesInput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], Generic[TIME_SERIES_TYPE]):
+    def stop_observing_reference(self, input_: TimeSeriesInput):
+        """Unregisters an input as observing the reference value"""
+
+
+class TimeSeriesReferenceInput(TimeSeriesInput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], ABC, Generic[TIME_SERIES_TYPE]):
     """
     This is the wrapper class of the TimeSeriesValueOutput. It is not able to modify
     the value. It also supports the input behaviours of the TimeSeriesInput

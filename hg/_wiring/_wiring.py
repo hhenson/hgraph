@@ -1,5 +1,5 @@
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from types import GenericAlias
 from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING
@@ -13,7 +13,7 @@ from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
 from hg._types._tsl_meta_data import HgTSLTypeMetaData
-from hg._types._type_meta_data import HgTypeMetaData, ParseError
+from hg._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOLVE
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
 from hg._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, CustomMessageWiringError
@@ -164,10 +164,10 @@ class BaseWiringNodeClass(WiringNodeClass):
                         raise ParseError(
                             f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
                 elif type(v) is HgTypeOfTypeMetaData:
-                    if not isinstance(arg, (type, GenericAlias, _GenericAlias)):
+                    if not isinstance(arg, (type, GenericAlias, _GenericAlias, TypeVar)) and arg is not AUTO_RESOLVE:
                         # This is not a type of something (Have seen this as being an instance of HgTypeMetaData)
                         raise IncorrectTypeBinding(v, arg)
-                    v = HgTypeMetaData.parse(arg)
+                    v = HgTypeMetaData.parse(arg) if arg is not AUTO_RESOLVE else v.value_tp
                     kwarg_types[k] = HgTypeOfTypeMetaData(v)
                 else:
                     kwarg_types[k] = (tp := HgScalarTypeMetaData.parse(arg))
@@ -197,6 +197,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
             valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
+            resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs, resolved_inputs)
             if self.signature.is_resolved:
                 return kwargs, self.signature
             else:
@@ -285,7 +286,8 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable,
                  underlying_node: BaseWiringNodeClass, resolved_types: dict[TypeVar, HgTypeMetaData]):
-        super().__init__(signature, fn)
+        super().__init__(replace(signature, input_types=signature.resolve_inputs(resolved_types, True),
+                                 output_type=signature.resolve_output(resolved_types, True)), fn)
         if isinstance(underlying_node, PreResolvedWiringNodeWrapper):
             # We don't want to create unnecessary chains so unwrap and create the super set result.
             underlying_node = underlying_node.underlying_node
@@ -451,7 +453,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self) as g:
-                out: WiringPort = self.fn(*args, **kwargs)
+                out: WiringPort = self.fn(*args, **kwargs_)
                 if output_type := resolved_signature.output_type:
                     if output_type != out.output_type:
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "

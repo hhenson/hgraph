@@ -1,12 +1,14 @@
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Generic, TYPE_CHECKING
 
-from hg._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
+from hg._runtime._constants import MIN_DT, MIN_ST
 from hg._types._ref_type import TimeSeriesReference, TimeSeriesReferenceOutput, TimeSeriesReferenceInput
 from hg._types._scalar_types import SCALAR
+from hg._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
 
 if TYPE_CHECKING:
     from hg._builder._input_builder import InputBuilder
@@ -53,6 +55,7 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
 
     _tp: type = None
     _value: typing.Optional[TimeSeriesReference] = None
+    _reference_observers: typing.Dict[int, TimeSeriesInput] = field(default_factory=dict)  # TODO: dict to avoid requiring inputs to hash
 
     @property
     def value(self) -> TimeSeriesReference:
@@ -70,11 +73,19 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
             raise TypeError(f"Expected TimeSeriesReference, got {type(v)}")
         self._value = v
         self.mark_modified()
+        for observer in self._reference_observers.values():
+            self._value.bind_input(observer)
 
     def apply_result(self, result: SCALAR):
         if result is None:
             return
         self.value = result
+
+    def observe_reference(self, input_: TimeSeriesInput):
+        self._reference_observers[id(input_)] = input_
+
+    def stop_observing_reference(self, input_: TimeSeriesInput):  # TODO: this would only be called from nested graphs but there is no stop() on inputs. How do we clean these up?
+        self._reference_observers.pop(id(input_), None)
 
     def mark_invalid(self):
         self._value = None
@@ -101,25 +112,55 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
     _value: typing.Optional[TimeSeriesReference] = None
 
     def __post_init__(self):
-        self._input_impl = self._input_impl_builder.make_instance(self)
+        self._input_impl = self._input_impl_builder.make_instance(self.owning_node, self)
 
-    def bind_output(self, output: TimeSeriesOutput):
+    def bind_output(self, value: TimeSeriesOutput) -> bool:
+        peer = self.do_bind_output(value)
+
+        if self.owning_node.is_started and self._output and self._output.valid:
+            self._sample_time = self.owning_graph.context.current_engine_time
+            if self.active:
+                self.owning_node.notify()
+
+        return peer
+
+    def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         if isinstance(output, TimeSeriesReferenceOutput):
-            super().bind_output(output)
+            return super().do_bind_output(output)
         else:
             self._input_impl.bind_output(output)
             self._value = PythonTimeSeriesReference(self._input_impl)
             self.owning_node.notify()
+            self._sample_time = self.owning_graph.context.current_engine_time if self.owning_node.is_started else MIN_ST  # TODO: what are we supposed to do in a branch?
+            return False
 
+    @property
     def value(self):
         if self._value:
             return self._value
         else:
             return super().value()
 
+    @property
     def delta_value(self):
         if self._value:
             return self._value
         else:
             return super().delta_value()
 
+    @property
+    def modified(self) -> bool:
+        return self._output.modified if self._output \
+            else self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time
+
+    @property
+    def valid(self) -> bool:
+        return self._value is not None or super().valid
+
+    @property
+    def all_valid(self) -> bool:
+        return self._value is not None or super().all_valid
+
+    @property
+    def last_modified_time(self) -> datetime:
+        return self._output.last_modified_time if self._output else self._sample_time

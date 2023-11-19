@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
+from hg._runtime._constants import MIN_DT
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 
 if TYPE_CHECKING:
@@ -43,7 +44,13 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     and these can be supported directly.
     """
     _output: TimeSeriesOutput = None
+
+    _reference_output: TimeSeriesOutput = None  # TODO: This might be refactored into a generic binding observer pattern
+    # however there is no guarantee that if there were other types of observers they would not clash with the
+    # references, so probably this is required to be this way. I am just a little annoyed with the growth of the object
+
     _active: bool = False
+    _sample_time: datetime = MIN_DT
 
     @property
     def active(self) -> bool:
@@ -65,7 +72,25 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def output(self) -> TimeSeriesOutput:
         return self._output
 
-    def bind_output(self, output: TimeSeriesOutput):
+    def bind_output(self, value: TimeSeriesOutput) -> bool:
+        from hg import TimeSeriesReferenceOutput
+        if isinstance(value, TimeSeriesReferenceOutput):
+            if value.value:
+                value.value.bind_input(self)
+            value.observe_reference(self)
+            self._reference_output = value
+            peer = False
+        else:
+            peer = self.do_bind_output(value)
+
+        if self.owning_node.is_started and self._output and self._output.valid:
+            self._sample_time = self.owning_graph.context.current_engine_time
+            if self.active:
+                self.owning_node.notify()  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
+
+        return peer
+
+    def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         active = self.active
         self.make_passive()  # Ensure we are unsubscribed from the old output.
         self._output = output
@@ -73,6 +98,8 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             self.make_active()  # If we were active now subscribe to the new output,
             # this is important even if we were not bound previously as this will ensure the new output gets
             # subscribed to
+
+        return True
 
     @property
     def bound(self) -> bool:
@@ -94,19 +121,17 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def modified(self) -> bool:
-        return self._output.modified
+        return self._output is not None and self._output.modified or (
+                self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time)
 
     @property
     def valid(self) -> bool:
-        if self.bound:
-            return self._output.valid
-        else:
-            return False
+        return self.bound and self._output.valid
 
     @property
     def all_valid(self) -> bool:
-        return self._output.all_valid
+        return self.bound and self._output.all_valid
 
     @property
     def last_modified_time(self) -> datetime:
-        return self._output.last_modified_time
+        return max(self._output.last_modified_time, self._sample_time) if self.bound else MIN_DT

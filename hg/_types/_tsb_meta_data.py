@@ -39,11 +39,11 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
     def is_resolved(self) -> bool:
         return all(v.is_resolved for v in self.meta_data_schema.values())
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            schema = {k: v.resolve(resolution_dict) for k, v in self.meta_data_schema.items()}
+            schema = {k: v.resolve(resolution_dict, weak) for k, v in self.meta_data_schema.items()}
             return HgTimeSeriesSchemaTypeMetaData(self.py_type._create_resolved_class(schema))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
@@ -55,6 +55,16 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             raise ParseError("Keys of schema do not match")
         for v, w_v in zip(self.meta_data_schema.values(), wired_type.meta_data_schema.values()):
             v.build_resolution_dict(resolution_dict, w_v)
+
+    @property
+    def has_references(self) -> bool:
+        return any(tp.has_references for tp in self.meta_data_schema.values())
+
+    def dereference(self) -> "HgTimeSeriesTypeMetaData":
+        if self.has_references:
+            return HgTimeSeriesSchemaTypeMetaData(self.py_type.dereference())
+        else:
+            return self
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
@@ -91,11 +101,11 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types import TSB
         return TSB[self.bundle_schema_tp.py_type]
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.bundle_schema_tp.resolve(resolution_dict))
+            return type(self)(self.bundle_schema_tp.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -110,6 +120,16 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
             if bundle_tp is None or not isinstance(bundle_tp, (HgTimeSeriesSchemaTypeMetaData, HgTsTypeVarTypeMetaData)):
                 raise ParseError(f"'{value.__args__[0]}' is not a valid input to TSB")
             return HgTSBTypeMetaData(bundle_tp)
+
+    @property
+    def has_references(self) -> bool:
+        return self.bundle_schema_tp.has_references
+
+    def dereference(self) -> "HgTimeSeriesTypeMetaData":
+        if self.has_references:
+            return HgTSBTypeMetaData(self.bundle_schema_tp.dereference())
+        else:
+            return self
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSBTypeMetaData and self.bundle_schema_tp == o.bundle_schema_tp

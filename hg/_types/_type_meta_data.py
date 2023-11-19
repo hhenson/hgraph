@@ -22,7 +22,9 @@ class HgTypeMetaData:
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-        parse_order = [HgScalarTypeMetaData, HgTimeSeriesTypeMetaData]
+        parse_order = (HgScalarTypeMetaData, HgTimeSeriesTypeMetaData)
+        if isinstance(value, parse_order):
+            return value
         for parser in parse_order:
             if meta_data := parser.parse(value):
                 return meta_data
@@ -42,14 +44,22 @@ class HgTypeMetaData:
         """
         raise NotImplementedError()
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         """
         Return a resolve type instance using the resolution dictionary supplied to map type var instances
         to resolved types.
         If there are missing types an appropriate exception should be thrown.
+        :param weak:
         """
         if self.is_resolved:
             return self
+
+    @property
+    def has_references(self) -> bool:
+        return False
+
+    def dereference(self) -> "HgTypeMetaData":
+        return self
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """
@@ -63,9 +73,7 @@ class HgTypeMetaData:
         The outputs are fully reliant on types to be resolved using the wired_types on the inputs to resolve the output
         types.
         """
-        from hg import HgREFTypeMetaData
-        self.do_build_resolution_dict(resolution_dict,
-                                      wired_type.value_tp if isinstance(wired_type, HgREFTypeMetaData) else wired_type)
+        self.do_build_resolution_dict(resolution_dict, wired_type.dereference())
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """

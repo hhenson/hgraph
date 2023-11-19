@@ -19,11 +19,13 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
     def __init__(self, py_type):
         self.py_type = py_type
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
             return tp
-        else:
+        elif not weak:
             raise ParseError(f"No resolution available for '{str(self)}'")
+        else:
+            return self
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if wired_type.is_scalar:
@@ -33,7 +35,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
                 raise ParseError(f"TypeVar '{str(self)}' has already been resolved to"
                                  f" '{str(resolution_dict[self])}' which does not match the type "
                                  f"'{str(wired_type)}'")
-        else:
+        elif wired_type != self:
             resolution_dict[self.py_type] = wired_type
 
     @classmethod

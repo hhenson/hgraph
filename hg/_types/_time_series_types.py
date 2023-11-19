@@ -233,9 +233,15 @@ class TimeSeriesInput(TimeSeries):
         """
 
     @abstractmethod
-    def bind_output(self, value: TimeSeriesOutput):
+    def bind_output(self, value: Optional[TimeSeriesOutput]) -> bool:
         """
         Binds the output provided to this input.
+        """
+
+    @abstractmethod
+    def do_bind_output(self, value: TimeSeriesOutput) -> bool:
+        """
+        Derived classes override this to implement specific behaviours
         """
 
     @property

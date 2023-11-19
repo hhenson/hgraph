@@ -76,9 +76,11 @@ def start_guard(fn):
         if self.is_started:
             return
 
+        self.is_starting = True
         fn(self)
 
         self.is_started = True
+        self.is_starting = False
 
     return _start
 
