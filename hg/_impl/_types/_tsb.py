@@ -79,11 +79,14 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
     def bound(self) -> bool:
         return super().bound or any(ts.bound for ts in self.values())
 
-    def bind_output(self, output: TimeSeriesOutput):
+    def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         output: PythonTimeSeriesBundleOutput
-        super().bind_output(output)
+        peer = True
         for k, ts in self.items():
-            ts.bind_output(output[k])
+            peer &= ts.bind_output(output[k])
+
+        super().do_bind_output(output if peer else None)
+        return peer
 
     @property
     def value(self) -> Any:

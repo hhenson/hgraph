@@ -25,11 +25,11 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types import TSS
         return TSS[self.value_scalar_tp.py_type]
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.value_scalar_tp.resolve(resolution_dict))
+            return type(self)(self.value_scalar_tp.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)

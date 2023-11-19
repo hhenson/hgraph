@@ -25,11 +25,11 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types._tsd_type import TSD
         return TSD[self.key_tp.py_type, self.value_tp.py_type]
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.key_tp.resolve(resolution_dict), self.value_tp.resolve(resolution_dict))
+            return type(self)(self.key_tp.resolve(resolution_dict, weak), self.value_tp.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -43,6 +43,16 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesDictInput:
             return HgTSDTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]),
                                      HgTimeSeriesTypeMetaData.parse(value.__args__[1]))
+
+    @property
+    def has_references(self) -> bool:
+        return self.value_tp.has_references
+
+    def dereference(self) -> "HgTimeSeriesTypeMetaData":
+        if self.has_references:
+            return self.__class__(self.key_tp, self.value_tp.dereference())
+        else:
+            return self
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSDTypeMetaData and self.key_tp == o.key_tp and self.value_tp == o.value_tp

@@ -7,7 +7,7 @@ from frozendict import frozendict
 from hg._types import ParseError
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hg._types._type_meta_data import HgTypeMetaData
+from hg._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
 
@@ -112,19 +112,19 @@ class WiringNodeSignature:
                              f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}")
         return out_dict
 
-    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> Mapping[str, HgTypeMetaData]:
+    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Mapping[str, HgTypeMetaData]:
         if self.is_resolved:
             return self.input_types
 
         input_types = {}
         for arg, meta_data in self.input_types.items():
-            input_types[arg] = meta_data.resolve(resolution_dict)
+            input_types[arg] = meta_data.resolve(resolution_dict, weak)
         return frozendict(input_types)
 
-    def resolve_output(self, resolution_dict: dict[TypeVar, HgTypeMetaData]) -> Optional[HgTypeMetaData]:
+    def resolve_output(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Optional[HgTypeMetaData]:
         if self.output_type is None:
             return None
-        return self.output_type.resolve(resolution_dict)
+        return self.output_type.resolve(resolution_dict, weak)
 
     def resolve_valid_inputs(self, **kwargs) -> tuple[str]:
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
@@ -135,6 +135,17 @@ class WiringNodeSignature:
                 return tuple(k for k in self.time_series_args if k not in optional_inputs)
         else:
             return self.valid_inputs
+
+    def resolve_auto_resolve_kwargs(self, resolution_dict, kwarg_types, kwargs, resolved_inputs):
+        new_resolved_inputs = {}
+        for arg, v in self.defaults.items():
+            if v is AUTO_RESOLVE:
+                kwargs[arg] = kwarg_types[arg].value_tp.resolve(resolution_dict)
+                new_resolved_inputs[arg] = kwarg_types[arg].resolve(resolution_dict)
+        if new_resolved_inputs:
+            return frozendict(dict(resolved_inputs, **new_resolved_inputs))
+        else:
+            return resolved_inputs
 
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,

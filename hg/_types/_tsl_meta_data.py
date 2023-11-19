@@ -33,11 +33,11 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         from hg._types import TSL
         return TSL[self.value_tp.py_type, self.size_tp.py_type]
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.value_tp.resolve(resolution_dict), self.size_tp.resolve(resolution_dict))
+            return type(self)(self.value_tp.resolve(resolution_dict, weak), self.size_tp.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -57,6 +57,16 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
             if sz_meta_data is None or (sz_meta_data.is_resolved and not issubclass(sz_meta_data.py_type, Size)):
                 raise ParseError(f"'{value.__args__[1]}' is not a valid Size type")
             return HgTSLTypeMetaData(v_meta_data, sz_meta_data)
+
+    @property
+    def has_references(self) -> bool:
+        return self.value_tp.has_references
+
+    def dereference(self) -> "HgTimeSeriesTypeMetaData":
+        if self.has_references:
+            return self.__class__(self.value_tp.dereference(), self.size_tp)
+        else:
+            return self
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSLTypeMetaData and self.value_tp == o.value_tp and self.size_tp == o.size_tp

@@ -57,11 +57,13 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
     def is_convertable(self, tp: "HgTypeMetaData") -> bool:
         return False
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
             return tp
-        else:
+        elif not weak:
             raise ParseError(f"No resolution available for '{str(self)}'")
+        else:
+            return self
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if not wired_type.is_scalar:
@@ -282,11 +284,11 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
     def is_resolved(self) -> bool:
         return self.element_type.is_resolved
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return HgTupleCollectionScalarType(self.element_type.resolve(resolution_dict))
+            return HgTupleCollectionScalarType(self.element_type.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -326,11 +328,11 @@ class HgTupleFixedScalarType(HgTupleScalarType):
     def is_resolved(self) -> bool:
         return all(e.is_resolved for e in self.element_types)
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            tps = tuple(tp.resolve(resolution_dict) for tp in self.element_types)
+            tps = tuple(tp.resolve(resolution_dict, weak) for tp in self.element_types)
             return HgTupleFixedScalarType(tps)
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
@@ -376,11 +378,11 @@ class HgSetScalarType(HgCollectionType):
             if scalar_type := HgScalarTypeMetaData.parse(value.__args__[0]):
                 return HgSetScalarType(scalar_type)
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return HgSetScalarType(self.element_type.resolve(resolution_dict))
+            return HgSetScalarType(self.element_type.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -423,11 +425,12 @@ class HgDictScalarType(HgCollectionType):
             value_tp := HgScalarTypeMetaData.parse(value.__args__[1])):
                 return HgDictScalarType(key_tp, value_tp)
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return HgDictScalarType(self.key_type.resolve(resolution_dict), self.value_type.resolve(resolution_dict))
+            return HgDictScalarType(self.key_type.resolve(resolution_dict, weak),
+                                    self.value_type.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -490,11 +493,11 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         if isinstance(value, CompoundScalar):
             return HgCompoundScalarType(type(value))
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            schema = {k: v.resolve(resolution_dict) for k, v in self.meta_data_schema.items()}
+            schema = {k: v.resolve(resolution_dict, weak) for k, v in self.meta_data_schema.items()}
             return HgCompoundScalarType(self.py_type._create_resolved_class(schema))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
@@ -549,12 +552,12 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
     def py_type(self) -> Type:
         return type[self.value_tp.py_type]
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"]) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            resolved = self.value_tp.resolve(resolution_dict)
-            if not resolved.is_resolved:
+            resolved = self.value_tp.resolve(resolution_dict, weak)
+            if not weak and not resolved.is_resolved:
                 raise ParseError(f"{self} was unable to resolve after two rounds, left with: {resolved}")
             return type(self)(resolved)
 

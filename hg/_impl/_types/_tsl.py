@@ -74,11 +74,14 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
     def bound(self) -> bool:
         return super().bound or any(ts.bound for ts in self.values())
 
-    def bind_output(self, output: TimeSeriesOutput):
+    def do_bind_output(self, output: TimeSeriesOutput):
         output: PythonTimeSeriesListOutput
-        super().bind_output(output)
+        peer = True
         for ts_input, ts_output in zip(self.values(), output.values()):
-            ts_input.bind_output(ts_output)
+            peer &= ts_input.bind_output(ts_output)
+
+        super().do_bind_output(output if peer else None)
+        return peer
 
     @property
     def active(self) -> bool:

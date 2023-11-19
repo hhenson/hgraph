@@ -39,13 +39,20 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         from hg._types._ref_meta_data import HgREFTypeMetaData, HgREFOutTypeMetaData
         from hg._types._ts_signal_meta_data import HgSignalMetaData
 
-        parses = [HgTSTypeMetaData, HgTSOutTypeMetaData, HgTSLTypeMetaData, HgTSLOutTypeMetaData, HgTSSTypeMetaData,
+        parsers = (HgTSTypeMetaData, HgTSOutTypeMetaData, HgTSLTypeMetaData, HgTSLOutTypeMetaData, HgTSSTypeMetaData,
                   HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
-                  HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData, HgSignalMetaData]
+                  HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData, HgSignalMetaData)
 
-        for parser in parses:
+        if isinstance(value, parsers):
+            return value
+
+        for parser in parsers:
             if meta_data := parser.parse(value):
                 return meta_data
+
+    @property
+    def has_references(self) -> bool:
+        return False
 
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
         return self
