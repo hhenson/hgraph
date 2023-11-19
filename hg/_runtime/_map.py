@@ -7,7 +7,7 @@ __all__ = ("tsd_map", "pass_through", "no_key", "tsl_map", "tsd_reduce", "tsl_re
 
 from frozendict import frozendict
 
-from hg import HgTSTypeMetaData
+from hg._types._ts_meta_data import HgTSTypeMetaData
 from hg._wiring._wiring_errors import NoTimeSeriesInputsError
 from hg._wiring._wiring_context import WiringContext
 from hg._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, HgScalarTypeMetaData, \
