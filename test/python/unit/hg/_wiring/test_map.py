@@ -14,7 +14,7 @@ def f_sum(key: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
     return a
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsd_map_wiring():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -24,7 +24,7 @@ def test_tsd_map_wiring():
     _test_tsd_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsd_map_wiring_no_key():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -34,7 +34,7 @@ def test_tsd_map_wiring_no_key():
     _test_tsd_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsd_map_wiring_no_key_no_kwargs():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -44,7 +44,7 @@ def test_tsd_map_wiring_no_key_no_kwargs():
     _test_tsd_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsd_map_wiring_no_kwargs():
 
     @graph
@@ -60,7 +60,7 @@ def _test_tsd_map(map_test):
     assert out == [{'a': 3}, {'b': 5}]
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_map_wiring():
 
     @graph
@@ -71,7 +71,7 @@ def test_tsl_map_wiring():
     _test_tsl_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_map_wiring_no_key():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -81,7 +81,7 @@ def test_tsl_map_wiring_no_key():
     _test_tsl_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_map_wiring_no_key_no_kwargs():
     @graph
     def map_test(index: TSL[TS[bool], SIZE], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -91,7 +91,7 @@ def test_tsl_map_wiring_no_key_no_kwargs():
     _test_tsl_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_map_wiring_no_kwargs():
 
     @graph
@@ -107,7 +107,7 @@ def _test_tsl_map(map_test):
     assert out == [{0: 3}, {1: 5}]
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsd_reduce():
 
     @graph
@@ -117,7 +117,7 @@ def test_tsd_reduce():
     assert eval_node(reduce_test, [None, {'a': 1}, {'b': 2}]) == [0, 1, 3]
 
 
-@pytest.mark.xfail(reason="Not implemented")
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_reduce():
 
     @graph

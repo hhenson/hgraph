@@ -13,7 +13,6 @@ def create_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
     return ts.value
 
 
-@pytest.mark.xfail(reason="Not implemented")
 def test_ref():
     assert eval_node(create_ref[TIME_SERIES_TYPE: TS[int]], ts=[1, 2]) == [1, 2]
 
@@ -23,6 +22,7 @@ def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SE
     return cast(TSL, (ts.value, TimeSeriesReference()) if condition.value else (TimeSeriesReference(), ts.value))
 
 
+@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_route_ref():
     assert eval_node(route_ref[TIME_SERIES_TYPE: TS[int]], condition=[True, None, False, None], ts=[1, 2, None, 4]) == [
         {0: 1}, {0: 2}, {1: 2}, {1: 4}]
