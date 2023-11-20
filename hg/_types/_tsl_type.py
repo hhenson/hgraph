@@ -38,11 +38,6 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
                 from hg import ParseError
                 raise ParseError(
                     f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
-            if hasattr(out, "from_ts"):
-                fn = out.from_ts
-                code = fn.__code__
-                out.from_ts = functools.partial(fn, __type__=item[0], __size__=item[1])
-                out.from_ts.__code__ = code
         return out
 
     def __getitem__(self, item: int) -> TIME_SERIES_TYPE:
@@ -93,9 +88,10 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
     The input of a time series list.
     """
 
-    @staticmethod
-    def from_ts(*args, **kwargs) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
-        size_, tp_ = TimeSeriesListInput._validate_inputs(*args, **kwargs)
+    @classmethod
+    def from_ts(cls, *args, __type__=TIME_SERIES_TYPE, __size__=SIZE, **kwargs) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
+        """To force a Type (to ensure input types are as expected, then provide __type__ and / or __size__"""
+        size_, tp_ = cls._validate_inputs(*args, **kwargs)
         fn_details = TimeSeriesListInput.from_ts.__code__
         from hg import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
             WiringNodeInstance, HgTimeSeriesTypeMetaData, HgAtomicType
@@ -124,8 +120,8 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         )
         return TSLWiringPort(wiring_node_instance, tuple())
 
-    @staticmethod
-    def _validate_inputs(*args, **kwargs):
+    @classmethod
+    def _validate_inputs(cls, *args, **kwargs):
         tp_ = kwargs.pop("__type__", TIME_SERIES_TYPE)
         size_: Size = kwargs.pop("__size__", SIZE)
         if not args:
