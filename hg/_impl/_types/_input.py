@@ -121,8 +121,11 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def modified(self) -> bool:
-        return self._output is not None and self._output.modified or (
-                self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time)
+        return self._output is not None and self._output.modified or self._sampled
+
+    @property
+    def _sampled(self) -> bool:
+        return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time
 
     @property
     def valid(self) -> bool:
