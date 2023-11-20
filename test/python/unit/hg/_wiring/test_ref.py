@@ -1,11 +1,8 @@
-import pytest
-
 from typing import cast, Type
 
 from hg import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS
 from hg._impl._types._ref import PythonTimeSeriesReference
 from hg._impl._types._tss import Removed
-from hg._types._ref_type import TimeSeriesReference
 from hg._types._type_meta_data import AUTO_RESOLVE
 from hg.test import eval_node
 

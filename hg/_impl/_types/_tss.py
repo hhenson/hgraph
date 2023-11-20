@@ -155,7 +155,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def removed(self) -> Iterable[SCALAR]:
         return self.output.removed() if self._prev_output is None \
-            else cast(set, self.output.removed()) | (cast(set, self._prev_output.values()) - cast(set, self.values()))
+            else (cast(set, self._prev_output.values()) - cast(set, self.values()))
 
     def was_removed(self, item: SCALAR) -> bool:
         return self.output.was_removed(item) and (
