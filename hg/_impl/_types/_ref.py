@@ -18,7 +18,11 @@ __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "Pyth
 
 
 class PythonTimeSeriesReference(TimeSeriesReference):
-    def __init__(self, ts_input: TimeSeriesInput):
+    def __init__(self, ts_input: typing.Optional[TimeSeriesInput] = None):
+        if ts_input is None:
+            self.tp = None
+            return
+
         if isinstance(ts_input, TimeSeriesReferenceInput):
             ref = ts_input.value
             if has_peer := ref.has_peer:
@@ -39,7 +43,11 @@ class PythonTimeSeriesReference(TimeSeriesReference):
         self.tp = tp
 
     def bind_input(self, ts_input: TimeSeriesInput):
-        # TODO: How is this different to the constructor, other than when called?
+        if self.tp is None:
+            ts_input.bind_output(None)
+            return
+
+        # NOTE: The ctor remembers the type, this checks the target is the same type
         if not isinstance(ts_input, self.tp):
             raise TypeError(f"Cannot bind reference of type {self.tp} to {type(ts_input)}")
 

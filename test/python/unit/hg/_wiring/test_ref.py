@@ -2,7 +2,9 @@ import pytest
 
 from typing import cast, Type
 
-from hg import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph
+from hg import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS
+from hg._impl._types._ref import PythonTimeSeriesReference
+from hg._impl._types._tss import Removed
 from hg._types._ref_type import TimeSeriesReference
 from hg._types._type_meta_data import AUTO_RESOLVE
 from hg.test import eval_node
@@ -19,10 +21,9 @@ def test_ref():
 
 @compute_node
 def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], Size[2]]:
-    return cast(TSL, (ts.value, TimeSeriesReference()) if condition.value else (TimeSeriesReference(), ts.value))
+    return cast(TSL, (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))
 
 
-@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_route_ref():
     assert eval_node(route_ref[TIME_SERIES_TYPE: TS[int]], condition=[True, None, False, None], ts=[1, 2, None, 4]) == [
         {0: 1}, {0: 2}, {1: 2}, {1: 4}]
@@ -48,3 +49,19 @@ def test_merge_ref_non_peer():
                      ts1=[1, 2, None, 4],
                      ts2=[-1, -2, None, -4]
                      ) == [1, 2, -2, -4]
+
+
+def test_merge_ref_non_peer_complex_inner_ts():
+    assert eval_node(merge_ref_non_peer[TIME_SERIES_TYPE: TSL[TS[int], Size[2]]],
+                     index=[0, None, 1, None],
+                     ts1=[(1, 1), (2, None), None, (None, 4)],
+                     ts2=[(-1, -1), (-2, -2), None, (-4, None)]
+                     ) == [{0: 1, 1: 1}, {0: 2}, {0: -2, 1: -2}, {0: -4}]
+
+
+def test_merge_ref_set():
+    assert eval_node(merge_ref_non_peer[TIME_SERIES_TYPE: TSS[int]],
+                     index=[0, None, 1, None],
+                     ts1=[{1, 2}, None, None, {4}],
+                     ts2=[{-1}, {-2}, {-3, Removed(-1)}, {-4}]
+                     ) == [{1, 2}, None, {-2, -3, Removed(1), Removed(2)}, {-4}]

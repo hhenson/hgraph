@@ -118,7 +118,7 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
 
     @property
     def delta_value(self):
-        if self.has_peer:
+        if self.has_peer and not self._sampled:
             return super().delta_value
         else:
             return {k: ts.delta_value for k, ts in self.modified_items()}
@@ -126,7 +126,7 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
     @property
     def modified(self) -> bool:
         if self.has_peer:
-            return super().modified
+            return super().modified or self._sampled
         else:
             return any(ts.modified for ts in self.values())
 
