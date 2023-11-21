@@ -94,7 +94,6 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             self.mark_modified()
             if self._extensions:
                 for notify in self._added & self._extensions.keys():
-                    # TODO: Won't this just land up creating a lot of garbage?
                     # Perhaps the default dict is not a good idea?
                     if (ts := vars(self._extensions[notify]).get('ts_contains', None)) is not None:
                         ts.value = True
