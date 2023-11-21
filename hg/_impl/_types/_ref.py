@@ -18,12 +18,16 @@ __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "Pyth
 
 
 class PythonTimeSeriesReference(TimeSeriesReference):
-    def __init__(self, ts_input: typing.Optional[TimeSeriesInput] = None):
+    def __init__(self, ts_input: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None):
         if ts_input is None:
             self.tp = None
             return
 
-        if isinstance(ts_input, TimeSeriesReferenceInput):
+        if isinstance(ts_input, TimeSeriesOutput):
+            self.output = ts_input
+            tp = type(ts_input)
+            has_peer = True
+        elif isinstance(ts_input, TimeSeriesReferenceInput):
             ref = ts_input.value
             if has_peer := ref.has_peer:
                 self.output = ref.output
@@ -47,8 +51,8 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             ts_input.bind_output(None)
             return
 
-        # NOTE: The ctor remembers the type, this checks the target is the same type
-        if not isinstance(ts_input, self.tp):
+        # NOTE: The ctor remembers the type, this checks the target is the same type unless was constructed from an output
+        if not issubclass(self.tp, TimeSeriesOutput) and not isinstance(ts_input, self.tp):
             raise TypeError(f"Cannot bind reference of type {self.tp} to {type(ts_input)}")
 
         if self.has_peer:

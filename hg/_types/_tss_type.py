@@ -3,6 +3,7 @@ from typing import Protocol, Iterable, Generic, Set, runtime_checkable
 
 from hg._types._scalar_types import SCALAR
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, TimeSeriesDeltaValue
+from hg._types._ts_type import TS
 
 
 __all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput")
@@ -28,7 +29,7 @@ class SetDelta(Protocol[SCALAR],Generic[SCALAR]):
 
 class TimeSeriesSet(TimeSeriesDeltaValue[SCALAR, SetDelta[SCALAR]], Generic[SCALAR]):
     """
-    The representation of a set a set over time.
+    The representation of a set over time.
     """
 
     @abstractmethod
@@ -74,6 +75,12 @@ class TimeSeriesSetOutput(TimeSeriesOutput, TimeSeriesSet[SCALAR], Generic[SCALA
     """
     The output version of the set
     """
+
+    @abstractmethod
+    def ts_contains(self, item: SCALAR) -> TS[bool]:
+        """
+        Returns a timeseries indicating whether the item is in the set or not
+        """
 
     @property
     @abstractmethod

@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Generic, Iterable, Any, Set, Optional, cast
 
@@ -45,12 +46,24 @@ class Removed(Generic[SCALAR]):
         return self.item == other.item if type(other) is Removed else other
 
 
+class Extensions:
+    pass
+
+
 @dataclass
 class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCALAR], Generic[SCALAR]):
     _tp: type = None
     _value: set[SCALAR] = field(default_factory=set)
     _added: frozenset[SCALAR] | None = None
     _removed: frozenset[SCALAR] | None = None
+    _extensions: dict[SCALAR, Extensions] = field(default_factory=lambda: defaultdict(Extensions))
+
+    def __post_init__(self):
+        from hg._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
+        from hg import TS
+        from hg import HgTimeSeriesTypeMetaData
+        self._bool_ts_builder = PythonTimeSeriesBuilderFactory.instance().make_output_builder(
+            HgTimeSeriesTypeMetaData.parse(TS[bool]))
 
     @property
     def value(self) -> Set[SCALAR]:
@@ -79,6 +92,15 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             self._value.difference_update(self._removed)
         if self._added or self._removed or not self.valid:
             self.mark_modified()
+            if self._extensions:
+                for notify in self._added & self._extensions.keys():
+                    # TODO: Won't this just land up creating a lot of garbage?
+                    # Perhaps the default dict is not a good idea?
+                    if (ts := vars(self._extensions[notify]).get('ts_contains', None)) is not None:
+                        ts.value = True
+                for notify in self._removed & self._extensions.keys():
+                    if (ts := vars(self._extensions[notify]).get('ts_contains', None)) is not None:
+                        ts.value = False
 
     def mark_modified(self):
         super().mark_modified()
@@ -87,6 +109,14 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def _reset(self):
         self._added = None
         self._removed = None
+
+    def ts_contains(self, item: SCALAR):
+        if (ts := vars(self._extensions[item]).get('ts_contains', None)) is None:
+            from hg import TimeSeriesValueOutput
+            ts: TimeSeriesValueOutput = self._bool_ts_builder.make_instance(self.owning_node, self)
+            ts.value = item in self._value
+            self._extensions[item].ts_contains = ts
+        return ts
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         self._added = frozenset(output.value.difference(self._value))
