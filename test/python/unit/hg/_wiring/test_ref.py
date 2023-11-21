@@ -1,6 +1,6 @@
 from typing import cast, Type
 
-from hg import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS
+from hg import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, SCALAR
 from hg._impl._types._ref import PythonTimeSeriesReference
 from hg._impl._types._tss import Removed
 from hg._types._type_meta_data import AUTO_RESOLVE
@@ -62,3 +62,15 @@ def test_merge_ref_set():
                      ts1=[{1, 2}, None, None, {4}],
                      ts2=[{-1}, {-2}, {-3, Removed(-1)}, {-4}]
                      ) == [{1, 2}, None, {-2, -3, Removed(1), Removed(2)}, {-4}]
+
+
+@compute_node
+def ref_contains(tss: REF[TSS[SCALAR]], item: TS[SCALAR]) -> REF[TS[bool]]:
+    return PythonTimeSeriesReference(tss.value.output.ts_contains(item.value))
+
+
+def test_tss_ref_contains():
+    assert eval_node(ref_contains[SCALAR: int],
+                     tss=[{1}, {2}, None, {Removed(2)}],
+                     item=[2, None, None, None]
+                     ) == [False, True, None, False]
