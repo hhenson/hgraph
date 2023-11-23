@@ -153,14 +153,17 @@ class PythonTSDOutputBuilder(TSDOutputBuilder):
     key_tp: "HgScalarTypeMetaData"
     value_tp: "HgTimeSeriesTypeMetaData"
     value_builder: TSOutputBuilder = None
+    key_set_builder: TSOutputBuilder = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
+        object.__setattr__(self, 'key_set_builder', factory.make_output_builder(HgTSSTypeMetaData(self.key_tp)))
         object.__setattr__(self, 'value_builder', factory.make_output_builder(self.value_tp))
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hg._impl._types._tsd import PythonTimeSeriesDictOutput
         tsd = PythonTimeSeriesDictOutput[self.key_tp.py_type, self.value_tp.py_type](
+            __key_set__=self.key_set_builder.make_instance(),
             __key_tp__=self.key_tp,
             __value_tp__=self.value_tp,
             _owning_node=owning_node,
@@ -177,14 +180,17 @@ class PythonTSDInputBuilder(TSDInputBuilder):
     key_tp: "HgScalarTypeMetaData"
     value_tp: "HgTimeSeriesTypeMetaData"
     value_builder: TSOutputBuilder = None
+    key_set_builder: TSOutputBuilder = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
+        object.__setattr__(self, 'key_set_builder', factory.make_input_builder(HgTSSTypeMetaData(self.key_tp)))
         object.__setattr__(self, 'value_builder', factory.make_input_builder(self.value_tp))
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hg._impl._types._tsd import PythonTimeSeriesDictInput
         tsd = PythonTimeSeriesDictInput[self.key_tp.py_type, self.value_tp.py_type](
+            __key_set__=self.key_set_builder.make_instance(),
             __key_tp__=self.key_tp,
             __value_tp__=self.value_tp,
             _owning_node=owning_node,
@@ -243,12 +249,10 @@ class PythonREFInputBuilder(REFInputBuilder):
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
-        object.__setattr__(self, 'value_builder', factory.make_input_builder(self.value_tp))
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hg._impl._types._ref import PythonTimeSeriesReferenceInput
         ref = PythonTimeSeriesReferenceInput[self.value_tp.py_type](
-            _input_impl_builder=self.value_builder,
             _owning_node=owning_node,
             _parent_input=owning_input
         )

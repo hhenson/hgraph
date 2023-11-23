@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from itertools import chain
 from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING
 
 from frozendict import frozendict
@@ -5,7 +7,7 @@ from frozendict import frozendict
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._time_series_types import K, V
-from hg._types._tsd_type import TimeSeriesDictOutput, TimeSeriesDictInput, REMOVE_KEY_IF_EXISTS, REMOVE_KEY
+from hg._types._tsd_type import TimeSeriesDictOutput, TimeSeriesDictInput, REMOVE_IF_EXISTS, REMOVE
 
 if TYPE_CHECKING:
     from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
@@ -29,9 +31,12 @@ class TSDKeyObserver:
 
 class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K, V], Generic[K, V]):
 
-    def __init__(self, __key_tp__, __value_tp__, *args, **kwargs):
+    def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)
-        TimeSeriesDictOutput.__init__(self, __key_tp__, __value_tp__)
+        __key_set__: TimeSeriesOutput
+        __key_set__._owning_node = kwargs['_owning_node']
+        __key_set__._parent_output = self
+        TimeSeriesDictOutput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         super().__init__(*args, **kwargs)
         self._key_observers: list[TSDKeyObserver] = []
         from hg._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
@@ -52,24 +57,28 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     @property
     def delta_value(self):
-        return frozendict({k: v.delta_value for k, v in self.items() if v.modified})
+        return frozendict(chain(
+            ((k, v.delta_value) for k, v in self.items() if v.modified),
+            ((k, REMOVE) for k in self.removed_keys())))
 
     def apply_result(self, result: Any):
         if result is None:
             return
         # Expect a mapping of some sort or an iterable of k, v pairs
         for k, v in result.items() if isinstance(result, (dict, frozendict)) else result:
-            if v in (REMOVE_KEY, REMOVE_KEY_IF_EXISTS):
-                if k not in self._removed_items:
-                    if v is REMOVE_KEY:
+            if v in (REMOVE, REMOVE_IF_EXISTS):
+                if k not in self._ts_values:
+                    if v is REMOVE:
                         raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
                     else:
                         continue
                 self._removed_items[k] = self._ts_values.pop(k)
+                self.key_set.remove(k)
                 for observer in self._key_observers:
                     observer.on_key_removed(k)
                 continue
             elif k not in self._ts_values:
+                self.key_set.add(k)
                 self._ts_values[k] = self._ts_builder.make_instance(owning_output=self)
                 for observer in self._key_observers:
                     observer.on_key_added(k)
@@ -110,15 +119,17 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         return self._removed_items.items()
 
 
+@dataclass
 class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[K, V], TSDKeyObserver, Generic[K, V]):
 
-    # At the moment the only supported inptut type is a bound input. When we start to support time-series references
-    # this will need to change
-    # Also no clever lazy mapping of input wrappers. That can come later.
+    _prev_output: TimeSeriesDictOutput = None
 
-    def __init__(self, __key_tp__, __value_tp__, *args, **kwargs):
+    def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)
-        TimeSeriesDictInput.__init__(self, __key_tp__, __value_tp__)
+        __key_set__: TimeSeriesOutput
+        __key_set__._owning_node = kwargs['_owning_node']
+        __key_set__._parent_input = self
+        TimeSeriesDictInput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         PythonBoundTimeSeriesInput.__init__(self, *args, **kwargs)
         from hg._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hg._builder._ts_builder import TSInputBuilder
@@ -126,25 +137,71 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._removed_items: dict[K, V] = {}
 
     def do_bind_output(self, output: "TimeSeriesOutput"):
-        super().do_bind_output(output)
         output: PythonTimeSeriesDictOutput
+        key_set: "TimeSeriesSetInput" = self.key_set
+        key_set.bind_output(output.key_set)
+
+        if output.__value_tp__ != self.__value_tp__ and (output.__value_tp__.has_references or self.__value_tp__.has_references):
+            # TODO: there might be a corner case where the above check is not sufficient, like a bundle on both sides
+            #  that contains REFs but there are other items that are of different but compatible non-REF types.
+            #  It would be very esoteric and I cannot think of an example so will leave the check as is
+            peer = False
+        else:
+            peer = True
+
+        if self.owning_node.is_started and self.output:
+            self.output.remove_key_observer(self)
+            self._prev_output = self._output
+            self.owning_graph.context.add_after_evaluation_notification(self._reset_prev)
+
+        super().do_bind_output(output)
+
+        if self._ts_values:
+            self._removed_items = self._ts_values
+            self._ts_values = {}
+            self.owning_graph.context.add_after_evaluation_notification(self._clear_key_changes)
+
+        for key in key_set.values():
+            self.on_key_added(key)
+
         output.add_key_observer(self)
+        return peer
+
+    def _reset_prev(self):
+        self._prev_output = None
 
     def on_key_added(self, key: K):
         self._ts_values[key] = (v := self._ts_builder.make_instance(owning_input=self))
         v.bind_output(self.output[key])
+        if not self.has_peer and self.active:
+            v.make_active()
 
     def on_key_removed(self, key: K):
         if not self._removed_items:
             self.owning_graph.context.add_after_evaluation_notification(self._clear_key_changes)
-        self._removed_items[key] = self._ts_values.pop(key)
+        value = self._ts_values.pop(key)
+        if value.active:
+            value.make_passive()
+        self._removed_items[key] = value
 
     def _clear_key_changes(self):
         self._removed_items = {}
 
+    @property
+    def value(self):
+        return frozendict((k, v.value) for k, v in self.items())
+
+    @property
+    def delta_value(self):
+        return frozendict(chain(
+            ((k, v.delta_value) for k, v in self.items() if v.modified),
+            ((k, REMOVE) for k in self.removed_keys())))
+
+    def __contains__(self, item):
+        return item in self._ts_values
+
     def added_keys(self) -> Iterable[K]:
-        output: PythonTimeSeriesDictOutput = self.output
-        return output.added_keys()
+        return self.key_set.added()
 
     def added_values(self) -> Iterable[V]:
         return (self[k] for k in self.added_keys())
@@ -153,12 +210,12 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         return ((k, self[k]) for k in self.added_keys())
 
     def removed_keys(self) -> Iterable[K]:
-        return self._removed_items.keys()
+        return self.key_set.removed()
 
     def removed_values(self) -> Iterable[V]:
-        return self._removed_items.values()
+        return (self._removed_items[key] for key in self.removed_keys())
 
     def removed_items(self) -> Iterable[Tuple[K, V]]:
-        return self._removed_items.items()
+        return ((key, self._removed_items[key]) for key in self.removed_keys())
 
 

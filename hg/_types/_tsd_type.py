@@ -5,15 +5,17 @@ from frozendict import frozendict
 
 from hg._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, K, V, \
     TimeSeriesDeltaValue
+from hg._types._typing_utils import Sentinel
 
 if TYPE_CHECKING:
     from hg import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
 
-__all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE_KEY", "REMOVE_KEY_IF_EXISTS")
+__all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE",
+           "REMOVE_IF_EXISTS")
 
 
-REMOVE_KEY = object()
-REMOVE_KEY_IF_EXISTS = object()
+REMOVE = Sentinel("REMOVE")
+REMOVE_IF_EXISTS = Sentinel("REMOVE_IF_EXISTS")
 
 
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):
@@ -21,10 +23,11 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
     A TSD is a collection of time-series values keyed off of a scalar key K.
     """
 
-    def __init__(self, __key_tp__: "HgScalarTypeMetaData", __value_tp__: "HgTimeSeriesTypeMetaData"):
+    def __init__(self, __key_set__: "TimeSeriesSet", __key_tp__: "HgScalarTypeMetaData", __value_tp__: "HgTimeSeriesTypeMetaData"):
         Generic.__init__(self)
         TimeSeriesDeltaValue.__init__(self)
         TimeSeriesIterable.__init__(self)
+        self._key_set: "TimeSeriesSet" = __key_set__
         self.__key_tp__: "HgScalarTypeMetaData" = __key_tp__
         self.__value_tp__: "HgTimeSeriesTypeMetaData" = __value_tp__
         self._ts_values: dict[str, Union[TimeSeriesInput, TimeSeriesOutput]] = {}
@@ -67,8 +70,12 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         """
         return iter(self._ts_values)
 
+    @property
+    def key_set(self) -> "TimeSeriesSet":
+        return self._key_set
+
     def keys(self) -> Iterable[K]:
-        return self._ts_values.keys()
+        return self.key_set.values()
 
     def values(self) -> Iterable[V]:
         return self._ts_values.values()
@@ -148,9 +155,9 @@ class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K,
     The TSD input
     """
 
-    def __init__(self, __key_tp__, __value_tp__):
+    def __init__(self, __key_set__, __key_tp__, __value_tp__):
         Generic.__init__(self)
-        TimeSeriesDict.__init__(self, __key_tp__, __value_tp__)
+        TimeSeriesDict.__init__(self, __key_set__, __key_tp__, __value_tp__)
         TimeSeriesInput.__init__(self)
 
 
@@ -159,9 +166,9 @@ class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[
     The TSD output
     """
 
-    def __init__(self, __key_tp__, __value_tp__):
+    def __init__(self, __key_set__, __key_tp__, __value_tp__):
         Generic.__init__(self)
-        TimeSeriesDict.__init__(self, __key_tp__, __value_tp__)
+        TimeSeriesDict.__init__(self, __key_set__, __key_tp__, __value_tp__)
         TimeSeriesOutput.__init__(self)
 
     value: frozendict
