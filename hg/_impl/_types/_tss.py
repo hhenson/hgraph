@@ -54,8 +54,8 @@ class Extensions:
 class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCALAR], Generic[SCALAR]):
     _tp: type = None
     _value: set[SCALAR] = field(default_factory=set)
-    _added: frozenset[SCALAR] | None = None
-    _removed: frozenset[SCALAR] | None = None
+    _added: set[SCALAR] | None = None
+    _removed: set[SCALAR] | None = None
     _extensions: dict[SCALAR, Extensions] = field(default_factory=lambda: defaultdict(Extensions))
 
     def __post_init__(self):
@@ -73,21 +73,63 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def delta_value(self) -> SetDelta[SCALAR]:
         return PythonSetDelta(self._added, self._removed)
 
+    def add(self, element: SCALAR, extensions=None):
+        if extensions is not None:
+            vars(self._extensions[element]).update(extensions if type(extensions) is dict else vars(extensions))
+        if element not in self._value:
+            if self._added is not None:
+                self._added.add(element)
+            else:
+                self._added = {element}
+
+            self._value.add(element)
+
+            if (ex := self._extensions.get(element, None)) is not None:
+                if (ts := getattr(ex, "ts_contains", None)) is not None:
+                    ts.value = True
+
+            self.mark_modified()
+
+    def remove(self, element: SCALAR):
+        if element in self._value:
+            if self._removed is not None:
+                self._removed.add(element)
+            else:
+                self._removed = {element}
+
+            self._value.remove(element)
+
+            if (ex := self._extensions.get(element, None)) is not None:
+                if (ts := getattr(ex, "ts_contains", None)) is not None:
+                    ts.value = False
+
+            self.mark_modified()
+
+    def clear(self):
+        self._removed = self._value
+        self._value = set()
+        for element in self._removed:
+            if (ex := self._extensions.get(element, None)) is not None:
+                if (ts := getattr(ex, "ts_contains", None)) is not None:
+                    ts.value = False
+
+        self.mark_modified()
+
     def apply_result(self, result: Any):
         if result is None:
             return
         if isinstance(result, SetDelta):
-            self._added = frozenset(e for e in result.added_elements if e not in self._value)
-            self._removed = frozenset(e for e in result.removed_elements if e in self._value)
+            self._added = {e for e in result.added_elements if e not in self._value}
+            self._removed = {e for e in result.removed_elements if e in self._value}
             if self._removed.intersection(self._added):
                 raise ValueError("Cannot remove and add the same element")
             self._value.update(self._added)
             self._value.difference_update(self._removed)
         else:
             # Assume that the result is a set, and then we are adding all the elements that are not marked Removed
-            self._added = frozenset(r for r in result if type(r) is not Removed)
-            self._removed = frozenset(r.item for r in result if type(r) is Removed) \
-                if len(self._added) != len(result) else frozenset()
+            self._added = {r for r in result if type(r) is not Removed}
+            self._removed = {r.item for r in result if type(r) is Removed} \
+                if len(self._added) != len(result) else set()
             self._value.update(self._added)
             self._value.difference_update(self._removed)
         if self._added or self._removed or not self.valid:

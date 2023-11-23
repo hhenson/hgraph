@@ -77,7 +77,7 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
     def do_bind_output(self, output: TimeSeriesOutput):
         output: PythonTimeSeriesListOutput
         peer = True
-        for ts_input, ts_output in zip(self.values(), output.values()):
+        for ts_input, ts_output in zip(self.values(), output.values() if output is not None else [None] * len(self.values())):
             peer &= ts_input.bind_output(ts_output)
 
         super().do_bind_output(output if peer else None)

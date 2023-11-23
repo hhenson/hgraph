@@ -18,47 +18,57 @@ __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "Pyth
 
 
 class PythonTimeSeriesReference(TimeSeriesReference):
-    def __init__(self, ts_input: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None):
-        if ts_input is None:
-            self.tp = None
+    def __init__(self, ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None, from_items: typing.Iterable[TimeSeriesReference] = None):
+        if ts is None and from_items is None:
+            self.valid = False
             return
 
-        if isinstance(ts_input, TimeSeriesOutput):
-            self.output = ts_input
-            tp = type(ts_input)
+        if from_items:
+            self.items = from_items
+            self.tp = None
+            self.has_peer = False
+            self.valid = True
+            return
+
+        if isinstance(ts, TimeSeriesOutput):  # constructing from sn output
+            self.output = ts
+            tp = type(ts)
             has_peer = True
-        elif isinstance(ts_input, TimeSeriesReferenceInput):
-            ref = ts_input.value
+        elif isinstance(ts, TimeSeriesReferenceInput):  # reference input gets the value from a ref output, copy construct
+            ref = ts.value
             if has_peer := ref.has_peer:
                 self.output = ref.output
             else:
                 self.items = ref.items
             self.has_peer = ref.has_peer
             tp = ref.tp
-        elif has_peer := ts_input.has_peer:
-            self.output = ts_input.output
-            tp = type(ts_input)
+        elif has_peer := ts.has_peer:  # any input with a peer, construct from its output
+            self.output = ts.output
+            tp = type(ts)
         else:
             # Rely on the assumption that all time-series' that support peering are also iterable.
-            self.items = [PythonTimeSeriesReference(item) for item in ts_input]
-            tp = type(ts_input)
+            # including a reference input that was bound to a free tsl/tsb
+            self.items = [PythonTimeSeriesReference(item) for item in ts]
+            tp = type(ts)
+            has_peer = False
 
         self.has_peer = has_peer
         self.tp = tp
+        self.valid = True
 
     def bind_input(self, ts_input: TimeSeriesInput):
-        if self.tp is None:
+        if not self.valid:
             ts_input.bind_output(None)
             return
 
         # NOTE: The ctor remembers the type, this checks the target is the same type unless was constructed from an output
-        if not issubclass(self.tp, TimeSeriesOutput) and not isinstance(ts_input, self.tp):
+        if self.tp and not issubclass(self.tp, TimeSeriesOutput) and not isinstance(ts_input, self.tp):
             raise TypeError(f"Cannot bind reference of type {self.tp} to {type(ts_input)}")
 
         if self.has_peer:
             ts_input.bind_output(self.output)
         else:
-            for item, r in zip((ts_input, self.items)):
+            for item, r in zip(ts_input, self.items):
                 r.bind_input(item)
 
 
@@ -119,12 +129,8 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
     time series it will create a reference to it and show it as its value
     """
 
-    _input_impl_builder: "InputBuilder" = None
-    _input_impl: typing.Optional[TimeSeriesInput] = None
     _value: typing.Optional[TimeSeriesReference] = None
-
-    def __post_init__(self):
-        self._input_impl = self._input_impl_builder.make_instance(self.owning_node, self)
+    _items: list[TimeSeriesReferenceInput] = None
 
     def bind_output(self, value: TimeSeriesOutput) -> bool:
         peer = self.do_bind_output(value)
@@ -140,39 +146,54 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         if isinstance(output, TimeSeriesReferenceOutput):
             return super().do_bind_output(output)
         else:
-            self._input_impl.bind_output(output)
-            self._value = PythonTimeSeriesReference(self._input_impl)
+            self._value = PythonTimeSeriesReference(output)
             self.owning_node.notify()
             self._sample_time = self.owning_graph.context.current_engine_time if self.owning_node.is_started else MIN_ST  # TODO: what are we supposed to do in a branch?
             return False
 
+    def __getitem__(self, item):
+        if self._items is None:
+            self._items = []
+        while item > len(self._items) - 1:
+            self._items.append(PythonTimeSeriesReferenceInput(_owning_node=self._owning_node, _parent_input=self))
+        return self._items[item]
+
     @property
     def value(self):
         if self._value:
+            return self._value
+        elif self._items:
+            self._value = PythonTimeSeriesReference(from_items=[i.value for i in self._items])
             return self._value
         else:
             return super().value()
 
     @property
     def delta_value(self):
-        if self._value:
-            return self._value
-        else:
-            return super().delta_value()
+        return self.value
 
     @property
     def modified(self) -> bool:
-        return self._output.modified if self._output \
-            else self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time
+        if self._output is not None:
+            return self.output.modified
+        elif self._items:
+            return any(i.modified for i in self._items)
+        else:
+            return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time
 
     @property
     def valid(self) -> bool:
-        return self._value is not None or super().valid
+        return self._value is not None or (self._items and any(i.valid for i in self._items)) or super().valid
 
     @property
     def all_valid(self) -> bool:
-        return self._value is not None or super().all_valid
+        return (self._items and all(i.all_valid for i in self._items)) or self._value is not None or super().all_valid
 
     @property
     def last_modified_time(self) -> datetime:
-        return self._output.last_modified_time if self._output else self._sample_time
+        if self._items:
+            return max(i.last_modified_time for i in self._items)
+        elif self._output is not None:
+            return self._output.last_modified_time
+        else:
+            return self._sample_time

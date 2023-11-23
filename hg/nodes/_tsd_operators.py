@@ -2,7 +2,7 @@ from typing import Type, Mapping
 
 from frozendict import frozendict
 
-from hg import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_KEY_IF_EXISTS, SCALAR_1, SCALAR_2
+from hg import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, SCALAR_1, SCALAR_2
 
 
 @compute_node(valid=("key",))
@@ -17,7 +17,7 @@ def make_tsd(key: TS[SCALAR_1], value: TS[SCALAR_2], remove_key: TS[bool] = None
 
     if remove_key.valid:
         if remove_key.value and remove_key.modified or key.modified:
-            return {key.value: REMOVE_KEY_IF_EXISTS}
+            return {key.value: REMOVE_IF_EXISTS}
         elif key.modified or value.modified:
             return {key.value: value.delta_value}
     else:
