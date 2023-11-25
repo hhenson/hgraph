@@ -3,17 +3,15 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union, Any
 
 from hg._types._scalar_types import SCALAR
-from hg._types._scalar_value import ScalarValue
 from hg._types._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
     from hg._runtime._graph import Graph
     from hg._runtime._node import Node
 
-
 __all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
-           "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR", 'OUTPUT_TYPE',
-           "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable", "SIGNAL")
+           "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR", 'OUTPUT_TYPE', "TIME_SERIES_TYPE_1",
+           "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable", "SIGNAL", "TIME_SERIES_TYPE_2")
 
 
 class TimeSeriesPushQueue(Protocol):
@@ -104,6 +102,8 @@ class TimeSeries(ABC):
 
 
 TIME_SERIES_TYPE = TypeVar("TIME_SERIES_TYPE", bound=TimeSeries)
+TIME_SERIES_TYPE_1 = TypeVar("TIME_SERIES_TYPE_1", bound=TimeSeries)
+TIME_SERIES_TYPE_2 = TypeVar("TIME_SERIES_TYPE_2", bound=TimeSeries)
 DELTA_SCALAR: TypeVar = clone_typevar(SCALAR, "DELTA_SCALAR")
 OUTPUT_TYPE = TypeVar("OUTPUT_TYPE", bound="TimeSeriesOutput")
 
@@ -311,6 +311,7 @@ class TimeSeriesDeltaValue(TimeSeries, Generic[SCALAR, DELTA_SCALAR]):
         """
         The delta value.
         """
+
 
 K = clone_typevar(SCALAR, "K")
 V = clone_typevar(TIME_SERIES_TYPE, "V")

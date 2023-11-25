@@ -1,6 +1,5 @@
 from typing import Type, TypeVar, Optional, _GenericAlias
 
-
 __all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData",)
 
 from hg._types._type_meta_data import ParseError
@@ -42,8 +41,14 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
         if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesValueInput:
             scalar = HgScalarTypeMetaData.parse(value.__args__[0])
             if scalar is None:
-                raise ParseError(f"While parsing 'TS[{str(value.__args__[0])}]' unable to parse scalar type from '{str(value.__args__[0])}'")
+                raise ParseError(
+                    f"While parsing 'TS[{str(value.__args__[0])}]' unable to parse scalar type from '{str(value.__args__[0])}'")
             return HgTSTypeMetaData(scalar)
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        # TODO: If we loose the TS_OUT type we can return to an is, which is much faster.
+        return (issubclass((tp_ := type(tp)), HgTSTypeMetaData) and self.value_scalar_tp.matches(
+            tp.value_scalar_tp)) or tp_ is HgTimeSeriesTypeMetaData
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSTypeMetaData and self.value_scalar_tp == o.value_scalar_tp

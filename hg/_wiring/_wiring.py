@@ -75,6 +75,11 @@ class WiringNodeClass:
     def __hash__(self):
         return hash(self.signature)
 
+    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+                          **kwargs) -> "WiringNodeSignature":
+        """Resolve the signature of this node based on the inputs"""
+        raise NotImplementedError()
+
     def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature", scalars: Mapping[str, Any]) \
             -> "NodeBuilder":
         """Create the appropriate node builder for the node this wiring node represents
@@ -88,7 +93,7 @@ class WiringNodeClass:
 def extract_kwargs(signature: WiringNodeSignature, *args,
                    _ignore_defaults: bool = False,
                    _ensure_match: bool = True,
-                   _allow_missing_count: int = 0,
+                   _args_offset: int = 0,
                    **kwargs) -> dict[str, Any]:
     """
     Converts args to kwargs based on the signature.
@@ -96,7 +101,7 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
     If _ensure_match is True, then the final kwargs must match the signature exactly.
     _allow_missing_count is the number of missing arguments that are allowed.
     """
-    kwargs_ = {k: arg for k, arg in zip(signature.args, args)}  # Map the *args to keys
+    kwargs_ = {k: arg for k, arg in zip(signature.args[_args_offset:], args)}  # Map the *args to keys
     if any(k in kwargs for k in kwargs_):
         raise SyntaxError(
             f"[{signature.signature}] The following keys are duplicated: {[k for k in kwargs_ if k in kwargs]}")
@@ -113,7 +118,7 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
                           f"expected: {[arg for arg in signature.args if arg not in kwargs_]}")
     # Filter kwargs to ensure only valid keys are present, this will also align the order of kwargs with args.
     kwargs_ = {k: kwargs_[k] for k in signature.args if k in kwargs_}
-    if len(kwargs_) < len(signature.args) - _allow_missing_count:
+    if len(kwargs_) < len(signature.args) - _args_offset:
         raise MissingInputsError(kwargs_)
     return kwargs_
 
@@ -197,6 +202,13 @@ class BaseWiringNodeClass(WiringNodeClass):
                             # May yet be incorrectly typed.
                             kwarg_types[k] = v
         return kwarg_types
+
+    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+                          **kwargs) -> "WiringNodeSignature":
+        _, resolved_signature = self._validate_and_resolve_signature(*args,
+                                                                     __pre_resolved_types__=__pre_resolved_types__,
+                                                                     **kwargs)
+        return resolved_signature
 
     def _validate_and_resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData], **kwargs) \
             -> tuple[dict[str, Any], WiringNodeSignature]:
@@ -313,6 +325,9 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
         self.underlying_node = underlying_node
         self.resolved_types = resolved_types
 
+    def resolve_signature(self, *args, __pre_resolved_types__=None, **kwargs) -> "WiringNodeSignature":
+        return self.underlying_node.resolve_signature(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
+
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         return self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
 
@@ -338,6 +353,11 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
 
 class TsdMapWiringNodeClass(BaseWiringNodeClass):
+
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
+        # This acts a bit like a graph, in that it needs to evaluate the inputs and build a sub-graph for
+        # the mapping function.
+        return super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
 
     def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":

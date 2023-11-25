@@ -118,6 +118,9 @@ class HgAtomicType(HgScalarTypeMetaData):
     def __hash__(self) -> int:
         return hash(self.py_type)
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return ((tp_ := type(tp)) is HgAtomicType and self.py_type == tp.py_type) or tp_ is HgScalarTypeVar
+
     def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
         return issubclass(tp.py_type, self.py_type) if tp is HgAtomicType else False
 
@@ -389,6 +392,10 @@ class HgSetScalarType(HgCollectionType):
         if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [set, frozenset, Set]:
             if scalar_type := HgScalarTypeMetaData.parse(value.__args__[0]):
                 return HgSetScalarType(scalar_type)
+        elif isinstance(value, (set, frozenset)) and len(value) > 0:
+            scalar_type = HgScalarTypeMetaData.parse(type(next(iter(value))))
+            if scalar_type:
+                return HgSetScalarType(scalar_type)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
@@ -440,6 +447,13 @@ class HgDictScalarType(HgCollectionType):
             if (key_tp := HgScalarTypeMetaData.parse(value.__args__[0])) and (
                     value_tp := HgScalarTypeMetaData.parse(value.__args__[1])):
                 return HgDictScalarType(key_tp, value_tp)
+        elif isinstance(value, (dict, frozendict)) and len(value) > 0:
+            key, value = next(iter(value.items()))
+            key_tp = HgScalarTypeMetaData.parse(type(key))
+            value_tp = HgScalarTypeMetaData.parse(type(value))
+            if key_tp and value_tp:
+                return HgDictScalarType(key_tp, value_tp)
+
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:

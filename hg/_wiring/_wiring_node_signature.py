@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, Set
 
 from frozendict import frozendict
 
@@ -58,19 +58,19 @@ class WiringNodeSignature:
     """
     node_type: WiringNodeType
     name: str  # This will come from the function
-    args: tuple[str]
+    args: tuple[str]  # Require in order enumeration.
     defaults: frozendict[str, Any]
-    input_types: Mapping[str, HgTypeMetaData]  # Inputs are both scalar and time-series at this point
-    output_type: Optional[HgTimeSeriesTypeMetaData]  # By definition outputs must be time-series if they are defined
+    input_types: frozendict[str, HgTypeMetaData]  # Inputs are both scalar and time-series at this point
+    output_type: HgTimeSeriesTypeMetaData | None  # By definition outputs must be time-series if they are defined
     src_location: SourceCodeDetails
-    active_inputs: Optional[frozenset[str]]
-    valid_inputs: Optional[frozenset[str]]
-    unresolved_args: tuple[str]
-    time_series_args: tuple[str]
+    active_inputs: frozenset[str] | None
+    valid_inputs: frozenset[str] | None
+    unresolved_args: frozenset[str]
+    time_series_args: frozenset[str]
     uses_scheduler: bool
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
     # supplied via inputs
-    label: Optional[str] = None  # A label if provided, this can help to disambiguate the node
+    label: str | None = None  # A label if provided, this can help to disambiguate the node
 
     @property
     def signature(self) -> str:
