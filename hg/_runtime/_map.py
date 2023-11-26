@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Callable, Optional, cast
+from typing import Callable, cast
 
 __all__ = ("map_", "pass_through", "no_key", "reduce")
 
 from frozendict import frozendict
 
+from hg._types._ref_meta_data import HgREFTypeMetaData
 from hg._wiring._wiring import WiringNodeType
 from hg._wiring._wiring_errors import NoTimeSeriesInputsError
 from hg._wiring._wiring_context import WiringContext
@@ -25,9 +26,7 @@ from hg._wiring._wiring import extract_kwargs
 from hg._wiring._wiring_errors import CustomMessageWiringError
 
 _INDEX = "__index__"
-
 _KEYS = '__keys__'
-
 _KEY_ARG = "__key_arg__"
 
 
@@ -68,28 +67,6 @@ def map_(func: Callable, *args, **kwargs):
         signature: WiringNodeSignature = func.signature
         map_wiring_node, calling_kwargs = _build_map_wiring_node_and_inputs(func, signature, *args, **kwargs)
         return map_wiring_node(**calling_kwargs)
-
-
-def tsl_map(func: Callable[[...], TIME_SERIES_TYPE], *args,
-            index: Optional[TSL[TS[bool], SIZE] | TS[tuple[int, ...]]] = None, **kwargs) -> TSL[TIME_SERIES_TYPE, SIZE]:
-    """
-    The ability to demultiplex a stream of TSL values and apply the de-multiplexed time-series values against the func
-    provided. In this case the inputs of the functions should either be TSL values with the associated time-series
-    being the same as the associated input or be the type of the input. This will attempt to determine the expected
-    size of the output either using the index kwarg or by using the size of the input TSLs.
-
-    If any of the inputs are fixed sized, then the output will be the smallest fixed size. If the index is fixed size
-    then all TSL inputs must be at least that size. If the index is not fixed size, but any of the inputs are fixed,
-    the output will still be set to the size of the smallest input.
-    """
-    if not isinstance(func, WiringNodeClass):
-        raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
-    with WiringContext(current_signature=STATE(current_signature=f"tsl_map('{func.signature.signature}', ...)")):
-        if len(args) + len(kwargs) == 0:
-            raise NoTimeSeriesInputsError()
-        signature: WiringNodeSignature = func.signature
-        # We need to extract keys, we may be missing the key field, this will be computed and supplied if required.
-        kwargs_ = extract_kwargs(signature, *args, _ensure_match=False, _args_offset=1, **kwargs)
 
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
@@ -356,6 +333,21 @@ def _prepare_stub_inputs(
     return call_kwargs
 
 
+def _as_reference(tp_: HgTimeSeriesTypeMetaData, is_multiplexed: bool) -> HgTypeMetaData:
+    if is_multiplexed:
+        # If multiplexed type, we want references to the values not the whole output.
+        if type(tp_) is HgTSDTypeMetaData:
+            tp_: HgTSDTypeMetaData
+            return HgTSDTypeMetaData(tp_.key_tp, HgREFTypeMetaData(tp_.value_tp))
+        elif type(tp_) is HgTSLTypeMetaData:
+            tp_: HgTSLTypeMetaData
+            return HgTSLTypeMetaData(HgREFTypeMetaData(tp_.value_tp), tp_.size_tp)
+        else:
+            raise CustomMessageWiringError(f"Unable to create reference for multiplexed type: {tp_}")
+    else:
+        return HgREFTypeMetaData(tp_)
+
+
 def _create_tsd_map_wiring_node(
         fn: WiringNodeClass,
         kwargs_: dict[str, WiringPort | SCALAR],
@@ -369,6 +361,10 @@ def _create_tsd_map_wiring_node(
     stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, no_key_args, input_key_tp, input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
+    reference_inputs = frozendict(
+        {k: _as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _KEYS else v for
+         k, v in input_types.items()})
+
     # NOTE: The wrapper node does not need to sets it valid and tick to that of the underlying node, it just
     #       needs to ensure that it gets notified when the key sets tick. Likewise with validity.
     map_signature = TsdMapWiringSignature(
@@ -377,9 +373,9 @@ def _create_tsd_map_wiring_node(
         # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
         args=tuple(input_types.keys()),
         defaults=frozendict(),  # Defaults would have already been applied.
-        input_types=frozendict(input_types),
-        output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp,
-                                      resolved_signature.output_type) if resolved_signature.output_type else None,
+        input_types=reference_inputs,
+        output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type)) \
+            if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=frozenset({_KEYS, }) if (has_keys := _KEYS in input_types) else multiplex_args,
         valid_inputs=frozenset({_KEYS, }) if has_keys else frozenset(),
@@ -410,14 +406,18 @@ def _create_tsl_map_signature(
                                        input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
+    reference_inputs = frozendict(
+        {k: _as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _INDEX else v for
+         k, v in input_types.items()})
+
     map_signature = TslMapWiringSignature(
         node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
         name="map",
         # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
         args=tuple(input_types.keys()),
         defaults=frozendict(),  # Defaults would have already been applied.
-        input_types=frozendict(input_types),
-        output_type=HgTSLTypeMetaData(resolved_signature.output_type,
+        input_types=frozendict(reference_inputs),
+        output_type=HgTSLTypeMetaData(HgREFTypeMetaData(resolved_signature.output_type),
                                       size_tp) if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=frozenset({_INDEX, }) if (has_keys := _INDEX in input_types) else multiplex_args,
