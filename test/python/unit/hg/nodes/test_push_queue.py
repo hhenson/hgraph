@@ -16,7 +16,7 @@ def test_push_queue():
             time.sleep(0.1)
 
     @push_queue(TS[str])
-    def my_message_sender(sender: Callable[[str], None], values: tuple[str]):
+    def my_message_sender(sender: Callable[[str], None], values: tuple[str, ...]):
         threading.Thread(target=_sender, args=(sender, values)).start()
 
     @graph

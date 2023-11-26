@@ -2,12 +2,12 @@ from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from types import GenericAlias
-
-from frozendict import frozendict
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast
 
-from hg._types._scalar_value import ScalarValue
+from frozendict import frozendict
+
 from hg._types._scalar_types import Size, STATE
+from hg._types._scalar_value import ScalarValue
 from hg._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
@@ -272,6 +272,13 @@ class HgTupleScalarType(HgCollectionType):
                     else:
                         raise ParseError(f"While parsing '{repr(value)}' was unable to parse '{repr(arg)}")
                 return HgTupleFixedScalarType(tp_s)
+        elif isinstance(value, tuple):
+            if len(value) > 0:
+                tp = type(value[0])
+                if all(type(v) is tp for v in value):
+                    return HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(tp))
+                else:
+                    return HgTupleScalarType(HgScalarTypeMetaData.parse(type(v)) for v in value)
 
 
 class HgTupleCollectionScalarType(HgTupleScalarType):
@@ -454,7 +461,6 @@ class HgDictScalarType(HgCollectionType):
             if key_tp and value_tp:
                 return HgDictScalarType(key_tp, value_tp)
 
-
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
@@ -606,8 +612,6 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        from hg._types._time_series_types import TimeSeries
-        from hg._types._tsb_type import TimeSeriesSchema
         if isinstance(value, (_GenericAlias, GenericAlias)) and value.__origin__ in (type, Type):
             value_tp = HgTypeMetaData.parse(value.__args__[0])
             return HgTypeOfTypeMetaData(value_tp)

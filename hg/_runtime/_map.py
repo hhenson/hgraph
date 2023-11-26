@@ -177,11 +177,15 @@ def _build_map_wiring_node_and_inputs(
     multiplex_args, no_key_args, pass_through_args, direct_args, map_type, key_tp_ = _split_inputs(signature, kwargs_
                                                                                                    )
     # 4. If the key is present, make sure the extracted key type matches what we found in the multiplexed inputs.
+    if map_type == "TSL":
+        tp = HgTSTypeMetaData.parse(TS[int])
+    else:
+        tp = key_tp_
     if input_has_key_arg:
-        if not input_key_tp.matches(key_tp_):
+        if not input_key_tp.matches(tp):
             raise CustomMessageWiringError(
-                f"The key argument '{signature.args[0]}: {input_key_tp}' does not match the multiplexed key type: '{key_tp_}'")
-    input_key_tp = key_tp_
+                f"The ndx argument '{signature.args[0]}: {input_key_tp}' does not match '{tp}'")
+    input_key_tp = tp
 
     # 5. Extract provided key signature
     #    We use the output_type of wiring ports, but for scalar values, they must take the form of the underlying
@@ -201,8 +205,9 @@ def _build_map_wiring_node_and_inputs(
             if __index__ is not None:
                 input_types = input_types | {_INDEX: __index__.output_type}
                 kwargs_[_INDEX] = __index__
-            map_wiring_node = _create_tsl_map_signature(signature, input_types, multiplex_args, key_tp_, kwargs_,
-                                                        input_key_tp)
+            map_wiring_node = _create_tsl_map_signature(fn, kwargs_, input_types, multiplex_args,
+                                                        HgAtomicType.parse(key_tp_),
+                                                        input_key_name if input_has_key_arg else None)
         case _:
             raise CustomMessageWiringError(f"Unable to determine map type for given inputs: {kwargs_}")
 
@@ -298,7 +303,7 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
             f"Unable to determine how to split inputs with args:\n {kwargs_}")
 
     if is_tsl := any(isinstance(v, HgTSLTypeMetaData) for v in input_types.values()):
-        if not all(isinstance(v, HgTSLTypeMetaData) for v in input_types.values()):
+        if not all(isinstance(input_types[k], HgTSLTypeMetaData) for k in multiplex_args):
             raise CustomMessageWiringError(
                 f"Not all multiplexed inputs are of type TSL or TSD")
 
@@ -307,8 +312,8 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
     else:
         key_tp = _validate_tsd_keys(kwargs_, multiplex_args, no_key_args)
 
-    return multiplex_args, no_key_args, pass_through_args, direct_args, "TSL" if is_tsl else "TSD", HgTSTypeMetaData(
-        key_tp)
+    return (multiplex_args, no_key_args, pass_through_args, direct_args, "TSL" if is_tsl else "TSD", key_tp if is_tsl
+    else HgTSTypeMetaData(key_tp))
 
 
 @dataclass(frozen=True)
@@ -340,7 +345,7 @@ def _prepare_stub_inputs(
     for key, arg in input_types.items():
         if key in multiplex_args or key in no_key_args:
             call_kwargs[key] = stub_wiring_port(arg.value_tp)
-        elif key == _KEYS:
+        elif key in (_KEYS, _INDEX):
             continue
         elif arg.is_scalar:
             call_kwargs[key] = kwargs_[key]
@@ -392,25 +397,38 @@ def _create_tsd_map_wiring_node(
     return wiring_node
 
 
-def _create_tsl_map_signature(signature, input_types, multiplex_args, size_tp, input_has_key_arg):
+def _create_tsl_map_signature(
+        fn: WiringNodeClass,
+        kwargs_: dict[str, WiringPort | SCALAR],
+        input_types: dict[str, HgTypeMetaData],
+        multiplex_args: frozenset[str],
+        size_tp: HgAtomicType,
+        input_key_name: str | None
+):
+    # Resolve the mapped function signature
+    stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, [], HgTSTypeMetaData.parse(TS[int]),
+                                       input_key_name)
+    resolved_signature = fn.resolve_signature(**stub_inputs)
+
     map_signature = TslMapWiringSignature(
-        node_type=signature.node_type,
+        node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
         name="map",
         # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
         args=tuple(input_types.keys()),
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=frozendict(input_types),
-        output_type=HgTSLTypeMetaData(signature.output_type, size_tp) if signature.output_type else None,
-        src_location=signature.src_location,  # TODO: Figure out something better for this.
-        active_inputs=frozenset('%s' % _INDEX) if (has_keys := _INDEX in input_types) else multiplex_args,
-        valid_inputs=frozenset(_INDEX) if has_keys else tuple(),
+        output_type=HgTSLTypeMetaData(resolved_signature.output_type,
+                                      size_tp) if resolved_signature.output_type else None,
+        src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
+        active_inputs=frozenset({_INDEX, }) if (has_keys := _INDEX in input_types) else multiplex_args,
+        valid_inputs=frozenset({_INDEX, }) if has_keys else tuple(),
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         uses_scheduler=False,
-        label=f"map('{signature.signature}', {', '.join(input_types.keys())})",
-        map_fn_signature=signature,
+        label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+        map_fn_signature=resolved_signature,
         size_tp=size_tp,
-        key_arg='key' if input_has_key_arg else None,
+        key_arg=input_key_name,
         multiplexed_args=multiplex_args,
     )
     wiring_node = TsdMapWiringNodeClass(map_signature, fn)
