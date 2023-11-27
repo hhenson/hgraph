@@ -242,7 +242,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     src_location=self.signature.src_location,
                     active_inputs=self.signature.active_inputs,
                     valid_inputs=valid_inputs,
-                    unresolved_args=tuple(),
+                    unresolved_args=frozenset(),
                     time_series_args=self.signature.time_series_args,
                     uses_scheduler=self.signature.uses_scheduler,  # This should not differ based on resolution
                     label=self.signature.label)
@@ -350,19 +350,6 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
                                           input_builder=None,
                                           output_builder=factory.make_output_builder(output_type),
                                           eval_fn=self.fn)
-
-
-class TsdMapWiringNodeClass(BaseWiringNodeClass):
-
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
-        # This acts a bit like a graph, in that it needs to evaluate the inputs and build a sub-graph for
-        # the mapping function.
-        return super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
-
-    def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
-        # TODO: implement
-        ...
 
 
 class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):

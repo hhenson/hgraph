@@ -4,7 +4,7 @@ from typing import Callable, Mapping, Any, TypeVar
 from frozendict import frozendict
 
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hg._wiring import SourceCodeDetails, WiringGraphContext
+from hg._wiring._wiring import SourceCodeDetails, WiringGraphContext
 from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hg._wiring._wiring import WiringNodeClass, WiringNodeInstance, WiringPort
 from hg._types._type_meta_data import HgTypeMetaData
@@ -65,7 +65,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
     )
     node = StubWiringInputWiringNode(signature, None)
     node_instance = WiringNodeInstance(node, signature, frozendict(), 1)
-    return WiringPort(node_instance, signature, 0)
+    return WiringPort(node_instance, ())
 
 
 def create_output_stub(output: WiringPort):
@@ -76,7 +76,7 @@ def create_output_stub(output: WiringPort):
     signature = WiringNodeSignature(
         node_type=WiringNodeType.SINK_NODE,
         name=f"stub:out",
-        args=tuple('out',),
+        args=('out',),
         defaults=frozendict(),
         input_types=frozendict({'out': tp}),
         output_type=None,
@@ -88,5 +88,5 @@ def create_output_stub(output: WiringPort):
         uses_scheduler=False,
     )
     node = StubWiringOutputWiringNode(signature, None)
-    node_instance = WiringNodeInstance(node, signature, frozendict(), output.rank + 1)
+    node_instance = WiringNodeInstance(node, signature, frozendict({"out": output}), output.rank + 1)
     WiringGraphContext.instance().add_sink_node(node_instance)

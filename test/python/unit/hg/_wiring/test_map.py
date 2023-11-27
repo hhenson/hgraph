@@ -2,7 +2,8 @@ import pytest
 from frozendict import frozendict
 
 from hg import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF
-from hg._runtime._map import _build_map_wiring_node_and_inputs, TsdMapWiringSignature, TslMapWiringSignature
+from hg._runtime._map import _build_map_wiring_node_and_inputs
+from hg._wiring._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hg.nodes import add_, debug_print, const
 from hg.test import eval_node
 

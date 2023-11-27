@@ -126,13 +126,13 @@ class WiringNodeSignature:
             return None
         return self.output_type.resolve(resolution_dict, weak)
 
-    def resolve_valid_inputs(self, **kwargs) -> tuple[str]:
+    def resolve_valid_inputs(self, **kwargs) -> frozenset[str]:
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if self.valid_inputs:
-                return tuple(k for k in self.valid_inputs if k not in optional_inputs)
+                return frozenset(k for k in self.valid_inputs if k not in optional_inputs)
             else:
-                return tuple(k for k in self.time_series_args if k not in optional_inputs)
+                return frozenset(k for k in self.time_series_args if k not in optional_inputs)
         else:
             return self.valid_inputs
 

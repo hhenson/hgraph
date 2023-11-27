@@ -7,13 +7,12 @@ __all__ = ("map_", "pass_through", "no_key", "reduce")
 from frozendict import frozendict
 
 from hg._types._ref_meta_data import HgREFTypeMetaData
-from hg._wiring._graph_builder import create_graph_builder
-from hg._wiring._stub_wiring_node import create_input_stub, create_output_stub
-from hg._wiring._wiring import WiringNodeType, WiringGraphContext
+from hg._wiring._wiring import WiringNodeType
 from hg._wiring._wiring_errors import NoTimeSeriesInputsError
 from hg._wiring._wiring_context import WiringContext
-from hg._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, HgScalarTypeMetaData, \
-    WiringNodeClass, TsdMapWiringNodeClass
+from hg._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, WiringNodeClass
+from hg._wiring._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
+    TslMapWiringNodeClass
 from hg._types._type_meta_data import HgTypeMetaData
 from hg._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1
 from hg._types._tsd_meta_data import HgTSDTypeMetaData
@@ -28,7 +27,7 @@ from hg._wiring._wiring import extract_kwargs
 from hg._wiring._wiring_errors import CustomMessageWiringError
 
 if TYPE_CHECKING:
-    from hg._wiring._graph_builder import GraphBuilder
+    pass
 
 _INDEX = "__index__"
 _KEYS = '__keys__'
@@ -101,23 +100,6 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         >> tsl <- ([1], [2], [3], [4], [5])
         >> out -> 15
     """
-
-
-@dataclass(frozen=True)
-class TsdMapWiringSignature(WiringNodeSignature):
-    map_fn_signature: WiringNodeSignature = None
-    key_tp: HgScalarTypeMetaData = None
-    key_arg: str | None = None  # The arg name of the key in the map function is there is one
-    keyable_args: frozenset[str] | None = None  # When keys is not present, these are the inputs to key from.
-    multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
-
-
-@dataclass(frozen=True)
-class TslMapWiringSignature(WiringNodeSignature):
-    map_fn_signature: WiringNodeSignature = None
-    size_tp: HgAtomicType = None
-    key_arg: str | None = None
-    multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
 
 
 class _MappingMarker:
@@ -439,7 +421,7 @@ def _create_tsl_map_signature(
         key_arg=input_key_name,
         multiplexed_args=multiplex_args,
     )
-    wiring_node = TsdMapWiringNodeClass(map_signature, fn)
+    wiring_node = TslMapWiringNodeClass(map_signature, fn)
     return wiring_node
 
 
@@ -494,21 +476,3 @@ def _validate_multiplex_types(signature: WiringNodeSignature, kwargs_, multiplex
                 f"The input '{arg}: {m_type}' is a multiplexed type, "
                 f"but its '{m_type.value_tp}' is not compatible with the input type: {in_type}")
 
-
-def _wire_inner_graph(fn: WiringNodeClass, kwargs: dict, outer_wiring_node: WiringNodeClass) -> "GraphBuilder":
-    """
-    Wire the inner function using stub inputs and wrap stub outputs.
-    """
-    inputs_ = {}
-    signature: WiringNodeSignature = fn.signature
-    for k, v in signature.input_types.items():
-        if v.is_scalar:
-            inputs_[k] = kwargs[k]
-        else:
-            inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v))
-    with WiringGraphContext(outer_wiring_node.signature) as context:
-        out = fn(**inputs_)
-        if out is not None:
-            create_output_stub(cast(WiringPort, out))
-        sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes)
