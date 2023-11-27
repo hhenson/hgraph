@@ -444,18 +444,18 @@ class WiringGraphContext:
         """Return a graph call stack"""
         # TODO: Look into how this could be improved to include call site information.
         # The first entry is the root node of the graph stack
-        return [graph.graph_wiring_node_class.signature.src_location for graph in reversed(self.__stack__[1:])]
+        return [graph.wiring_node_signature.src_location for graph in reversed(self.__stack__[1:])]
 
     @classmethod
     def instance(cls) -> "WiringGraphContext":
         return WiringGraphContext.__stack__[-1]
 
-    def __init__(self, wiring_node: Optional["GraphWiringNodeClass"]):
+    def __init__(self, node_signature: Optional[WiringNodeSignature]):
         """
         If we are wiring the root graph, then there is no wiring node. In this case None is
         passed in.
         """
-        self._graph_wiring_node_class: "GraphWiringNodeClass" = wiring_node
+        self._wiring_node_signature: WiringNodeSignature = node_signature
         self._sink_nodes: ["WiringNodeInstance"] = []
 
     @property
@@ -466,11 +466,20 @@ class WiringGraphContext:
         return bool(self._sink_nodes)
 
     @property
-    def graph_wiring_node_class(self) -> "GraphWiringNodeClass":
-        return self._graph_wiring_node_class
+    def wiring_node_signature(self) -> WiringNodeSignature:
+        return self._wiring_node_signature
 
     def add_sink_node(self, node: "WiringNodeInstance"):
         self._sink_nodes.append(node)
+
+    def pop_sink_nodes(self) -> ["WiringNodeInstance"]:
+        """
+        Remove sink nodes that are on this graph context.
+        This is useful when building a nested graph
+        """
+        sink_nodes = self._sink_nodes
+        self._sink_nodes = []
+        return sink_nodes
 
     def __enter__(self):
         WiringGraphContext.__stack__.append(self)
@@ -498,7 +507,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                                                                                **kwargs)
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
-            with WiringGraphContext(self) as g:
+            with WiringGraphContext(self.signature) as g:
                 out: WiringPort = self.fn(*args, **kwargs_)
                 if output_type := resolved_signature.output_type:
                     if output_type != out.output_type:
