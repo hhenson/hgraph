@@ -72,7 +72,7 @@ def create_output_stub(output: WiringPort):
     """
     Creates a stub output for a wiring node output.
     """
-    tp = output.signature.output_type
+    tp = output.output_type
     signature = WiringNodeSignature(
         node_type=WiringNodeType.SINK_NODE,
         name=f"stub:out",

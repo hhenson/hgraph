@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Callable, cast, TYPE_CHECKING
+from typing import Callable, cast, TYPE_CHECKING, List
 
 __all__ = ("map_", "pass_through", "no_key", "reduce")
 
@@ -30,7 +30,6 @@ from hg._wiring._wiring_errors import CustomMessageWiringError
 if TYPE_CHECKING:
     from hg._wiring._graph_builder import GraphBuilder
 
-
 _INDEX = "__index__"
 _KEYS = '__keys__'
 _KEY_ARG = "__key_arg__"
@@ -42,6 +41,7 @@ def pass_through(tsd: TSD[SCALAR, TIME_SERIES_TYPE]) -> TSD[SCALAR, TIME_SERIES_
     tsd_map function. This is useful when the function takes a template type and the TSD has the same SCALAR type as
     the implied keys for the tsd_map function.
     """
+    # noinspection PyTypeChecker
     return _PassthroughMarker(tsd)
 
 
@@ -51,6 +51,7 @@ def no_key(tsd: TSD[SCALAR, TIME_SERIES_TYPE]) -> TSD[SCALAR, TIME_SERIES_TYPE]:
     This is useful when the input TSD is likely to be larger than the desired keys to process.
     This is only required if no keys are supplied to the tsd_map function.
     """
+    # noinspection PyTypeChecker
     return _NoKeyMarker(tsd)
 
 
@@ -130,11 +131,11 @@ class _MappingMarker:
         return self.value.output_type
 
 
-class _PassthroughMarker:
+class _PassthroughMarker(_MappingMarker):
     ...
 
 
-class _NoKeyMarker:
+class _NoKeyMarker(_MappingMarker):
     ...
 
 
@@ -327,6 +328,7 @@ def _prepare_stub_inputs(
     call_kwargs = {}
     for key, arg in input_types.items():
         if key in multiplex_args or key in no_key_args:
+            arg: HgTSDTypeMetaData | HgTSLTypeMetaData
             call_kwargs[key] = stub_wiring_port(arg.value_tp)
         elif key in (_KEYS, _INDEX):
             continue
@@ -408,7 +410,7 @@ def _create_tsl_map_signature(
         input_key_name: str | None
 ):
     # Resolve the mapped function signature
-    stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, [], HgTSTypeMetaData.parse(TS[int]),
+    stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, frozenset(), HgTSTypeMetaData.parse(TS[int]),
                                        input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
@@ -469,10 +471,9 @@ def _extract_tsl_size(kwargs_: dict[str, WiringPort], multiplex_args, marker_arg
     With a TSL multiplexed input, we need to determine the size of the output. This is done by looking at all the inputs
     that could be multiplexed.
     """
-    sizes: [type[Size]] = [cast(HgTSLTypeMetaData, kwargs_[arg].output_type).size_tp.py_type for arg in
-                           chain(multiplex_args,
-                                 (m_arg for m_arg in marker_args if
-                                  not isinstance(kwargs_[m_arg], _PassthroughMarker)))]
+    sizes: List[type[Size]] = [
+        cast(type[Size], cast(HgTSLTypeMetaData, kwargs_[arg].output_type).size_tp.py_type) for arg in
+        chain(multiplex_args, (m_arg for m_arg in marker_args if not isinstance(kwargs_[m_arg], _PassthroughMarker)))]
     size: type[Size] = Size
     for sz in sizes:
         if sz.FIXED_SIZE:
@@ -504,11 +505,10 @@ def _wire_inner_graph(fn: WiringNodeClass, kwargs: dict, outer_wiring_node: Wiri
         if v.is_scalar:
             inputs_[k] = kwargs[k]
         else:
-            inputs_[k] = create_input_stub(k, v)
+            inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v))
     with WiringGraphContext(outer_wiring_node.signature) as context:
         out = fn(**inputs_)
         if out is not None:
-            create_output_stub(out)
+            create_output_stub(cast(WiringPort, out))
         sink_nodes = context.pop_sink_nodes()
         return create_graph_builder(sink_nodes)
-
