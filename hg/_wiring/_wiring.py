@@ -497,7 +497,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
             with WiringGraphContext(self.signature) as g:
                 out: WiringPort = self.fn(*args, **kwargs_)
                 if output_type := resolved_signature.output_type:
-                    if output_type != out.output_type:
+                    if output_type.dereference() != out.output_type.dereference():
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
                                           f"'{str(out.output_type)}' was returned from the graph")
                 elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
