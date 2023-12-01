@@ -5,7 +5,6 @@ from hg._builder._node_builder import NodeBuilder
 from hg._impl._runtime._node import NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl
 from hg._types._time_series_types import TimeSeriesOutput
 from hg._types._tsb_type import TimeSeriesBundleInput
-from hg._runtime._node import Node
 
 
 __all__ = ("PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder")
@@ -17,7 +16,7 @@ class PythonNodeBuilder(NodeBuilder):
     start_fn: Callable = None
     stop_fn: Callable = None
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> Node:
+    def make_instance(self, owning_graph_id: tuple[int, ...]) -> NodeImpl:
         node = NodeImpl(
             node_ndx=self.node_ndx,
             owning_graph_id=owning_graph_id,
@@ -38,7 +37,7 @@ class PythonNodeBuilder(NodeBuilder):
 
         return node
 
-    def release_instance(self, item: Node):
+    def release_instance(self, item: NodeImpl):
         pass
 
 
@@ -46,8 +45,8 @@ class PythonNodeBuilder(NodeBuilder):
 class PythonGeneratorNodeBuilder(NodeBuilder):
     eval_fn: Callable = None  # This is the generator function
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> Node:
-        node: Node = GeneratorNodeImpl(
+    def make_instance(self, owning_graph_id: tuple[int, ...]) -> GeneratorNodeImpl:
+        node = GeneratorNodeImpl(
             node_ndx=self.node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
@@ -61,7 +60,7 @@ class PythonGeneratorNodeBuilder(NodeBuilder):
 
         return node
 
-    def release_instance(self, item: Node):
+    def release_instance(self, item: GeneratorNodeImpl):
         pass
 
 
@@ -69,8 +68,8 @@ class PythonGeneratorNodeBuilder(NodeBuilder):
 class PythonPushQueueNodeBuilder(NodeBuilder):
     eval_fn: Callable = None  # This is the generator function
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> Node:
-        node: Node = PythonPushQueueNodeImpl(
+    def make_instance(self, owning_graph_id: tuple[int, ...]) -> PythonPushQueueNodeImpl:
+        node = PythonPushQueueNodeImpl(
             node_ndx=self.node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
@@ -84,5 +83,5 @@ class PythonPushQueueNodeBuilder(NodeBuilder):
 
         return node
 
-    def release_instance(self, item: Node):
+    def release_instance(self, item: PythonPushQueueNodeImpl):
         pass

@@ -20,6 +20,8 @@ from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeTyp
 
 if TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
+    from hg._builder._input_builder import InputBuilder
+    from hg._builder._output_builder import OutputBuilder
     from hg._runtime._node import NodeSignature, NodeTypeEnum
     from hg._builder._graph_builder import Edge
 
@@ -307,6 +309,20 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.stop_fn = fn
         return self
 
+    @staticmethod
+    def create_input_output_builders(node_signature) -> tuple["InputBuilder", "OutputBuilder"]:
+        from hg import TimeSeriesBuilderFactory
+        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
+        output_type = node_signature.time_series_output
+        if ts_inputs := node_signature.time_series_inputs:
+            un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
+                UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
+            ))
+            input_builder = factory.make_input_builder(un_named_bundle)
+        else:
+            input_builder = None
+        return input_builder, None if output_type is None else factory.make_output_builder(output_type)
+
 
 class PreResolvedWiringNodeWrapper(WiringNodeClass):
     """Wraps a WiringNodeClass_ instance with the associated resolution dictionary"""
@@ -372,23 +388,13 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
         from hg._impl._builder import PythonNodeBuilder
-        from hg import TimeSeriesBuilderFactory
-        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
-        output_type = node_signature.time_series_output
-        if ts_inputs := node_signature.time_series_inputs:
-            un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
-                UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
-            ))
-            input_builder = factory.make_input_builder(un_named_bundle)
-        else:
-            input_builder = None
+        input_builder, output_builder = self.create_input_output_builders(node_signature)
 
         return PythonNodeBuilder(node_ndx=node_ndx,
                                  signature=node_signature,
                                  scalars=scalars,
                                  input_builder=input_builder,
-                                 output_builder=None if output_type is None else \
-                                     factory.make_output_builder(output_type),
+                                 output_builder=output_builder,
                                  eval_fn=self.fn,
                                  start_fn=self.start_fn,
                                  stop_fn=self.stop_fn)
@@ -505,14 +511,22 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 return out
 
 
-class NonPeeredWiringNodeClass(BaseWiringNodeClass):
+class StubWiringNodeClass(BaseWiringNodeClass):
+
+    def __call__(self, *args, **kwargs) -> "WiringPort":
+        """Sub wiring classes are not callable"""
+        raise NotImplementedError()
+
+    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+        """Sub wiring classes do not create node builders"""
+        raise NotImplementedError()
+
+
+class NonPeeredWiringNodeClass(StubWiringNodeClass):
     """Used to represent Non-graph nodes to use when creating non-peered wiring ports"""
 
     def __call__(self, _tsb_meta_type: HgTSBTypeMetaData, **kwargs) -> "WiringPort":
         ...
-
-    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
-        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -524,7 +538,7 @@ class WiringNodeInstance:
 
     @property
     def is_stub(self) -> bool:
-        return isinstance(self.node, NonPeeredWiringNodeClass)
+        return isinstance(self.node, StubWiringNodeClass)
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
@@ -561,7 +575,7 @@ class WiringNodeInstance:
 
         edges = set()
         for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.time_series_inputs):
-            input_: WiringPort = self.inputs[arg]
+            input_: WiringPort = self.inputs.get(arg)
             if input_ is not None:
                 edges.update(input_.edges_for(node_map, node_index, (ndx,)))
 

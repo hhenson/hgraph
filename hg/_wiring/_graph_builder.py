@@ -62,9 +62,9 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"]) -> "GraphBuild
         if node.resolved_signature.node_type is NodeTypeEnum.SINK_NODE:
             # Put all sink nodes at max_rank
             rank = max_rank
-        ranked_nodes[node.rank].add(node)
+        ranked_nodes[rank].add(node)
         for arg in node.resolved_signature.time_series_args:
-            if (input_ := node.inputs[arg]):
+            if input_ := node.inputs.get(arg):
                 pending_nodes.append(input_.node_instance)
 
     # Now we can walk the tree in rank order and construct the nodes
