@@ -164,7 +164,11 @@ def _build_map_wiring_node_and_inputs(
         case "TSD":
             if __keys__ is not None:
                 kwargs_[_KEYS] = __keys__
-                input_types = input_types | {_KEYS: __keys__.output_type}
+            else:
+                from hg.nodes import union_
+                kwargs_[_KEYS] = (
+                    __keys__ := union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args)))
+            input_types = input_types | {_KEYS: __keys__.output_type}
             map_wiring_node = _create_tsd_map_wiring_node(fn, kwargs_, input_types, multiplex_args, no_key_args,
                                                           input_key_tp, input_key_name if input_has_key_arg else None)
         case "TSL":
@@ -376,7 +380,6 @@ def _create_tsd_map_wiring_node(
         map_fn_signature=resolved_signature,
         key_tp=input_key_tp.value_scalar_tp,
         key_arg=input_key_name,
-        keyable_args=frozenset(arg for arg in multiplex_args if arg not in no_key_args) if not has_keys else None,
         multiplexed_args=multiplex_args,
     )
     wiring_node = TsdMapWiringNodeClass(map_signature, fn)
@@ -392,7 +395,8 @@ def _create_tsl_map_signature(
         input_key_name: str | None
 ):
     # Resolve the mapped function signature
-    stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, frozenset(), HgTSTypeMetaData.parse(TS[int]),
+    stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, frozenset(),
+                                       HgTSTypeMetaData.parse(TS[int]),
                                        input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
@@ -475,4 +479,3 @@ def _validate_multiplex_types(signature: WiringNodeSignature, kwargs_, multiplex
             raise CustomMessageWiringError(
                 f"The input '{arg}: {m_type}' is a multiplexed type, "
                 f"but its '{m_type.value_tp}' is not compatible with the input type: {in_type}")
-

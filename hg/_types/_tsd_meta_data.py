@@ -1,5 +1,7 @@
 from typing import Type, TypeVar, Optional, _GenericAlias
 
+from hg._types._tsd_type import KEY_SET_ID
+from hg._types._tss_meta_data import HgTSSTypeMetaData
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
@@ -56,6 +58,12 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
             return self.__class__(self.key_tp, self.value_tp.dereference())
         else:
             return self
+
+    def __getitem__(self, item):
+        if KEY_SET_ID is item:
+            return HgTSSTypeMetaData(self.key_tp)
+        else:
+            return self.value_tp
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSDTypeMetaData and self.key_tp == o.key_tp and self.value_tp == o.value_tp

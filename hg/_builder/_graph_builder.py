@@ -7,6 +7,7 @@ from hg._runtime._graph import Graph
 
 if typing.TYPE_CHECKING:
     from hg._builder._node_builder import NodeBuilder
+    from hg._types._scalar_types import SCALAR
 
 __all__ = ("Edge", "GraphBuilder", "GraphBuilderFactory")
 
@@ -14,9 +15,9 @@ __all__ = ("Edge", "GraphBuilder", "GraphBuilderFactory")
 @dataclass(frozen=True)
 class Edge:
     src_node: int
-    output_path: tuple[int, ...]
+    output_path: tuple["SCALAR", ...]
     dst_node: int
-    input_path: tuple[int, ...]
+    input_path: tuple["SCALAR", ...]
 
 
 @dataclass(frozen=True)

@@ -11,12 +11,13 @@ if TYPE_CHECKING:
     from hg import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
 
 __all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE",
-           "REMOVE_IF_EXISTS")
+           "REMOVE_IF_EXISTS", "KEY_SET_ID")
 
 
 REMOVE = Sentinel("REMOVE")
 REMOVE_IF_EXISTS = Sentinel("REMOVE_IF_EXISTS")
 
+KEY_SET_ID = '__key_set__'
 
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):
     """
@@ -48,7 +49,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             if __value_tp__.is_scalar:
                 from hg import ParseError
                 raise ParseError(
-                    f"For TSD[{__key_tp__}][{__value_tp__}], '{__value_tp__}' must be a TIME_SERIES_TYPE type")
+                    f"For TSD[{__key_tp__}, {__value_tp__}], '{__value_tp__}' must be a TIME_SERIES_TYPE type")
             out.__key_tp__ = __key_tp__
             out.__value_tp__ = __value_tp__
             _init = out.__init__
@@ -61,6 +62,8 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         :param item:
         :return:
         """
+        if KEY_SET_ID is item:
+            return self._key_set
         return self._ts_values[item]
 
     def __iter__(self) -> Iterable[K]:
@@ -160,6 +163,9 @@ class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K,
         TimeSeriesDict.__init__(self, __key_set__, __key_tp__, __value_tp__)
         TimeSeriesInput.__init__(self)
 
+
+    def __getitem__(self, item):
+        return self._ts_values[item]
 
 class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[K, V]):
     """

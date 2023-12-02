@@ -21,7 +21,6 @@ class TsdMapWiringSignature(WiringNodeSignature):
     map_fn_signature: WiringNodeSignature = None
     key_tp: HgScalarTypeMetaData = None
     key_arg: str | None = None  # The arg name of the key in the map function is there is one
-    keyable_args: frozenset[str] | None = None  # When keys is not present, these are the inputs to key from.
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
 
 

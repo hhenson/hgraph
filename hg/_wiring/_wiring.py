@@ -2,16 +2,21 @@ import inspect
 from dataclasses import dataclass, replace
 from functools import cached_property
 from types import GenericAlias
-from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING
+from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING, Generic
 
 from frozendict import frozendict
 from more_itertools import nth
 
+from hg._types._scalar_types import SCALAR
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
+from hg._types._tsd_meta_data import HgTSDTypeMetaData
+from hg._types._tsd_type import KEY_SET_ID
 from hg._types._tsl_meta_data import HgTSLTypeMetaData
+from hg._types._tss_type import TSS
+from hg._types._time_series_types import TIME_SERIES_TYPE
 from hg._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOLVE
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
@@ -584,6 +589,7 @@ class WiringNodeInstance:
 
 def _wiring_port_for(tp: HgTypeMetaData, node_instance: WiringNodeInstance, path: [int, ...]) -> "WiringPort":
     return {
+        HgTSDTypeMetaData: lambda: TSDWiringPort(node_instance, path),
         HgTSBTypeMetaData: lambda: TSBWiringPort(node_instance, path),
         HgTSLTypeMetaData: lambda: TSLWiringPort(node_instance, path),
     }.get(type(tp), lambda: WiringPort(node_instance, path))()
@@ -591,14 +597,26 @@ def _wiring_port_for(tp: HgTypeMetaData, node_instance: WiringNodeInstance, path
 
 @dataclass(frozen=True)
 class WiringPort:
+    """
+    A wiring port is the abstraction that describes the src of an edge in a wiring graph. This source is used to
+    connect to a destination node in the graph, typically an input in the graph.
+    The port consist of a reference to a node instance, this is the node in the graph to connect to, and a path, this
+    is the selector used to identify to which time-series owned by the node this portion of the edge refers to.
+
+    For a simple time-series (e.g. TS[SCALAR]), the path is an empty tuple. For more complex time-series containers
+    the path can be any valid SCALAR value that makes sense in the context of the container.
+    The builder will ultimately walk the path calling __getitem__ the time-series until the path is completed.
+
+    For example node.output[p1][p2][p3] for a path of (p1, p2, p3).
+    """
     node_instance: WiringNodeInstance
-    path: tuple[int, ...] = tuple()  # The path from out () to the time-series to be bound.
+    path: tuple[SCALAR, ...] = tuple()  # The path from out () to the time-series to be bound.
 
     @property
     def has_peer(self) -> bool:
         return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) \
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) \
             -> set["Edge"]:
         """Return the edges required to bind this output to the dst_node"""
         assert self.has_peer, \
@@ -618,6 +636,14 @@ class WiringPort:
     @property
     def rank(self) -> int:
         return self.node_instance.rank
+
+
+@dataclass(frozen=True)
+class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
+
+    @property
+    def key_set(self) -> TSS[str]:
+        return WiringPort(self.node_instance, self.path + (KEY_SET_ID,))
 
 
 @dataclass(frozen=True)
@@ -659,7 +685,7 @@ class TSBWiringPort(WiringPort):
     def __getitem__(self, item):
         return self._wiring_port_for(item)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) -> \
             set["Edge"]:
         edges = set()
         if self.has_peer:
@@ -697,7 +723,7 @@ class TSLWiringPort(WiringPort):
             path = input_wiring_port.path
         return _wiring_port_for(tp_, node_instance, path)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[int, ...]) -> \
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) -> \
             set["Edge"]:
         edges = set()
         if self.has_peer:
