@@ -119,3 +119,51 @@ class EngineEvaluationClock(EvaluationClock):
         """
         Reset the push_has_pending_values property.
         """
+
+
+class EngineEvaluationClockDelegate(EngineEvaluationClock):
+    """Support adding new logic to the engine evaluation clock."""
+
+    def __init__(self, engine_evaluation_clock: EngineEvaluationClock):
+        self._engine_evaluation_clock = engine_evaluation_clock
+
+    @property
+    def evaluation_time(self) -> datetime:
+        return self._engine_evaluation_clock.evaluation_time
+
+    @evaluation_time.setter
+    def evaluation_time(self, value: datetime):
+        self._engine_evaluation_clock.evaluation_time = value
+
+    @property
+    def next_scheduled_evaluation_time(self) -> datetime:
+        return self._engine_evaluation_clock.next_scheduled_evaluation_time
+
+    def update_next_scheduled_evaluation_time(self, next_time: datetime):
+        self._engine_evaluation_clock.update_next_scheduled_evaluation_time(next_time)
+
+    def advance_to_next_scheduled_time(self):
+        self._engine_evaluation_clock.advance_to_next_scheduled_time()
+
+    def mark_push_node_requires_scheduling(self):
+        self._engine_evaluation_clock.mark_push_node_requires_scheduling()
+
+    @property
+    def push_node_requires_scheduling(self) -> bool:
+        return self._engine_evaluation_clock.push_node_requires_scheduling
+
+    def reset_push_node_requires_scheduling(self):
+        self._engine_evaluation_clock.reset_push_node_requires_scheduling()
+
+    @property
+    def now(self) -> datetime:
+        return self._engine_evaluation_clock.now
+
+    @property
+    def cycle_time(self) -> timedelta:
+        return self._engine_evaluation_clock.cycle_time
+
+    @property
+    def next_cycle_evaluation_time(self) -> datetime:
+        return self._engine_evaluation_clock.next_cycle_evaluation_time
+

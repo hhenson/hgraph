@@ -243,3 +243,97 @@ class EvaluationEngine(EvaluationEngineApi, ABC):
         """
         Notify observers that the node has stopped.
         """
+
+
+class EvaluationEngineDelegate(EvaluationEngine):
+    """
+    A delegate that can be used to extend the evaluation engine with additional behaviour.
+    This delegates all calls to the provided engine instance.
+    """
+
+    def __init__(self, engine: EvaluationEngine):
+        super().__init__()
+        self._engine = engine
+
+    @property
+    def engine_evaluation_clock(self) -> "EngineEvaluationClock":
+        return self._engine.engine_evaluation_clock
+
+    @property
+    def start_time(self) -> datetime:
+        return self._engine.start_time
+
+    @property
+    def end_time(self) -> datetime:
+        return self._engine.end_time
+
+    @property
+    def evaluation_clock(self) -> "EvaluationClock":
+        return self._engine.evaluation_clock
+
+    def request_engine_stop(self):
+        self._engine.request_engine_stop()
+
+    @property
+    def is_stop_requested(self) -> bool:
+        return self._engine.is_stop_requested
+
+    def add_before_evaluation_notification(self, fn: callable):
+        self._engine.add_before_evaluation_notification(fn)
+
+    def add_after_evaluation_notification(self, fn: callable):
+        self._engine.add_after_evaluation_notification(fn)
+
+    def add_life_cycle_observer(self, observer: EvaluationLifeCycleObserver):
+        self._engine.add_life_cycle_observer(observer)
+
+    def remove_life_cycle_observer(self, observer: EvaluationLifeCycleObserver):
+        self._engine.remove_life_cycle_observer(observer)
+
+    def advance_engine_time(self):
+        self._engine.advance_engine_time()
+
+    def notify_before_evaluation(self):
+        self._engine.notify_before_evaluation()
+
+    def notify_after_evaluation(self):
+        self._engine.notify_after_evaluation()
+
+    def notify_before_graph_evaluation(self, graph: "Graph"):
+        self._engine.notify_before_graph_evaluation(graph)
+
+    def notify_after_graph_evaluation(self, graph: "Graph"):
+        self._engine.notify_after_graph_evaluation(graph)
+
+    def notify_before_node_evaluation(self, node: "Node"):
+        self._engine.notify_before_node_evaluation(node)
+
+    def notify_after_node_evaluation(self, node: "Node"):
+        self._engine.notify_after_node_evaluation(node)
+
+    def notify_before_start_graph(self, graph: "Graph"):
+        self._engine.notify_before_start_graph(graph)
+
+    def notify_after_start_graph(self, graph: "Graph"):
+        self._engine.notify_after_start_graph(graph)
+
+    def notify_before_stop_graph(self, graph: "Graph"):
+        self._engine.notify_before_stop_graph(graph)
+
+    def notify_after_stop_graph(self, graph: "Graph"):
+        self._engine.notify_after_stop_graph(graph)
+
+    def notify_before_start_node(self, node: "Node"):
+        self._engine.notify_before_start_node(node)
+
+    def notify_after_start_node(self, node: "Node"):
+        self._engine.notify_after_start_node(node)
+
+    def notify_before_stop_node(self, node: "Node"):
+        self._engine.notify_before_stop_node(node)
+
+    def notify_after_stop_node(self, node: "Node"):
+        self._engine.notify_after_stop_node(node)
+
+
+

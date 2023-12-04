@@ -194,8 +194,8 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         the kwargs provided.
         # TODO: support k: REMOVE semantics to remove a value from the bundle?
         """
-        self._validate_kwargs(**kwargs)
-        value = self.__class__[self.__schema__]()
+        self._validate_kwargs(self.__schema__, **kwargs)
+        value = self.__class__[self.__schema__](self.__schema__)
         value._ts_values = self._ts_values | kwargs
 
     @property

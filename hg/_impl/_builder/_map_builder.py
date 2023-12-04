@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Mapping, cast
 
 from hg._builder._node_builder import NodeBuilder
 from hg._impl._runtime._map_node import PythonMapNodeImpl
@@ -28,7 +28,8 @@ class PythonMapNodeBuilder(NodeBuilder):
         )
 
         if self.input_builder:
-            ts_input: TimeSeriesBundleInput = self.input_builder.make_instance(owning_node=node)
+            ts_input: TimeSeriesBundleInput = cast(TimeSeriesBundleInput,
+                                                   self.input_builder.make_instance(owning_node=node))
             node.input = ts_input
 
         if self.output_builder:

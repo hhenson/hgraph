@@ -121,8 +121,12 @@ class NodeImpl(Node):
         for k, s in self.scalars.items():
             if isinstance(s, Injector):
                 extras[k] = s(self)
-        self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
-                        k in self.signature.args}
+        try:
+            self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
+                            k in self.signature.args}
+        except:
+            print("Except")
+            raise
 
     def _initialise_inputs(self):
         if self.input:

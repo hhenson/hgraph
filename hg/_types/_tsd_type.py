@@ -167,6 +167,7 @@ class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K,
     def __getitem__(self, item):
         return self._ts_values[item]
 
+
 class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[K, V]):
     """
     The TSD output
@@ -176,6 +177,9 @@ class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[
         Generic.__init__(self)
         TimeSeriesDict.__init__(self, __key_set__, __key_tp__, __value_tp__)
         TimeSeriesOutput.__init__(self)
+
+    def __setitem__(self, key: K, value: V):
+        self._ts_values[key] = value
 
     value: frozendict
 

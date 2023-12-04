@@ -18,7 +18,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
     # if the component wrapped is a graph. This would have multiple dependencies and having the stubs in once
     # place at the start of the graph is better. Using references makes this reasonably light weights with
     # minimal overhead.
-    ref_tp = tp if type(tp) is HgREFTypeMetaData else HgREFTypeMetaData(tp)
+    ref_tp = tp if type(tp) is HgREFTypeMetaData or key in ('key', 'ndx') else HgREFTypeMetaData(tp)
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
         name=f"stub:{key}",

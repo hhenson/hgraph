@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Any, TypeVar, Mapping, TYPE_CHECKING, cast, Optional
+from typing import Callable, Any, TypeVar, Mapping, TYPE_CHECKING, cast
 
 from hg._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -38,17 +38,17 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         from hg._impl._builder._map_builder import PythonMapNodeBuilder
-
         inner_graph = _wire_inner_graph(self.fn, self.signature.map_fn_signature, scalars, self.signature)
         input_node_ids = {}
         output_node_id = None
         STUB_PREFIX = "stub:"
         STUB_PREFIX_LEN = len(STUB_PREFIX)
         for node_builder in inner_graph.node_builders:
-            if node_signature.name.startswith(STUB_PREFIX):
-                if (arg := node_signature.name[STUB_PREFIX_LEN:]) in node_signature.time_series_inputs:
+            if (inner_node_signature := node_builder.signature).name.startswith(STUB_PREFIX):
+                if (arg := inner_node_signature.name[STUB_PREFIX_LEN:]) in node_signature.time_series_inputs \
+                        or arg == 'key':
                     input_node_ids[arg] = node_builder.node_ndx
-                if arg == "__output__":
+                elif arg == "__out__":
                     output_node_id = node_builder.node_ndx
         input_builder, output_builder = self.create_input_output_builders(node_signature)
         return PythonMapNodeBuilder(node_ndx, node_signature, scalars, input_builder, output_builder, inner_graph,
@@ -73,7 +73,7 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
 
 
 def _wire_inner_graph(fn: WiringNodeClass, signature: WiringNodeSignature, scalars: Mapping[str, Any],
-                      outer_wiring_node_signature: WiringNodeSignature) -> "GraphBuilder":
+                      outer_wiring_node_signature: TsdMapWiringSignature) -> "GraphBuilder":
     """
     Wire the inner function using stub inputs and wrap stub outputs.
     """
