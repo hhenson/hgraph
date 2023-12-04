@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Callable, cast, TYPE_CHECKING, List
 
-__all__ = ("map_", "pass_through", "no_key", "reduce")
-
 from frozendict import frozendict
 
 from hg._types._ref_meta_data import HgREFTypeMetaData
@@ -29,8 +27,12 @@ from hg._wiring._wiring_errors import CustomMessageWiringError
 if TYPE_CHECKING:
     pass
 
+
+__all__ = ("map_", "pass_through", "no_key", "reduce", "KEYS_ARG")
+
+
 _INDEX = "__index__"
-_KEYS = '__keys__'
+KEYS_ARG = '__keys__'
 _KEY_ARG = "__key_arg__"
 
 
@@ -163,12 +165,12 @@ def _build_map_wiring_node_and_inputs(
     match map_type:
         case "TSD":
             if __keys__ is not None:
-                kwargs_[_KEYS] = __keys__
+                kwargs_[KEYS_ARG] = __keys__
             else:
                 from hg.nodes import union_
-                kwargs_[_KEYS] = (
+                kwargs_[KEYS_ARG] = (
                     __keys__ := union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args)))
-            input_types = input_types | {_KEYS: __keys__.output_type}
+            input_types = input_types | {KEYS_ARG: __keys__.output_type}
             map_wiring_node = _create_tsd_map_wiring_node(fn, kwargs_, input_types, multiplex_args, no_key_args,
                                                           input_key_tp, input_key_name if input_has_key_arg else None)
         case "TSL":
@@ -316,7 +318,7 @@ def _prepare_stub_inputs(
         if key in multiplex_args or key in no_key_args:
             arg: HgTSDTypeMetaData | HgTSLTypeMetaData
             call_kwargs[key] = stub_wiring_port(arg.value_tp)
-        elif key in (_KEYS, _INDEX):
+        elif key in (KEYS_ARG, _INDEX):
             continue
         elif arg.is_scalar:
             call_kwargs[key] = kwargs_[key]
@@ -356,7 +358,7 @@ def _create_tsd_map_wiring_node(
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
     reference_inputs = frozendict(
-        {k: _as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _KEYS else v for
+        {k: _as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG else v for
          k, v in input_types.items()})
 
     # NOTE: The wrapper node does not need to sets it valid and tick to that of the underlying node, it just
@@ -371,8 +373,8 @@ def _create_tsd_map_wiring_node(
         output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type)) \
             if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
-        active_inputs=frozenset({_KEYS, }) if (has_keys := _KEYS in input_types) else multiplex_args,
-        valid_inputs=frozenset({_KEYS, }) if has_keys else frozenset(),
+        active_inputs=frozenset({KEYS_ARG, }) if (has_keys := KEYS_ARG in input_types) else multiplex_args,
+        valid_inputs=frozenset({KEYS_ARG, }) if has_keys else frozenset(),
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         uses_scheduler=False,

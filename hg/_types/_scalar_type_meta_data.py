@@ -185,11 +185,13 @@ class HgInjectableType(HgScalarTypeMetaData):
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         value_tp = value if isinstance(value, type) else type(value)
-        from hg._runtime._execution_context import ExecutionContext
+        from hg._runtime._evaluation_clock import EvaluationClock
         from hg._types._time_series_types import OUTPUT_TYPE
+        from hg._runtime._evaluation_engine import EvaluationEngineApi
         from hg._runtime._node import SCHEDULER
         return {
-            ExecutionContext: lambda: HgExecutionContextType(),
+            EvaluationClock: lambda: HgEvaluationClockType(),
+            EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
             STATE: lambda: HgStateType(),
             OUTPUT_TYPE: lambda: HgOutputType(),
             SCHEDULER: lambda: HgSchedulerType(),
@@ -204,14 +206,24 @@ class Injector:
         return self.fn(*args, **kwargs)
 
 
-class HgExecutionContextType(HgInjectableType):
+class HgEvaluationClockType(HgInjectableType):
     def __init__(self):
-        from hg._runtime import ExecutionContext
-        super().__init__(ExecutionContext)
+        from hg._runtime import EvaluationClock
+        super().__init__(EvaluationClock)
 
     @property
     def injector(self):
-        return Injector(lambda node: node.graph.context)
+        return Injector(lambda node: node.graph.evaluation_clock)
+
+
+class HgEvaluationEngineApiType(HgInjectableType):
+    def __init__(self):
+        from hg._runtime._evaluation_engine import EvaluationEngineApi
+        super().__init__(EvaluationEngineApi)
+
+    @property
+    def injector(self):
+        return Injector(lambda node: node.graph.evaluation_engine_api)
 
 
 class HgStateType(HgInjectableType):

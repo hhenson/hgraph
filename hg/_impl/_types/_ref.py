@@ -136,7 +136,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         peer = self.do_bind_output(value)
 
         if self.owning_node.is_started and self._output and self._output.valid:
-            self._sample_time = self.owning_graph.context.current_engine_time
+            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
                 self.owning_node.notify()
 
@@ -148,7 +148,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         else:
             self._value = PythonTimeSeriesReference(output)
             self.owning_node.notify()
-            self._sample_time = self.owning_graph.context.current_engine_time if self.owning_node.is_started else MIN_ST  # TODO: what are we supposed to do in a branch?
+            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST  # TODO: what are we supposed to do in a branch?
             return False
 
     def __getitem__(self, item):
@@ -179,7 +179,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         elif self._items:
             return any(i.modified for i in self._items)
         else:
-            return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time
+            return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.evaluation_clock.evaluation_time
 
     @property
     def valid(self) -> bool:

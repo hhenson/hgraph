@@ -1,16 +1,16 @@
 from datetime import datetime
 from typing import Any
 
-from hg import sink_node, TIME_SERIES_TYPE, ExecutionContext, GlobalState, STATE
+from hg import sink_node, TIME_SERIES_TYPE, EvaluationClock, GlobalState, STATE
 
 
 @sink_node
 def record(ts: TIME_SERIES_TYPE, label: str = "out", record_delta_values: bool = True,
-           context: ExecutionContext = None, state: STATE = None):
+           context: EvaluationClock = None, state: STATE = None):
     """
     This node will record the values of the time series into the provided list.
     """
-    state.record_value.append((context.current_engine_time,
+    state.record_value.append((context.evaluation_time,
                                ts.delta_value if record_delta_values else ts.value))
 
 

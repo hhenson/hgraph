@@ -84,7 +84,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             peer = self.do_bind_output(value)
 
         if self.owning_node.is_started and self._output and self._output.valid:
-            self._sample_time = self.owning_graph.context.current_engine_time
+            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
                 self.owning_node.notify()  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
 
@@ -125,7 +125,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def _sampled(self) -> bool:
-        return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.context.current_engine_time
+        return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.evaluation_clock.evaluation_time
 
     @property
     def valid(self) -> bool:

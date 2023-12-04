@@ -1,8 +1,8 @@
-from hg import sink_node, TIME_SERIES_TYPE, ExecutionContext
+from hg import sink_node, TIME_SERIES_TYPE, EvaluationClock
 
 
 @sink_node
-def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, context: ExecutionContext = None):
+def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, context: EvaluationClock = None):
     """
     Use this to help debug code, this will print the value of the supplied time-series to the standard out.
     It will include the engine time in the print. Do not leave these lines in production code.
@@ -16,4 +16,4 @@ def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, cont
         value = ts.delta_value
     else:
         value = ts.value
-    print(f"[{context.wall_clock_time}][{context.current_engine_time}] {label}: {value}")
+    print(f"[{context.now}][{context.evaluation_time}] {label}: {value}")

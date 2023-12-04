@@ -145,7 +145,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     def mark_modified(self):
         super().mark_modified()
-        self.owning_graph.context.add_after_evaluation_notification(self._reset)
+        self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset)
 
     def _reset(self):
         self._added = None
@@ -200,7 +200,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
     def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         if self._output is not None:
             self._prev_output = self.output
-            self.owning_graph.context.add_after_evaluation_notification(self._reset_prev)
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_prev)
 
         return super().do_bind_output(output)
 

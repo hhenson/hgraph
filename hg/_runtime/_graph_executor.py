@@ -1,83 +1,32 @@
 import typing
 from abc import abstractmethod
 from datetime import datetime
-from enum import Enum
 
+from hg._runtime._evaluation_engine import EvaluationMode
 from hg._runtime._graph import Graph
 from hg._runtime._lifecycle import ComponentLifeCycle
 
-__all__ = ( "RunMode", "GraphEngine", "GraphEngineLifeCycleObserver")
+
+__all__ = ("GraphExecutor",)
 
 
-class RunMode(Enum):
+class GraphExecutor:
     """
-    The run mode of the engine.
+    The component responsible for executing the graph. This is the master run loop engine and provides functionality
+    for evaluation push and pull source nodes. Only the graph operated by this component can support pull source nodes.
+    Inner graphs only support pull sources nodes in their evaluation.
+
+    The entry point here is the run method. This will begin running the engine on the thread it is called on.
+    Note that the engine by default is a single threaded process. It is intended to be thread safe, that is multiple
+    engines could be operated in parallel. That said with the current limitations of the python GIL, it is not going
+    to be helpful on process bound processes. The intention is to provide a C++ implementation of the engine that
+    would be GIL free, additionally with newer versions of Python promising for GIL free execution, this may become
+    more useful in the future.
     """
-    REAL_TIME = 0
-    SIMULATION = 1
-
-
-class GraphEngineLifeCycleObserver:
-    """
-    An observer of the graph executor's life cycle.
-    """
-
-    def on_before_start(self, graph: Graph):
-        """
-        Called before the graph is started.
-        """
-
-    def on_after_start(self, graph: Graph):
-        """
-        Called after the graph is started.
-        """
-
-    def on_before_start_node(self, node):
-        """
-        Called before a node is started.
-        """
-
-    def on_after_start_node(self, node):
-        """
-        Called after a node is started.
-        """
-
-    def on_before_evaluation(self, graph: Graph):
-        """
-        Called before the graph is evaluated.
-        """
-
-    def on_before_node_evaluation(self, node):
-        """
-        Called before a node is evaluated.
-        """
-
-    def on_after_node_evaluation(self, node):
-        """
-        Called after a node is evaluated.
-        """
-
-    def on_after_evaluation(self, graph: Graph):
-        """
-        Called after the graph is evaluated.
-        """
-
-    def on_before_stop_node(self, node):
-        """
-        Called before a node is stopped.
-        """
-
-    def on_after_stop_node(self, node):
-        """
-        Called after a node is stopped.
-        """
-
-
-class GraphEngine(ComponentLifeCycle, typing.Protocol):
 
     @property
     @abstractmethod
-    def run_mode(self) -> RunMode:
+    def run_mode(self) -> EvaluationMode:
         """
         The run mode of the engine.
         """
@@ -100,25 +49,25 @@ class GraphEngine(ComponentLifeCycle, typing.Protocol):
 
 class GraphEngineFactory:
 
-    _graph_engine_class: typing.Optional[typing.Type[GraphEngine]] = None
+    _graph_engine_class: typing.Optional[typing.Type[GraphExecutor]] = None
 
     @staticmethod
     def default():
-        from hg._impl._runtime._graph_engine import  PythonGraphEngine
-        return PythonGraphEngine
+        from hg._impl._runtime._graph_executor import  PythonGraphExecutor
+        return PythonGraphExecutor
 
     @staticmethod
     def is_declared() -> bool:
         return GraphEngineFactory._graph_engine_class is not None
 
     @staticmethod
-    def declared() -> typing.Type[GraphEngine]:
+    def declared() -> typing.Type[GraphExecutor]:
         if GraphEngineFactory._graph_engine_class is None:
             raise RuntimeError("No graph engine type has been declared")
         return GraphEngineFactory._graph_engine_class
 
     @staticmethod
-    def declare(factory: typing.Type[GraphEngine]):
+    def declare(factory: typing.Type[GraphExecutor]):
         if GraphEngineFactory._graph_engine_class is not None:
             raise RuntimeError("A graph engine type has already been declared")
         GraphEngineFactory._graph_engine_class = factory
@@ -128,7 +77,7 @@ class GraphEngineFactory:
         GraphEngineFactory._graph_engine_class = None
 
     @staticmethod
-    def make(graph: Graph, run_mode: RunMode) -> GraphEngine:
+    def make(graph: Graph, run_mode: EvaluationMode) -> GraphExecutor:
         """
         Make a new graph engine. If no engine is declared, the default engine will be used.
         :param graph: The graph to make the engine for

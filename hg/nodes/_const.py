@@ -1,14 +1,14 @@
 from datetime import timedelta
 from typing import Type
 
-from hg import generator, SCALAR, TIME_SERIES_TYPE, ExecutionContext, TS
+from hg import generator, SCALAR, TIME_SERIES_TYPE, EvaluationClock, TS
 
 __all__ = ("const",)
 
 
 @generator
 def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedelta = timedelta(),
-          context: ExecutionContext = None) -> TIME_SERIES_TYPE:
+          context: EvaluationClock = None) -> TIME_SERIES_TYPE:
     """
     Produces a single tick at the start of the graph evaluation after which this node does nothing.
 
@@ -19,4 +19,4 @@ def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedel
     :param context: The execution context.
     :return: A single tick of the value supplied.
     """
-    yield context.current_engine_time + delay, value
+    yield context.evaluation_time + delay, value

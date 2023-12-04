@@ -2,17 +2,18 @@ import typing
 from abc import abstractmethod
 from datetime import datetime
 
-from hg._runtime._execution_context import ExecutionContext
 from hg._runtime._lifecycle import ComponentLifeCycle
 
 if typing.TYPE_CHECKING:
     from hg._runtime._node import Node
+    from hg._runtime._evaluation_clock import EvaluationClock, EngineEvaluationClock
+    from hg._runtime._evaluation_engine import EvaluationEngineApi, EvaluationEngine
 
 
 __all__ = ("Graph",)
 
 
-class Graph(ComponentLifeCycle, typing.Protocol):
+class Graph(ComponentLifeCycle):
     """ The runtime graph """
 
     @property
@@ -27,15 +28,32 @@ class Graph(ComponentLifeCycle, typing.Protocol):
 
     @property
     @abstractmethod
-    def context(self) -> ExecutionContext:
+    def evaluation_clock(self) -> "EvaluationClock":
         """The execution context"""
 
-    @context.setter
+    @property
     @abstractmethod
-    def context(self, value):
+    def engine_evaluation_clock(self) -> "EngineEvaluationClock":
+        """The engine execution context"""
+
+    @property
+    @abstractmethod
+    def evaluation_engine_api(self) -> "EvaluationEngineApi":
+        """ The evaluation engine api """
+
+
+    @property
+    @abstractmethod
+    def evaluation_engine(self) -> "EvaluationEngine":
         """
-        Set the execution context. This should only be done by the graph engine.
+        This should not be accessed by the user, they should
+        instead use the evaluation_engine_api property.
         """
+
+    @evaluation_engine.setter
+    @abstractmethod
+    def evaluation_engine(self, value: "EvaluationEngine"):
+        """ Set the evaluation engine """
 
     @property
     @abstractmethod
@@ -50,3 +68,10 @@ class Graph(ComponentLifeCycle, typing.Protocol):
     @abstractmethod
     def schedule(self) -> list[datetime, ...]:
         """The schedule of the graph"""
+
+    @abstractmethod
+    def evaluate_graph(self):
+        """
+        Perform a single cycle of evaluation of this graph.
+        This will evaluate all nodes that are scheduled to evaluate at the current evaluation time.
+        """

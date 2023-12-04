@@ -25,8 +25,8 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
 
     @property
     def modified(self) -> bool:
-        context = self.owning_graph.context
-        return context.current_engine_time == self._last_modified_time
+        context = self.owning_graph.evaluation_clock
+        return context.evaluation_time == self._last_modified_time
 
     @property
     def last_modified_time(self) -> datetime:
@@ -37,8 +37,8 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
         self._notify()
 
     def mark_modified(self):
-        context = self.owning_graph.context
-        et = context.current_engine_time
+        context = self.owning_graph.evaluation_clock
+        et = context.evaluation_time
         if self._last_modified_time < et:
             self._last_modified_time = et
             if self._parent_output is not None:

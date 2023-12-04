@@ -8,8 +8,11 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hg import ExecutionContext, MIN_DT, MAX_DT, MIN_ST, start_guard, stop_guard
-from hg._runtime import NodeSignature, Graph, NodeScheduler
+from hg import EngineEvaluationClock
+from hg._runtime._constants import MIN_DT, MAX_DT, MIN_ST
+from hg._runtime._graph import Graph
+from hg._runtime._lifecycle import start_guard, stop_guard
+from hg._runtime._node import NodeSignature, Node, NodeScheduler
 
 if TYPE_CHECKING:
     from hg._types._ts_type import TimeSeriesInput, TimeSeriesOutput
@@ -18,30 +21,79 @@ if TYPE_CHECKING:
 __all__ = ("NodeImpl",)
 
 
-@dataclass
-class NodeImpl:  # Node
+class NodeImpl(Node):
     """
     Provide a basic implementation of the Node as a reference implementation.
     """
-    node_ndx: int
-    owning_graph_id: tuple[int, ...]
-    signature: NodeSignature
-    scalars: Mapping[str, Any]
-    graph: Graph = None
-    eval_fn: Callable = None
-    start_fn: Callable = None
-    stop_fn: Callable = None
-    input: Optional["TimeSeriesBundleInput"] = None
-    output: Optional["TimeSeriesOutput"] = None
-    is_starting: bool = False
-    is_started: bool = False
-    _scheduler: Optional["NodeSchedulerImpl"] = None
-    _kwargs: dict[str, Any] = None
+
+    def __init__(self,
+                 node_ndx: int,
+                 owning_graph_id:
+                 tuple[int, ...],
+                 signature: NodeSignature,
+                 scalars: Mapping[str, Any],
+                 eval_fn: Callable = None,
+                 start_fn: Callable = None,
+                 stop_fn: Callable = None
+                 ):
+        super().__init__()
+        self._node_ndx: int = node_ndx
+        self._owning_graph_id: tuple[int, ...] = owning_graph_id
+        self._signature: NodeSignature = signature
+        self._scalars: Mapping[str, Any] = scalars
+        self._graph: Graph = None
+        self.eval_fn: Callable = eval_fn
+        self.start_fn: Callable = start_fn
+        self.stop_fn: Callable = stop_fn
+        self._input: Optional["TimeSeriesBundleInput"] = None
+        self._output: Optional["TimeSeriesOutput"] = None
+        self._scheduler: Optional["NodeSchedulerImpl"] = None
+        self._kwargs: dict[str, Any] = None
+
+    @property
+    def node_ndx(self) -> int:
+        return self._node_ndx
+
+    @property
+    def owning_graph_id(self) -> tuple[int, ...]:
+        return self._owning_graph_id
+
+    @property
+    def signature(self) -> NodeSignature:
+        return self._signature
+
+    @property
+    def scalars(self) -> Mapping[str, Any]:
+        return self._scalars
 
     @functools.cached_property
     def node_id(self) -> tuple[int, ...]:
         """ Computed once and then cached """
         return self.owning_graph_id + tuple([self.node_ndx])
+
+    @property
+    def graph(self) -> "Graph":
+        return self._graph
+
+    @graph.setter
+    def graph(self, value: "Graph"):
+        self._graph = value
+
+    @property
+    def input(self) -> Optional["TimeSeriesBundleInput"]:
+        return self._input
+
+    @input.setter
+    def input(self, value: "TimeSeriesBundleInput"):
+        self._input = value
+
+    @property
+    def output(self) -> Optional["TimeSeriesOutput"]:
+        return self._output
+
+    @output.setter
+    def output(self, value: "TimeSeriesOutput"):
+        self._output = value
 
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
@@ -123,7 +175,7 @@ class NodeImpl:  # Node
     def notify(self):
         """Notify the graph that this node needs to be evaluated."""
         if self.is_started or self.is_starting:
-           self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
+            self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
         else:
             self.scheduler.schedule(when=MIN_ST, tag="start")
 
@@ -145,7 +197,8 @@ class NodeSchedulerImpl(NodeScheduler):
 
     @property
     def is_scheduled_now(self) -> bool:
-        return self._scheduled_events and self._scheduled_events[0][0] == self._node.graph.context.current_engine_time
+        return self._scheduled_events and self._scheduled_events[0][
+            0] == self._node.graph.evaluation_clock.evaluation_time
 
     def has_tag(self, tag: str) -> bool:
         return tag in self._tags
@@ -163,8 +216,9 @@ class NodeSchedulerImpl(NodeScheduler):
             if tag in self._tags:
                 self._scheduled_events.remove((self._tags[tag], tag))
         if type(when) is timedelta:
-            when = self._node.graph.context.current_engine_time + when
-        if when > (self._node.graph.context.current_engine_time if (is_stated := self._node.is_started) else MIN_DT):
+            when = self._node.graph.evaluation_clock.evaluation_time + when
+        if when > (
+                self._node.graph.evaluation_clock.evaluation_time if (is_stated := self._node.is_started) else MIN_DT):
             self._tags[tag] = when
             current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
             self._scheduled_events.add((when, "" if tag is None else tag))
@@ -184,26 +238,29 @@ class NodeSchedulerImpl(NodeScheduler):
         self._tags.clear()
 
     def advance(self):
-        until = self._node.graph.context.current_engine_time
+        until = self._node.graph.evaluation_clock.evaluation_time
         while self._scheduled_events and self._scheduled_events[0][0] <= until:
             self._scheduled_events.pop(0)
         if self._scheduled_events:
             self._node.graph.schedule_node(self._node.node_ndx, self._scheduled_events[0][0])
 
 
-class GeneratorNodeImpl(NodeImpl):  # Node
-    generator: Iterator = None
-    next_value: object = None
+class GeneratorNodeImpl(NodeImpl):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.generator: Iterator = None
+        self.next_value: object = None
 
     @start_guard
     def start(self):
         self._initialise_kwargs()
         self.generator = self.eval_fn(**self._kwargs)
-        self.graph.schedule_node(self.node_ndx, self.graph.context.current_engine_time)
+        self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
 
     def eval(self):
         time, out = next(self.generator, (None, None))
-        if out is not None and time is not None and time <= self.graph.context.current_engine_time:
+        if out is not None and time is not None and time <= self.graph.evaluation_clock.evaluation_time:
             self.output.apply_result(out)
             self.next_value = None
             self.eval()  # We are going to apply now! Prepare next step,
@@ -222,19 +279,22 @@ class GeneratorNodeImpl(NodeImpl):  # Node
 @dataclass
 class PythonPushQueueNodeImpl(NodeImpl):  # Node
 
-    receiver: "_SenderReceiverState" = None
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.receiver: "_SenderReceiverState" = None
 
     @start_guard
     def start(self):
         self._initialise_kwargs()
-        self.receiver = _SenderReceiverState(lock=threading.RLock(), queue=deque(), context=self.graph.context)
+        self.receiver = _SenderReceiverState(lock=threading.RLock(), queue=deque(),
+                                             evaluation_evaluation_clock=self.graph.engine_evaluation_clock)
         self.eval_fn(self.receiver, **self._kwargs)
 
     def eval(self):
         value = self.receiver.dequeue()
         if value is None:
             return
-        self.graph.context.mark_push_has_pending_values()
+        self.graph.engine_evaluation_clock.mark_push_node_requires_scheduling()
         self.output.apply_result(value)
 
     @stop_guard
@@ -247,7 +307,7 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
 class _SenderReceiverState:
     lock: threading.RLock
     queue: deque
-    context: ExecutionContext
+    evaluation_evaluation_clock: EngineEvaluationClock
     stopped: bool = False
 
     def __call__(self, value):
@@ -258,7 +318,7 @@ class _SenderReceiverState:
             if self.stopped:
                 raise RuntimeError("Cannot enqueue into a stopped receiver")
             self.queue.append(value)
-            self.context.mark_push_has_pending_values()
+            self.evaluation_evaluation_clock.mark_push_node_requires_scheduling()
 
     def dequeue(self):
         with self.lock:

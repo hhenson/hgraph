@@ -3,7 +3,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable
 
-from hg import TS, run_graph, RunMode, GlobalState, push_queue, graph
+from hg import TS, run_graph, GlobalState, push_queue, graph
+from hg._runtime._evaluation_engine import EvaluationMode
 from hg.nodes import record, get_recorded_value, const, stop_engine, eq_
 from hg.nodes._operators import if_true
 
@@ -12,6 +13,7 @@ def test_push_queue():
 
     def _sender(sender: Callable[[str], None], values: [str]):
         for value in values:
+            print("-> Sending", value)
             sender(value)
             time.sleep(0.1)
 
@@ -28,7 +30,7 @@ def test_push_queue():
     now = datetime.utcnow()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.
     GlobalState.reset()
-    run_graph(main, run_mode=RunMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=1))
+    run_graph(main, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=3))
     values = get_recorded_value()
     # The exact timings are not that important.
     assert [v[1] for v in values] == ["1", "2", "3"]

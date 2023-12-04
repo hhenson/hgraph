@@ -1,11 +1,12 @@
 import typing
+from abc import abstractmethod
 from contextlib import contextmanager
 from functools import wraps
 
-__all__ = ("ComponentLifeCycle", "start_guard", "stop_guard", "start_stop_context")
+__all__ = ("ComponentLifeCycle", "start_guard", "stop_guard", "start_stop_context", "initialise_dispose_context")
 
 
-class ComponentLifeCycle(typing.Protocol):
+class ComponentLifeCycle:
     """
     The Life-cycle and associated method calls are as follows:
 
@@ -24,6 +25,10 @@ class ComponentLifeCycle(typing.Protocol):
           full clean-up is called only on dispose.
     """
 
+    def __init__(self):
+        self._started : bool= False
+        self._transitioning: bool = False
+
     def initialise(self):
         """
         Called once the component has been constructed and prepared.
@@ -36,7 +41,17 @@ class ComponentLifeCycle(typing.Protocol):
     @property
     def is_started(self) -> bool:
         """Has this component been started already"""
-        return False
+        return self._started
+
+    @property
+    def is_starting(self) -> bool:
+        """Is this component in the process of starting"""
+        return self._transitioning and not self._started
+
+    @property
+    def is_stopping(self) -> bool:
+        """Is this component in the process of stopping"""
+        return self._transitioning and self._started
 
     def start(self):
         """
@@ -72,15 +87,16 @@ def start_guard(fn):
     sets the is_stated property once started.
     """
     @wraps(fn)
-    def _start(self):
-        if self.is_started:
+    def _start(self: ComponentLifeCycle):
+        if self._started:
             return
 
-        self.is_starting = True
-        fn(self)
-
-        self.is_started = True
-        self.is_starting = False
+        try:
+            self._transitioning = True
+            fn(self)
+            self._started = True
+        finally:
+            self._transitioning = False
 
     return _start
 
@@ -92,13 +108,16 @@ def stop_guard(fn):
     """
 
     @wraps(fn)
-    def _stop(self):
-        if not self.is_started:
+    def _stop(self: ComponentLifeCycle):
+        if not self._started:
             return
 
-        fn(self)
-
-        self.is_started = False
+        try:
+            self._transitioning = True
+            fn(self)
+            self._started = False
+        finally:
+            self._transitioning = False
 
     return _stop
 
@@ -116,3 +135,15 @@ def start_stop_context(component: LIFE_CYCLABLE) -> LIFE_CYCLABLE:
         yield component
     finally:
         component.stop()
+
+
+@contextmanager
+def initialise_dispose_context(component: LIFE_CYCLABLE) -> LIFE_CYCLABLE:
+    """
+    Use the context manager to ensure that the component is initialised and disposed correctly.
+    """
+    try:
+        component.initialise()
+        yield component
+    finally:
+        component.dispose()

@@ -1,27 +1,61 @@
 import functools
-from dataclasses import dataclass, field
 from datetime import datetime
 
 from hg._runtime._constants import MIN_DT
-from hg._runtime._execution_context import ExecutionContext
+from hg._runtime._evaluation_clock import EvaluationClock
+from hg._runtime._evaluation_engine import EvaluationEngine, EvaluationEngineApi
 from hg._runtime._graph import Graph
 from hg._runtime._lifecycle import start_guard, stop_guard
 from hg._runtime._node import NodeTypeEnum, Node
 
-__all__ = ("GraphImpl",)
+__all__ = ("PythonGraph",)
 
 
-@dataclass
-class GraphImpl:  # (Graph):
+class PythonGraph(Graph):
     """
     Provide a reference implementation of the Graph.
     """
 
-    graph_id: tuple[int, ...]
-    nodes: tuple[Node, ...]  # The nodes of the graph.
-    context: ExecutionContext = None
-    is_started: bool = False
-    schedule: list[datetime, ...] = field(default_factory=list)
+    def __init__(self, graph_id: tuple[int, ...], nodes: tuple[Node, ...]):
+        super().__init__()
+        self._graph_id: tuple[int, ...] = graph_id
+        self._nodes: tuple[Node, ...] = nodes
+        self._schedule: list[datetime, ...] = [MIN_DT] * len(nodes)
+        self._evaluation_engine: EvaluationEngine = None
+
+    @property
+    def graph_id(self) -> tuple[int, ...]:
+        return self._graph_id
+
+    @property
+    def nodes(self) -> tuple[Node, ...]:
+        return self._nodes
+
+    @property
+    def evaluation_clock(self) -> EvaluationClock:
+        return self._evaluation_engine.evaluation_clock
+
+    @property
+    def engine_evaluation_clock(self) -> "EngineEvaluationClock":
+        return self._evaluation_engine.engine_evaluation_clock
+
+    @property
+    def evaluation_engine_api(self) -> EvaluationEngineApi:
+        return self._evaluation_engine
+
+    @property
+    def evaluation_engine(self) -> EvaluationEngine:
+        return self._evaluation_engine
+
+    @evaluation_engine.setter
+    def evaluation_engine(self, value):
+        if self._evaluation_engine is not None and value is not None:
+            raise RuntimeError("Duplicate attempt to set evaluation engine")
+        self._evaluation_engine = value
+
+    @property
+    def schedule(self) -> list[datetime, ...]:
+        return self._schedule
 
     @functools.cached_property
     def push_source_nodes_end(self) -> int:
@@ -32,29 +66,63 @@ class GraphImpl:  # (Graph):
         return len(self.nodes)  # In the very unlikely event that there are only push source nodes.
 
     def initialise(self):
-        self.schedule = [MIN_DT] * len(self.nodes)
         for node in self.nodes:
             node.graph = self
         for node in self.nodes:
             node.initialise()
 
     def schedule_node(self, node_ndx, time):
-        if time < self.context.current_engine_time:
+        clock = self._evaluation_engine.engine_evaluation_clock
+        if time < clock.evaluation_time:
             raise RuntimeError(
                 f"Graph[{self.graph_id}] Trying to schedule node: {self.nodes[node_ndx].signature.signature}[{node_ndx}]"
-                f" for {time} but current time is {self.context.current_engine_time}")
+                f" for {time} but current time is {self.evaluation_clock.evaluation_time}")
         self.schedule[node_ndx] = time
-        self.context.update_next_proposed_time(time)
+        clock.update_next_scheduled_evaluation_time(time)
 
     @start_guard
     def start(self):
-        for node in self.nodes:
+        engine = self._evaluation_engine
+        engine.notify_before_start_graph(self)
+        for node in self._nodes:
+            engine.notify_before_start_node(node)
             node.start()
+            engine.notify_after_start_node(node)
+        engine.notify_after_start_graph(self)
 
     @stop_guard
     def stop(self):
-        for node in self.nodes:
+        engine = self._evaluation_engine
+        engine.notify_before_stop_graph(self)
+        for node in self._nodes:
+            engine.notify_before_stop_node(node)
             node.stop()
+            engine.notify_before_start_node(node)
+        engine.notify_after_stop_graph(self)
 
     def dispose(self):
         ...
+
+    def evaluate_graph(self):
+        self._evaluation_engine.notify_before_graph_evaluation(self)
+
+        now = (clock := self._evaluation_engine.engine_evaluation_clock).evaluation_time
+        nodes = self._nodes
+        schedule = self._schedule
+
+        if clock.push_node_requires_scheduling:
+            clock.reset_push_node_requires_scheduling()
+            for i in range(self.push_source_nodes_end):
+                nodes[i].eval()  # This is only to move nodes on, won't call the before and after node eval here
+
+        for i in range(self.push_source_nodes_end, len(nodes)):
+            scheduled_time, node = schedule[i], nodes[i]
+            if scheduled_time == now:
+                self._evaluation_engine.notify_before_node_evaluation(node)
+                node.eval()
+                self._evaluation_engine.notify_after_node_evaluation(node)
+            elif scheduled_time > now:
+                # If the node has a scheduled time in the future, we need to let the execution context know.
+                clock.update_next_scheduled_evaluation_time(scheduled_time)
+
+        self._evaluation_engine.notify_after_graph_evaluation(self)

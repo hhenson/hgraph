@@ -1,8 +1,9 @@
-from hg import sink_node, ExecutionContext, SIGNAL
+from hg import sink_node, SIGNAL, EvaluationEngineApi
 
 
 @sink_node
-def stop_engine(ts: SIGNAL, msg: str = "Stopping", execution_context: ExecutionContext = None):
+def stop_engine(ts: SIGNAL, msg: str = "Stopping", evaluation_engine_api: EvaluationEngineApi = None):
     """ Stops the engine """
-    print(f"[{execution_context.wall_clock_time}][{execution_context.current_engine_time}] stop_engine: {msg}")
-    execution_context.request_engine_stop()
+    print(
+        f"[{evaluation_engine_api.evaluation_clock.now}][{evaluation_engine_api.evaluation_clock.evaluation_time}] stop_engine: {msg}")
+    evaluation_engine_api.request_engine_stop()

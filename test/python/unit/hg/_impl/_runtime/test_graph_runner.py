@@ -1,4 +1,5 @@
-from hg import graph, run_graph, RunMode, compute_node, TS, TIME_SERIES_TYPE
+from hg import graph, run_graph, compute_node, TS, TIME_SERIES_TYPE
+from hg._runtime._evaluation_engine import EvaluationMode
 from hg.nodes import const, write_str
 from hg.nodes._print import debug_print
 
@@ -10,7 +11,7 @@ def test_hello_world():
         c = const("Hello World")
         write_str(c)
 
-    run_graph(hello_world, run_mode=RunMode.SIMULATION)
+    run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)
 
 
 def test_compute_node():
@@ -25,4 +26,4 @@ def test_compute_node():
         t = tick(c)
         debug_print("t", t)
 
-    run_graph(hello_world, run_mode=RunMode.SIMULATION)
+    run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)

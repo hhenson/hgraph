@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from hg._builder._graph_builder import GraphBuilder
-from hg._impl._runtime._graph import GraphImpl
+from hg._impl._runtime._graph import PythonGraph
 from hg._runtime._graph import Graph
 from hg._runtime._node import Node
 
@@ -45,7 +45,7 @@ class PythonGraphBuilder(GraphBuilder):
             input_.bind_output(output)
         # for node in nodes:  # TODO: I think we want to initialise the nodes once wiring is complete but not sure, need to think about this
         #     node.initialise()  # AB: I it would be nice to initialise the nodes once they are in a graph i.e. from within the graph's initialise?
-        return GraphImpl(graph_id=graph_id, nodes=tuple(nodes))
+        return PythonGraph(graph_id=graph_id, nodes=tuple(nodes))
 
     def release_instance(self, item: Graph):
         for node, node_builder in zip(item.nodes, self.node_builders):

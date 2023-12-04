@@ -2,13 +2,13 @@ from datetime import datetime
 from typing import Callable
 
 from hg._runtime._constants import MIN_ST, MAX_ET
-from hg._runtime._graph_engine import RunMode, GraphEngineFactory
-
+from hg._runtime._graph_executor import GraphEngineFactory
+from hg._runtime._evaluation_engine import EvaluationMode
 
 __all__ = ("run_graph",)
 
 
-def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.SIMULATION, start_time: datetime = MIN_ST,
+def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION, start_time: datetime = MIN_ST,
               end_time: datetime = MAX_ET, print_progress: bool=True, **kwargs):
     """
     Use this to initiate the graph engine run loop.
@@ -38,14 +38,14 @@ def run_graph(graph: Callable, *args, run_mode: RunMode = RunMode.SIMULATION, st
     if print_progress:
         print(f"Initialising Graph Engine")
     engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
-    engine.initialise()
-    try:
-        if print_progress:
-            print(f"Running Graph from: {start_time} to {end_time}")
-        engine.run(start_time, end_time)
-        if print_progress:
-            print(f"Graph Complete")
-    finally:
-        engine.dispose()
+
+    if print_progress:
+        print(f"Running Graph from: {start_time} to {end_time}")
+
+    engine.run(start_time, end_time)
+
+    if print_progress:
+        print(f"Graph Complete")
+
     if print_progress:
         print("Done")

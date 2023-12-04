@@ -84,7 +84,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
                     observer.on_key_added(k)
             self[k].apply_result(v)
         if self._removed_items or self._added_keys:
-            self.owning_graph.context.add_after_evaluation_notification(self._clear_key_changes)
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
     def _clear_key_changes(self):
         self._removed_items = {}
@@ -152,14 +152,14 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         if self.owning_node.is_started and self.output:
             self.output.remove_key_observer(self)
             self._prev_output = self._output
-            self.owning_graph.context.add_after_evaluation_notification(self._reset_prev)
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_prev)
 
         super().do_bind_output(output)
 
         if self._ts_values:
             self._removed_items = self._ts_values
             self._ts_values = {}
-            self.owning_graph.context.add_after_evaluation_notification(self._clear_key_changes)
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
         for key in key_set.values():
             self.on_key_added(key)
@@ -178,7 +178,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def on_key_removed(self, key: K):
         if not self._removed_items:
-            self.owning_graph.context.add_after_evaluation_notification(self._clear_key_changes)
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
         value = self._ts_values.pop(key)
         if value.active:
             value.make_passive()

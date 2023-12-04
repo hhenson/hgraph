@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 from datetime import datetime
 from typing import Iterable, Any, Protocol
 
-from hg import generator, TIME_SERIES_TYPE, ExecutionContext, MIN_TD, MIN_ST, GlobalState
+from hg import generator, TIME_SERIES_TYPE, EvaluationClock, MIN_TD, MIN_ST, GlobalState
 
 
 class ReplaySource(Protocol):
@@ -37,7 +37,7 @@ def set_replay_values(label: str, value: ReplaySource):
 
 
 @generator
-def replay(label: str, tp: type[TIME_SERIES_TYPE], context: ExecutionContext = None) -> TIME_SERIES_TYPE:
+def replay(label: str, tp: type[TIME_SERIES_TYPE], context: EvaluationClock = None) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
     The type of the elements of the sequence must be a delta value of the time series type.

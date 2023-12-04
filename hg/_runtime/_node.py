@@ -49,7 +49,7 @@ class NodeSignature:
         return f"{self.name}({', '.join(args)}){return_}"
 
 
-class Node(ComponentLifeCycle, Protocol):
+class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
@@ -119,6 +119,13 @@ class Node(ComponentLifeCycle, Protocol):
         collection of inputs that are of time-series types.
         """
 
+    @input.setter
+    @abstractmethod
+    def input(self, value: "TimeSeriesBundleInput"):
+        """
+        This should only be set by the owning graph or a very clever manager.
+        """
+
     @property
     @abstractmethod
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
@@ -133,13 +140,18 @@ class Node(ComponentLifeCycle, Protocol):
         The output of this node. This could be a TimeSeriesBundleOutput or a single output value.
         """
 
+    @output.setter
+    @abstractmethod
+    def output(self, value: "TimeSeriesOutput"):
+        """
+        This should only be set by the owning graph or a very clever manager.
+        """
+
     @property
     @abstractmethod
     def outputs(self) -> Optional[Mapping[str, "TimeSeriesOutput"]]:
         """
-        The outputs of the node. If the node has a single defined output then this is just {"out": Output},
-        however if the node was defined with multiple outputs using the "un-named bundle" dictionary format,
-        then these are the outputs defined by the dictionary definition.
+        The should only be set by the creating graph.
         """
 
     @property

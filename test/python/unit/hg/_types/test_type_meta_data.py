@@ -7,7 +7,7 @@ from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
 import pytest
 
 from hg import SIZE, Size
-from hg._runtime import ExecutionContext
+from hg._runtime import EvaluationClock
 from hg._types._ref_meta_data import HgREFTypeMetaData
 from hg._types._ref_type import REF
 from hg._types._ts_type import TS, TS_OUT
@@ -56,7 +56,7 @@ def test_atomic_scalars(value, expected: Type):
 @pytest.mark.parametrize(
     ["value", "expected"],
     [
-        [ExecutionContext, ExecutionContext],
+        [EvaluationClock, EvaluationClock],
     ]
 )
 def test_special_atomic_scalars(value, expected: Type):
@@ -116,7 +116,7 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
         tuple[bool, int],
         Size[2],
         type[bool],
-        ExecutionContext
+        EvaluationClock
     ]
 )
 def test_py_type(tp):
