@@ -197,6 +197,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         self._validate_kwargs(self.__schema__, **kwargs)
         value = self.__class__[self.__schema__](self.__schema__)
         value._ts_values = self._ts_values | kwargs
+        return value
 
     @property
     def parent_input(self) -> Optional["TimeSeriesInput"]:
