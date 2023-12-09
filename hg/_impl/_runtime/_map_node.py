@@ -68,12 +68,14 @@ class PythonMapNodeImpl(NodeImpl):
                  stop_fn: Callable = None,
                  nested_graph_builder: GraphBuilder = None,
                  input_node_ids: Mapping[str, int] = None,
-                 output_node_id: int = None
+                 output_node_id: int = None,
+                 multiplexed_args: frozenset[str] = None
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_ids: Mapping[str, int] = input_node_ids
         self.output_node_id: int = output_node_id
+        self.multiplexed_args: frozenset[str] = multiplexed_args
         self._scheduled_keys: dict[SCALAR, datetime] = {}
         self._active_graphs: dict[SCALAR, Graph] = {}
         self._count = 0
@@ -107,8 +109,8 @@ class PythonMapNodeImpl(NodeImpl):
         self._count += 1
         self._active_graphs[key] = graph
         graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, key, self)
-        self._wire_graph(key, graph)
         graph.initialise()
+        self._wire_graph(key, graph)
         graph.start()
         self._evaluate_graph(key)
 
@@ -126,15 +128,23 @@ class PythonMapNodeImpl(NodeImpl):
     def _wire_graph(self, key: SCALAR, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
         for arg, node_ndx in self.input_node_ids.items():
-            node: Node = graph.nodes[node_ndx]
+            node: NodeImpl = graph.nodes[node_ndx]
+            node.notify()
             if arg == 'key':
-                # node.output.value = key
-                # skip for now
-                ...
+                # The key should be a const node, then we can adjust the scalar values.
+                from hg._wiring._stub_wiring_node import KeyStubEvalFn
+                cast(KeyStubEvalFn, node.eval_fn).key = key
             else:
-                node.input = node.input.copy_with(ts=cast(TSD[str, TIME_SERIES_TYPE], self.input[arg])[
-                    key])  # This should create a phantom input if one does not exist.
+                if is_multiplexed := arg in self.multiplexed_args:  # Is this a multiplexed input?
+                    # This should create a phantom input if one does not exist.
+                    ts = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg]).get_or_create(key)
+                else:
+                    ts = self.input[arg]
+                node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+                # Now we need to re-parent the pruned ts input.
+                ts.re_parent(node.input)
 
         if self.output_node_id:
             node: Node = graph.nodes[self.output_node_id]
-            cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output)[key] = node.output
+            # Replace the nodes output with the map node's output for the key
+            node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output).get_or_create(key)

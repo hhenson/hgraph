@@ -1,22 +1,23 @@
 from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Union
 
 from hg._runtime._constants import MIN_DT
 from hg._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
+from hg._builder._node_builder import Node
 
 if TYPE_CHECKING:
-    from hg._builder._node_builder import Node
     from hg._builder._graph_builder import Graph
+    from hg._types._time_series_types import TimeSeries
 
 __all__ = ("PythonTimeSeriesInput",)
 
 
 @dataclass
 class PythonTimeSeriesInput(TimeSeriesInput, ABC):
-    _owning_node: "Node" = None
-    _parent_input: "TimeSeriesInput" = None
+    _owning_node: Optional["Node"] = None
+    _parent_input: Optional["TimeSeriesInput"] = None
 
     @property
     def owning_node(self) -> "Node":
@@ -34,6 +35,14 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
     def has_parent_input(self) -> bool:
         return self._parent_input is not None
 
+    def re_parent(self, parent: Union["Node", "TimeSeries"]):
+        if isinstance(parent, Node):
+            self._owning_node = parent
+            self._parent_input = None
+        else:
+            self._owning_node = None
+            self._parent_input = parent
+
 
 @dataclass
 class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
@@ -43,9 +52,9 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     Also for the Python implementation we can just drop the typing on the properties for value and delta_value
     and these can be supported directly.
     """
-    _output: TimeSeriesOutput = None
+    _output: TimeSeriesOutput | None = None
 
-    _reference_output: TimeSeriesOutput = None  # TODO: This might be refactored into a generic binding observer pattern
+    _reference_output: TimeSeriesOutput | None = None  # TODO: This might be refactored into a generic binding observer pattern
     # however there is no guarantee that if there were other types of observers they would not clash with the
     # references, so probably this is required to be this way. I am just a little annoyed with the growth of the object
 
@@ -72,16 +81,16 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def output(self) -> TimeSeriesOutput:
         return self._output
 
-    def bind_output(self, value: TimeSeriesOutput) -> bool:
+    def bind_output(self, output: TimeSeriesOutput) -> bool:
         from hg import TimeSeriesReferenceOutput
-        if isinstance(value, TimeSeriesReferenceOutput):
-            if value.value:
-                value.value.bind_input(self)
-            value.observe_reference(self)
-            self._reference_output = value
+        if isinstance(output, TimeSeriesReferenceOutput):
+            if output.value:
+                output.value.bind_input(self)
+            output.observe_reference(self)
+            self._reference_output = output
             peer = False
         else:
-            peer = self.do_bind_output(value)
+            peer = self.do_bind_output(output)
 
         if self.owning_node.is_started and self._output and self._output.valid:
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
@@ -89,6 +98,22 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
                 self.owning_node.notify()  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
 
         return peer
+
+    def un_bind_output(self):
+        valid = self.valid
+        if self.bound:
+            from hg import TimeSeriesReferenceOutput
+            output = self._output
+            if isinstance(output, TimeSeriesReferenceOutput):
+                output.stop_observing_reference(self)
+                self._reference_output = None
+            self.do_un_bind_output()
+
+            if self.owning_node.is_started and valid:
+                self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
+                if self.active:
+                    # Notify as the state of the node has changed from bound to un_bound
+                    self.owning_node.notify()
 
     def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         active = self.active
@@ -98,8 +123,12 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             self.make_active()  # If we were active now subscribe to the new output,
             # this is important even if we were not bound previously as this will ensure the new output gets
             # subscribed to
-
         return True
+
+    def do_un_bind_output(self):
+        if self.active:
+            self._output.un_subscribe_node(self.owning_node)
+        self._output = None
 
     @property
     def bound(self) -> bool:

@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING
+from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING, cast
 
 from frozendict import frozendict
 
+from hg._types._tss_type import TimeSeriesSetOutput
+from hg._types._scalar_types import SCALAR
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._time_series_types import K, V
@@ -33,7 +35,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)
-        __key_set__: TimeSeriesOutput
+        __key_set__: TimeSeriesSetOutput
         __key_set__._owning_node = kwargs['_owning_node']
         __key_set__._parent_output = self
         TimeSeriesDictOutput.__init__(self, __key_set__, __key_tp__, __value_tp__)
@@ -61,30 +63,45 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             ((k, v.delta_value) for k, v in self.items() if v.modified),
             ((k, REMOVE) for k in self.removed_keys())))
 
+    @value.setter
+    def value(self, v: frozendict | dict | Iterable[tuple[K, SCALAR]] | None):
+        if v is None:
+            self.invalidate()
+            return
+        # Expect a mapping of some sort or an iterable of k, v pairs
+        for k, v_ in v.items() if isinstance(v, (dict, frozendict)) else v:
+            if v_ in (REMOVE, REMOVE_IF_EXISTS):
+                if v_ is REMOVE_IF_EXISTS and k not in self._ts_values:  # is check should be faster than contains check
+                    continue
+                del self[k]
+            else:
+                self.get_or_create(k).value = v_
+        if self._removed_items or self._added_keys:
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
+
+    def __delitem__(self, k):
+        if k not in self._ts_values:
+            raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
+        self._removed_items[k] = self._ts_values.pop(k)
+        cast(TimeSeriesSetOutput, self.key_set).remove(k)
+        for observer in self._key_observers:
+            observer.on_key_removed(k)
+
+    def invalidate(self):
+        for v in self.values():
+            v.invalidate()
+        self.mark_invalid()
+
     def apply_result(self, result: Any):
         if result is None:
             return
-        # Expect a mapping of some sort or an iterable of k, v pairs
-        for k, v in result.items() if isinstance(result, (dict, frozendict)) else result:
-            if v in (REMOVE, REMOVE_IF_EXISTS):
-                if k not in self._ts_values:
-                    if v is REMOVE:
-                        raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
-                    else:
-                        continue
-                self._removed_items[k] = self._ts_values.pop(k)
-                self.key_set.remove(k)
-                for observer in self._key_observers:
-                    observer.on_key_removed(k)
-                continue
-            elif k not in self._ts_values:
-                self.key_set.add(k)
-                self._ts_values[k] = self._ts_builder.make_instance(owning_output=self)
-                for observer in self._key_observers:
-                    observer.on_key_added(k)
-            self[k].apply_result(v)
-        if self._removed_items or self._added_keys:
-            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
+        self.value = result
+
+    def _create(self, key: K):
+        cast(TimeSeriesSetOutput, self.key_set).add(key)
+        self._ts_values[key] = self._ts_builder.make_instance(owning_output=self)
+        for observer in self._key_observers:
+            observer.on_key_added(key)
 
     def _clear_key_changes(self):
         self._removed_items = {}
@@ -167,11 +184,29 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         output.add_key_observer(self)
         return peer
 
+    def do_un_bind_output(self):
+        key_set: "TimeSeriesSetInput" = self.key_set
+        key_set.un_bind_output()
+        if self._ts_values:
+            self._removed_items = self._ts_values
+            self._ts_values = {}
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
+
+            for k, v in self._removed_items.items():
+                if v.parent_input is not self:
+                    # Check for transplanted items, these do not get removed, but can be un-bound
+                    v.un_bind_output()
+                    self._ts_values[k] = v
+                    self._removed_items.pop(k)
+
+    def _create(self, key: K):
+        self._ts_values[key] = self._ts_builder.make_instance(owning_input=self)
+
     def _reset_prev(self):
         self._prev_output = None
 
     def on_key_added(self, key: K):
-        self._ts_values[key] = (v := self._ts_builder.make_instance(owning_input=self))
+        v = self.get_or_create(key)
         v.bind_output(self.output[key])
         if not self.has_peer and self.active:
             v.make_active()
@@ -179,10 +214,14 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def on_key_removed(self, key: K):
         if not self._removed_items:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
-        value = self._ts_values.pop(key)
-        if value.active:
-            value.make_passive()
-        self._removed_items[key] = value
+        value: TimeSeriesInput = self._ts_values.pop(key)
+        if value.parent_input is self:
+            if value.active:
+                value.make_passive()
+            self._removed_items[key] = value
+        else:
+            self._ts_values[key] = value
+            value.un_bind_output()
 
     def _clear_key_changes(self):
         self._removed_items = {}

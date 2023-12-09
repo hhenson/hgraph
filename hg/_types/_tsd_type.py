@@ -8,7 +8,7 @@ from hg._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, Ti
 from hg._types._typing_utils import Sentinel
 
 if TYPE_CHECKING:
-    from hg import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
+    from hg import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData, SCALAR, TimeSeriesSet
 
 __all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE",
            "REMOVE_IF_EXISTS", "KEY_SET_ID")
@@ -65,6 +65,21 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         if KEY_SET_ID is item:
             return self._key_set
         return self._ts_values[item]
+
+    def get_or_create(self, key: K) -> V:
+        """
+        Returns the time series at this index position
+        If the key does not yet exist, it will be created, in the case of an input, this will create a stub input
+        that will only be bound when the corresponding output is created. In the case of an output the
+        output is constructed but will be in an invalid state until it is set with a value.
+        """
+        if key not in self._ts_values:
+            self._create(key)
+        return self._ts_values[key]
+
+    @abstractmethod
+    def _create(self, key: K):
+        """ Implemented by subclasses to create a new time series at this index position"""
 
     def __iter__(self) -> Iterable[K]:
         """
@@ -163,7 +178,6 @@ class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K,
         TimeSeriesDict.__init__(self, __key_set__, __key_tp__, __value_tp__)
         TimeSeriesInput.__init__(self)
 
-
     def __getitem__(self, item):
         return self._ts_values[item]
 
@@ -178,8 +192,8 @@ class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[
         TimeSeriesDict.__init__(self, __key_set__, __key_tp__, __value_tp__)
         TimeSeriesOutput.__init__(self)
 
-    def __setitem__(self, key: K, value: V):
-        self._ts_values[key] = value
+    def __setitem__(self, key: K, value: "SCALAR"):
+        self._ts_values[key].value = value
 
     value: frozendict
 

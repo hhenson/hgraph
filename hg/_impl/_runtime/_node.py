@@ -3,12 +3,11 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from inspect import signature
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hg import EngineEvaluationClock
+from hg._runtime._evaluation_clock import EngineEvaluationClock
 from hg._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hg._runtime._graph import Graph
 from hg._runtime._lifecycle import start_guard, stop_guard
@@ -97,14 +96,8 @@ class NodeImpl(Node):
 
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
+        # noinspection PyTypeChecker
         return {k: self.input[k] for k in self.signature.time_series_inputs}
-
-    @property
-    def outputs(self) -> Optional[Mapping[str, "TimeSeriesOutput"]]:
-        if len(self.signature.time_series_outputs) == 1:
-            return {'out': self.output}
-        else:
-            return {k: self.output[k] for k in self.signature.time_series_outputs}
 
     @property
     def scheduler(self) -> "NodeScheduler":
@@ -159,6 +152,7 @@ class NodeImpl(Node):
         self._initialise_kwargs()
         self._initialise_inputs()
         if self.start_fn is not None:
+            from inspect import signature
             self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
         if self._scheduler is not None:
             if self._scheduler.pop_tag("start", None) is not None:
@@ -170,6 +164,7 @@ class NodeImpl(Node):
 
     @stop_guard
     def stop(self):
+        from inspect import signature
         if self.stop_fn is not None:
             self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 

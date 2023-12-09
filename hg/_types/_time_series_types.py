@@ -100,6 +100,14 @@ class TimeSeries(ABC):
         :return: The time that this property last modified.
         """
 
+    @abstractmethod
+    def re_parent(self, parent: Union["Node", "TimeSeries"]):
+        """
+        Change the owning node / time-series container of this time-series.
+        This is used when grafting a time-series input from one node / time-series container to another.
+        For example, see use in map implementation.
+        """
+
 
 TIME_SERIES_TYPE = TypeVar("TIME_SERIES_TYPE", bound=TimeSeries)
 TIME_SERIES_TYPE_1 = TypeVar("TIME_SERIES_TYPE_1", bound=TimeSeries)
@@ -173,6 +181,12 @@ class TimeSeriesOutput(TimeSeries):
         """
 
     @abstractmethod
+    def invalidate(self):
+        """
+        Invalidate the output, this removes all values and marks the output as invalid.
+        """
+
+    @abstractmethod
     def mark_invalid(self):
         """
         Marks the output as invalid, this will cause the output to be scheduled for evaluation.
@@ -239,7 +253,19 @@ class TimeSeriesInput(TimeSeries):
         """
 
     @abstractmethod
+    def un_bind_output(self):
+        """
+        Unbinds the output from this input.
+        """
+
+    @abstractmethod
     def do_bind_output(self, value: TimeSeriesOutput) -> bool:
+        """
+        Derived classes override this to implement specific behaviours
+        """
+
+    @abstractmethod
+    def do_un_bind_output(self):
         """
         Derived classes override this to implement specific behaviours
         """

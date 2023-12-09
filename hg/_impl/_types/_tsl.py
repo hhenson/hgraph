@@ -24,6 +24,20 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
     def value(self) -> Optional[tuple]:
         return tuple(ts.value if ts.valid else None for ts in self._ts_values)
 
+    @value.setter
+    def value(self, v: tuple | frozendict | dict | list):
+        if v is None:
+            self.invalidate()
+        else:
+            if isinstance(v, (dict, frozendict)):
+                for k, v_ in v.items():
+                    self[k].value = v_
+            elif isinstance(v, (tuple, list)):
+                if len(v) != len(self._ts_values):
+                    raise ValueError(f"Expected {len(self._ts_values)} elements, got {len(v)}")
+                for ts, v_ in zip(self._ts_values, v):
+                    ts.value = v_
+
     @property
     def delta_value(self) -> Optional[dict[int, Any]]:
         return {i: ts.delta_value for i, ts in enumerate(self._ts_values) if ts.modified}
@@ -31,14 +45,7 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
     def apply_result(self, result: Any):
         if result is None:
             return
-        if isinstance(result, (dict, frozendict)):
-            for k, v in result.items():
-                self[k].apply_result(v)
-        elif isinstance(result, (tuple, list)):
-            if len(result) != len(self._ts_values):
-                raise ValueError(f"Expected {len(self._ts_values)} elements, got {len(result)}")
-            for ts, value in zip(self._ts_values, result):
-                ts.apply_result(value)
+        self.value = result
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         for ts_self, ts_output in zip(self.values(), output.values()):
@@ -47,6 +54,10 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
     def copy_from_input(self, input: "TimeSeriesInput"):
         for ts_self, ts_input in zip(self.values(), input.values()):
             ts_self.copy_from_input(ts_input)
+
+    def invalidate(self):
+        for v in self.values():
+            v.invalidate()
 
     def mark_invalid(self):
         if self.valid:
@@ -82,6 +93,12 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
 
         super().do_bind_output(output if peer else None)
         return peer
+
+    def do_un_bind_output(self):
+        for ts_input in self.values():
+            ts_input.un_bind_output()
+        if self.has_peer:
+            super().do_un_bind_output()
 
     @property
     def active(self) -> bool:

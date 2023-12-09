@@ -11,6 +11,7 @@ from hg._types._time_series_types import TimeSeriesOutput
 if typing.TYPE_CHECKING:
     from hg._runtime._node import Node
     from hg._runtime._graph import Graph
+    from hg._types._time_series_types import TimeSeries
 
 
 __all__ = ("PythonTimeSeriesOutput",)
@@ -18,8 +19,8 @@ __all__ = ("PythonTimeSeriesOutput",)
 
 @dataclass
 class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
-    _owning_node: "Node" = None
-    _parent_output: "TimeSeriesOutput" = None
+    _owning_node: Optional["Node"] = None
+    _parent_output: Optional["TimeSeriesOutput"] = None
     _subscribers: NodeSubscriber = field(default_factory=NodeSubscriber)
     _last_modified_time: datetime = MIN_DT
 
@@ -60,6 +61,14 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     @property
     def has_parent_output(self) -> bool:
         return self._parent_output is not None
+
+    def re_parent(self, parent: typing.Union["Node", "TimeSeries"]):
+        if isinstance(parent, Node):
+            self._owning_node = parent
+            self._parent_input = None
+        else:
+            self._owning_node = None
+            self._parent_input = parent
 
     @property
     def owning_node(self) -> "Node":

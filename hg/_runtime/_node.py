@@ -149,13 +149,6 @@ class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
-    def outputs(self) -> Optional[Mapping[str, "TimeSeriesOutput"]]:
-        """
-        The should only be set by the creating graph.
-        """
-
-    @property
-    @abstractmethod
     def scheduler(self) -> "NodeScheduler":
         """
         The scheduler for this node.

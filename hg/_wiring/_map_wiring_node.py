@@ -52,7 +52,7 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
                     output_node_id = node_builder.node_ndx
         input_builder, output_builder = self.create_input_output_builders(node_signature)
         return PythonMapNodeBuilder(node_ndx, node_signature, scalars, input_builder, output_builder, inner_graph,
-                                    input_node_ids, output_node_id)
+                                    input_node_ids, output_node_id, self.signature.multiplexed_args)
 
 
 class TslMapWiringNodeClass(BaseWiringNodeClass):

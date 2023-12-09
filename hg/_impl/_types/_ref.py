@@ -89,8 +89,9 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
 
     @value.setter
     def value(self, v: TimeSeriesReference):
-        # This should not be called with None, use mark_invalid instead
-        # None will cause the type check failure below.
+        if v is None:
+            self.invalidate()
+            return
         if not isinstance(v, TimeSeriesReference):
             raise TypeError(f"Expected TimeSeriesReference, got {type(v)}")
         self._value = v
@@ -109,9 +110,9 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
     def stop_observing_reference(self, input_: TimeSeriesInput):  # TODO: this would only be called from nested graphs but there is no stop() on inputs. How do we clean these up?
         self._reference_observers.pop(id(input_), None)
 
-    def mark_invalid(self):
+    def invalidate(self):
         self._value = None
-        super().mark_invalid()
+        self.mark_invalid()
 
     def copy_from_output(self, ts_output: TimeSeriesOutput):
         assert isinstance(ts_output, PythonTimeSeriesReferenceOutput)
@@ -132,8 +133,8 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
     _value: typing.Optional[TimeSeriesReference] = None
     _items: list[TimeSeriesReferenceInput] = None
 
-    def bind_output(self, value: TimeSeriesOutput) -> bool:
-        peer = self.do_bind_output(value)
+    def bind_output(self, output: TimeSeriesOutput) -> bool:
+        peer = self.do_bind_output(output)
 
         if self.owning_node.is_started and self._output and self._output.valid:
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
@@ -150,6 +151,13 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             self.owning_node.notify()
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST  # TODO: what are we supposed to do in a branch?
             return False
+
+    def do_un_bind_output(self):
+        super().do_un_bind_output()
+        if self._value is not None:
+            self._value = None
+            # TODO: Do we need to notify here? should we not only notify if the input is active?
+            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST
 
     def __getitem__(self, item):
         if self._items is None:

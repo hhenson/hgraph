@@ -12,7 +12,8 @@ from hg._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
            "HgAtomicType", "HgScalarTypeVar", "HgCompoundScalarType", "HgTupleFixedScalarType",
-           "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData")
+           "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData", "HgEvaluationClockType",
+           "HgEvaluationEngineApiType", "HgStateType", "HgOutputType", "HgSchedulerType", "Injector")
 
 
 class HgScalarTypeMetaData(HgTypeMetaData):

@@ -15,6 +15,7 @@ class PythonMapNodeBuilder(NodeBuilder):
     nested_graph: "GraphBuilder" = None  # This is the generator function
     input_node_ids: Mapping[str, int] = None  # The nodes representing the stub inputs in the nested graph.
     output_node_id: int = None  # The node representing the stub output in the nested graph.
+    multiplexed_args: frozenset[str] =None  # The inputs that need to be de-multiplexed.
 
     def make_instance(self, owning_graph_id: tuple[int, ...]) -> PythonMapNodeImpl:
         node = PythonMapNodeImpl(
@@ -24,7 +25,8 @@ class PythonMapNodeBuilder(NodeBuilder):
             scalars=self.scalars,
             nested_graph_builder=self.nested_graph,
             input_node_ids=self.input_node_ids,
-            output_node_id=self.output_node_id
+            output_node_id=self.output_node_id,
+            multiplexed_args=self.multiplexed_args
         )
 
         if self.input_builder:

@@ -1,13 +1,17 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping, Generic
+from typing import Any, Mapping, Generic, TYPE_CHECKING, cast
 
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 from hg._types._tsb_type import TimeSeriesBundleInput, TS_SCHEMA, TimeSeriesBundleOutput
 
+if TYPE_CHECKING:
+    from hg._runtime._node import Node
+
 __all__ = ("PythonTimeSeriesBundleOutput", "PythonTimeSeriesBundleInput")
+
 
 # With Bundles there are two implementation types, namely bound and un-bound.
 # Bound bundles are those that are bound to a specific output, and un-bound bundles are those that are not.
@@ -19,7 +23,7 @@ __all__ = ("PythonTimeSeriesBundleOutput", "PythonTimeSeriesBundleInput")
 @dataclass
 class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutput[TS_SCHEMA], Generic[TS_SCHEMA]):
 
-    def __init__(self, schema: TS_SCHEMA,*args, **kwargs):
+    def __init__(self, schema: TS_SCHEMA, *args, **kwargs):
         Generic.__init__(self)
         TimeSeriesBundleOutput.__init__(self, schema)
         PythonTimeSeriesOutput.__init__(self, *args, **kwargs)
@@ -28,13 +32,28 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
     def value(self):
         return {k: ts.value for k, ts in self.items() if ts.valid}
 
+    @value.setter
+    def value(self, v: Mapping[str, Any] | None):
+        if v is None:
+            self.invalidate()
+        else:
+            for k, v_ in v.items():
+                cast(TimeSeriesOutput, self[k]).value = v_
+
+    def invalidate(self):
+        if self.valid:
+            for v in self.values():
+                v.invalidate()
+        self.mark_invalid()
+
     @property
     def delta_value(self):
         return {k: ts.delta_value for k, ts in self.items() if ts.modified}
 
-    def apply_result(self, result: Mapping[str, Any]):
-        for k, v in result.items():
-            self[k].apply_result(v)
+    def apply_result(self, result: Mapping[str, Any] | None):
+        if result is None:
+            return
+        self.value = result
 
     def copy_from_output(self, output: TimeSeriesOutput):
         if not isinstance(output, PythonTimeSeriesBundleOutput):
@@ -87,6 +106,12 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
 
         super().do_bind_output(output if peer else None)
         return peer
+
+    def do_un_bind_output(self):
+        for ts in self.values():
+            ts.un_bind_output()
+        if self.has_peer:
+            super().do_un_bind_output()
 
     @property
     def value(self) -> Any:

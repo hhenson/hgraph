@@ -18,7 +18,8 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
     # if the component wrapped is a graph. This would have multiple dependencies and having the stubs in once
     # place at the start of the graph is better. Using references makes this reasonably light weights with
     # minimal overhead.
-    ref_tp = tp if type(tp) is HgREFTypeMetaData or key in ('key', 'ndx') else HgREFTypeMetaData(tp)
+    is_key = key in ('key', 'ndx')
+    ref_tp = tp if type(tp) is HgREFTypeMetaData or is_key else HgREFTypeMetaData(tp)
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
         name=f"stub:{key}",
@@ -34,7 +35,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
         uses_scheduler=False,
         label=key
     )
-    node = PythonWiringNodeClass(signature, _stub)
+    node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
     node_instance = WiringNodeInstance(node, signature, frozendict(), 1)
     return WiringPort(node_instance, ())
 
@@ -71,9 +72,24 @@ def create_output_stub(output: WiringPort):
 from hg._types._ref_type import REF
 from hg._types._time_series_types import TIME_SERIES_TYPE
 
+
 def _stub(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
     """
     This is the basic implementation of a stub.
     Tge stub will either be connected in the graph as an input or an output ranked on the outer-side of the graph.
     """
-    return ts.value
+    return ts.value if ts.valid else None
+
+
+class KeyStubEvalFn:
+    """
+    A callable object we can attach the key to, then during start it will inject the key into the output.
+    """
+    def __init__(self):
+        self.key = None
+
+    def __call__(self, ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
+        """
+        This is the stub start function that is used to create a stub node that is used to create a graph.
+        """
+        return self.key

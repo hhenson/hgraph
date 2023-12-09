@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import wraps
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
-    ItemsView, ValuesView, cast
+    ItemsView, ValuesView, cast, overload
 
 from frozendict import frozendict
 from more_itertools import nth
@@ -188,14 +188,15 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         )
         return TSBWiringPort(wiring_node_instance, tuple())
 
-    def copy_with(self, **kwargs):
+    def copy_with(self, __init_args__: dict = None, **kwargs):
         """
         Creates a new instance of a wiring time bundle using the values of this instance combined / overridden from
-        the kwargs provided.
+        the kwargs provided. Can be used to clone a runtime instance of a bundle as well.
         # TODO: support k: REMOVE semantics to remove a value from the bundle?
         """
         self._validate_kwargs(self.__schema__, **kwargs)
-        value = self.__class__[self.__schema__](self.__schema__)
+        value = self.__class__[self.__schema__](self.__schema__) if __init_args__ is None else \
+            self.__class__[self.__schema__](self.__schema__, **__init_args__)
         value._ts_values = self._ts_values | kwargs
         return value
 

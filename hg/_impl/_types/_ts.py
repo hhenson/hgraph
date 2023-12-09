@@ -1,17 +1,13 @@
 import typing
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Generic, Optional
 
-from hg._impl._types._input import PythonTimeSeriesInput, PythonBoundTimeSeriesInput
+from hg._impl._impl_configuration import HG_TYPE_CHECKING
+from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
-from hg._impl._types._scalar_value import PythonScalarValue
-from hg._runtime._constants import MIN_DT
 from hg._types._scalar_types import SCALAR
-from hg._types._scalar_value import ScalarValue
 from hg._types._time_series_types import DELTA_SCALAR
 from hg._types._ts_type import TimeSeriesValueOutput, TimeSeriesValueInput
-
 
 __all__ = ("PythonTimeSeriesValueOutput", "PythonTimeSeriesValueInput")
 
@@ -23,7 +19,7 @@ if typing.TYPE_CHECKING:
 class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[SCALAR], Generic[SCALAR]):
 
     _tp: type = None
-    _value: SCALAR = None
+    _value: Optional[SCALAR] = None
 
     @property
     def value(self) -> SCALAR:
@@ -36,14 +32,24 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
     @value.setter
     def value(self, v: SCALAR):
         if v is None:
+            self.invalidate()
             return
-        tp_ = origin if (origin := typing.get_origin(self._tp)) else self._tp
-        if not isinstance(v, tp_):
-            raise TypeError(f"Expected {self._tp}, got {type(v)}")
+
+        if HG_TYPE_CHECKING:
+            tp_ = origin if (origin := typing.get_origin(self._tp)) else self._tp
+            if not isinstance(v, tp_):
+                raise TypeError(f"Expected {self._tp}, got {type(v)}")
+
         self._value = v
         self.mark_modified()
 
+    def invalidate(self):
+        self._value = None
+        self.mark_invalid()
+
     def apply_result(self, result: SCALAR):
+        if result is None:
+            return
         self.value = result
 
     def mark_invalid(self):
