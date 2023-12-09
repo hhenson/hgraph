@@ -19,8 +19,11 @@ class Graph(ComponentLifeCycle):
     @property
     @abstractmethod
     def parent_node(self) -> typing.Optional["Node"]:
-        """ A graph is either a root graph or a nested graph, for nested graphs they are always associated to a
-        parent node that operates the graph within the parent graph."""
+        """
+        A graph is either a root graph or a nested graph, for nested graphs they are always associated to a
+        parent node that operates the graph within the parent graph. This is here for debug traceability.
+        The NestedScheduler is used for managing sub-graph scheduling.
+        """
 
     @property
     @abstractmethod

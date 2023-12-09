@@ -4,11 +4,11 @@ from hg._types._time_series_types import TIME_SERIES_TYPE
 from hg._types._scalar_types import SCALAR
 from hg._types._ts_type import TS
 
-__all__ = ("ts_switch",)
+__all__ = ("switch_",)
 
 
-def ts_switch(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], key: TS[SCALAR], *args,
-              reload_on_ticked: bool = False, **kwargs) -> Optional[TIME_SERIES_TYPE]:
+def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], key: TS[SCALAR], *args,
+            reload_on_ticked: bool = False, **kwargs) -> Optional[TIME_SERIES_TYPE]:
     """
     The ability to select and instantiate a graph based on the value of the key time-series input.
     By default, when the key changes, a new instance of graph is created and run.
