@@ -33,7 +33,7 @@ class PythonGraphBuilder(GraphBuilder):
             input = input[item]
         return input
 
-    def make_instance(self, graph_id: tuple[int, ...]) -> Graph:
+    def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None) -> Graph:
         nodes = [nb.make_instance(graph_id) for nb in self.node_builders]
         for edge in self.edges:
             src_node: Node = nodes[edge.src_node]
@@ -43,15 +43,12 @@ class PythonGraphBuilder(GraphBuilder):
             output = src_node.output if edge.output_path == tuple() else self._extract_output(src_node, edge.output_path)
             input_ = self._extract_input(dst_node, edge.input_path)
             input_.bind_output(output)
-        # for node in nodes:  # TODO: I think we want to initialise the nodes once wiring is complete but not sure, need to think about this
-        #     node.initialise()  # AB: I it would be nice to initialise the nodes once they are in a graph i.e. from within the graph's initialise?
-        return PythonGraph(graph_id=graph_id, nodes=tuple(nodes))
+            # The nodes are initialised within the context of the graph
+        return PythonGraph(graph_id=graph_id, nodes=tuple(nodes), parent_node=parent_node)
 
     def release_instance(self, item: Graph):
         for node, node_builder in zip(item.nodes, self.node_builders):
             node_builder.release_instance(node)
-        for node in item.nodes:  # TODO: This is not clean if the dispose should be called in the node builder or here
-            node.dispose()
         item.dispose()
 
 

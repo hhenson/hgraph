@@ -373,8 +373,8 @@ def _create_tsd_map_wiring_node(
         output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type)) \
             if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
-        active_inputs=frozenset({KEYS_ARG, }) if (has_keys := KEYS_ARG in input_types) else multiplex_args,
-        valid_inputs=frozenset({KEYS_ARG, }) if has_keys else frozenset(),
+        active_inputs=None,  # We will follow a copy approach to transfer the inputs to inner graphs
+        valid_inputs=frozenset({KEYS_ARG, }),  # We have constructed the map so that the key are is always present.
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         uses_scheduler=False,

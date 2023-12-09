@@ -18,6 +18,12 @@ class Graph(ComponentLifeCycle):
 
     @property
     @abstractmethod
+    def parent_node(self) -> typing.Optional["Node"]:
+        """ A graph is either a root graph or a nested graph, for nested graphs they are always associated to a
+        parent node that operates the graph within the parent graph."""
+
+    @property
+    @abstractmethod
     def graph_id(self) -> tuple[int, ...]:
         """ The graph id """
 

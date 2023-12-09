@@ -1,5 +1,5 @@
-pytest>=7.1.2
-frozendict>=2.3.4
+pytest>=7.4.3
+frozendict>=2.3.10
 scikit-build
 more-itertools>=10.1.0
 sortedcontainers>=2.4.0

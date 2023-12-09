@@ -16,12 +16,17 @@ class PythonGraph(Graph):
     Provide a reference implementation of the Graph.
     """
 
-    def __init__(self, graph_id: tuple[int, ...], nodes: tuple[Node, ...]):
+    def __init__(self, graph_id: tuple[int, ...], nodes: tuple[Node, ...], parent_node: Node = None):
         super().__init__()
         self._graph_id: tuple[int, ...] = graph_id
         self._nodes: tuple[Node, ...] = nodes
         self._schedule: list[datetime, ...] = [MIN_DT] * len(nodes)
-        self._evaluation_engine: EvaluationEngine = None
+        self._evaluation_engine: EvaluationEngine = None if parent_node is None else parent_node.evaluation_engine
+        self._parent_node: Node = parent_node
+
+    @property
+    def parent_node(self) -> Node:
+        return self._parent_node
 
     @property
     def graph_id(self) -> tuple[int, ...]:
@@ -101,7 +106,8 @@ class PythonGraph(Graph):
         engine.notify_after_stop_graph(self)
 
     def dispose(self):
-        ...
+        for node in self.nodes:  # Since we initialise nodes from within the graph, we need to dispose them here.
+            node.dispose()
 
     def evaluate_graph(self):
         self._evaluation_engine.notify_before_graph_evaluation(self)

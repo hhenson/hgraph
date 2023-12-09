@@ -6,6 +6,7 @@ from hg._builder._builder import Builder
 from hg._runtime._graph import Graph
 
 if typing.TYPE_CHECKING:
+    from hg._runtime._node import Node
     from hg._builder._node_builder import NodeBuilder
     from hg._types._scalar_types import SCALAR
 
@@ -26,7 +27,7 @@ class GraphBuilder(Builder["Graph"]):
     edges: tuple[Edge, ...]
 
     @abstractmethod
-    def make_instance(self, graph_id: tuple[int, ...]) -> "Graph":
+    def make_instance(self, graph_id: tuple[int, ...], parent_node: "Node" = None) -> "Graph":
         """
         Construct an instance of a graph. The id provided is the id for the graph instance to be constructed.
         """
