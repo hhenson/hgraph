@@ -38,6 +38,12 @@ class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
 
 
 class NestedEvaluationEngine(EvaluationEngineDelegate):
+    """
+
+    Requesting a stop of the engine will stop the outer engine.
+    Stopping an inner graph is a source of bugs and confusion. Instead, the user should create a mechanism to
+    remove the key used to create the graph.
+    """
 
     def __init__(self, engine: EvaluationEngine, key: SCALAR, map_node: "PythonMapNodeImpl"):
         super().__init__(engine)
@@ -50,10 +56,6 @@ class NestedEvaluationEngine(EvaluationEngineDelegate):
     @property
     def engine_evaluation_clock(self) -> "EngineEvaluationClock":
         return self._engine_evaluation_clock
-
-    def request_engine_stop(self):
-        """Do we want to instead stop the current graph?"""
-        # TODO: Add a method to the map node to stop the graph for a given key.
 
 
 class PythonMapNodeImpl(NodeImpl):
