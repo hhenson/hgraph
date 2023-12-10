@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from itertools import chain
 from typing import Callable, cast, TYPE_CHECKING, List
 
@@ -23,6 +22,7 @@ from hg._types._ts_meta_data import HgTSTypeMetaData
 from hg._types._ts_type_var_meta_data import HgTimeSeriesTypeMetaData
 from hg._wiring._wiring import extract_kwargs
 from hg._wiring._wiring_errors import CustomMessageWiringError
+from hg._wiring._wiring_utils import stub_wiring_port, as_reference
 
 if TYPE_CHECKING:
     pass
@@ -134,16 +134,15 @@ def _build_map_wiring_node_and_inputs(
     # 1. See if the first argument of the signature is a key argument.
     #    A key argument has a name of either 'key' (for TSD) or 'ndx' (for TSL)
     #    The key is a TS[SCALAR] for TSD and TS[int] for TSL.
-    input_has_key_arg, input_key_name, input_key_tp = _extract_map_fn_key_arg_and_type(fn, signature, kwargs,
-                                                                                       __key_arg__)
+    input_has_key_arg, input_key_name, input_key_tp = _extract_map_fn_key_arg_and_type(signature, __key_arg__)
 
     # 2. Now we can safely extract the kwargs.
     kwargs_ = extract_kwargs(signature, *args, _ensure_match=False, _args_offset=1 if input_has_key_arg else 0,
                              **kwargs)
 
     # 3. Split out the inputs into multiplexed, no_key, pass_through and direct and key_tp
-    multiplex_args, no_key_args, pass_through_args, direct_args, map_type, key_tp_ = _split_inputs(signature, kwargs_
-                                                                                                   )
+    multiplex_args, no_key_args, pass_through_args, direct_args, map_type, key_tp_ = _split_inputs(signature, kwargs_)
+
     # 4. If the key is present, make sure the extracted key type matches what we found in the multiplexed inputs.
     if map_type == "TSL":
         tp = HgTSTypeMetaData.parse(TS[int])
@@ -190,7 +189,7 @@ def _build_map_wiring_node_and_inputs(
     return map_wiring_node, kwargs_
 
 
-def _extract_map_fn_key_arg_and_type(fn: Callable, signature: WiringNodeSignature, kwargs, __key_arg__) \
+def _extract_map_fn_key_arg_and_type(signature: WiringNodeSignature, __key_arg__) \
         -> tuple[bool, str | None, HgTSTypeMetaData | None]:
     """
     Attempt to detect if the mapping fn has a key argument and if so, what is the type of the key is.
@@ -288,23 +287,6 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
     else HgTSTypeMetaData(key_tp))
 
 
-@dataclass(frozen=True)
-class StubWiringPort(WiringPort):
-    _value_tp: HgTypeMetaData = None
-
-    @property
-    def output_type(self) -> HgTypeMetaData:
-        return self._value_tp
-
-    @property
-    def rank(self) -> int:
-        return 1
-
-
-def stub_wiring_port(value_tp: HgTimeSeriesTypeMetaData) -> WiringPort:
-    return StubWiringPort(node_instance=None, _value_tp=value_tp)
-
-
 def _prepare_stub_inputs(
         kwargs_: dict[str, WiringPort | SCALAR],
         input_types: dict[str, HgTypeMetaData],
@@ -329,21 +311,6 @@ def _prepare_stub_inputs(
     return call_kwargs
 
 
-def _as_reference(tp_: HgTimeSeriesTypeMetaData, is_multiplexed: bool) -> HgTypeMetaData:
-    if is_multiplexed:
-        # If multiplexed type, we want references to the values not the whole output.
-        if type(tp_) is HgTSDTypeMetaData:
-            tp_: HgTSDTypeMetaData
-            return HgTSDTypeMetaData(tp_.key_tp, HgREFTypeMetaData(tp_.value_tp))
-        elif type(tp_) is HgTSLTypeMetaData:
-            tp_: HgTSLTypeMetaData
-            return HgTSLTypeMetaData(HgREFTypeMetaData(tp_.value_tp), tp_.size_tp)
-        else:
-            raise CustomMessageWiringError(f"Unable to create reference for multiplexed type: {tp_}")
-    else:
-        return HgREFTypeMetaData(tp_)
-
-
 def _create_tsd_map_wiring_node(
         fn: WiringNodeClass,
         kwargs_: dict[str, WiringPort | SCALAR],
@@ -358,7 +325,7 @@ def _create_tsd_map_wiring_node(
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
     reference_inputs = frozendict(
-        {k: _as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG else v for
+        {k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG else v for
          k, v in input_types.items()})
 
     # NOTE: The wrapper node does not need to sets it valid and tick to that of the underlying node, it just
@@ -403,7 +370,7 @@ def _create_tsl_map_signature(
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
     reference_inputs = frozendict(
-        {k: _as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _INDEX else v for
+        {k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _INDEX else v for
          k, v in input_types.items()})
 
     map_signature = TslMapWiringSignature(

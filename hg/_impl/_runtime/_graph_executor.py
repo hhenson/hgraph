@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from hg import EvaluationEngine, EngineEvaluationClock, initialise_dispose_context
+from hg._runtime._evaluation_clock import EngineEvaluationClock
+from hg._runtime._lifecycle import initialise_dispose_context
 from hg._impl._runtime._evaluation_clock import RealTimeEvaluationClock, SimulationEvaluationClock
 from hg._impl._runtime._evaluation_engine import PythonEvaluationEngine
 from hg._runtime._evaluation_engine import EvaluationMode

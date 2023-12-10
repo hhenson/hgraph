@@ -5,7 +5,6 @@ if typing.TYPE_CHECKING:
     from hg._builder._graph_builder import GraphBuilder, GraphBuilderFactory
     from hg._wiring._wiring import WiringNodeInstance
 
-
 __all__ = ("wire_graph", "create_graph_builder")
 
 
@@ -63,7 +62,8 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"]) -> "GraphBuild
             # Put all sink nodes at max_rank
             rank = max_rank
         ranked_nodes[rank].add(node)
-        for arg in node.resolved_signature.time_series_args:
+        for arg in filter(lambda k_: k_ in node.resolved_signature.time_series_inputs,
+                          node.resolved_signature.time_series_args):
             if input_ := node.inputs.get(arg):
                 pending_nodes.append(input_.node_instance)
 

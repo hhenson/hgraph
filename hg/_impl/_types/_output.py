@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from hg import MIN_DT
+from hg._runtime._constants import MIN_DT
 from hg._impl._runtime._common import NodeSubscriber
 from hg._types._time_series_types import TimeSeriesOutput
 

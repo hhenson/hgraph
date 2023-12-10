@@ -1,8 +1,23 @@
-from typing import Callable, TypeVar, Optional
+from pathlib import Path
+from typing import Callable, Optional, cast, Mapping, TYPE_CHECKING
 
+from frozendict import frozendict
+
+from hg._wiring._source_code_details import SourceCodeDetails
+from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hg._types._type_meta_data import HgTypeMetaData
+from hg._wiring._wiring_utils import stub_wiring_port, as_reference
+from hg._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+from hg._wiring._wiring import WiringNodeClass, extract_kwargs, WiringPort
+from hg._types._ts_meta_data import HgTSTypeMetaData
+from hg._wiring._wiring import WiringContext
+from hg._types._scalar_types import SCALAR, STATE
 from hg._types._time_series_types import TIME_SERIES_TYPE
-from hg._types._scalar_types import SCALAR
 from hg._types._ts_type import TS
+from hg._wiring._wiring_errors import CustomMessageWiringError
+
+if TYPE_CHECKING:
+    from hg._builder._graph_builder import GraphBuilder
 
 __all__ = ("switch_",)
 
@@ -36,3 +51,126 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
 
     Which will perform the computation based on the key's value.
     """
+    # Create a nifty simplified signature for the switch node.
+    with WiringContext(
+            current_signature=STATE(current_signature=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)")):
+        from hg._wiring._wiring import WiringPort
+
+        # Perform basic validations fo the inputs
+        if switches is None or len(switches) == 0:
+            raise CustomMessageWiringError("No components supplied to switch")
+        if key is None:
+            raise CustomMessageWiringError("No key supplied to switch")
+        if not isinstance(key, WiringPort) or not isinstance(cast(WiringPort, key).output_type, HgTSTypeMetaData):
+            raise CustomMessageWiringError("The key must be a time-series value of form TS[SCALAR]")
+
+        # Assume that the switch items are correctly typed to start with, then we can take the first signature and
+        # use it to create a signature for the outer switch node.
+        a_signature = cast(WiringNodeClass, next(iter(switches.values()))).signature
+
+        input_has_key_arg = a_signature.args[0] == 'key' and \
+                            a_signature.input_types['key'] == cast(WiringPort, key).output_type
+
+        # We add the key to the inputs if the internal component has a key argument.
+        kwargs_ = extract_kwargs(a_signature, *args,
+                                 _args_offset=1 if input_has_key_arg else 0, key=key,
+                                 **(kwargs | dict(key=key) if input_has_key_arg else {}))
+
+        # Now create a resolved signature for the inner graph, then for the outer switch node.
+        resolved_signature_inner = _validate_signature(switches, **kwargs_)
+
+        input_types = {k: as_reference(v) if k != 'key' and isinstance(v, HgTimeSeriesTypeMetaData) else v for k, v in
+                       resolved_signature_inner.input_types.items()}
+        time_series_args = resolved_signature_inner.time_series_args
+        if not input_has_key_arg:
+            input_types['key'] = cast(WiringPort, key).output_type
+            time_series_args = time_series_args | {'key', }
+
+        output_type = as_reference(
+            resolved_signature_inner.output_type) if resolved_signature_inner.output_type else None
+
+        resolved_signature_outer = WiringNodeSignature(
+            node_type=resolved_signature_inner.node_type,
+            name="switch",
+            # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
+            args=resolved_signature_inner.args if input_has_key_arg else ('key',) + resolved_signature_inner.args,
+            defaults=frozendict(),  # Defaults would have already been applied.
+            input_types=frozendict(input_types),
+            output_type=output_type,
+            src_location=SourceCodeDetails(Path(__file__), 25),
+            active_inputs=frozenset({'key', }),
+            valid_inputs=frozenset({'key', }),
+            # We have constructed the map so that the key are is always present.
+            unresolved_args=frozenset(),
+            time_series_args=time_series_args,
+            uses_scheduler=False,
+            label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
+        )
+        # Create the outer wiring node, and call it with the inputs
+        from hg._wiring._switch_wiring_node import SwitchWiringNodeClass
+        # noinspection PyTypeChecker
+        return SwitchWiringNodeClass(
+            resolved_signature_outer, switches, resolved_signature_inner, reload_on_ticked
+        )(**kwargs_ | {} if input_has_key_arg else dict(key=key))
+
+
+def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
+                        **kwargs) -> WiringNodeSignature:
+    check_signature: WiringNodeSignature = None
+    for k, v in switches.items():
+        if check_signature is None:
+            check_signature = cast(WiringNodeClass, v).resolve_signature(**kwargs)
+        else:
+            this_signature = cast(WiringNodeClass, v).resolve_signature(**kwargs)
+            if this_signature.args != check_signature.args or \
+                    this_signature.input_types != check_signature.input_types or \
+                    this_signature.output_type != check_signature.output_type:
+                # If the signatures do not match, then we cannot wire the switch.
+                # We ensure the arguments and their types match, as well as the output type.
+                raise CustomMessageWiringError(
+                    f"The signature of the switch nodes do not match: "
+                    f"{check_signature.signature} != {k}: {this_signature.signature}")
+    return check_signature
+
+
+def _create_nested_graph_builder(node_fn: Callable[[...], Optional[TIME_SERIES_TYPE]],
+                                 kwargs_: dict[str, WiringPort | SCALAR]) -> "GraphBuilder":
+    """Use the node_fn and """
+    wiring_signature = cast(WiringNodeClass, node_fn).signature
+    stub_inputs = _prepare_stub_inputs(kwargs_, wiring_signature.input_types)
+    resolved_signature = cast(WiringNodeClass, node_fn).resolve_signature(**stub_inputs)
+
+    reference_inputs = frozendict({k: as_reference(v) if isinstance(v, HgTimeSeriesTypeMetaData) else v for k, v in
+                                   resolved_signature.input_types.items()})
+
+    map_signature = WiringNodeSignature(
+        node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
+        name="map",
+        # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
+        args=resolved_signature.args,
+        defaults=frozendict(),  # Defaults would have already been applied.
+        input_types=reference_inputs,
+        output_type=as_reference(resolved_signature.output_type) if resolved_signature.output_type else None,
+        src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
+        active_inputs=frozenset({'key', }),  # We will follow a copy approach to transfer the inputs to inner graphs
+        valid_inputs=frozenset({'key', }),  # We have constructed the map so that the key are is always present.
+        unresolved_args=frozenset(),
+        time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
+        uses_scheduler=False,
+        label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+    )
+    wiring_node = TsdMapWiringNodeClass(map_signature, fn)
+    return wiring_node
+
+
+def _prepare_stub_inputs(
+        kwargs_: dict[str, WiringPort | SCALAR],
+        input_types: Mapping[str, HgTypeMetaData]
+) -> dict[str, WiringPort]:
+    call_kwargs = {}
+    for key, arg in input_types.items():
+        if arg.is_scalar:
+            call_kwargs[key] = kwargs_[key]
+        else:
+            call_kwargs[key] = stub_wiring_port(cast(HgTimeSeriesTypeMetaData, arg))
+    return call_kwargs

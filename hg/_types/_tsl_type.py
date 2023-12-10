@@ -106,8 +106,8 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             src_location=SourceCodeDetails(fn_details.co_filename, fn_details.co_firstlineno),
             active_inputs=None,
             valid_inputs=None,
-            unresolved_args=tuple(),
-            time_series_args=args_,
+            unresolved_args=frozenset(),
+            time_series_args=frozenset(args_),
             uses_scheduler=False
         )
         from hg._wiring._wiring import TSLWiringPort, NonPeeredWiringNodeClass

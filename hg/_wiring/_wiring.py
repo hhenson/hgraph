@@ -180,9 +180,9 @@ class BaseWiringNodeClass(WiringNodeClass):
                         else:
                             raise CustomMessageWiringError(
                                 f"Argument '{k}' is not marked as optional, but no value was supplied")
-                if k in self.signature.time_series_args:
+                if k in filter(lambda k_: k_ in self.signature.time_series_args, self.signature.args):
                     # This should then get a wiring node, and we would like to extract the output type,
-                    # But this is optional so we should ensure that the type is present
+                    # But this is optional, so we should ensure that the type is present
                     if arg is None:
                         continue  # We will wire in a null source later
                     if not isinstance(arg, WiringPort):
@@ -314,19 +314,19 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.stop_fn = fn
         return self
 
-    @staticmethod
-    def create_input_output_builders(node_signature) -> tuple["InputBuilder", "OutputBuilder"]:
-        from hg import TimeSeriesBuilderFactory
-        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
-        output_type = node_signature.time_series_output
-        if ts_inputs := node_signature.time_series_inputs:
-            un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
-                UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
-            ))
-            input_builder = factory.make_input_builder(un_named_bundle)
-        else:
-            input_builder = None
-        return input_builder, None if output_type is None else factory.make_output_builder(output_type)
+
+def create_input_output_builders(node_signature) -> tuple["InputBuilder", "OutputBuilder"]:
+    from hg import TimeSeriesBuilderFactory
+    factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
+    output_type = node_signature.time_series_output
+    if ts_inputs := node_signature.time_series_inputs:
+        un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
+            UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
+        ))
+        input_builder = factory.make_input_builder(un_named_bundle)
+    else:
+        input_builder = None
+    return input_builder, None if output_type is None else factory.make_output_builder(output_type)
 
 
 class PreResolvedWiringNodeWrapper(WiringNodeClass):
@@ -393,7 +393,7 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
         from hg._impl._builder import PythonNodeBuilder
-        input_builder, output_builder = self.create_input_output_builders(node_signature)
+        input_builder, output_builder = create_input_output_builders(node_signature)
 
         return PythonNodeBuilder(node_ndx=node_ndx,
                                  signature=node_signature,
@@ -579,7 +579,8 @@ class WiringNodeInstance:
         # Extract out edges
 
         edges = set()
-        for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.time_series_inputs):
+        for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.args if
+                                  raw_arg in self.resolved_signature.time_series_args):
             input_: WiringPort = self.inputs.get(arg)
             if input_ is not None:
                 edges.update(input_.edges_for(node_map, node_index, (ndx,)))
@@ -685,7 +686,8 @@ class TSBWiringPort(WiringPort):
     def __getitem__(self, item):
         return self._wiring_port_for(item)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) -> \
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
+                  dst_path: tuple[SCALAR, ...]) -> \
             set["Edge"]:
         edges = set()
         if self.has_peer:
@@ -717,13 +719,16 @@ class TSLWiringPort(WiringPort):
             path = self.path + (item,)
             node_instance = self.node_instance
         else:
-            arg = nth(self.node_instance.resolved_signature.time_series_args, item)
+            args = self.node_instance.resolved_signature.args
+            ts_args = self.node_instance.resolved_signature.time_series_args
+            arg = nth(filter(lambda k_: k_ in ts_args, args), item)
             input_wiring_port = self.node_instance.inputs[arg]
             node_instance = input_wiring_port.node_instance
             path = input_wiring_port.path
         return _wiring_port_for(tp_, node_instance, path)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) -> \
+    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
+                  dst_path: tuple[SCALAR, ...]) -> \
             set["Edge"]:
         edges = set()
         if self.has_peer:

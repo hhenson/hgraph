@@ -7,3 +7,4 @@ from hg._wiring._wiring import *
 from hg._wiring._wiring_context import *
 from hg._wiring._wiring_errors import *
 from hg._wiring._wiring_node_signature import *
+from hg._wiring._wiring_utils import *

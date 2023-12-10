@@ -3,7 +3,7 @@ from typing import Mapping, cast
 
 from frozendict import frozendict
 
-from hg import HgREFTypeMetaData
+from hg._types._ref_meta_data import HgREFTypeMetaData
 from hg._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
                                      TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder,
                                      TSSOutputBuilder, TSSInputBuilder, TSLOutputBuilder, TSLInputBuilder,

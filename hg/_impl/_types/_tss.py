@@ -2,7 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Generic, Iterable, Any, Set, Optional, cast
 
-from hg import TimeSeriesOutput
+from hg._types._time_series_types import TimeSeriesOutput
 from hg._impl._types._input import PythonBoundTimeSeriesInput
 from hg._impl._types._output import PythonTimeSeriesOutput
 from hg._types._scalar_types import SCALAR

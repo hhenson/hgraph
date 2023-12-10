@@ -14,7 +14,7 @@ def test_extract_fn():
     assert signature.name == "my_fn"
     assert len(signature.input_types) == 2
     assert not signature.unresolved_args
-    assert signature.time_series_args == ("a",)
+    assert signature.time_series_args == frozenset({"a"})
 
     assert not signature.input_types["a"].is_scalar
     assert signature.input_types["a"].is_resolved

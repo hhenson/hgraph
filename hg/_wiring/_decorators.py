@@ -238,8 +238,8 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         src_location=SourceCodeDetails(Path(), 0),  # TODO: make this point to a real place in code.
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,
-        unresolved_args=tuple(),
-        time_series_args=tuple(),
+        unresolved_args=frozenset(),
+        time_series_args=frozenset(),
         uses_scheduler=any(type(v) is HgSchedulerType for v in kwargs.values())
     )
     return signature

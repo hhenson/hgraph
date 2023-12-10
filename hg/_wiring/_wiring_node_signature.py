@@ -58,7 +58,7 @@ class WiringNodeSignature:
     """
     node_type: WiringNodeType
     name: str  # This will come from the function
-    args: tuple[str]  # Require in order enumeration.
+    args: tuple[str, ...]  # Require in order enumeration.
     defaults: frozendict[str, Any]
     input_types: frozendict[str, HgTypeMetaData]  # Inputs are both scalar and time-series at this point
     output_type: HgTimeSeriesTypeMetaData | None  # By definition outputs must be time-series if they are defined
@@ -172,8 +172,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         (k, extract_hg_type(v) if (k != "output" or defaults.get("output", True) is not None) else HgOutputType(v)) for
         k, v in annotations.items() if k != "return")
     output_type = extract_hg_time_series_type(annotations.get("return", None))
-    unresolved_inputs = tuple(a for a in args if not input_types[a].is_resolved)
-    time_series_inputs = tuple(a for a in args if not input_types[a].is_scalar)
+    unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
+    time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
 
     # Validations to ensure the signature matches the node type
     if wiring_node_type in (WiringNodeType.PULL_SOURCE_NODE, WiringNodeType.PUSH_SOURCE_NODE):
