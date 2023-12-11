@@ -63,7 +63,7 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"]) -> "GraphBuild
             rank = max_rank
         ranked_nodes[rank].add(node)
         for arg in filter(lambda k_: k_ in node.resolved_signature.time_series_inputs,
-                          node.resolved_signature.time_series_args):
+                          node.resolved_signature.args):
             if input_ := node.inputs.get(arg):
                 pending_nodes.append(input_.node_instance)
 

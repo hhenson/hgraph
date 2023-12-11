@@ -7,16 +7,16 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 from frozendict import frozendict
 from more_itertools import nth
 
-from hg._types._scalar_types import SCALAR
 from hg._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
+from hg._types._scalar_types import SCALAR
 from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hg._types._time_series_types import TIME_SERIES_TYPE
 from hg._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hg._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
 from hg._types._tsd_meta_data import HgTSDTypeMetaData
 from hg._types._tsd_type import KEY_SET_ID
 from hg._types._tsl_meta_data import HgTSLTypeMetaData
 from hg._types._tss_type import TSS
-from hg._types._time_series_types import TIME_SERIES_TYPE
 from hg._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOLVE
 from hg._wiring._source_code_details import SourceCodeDetails
 from hg._wiring._wiring_context import WiringContext
@@ -315,13 +315,14 @@ class BaseWiringNodeClass(WiringNodeClass):
         return self
 
 
-def create_input_output_builders(node_signature) -> tuple["InputBuilder", "OutputBuilder"]:
+def create_input_output_builders(node_signature: "NodeSignature") -> tuple["InputBuilder", "OutputBuilder"]:
     from hg import TimeSeriesBuilderFactory
     factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
     output_type = node_signature.time_series_output
     if ts_inputs := node_signature.time_series_inputs:
         un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
-            UnNamedTimeSeriesSchema.create_resolved_schema(ts_inputs)
+            UnNamedTimeSeriesSchema.create_resolved_schema(
+                {k: ts_inputs[k] for k in filter(lambda k_: k_ in ts_inputs, node_signature.args)})
         ))
         input_builder = factory.make_input_builder(un_named_bundle)
     else:

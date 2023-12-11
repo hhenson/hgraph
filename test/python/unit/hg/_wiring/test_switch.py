@@ -5,7 +5,6 @@ from hg.nodes import add_, sub_
 from hg.test import eval_node
 
 
-@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_switch():
 
     @graph

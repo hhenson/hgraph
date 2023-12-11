@@ -27,10 +27,11 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
         e.print_error()
         raise e
 
+    time_series_inputs = tuple(arg for arg in node.signature.args if arg in node.signature.time_series_inputs)
     @graph
     def eval_node_graph():
         inputs = {}
-        for ts_arg in node.signature.time_series_inputs.keys():
+        for ts_arg in time_series_inputs:
             if kwargs_[ts_arg] is None:
                 continue
             if resolution_dict is not None and ts_arg in resolution_dict:
@@ -59,7 +60,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
 
     GlobalState.reset()
     max_count = 0
-    for ts_arg in node.signature.time_series_inputs.keys():
+    for ts_arg in time_series_inputs:
         v = kwargs_[ts_arg]
         if v is None:
             continue

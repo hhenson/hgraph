@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Mapping, Any, cast, TYPE_CHECKING
+from collections.abc import Set
 
 from frozendict import frozendict
 
@@ -83,7 +84,7 @@ def wire_nested_graph(fn: WiringNodeClass,
         return create_graph_builder(sink_nodes)
 
 
-def extract_stub_node_indices(inner_graph, node_signature, key_arg_name: str = 'key') \
+def extract_stub_node_indices(inner_graph, input_args: Set[str]) \
         -> tuple[frozendict[str, int], int]:
     """Process the stub graph identifying the input and output nodes for the associated stubs."""
 
@@ -93,8 +94,7 @@ def extract_stub_node_indices(inner_graph, node_signature, key_arg_name: str = '
     STUB_PREFIX_LEN = len(STUB_PREFIX)
     for node_builder in inner_graph.node_builders:
         if (inner_node_signature := node_builder.signature).name.startswith(STUB_PREFIX):
-            if (arg := inner_node_signature.name[STUB_PREFIX_LEN:]) in node_signature.time_series_inputs \
-                    or arg == key_arg_name:
+            if (arg := inner_node_signature.name[STUB_PREFIX_LEN:]) in input_args:
                 input_node_ids[arg] = node_builder.node_ndx
             elif arg == "__out__":
                 output_node_id = node_builder.node_ndx

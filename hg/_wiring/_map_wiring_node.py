@@ -38,7 +38,10 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         from hg._impl._builder._map_builder import PythonMapNodeBuilder
         inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature, scalars, self.signature)
-        input_node_ids, output_node_id = extract_stub_node_indices(inner_graph, node_signature)
+        input_node_ids, output_node_id = extract_stub_node_indices(
+            inner_graph,
+            set(node_signature.time_series_inputs.keys()) | {'key'}
+        )
         input_builder, output_builder = create_input_output_builders(node_signature)
         return PythonMapNodeBuilder(node_ndx, node_signature, scalars, input_builder, output_builder, inner_graph,
                                     input_node_ids, output_node_id, self.signature.multiplexed_args)
@@ -59,5 +62,3 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         # TODO: implement
         ...
-
-

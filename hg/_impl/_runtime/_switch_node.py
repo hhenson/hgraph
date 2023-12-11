@@ -1,13 +1,51 @@
 from datetime import datetime
-from typing import Mapping, Any, Callable, Optional
+from typing import Mapping, Any, Callable, Optional, cast
 
-from hg._types._ts_type import TS
-from hg._runtime._constants import MIN_DT
-from hg._runtime._graph import Graph
-from hg._types._scalar_types import SCALAR
 from hg._builder._graph_builder import GraphBuilder
-from hg._runtime._node import NodeSignature
 from hg._impl._runtime._node import NodeImpl
+from hg._runtime._constants import MIN_DT
+from hg._runtime._evaluation_clock import EngineEvaluationClockDelegate, EngineEvaluationClock
+from hg._runtime._evaluation_engine import EvaluationEngineDelegate, EvaluationEngine
+from hg._runtime._graph import Graph
+from hg._runtime._node import NodeSignature, Node
+from hg._types._scalar_types import SCALAR
+from hg._types._ts_type import TS
+
+
+class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
+
+    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, switch_node: "PythonSwitchNodeImpl"):
+        super().__init__(engine_evaluation_clock)
+        self._switch_node: "PythonSwitchNodeImpl" = switch_node
+
+    def update_next_scheduled_evaluation_time(self, next_time: datetime):
+        # NOTE: We only need to schedule if the next time is after the current evaluation time (or if the map_node has
+        # not yet been evaluated).
+        if next_time < self.evaluation_time or self._switch_node._last_evaluation_time == self.evaluation_time:
+            # No point doing anything as we are already scheduled to run.
+            return
+        self._switch_node.graph.schedule_node(self._switch_node.node_ndx, next_time)
+
+
+class NestedEvaluationEngine(EvaluationEngineDelegate):
+    """
+
+    Requesting a stop of the engine will stop the outer engine.
+    Stopping an inner graph is a source of bugs and confusion. Instead, the user should create a mechanism to
+    remove the key used to create the graph.
+    """
+
+    def __init__(self, engine: EvaluationEngine, key: SCALAR, switch_node: "PythonSwitchNodeImpl"):
+        super().__init__(engine)
+        self._engine_evaluation_clock = NestedEngineEvaluationClock(engine.engine_evaluation_clock, switch_node)
+
+    @property
+    def evaluation_clock(self) -> "EvaluationClock":
+        return self._engine_evaluation_clock
+
+    @property
+    def engine_evaluation_clock(self) -> "EngineEvaluationClock":
+        return self._engine_evaluation_clock
 
 
 class PythonSwitchNodeImpl(NodeImpl):
@@ -41,65 +79,38 @@ class PythonSwitchNodeImpl(NodeImpl):
         # (if the value has changed or if reload_on_ticked is True)
         key: TS[SCALAR] = self._kwargs['key']
         if key.modified:
-            for k in keys.added():
-                self._create_new_graph(k)
-            for k in keys.removed():
-                self._remove_graph(k)
-        # 2. or one of the nested graphs has been scheduled for evaluation.
-        scheduled_keys = self._scheduled_keys
-        self._scheduled_keys = {}
-        for k, dt in scheduled_keys.items():
-            if dt == self._last_evaluation_time:
-                self._evaluate_graph(k)
-            elif dt < self._last_evaluation_time:
-                raise RuntimeError("Scheduled time is in the past")
-            else:
-                # Re-schedule for the next time.
-                self._scheduled_keys[k] = dt
-                self.graph.schedule_node(self.node_ndx, dt)
+            if self.reload_on_ticked or key.value != self._active_key:
+                if self._active_graph:
+                    self._active_graph.stop()
+                    self._active_graph.dispose()
+                self._active_key = key.value
+                self._active_graph = self.nested_graph_builders[self._active_key].make_instance(
+                    self.node_id + (self._count,))
+                self._count += 1
+                self._active_graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, self._active_key, self)
+                self._active_graph.initialise()
+                self._wire_graph(self._active_graph)
+                self._active_graph.start()
 
-    def _create_new_graph(self, key: SCALAR):
-        """Create new graph instance and wire it into the node"""
-        graph: Graph = self.nested_graph_builder.make_instance(self.graph.graph_id + (self._count,), self)
-        self._count += 1
-        self._active_graphs[key] = graph
-        graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, key, self)
-        graph.initialise()
-        self._wire_graph(key, graph)
-        graph.start()
-        self._evaluate_graph(key)
+        if self._active_graph:
+            self._active_graph.evaluate_graph()
 
-    def _remove_graph(self, key: SCALAR):
-        """Un-wire graph and schedule for removal"""
-        graph: Graph = self._active_graphs.pop(key)
-        graph.stop()
-        graph.dispose()
-
-    def _evaluate_graph(self, key: SCALAR):
-        """Evaluate the graph for this key"""
-        graph: Graph = self._active_graphs[key]
-        graph.evaluate_graph()
-
-    def _wire_graph(self, key: SCALAR, graph: Graph):
+    def _wire_graph(self, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
-        for arg, node_ndx in self.input_node_ids.items():
+        for arg, node_ndx in self.input_node_ids[self._active_key].items():
             node: NodeImpl = graph.nodes[node_ndx]
             node.notify()
             if arg == 'key':
                 # The key should be a const node, then we can adjust the scalar values.
                 from hg._wiring._stub_wiring_node import KeyStubEvalFn
-                cast(KeyStubEvalFn, node.eval_fn).key = key
+                cast(KeyStubEvalFn, node.eval_fn).key = self._active_key
             else:
-                if is_multiplexed := arg in self.multiplexed_args:  # Is this a multiplexed input?
-                    # This should create a phantom input if one does not exist.
-                    ts = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg]).get_or_create(key)
-                else:
-                    ts = self.input[arg]
+                ts = self.input[arg]
                 node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
                 # Now we need to re-parent the pruned ts input.
                 ts.re_parent(node.input)
 
-        if self.output_node_id:
-            node: Node = graph.nodes[self.output_node_id]
+        if self.output_node_ids:
+            node: Node = graph.nodes[self.output_node_ids[self._active_key]]
             # Replace the nodes output with the map node's output for the key
-            node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output).get_or_create(key)
+            node.output = self.output

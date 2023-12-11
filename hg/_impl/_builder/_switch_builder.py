@@ -25,7 +25,7 @@ class PythonSwitchNodeBuilder(NodeBuilder):
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
-            nested_graph_builders=self.nested_graph,
+            nested_graph_builders=self.nested_graphs,
             input_node_ids=self.input_node_ids,
             output_node_ids=self.output_node_id,
             reload_on_ticked=self.reload_on_ticked

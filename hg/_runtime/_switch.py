@@ -111,7 +111,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
         # noinspection PyTypeChecker
         return SwitchWiringNodeClass(
             resolved_signature_outer, switches, resolved_signature_inner, reload_on_ticked
-        )(**kwargs_ | {} if input_has_key_arg else dict(key=key))
+        )(**(kwargs_ | ({} if input_has_key_arg else dict(key=key))))
 
 
 def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
