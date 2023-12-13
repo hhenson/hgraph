@@ -1,9 +1,9 @@
 from typing import TypeVar, Generic, Type
 
-from hg import generator, compute_node, sink_node, graph, PythonGeneratorWiringNodeClass, WiringGraphContext, SCALAR
-from hg._types import HgTypeMetaData
-from hg._types._ts_type import TS
-from hg._wiring._wiring import WiringPort, WiringNodeInstance
+from hgraph import generator, compute_node, sink_node, graph, PythonGeneratorWiringNodeClass, WiringGraphContext, SCALAR
+from hgraph._types import HgTypeMetaData
+from hgraph._types._ts_type import TS
+from hgraph._wiring._wiring import WiringPort, WiringNodeInstance
 
 
 def test_simple_wiring():

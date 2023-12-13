@@ -1,8 +1,8 @@
 import pytest
 
-from hg import switch_, graph, TS
-from hg.nodes import add_, sub_
-from hg.test import eval_node
+from hgraph import switch_, graph, TS
+from hgraph.nodes import add_, sub_
+from hgraph.test import eval_node
 
 
 def test_switch():

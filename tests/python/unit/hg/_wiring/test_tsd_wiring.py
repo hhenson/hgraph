@@ -1,5 +1,5 @@
-from hg import compute_node, TS, TSD, graph, TSS
-from hg.test import eval_node
+from hgraph import compute_node, TS, TSD, graph, TSS
+from hgraph.test import eval_node
 
 
 @compute_node

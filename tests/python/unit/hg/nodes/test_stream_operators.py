@@ -1,6 +1,6 @@
-from hg import MIN_TD
-from hg.nodes import lag_ts
-from hg.test import eval_node
+from hgraph import MIN_TD
+from hgraph.nodes import lag_ts
+from hgraph.test import eval_node
 
 
 def test_delay_ts():

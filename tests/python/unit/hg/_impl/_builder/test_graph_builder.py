@@ -1,6 +1,6 @@
-from hg import graph, wire_graph, Edge
-from hg.nodes._const import const
-from hg.nodes._write import write_str
+from hgraph import graph, wire_graph, Edge
+from hgraph.nodes._const import const
+from hgraph.nodes._write import write_str
 
 
 def test_build_graph():

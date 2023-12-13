@@ -1,5 +1,5 @@
-from hg import graph, run_graph
-from hg.nodes import const, write
+from hgraph import graph, run_graph
+from hgraph.nodes import const, write
 
 
 @graph

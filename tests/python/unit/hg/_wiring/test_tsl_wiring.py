@@ -1,6 +1,6 @@
-from hg import TS, graph, TSL, Size, SCALAR, compute_node
-from hg.nodes import flatten_tsl_values
-from hg.test import eval_node
+from hgraph import TS, graph, TSL, Size, SCALAR, compute_node
+from hgraph.nodes import flatten_tsl_values
+from hgraph.test import eval_node
 
 
 @compute_node

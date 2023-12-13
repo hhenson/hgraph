@@ -1,8 +1,8 @@
 import pytest
 
-from hg.nodes import eq_, if_
-from hg.nodes._operators import if_true
-from hg.test import eval_node
+from hgraph.nodes import eq_, if_
+from hgraph.nodes._operators import if_true
+from hgraph.test import eval_node
 
 
 @pytest.mark.parametrize("lhs,rhs,expected", [

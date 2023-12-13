@@ -1,8 +1,8 @@
 import pytest
 
-from hg import WiringError
-from hg.nodes import add_, sub_, mult_, div_
-from hg.test import eval_node
+from hgraph import WiringError
+from hgraph.nodes import add_, sub_, mult_, div_
+from hgraph.test import eval_node
 
 
 @pytest.mark.parametrize("lhs,rhs,expected", [

@@ -1,6 +1,6 @@
-from hg import graph, TS, TSS, compute_node, PythonSetDelta
-from hg.nodes import pass_through
-from hg.test import eval_node
+from hgraph import graph, TS, TSS, compute_node, PythonSetDelta
+from hgraph.nodes import pass_through
+from hgraph.test import eval_node
 
 
 @compute_node

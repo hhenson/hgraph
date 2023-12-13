@@ -1,5 +1,5 @@
-from hg import PythonWiringNodeClass
-from hg.nodes._write import write_str
+from hgraph import PythonWiringNodeClass
+from hgraph.nodes._write import write_str
 
 
 def test_write_str():

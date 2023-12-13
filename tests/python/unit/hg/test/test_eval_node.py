@@ -1,6 +1,6 @@
-from hg import compute_node
-from hg.nodes._pass_through import pass_through
-from hg.test._node_unit_tester import eval_node
+from hgraph import compute_node
+from hgraph.nodes._pass_through import pass_through
+from hgraph.test._node_unit_tester import eval_node
 
 
 def test_eval_node():

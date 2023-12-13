@@ -1,5 +1,5 @@
-from hg import graph, TS, run_graph, MIN_ST, MIN_TD
-from hg.nodes import set_replay_values, SimpleArrayReplaySource, replay, record, get_recorded_value, write_str
+from hgraph import graph, TS, run_graph, MIN_ST, MIN_TD
+from hgraph.nodes import set_replay_values, SimpleArrayReplaySource, replay, record, get_recorded_value, write_str
 
 
 def test_recorder():

@@ -6,20 +6,20 @@ from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
 
 import pytest
 
-from hg import SIZE, Size
-from hg._runtime import EvaluationClock
-from hg._types._ref_meta_data import HgREFTypeMetaData
-from hg._types._ref_type import REF
-from hg._types._ts_type import TS, TS_OUT
-from hg._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
-from hg._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
+from hgraph import SIZE, Size
+from hgraph._runtime import EvaluationClock
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
+from hgraph._types._ref_type import REF
+from hgraph._types._ts_type import TS, TS_OUT
+from hgraph._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
+from hgraph._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
     HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType, HgTypeOfTypeMetaData, HgInjectableType
-from hg._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hg._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
-from hg._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
-from hg._types._tsl_meta_data import HgTSLTypeMetaData, HgTSLOutTypeMetaData
-from hg._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
-from hg._types._type_meta_data import HgTypeMetaData
+from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData, HgTSLOutTypeMetaData
+from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
+from hgraph._types._type_meta_data import HgTypeMetaData
 
 
 @pytest.mark.parametrize(

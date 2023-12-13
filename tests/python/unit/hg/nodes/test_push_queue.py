@@ -3,10 +3,10 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable
 
-from hg import TS, run_graph, GlobalState, push_queue, graph
-from hg._runtime._evaluation_engine import EvaluationMode
-from hg.nodes import record, get_recorded_value, const, stop_engine, eq_
-from hg.nodes._operators import if_true
+from hgraph import TS, run_graph, GlobalState, push_queue, graph
+from hgraph._runtime._evaluation_engine import EvaluationMode
+from hgraph.nodes import record, get_recorded_value, const, stop_engine, eq_
+from hgraph.nodes._operators import if_true
 
 
 def test_push_queue():

@@ -1,6 +1,6 @@
-from hg import PythonGeneratorWiringNodeClass, TS, MIN_TD
-from hg.nodes import const
-from hg.test import eval_node
+from hgraph import PythonGeneratorWiringNodeClass, TS, MIN_TD
+from hgraph.nodes import const
+from hgraph.test import eval_node
 
 
 def test_const_wiring():

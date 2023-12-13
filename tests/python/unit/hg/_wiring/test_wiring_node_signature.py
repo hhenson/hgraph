@@ -1,5 +1,5 @@
-from hg._types._ts_type import TS
-from hg._wiring._wiring_node_signature import extract_signature, WiringNodeType
+from hgraph._types._ts_type import TS
+from hgraph._wiring._wiring_node_signature import extract_signature, WiringNodeType
 
 
 def test_extract_fn():

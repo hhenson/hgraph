@@ -1,9 +1,9 @@
 from datetime import timedelta
 
-from hg import generator, SCALAR, compute_node, PythonWiringNodeClass, sink_node, graph, GraphWiringNodeClass
-from hg._types._ts_type import TS
-from hg._wiring._wiring import PythonGeneratorWiringNodeClass
-from hg._wiring._wiring_node_signature import WiringNodeType, WiringNodeSignature
+from hgraph import generator, SCALAR, compute_node, PythonWiringNodeClass, sink_node, graph, GraphWiringNodeClass
+from hgraph._types._ts_type import TS
+from hgraph._wiring._wiring import PythonGeneratorWiringNodeClass
+from hgraph._wiring._wiring_node_signature import WiringNodeType, WiringNodeSignature
 
 
 def test_generator_node():

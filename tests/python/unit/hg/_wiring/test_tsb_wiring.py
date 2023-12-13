@@ -1,7 +1,7 @@
 import pytest
 
-from hg import TSB, TimeSeriesSchema, TS, compute_node, graph
-from hg.test import eval_node
+from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph
+from hgraph.test import eval_node
 
 
 class MyTsb(TimeSeriesSchema):

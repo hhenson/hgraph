@@ -1,8 +1,8 @@
 from frozendict import frozendict
 
-from hg import TS, graph, TIME_SERIES_TYPE, SCALAR_2
-from hg.nodes import make_tsd, extract_tsd, flatten_tsd
-from hg.test import eval_node
+from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
+from hgraph.test import eval_node
 
 
 def test_make_tsd():

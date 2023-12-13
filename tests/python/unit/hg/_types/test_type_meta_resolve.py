@@ -3,10 +3,10 @@ from typing import Generic
 
 import pytest
 
-from hg import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar
-from hg._types._ts_type import TS, TS_OUT
-from hg._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB, REF
-from hg._types._typing_utils import clone_typevar
+from hgraph import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar
+from hgraph._types._ts_type import TS, TS_OUT
+from hgraph._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB, REF
+from hgraph._types._typing_utils import clone_typevar
 
 
 @dataclass

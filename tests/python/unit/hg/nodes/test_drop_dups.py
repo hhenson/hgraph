@@ -1,5 +1,5 @@
-from hg.nodes._drop_dups import drop_dups
-from hg.test import eval_node
+from hgraph.nodes._drop_dups import drop_dups
+from hgraph.test import eval_node
 
 
 def test_drop_dups():
