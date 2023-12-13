@@ -4,29 +4,35 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hg"
-version = "2023.12.12"
+dynamic = ["version"]
 dependencies = [
-#    "pytest>=7.4.3",
+    #    "pytest>=7.4.3",
     "frozendict>=2.3.10",
     "more-itertools>=10.1.0",
     "sortedcontainers>=2.4.0",
 ]
 requires-python = ">=3.11"
 authors = [
-  {name = "Howard Henson", email = "howard@henson.me.uk"},
+    { name = "Howard Henson", email = "howard@henson.me.uk" },
 ]
 maintainers = [
 ]
 description = "A functional reactive engine"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 keywords = [
     "reactive", "graph", "fpg", "forward propogating graph", "time series", "functional reactive programming",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Programming Language :: Python"
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: Implementation :: CPython",
 ]
+
+[project.urls]
+Homepage = "https://github.com/hhenson/hg"
+Repository = "https://github.com/hhenson/hg.git"
 
 [tool.pytest.ini_options]
 minversion = "7.4.3"
@@ -35,6 +41,54 @@ testpaths = [
     "test",
 ]
 
-[project.urls]
-Homepage = "https://github.com/hhenson/hg"
-Repository = "https://github.com/hhenson/hg.git"
+[tool.hatch.version]
+path = "src/hg/__about__.py"
+
+[tool.hatch.envs.default]
+dependencies = [
+  "coverage[toml]>=6.5",
+  "pytest",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+test-cov = "coverage run -m pytest {args:tests}"
+cov-report = [
+  "- coverage combine",
+  "coverage report",
+]
+cov = [
+  "test-cov",
+  "cov-report",
+]
+
+[[tool.hatch.envs.all.matrix]]
+python = ["3.11", "3.12"]
+
+[tool.hatch.envs.types]
+dependencies = [
+  "mypy>=1.0.0",
+]
+
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/hg tests}"
+
+[tool.coverage.run]
+source_pkgs = ["hg", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/hg/__about__.py",
+]
+
+[tool.coverage.paths]
+hg = ["src/hg", "*/hg/src/hg"]
+tests = ["tests", "*/hg/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
