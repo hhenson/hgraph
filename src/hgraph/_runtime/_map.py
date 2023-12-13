@@ -87,8 +87,8 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
     When the function is associative the reduce will perform a tree reduction, otherwise it will perform a linear
     reduction. The tree reduction is much faster on change.
 
-    By definition the reduce function over a TSD must be commutative in the sense that the order of the inputs is
-    not guaranteed. Only a TSL supports non-commutative reduce functions.
+    By definition the reduce function over a TSD must be commutative and associative in the sense that the order of the
+    inputs are not guaranteed. Only a TSL supports non-commutative reduce functions.
 
     Example [TSD]:
         tsd: TSD[str, TS[int]] = ...
@@ -102,6 +102,33 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         >> tsl <- ([1], [2], [3], [4], [5])
         >> out -> 15
     """
+    if not isinstance(func, WiringNodeClass):
+        raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
+    if not isinstance(ts, WiringPort):
+        raise RuntimeError(f"The supplied time-series is not a valid input: '{ts}'")
+    with WiringContext(current_signature=STATE(current_signature=f"reduce('{func.signature.signature}', {ts.output_type}, {zero})")):
+        if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
+            return _reduce_tsl(func, ts, zero, is_associated)
+        elif tp_ is HgTSDTypeMetaData:
+            return _reduce_tsd(func, ts, zero)
+        else:
+            raise RuntimeError(f"Unexpected time-series type: {ts.output_type}")
+
+
+def _reduce_tsl(func, ts, zero, is_associated):
+    tp_ = ts.output_type
+    if (sz := tp_.size_tp.SIZE) == 0:
+        from hgraph.nodes import const
+        return const(zero, tp_.value_tp)
+    if not is_associated:
+        out = ts[0]
+        for i in range(1, sz):
+            out = func(out, ts[i])
+        return default(out, zero)
+
+
+def _reduce_tsd(func, ts, zero):
+    pass
 
 
 class _MappingMarker:
