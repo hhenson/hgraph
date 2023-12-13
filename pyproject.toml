@@ -38,7 +38,7 @@ Repository = "https://github.com/hhenson/hgraph.git"
 minversion = "7.4.3"
 addopts = "-ra -q"
 testpaths = [
-    "test",
+    "tests",
 ]
 
 [tool.hatch.version]

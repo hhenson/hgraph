@@ -24,6 +24,7 @@ from hgraph._wiring._wiring import extract_kwargs
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference
 
+
 if TYPE_CHECKING:
     pass
 
@@ -116,16 +117,33 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
 
 
 def _reduce_tsl(func, ts, zero, is_associated):
+    """For the moment we only support fixed size TSLs. sop we can lay out the reduction in the graph statically"""
+    from hgraph.nodes import default, const
     tp_ = ts.output_type
     if (sz := tp_.size_tp.SIZE) == 0:
-        from hgraph.nodes import const
         return const(zero, tp_.value_tp)
-    if not is_associated:
+    if not is_associated or sz < 4:
         out = ts[0]
         for i in range(1, sz):
             out = func(out, ts[i])
         return default(out, zero)
-
+    else:
+        outs = [func(ts[i], ts[i + 1]) for i in range(0, sz - sz % 2, 2)]
+        over_run = None if sz % 2 == 0 else ts[-1]
+        while len(outs) > 1:
+            l = len(outs)
+            outs = [func(outs[i], outs[i + 1]) for i in range(0, l - l%2, 2)]
+            if l % 2 == 1:
+                if over_run is None:
+                    over_run = outs[-1]
+                else:
+                    outs.append(func(outs[-1], over_run))
+                    over_run = None
+        if over_run is not None:
+            out = func(outs[0], over_run)
+        else:
+            out = outs[0]
+        return default(out, zero)
 
 def _reduce_tsd(func, ts, zero):
     pass
