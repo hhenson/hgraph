@@ -240,9 +240,17 @@ def test_tsd_reduce():
     assert eval_node(reduce_test, [None, {'a': 1}, {'b': 2}]) == [0, 1, 3]
 
 
-def test_tsl_reduce():
+@pytest.mark.parametrize(
+    ["inputs", 'size', "expected"],
+    [
+        [[None, {0: 1}, {1: 2}], Size[2], [0, 1, 3]],
+        [[None, {0: 1, 3: 4}, {1: 2, 2: 3}], Size[4], [0, 5, 10]],
+        [[None, {0: 1, 3: 4}, {1: 2, 2: 3}, {4: 8}], Size[5], [0, 5, 10, 18]],
+    ]
+)
+def test_tsl_reduce(inputs, size, expected):
     @graph
     def reduce_test(tsl: TSL[TS[int], SIZE]) -> TS[int]:
         return reduce(add_, tsl, 0)
 
-    assert eval_node(reduce_test, [None, {0: 1}, {1: 2}], resolution_dict={'tsl': TSL[TS[int], Size[2]]}) == [0, 1, 3]
+    assert eval_node(reduce_test, inputs, resolution_dict={'tsl': TSL[TS[int], size]}) == expected
