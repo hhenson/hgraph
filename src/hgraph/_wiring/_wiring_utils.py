@@ -61,7 +61,7 @@ def as_reference(tp_: HgTimeSeriesTypeMetaData, is_multiplexed: bool = False) ->
 
 
 def wire_nested_graph(fn: WiringNodeClass,
-                      resolved_wiring_signature: WiringNodeSignature,
+                      input_types: Mapping[str, HgTypeMetaData],
                       scalars: Mapping[str, Any],
                       outer_wiring_node_signature: WiringNodeSignature) -> "GraphBuilder":
     """
@@ -71,7 +71,7 @@ def wire_nested_graph(fn: WiringNodeClass,
     """
     from hgraph._wiring._graph_builder import create_graph_builder
     inputs_ = {}
-    for k, v in resolved_wiring_signature.input_types.items():
+    for k, v in input_types.items():
         if v.is_scalar:
             inputs_[k] = scalars[k]
         else:

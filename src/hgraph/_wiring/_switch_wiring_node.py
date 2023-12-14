@@ -30,7 +30,7 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         # create nested graphs
-        nested_graphs = {k: wire_nested_graph(v, self._resolved_signature_inner, scalars, self.signature) for k, v in
+        nested_graphs = {k: wire_nested_graph(v, self._resolved_signature_inner.input_types, scalars, self.signature) for k, v in
                          self._nested_graphs.items()}
         nested_graph_input_ids = {}
         nested_graph_output_ids = {}

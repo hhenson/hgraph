@@ -150,3 +150,30 @@ class PythonMapNodeImpl(NodeImpl):
             node: Node = graph.nodes[self.output_node_id]
             # Replace the nodes output with the map node's output for the key
             node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output).get_or_create(key)
+
+
+class PythonReduceNodeImpl(NodeImpl):
+
+    def __init__(self,
+                 node_ndx: int,
+                 owning_graph_id: tuple[int, ...],
+                 signature: NodeSignature,
+                 scalars: Mapping[str, Any],
+                 eval_fn: Callable = None,
+                 start_fn: Callable = None,
+                 stop_fn: Callable = None,
+                 nested_graph_builder: GraphBuilder = None,
+                 input_node_ids: Mapping[str, int] = None,
+                 output_node_id: int = None,
+                 ):
+        super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
+        self.nested_graph_builder: GraphBuilder = nested_graph_builder
+        self.input_node_ids: Mapping[str, int] = input_node_ids
+        self.output_node_id: int = output_node_id
+        self._scheduled_keys: dict[SCALAR, datetime] = {}
+        self._active_graphs: dict[SCALAR, Graph] = {}
+        self._count = 0
+        self._last_evaluation_time = MIN_DT
+
+    def eval(self):
+        ...

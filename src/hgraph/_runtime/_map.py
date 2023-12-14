@@ -3,13 +3,14 @@ from typing import Callable, cast, TYPE_CHECKING, List
 
 from frozendict import frozendict
 
+from hgraph._wiring._decorators import compute_node
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._wiring._wiring import WiringNodeType
 from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, WiringNodeClass
 from hgraph._wiring._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
-    TslMapWiringNodeClass
+    TslMapWiringNodeClass, TsdReduceWiringNodeClass
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
@@ -110,7 +111,7 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
     with WiringContext(current_signature=STATE(current_signature=f"reduce('{func.signature.signature}', {ts.output_type}, {zero})")):
         if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
             return _reduce_tsl(func, ts, zero, is_associated)
-        elif tp_ is HgTSDTypeMetaData:
+        elif type(tp_) is HgTSDTypeMetaData:
             return _reduce_tsd(func, ts, zero)
         else:
             raise RuntimeError(f"Unexpected time-series type: {ts.output_type}")
@@ -142,8 +143,32 @@ def _reduce_tsl(func, ts, zero, is_associated):
         return out
 
 
+@compute_node
+def _reduce_tsd_signature(ts: TSD[SCALAR, TIME_SERIES_TYPE], zero: SCALAR_1) -> TIME_SERIES_TYPE:
+    ...
+    # Used to create a WiringNodeClass template
+
+
 def _reduce_tsd(func, ts, zero):
-    pass
+    wp = _reduce_tsd_signature(ts, zero)
+    resolved_signature = cast(WiringPort, wp).node_instance.resolved_signature
+    resolved_signature = WiringNodeSignature(
+        node_type=resolved_signature.node_type,
+        name='reduce',
+        args=resolved_signature.args,
+        defaults=resolved_signature.defaults,
+        input_types=resolved_signature.input_types,
+        output_type=resolved_signature.output_type,
+        src_location=resolved_signature.src_location,
+        active_inputs=resolved_signature.active_inputs,
+        valid_inputs=resolved_signature.valid_inputs,
+        unresolved_args=resolved_signature.unresolved_args,
+        time_series_args=resolved_signature.time_series_args,
+        uses_scheduler=resolved_signature.uses_scheduler,
+        label=resolved_signature.label,
+    )
+    wiring_node = TsdReduceWiringNodeClass(resolved_signature, func)
+    return wiring_node(ts, zero)
 
 
 class _MappingMarker:
