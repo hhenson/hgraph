@@ -507,7 +507,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
-                out: WiringPort = self.fn(*args, **kwargs_)
+                out: WiringPort = self.fn(**kwargs_)
                 if output_type := resolved_signature.output_type:
                     if output_type.dereference() != out.output_type.dereference():
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "

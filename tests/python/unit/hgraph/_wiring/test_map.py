@@ -240,10 +240,9 @@ def test_tsd_reduce():
     assert eval_node(reduce_test, [None, {'a': 1}, {'b': 2}]) == [0, 1, 3]
 
 
-@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_reduce():
     @graph
     def reduce_test(tsl: TSL[TS[int], SIZE]) -> TS[int]:
         return reduce(add_, tsl, 0)
 
-    assert eval_node(reduce_test, [None, {0: 1}, {1: 2}]) == [0, 1, 3]
+    assert eval_node(reduce_test, [None, {0: 1}, {1: 2}], resolution_dict={'tsl': TSL[TS[int], Size[2]]}) == [0, 1, 3]

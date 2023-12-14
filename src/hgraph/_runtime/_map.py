@@ -120,30 +120,27 @@ def _reduce_tsl(func, ts, zero, is_associated):
     """For the moment we only support fixed size TSLs. sop we can lay out the reduction in the graph statically"""
     from hgraph.nodes import default, const
     tp_ = ts.output_type
-    if (sz := tp_.size_tp.SIZE) == 0:
+    if (sz := tp_.size_tp.py_type.SIZE) == 0:
         return const(zero, tp_.value_tp)
     if not is_associated or sz < 4:
-        out = ts[0]
+        out = default(ts[0], zero)
         for i in range(1, sz):
-            out = func(out, ts[i])
-        return default(out, zero)
+            out = func(out, default(ts[i], zero))
+        return out
     else:
-        outs = [func(ts[i], ts[i + 1]) for i in range(0, sz - sz % 2, 2)]
-        over_run = None if sz % 2 == 0 else ts[-1]
+        outs = [func(default(ts[i], zero), default(ts[i + 1], zero)) for i in range(0, sz - sz % 2, 2)]
+        over_run = None if sz % 2 == 0 else default(ts[-1], zero)
+        # outs must now be even, thus until we have a single value, we can reduce in pairs.
+        # Then afterward if we had an odd number of inputs we can reduce the last value with the over run.
         while len(outs) > 1:
             l = len(outs)
-            outs = [func(outs[i], outs[i + 1]) for i in range(0, l - l%2, 2)]
-            if l % 2 == 1:
-                if over_run is None:
-                    over_run = outs[-1]
-                else:
-                    outs.append(func(outs[-1], over_run))
-                    over_run = None
+            outs = [func(outs[i], outs[i + 1]) for i in range(0, l, 2)]  # l must be even
         if over_run is not None:
             out = func(outs[0], over_run)
         else:
             out = outs[0]
-        return default(out, zero)
+        return out
+
 
 def _reduce_tsd(func, ts, zero):
     pass

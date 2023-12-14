@@ -91,5 +91,5 @@ class HgTypeMetaData:
         Implementation method for build_resolution_dict - to be overriden by the derived classes
         """
         if wired_type is not None and type(self) != type(wired_type):
-            raise ParseError(f"The input type '{type(self)}' "
-                             f"does not match the supplied wiring type '{type(wired_type)}'")
+            from hgraph._wiring._wiring_errors import IncorrectTypeBinding
+            raise IncorrectTypeBinding(self, wired_type)
