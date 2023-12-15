@@ -12,13 +12,14 @@ from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, SCALAR, DELTA_SCALAR, TimeSeriesDeltaValue, \
     TimeSeries
 from hgraph._types._type_meta_data import ParseError
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
         HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, WiringNodeInstance
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
-           "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema")
+           "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "ts_schema")
 
 
 class TimeSeriesSchema(AbstractSchema):
@@ -40,10 +41,27 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
     """Use this class to create un-named bundle schemas"""
 
     @classmethod
+    def create(cls, **kwargs) -> Type["UnNamedTimeSeriesSchema"]:
+        """Creates a type instance with root class UnNamedTimeSeriesSchema using the kwargs provided"""
+        from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+        schema = {k: HgTimeSeriesTypeMetaData.parse(v) for k, v in kwargs.items()}
+        if any(v is None for v in schema.values()):
+            bad_inputs = {k: v for k, v in kwargs if schema[k] is None}
+            raise CustomMessageWiringError(f"The following inputs are not valid time-series types: {bad_inputs}")
+        return cls.create_resolved_schema(schema)
+
+    @classmethod
     def create_resolved_schema(cls, schema: Mapping[str, "HgTimeSeriesTypeMetaData"]) \
             -> Type["UnNamedTimeSeriesSchema"]:
         """Creates a type instance with root class UnNamedTimeSeriesSchema using the schema provided"""
         return cls._create_resolved_class(schema)
+
+
+def ts_schema(**kwargs) -> Type["TimeSeriesSchema"]:
+    """
+    Creates an un-named time-series schema using the kwargs provided.
+    """
+    return UnNamedTimeSeriesSchema.create(**kwargs)
 
 
 class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Union[TS_SCHEMA, dict[str, Any]]], ABC,

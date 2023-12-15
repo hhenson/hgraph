@@ -8,7 +8,7 @@ if typing.TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData
 
 __all__ = ("WiringError", "ArgumentBindingErrors", "IncorrectTypeBinding", "TemplateTypeIncompatibleResolution",
-           "MissingInputsError", "NoTimeSeriesInputsError", "InvalidArgumentsProvided")
+           "MissingInputsError", "NoTimeSeriesInputsError", "InvalidArgumentsProvided", "CustomMessageWiringError")
 
 
 class WiringError(RuntimeError, ABC):

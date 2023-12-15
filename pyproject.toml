@@ -30,6 +30,13 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
+[project.optional-dependencies]
+polars = [
+    "polars>=0.19.19",
+]
+
+all = ["hgraph[polars,]"]
+
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
 Repository = "https://github.com/hhenson/hgraph.git"

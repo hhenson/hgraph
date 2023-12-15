@@ -140,7 +140,7 @@ class WiringNodeSignature:
         new_resolved_inputs = {}
         for arg, v in self.defaults.items():
             if v is AUTO_RESOLVE:
-                kwargs[arg] = kwarg_types[arg].value_tp.resolve(resolution_dict)
+                kwargs[arg] = kwarg_types[arg].value_tp.resolve(resolution_dict).py_type
                 new_resolved_inputs[arg] = kwarg_types[arg].resolve(resolution_dict)
         if new_resolved_inputs:
             return frozendict(dict(resolved_inputs, **new_resolved_inputs))

@@ -1,6 +1,8 @@
 import typing
 from collections import defaultdict
 
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+
 if typing.TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder, GraphBuilderFactory
     from hgraph._wiring._wiring import WiringNodeInstance
@@ -48,6 +50,9 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"]) -> "GraphBuild
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._runtime._node import NodeTypeEnum
     from hgraph._builder._graph_builder import GraphBuilderFactory
+
+    if not sink_nodes:
+        raise RuntimeError("No sink nodes found in graph")
 
     max_rank = max(node.rank for node in sink_nodes)
     ranked_nodes: dict[int, set[WiringNodeInstance]] = defaultdict(set)
