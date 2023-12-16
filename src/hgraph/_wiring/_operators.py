@@ -1,6 +1,6 @@
-from hgraph._wiring._decorators import graph
+from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._wiring import WiringPort, WiringError
-from hgraph._types import TIME_SERIES_TYPE
+from hgraph._types import TIME_SERIES_TYPE, TS
 
 __all__ = ("add_", "sub_", "mul_", "div_")
 
@@ -35,3 +35,11 @@ def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__truediv__ = lambda x, y: div_(x, y)
+
+
+@compute_node
+def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
+    return lhs.value == rhs.value
+
+
+WiringPort.__eq__ = lambda x, y: eq_(x, y)

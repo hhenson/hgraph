@@ -5,8 +5,8 @@ from typing import Callable
 
 from hgraph import TS, run_graph, GlobalState, push_queue, graph
 from hgraph._runtime._evaluation_engine import EvaluationMode
-from hgraph.nodes import record, get_recorded_value, const, stop_engine, eq_
-from hgraph.nodes._operators import if_true
+from hgraph.nodes import record, get_recorded_value, const, stop_engine
+from hgraph.nodes._conditional import if_true
 
 
 def test_push_queue():
@@ -25,7 +25,7 @@ def test_push_queue():
     def main():
         messages = my_message_sender(("1", "2", "3"))
         record(messages)
-        stop_engine(if_true(eq_(messages, const("3"))), "Completed Processing request")
+        stop_engine(if_true(messages == const("3")), "Completed Processing request")
 
     now = datetime.utcnow()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.

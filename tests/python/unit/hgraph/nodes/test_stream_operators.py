@@ -1,7 +1,16 @@
-from hgraph import MIN_TD
-from hgraph.nodes import lag_ts
+from hgraph import TS
+from hgraph.nodes import sample
 from hgraph.test import eval_node
 
 
-def test_delay_ts():
-    assert eval_node(lag_ts, ts=[1, 2, 3], delay=MIN_TD) == [None, 1, 2, 3]
+def test_sample():
+    expected = [
+        None,
+        2,
+        None,
+        4,
+        None
+    ]
+
+    assert eval_node(sample, [None, True, None, True], [1, 2, 3, 4, 5],
+                     resolution_dict={'signal': TS[bool]}) == expected
