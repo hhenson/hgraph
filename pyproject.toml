@@ -35,7 +35,7 @@ polars = [
     "polars>=0.19.19",
 ]
 
-all = ["hgraph[polars,]"]
+all = ["hgraph[polars]"]
 
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
