@@ -59,6 +59,10 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return self
 
+    @property
+    def operator_rank(self) -> float:
+        return (self.key_tp.operator_rank + self.value_tp.operator_rank) / 100.
+
     def __getitem__(self, item):
         if KEY_SET_ID is item:
             return HgTSSTypeMetaData(self.key_tp)

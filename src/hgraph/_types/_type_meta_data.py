@@ -72,6 +72,10 @@ class HgTypeMetaData:
     def dereference(self) -> "HgTypeMetaData":
         return self
 
+    @property
+    def operator_rank(self) -> float:
+        return 0
+
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """
         Attempts to resolve any un-resolved types using the wired type supplied. Any resolutions made are added to the

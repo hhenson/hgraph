@@ -72,6 +72,10 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return self
 
+    @property
+    def operator_rank(self) -> float:
+        return (self.value_tp.operator_rank) / 100. + (1e-15 if self.size_tp.operator_rank != 0 else 0)
+
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSLTypeMetaData and self.value_tp == o.value_tp and self.size_tp == o.size_tp
 

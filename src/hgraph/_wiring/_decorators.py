@@ -1,3 +1,4 @@
+import inspect
 from functools import partial
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
@@ -15,14 +16,15 @@ __all__ = (
     "service_impl", "service_adaptor", "register_service", "push_queue")
 
 
-def compute_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None):
+def compute_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None,
+                 overloads: "WiringNodeClass" | Callable = None):
     """
     Used to define a python function to be a compute-node. A compute-node is the worker unit in the graph and
     will be called each time of the inputs to the compute node ticks.
     A compute-node requires inputs and outputs.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, cpp_impl, active, valid)
+    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, cpp_impl, active, valid, overloads=overloads)
 
 
 def pull_source_node(cpp_impl):
@@ -46,23 +48,24 @@ def push_source_node(cpp_impl):
     return partial(_create_node, WiringNodeType.PUSH_SOURCE_NODE, CppWiringNodeClass, cpp_impl)
 
 
-def sink_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None):
+def sink_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None,
+              overloads: "WiringNodeClass" = None):
     """
     Indicates the function definition represents a sink node. This type of node has no return type.
     Other than that it behaves in much the same way as compute node.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SINK_NODE, fn, cpp_impl, active, valid)
+    return _node_decorator(WiringNodeType.SINK_NODE, fn, cpp_impl, active, valid, overloads=overloads)
 
 
-def graph(fn):
+def graph(fn=None, overloads: "WiringNodeClass" = None):
     """
     Wraps a wiring function. The function can take the form of a function that looks like a compute_node,
     sink_node, souce_node, or a graph with no inputs or outputs. There is generally at least one graph in
     any application. The main graph.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.GRAPH, fn)
+    return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads)
 
 
 def generator(fn):
@@ -175,8 +178,9 @@ def service_adaptor(interface):
     """
 
 
-def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, active: Sequence[str] = None,
-                    valid: Sequence[str] = None, node_class: Type["WiringNodeClass"] = None):
+def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active: Sequence[str] = None,
+                    valid: Sequence[str] = None, node_class: Type["WiringNodeClass"] = None,
+                    overloads: "WiringNodeClass" = None):
     from hgraph._wiring._wiring import CppWiringNodeClass, GraphWiringNodeClass, PythonWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
@@ -195,10 +199,18 @@ def _node_decorator(node_type: "WiringNodeType", signature_fn, cpp_impl=None, ac
         if valid is not None:
             raise ValueError("Graphs do not support valid")
 
-    if signature_fn is None:
-        return partial(_create_node, **kwargs)
+    if overloads is not None:
+        if impl_fn is None:
+            kwargs['overloads'] = overloads
+
+    if impl_fn is None:
+        return lambda fn: _node_decorator(impl_fn=fn, **kwargs)
+    elif overloads is not None:
+        overload = _create_node(impl_fn, **kwargs)
+        overloads.overload(overload)
+        return overload
     else:
-        return _create_node(signature_fn, **kwargs)
+        return _create_node(impl_fn, **kwargs)
 
 
 def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None, node_class: Type[
