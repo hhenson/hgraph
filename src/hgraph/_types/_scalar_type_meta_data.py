@@ -62,6 +62,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
 
     @property
     def operator_rank(self) -> float:
+        # This is a complete wild card, so this is the weakest match (which strangely is 1.0)
         return 1.
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":

@@ -4,6 +4,7 @@ from hgraph._types import TIME_SERIES_TYPE
 
 __all__ = ("add_", "sub_", "mul_", "div_")
 
+
 @graph
 def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     raise WiringError(f"operator add_ is not implemented for {lhs.output_type} and {rhs.output_type}")

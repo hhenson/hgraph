@@ -415,6 +415,7 @@ class OverloadedWiringNodeHelper:
         candidates = []
         for c, r in self.overloads:
             try:
+                # Attempt to resolve the signature, if this fails then we don't have a candidate
                 c.resolve_signature(*args, **kwargs)
                 candidates.append((c, r))
             except:
