@@ -24,6 +24,10 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_scalar_tp.is_resolved
 
     @property
+    def operator_rank(self) -> float:
+        return self.value_scalar_tp.operator_rank / 100.
+
+    @property
     def py_type(self) -> Type:
         from hgraph._types import TSS
         return TSS[self.value_scalar_tp.py_type]

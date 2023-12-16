@@ -2,7 +2,7 @@ import inspect
 from dataclasses import dataclass, replace
 from functools import cached_property
 from types import GenericAlias
-from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING, Generic
+from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING, Generic, Tuple, List
 
 from frozendict import frozendict
 from more_itertools import nth
@@ -149,6 +149,12 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.start_fn: Callable = None
         self.stop_fn: Callable = None
 
+    def overload(self, other: "WiringNodeClass"):
+        if o := getattr(self, "overload_list", None) is None:
+            self.overload_list = OverloadedWiringNodeHelper(self)
+
+        self.overload_list.overload(other)
+
     def __getitem__(self, item) -> WiringNodeClass:
         return PreResolvedWiringNodeWrapper(signature=self.signature, fn=self.fn,
                                             underlying_node=self, resolved_types=self._convert_item(item))
@@ -263,8 +269,20 @@ class BaseWiringNodeClass(WiringNodeClass):
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
             raise WiringError(f"Failure resolving signature, graph call stack:\n{path}") from e
 
+    def _check_overloads(self, *args, **kwargs) -> "WiringPort":
+        if (overload_helper := getattr(self, "overload_list", None)) is not None:
+            overload_helper: OverloadedWiringNodeHelper
+            best_overload = overload_helper.get_best_overload(*args, **kwargs)
+            best_overload: WiringNodeClass
+            if best_overload is not self:
+                return best_overload(*args, **kwargs)
+
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
+
+        if (r := self._check_overloads(*args, ** kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
+            return r
+
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             # Now validate types and resolve any un-resolved types and provide an updated signature.
@@ -353,6 +371,57 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         return self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
 
+
+class OverloadedWiringNodeHelper:
+    """
+    This meta wiring node class deals with graph/node declaration overloads, for example when we have an implementation
+    of a node that is generic
+
+        def n(t: TIME_SERIES_TYPE)
+
+    and another one that is more specific like
+
+        def n(t: TS[int])
+
+    in this case if wired with TS[int] input we should choose the more specific implementation and the generic one in
+    other cases.
+
+    This problem becomes slightly trickier with more inputs or more complex types, consider:
+
+        def m(t1: TIME_SERIES_TYPE, t2: TIME_SERIES_TYPE)  # choice 1
+        def m(t1: TS[SCALAR], t2: TS[SCALAR])  # choice 2
+        def m(t1: TS[int], t2: TIME_SERIES_TYPE)  # choice 3
+
+    What should we wire provided two TS[int] inputs? In this case choice 2 is the right answer because it is more
+    specific about ints inputs even if choice 3 matches one of the input types exactly. We consider a signature with
+    top level generic inputs as always less specified than a signature with generics as parameters to specific
+    collection types. This rule applies recursively so TSL[V, 2] is less specific than TSL[TS[SCALAR], 2]
+    """
+
+    overloads: List[Tuple[WiringNodeClass, int]]
+
+    def __init__(self, base: WiringNodeClass):
+        self.overloads = [(base, self._calc_rank(base.signature))]
+
+    def overload(self, impl: WiringNodeClass):
+        self.overloads.append((impl, self._calc_rank(impl.signature)))
+
+    @staticmethod
+    def _calc_rank(signature: WiringNodeSignature) -> int:
+        return sum(t.operator_rank for t in signature.input_types.values())
+
+    def get_best_overload(self, *args, **kwargs):
+        candidates = []
+        for c, r in self.overloads:
+            try:
+                c.resolve_signature(*args, **kwargs)
+                candidates.append((c, r))
+            except:
+                pass
+        if not candidates:
+            raise WiringError(f"{self.signature.name} cannot be wired with given parameters - no matching candidates found")
+
+        return min(candidates, key=lambda x: x[1])[0]
 
 class CppWiringNodeClass(BaseWiringNodeClass):
     ...
@@ -497,6 +566,10 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
 
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
+
+        if (r := self._check_overloads(*args, ** kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
+            return r
+
         # We don't want graph and node signatures to operate under different rules as this would make
         # moving between node and graph implementations problematic, so resolution rules of the signature
         # hold
@@ -713,6 +786,8 @@ class TSLWiringPort(WiringPort):
             raise CustomMessageWiringError(
                 "Currently we are unable to select a time-series element from an unbounded TSL")
         elif item >= size_.SIZE:
+            # The problem with raising standard errors in wiring logic is that we do not get the captured context
+            # to help with debugging, Perhaps we should create analogous errors (i.e. HgIndexError?)
             raise CustomMessageWiringError(
                 f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}")
 

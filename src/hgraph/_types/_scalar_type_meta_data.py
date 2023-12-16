@@ -60,6 +60,10 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
     def is_convertable(self, tp: "HgTypeMetaData") -> bool:
         return False
 
+    @property
+    def operator_rank(self) -> float:
+        return 1.
+
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
             return tp
@@ -309,6 +313,10 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         return self.py_collection_type[self.element_type.py_type, ...]
 
     @property
+    def operator_rank(self) -> float:
+        return self.element_type.operator_rank / 100.
+
+    @property
     def is_resolved(self) -> bool:
         return self.element_type.is_resolved
 
@@ -350,6 +358,10 @@ class HgTupleFixedScalarType(HgTupleScalarType):
 
     def is_convertable(self, tp: "HgTypeMetaData") -> bool:
         return False
+
+    @property
+    def operator_rank(self) -> float:
+        return sum(t.operator_rank for t in self.element_types) / 100.
 
     @property
     def py_type(self) -> Type:
@@ -407,6 +419,10 @@ class HgSetScalarType(HgCollectionType):
     def is_resolved(self) -> bool:
         return self.element_type.is_resolved
 
+    @property
+    def operator_rank(self) -> float:
+        return self.element_type.operator_rank / 100.
+
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":
         if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [set, frozenset, Set]:
@@ -460,6 +476,10 @@ class HgDictScalarType(HgCollectionType):
     @property
     def is_resolved(self) -> bool:
         return self.key_type.is_resolved and self.value_type.is_resolved
+
+    @property
+    def operator_rank(self) -> float:
+        return (self.key_type.operator_rank + self.value_type.operator_rank) / 100.
 
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":

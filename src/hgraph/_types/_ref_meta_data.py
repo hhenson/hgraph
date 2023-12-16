@@ -53,6 +53,10 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
         return self.value_tp
 
+    @property
+    def operator_rank(self) -> float:
+        return self.value_tp.operator_rank
+
     def __eq__(self, o: object) -> bool:
         return type(o) is HgREFTypeMetaData and self.value_tp == o.value_tp
 
