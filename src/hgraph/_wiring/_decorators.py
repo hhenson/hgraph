@@ -208,6 +208,7 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
     elif overloads is not None:
         overload = _create_node(impl_fn, **kwargs)
         overloads.overload(overload)
+        return overload
     else:
         return _create_node(impl_fn, **kwargs)
 

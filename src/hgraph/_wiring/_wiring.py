@@ -19,8 +19,9 @@ from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOLVE
 from hgraph._wiring._source_code_details import SourceCodeDetails
-from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, CustomMessageWiringError
+from hgraph._wiring._wiring_context import WiringContext, WIRING_CONTEXT
+from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, \
+    CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 if TYPE_CHECKING:
@@ -280,7 +281,7 @@ class BaseWiringNodeClass(WiringNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
 
-        if (r := self._check_overloads(*args, ** kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
+        if (r := self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
             return r
 
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
@@ -419,9 +420,11 @@ class OverloadedWiringNodeHelper:
             except:
                 pass
         if not candidates:
-            raise WiringError(f"{self.signature.name} cannot be wired with given parameters - no matching candidates found")
+            raise WiringError(
+                f"{self.signature.name} cannot be wired with given parameters - no matching candidates found")
 
         return min(candidates, key=lambda x: x[1])[0]
+
 
 class CppWiringNodeClass(BaseWiringNodeClass):
     ...
@@ -567,7 +570,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
 
-        if (r := self._check_overloads(*args, ** kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
+        if (r := self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
             return r
 
         # We don't want graph and node signatures to operate under different rules as this would make
@@ -786,10 +789,11 @@ class TSLWiringPort(WiringPort):
             raise CustomMessageWiringError(
                 "Currently we are unable to select a time-series element from an unbounded TSL")
         elif item >= size_.SIZE:
-            # The problem with raising standard errors in wiring logic is that we do not get the captured context
-            # to help with debugging, Perhaps we should create analogous errors (i.e. HgIndexError?)
-            raise CustomMessageWiringError(
-                f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}")
+            # Unfortuantly zip seems to depend on an IndexError being raised, so try and provide
+            # as much useful context in the error message as possible
+            msg = f"When resolving '{WIRING_CONTEXT.signature}' \n"
+            f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}"
+            raise IndexError(msg)
 
         if self.has_peer:
             path = self.path + (item,)
