@@ -12,6 +12,7 @@ def test_make_tsd():
 def d(d):
     return frozendict(d)
 
+
 def test_flatten_expand_tsd():
     @graph
     def flatten_expand_test(ts: TS[frozendict[str, int]]) -> TS[frozendict[str, int]]:

@@ -16,9 +16,9 @@ class PythonNodeBuilder(NodeBuilder):
     start_fn: Callable = None
     stop_fn: Callable = None
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> NodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> NodeImpl:
         node = NodeImpl(
-            node_ndx=self.node_ndx,
+            node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
@@ -45,9 +45,9 @@ class PythonNodeBuilder(NodeBuilder):
 class PythonGeneratorNodeBuilder(NodeBuilder):
     eval_fn: Callable = None  # This is the generator function
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> GeneratorNodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> GeneratorNodeImpl:
         node = GeneratorNodeImpl(
-            node_ndx=self.node_ndx,
+            node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
@@ -68,9 +68,9 @@ class PythonGeneratorNodeBuilder(NodeBuilder):
 class PythonPushQueueNodeBuilder(NodeBuilder):
     eval_fn: Callable = None  # This is the generator function
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> PythonPushQueueNodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonPushQueueNodeImpl:
         node = PythonPushQueueNodeImpl(
-            node_ndx=self.node_ndx,
+            node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,

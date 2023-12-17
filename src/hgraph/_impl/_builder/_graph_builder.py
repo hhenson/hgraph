@@ -34,7 +34,7 @@ class PythonGraphBuilder(GraphBuilder):
         return input
 
     def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None) -> Graph:
-        nodes = [nb.make_instance(graph_id) for nb in self.node_builders]
+        nodes = [nb.make_instance(graph_id, ndx) for ndx, nb in enumerate(self.node_builders)]
         for edge in self.edges:
             src_node: Node = nodes[edge.src_node]
             dst_node: Node = nodes[edge.dst_node]

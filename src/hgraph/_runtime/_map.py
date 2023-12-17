@@ -3,6 +3,7 @@ from typing import Callable, cast, TYPE_CHECKING, List
 
 from frozendict import frozendict
 
+from hgraph._types._ref_type import REF
 from hgraph._wiring._decorators import compute_node
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._wiring._wiring import WiringNodeType
@@ -81,7 +82,7 @@ def map_(func: Callable, *args, **kwargs):
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
            ts: TSD[SCALAR, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-           zero: SCALAR_1, is_associated: bool = True) -> TIME_SERIES_TYPE:
+           zero: TIME_SERIES_TYPE, is_associated: bool = True) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
     The zero must be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
@@ -112,7 +113,8 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
             return _reduce_tsl(func, ts, zero, is_associated)
         elif type(tp_) is HgTSDTypeMetaData:
-            return _reduce_tsd(func, ts, zero)
+            from hgraph.nodes import const
+            return _reduce_tsd(func, ts, const(zero))
         else:
             raise RuntimeError(f"Unexpected time-series type: {ts.output_type}")
 
@@ -122,7 +124,7 @@ def _reduce_tsl(func, ts, zero, is_associated):
     from hgraph.nodes import default, const
     tp_ = ts.output_type
     if (sz := tp_.size_tp.py_type.SIZE) == 0:
-        return const(zero, tp_.value_tp)
+        return zero
     if not is_associated or sz < 4:
         out = default(ts[0], zero)
         for i in range(1, sz):
@@ -144,7 +146,7 @@ def _reduce_tsl(func, ts, zero, is_associated):
 
 
 @compute_node
-def _reduce_tsd_signature(ts: TSD[SCALAR, TIME_SERIES_TYPE], zero: SCALAR_1) -> TIME_SERIES_TYPE:
+def _reduce_tsd_signature(ts: TSD[SCALAR, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
     ...
     # Used to create a WiringNodeClass template
 

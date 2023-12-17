@@ -15,14 +15,13 @@ NODE = TypeVar("NODE", bound=Node)
 
 @dataclass(frozen=True)
 class NodeBuilder(Builder[NODE]):
-    node_ndx: int
     signature: NodeSignature
     scalars: Mapping[str, Any]
     input_builder: Optional[InputBuilder] = None
     output_builder: Optional[OutputBuilder] = None
 
     @abstractmethod
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> NODE:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx) -> NODE:
         """
         Construct an instance of a node. The id provided is the id for the node instance to be constructed.
         """

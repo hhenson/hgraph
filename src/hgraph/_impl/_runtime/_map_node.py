@@ -1,5 +1,6 @@
+import functools
 from datetime import datetime
-from typing import Mapping, Any, Callable, cast
+from typing import Mapping, Any, Callable, cast, Set, List
 
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._node import NodeImpl
@@ -153,6 +154,13 @@ class PythonMapNodeImpl(NodeImpl):
 
 
 class PythonReduceNodeImpl(NodeImpl):
+    """
+    This implements the TSD reduction. The solution uses an inverted binary tree with inputs at the leaves and the
+    result at the root. The inputs bound to the leaves can be moved as nodes come and go.
+
+    Follow a similar pattern to a list where we grow the tree with additional capacity, but also support the
+    reduction of the tree when the tree has shrunk sufficiently.
+    """
 
     def __init__(self,
                  node_ndx: int,
@@ -163,17 +171,97 @@ class PythonReduceNodeImpl(NodeImpl):
                  start_fn: Callable = None,
                  stop_fn: Callable = None,
                  nested_graph_builder: GraphBuilder = None,
-                 input_node_ids: Mapping[str, int] = None,
+                 input_node_ids: tuple[int, int] = None,
                  output_node_id: int = None,
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
-        self.input_node_ids: Mapping[str, int] = input_node_ids
+        self.input_node_id: tuple[int, int] = input_node_ids  # LHS index, RHS index
         self.output_node_id: int = output_node_id
         self._scheduled_keys: dict[SCALAR, datetime] = {}
         self._active_graphs: dict[SCALAR, Graph] = {}
         self._count = 0
         self._last_evaluation_time = MIN_DT
 
+        self._bound_node_indexes: dict[SCALAR, tuple[int, int]] = {}
+        self._free_node_indexes: list[tuple[int, int]] = []  # This is a list of (ndx, 0(lhs)|1(rhs)) tuples.
+
     def eval(self):
         ...
+
+    @property
+    def _zero(self) -> TIME_SERIES_TYPE:
+        return self._input['zero']
+
+    @property
+    def _tsd(self) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+        # noinspection PyTypeChecker
+        return self._input['ts']
+
+    def _add_nodes(self, keys: Set[SCALAR]):
+        """
+        Add nodes to the tree, when the tree is full we grow the tree by doubling the capacity.
+        This adds 2n+1 nodes to the tree where n is the current number of nodes in the graph (not the number of inputs).
+        There are more efficient ways to do this, but this is the simplest.
+        """
+        for key in keys:
+            if not self._free_node_indexes:
+                # We need to grow the tree.
+                self._grow_tree()
+            # We have free nodes, so we can just re-use them.
+            ndx = self._free_node_indexes.pop()
+            self._bind_key_to_node(key, ndx)
+
+    def _remove_nodes(self, keys: Set[SCALAR]):
+        """Remove nodes from the tree"""
+        for key in keys:
+            ndx = self._bound_node_indexes.pop(key)
+            self._free_node_indexes.append(ndx)
+            self._zero_node(key)
+        if len(self._free_node_indexes) > len(self._bound_node_indexes):
+            # We can shrink the tree.
+            self._shrink_tree()
+
+    def _evaluate_graph(self):
+        """Evaluate the graph for this key"""
+        self._graph.evaluate_graph()
+
+    @functools.cached_property
+    def _node_size(self):
+        """Return the number of nodes in the tree"""
+        return len(self.nested_graph_builder.node_builders)
+
+    def _node_count(self) -> int:
+        """Return the number of nodes in the tree"""
+        return len(self._graph.nodes) // self._node_size
+
+    def _get_node(self, ndx: int) -> tuple[Node, ...]:
+        """
+        Returns a view of the nodes at the level and column.
+        """
+        return self._graph.nodes[ndx * self._node_size: (ndx + 1) * self._node_size]
+
+    def _bind_key_to_node(self, key: SCALAR, ndx: tuple[int, int]):
+        """Bind a key to a node"""
+        self._bound_node_indexes[key] = ndx
+        node_id, side = ndx
+        node: NodeImpl = self._get_node(node_id)[side]
+        ts = self._tsd[key]  # The key must exist.
+        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+        node.notify()
+
+    def _zero_node(self, ndx: tuple[int, int]):
+        """Unbind a key from a node"""
+        node_id, side = ndx
+        node = self._get_node(node_id)[side]
+        # The previously bound time-series can be dropped as it would have been removed and is going away.
+        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=self._zero)
+        node.notify()
+
+    def _grow_tree(self):
+        """Grow the tree by doubling the capacity"""
+        pass
+
+    def _shrink_tree(self):
+        """Shrink the tree by halving the capacity"""
+        pass

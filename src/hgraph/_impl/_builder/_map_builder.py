@@ -17,9 +17,9 @@ class PythonMapNodeBuilder(NodeBuilder):
     output_node_id: int = None  # The node representing the stub output in the nested graph.
     multiplexed_args: frozenset[str] =None  # The inputs that need to be de-multiplexed.
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> PythonMapNodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonMapNodeImpl:
         node = PythonMapNodeImpl(
-            node_ndx=self.node_ndx,
+            node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
@@ -47,12 +47,12 @@ class PythonMapNodeBuilder(NodeBuilder):
 @dataclass(frozen=True)
 class PythonReduceNodeBuilder(NodeBuilder):
     nested_graph: "GraphBuilder" = None  # This is the generator function
-    input_node_ids: Mapping[str, int] = None  # The nodes representing the stub inputs in the nested graph.
+    input_node_ids: tuple[int, int] = None  # The nodes representing the stub inputs in the nested graph.
     output_node_id: int = None  # The node representing the stub output in the nested graph.
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> PythonMapNodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonMapNodeImpl:
         node = PythonReduceNodeImpl(
-            node_ndx=self.node_ndx,
+            node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,

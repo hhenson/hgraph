@@ -19,9 +19,9 @@ class PythonSwitchNodeBuilder(NodeBuilder):
     output_node_id: Mapping[SCALAR, int] = None  # The node representing the stub output in the nested graph.
     reload_on_ticked: bool = False
 
-    def make_instance(self, owning_graph_id: tuple[int, ...]) -> PythonSwitchNodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonSwitchNodeImpl:
         node = PythonSwitchNodeImpl(
-            node_ndx=self.node_ndx,
+            node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
