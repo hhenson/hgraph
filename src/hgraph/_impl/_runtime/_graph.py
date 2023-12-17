@@ -16,10 +16,10 @@ class PythonGraph(Graph):
     Provide a reference implementation of the Graph.
     """
 
-    def __init__(self, graph_id: tuple[int, ...], nodes: tuple[Node, ...], parent_node: Node = None):
+    def __init__(self, graph_id: tuple[int, ...], nodes: tuple[Node, ...] | list[Node], parent_node: Node = None):
         super().__init__()
         self._graph_id: tuple[int, ...] = graph_id
-        self._nodes: tuple[Node, ...] = nodes
+        self._nodes: tuple[Node, ...] | list[Node] = nodes  # No absolute requirement for this to be a tuple.
         self._schedule: list[datetime, ...] = [MIN_DT] * len(nodes)
         self._evaluation_engine: EvaluationEngine = None
         self._parent_node: Node = parent_node

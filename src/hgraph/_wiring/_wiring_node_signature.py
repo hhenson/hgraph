@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, Set
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping
 
 from frozendict import frozendict
 
-from hgraph._types import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
+from hgraph._types._type_meta_data import ParseError
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 

@@ -3,9 +3,9 @@ from abc import abstractmethod
 from dataclasses import dataclass
 
 from hgraph._builder._builder import Builder
-from hgraph._runtime._graph import Graph
 
 if typing.TYPE_CHECKING:
+    from hgraph._runtime._graph import Graph
     from hgraph._runtime._node import Node
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._types._scalar_types import SCALAR

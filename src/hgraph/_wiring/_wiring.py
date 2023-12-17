@@ -12,7 +12,6 @@ from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
-from hgraph._types._tsb_type import UnNamedTimeSeriesSchema, TimeSeriesSchema
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
@@ -25,6 +24,7 @@ from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, Mis
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 if TYPE_CHECKING:
+    from hgraph._types._tsb_type import TimeSeriesSchema
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._builder._input_builder import InputBuilder
     from hgraph._builder._output_builder import OutputBuilder
@@ -88,7 +88,7 @@ class WiringNodeClass:
         """Resolve the signature of this node based on the inputs"""
         raise NotImplementedError()
 
-    def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature", scalars: Mapping[str, Any]) \
+    def create_node_builder_instance(self, node_signature: "NodeSignature", scalars: Mapping[str, Any]) \
             -> "NodeBuilder":
         """Create the appropriate node builder for the node this wiring node represents
         :param node_ndx:
@@ -343,6 +343,7 @@ def create_input_output_builders(node_signature: "NodeSignature") -> tuple["Inpu
     factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
     output_type = node_signature.time_series_output
     if ts_inputs := node_signature.time_series_inputs:
+        from hgraph._types._tsb_type import UnNamedTimeSeriesSchema
         un_named_bundle = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(
             UnNamedTimeSeriesSchema.create_resolved_schema(
                 {k: ts_inputs[k] for k in filter(lambda k_: k_ in ts_inputs, node_signature.args)})
@@ -443,14 +444,13 @@ class CppWiringNodeClass(BaseWiringNodeClass):
 
 class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder import PythonGeneratorNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonGeneratorWiringNodeClass must have a time series output"
-        return PythonGeneratorNodeBuilder(node_ndx=node_ndx,
-                                          signature=node_signature,
+        return PythonGeneratorNodeBuilder(signature=node_signature,
                                           scalars=scalars,
                                           input_builder=None,
                                           output_builder=factory.make_output_builder(output_type),
@@ -459,14 +459,13 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
 class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder import PythonPushQueueNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonPushQueueWiringNodeClass must have a time series output"
-        return PythonPushQueueNodeBuilder(node_ndx=node_ndx,
-                                          signature=node_signature,
+        return PythonPushQueueNodeBuilder(signature=node_signature,
                                           scalars=scalars,
                                           input_builder=None,
                                           output_builder=factory.make_output_builder(output_type),
@@ -475,12 +474,11 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder import PythonNodeBuilder
         input_builder, output_builder = create_input_output_builders(node_signature)
 
-        return PythonNodeBuilder(node_ndx=node_ndx,
-                                 signature=node_signature,
+        return PythonNodeBuilder(signature=node_signature,
                                  scalars=scalars,
                                  input_builder=input_builder,
                                  output_builder=output_builder,
@@ -610,7 +608,7 @@ class StubWiringNodeClass(BaseWiringNodeClass):
         """Sub wiring classes are not callable"""
         raise NotImplementedError()
 
-    def create_node_builder_instance(self, node_ndx, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         """Sub wiring classes do not create node builders"""
         raise NotImplementedError()
 
@@ -663,7 +661,7 @@ class WiringNodeInstance:
         scalars = frozendict({k: t.injector if t.is_injectable else self.inputs[k] for k, t in
                               self.resolved_signature.scalar_inputs.items()})
 
-        node_builder = self.node.create_node_builder_instance(node_index, self.node_signature, scalars)
+        node_builder = self.node.create_node_builder_instance(self.node_signature, scalars)
         # Extract out edges
 
         edges = set()
@@ -739,7 +737,7 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 class TSBWiringPort(WiringPort):
 
     @cached_property
-    def __schema__(self) -> TimeSeriesSchema:
+    def __schema__(self) -> "TimeSeriesSchema":
         return self.output_type.bundle_schema_tp.py_type
 
     @property

@@ -2,6 +2,7 @@ import functools
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast, Set, List
 
+from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._constants import MIN_DT
@@ -175,6 +176,7 @@ class PythonReduceNodeImpl(NodeImpl):
                  output_node_id: int = None,
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
+        self._nested_graph: Graph = PythonGraph(self.owning_graph_id + (self.node_ndx,), nodes=[], parent_node=self)
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_id: tuple[int, int] = input_node_ids  # LHS index, RHS index
         self.output_node_id: int = output_node_id
@@ -224,7 +226,7 @@ class PythonReduceNodeImpl(NodeImpl):
 
     def _evaluate_graph(self):
         """Evaluate the graph for this key"""
-        self._graph.evaluate_graph()
+        self._nested_graph.evaluate_graph()
 
     @functools.cached_property
     def _node_size(self):
@@ -233,13 +235,13 @@ class PythonReduceNodeImpl(NodeImpl):
 
     def _node_count(self) -> int:
         """Return the number of nodes in the tree"""
-        return len(self._graph.nodes) // self._node_size
+        return len(self._nested_graph.nodes) // self._node_size
 
     def _get_node(self, ndx: int) -> tuple[Node, ...]:
         """
         Returns a view of the nodes at the level and column.
         """
-        return self._graph.nodes[ndx * self._node_size: (ndx + 1) * self._node_size]
+        return self._nested_graph.nodes[ndx * self._node_size: (ndx + 1) * self._node_size]
 
     def _bind_key_to_node(self, key: SCALAR, ndx: tuple[int, int]):
         """Bind a key to a node"""

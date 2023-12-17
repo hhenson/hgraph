@@ -92,10 +92,10 @@ def extract_stub_node_indices(inner_graph, input_args: Set[str]) \
     output_node_id = None
     STUB_PREFIX = "stub:"
     STUB_PREFIX_LEN = len(STUB_PREFIX)
-    for node_builder in inner_graph.node_builders:
+    for node_ndx, node_builder in enumerate(inner_graph.node_builders):
         if (inner_node_signature := node_builder.signature).name.startswith(STUB_PREFIX):
             if (arg := inner_node_signature.name[STUB_PREFIX_LEN:]) in input_args:
-                input_node_ids[arg] = node_builder.node_ndx
+                input_node_ids[arg] = node_ndx
             elif arg == "__out__":
-                output_node_id = node_builder.node_ndx
+                output_node_id = node_ndx
     return frozendict(input_node_ids), output_node_id

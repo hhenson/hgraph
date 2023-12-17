@@ -3,32 +3,28 @@ from typing import Callable, cast, TYPE_CHECKING, List
 
 from frozendict import frozendict
 
-from hgraph._types._ref_type import REF
-from hgraph._wiring._decorators import compute_node
-from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._wiring._wiring import WiringNodeType
-from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
-from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, WiringNodeClass
-from hgraph._wiring._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
-    TslMapWiringNodeClass, TsdReduceWiringNodeClass
-from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._scalar_types import SIZE, SCALAR, STATE, Size
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1
+from hgraph._types._ts_meta_data import HgTSTypeMetaData
+from hgraph._types._ts_type import TS
+from hgraph._types._ts_type_var_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_type import TSL
-from hgraph._types._ts_type import TS
-from hgraph._types._scalar_types import SIZE, SCALAR_1, SCALAR, STATE, Size
-from hgraph._types._scalar_type_meta_data import HgAtomicType
-from hgraph._types._ts_meta_data import HgTSTypeMetaData
-from hgraph._types._ts_type_var_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._wiring._decorators import compute_node
+from hgraph._wiring._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
+    TslMapWiringNodeClass, TsdReduceWiringNodeClass
+from hgraph._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, WiringNodeClass
+from hgraph._wiring._wiring import WiringNodeType
 from hgraph._wiring._wiring import extract_kwargs
+from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
 from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference
 
-
 if TYPE_CHECKING:
-    pass
+    from hgraph._types._scalar_type_meta_data import HgAtomicType
 
 
 __all__ = ("map_", "pass_through", "no_key", "reduce", "KEYS_ARG")
@@ -121,7 +117,7 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
 
 def _reduce_tsl(func, ts, zero, is_associated):
     """For the moment we only support fixed size TSLs. sop we can lay out the reduction in the graph statically"""
-    from hgraph.nodes import default, const
+    from hgraph.nodes import default
     tp_ = ts.output_type
     if (sz := tp_.size_tp.py_type.SIZE) == 0:
         return zero
@@ -145,13 +141,14 @@ def _reduce_tsl(func, ts, zero, is_associated):
         return out
 
 
-@compute_node
-def _reduce_tsd_signature(ts: TSD[SCALAR, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
-    ...
-    # Used to create a WiringNodeClass template
-
-
 def _reduce_tsd(func, ts, zero):
+    from hgraph._types._ref_type import REF
+
+    @compute_node
+    def _reduce_tsd_signature(ts: TSD[SCALAR, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
+        ...
+        # Used to create a WiringNodeClass template
+
     wp = _reduce_tsd_signature(ts, zero)
     resolved_signature = cast(WiringPort, wp).node_instance.resolved_signature
     resolved_signature = WiringNodeSignature(
@@ -242,6 +239,7 @@ def _build_map_wiring_node_and_inputs(
             map_wiring_node = _create_tsd_map_wiring_node(fn, kwargs_, input_types, multiplex_args, no_key_args,
                                                           input_key_tp, input_key_name if input_has_key_arg else None)
         case "TSL":
+            from hgraph._types._scalar_type_meta_data import HgAtomicType
             if __index__ is not None:
                 input_types = input_types | {_INDEX: __index__.output_type}
                 kwargs_[_INDEX] = __index__
@@ -389,6 +387,8 @@ def _create_tsd_map_wiring_node(
         input_key_tp: HgTSTypeMetaData,
         input_key_name: str | None
 ) -> TsdMapWiringNodeClass:
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+
     # Resolve the mapped function signature
     stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, no_key_args, input_key_tp, input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
@@ -429,9 +429,11 @@ def _create_tsl_map_signature(
         kwargs_: dict[str, WiringPort | SCALAR],
         input_types: dict[str, HgTypeMetaData],
         multiplex_args: frozenset[str],
-        size_tp: HgAtomicType,
+        size_tp: "HgAtomicType",
         input_key_name: str | None
 ):
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+
     # Resolve the mapped function signature
     stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, frozenset(),
                                        HgTSTypeMetaData.parse(TS[int]),

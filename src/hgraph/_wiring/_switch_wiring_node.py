@@ -27,7 +27,7 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
         self._resolved_signature_inner = resolved_signature_inner
         self._reload_on_ticked = reload_on_ticked
 
-    def create_node_builder_instance(self, node_ndx: int, node_signature: "NodeSignature",
+    def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         # create nested graphs
         nested_graphs = {k: wire_nested_graph(v, self._resolved_signature_inner.input_types, scalars, self.signature) for k, v in
@@ -40,6 +40,6 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
 
         input_builder, output_builder = create_input_output_builders(node_signature)
 
-        return PythonSwitchNodeBuilder(node_ndx, node_signature, scalars, input_builder, output_builder,
+        return PythonSwitchNodeBuilder(node_signature, scalars, input_builder, output_builder,
                                        frozendict(nested_graphs), frozendict(nested_graph_input_ids),
                                        frozendict(nested_graph_output_ids), self._reload_on_ticked)
