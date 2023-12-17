@@ -40,7 +40,10 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
                 ts_type: HgTypeMetaData = node.signature.input_types[ts_arg]
                 if not ts_type.is_resolved:
                     # Attempt auto resolve
-                    ts_type = HgTypeMetaData.parse(next(i for i in kwargs_[ts_arg] if i is not None))
+                    v_ = kwargs_[ts_arg]
+                    if not hasattr(v_, "__iter__"):  # Dealing with scalar to time-series support
+                        v_ = [v_]
+                    ts_type = HgTypeMetaData.parse(next(i for i in v_ if i is not None))
                     if ts_type is None or not ts_type.is_resolved:
                         raise RuntimeError(
                             f"Unable to auto resolve type for '{ts_arg}', "
@@ -64,8 +67,9 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
         v = kwargs_[ts_arg]
         if v is None:
             continue
-        max_count = max(max_count, len(v))
-        set_replay_values(ts_arg, SimpleArrayReplaySource(v))
+        # Dealing with scalar to time-series support
+        max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
+        set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
     run_graph(eval_node_graph)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
