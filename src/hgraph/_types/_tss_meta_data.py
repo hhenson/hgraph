@@ -1,7 +1,7 @@
 from typing import Type, TypeVar, Optional, _GenericAlias
 
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgSetScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
 
@@ -42,6 +42,13 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSSTypeMetaData
         self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.value_scalar_tp)
+
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        if isinstance(wired_type, HgSetScalarType):
+            self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.element_type)
+        else:
+            super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

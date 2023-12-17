@@ -6,7 +6,7 @@ from hgraph import graph, TIME_SERIES_TYPE, TS, WiringError, TSL, Size
 from hgraph.test import eval_node
 
 
-def test_wp_operators():
+def test_wp_operators_wiring():
     @graph
     def g(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
         return lhs + rhs
@@ -14,6 +14,15 @@ def test_wp_operators():
     assert eval_node(g[TIME_SERIES_TYPE: TS[int]], lhs=[1, 2, None], rhs=[2, None, 3]) == [3, 4, 5]
     with pytest.raises(WiringError):
         assert eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[], rhs=[]) == []
+
+def test_wp_operators_wiring_w_consts():
+    @graph
+    def g(lhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+        return (lhs + 1) + (1 + lhs)
+
+    assert eval_node(g[TIME_SERIES_TYPE: TS[int]], lhs=[1, 2, None]) == [4, 6, None]
+    with pytest.raises(WiringError):
+        assert eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[]) == []
 
 
 @pytest.mark.parametrize("lhs,rhs,expected", [

@@ -11,6 +11,7 @@ def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__add__ = lambda x, y: add_(x, y)
+WiringPort.__radd__ = lambda x, y: add_(y, x)
 
 
 @graph
@@ -19,6 +20,7 @@ def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__sub__ = lambda x, y: sub_(x, y)
+WiringPort.__rsub__ = lambda x, y: sub_(y, x)
 
 
 @graph
@@ -27,6 +29,7 @@ def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__mul__ = lambda x, y: mul_(x, y)
+WiringPort.__rmul__ = lambda x, y: mul_(y, x)
 
 
 @graph
@@ -35,6 +38,7 @@ def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__truediv__ = lambda x, y: div_(x, y)
+WiringPort.__rtruediv__ = lambda x, y: div_(y, y)
 
 
 @compute_node

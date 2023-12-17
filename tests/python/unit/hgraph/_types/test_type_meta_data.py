@@ -88,6 +88,7 @@ def test_special_atomic_scalars(value, expected: Type):
         [TSS[bool], HgTSSTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TSS_OUT[bool], HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TSD[int, TS[str]], HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
+        [TSD[int, TSL[TS[int], Size[2]]], HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TSL[TS[int], Size[2]]))],
         [TSD_OUT[int, TS[str]], HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
         [REF[TS[bool]], HgREFTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)))],
         [Type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],

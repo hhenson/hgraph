@@ -296,7 +296,7 @@ class HgTupleScalarType(HgCollectionType):
                 if all(type(v) is tp for v in value):
                     return HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(tp))
                 else:
-                    return HgTupleScalarType(HgScalarTypeMetaData.parse(type(v)) for v in value)
+                    return HgTupleFixedScalarType(HgScalarTypeMetaData.parse(type(v)) for v in value)
 
 
 class HgTupleCollectionScalarType(HgTupleScalarType):
@@ -491,7 +491,7 @@ class HgDictScalarType(HgCollectionType):
         elif isinstance(value, (dict, frozendict)) and len(value) > 0:
             key, value = next(iter(value.items()))
             key_tp = HgScalarTypeMetaData.parse(type(key))
-            value_tp = HgScalarTypeMetaData.parse(type(value))
+            value_tp = HgScalarTypeMetaData.parse(value)
             if key_tp and value_tp:
                 return HgDictScalarType(key_tp, value_tp)
 

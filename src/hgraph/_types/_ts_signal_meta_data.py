@@ -26,6 +26,10 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         pass  # SIGNAL has no possible validation or resolution logic
 
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        pass
+
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph._types._time_series_types import SIGNAL

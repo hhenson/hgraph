@@ -93,13 +93,17 @@ class WiringNodeSignature:
         return frozendict({k: v for k, v in self.input_types.items() if not v.is_scalar})
 
     def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData],
-                              **kwargs) -> dict[TypeVar, HgTypeMetaData]:
+                              kwarg_types, kwargs) -> dict[TypeVar, HgTypeMetaData]:
         """Expect kwargs to be a dict of arg to type mapping / value mapping"""
         resolution_dict: dict[TypeVar, HgTypeMetaData] = dict(pre_resolved_types) if pre_resolved_types else {}
         for arg, meta_data in self.input_types.items():
             # This will validate the input type against the signature's type so don't short-cut this logic!
             with WiringContext(current_arg=arg):
-                meta_data.build_resolution_dict(resolution_dict, kwargs.get(arg))
+                if not meta_data.is_scalar and (kwt := kwarg_types.get(arg)) is not None and kwt.is_scalar:
+                    meta_data: HgTimeSeriesTypeMetaData
+                    meta_data.build_resolution_dict_from_scalar(resolution_dict, kwt, kwargs[arg])
+                else:
+                    meta_data.build_resolution_dict(resolution_dict, kwarg_types.get(arg))
         # now ensures all "resolved" items are actually resolved
         out_dict = {}
         all_resolved = True
@@ -146,6 +150,12 @@ class WiringNodeSignature:
             return frozendict(dict(resolved_inputs, **new_resolved_inputs))
         else:
             return resolved_inputs
+
+    def resolve_auto_const_kwargs(self, kwarg_types, kwargs):
+        for arg, v in self.input_types.items():
+            if not v.is_scalar and kwarg_types[arg].is_scalar:
+                from hgraph.nodes import const
+                kwargs[arg] = const(kwargs[arg], tp=v.py_type)
 
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,

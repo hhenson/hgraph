@@ -1,7 +1,8 @@
 from typing import Type, TypeVar, Optional, _GenericAlias, TYPE_CHECKING, cast
 
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTupleCollectionScalarType, \
+    HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 if TYPE_CHECKING:
@@ -48,6 +49,15 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         wired_type: HgTSLTypeMetaData
         self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
         self.size_tp.build_resolution_dict(resolution_dict, wired_type.size_tp)
+
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        if isinstance(wired_type, HgTupleCollectionScalarType):
+            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type.element_type, value[0])
+        elif isinstance(wired_type, HgDictScalarType) and wired_type.key_type == HgTypeMetaData.parse(int):
+            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type.value_type, next(iter(value.values())))
+        else:
+            super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
