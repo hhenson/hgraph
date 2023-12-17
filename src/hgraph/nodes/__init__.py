@@ -5,6 +5,7 @@ except ImportError:
     pass
 from hgraph.nodes._format import *
 from hgraph.nodes._graph import *
+from hgraph.nodes._logical import *
 from hgraph.nodes._math import *
 from hgraph.nodes._operators import *
 from hgraph.nodes._pass_through import *

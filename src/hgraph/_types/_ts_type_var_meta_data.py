@@ -38,13 +38,25 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if wired_type.is_scalar:
             raise ParseError(f"TimeSeries TypeVar '{str(self)}' does not match scalar type: '{str(wired_type)}'")
-        if self in resolution_dict:
+        if self.py_type in resolution_dict:
             if resolution_dict[self.py_type] != wired_type:
                 raise ParseError(f"TypeVar '{str(self)}' has already been resolved to"
                                  f" '{str(resolution_dict[self])}' which does not match the type "
                                  f"'{str(wired_type)}'")
         elif wired_type != self:
             resolution_dict[self.py_type] = wired_type
+
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        from hgraph._types._ts_meta_data import HgTSTypeMetaData
+        resolved_type = HgTSTypeMetaData(wired_type)
+        if self.py_type in resolution_dict:
+            if resolution_dict[self.py_type] != resolved_type:
+                raise ParseError(f"TypeVar '{str(self)}' has already been resolved to"
+                                 f" '{str(resolution_dict[self])}' which does not match the type "
+                                 f"'{str(wired_type)}'")
+        elif wired_type.is_resolved:
+            resolution_dict[self.py_type] = resolved_type
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

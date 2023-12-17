@@ -1,11 +1,12 @@
 from hashlib import sha1
-from typing import Type, Optional, TypeVar, _GenericAlias
+from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
 from more_itertools import nth
 
+from hgraph._types._scalar_type_meta_data import HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
-from hgraph._types._type_meta_data import ParseError
+from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 
 __all__ = ("HgTimeSeriesSchemaTypeMetaData", "HgTSBTypeMetaData",)
 
@@ -60,6 +61,17 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             raise ParseError("Keys of schema do not match")
         for v, w_v in zip(self.meta_data_schema.values(), wired_type.meta_data_schema.values()):
             v.build_resolution_dict(resolution_dict, w_v)
+
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        if isinstance(wired_type, HgDictScalarType):
+            value: Dict
+            for k, v in self.meta_data_schema.items():
+                if k in value:
+                    k_value = value[k]
+                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse(k_value), k_value)
+
+        # not sure if there are other scalar types applicable
 
     @property
     def has_references(self) -> bool:
@@ -116,6 +128,10 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSBTypeMetaData
         self.bundle_schema_tp.build_resolution_dict(resolution_dict, wired_type.bundle_schema_tp)
+
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        self.bundle_schema_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

@@ -193,8 +193,9 @@ class BaseWiringNodeClass(WiringNodeClass):
                     if arg is None:
                         continue  # We will wire in a null source later
                     if not isinstance(arg, WiringPort):
-                        raise ParseError(f'{k}: {v} = {arg}, argument is not a time-series value')
-                    if arg.output_type:
+                        tp = HgScalarTypeMetaData.parse(arg)
+                        kwarg_types[k] = tp
+                    elif arg.output_type:
                         kwarg_types[k] = arg.output_type
                     else:
                         raise ParseError(
@@ -236,13 +237,15 @@ class BaseWiringNodeClass(WiringNodeClass):
             # Extract any additional required type resolution information from inputs
             kwarg_types = self._convert_kwargs_to_types(**kwargs)
             # Do the resolve to ensure types match as well as actually resolve the types.
-            resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, **kwarg_types)
+            resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
             valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
             resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
                                                                          resolved_inputs)
+
             if self.signature.is_resolved:
+                self.signature.resolve_auto_const_kwargs(kwarg_types, kwargs)
                 return kwargs, self.signature
             else:
                 # Only need to re-create if we actually resolved the signature.
@@ -261,6 +264,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     uses_scheduler=self.signature.uses_scheduler,  # This should not differ based on resolution
                     label=self.signature.label)
                 if resolve_signature.is_resolved:
+                    resolve_signature.resolve_auto_const_kwargs(kwarg_types, kwargs)
                     return kwargs, resolve_signature
                 else:
                     raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
@@ -399,7 +403,7 @@ class OverloadedWiringNodeHelper:
     collection types. This rule applies recursively so TSL[V, 2] is less specific than TSL[TS[SCALAR], 2]
     """
 
-    overloads: List[Tuple[WiringNodeClass, int]]
+    overloads: List[Tuple[WiringNodeClass, float]]
 
     def __init__(self, base: WiringNodeClass):
         self.overloads = [(base, self._calc_rank(base.signature))]
@@ -408,7 +412,7 @@ class OverloadedWiringNodeHelper:
         self.overloads.append((impl, self._calc_rank(impl.signature)))
 
     @staticmethod
-    def _calc_rank(signature: WiringNodeSignature) -> int:
+    def _calc_rank(signature: WiringNodeSignature) -> float:
         return sum(t.operator_rank for t in signature.input_types.values())
 
     def get_best_overload(self, *args, **kwargs):
@@ -418,13 +422,19 @@ class OverloadedWiringNodeHelper:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
                 c.resolve_signature(*args, **kwargs)
                 candidates.append((c, r))
-            except:
+            except Exception as e:
                 pass
         if not candidates:
             raise WiringError(
-                f"{self.signature.name} cannot be wired with given parameters - no matching candidates found")
+                f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found")
 
-        return min(candidates, key=lambda x: x[1])[0]
+        best_candidates = sorted(candidates, key=lambda x: x[1])
+        if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
+            raise WiringError(
+                f"{self.overloads[0][0].signature.name} overloads are ambiguous with given parameters - more than one top candidate")
+
+        return best_candidates[0][0]
+
 
 
 class CppWiringNodeClass(BaseWiringNodeClass):

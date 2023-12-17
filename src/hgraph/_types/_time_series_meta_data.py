@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, TypeVar
 
 from hgraph._types._type_meta_data import HgTypeMetaData
 if TYPE_CHECKING:
@@ -56,3 +56,11 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
 
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
         return self
+
+    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
+                                          wired_type: "HgTypeMetaData", value: object):
+        """
+        To be override by derived classes
+        """
+        from hgraph._wiring._wiring_errors import IncorrectTypeBinding
+        raise IncorrectTypeBinding(self, wired_type)
