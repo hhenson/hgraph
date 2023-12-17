@@ -23,16 +23,29 @@ def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedel
 
 
 @graph
-def default(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> TIME_SERIES_TYPE:
+def default(ts: TIME_SERIES_TYPE, default_value: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Returns the time-series ts with any missing values replaced with default_value.
+
+    Example:
+    ```python
+
+        ts = ...
+        out = default(ts, 0)  # Note the ability to pass in a constant value.
+    ```
+
+    another example:
+    ```python
+        ts: TS[int] = ...
+        ts_default: TS[int]  = ...
+        out = default(ts, ts_default)
+    ```
 
     :param ts: The time-series to replace missing values in.
     :param default_value: The value to replace missing values with.
     :return: The time-series with missing values replaced with default_value.
     """
-    c = const(default_value, tp=ts.output_type.py_type)
-    return _default(ts, ts, c)
+    return _default(ts, ts, default_value)
 
 
 @compute_node(valid=tuple())
