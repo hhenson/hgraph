@@ -157,10 +157,10 @@ def rolling_average(ts: TS[NUMBER], period: WINDOW_SCALAR) -> TS[float]:
     delta_value = current_value - delayed_value
     delta_ticks = count(ts) - count(lagged_ts)
     if type(period) is int:
-        return delta_value / const(period)
+        return delta_value / period
     else:
-        return cast_(float, delta_value) / if_then_else(delta_ticks == const(0),
-                                                        const(float('NaN')),
+        return cast_(float, delta_value) / if_then_else(delta_ticks == 0,
+                                                        float('NaN'),
                                                         cast_(float,
                                                               delta_ticks))  # NOTE: Need to deal with divide by zero
 
@@ -170,6 +170,4 @@ def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
     """
     Computes the difference between the current value and the previous value in the time-series.
     """
-    ts_prev = lag(ts, 1)
-    d = ts - ts_prev
-    return d
+    return  ts - lag(ts, 1)

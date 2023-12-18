@@ -109,8 +109,7 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
             return _reduce_tsl(func, ts, zero, is_associated)
         elif type(tp_) is HgTSDTypeMetaData:
-            from hgraph.nodes import const
-            return _reduce_tsd(func, ts, const(zero))
+            return _reduce_tsd(func, ts, zero)
         else:
             raise RuntimeError(f"Unexpected time-series type: {ts.output_type}")
 
