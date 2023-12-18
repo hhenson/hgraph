@@ -39,9 +39,10 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         if wired_type.is_scalar:
             raise ParseError(f"TimeSeries TypeVar '{str(self)}' does not match scalar type: '{str(wired_type)}'")
         if self.py_type in resolution_dict:
-            if resolution_dict[self.py_type] != wired_type:
+            match = resolution_dict[self.py_type]
+            if not match.matches(wired_type):
                 raise ParseError(f"TypeVar '{str(self)}' has already been resolved to"
-                                 f" '{str(resolution_dict[self])}' which does not match the type "
+                                 f" '{str(resolution_dict[self.py_type])}' which does not match the type "
                                  f"'{str(wired_type)}'")
         elif wired_type != self:
             resolution_dict[self.py_type] = wired_type

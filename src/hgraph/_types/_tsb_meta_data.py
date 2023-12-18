@@ -32,10 +32,10 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return self.meta_data_schema[item]
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return isinstance(tp,
-                          HgTimeSeriesSchemaTypeMetaData) and \
-            self.meta_data_schema().keys() == tp.meta_data_schema().keys() and \
-            all( v.matches(w_v) for v, w_v in zip(self.meta_data_schema.values(), tp.meta_data_schema.values()))
+        return (tp_ := type(tp)) is HgTsTypeVarTypeMetaData or  \
+            (tp_ is HgTimeSeriesSchemaTypeMetaData and \
+            self.meta_data_schema.keys() == tp.meta_data_schema.keys() and \
+            all( v.matches(w_v) for v, w_v in zip(self.meta_data_schema.values(), tp.meta_data_schema.values())))
 
     @property
     def meta_data_schema(self) -> dict[str, "HgTimeSeriesTypeMetaData"]:
