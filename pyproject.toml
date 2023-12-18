@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "hgraph"
 dynamic = ["version"]
 dependencies = [
-    #    "pytest>=7.4.3",
     "frozendict>=2.3.10",
     "more-itertools>=10.1.0",
     "sortedcontainers>=2.4.0",
