@@ -1,11 +1,12 @@
-name: Tests
+name: Publish
 
 on:
-  pull_request:
-    types: [ opened, reopened, synchronize, labeled ]
+  push:
+    branches:
+      - 'main'
 
 jobs:
-  tests:
+  publish:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,3 +24,6 @@ jobs:
 
       - name: Run tests
         run: hatch run cov
+
+      - name: Publish hgraph
+        run: hatch publish -y -u __token__ -a "${{ secrets.PYPI_TOKEN }}"

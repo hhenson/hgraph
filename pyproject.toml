@@ -95,6 +95,7 @@ hg = ["src/hgraph", "*/hgraph/src/hg"]
 tests = ["tests", "*/hgraph/tests"]
 
 [tool.coverage.report]
+fail_under = 80
 exclude_lines = [
   "no cov",
   "if __name__ == .__main__.:",
