@@ -1,8 +1,9 @@
 import functools
 import math
+import operator
 from collections import deque
 from datetime import datetime
-from typing import Mapping, Any, Callable, cast, Iterable
+from typing import Mapping, Any, Callable, cast, Iterable, Sequence
 
 from hgraph import start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
@@ -264,7 +265,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     @property
     def _last_output(self):
-        sub_graph = self._get_node(self._node_count() - 1)
+        sub_graph = self._get_node(self._node_count - 1)
         out_node: Node = sub_graph[self.output_node_id]
         return out_node.output
 
@@ -295,11 +296,31 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """Remove nodes from the tree"""
         for key in keys:
             ndx = self._bound_node_indexes.pop(key)
+            if self._bound_node_indexes:
+                next_largest = max(self._bound_node_indexes.items(), key=operator.itemgetter(1))
+                if next_largest[1][0] > ndx[0]:  # Make sure that we weren't deleting the last element
+                    self._swap_node(ndx, next_largest[1])
+                    self._bound_node_indexes[next_largest[0]] = ndx
+                ndx = next_largest[1]
             self._free_node_indexes.append(ndx)
-            self._zero_node(key)
+            self._zero_node(ndx)
+
+    def _swap_node(self, src_ndx: tuple[int, int], dst_ndx: tuple[int, int]):
+        """Swap two nodes in the tree"""
+        src_node_id, src_side = src_ndx
+        dst_node_id, dst_side = dst_ndx
+        src_node = self._get_node(src_node_id)[src_side]
+        dst_node = self._get_node(dst_node_id)[dst_side]
+        # The previously bound time-series can be dropped as it would have been removed and is going away.
+        src_input = src_node.input[0]
+        dst_input = dst_node.input[0]
+        src_node.input = src_node.input.copy_with(__init_args__=dict(owning_node=src_node), ts=dst_input)
+        dst_node.input = dst_node.input.copy_with(__init_args__=dict(owning_node=dst_node), ts=src_input)
+        src_node.notify()
+        dst_node.notify()
 
     def _re_balance_nodes(self):
-        if len(self._free_node_indexes) > len(self._bound_node_indexes):
+        if self._node_count > 8 and (len(self._free_node_indexes) * .75) > len(self._bound_node_indexes):
             # We can shrink the tree.
             self._shrink_tree()
 
@@ -312,11 +333,12 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """Return the number of nodes in the tree"""
         return len(self.nested_graph_builder.node_builders)
 
+    @property
     def _node_count(self) -> int:
         """Return the number of nodes in the tree"""
         return len(self._nested_graph.nodes) // self._node_size
 
-    def _get_node(self, ndx: int) -> tuple[Node, ...]:
+    def _get_node(self, ndx: int) -> Sequence[Node]:
         """
         Returns a view of the nodes at the level and column.
         """
@@ -333,16 +355,19 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     def _zero_node(self, ndx: tuple[int, int]):
         """Unbind a key from a node"""
-        node_id, side = ndx
-        node = self._get_node(node_id)[side]
-        # The previously bound time-series can be dropped as it would have been removed and is going away.
-        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=self._zero)
-        node.notify()
+        try:
+            node_id, side = ndx
+            node = self._get_node(node_id)[side]
+            # The previously bound time-series can be dropped as it would have been removed and is going away.
+            node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=self._zero)
+            node.notify()
+        except TypeError as e:
+            ...
 
     def _grow_tree(self):
         """Grow the tree by doubling the capacity"""
         # The tree will double in size, so we need to add 2n+1 nodes where n is the current number of nodes.
-        count = self._node_count()
+        count = self._node_count
         end = 2 * count + 1
         top_layer_length = int(math.log(end + 1, 2) - 1)  # The half-length of the full top row
         top_layer_end = count + top_layer_length + 1
@@ -380,4 +405,9 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     def _shrink_tree(self):
         """Shrink the tree by halving the capacity"""
-        pass
+        # The nodes are expected to remain left based by ensuring we switch out with the outermost node
+        # when deleting
+
+        count = self._node_count
+        start = (count - 1) // 2
+        self._nested_graph.reduce_graph(start)

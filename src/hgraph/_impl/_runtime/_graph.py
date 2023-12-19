@@ -89,6 +89,14 @@ class PythonGraph(Graph):
         if not delay_start and self.is_started:
             self.start_subgraph(first_node_ndx, first_node_ndx+sz)
 
+    def reduce_graph(self, start_node: int) -> None:
+        end = len(self._nodes)
+        if self.is_started:
+            self.stop_subgraph(start_node, end)
+        self.dispose_subgraph(start_node, end)
+        self._nodes = self._nodes[:start_node]
+        self._schedule = self._schedule[:start_node]
+
     def initialise_subgraph(self, start: int, end: int):
         """
         Initialise a subgraph.

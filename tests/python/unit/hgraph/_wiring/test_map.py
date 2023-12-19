@@ -1,7 +1,7 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF
+from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS
 from hgraph._runtime._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph.nodes import add_, debug_print, const
@@ -231,13 +231,19 @@ def _test_tsl_map(map_test):
     assert out == [{0: 3}, {1: 5}]
 
 
-# @pytest.mark.xfail(reason="Not implemented", strict=True)
-def test_tsd_reduce():
+@pytest.mark.parametrize(
+    ["inputs", "expected"],
+    [
+        [[None, {'a': 1}, {'b': 2}], [0, 1, 3]],
+#        [[{i: i for i in range(64)}, {i: REMOVE_IF_EXISTS for i in range(64)}], [2106, 0]]
+    ]
+)
+def test_tsd_reduce(inputs, expected):
     @graph
     def reduce_test(tsd: TSD[str, TS[int]]) -> TS[int]:
         return reduce(add_, tsd, 0)
 
-    assert eval_node(reduce_test, [None, {'a': 1}, {'b': 2}]) == [0, 1, 3]
+    assert eval_node(reduce_test, inputs) == expected
 
 
 @pytest.mark.parametrize(
