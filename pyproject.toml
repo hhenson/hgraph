@@ -33,23 +33,16 @@ classifiers = [
 polars = [
     "polars>=0.19.19",
 ]
-
 all = ["hgraph[polars]"]
 
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
 Repository = "https://github.com/hhenson/hgraph.git"
 
-[tool.pytest.ini_options]
-minversion = "7.4.3"
-addopts = "-ra -q"
-testpaths = [
-    "tests",
-]
-
 [tool.hatch.version]
 path = "src/hgraph/__about__.py"
 
+# Development Environment Config
 [tool.hatch.envs.default]
 dependencies = [
   "coverage[toml]>=6.5",
@@ -71,14 +64,24 @@ cov = [
 [[tool.hatch.envs.all.matrix]]
 python = ["3.11", "3.12"]
 
+# MyPy Type Checking
 [tool.hatch.envs.types]
 dependencies = [
   "mypy>=1.0.0",
 ]
 
 [tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:src/hg tests}"
+check = "mkdir -p .mypy_cache && mypy --cache-dir .mypy_cache --install-types --non-interactive {args:src/hgraph tests}"
 
+# Configure pytest
+[tool.pytest.ini_options]
+minversion = "7.4.3"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+# Configure coverage
 [tool.coverage.run]
 source_pkgs = ["hgraph", "tests"]
 branch = true
@@ -97,4 +100,3 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
 ]
-

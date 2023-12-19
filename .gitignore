@@ -1,3 +1,15 @@
+# hatch
+dist/
+
+# mypy
+.mypy_cache/
+
+# coverage
+.coverage
+
+# python
+__pycache__/
+
 # Prerequisites
 *.d
 
