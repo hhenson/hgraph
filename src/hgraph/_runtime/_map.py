@@ -142,9 +142,11 @@ def _reduce_tsl(func, ts, zero, is_associated):
 
 def _reduce_tsd(func, ts, zero):
     from hgraph._types._ref_type import REF
+    # We need to ensure that the reduction graph contains no push nodes. (We should be able to support pull nodes)
 
     @compute_node
-    def _reduce_tsd_signature(ts: TSD[SCALAR, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
+    def _reduce_tsd_signature(ts: TSD[SCALAR, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) \
+            -> REF[TIME_SERIES_TYPE]:
         ...
         # Used to create a WiringNodeClass template
 

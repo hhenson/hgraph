@@ -1,9 +1,12 @@
 import functools
+import math
+from collections import deque
 from datetime import datetime
-from typing import Mapping, Any, Callable, cast, Set, List
+from typing import Mapping, Any, Callable, cast, Iterable
 
-from hgraph._impl._runtime._graph import PythonGraph
+from hgraph import start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
+from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._constants import MIN_DT
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
@@ -13,7 +16,7 @@ from hgraph._runtime._graph import Graph
 from hgraph._runtime._map import KEYS_ARG
 from hgraph._runtime._node import Node, NodeSignature
 from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput
 from hgraph._types._tsd_type import TSD, TSD_OUT
 from hgraph._types._tss_type import TSS
 
@@ -22,21 +25,34 @@ __all__ = ("PythonMapNodeImpl",)
 
 class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
 
-    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, key: SCALAR, map_node: "PythonMapNodeImpl"):
+    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, nested_node: "PythonNestedNodeImpl"):
         super().__init__(engine_evaluation_clock)
-        self._key = key
-        self._map_node = map_node
+        self._nested_node = nested_node
 
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
         # NOTE: We only need to schedule if the next time is after the current evaluation time (or if the map_node has
         # not yet been evaluated).
-        if next_time < self.evaluation_time or self._map_node._last_evaluation_time == self.evaluation_time:
+        if next_time < self.evaluation_time or self._nested_node.last_evaluation_time == self.evaluation_time:
             # No point doing anything as we are already scheduled to run.
             return
-        tm = self._map_node._scheduled_keys.get(self._key)
+        self._nested_node.graph.schedule_node(self._nested_node.node_ndx, next_time)
+
+
+class MapNestedEngineEvaluationClock(NestedEngineEvaluationClock):
+
+    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, key: SCALAR, nested_node: "PythonMapNodeImpl"):
+        super().__init__(engine_evaluation_clock, nested_node)
+        self._key = key
+
+    def update_next_scheduled_evaluation_time(self, next_time: datetime):
+        # First we make sure the key is correctly scheduled, then we call super, which will ensure the
+        # node is scheduled if required.
+        if next_time <= self._nested_node.last_evaluation_time:
+            return
+        tm = self._nested_node._scheduled_keys.get(self._key)
         if tm is None or tm > next_time:
-            self._map_node._scheduled_keys[self._key] = next_time
-            self._map_node.graph.schedule_node(self._map_node.node_ndx, next_time)
+            self._nested_node._scheduled_keys[self._key] = next_time
+        super().update_next_scheduled_evaluation_time(next_time)
 
 
 class NestedEvaluationEngine(EvaluationEngineDelegate):
@@ -47,9 +63,9 @@ class NestedEvaluationEngine(EvaluationEngineDelegate):
     remove the key used to create the graph.
     """
 
-    def __init__(self, engine: EvaluationEngine, key: SCALAR, map_node: "PythonMapNodeImpl"):
+    def __init__(self, engine: EvaluationEngine, evaluation_clock: EngineEvaluationClock):
         super().__init__(engine)
-        self._engine_evaluation_clock = NestedEngineEvaluationClock(engine.engine_evaluation_clock, key, map_node)
+        self._engine_evaluation_clock = evaluation_clock
 
     @property
     def evaluation_clock(self) -> "EvaluationClock":
@@ -60,7 +76,29 @@ class NestedEvaluationEngine(EvaluationEngineDelegate):
         return self._engine_evaluation_clock
 
 
-class PythonMapNodeImpl(NodeImpl):
+class PythonNestedNodeImpl(NodeImpl):
+
+    def __init__(self,
+                 node_ndx: int,
+                 owning_graph_id: tuple[int, ...],
+                 signature: NodeSignature,
+                 scalars: Mapping[str, Any],
+                 eval_fn: Callable = None,
+                 start_fn: Callable = None,
+                 stop_fn: Callable = None,
+                 ):
+        super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
+        self._last_evaluation_time = MIN_DT
+
+    @property
+    def last_evaluation_time(self) -> datetime:
+        return self._last_evaluation_time
+
+    def mark_evaluated(self):
+        self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
+
+
+class PythonMapNodeImpl(PythonNestedNodeImpl):
 
     def __init__(self,
                  node_ndx: int,
@@ -83,10 +121,9 @@ class PythonMapNodeImpl(NodeImpl):
         self._scheduled_keys: dict[SCALAR, datetime] = {}
         self._active_graphs: dict[SCALAR, Graph] = {}
         self._count = 0
-        self._last_evaluation_time = MIN_DT
 
     def eval(self):
-        self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
+        self.mark_evaluated()
         # 1. All inputs should be reference, and we should only be active on the KEYS_ARG input
         keys: TSS[SCALAR] = self._kwargs[KEYS_ARG]
         if keys.modified:
@@ -98,9 +135,9 @@ class PythonMapNodeImpl(NodeImpl):
         scheduled_keys = self._scheduled_keys
         self._scheduled_keys = {}
         for k, dt in scheduled_keys.items():
-            if dt == self._last_evaluation_time:
+            if dt == self.last_evaluation_time:
                 self._evaluate_graph(k)
-            elif dt < self._last_evaluation_time:
+            elif dt < self.last_evaluation_time:
                 raise RuntimeError("Scheduled time is in the past")
             else:
                 # Re-schedule for the next time.
@@ -112,7 +149,8 @@ class PythonMapNodeImpl(NodeImpl):
         graph: Graph = self.nested_graph_builder.make_instance(self.graph.graph_id + (self._count,), self)
         self._count += 1
         self._active_graphs[key] = graph
-        graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, key, self)
+        graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, MapNestedEngineEvaluationClock(
+            self.graph.evaluation_engine.engine_evaluation_clock, key, self))
         graph.initialise()
         self._wire_graph(key, graph)
         graph.start()
@@ -154,7 +192,7 @@ class PythonMapNodeImpl(NodeImpl):
             node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output).get_or_create(key)
 
 
-class PythonReduceNodeImpl(NodeImpl):
+class PythonReduceNodeImpl(PythonNestedNodeImpl):
     """
     This implements the TSD reduction. The solution uses an inverted binary tree with inputs at the leaves and the
     result at the root. The inputs bound to the leaves can be moved as nodes come and go.
@@ -176,20 +214,59 @@ class PythonReduceNodeImpl(NodeImpl):
                  output_node_id: int = None,
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
-        self._nested_graph: Graph = PythonGraph(self.owning_graph_id + (self.node_ndx,), nodes=[], parent_node=self)
+        self._nested_graph: PythonGraph = PythonGraph(self.owning_graph_id + (self.node_ndx,), nodes=[],
+                                                      parent_node=self)
+
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
-        self.input_node_id: tuple[int, int] = input_node_ids  # LHS index, RHS index
+        self.input_node_ids: tuple[int, int] = input_node_ids  # LHS index, RHS index
         self.output_node_id: int = output_node_id
-        self._scheduled_keys: dict[SCALAR, datetime] = {}
-        self._active_graphs: dict[SCALAR, Graph] = {}
-        self._count = 0
-        self._last_evaluation_time = MIN_DT
 
         self._bound_node_indexes: dict[SCALAR, tuple[int, int]] = {}
         self._free_node_indexes: list[tuple[int, int]] = []  # This is a list of (ndx, 0(lhs)|1(rhs)) tuples.
 
+    def initialise(self):
+        self._nested_graph.evaluation_engine = NestedEvaluationEngine(
+            self.graph.evaluation_engine,
+            NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
+        )
+
+    @start_guard
+    def start(self):
+        super().start()
+        keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
+        if len(keys) > 0:
+            self._add_nodes(keys)  # If there are already inputs, then add the keys.
+        else:
+            self._grow_tree()
+        self._nested_graph.start()
+
+    @stop_guard
+    def stop(self):
+        self._nested_graph.stop()
+        super().stop()
+
     def eval(self):
-        ...
+        # Process additions and removals (do in order remove then add to reduce the possibility of growing
+        # The tree just to tear it down again
+        self._remove_nodes(self._tsd.removed_keys())
+        self._add_nodes(self._tsd.added_keys())
+
+        # Now we can re-balance the tree if required.
+        self._re_balance_nodes()
+
+        self._nested_graph.evaluate_graph()
+
+        # Now we just need to detect change in graph shape, so we can propagate it on.
+        # The output as well as the last_output are reference time-series so this should
+        # not change very frequently
+        if (o := self.output).value != (v := self._last_output.value):
+            o.value = v
+
+    @property
+    def _last_output(self):
+        sub_graph = self._get_node(self._node_count() - 1)
+        out_node: Node = sub_graph[self.output_node_id]
+        return out_node.output
 
     @property
     def _zero(self) -> TIME_SERIES_TYPE:
@@ -200,7 +277,7 @@ class PythonReduceNodeImpl(NodeImpl):
         # noinspection PyTypeChecker
         return self._input['ts']
 
-    def _add_nodes(self, keys: Set[SCALAR]):
+    def _add_nodes(self, keys: Iterable[SCALAR]):
         """
         Add nodes to the tree, when the tree is full we grow the tree by doubling the capacity.
         This adds 2n+1 nodes to the tree where n is the current number of nodes in the graph (not the number of inputs).
@@ -214,12 +291,14 @@ class PythonReduceNodeImpl(NodeImpl):
             ndx = self._free_node_indexes.pop()
             self._bind_key_to_node(key, ndx)
 
-    def _remove_nodes(self, keys: Set[SCALAR]):
+    def _remove_nodes(self, keys: Iterable[SCALAR]):
         """Remove nodes from the tree"""
         for key in keys:
             ndx = self._bound_node_indexes.pop(key)
             self._free_node_indexes.append(ndx)
             self._zero_node(key)
+
+    def _re_balance_nodes(self):
         if len(self._free_node_indexes) > len(self._bound_node_indexes):
             # We can shrink the tree.
             self._shrink_tree()
@@ -262,7 +341,42 @@ class PythonReduceNodeImpl(NodeImpl):
 
     def _grow_tree(self):
         """Grow the tree by doubling the capacity"""
-        pass
+        # The tree will double in size, so we need to add 2n+1 nodes where n is the current number of nodes.
+        count = self._node_count()
+        end = 2 * count + 1
+        top_layer_length = int(math.log(end + 1, 2) - 1)  # The half-length of the full top row
+        top_layer_end = count + top_layer_length + 1
+        last_node = max(end - 1, 2)  # If this is the first time we are growing there are no left nodes to wire in
+        un_bound_outputs = deque(maxlen=end - count)
+        for i in range(count, end):
+            un_bound_outputs.append(i)
+            self._nested_graph.extend_graph(self.nested_graph_builder, True)
+            if i < top_layer_end:
+                ndx = (i, 0)
+                self._free_node_indexes.append(ndx)
+                self._zero_node(ndx)
+                ndx = (i, 1)
+                self._free_node_indexes.append(ndx)
+                self._zero_node(ndx)
+            else:
+                if i < last_node:
+                    # Connect the new nodes together
+                    left_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
+                    right_parent= self._get_node(un_bound_outputs.popleft())[self.output_node_id].output if un_bound_outputs else self._zero
+                else:
+                    left_parent = self._get_node(count - 1)[self.output_node_id].output  # The last of the old series
+                    right_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
+                sub_graph = self._get_node(i)
+                lhs_input: Node = sub_graph[self.input_node_ids[0]]
+                rhs_input: Node = sub_graph[self.input_node_ids[1]]
+                cast(TimeSeriesInput, lhs_input.input[0]).bind_output(left_parent)
+                cast(TimeSeriesInput, rhs_input.input[0]).bind_output(right_parent)
+
+        # The newly created last node should tick on first evaluation with the new output binding.
+        # Evaluation should pick this up and ensure we forward the new output on.
+
+        if self._nested_graph.is_started or self._nested_graph.is_starting:
+            self._nested_graph.start_subgraph(count * self._node_size, len(self._nested_graph.nodes))
 
     def _shrink_tree(self):
         """Shrink the tree by halving the capacity"""

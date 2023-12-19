@@ -231,7 +231,7 @@ def _test_tsl_map(map_test):
     assert out == [{0: 3}, {1: 5}]
 
 
-@pytest.mark.xfail(reason="Not implemented", strict=True)
+# @pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsd_reduce():
     @graph
     def reduce_test(tsd: TSD[str, TS[int]]) -> TS[int]:

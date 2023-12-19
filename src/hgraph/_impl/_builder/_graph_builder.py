@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List, Iterable
 
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
@@ -34,17 +35,22 @@ class PythonGraphBuilder(GraphBuilder):
         return input
 
     def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None) -> Graph:
-        nodes = [nb.make_instance(graph_id, ndx) for ndx, nb in enumerate(self.node_builders)]
+        nodes = self.make_and_connect_nodes(graph_id, 0)
+        # The nodes are initialised within the context of the graph
+        return PythonGraph(graph_id=graph_id, nodes=nodes, parent_node=parent_node)
+
+    def make_and_connect_nodes(self, graph_id: tuple[int, ...], first_node_ndx: int) -> Iterable[Node]:
+        nodes = [nb.make_instance(graph_id, ndx + first_node_ndx) for ndx, nb in enumerate(self.node_builders)]
         for edge in self.edges:
             src_node: Node = nodes[edge.src_node]
             dst_node: Node = nodes[edge.dst_node]
             # TODO: Should we normalise outputs to always be an UnnamedBundleOutput? For now if the path is tuple() assume
             #  the output is the node output
-            output = src_node.output if edge.output_path == tuple() else self._extract_output(src_node, edge.output_path)
+            output = src_node.output if edge.output_path == tuple() else self._extract_output(src_node,
+                                                                                              edge.output_path)
             input_ = self._extract_input(dst_node, edge.input_path)
             input_.bind_output(output)
-            # The nodes are initialised within the context of the graph
-        return PythonGraph(graph_id=graph_id, nodes=tuple(nodes), parent_node=parent_node)
+        return nodes
 
     def release_instance(self, item: Graph):
         for node, node_builder in zip(item.nodes, self.node_builders):

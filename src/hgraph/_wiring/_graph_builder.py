@@ -39,7 +39,7 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
         raise e
 
 
-def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"]) -> "GraphBuilder":
+def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_nodes: bool = True) -> "GraphBuilder":
     """
     Create a graph builder instance. This is called with the sink_nodes created during the wiring of a graph.
     This is extracted to support nested graph construction, where the sink nodes are limited to the new nested graph,
@@ -63,6 +63,10 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"]) -> "GraphBuild
         if (rank := node.rank) == 1:
             # Put all push nodes at rank 0 and pull nodes at rank 1
             rank = 0 if node.resolved_signature.node_type is NodeTypeEnum.PUSH_SOURCE_NODE else 1
+            if not supports_push_nodes and rank == 0:
+                raise CustomMessageWiringError(
+                    f'Node: {node.resolved_signature} is a pull source node, '
+                    f'but this graph does not support push nodes.')
         if node.resolved_signature.node_type is NodeTypeEnum.SINK_NODE:
             # Put all sink nodes at max_rank
             rank = max_rank

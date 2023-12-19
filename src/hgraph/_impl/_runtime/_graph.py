@@ -1,5 +1,7 @@
 import functools
+import typing
 from datetime import datetime
+from typing import Iterable, Sequence
 
 from hgraph._runtime._constants import MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
@@ -7,6 +9,10 @@ from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngin
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeTypeEnum, Node
+
+if typing.TYPE_CHECKING:
+    from hgraph._builder._graph_builder import GraphBuilder
+
 
 __all__ = ("PythonGraph",)
 
@@ -16,10 +22,10 @@ class PythonGraph(Graph):
     Provide a reference implementation of the Graph.
     """
 
-    def __init__(self, graph_id: tuple[int, ...], nodes: tuple[Node, ...] | list[Node], parent_node: Node = None):
+    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None):
         super().__init__()
         self._graph_id: tuple[int, ...] = graph_id
-        self._nodes: tuple[Node, ...] | list[Node] = nodes  # No absolute requirement for this to be a tuple.
+        self._nodes: list[Node] = nodes if type(nodes) is list else list(nodes)
         self._schedule: list[datetime, ...] = [MIN_DT] * len(nodes)
         self._evaluation_engine: EvaluationEngine = None
         self._parent_node: Node = parent_node
@@ -33,7 +39,7 @@ class PythonGraph(Graph):
         return self._graph_id
 
     @property
-    def nodes(self) -> tuple[Node, ...]:
+    def nodes(self) -> Sequence[Node]:
         return self._nodes
 
     @property
@@ -70,6 +76,29 @@ class PythonGraph(Graph):
                 return i
         return len(self.nodes)  # In the very unlikely event that there are only push source nodes.
 
+    def extend_graph(self, graph_builder: "GraphBuilder", delay_start: bool = False) -> None:
+        """
+        Extend the graph using the nodes produced by the builder supplied. If delayed_start is False, the
+        method will call start if the graph is already started, otherwise  the nodes will be initialised only.
+        """
+        first_node_ndx = len(self._nodes)
+        sz = len(graph_builder.node_builders)
+        self._nodes.extend(graph_builder.make_and_connect_nodes(self.graph_id, first_node_ndx))
+        self._schedule.extend([MIN_DT]*sz)
+        self.initialise_subgraph(first_node_ndx, first_node_ndx+sz)
+        if not delay_start and self.is_started:
+            self.start_subgraph(first_node_ndx, first_node_ndx+sz)
+
+    def initialise_subgraph(self, start: int, end: int):
+        """
+        Initialise a subgraph.
+        If the graph is dynamically extended, this method is required to initialise the subgraph.
+        """
+        for node in self.nodes[start:end]:
+            node.graph = self
+        for node in self.nodes[end:start]:
+            node.initialise()
+
     def initialise(self):
         for node in self.nodes:
             node.graph = self
@@ -84,6 +113,14 @@ class PythonGraph(Graph):
                 f" for {time} but current time is {self.evaluation_clock.evaluation_time}")
         self.schedule[node_ndx] = time
         clock.update_next_scheduled_evaluation_time(time)
+
+    def start_subgraph(self, start: int, end: int):
+        """Start the subgraph (end is exclusive), i.e. [start, end)"""
+        engine = self._evaluation_engine
+        for node in self.nodes[start:end]:
+            engine.notify_before_start_node(node)
+            node.start()
+            engine.notify_after_start_node(node)
 
     @start_guard
     def start(self):
@@ -105,8 +142,24 @@ class PythonGraph(Graph):
             engine.notify_before_start_node(node)
         engine.notify_after_stop_graph(self)
 
+    def stop_subgraph(self, start: int, end: int):
+        """Stop the subgraph (end is exclusive), i.e. [start, end)"""
+        engine = self._evaluation_engine
+        for node in self.nodes[start:end]:
+            engine.notify_before_stop_node(node)
+            node.stop()
+            engine.notify_after_stop_node(node)
+
     def dispose(self):
         for node in self.nodes:  # Since we initialise nodes from within the graph, we need to dispose them here.
+            node.dispose()
+
+    def dispose_subgraph(self, start: int, end: int):
+        """
+        Initialise a subgraph.
+        If the graph is dynamically extended, this method is required to initialise the subgraph.
+        """
+        for node in self.nodes[start:end]:
             node.dispose()
 
     def evaluate_graph(self):

@@ -1,6 +1,7 @@
 import typing
 from abc import abstractmethod
 from dataclasses import dataclass
+from typing import Iterable
 
 from hgraph._builder._builder import Builder
 
@@ -33,10 +34,19 @@ class GraphBuilder(Builder["Graph"]):
         """
 
     @abstractmethod
+    def make_and_connect_nodes(self, graph_id: tuple[int, ...], first_node_ndx: int) -> Iterable["Node"]:
+        """
+        Make the nodes described in the node builders and connect the edges as described in the edges.
+        Return the iterable of newly constructed and wired nodes.
+        This can be used to feed into a new graph instance or to extend (or re-initialise) an existing graph.
+        """
+
+    @abstractmethod
     def release_instance(self, item: "Graph"):
         """
         Release resources constructed during the build process, plus the graph.
         """
+
 
 
 class GraphBuilderFactory:

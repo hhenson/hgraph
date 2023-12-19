@@ -85,6 +85,8 @@ class NodeImpl(Node):
     @input.setter
     def input(self, value: "TimeSeriesBundleInput"):
         self._input = value
+        if self._kwargs is not None:
+            self._initialise_kwargs()
 
     @property
     def output(self) -> Optional["TimeSeriesOutput"]:
@@ -93,6 +95,8 @@ class NodeImpl(Node):
     @output.setter
     def output(self, value: "TimeSeriesOutput"):
         self._output = value
+        if self._kwargs is not None:
+            self._initialise_kwargs()
 
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
@@ -139,7 +143,7 @@ class NodeImpl(Node):
             if self._scheduler is not None:
                 # It is possible we have scheduled and then remove the schedule,
                 # so we need to check that something has caused this to be scheduled.
-                if not scheduled and not any(self.input[k].valid for k in args):
+                if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
                     return
         out = self.eval_fn(**self._kwargs)
         if out is not None:
@@ -196,8 +200,8 @@ class NodeSchedulerImpl(NodeScheduler):
 
     @property
     def is_scheduled_now(self) -> bool:
-        return self._scheduled_events and self._scheduled_events[0][
-            0] == self._node.graph.evaluation_clock.evaluation_time
+        return self._scheduled_events and \
+            self._scheduled_events[0][0] == self._node.graph.evaluation_clock.evaluation_time
 
     def has_tag(self, tag: str) -> bool:
         return tag in self._tags

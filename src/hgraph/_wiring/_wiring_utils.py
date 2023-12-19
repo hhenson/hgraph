@@ -81,7 +81,7 @@ def wire_nested_graph(fn: WiringNodeClass,
         if out is not None:
             create_output_stub(cast(WiringPort, out))
         sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes)
+        return create_graph_builder(sink_nodes, False)
 
 
 def extract_stub_node_indices(inner_graph, input_args: Set[str]) \
