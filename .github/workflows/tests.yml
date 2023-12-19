@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+
   pull_request:
     types: [ opened, reopened, synchronize, labeled ]
 
@@ -25,4 +26,4 @@ jobs:
         run: hatch build
 
       - name: Run tests
-        run: hatch run test
+        run: hatch run cov
