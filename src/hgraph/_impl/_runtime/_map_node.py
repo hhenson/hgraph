@@ -301,7 +301,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
                 if next_largest[1][0] > ndx[0]:  # Make sure that we weren't deleting the last element
                     self._swap_node(ndx, next_largest[1])
                     self._bound_node_indexes[next_largest[0]] = ndx
-                ndx = next_largest[1]
+                    ndx = next_largest[1]
             self._free_node_indexes.append(ndx)
             self._zero_node(ndx)
 
@@ -368,10 +368,10 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """Grow the tree by doubling the capacity"""
         # The tree will double in size, so we need to add 2n+1 nodes where n is the current number of nodes.
         count = self._node_count
-        end = 2 * count + 1
+        end = (2 * count + 1) # Not inclusive
         top_layer_length = int(math.log(end + 1, 2) - 1)  # The half-length of the full top row
-        top_layer_end = count + top_layer_length + 1
-        last_node = max(end - 1, 2)  # If this is the first time we are growing there are no left nodes to wire in
+        top_layer_end = count + top_layer_length
+        last_node = max(end - 1, 2)  # If this is the first time we are growing, there are no left nodes to wire in
         un_bound_outputs = deque(maxlen=end - count)
         for i in range(count, end):
             un_bound_outputs.append(i)
