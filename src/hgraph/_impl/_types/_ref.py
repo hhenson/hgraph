@@ -174,7 +174,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             self._value = PythonTimeSeriesReference(from_items=[i.value for i in self._items])
             return self._value
         else:
-            return super().value()
+            return super().value
 
     @property
     def delta_value(self):
