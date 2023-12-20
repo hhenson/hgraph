@@ -140,7 +140,7 @@ class NodeImpl(Node):
             if not all(self.input[k].valid for k in args):
                 return  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
-            if self._scheduler is not None:
+            if self.signature.uses_scheduler:
                 # It is possible we have scheduled and then remove the schedule,
                 # so we need to check that something has caused this to be scheduled.
                 if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
