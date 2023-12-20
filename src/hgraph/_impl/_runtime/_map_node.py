@@ -366,7 +366,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # The tree will double in size, so we need to add 2n+1 nodes where n is the current number of nodes.
         count = self._node_count
         end = (2 * count + 1) # Not inclusive
-        top_layer_length = int(math.log(end + 1, 2) - 1)  # The half-length of the full top row
+        top_layer_length = int((end+1)/4)  # The half-length of the full top row
         top_layer_end = max(count + top_layer_length, 1)
         last_node = end - 1
         un_bound_outputs = deque(maxlen=end - count)
@@ -409,6 +409,6 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # The nodes are expected to remain left based by ensuring we switch out with the outermost node
         # when deleting
 
-        count = self._node_count
+        count = min(self._node_count, 15)  # Don't want to shrink smaller then at least 4 inputs.
         start = (count - 1) // 2
-        self._nested_graph.reduce_graph(start)
+        self._nested_graph.reduce_graph(start*self._node_size)
