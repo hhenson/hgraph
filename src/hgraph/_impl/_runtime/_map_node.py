@@ -257,7 +257,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
         self._nested_graph.evaluate_graph()
 
-        # Now we just need to detect change in graph shape, so we can propagate it on.
+        # Now we just need to detect the change in graph shape, so we can propagate it on.
         # The output as well as the last_output are reference time-series so this should
         # not change very frequently
         if (o := self.output).value != (v := self._last_output.value):
@@ -355,14 +355,11 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     def _zero_node(self, ndx: tuple[int, int]):
         """Unbind a key from a node"""
-        try:
-            node_id, side = ndx
-            node = self._get_node(node_id)[side]
-            # The previously bound time-series can be dropped as it would have been removed and is going away.
-            node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=self._zero)
-            node.notify()
-        except TypeError as e:
-            ...
+        node_id, side = ndx
+        node = self._get_node(node_id)[side]
+        # The previously bound time-series can be dropped as it would have been removed and is going away.
+        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=self._zero)
+        node.notify()
 
     def _grow_tree(self):
         """Grow the tree by doubling the capacity"""
@@ -370,8 +367,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         count = self._node_count
         end = (2 * count + 1) # Not inclusive
         top_layer_length = int(math.log(end + 1, 2) - 1)  # The half-length of the full top row
-        top_layer_end = count + top_layer_length
-        last_node = max(end - 1, 2)  # If this is the first time we are growing, there are no left nodes to wire in
+        top_layer_end = max(count + top_layer_length, 1)
+        last_node = end - 1
         un_bound_outputs = deque(maxlen=end - count)
         for i in range(count, end):
             un_bound_outputs.append(i)
@@ -387,7 +384,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
                 if i < last_node:
                     # Connect the new nodes together
                     left_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
-                    right_parent= self._get_node(un_bound_outputs.popleft())[self.output_node_id].output if un_bound_outputs else self._zero
+                    right_parent= self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
                 else:
                     left_parent = self._get_node(count - 1)[self.output_node_id].output  # The last of the old series
                     right_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
