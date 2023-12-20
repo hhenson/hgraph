@@ -6,7 +6,7 @@ an idea of time-lines. The exact order of delivery may change as interest dictat
 
 ## 0.1.0
 
-The represents the first usable release of the library.
+This represents the first usable release of the library.
 
 The following features should be working:
 * Basic time-series data types (TS, TSB, TSD, TSL, TSS)
@@ -18,7 +18,7 @@ The following features should be working:
 * Support for map and reduce operators to allow for processing multiplexed time-series.
 * Support switch operator.
 * Real-time and simulation modes of operation.
-* Ability to define Python based push (realtime) and pull( realtime/simulation) source nodes.
+* Ability to define Python-based push (realtime) and pull( realtime/simulation) source nodes.
 * Feedback operator.
 * Basic documentation to describe the concepts and usage of the core functionality of the library.
 
