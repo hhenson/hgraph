@@ -28,7 +28,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
         input_types=frozendict({'ts': ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 13),
-        active_inputs=frozenset(),
+        active_inputs=frozenset({"ts",}),
         valid_inputs=frozenset(),
         unresolved_args=frozenset(),
         time_series_args=frozenset({'ts',}),
@@ -76,7 +76,7 @@ from hgraph._types._time_series_types import TIME_SERIES_TYPE
 def _stub(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
     """
     This is the basic implementation of a stub.
-    Tge stub will either be connected in the graph as an input or an output ranked on the outer-side of the graph.
+    The stub will either be connected in the graph as an input or an output ranked on the outer-side of the graph.
     """
     return ts.value if ts.valid else None
 
