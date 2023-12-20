@@ -234,8 +234,10 @@ def _test_tsl_map(map_test):
 @pytest.mark.parametrize(
     ["inputs", "expected"],
     [
-        [[None, {'a': 1}, {'b': 2}], [0, 1, 3]],
-#        [[{i: i for i in range(64)}, {i: REMOVE_IF_EXISTS for i in range(64)}], [2106, 0]]
+        [[None, {'a': 1}, {'a': REMOVE_IF_EXISTS}], [0, 1, 0]],
+        [[None, {'a': 1}, {'b': 2}, {'b': REMOVE_IF_EXISTS}, {'a': REMOVE_IF_EXISTS}], [0, 1, 3, 1, 0]],
+        #[[{'a': 1, 'b': 2}, {'c': 3}, {'b': REMOVE_IF_EXISTS}, {'a': REMOVE_IF_EXISTS}], [3, 6, 1, 0]],
+        #[[{(chr(ord('a') + i)): i for i in range(26)},], [325, ]]
     ]
 )
 def test_tsd_reduce(inputs, expected):
