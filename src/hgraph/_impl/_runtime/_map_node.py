@@ -386,13 +386,17 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
                     left_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
                     right_parent= self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
                 else:
-                    left_parent = self._get_node(count - 1)[self.output_node_id].output  # The last of the old series
-                    right_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
+                    old_root = self._get_node(count - 1)[self.output_node_id]
+                    left_parent = old_root.output  # The last of the old series
+                    new_root = self._get_node(un_bound_outputs.popleft())[self.output_node_id]
+                    right_parent = new_root.output
                 sub_graph = self._get_node(i)
                 lhs_input: Node = sub_graph[self.input_node_ids[0]]
                 rhs_input: Node = sub_graph[self.input_node_ids[1]]
                 cast(TimeSeriesInput, lhs_input.input[0]).bind_output(left_parent)
                 cast(TimeSeriesInput, rhs_input.input[0]).bind_output(right_parent)
+                lhs_input.notify()
+                rhs_input.notify()
 
         # The newly created last node should tick on first evaluation with the new output binding.
         # Evaluation should pick this up and ensure we forward the new output on.

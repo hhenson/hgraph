@@ -71,6 +71,17 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             for item, r in zip(ts_input, self.items):
                 r.bind_input(item)
 
+    def __str__(self) -> str:
+        if self.output:
+            return (f"REF[{self.output.owning_node.signature.name}"
+                    f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]")
+        else:
+            return "REF[<UnSet>]"
+
+    def __repr__(self) -> str:
+        # For now, we should work on a better job for formatting later.
+        return self.__str__()
+
 
 @dataclass
 class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):

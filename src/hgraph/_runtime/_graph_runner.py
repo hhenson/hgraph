@@ -3,13 +3,15 @@ from typing import Callable
 
 from hgraph._runtime._constants import MIN_ST, MAX_ET
 from hgraph._runtime._graph_executor import GraphEngineFactory
-from hgraph._runtime._evaluation_engine import EvaluationMode
+from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 
 __all__ = ("run_graph",)
 
 
-def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION, start_time: datetime = MIN_ST,
-              end_time: datetime = MAX_ET, print_progress: bool=True, **kwargs):
+def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION,
+              start_time: datetime = MIN_ST,
+              end_time: datetime = MAX_ET, print_progress: bool = True,
+              life_cycle_observers: [EvaluationLifeCycleObserver] = None, **kwargs):
     """
     Use this to initiate the graph engine run loop.
 
@@ -24,6 +26,7 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     :param start_time: The time to start the graph
     :param end_time: The time to end the graph
     :param print_progress: If true, print the progress of the graph (will go away and be replaced with logging later)
+    :param life_cycle_observers: A list of observers to register with the runtime engine prior to evaluation.
     :param kwargs: Any additional kwargs to pass to the graph.
     """
     from hgraph._builder._graph_builder import GraphBuilder
@@ -42,7 +45,7 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     if print_progress:
         print(f"Running Graph from: {start_time} to {end_time}")
 
-    engine.run(start_time, end_time)
+    engine.run(start_time, end_time, life_cycle_observers)
 
     if print_progress:
         print(f"Graph Complete")

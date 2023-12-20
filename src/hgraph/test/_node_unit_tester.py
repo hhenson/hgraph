@@ -1,12 +1,13 @@
-from traceback import print_exc
 from typing import Any
 
-from hgraph import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, MIN_DT, \
+from hgraph import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, \
+    MIN_DT, \
     WiringContext, WiringError
 from hgraph.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
+from hgraph.test._node_printer import EvaluationTrace
 
 
-def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
+def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool = False, **kwargs):
     """
     Evaluates a node using the supplied arguments.
     This will detect time-series inputs in the node and will convert array inputs into time-series inputs.
@@ -70,7 +71,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, **kwargs):
         # Dealing with scalar to time-series support
         max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
         set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
-    run_graph(eval_node_graph)
+    run_graph(eval_node_graph, life_cycle_observers=[EvaluationTrace()] if __trace__ else None)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
     if results:

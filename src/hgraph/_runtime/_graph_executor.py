@@ -1,13 +1,13 @@
 import typing
 from abc import abstractmethod
 from datetime import datetime
+from typing import Iterable
 
-from hgraph._runtime._evaluation_engine import EvaluationMode
+from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph import Graph
-from hgraph._runtime._lifecycle import ComponentLifeCycle
 
 
-__all__ = ("GraphExecutor",)
+__all__ = ("GraphExecutor", "GraphEngineFactory")
 
 
 class GraphExecutor:
@@ -39,11 +39,12 @@ class GraphExecutor:
         """
 
     @abstractmethod
-    def run(self, start_time: datetime, end_time: datetime):
+    def run(self, start_time: datetime, end_time: datetime, observers: Iterable[EvaluationLifeCycleObserver] = None):
         """
         Tell the engine to begin and operate it's run loop.
         :param start_time: The time to start the run loop at
         :param end_time: The time to end the run loop at
+        :param observers: And observers to add to the evaluation engine prior to starting the graph.
         """
 
 
