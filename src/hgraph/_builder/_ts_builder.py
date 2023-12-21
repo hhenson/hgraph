@@ -31,10 +31,10 @@ class TSOutputBuilder(OutputBuilder):
     value_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node=None, owning_output=None) -> "TimeSeriesOutput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -43,19 +43,19 @@ class TSInputBuilder(InputBuilder):
     value_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 class TSSignalInputBuilder(InputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -64,10 +64,10 @@ class TSBInputBuilder(InputBuilder):
     schema: "TimeSeriesSchema"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -76,10 +76,10 @@ class TSBOutputBuilder(OutputBuilder):
     schema: "TimeSeriesSchema"
 
     def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -89,10 +89,10 @@ class TSLInputBuilder(InputBuilder):
     size_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -102,10 +102,10 @@ class TSLOutputBuilder(OutputBuilder):
     size_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 class TSDInputBuilder(InputBuilder):
@@ -114,10 +114,10 @@ class TSDInputBuilder(InputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -127,10 +127,10 @@ class TSDOutputBuilder(OutputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -139,10 +139,10 @@ class TSSOutputBuilder(OutputBuilder):
     value_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -151,20 +151,20 @@ class TSSInputBuilder(InputBuilder):
     value_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 class REFInputBuilder(InputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -172,10 +172,10 @@ class REFOutputBuilder(OutputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        raise NotImplementedError("Must be implemented by subclasses")
+        raise NotImplementedError()
 
 
 class TimeSeriesBuilderFactory:
