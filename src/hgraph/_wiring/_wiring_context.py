@@ -10,12 +10,12 @@ class StrictWiringContext:
     def __getattr__(self, item):
         if not WiringContext.is_active():
             raise RuntimeError("No wiring context is active")
-        return WiringContext.__getattr__(item)
+        return WiringContext.__getattr__(item, )
 
     def __setattr__(self, key, value):
         if not WiringContext.is_active():
             raise RuntimeError("No wiring context is active")
-        WiringContext.__setattr__(key, value)
+        WiringContext.__setattr__(key, value, )
 
 
 class WiringContext:
@@ -43,16 +43,16 @@ class WiringContext:
     def is_active(cls):
         return bool(cls._stack)
 
-    def __getattr__(cls, item):
-        if cls._stack:
-            for d in reversed(cls._stack):
+    def __getattr__(self, item):
+        if self._stack:
+            for d in reversed(self._stack):
                 if item in d:
                     return d[item]
         # Else we return None by default
 
-    def __setattr__(cls, key, value):
-        if cls._stack:
-            cls._stack[-1][key] = value
+    def __setattr__(self, key, value):
+        if self._stack:
+            self._stack[-1][key] = value
         else:
             pass  # By default we just ignore, use strict context to raise errors
 
