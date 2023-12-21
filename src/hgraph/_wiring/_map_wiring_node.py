@@ -18,8 +18,8 @@ __all__ = ("TsdMapWiringNodeClass", "TslMapWiringNodeClass")
 
 @dataclass(frozen=True)
 class TsdMapWiringSignature(WiringNodeSignature):
-    map_fn_signature: WiringNodeSignature = None
-    key_tp: HgScalarTypeMetaData = None
+    map_fn_signature: WiringNodeSignature | None = None
+    key_tp: HgScalarTypeMetaData | None = None
     key_arg: str | None = None  # The arg name of the key in the map function is there is one
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
 
