@@ -29,10 +29,10 @@ class PythonGraphBuilder(GraphBuilder):
     def _extract_input(node: Node, path: [int]):
         if not path:
             raise RuntimeError("No path to find an input for")
-        input = node.input
+        input_ = node.input
         for item in path:
-            input = input[item]
-        return input
+            input_ = input_[item]
+        return input_
 
     def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None) -> Graph:
         nodes = self.make_and_connect_nodes(graph_id, 0)
