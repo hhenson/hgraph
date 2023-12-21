@@ -27,17 +27,17 @@ class WiringNodeType(Enum):
 def extract_hg_type(tp) -> HgTypeMetaData:
     tp_ = HgTypeMetaData.parse(tp)
     if tp_ is None:
-        raise RuntimeError("Unexpected Type in the bagging area: ", tp)
+        raise ParseError(f"'{tp}' is not a valid HgType")
     return tp_
 
 
-def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData:
+def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData | None:
     if tp is None:
-        return None
+        return
 
     tp_ = HgTimeSeriesTypeMetaData.parse(tp)
     if tp_ is None:
-        raise RuntimeError("Unexpected Type in the bagging area: ", tp)
+        raise ParseError(f"'{tp}' is not a valid HgTimeSeriesType")
 
     return tp_
 
@@ -45,7 +45,7 @@ def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData:
 def extract_scalar_type(tp: Type) -> HgScalarTypeMetaData:
     tp_ = HgScalarTypeMetaData.parse(tp)
     if tp_ is None:
-        raise RuntimeError("Unexpected Type in the bagging area: ", tp)
+        raise ParseError(f"'{tp}' is not a valid HgScalarType")
     return tp_
 
 
