@@ -14,9 +14,10 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PythonSwitchNodeBuilder(NodeBuilder):
-    nested_graphs: Mapping[SCALAR, "GraphBuilder"] = None  # This is the generator function
-    input_node_ids: Mapping[SCALAR, Mapping[str, int]] = None  # The nodes representing the stub inputs in the nested graph.
-    output_node_id: Mapping[SCALAR, int] = None  # The node representing the stub output in the nested graph.
+    nested_graphs: Mapping[SCALAR, "GraphBuilder"] | None = None  # This is the generator function
+    # The nodes representing the stub inputs in the nested graph.
+    input_node_ids: Mapping[SCALAR, Mapping[str, int]] | None = None
+    output_node_id: Mapping[SCALAR, int] | None = None  # The node representing the stub output in the nested graph.
     reload_on_ticked: bool = False
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonSwitchNodeImpl:
@@ -43,4 +44,4 @@ class PythonSwitchNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: PythonSwitchNodeImpl):
-        pass
+        """Nothing to be done here"""

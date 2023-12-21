@@ -56,7 +56,7 @@ class PythonSignalInputBuilder(TSSignalInputBuilder):
 
 @dataclass(frozen=True)
 class PythonTSBOutputBuilder(TSBOutputBuilder):
-    schema_builders: Mapping[str, TSOutputBuilder] = None
+    schema_builders: Mapping[str, TSOutputBuilder] | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
@@ -77,7 +77,7 @@ class PythonTSBOutputBuilder(TSBOutputBuilder):
 
 @dataclass(frozen=True)
 class PythonTSBInputBuilder(TSBInputBuilder):
-    schema_builders: Mapping[str, TSInputBuilder] = None
+    schema_builders: Mapping[str, TSInputBuilder] | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
@@ -99,7 +99,7 @@ class PythonTSBInputBuilder(TSBInputBuilder):
 class PythonTSLOutputBuilder(TSLOutputBuilder):
     value_tp: HgTimeSeriesTypeMetaData
     size_tp: HgScalarTypeMetaData
-    value_builder: TSOutputBuilder = None
+    value_builder: TSOutputBuilder | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
@@ -126,7 +126,7 @@ class PythonTSLOutputBuilder(TSLOutputBuilder):
 class PythonTSLInputBuilder(TSLInputBuilder):
     value_tp: HgTimeSeriesTypeMetaData
     size_tp: HgScalarTypeMetaData
-    value_builder: TSOutputBuilder = None
+    value_builder: TSOutputBuilder | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
@@ -152,8 +152,8 @@ class PythonTSLInputBuilder(TSLInputBuilder):
 class PythonTSDOutputBuilder(TSDOutputBuilder):
     key_tp: "HgScalarTypeMetaData"
     value_tp: "HgTimeSeriesTypeMetaData"
-    value_builder: TSOutputBuilder = None
-    key_set_builder: TSOutputBuilder = None
+    value_builder: TSOutputBuilder | None = None
+    key_set_builder: TSOutputBuilder | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
@@ -179,8 +179,8 @@ class PythonTSDOutputBuilder(TSDOutputBuilder):
 class PythonTSDInputBuilder(TSDInputBuilder):
     key_tp: "HgScalarTypeMetaData"
     value_tp: "HgTimeSeriesTypeMetaData"
-    value_builder: TSOutputBuilder = None
-    key_set_builder: TSOutputBuilder = None
+    value_builder: TSOutputBuilder | None = None
+    key_set_builder: TSOutputBuilder | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
@@ -245,7 +245,7 @@ class PythonREFOutputBuilder(REFOutputBuilder):
 @dataclass(frozen=True)
 class PythonREFInputBuilder(REFInputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
-    value_builder: TSOutputBuilder = None
+    value_builder: TSOutputBuilder | None = None
 
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
