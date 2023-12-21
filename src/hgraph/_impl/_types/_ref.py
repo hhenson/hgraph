@@ -1,7 +1,7 @@
 import typing
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Generic, TYPE_CHECKING
+from typing import Generic
 
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
@@ -10,8 +10,6 @@ from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceOutp
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
 
-if TYPE_CHECKING:
-    pass
 
 
 __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
