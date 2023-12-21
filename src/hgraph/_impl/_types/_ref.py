@@ -11,7 +11,7 @@ from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
 
 if TYPE_CHECKING:
-    from hgraph._builder._input_builder import InputBuilder
+    pass
 
 
 __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
@@ -19,15 +19,15 @@ __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "Pyth
 
 class PythonTimeSeriesReference(TimeSeriesReference):
     def __init__(self, ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None, from_items: typing.Iterable[TimeSeriesReference] = None):
-        if ts is None and from_items is None:
-            self.valid = False
-            return
-
-        if from_items:
+        if from_items is not None:  # Put this first to make it clearer that
             self.items = from_items
             self.tp = None
             self.has_peer = False
             self.valid = True
+            return
+
+        if ts is None:  # We have already validated that from_items is None, so now if ts is None as well, ...
+            self.valid = False
             return
 
         if isinstance(ts, TimeSeriesOutput):  # constructing from sn output
