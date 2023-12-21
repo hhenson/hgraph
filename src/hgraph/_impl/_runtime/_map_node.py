@@ -178,7 +178,7 @@ class PythonMapNodeImpl(PythonNestedNodeImpl):
                 from hgraph._wiring._stub_wiring_node import KeyStubEvalFn
                 cast(KeyStubEvalFn, node.eval_fn).key = key
             else:
-                if is_multiplexed := arg in self.multiplexed_args:  # Is this a multiplexed input?
+                if arg in self.multiplexed_args:  # Is this a multiplexed input?
                     # This should create a phantom input if one does not exist.
                     ts = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg]).get_or_create(key)
                 else:

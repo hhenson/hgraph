@@ -27,7 +27,7 @@ class PythonGraph(Graph):
         self._graph_id: tuple[int, ...] = graph_id
         self._nodes: list[Node] = nodes if type(nodes) is list else list(nodes)
         self._schedule: list[datetime, ...] = [MIN_DT] * len(nodes)
-        self._evaluation_engine: EvaluationEngine = None
+        self._evaluation_engine: EvaluationEngine | None = None
         self._parent_node: Node = parent_node
 
     @property
