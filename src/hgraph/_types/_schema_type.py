@@ -1,8 +1,8 @@
-from hashlib import sha1
-from typing import TYPE_CHECKING, Type, TypeVar, Iterator, KeysView, ItemsView, ValuesView
+from hashlib import shake_256
+from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView
 
 if TYPE_CHECKING:
-    from hgraph._types._scalar_type_meta_data import HgTypeMetaData
+    from hgraph._types._type_meta_data import HgTypeMetaData
 
 
 __all__ = ("AbstractSchema",)
@@ -10,7 +10,7 @@ __all__ = ("AbstractSchema",)
 
 class AbstractSchema:
     """
-    Describes an the core concepts of a schema based object. The object contains a view of the schema in terms
+    Describes the core concepts of a schema based object. The object contains a view of the schema in terms
     of the ``HgTypeMetaData`` representation. This provides additional information such as the resolved state
     (if any of the attributes are TypeVar templates) and con contain partial specialisations of templated types.
     There are two key implementations, namely the ``CompoundScalar`` and the ``TimeSeriesSchema``. These provide
@@ -43,7 +43,7 @@ class AbstractSchema:
         Parse the type using the appropriate HgTypeMetaData instance.
         By default, we use the top level parser.
         """
-        from hgraph._types._time_series_meta_data import HgTypeMetaData
+        from hgraph._types._type_meta_data import HgTypeMetaData
         return HgTypeMetaData.parse(tp)
 
     def __init_subclass__(cls, **kwargs):
@@ -70,7 +70,7 @@ class AbstractSchema:
         """Create a 'resolved' instance class and cache as appropriate"""
         suffix = ','.join(f'{k}:{v}' for k, v in schema.items())
         root_cls = cls._root_cls()
-        cls_name = f"{root_cls.__name__}_{sha1(bytes(suffix, 'utf8')).hexdigest()}"
+        cls_name = f"{root_cls.__name__}_{shake_256(bytes(suffix, 'utf8')).hexdigest(6)}"
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             r_cls = type(cls_name, (root_cls,), {})
@@ -81,7 +81,7 @@ class AbstractSchema:
     @classmethod
     def _create_partial_resolved_class(cls, resolution_dict) -> Type["AbstractSchema"]:
         suffix = ','.join(f"{k}:{str(v)}" for k, v in resolution_dict.items())
-        cls_name = f"{cls.__name__}_{sha1(bytes(suffix, 'utf8')).hexdigest()}"
+        cls_name = f"{cls.__name__}_{shake_256(bytes(suffix, 'utf8')).hexdigest(6)}"
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             r_cls = type(cls_name, (cls,), {})
@@ -106,7 +106,8 @@ class AbstractSchema:
                 k = item.start
                 v = item.stop
             elif has_slice:
-                raise ParseError(f"'{cls}' has supplied slice parameters already, non-slice parameters are no longer accepted")
+                raise ParseError(f"'{cls}' has supplied slice parameters already, "
+                                 f"non-slice parameters are no longer accepted")
             else:
                 k = parm
                 v = item
