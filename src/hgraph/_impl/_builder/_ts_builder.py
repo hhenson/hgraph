@@ -247,9 +247,6 @@ class PythonREFInputBuilder(REFInputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
     value_builder: TSOutputBuilder | None = None
 
-    def __post_init__(self):
-        factory = TimeSeriesBuilderFactory.instance()
-
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph._impl._types._ref import PythonTimeSeriesReferenceInput
         ref = PythonTimeSeriesReferenceInput[self.value_tp.py_type](
