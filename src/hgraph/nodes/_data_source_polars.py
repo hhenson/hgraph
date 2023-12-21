@@ -81,7 +81,7 @@ def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polar
 
     @sink_node(valid=(), active=())
     def _stub(ts: TSB[TS_SCHEMA], location: str, schema: type[TS_SCHEMA]):
-        pass
+        """A stub sink node, it does nothing, but allows us to hook a stop behaviour to dump out the DF when done."""
 
     @_stub.stop
     def _stub_stop(location: str, schema: type[TS_SCHEMA]):
