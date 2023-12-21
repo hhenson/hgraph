@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping, cast
+from typing import TYPE_CHECKING, Mapping, cast, Optional
 
 from hgraph._builder._node_builder import NodeBuilder
 from hgraph._impl._runtime._map_node import PythonMapNodeImpl, PythonReduceNodeImpl
@@ -12,10 +12,10 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PythonMapNodeBuilder(NodeBuilder):
-    nested_graph: "GraphBuilder" = None  # This is the generator function
-    input_node_ids: Mapping[str, int] = None  # The nodes representing the stub inputs in the nested graph.
-    output_node_id: int = None  # The node representing the stub output in the nested graph.
-    multiplexed_args: frozenset[str] =None  # The inputs that need to be de-multiplexed.
+    nested_graph: Optional["GraphBuilder"] = None  # This is the generator function
+    input_node_ids: Mapping[str, int] | None = None  # The nodes representing the stub inputs in the nested graph.
+    output_node_id: int | None = None  # The node representing the stub output in the nested graph.
+    multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonMapNodeImpl:
         node = PythonMapNodeImpl(
@@ -46,11 +46,11 @@ class PythonMapNodeBuilder(NodeBuilder):
 
 @dataclass(frozen=True)
 class PythonReduceNodeBuilder(NodeBuilder):
-    nested_graph: "GraphBuilder" = None  # This is the generator function
-    input_node_ids: tuple[int, int] = None  # The nodes representing the stub inputs in the nested graph.
-    output_node_id: int = None  # The node representing the stub output in the nested graph.
+    nested_graph: Optional["GraphBuilder"] = None  # This is the generator function
+    input_node_ids: tuple[int, int] | None = None  # The nodes representing the stub inputs in the nested graph.
+    output_node_id: int | None = None  # The node representing the stub output in the nested graph.
 
-    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonMapNodeImpl:
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonReduceNodeImpl:
         node = PythonReduceNodeImpl(
             node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
@@ -72,5 +72,5 @@ class PythonReduceNodeBuilder(NodeBuilder):
 
         return node
 
-    def release_instance(self, item: PythonMapNodeImpl):
+    def release_instance(self, item: PythonReduceNodeImpl):
         """Nothing to do"""
