@@ -186,7 +186,8 @@ class HgInjectableType(HgScalarTypeMetaData):
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         if wired_type is not None and self.py_type != wired_type.py_type:
-            raise f"Type '{str(self)}' is not the same as the wired type '{str(wired_type)}'"
+            from hgraph import IncorrectTypeBinding
+            raise IncorrectTypeBinding(self, wired_type)
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

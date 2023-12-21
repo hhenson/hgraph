@@ -28,7 +28,7 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
 
     def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
                                           wired_type: "HgTypeMetaData", value: object):
-        pass
+        """A signal has no meaningful scalar resolution"""
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

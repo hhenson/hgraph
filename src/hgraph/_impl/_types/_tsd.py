@@ -25,10 +25,10 @@ class TSDKeyObserver:
     """
 
     def on_key_added(self, key: K):
-        pass
+        """Called when a key is added"""
 
     def on_key_removed(self, key: K):
-        pass
+        """Called when a key is removed"""
 
 
 class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K, V], Generic[K, V]):

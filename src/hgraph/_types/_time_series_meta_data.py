@@ -15,16 +15,16 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     # Begin Node constructor helper methods.
 
     def create_input(self) -> "TimeSeriesInput":
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def create_push_queue(self) -> "TimeSeriesPushQueue":
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def create_pull_queue(self) -> "TimeSeriesPullQueue":
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def create_output(self) -> "TimeSeriesOutput":
-        raise NotImplemented()
+        raise NotImplementedError()
 
     # End of Node constructor helper methods
 
