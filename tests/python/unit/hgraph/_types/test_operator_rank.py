@@ -10,8 +10,8 @@ def test_rank_values():
     assert HgTypeMetaData.parse(str).operator_rank == 0
 
     # In this case we expect a hard-coded 1.0 value, so == over float is fine.
-    assert HgTypeMetaData.parse(SCALAR).operator_rank == 1.  # NO SONAR
-    assert HgTypeMetaData.parse(TIME_SERIES_TYPE).operator_rank == 1.  # NO SONAR
+    assert HgTypeMetaData.parse(SCALAR).operator_rank == 1.  # NOSONAR
+    assert HgTypeMetaData.parse(TIME_SERIES_TYPE).operator_rank == 1.  # NOSONAR
 
 
 @pytest.mark.parametrize(('t1', 't2'),(
