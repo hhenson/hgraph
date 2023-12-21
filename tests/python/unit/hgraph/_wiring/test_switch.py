@@ -12,4 +12,4 @@ def test_switch():
         s = switch_({'add': add_, 'sub': sub_}, key, lhs, rhs)
         return s
 
-    eval_node(switch_test, ['add', 'sub'], [1, 2], [3, 4]) == [4, -2]
+    assert eval_node(switch_test, ['add', 'sub'], [1, 2], [3, 4]) == [4, -2]
