@@ -13,7 +13,7 @@ class ScalarValueBuilder(Builder["ScalarValue"]):
 
     def make_instance(self) -> "ScalarValue":
         """A scalar value is a basic type"""
-        pass
+        raise NotImplementedError()
 
     def release_instance(self, item: "ScalarValue"):
-        pass
+        raise NotImplementedError()

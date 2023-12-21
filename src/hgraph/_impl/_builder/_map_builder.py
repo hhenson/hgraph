@@ -41,7 +41,7 @@ class PythonMapNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: PythonMapNodeImpl):
-        pass
+        """Nothing to do"""
 
 
 @dataclass(frozen=True)
@@ -73,4 +73,4 @@ class PythonReduceNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: PythonMapNodeImpl):
-        pass
+        """Nothing to do"""

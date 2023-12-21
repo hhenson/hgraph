@@ -14,8 +14,8 @@ class OutputBuilder(Builder["TimeSeriesOutput"]):
 
     def make_instance(self, owning_node: "Node" = None, owning_output: "TimeSeriesOutput" = None) -> "TimeSeriesOutput":
         """One of owning_node or owning_output must be defined."""
-        pass
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesOutput"):
-        pass
+        raise NotImplementedError()
 

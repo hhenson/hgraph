@@ -15,7 +15,7 @@ class InputBuilder(Builder["TimeSeriesInput"]):
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
         """One of owning_node or owning_input must be defined."""
-        pass
+        raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
-        pass
+        raise NotImplementedError()

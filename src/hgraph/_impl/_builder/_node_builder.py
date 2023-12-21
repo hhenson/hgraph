@@ -38,7 +38,7 @@ class PythonNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: NodeImpl):
-        pass
+        """Nothing to do"""
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ class PythonGeneratorNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: GeneratorNodeImpl):
-        pass
+        """Nothing to do"""
 
 
 @dataclass(frozen=True)
@@ -84,4 +84,4 @@ class PythonPushQueueNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: PythonPushQueueNodeImpl):
-        pass
+        """Nothing to do"""
