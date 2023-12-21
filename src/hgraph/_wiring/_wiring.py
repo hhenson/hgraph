@@ -520,11 +520,11 @@ class WiringGraphContext:
         WiringGraphContext.__stack__ = WiringGraphContext.__shelved_stack__.pop()
 
     @classmethod
-    def wiring_path(self) -> [SourceCodeDetails]:
+    def wiring_path(cls) -> [SourceCodeDetails]:
         """Return a graph call stack"""
         # TODO: Look into how this could be improved to include call site information.
         # The first entry is the root node of the graph stack
-        return [graph.wiring_node_signature.src_location for graph in reversed(self.__stack__[1:])]
+        return [graph.wiring_node_signature.src_location for graph in reversed(cls.__stack__[1:])]
 
     @classmethod
     def instance(cls) -> "WiringGraphContext":
