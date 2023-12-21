@@ -87,7 +87,6 @@ class AbstractSchema:
             r_cls = type(cls_name, (cls,), {})
             r_cls.__partial_resolution__ = resolution_dict
             r_cls.__parameters__ = cls.__parameters__
-            # r_cls.__meta_data_schema__ = cls.__meta_data_schema__
             r_cls.__partial_resolution_parent__ = cls._root_cls()
             cls.__resolved__[cls_name] = r_cls
         return r_cls

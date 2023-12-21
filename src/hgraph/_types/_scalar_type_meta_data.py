@@ -291,13 +291,12 @@ class HgTupleScalarType(HgCollectionType):
                     else:
                         raise ParseError(f"While parsing '{repr(value)}' was unable to parse '{repr(arg)}")
                 return HgTupleFixedScalarType(tp_s)
-        elif isinstance(value, tuple):
-            if len(value) > 0:
-                tp = type(value[0])
-                if all(type(v) is tp for v in value):
-                    return HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(tp))
-                else:
-                    return HgTupleFixedScalarType(HgScalarTypeMetaData.parse(type(v)) for v in value)
+        elif isinstance(value, tuple) and len(value) > 0:
+            tp = type(value[0])
+            if all(type(v) is tp for v in value):
+                return HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(tp))
+            else:
+                return HgTupleFixedScalarType(HgScalarTypeMetaData.parse(type(v)) for v in value)
 
 
 class HgTupleCollectionScalarType(HgTupleScalarType):

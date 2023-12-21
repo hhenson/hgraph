@@ -2,7 +2,8 @@ import inspect
 from dataclasses import dataclass, replace
 from functools import cached_property
 from types import GenericAlias
-from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING, Generic, Tuple, List
+from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYPE_CHECKING, Generic, Tuple, List, \
+    MutableMapping
 
 from frozendict import frozendict
 from more_itertools import nth
@@ -653,8 +654,8 @@ class WiringNodeInstance:
             uses_scheduler=self.resolved_signature.uses_scheduler
         )
 
-    def create_node_builder_and_edges(self, node_map: Mapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]) -> \
-            tuple["NodeBuilder", set["Edge"]]:
+    def create_node_builder_and_edges(self, node_map: MutableMapping["WiringNodeInstance", int],
+                                      nodes: ["NodeBuilder"]) ->  tuple["NodeBuilder", set["Edge"]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)

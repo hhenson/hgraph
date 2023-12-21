@@ -120,7 +120,7 @@ class NoTimeSeriesInputsError(WiringError):
 
     def __init__(self):
         self.signature = WIRING_CONTEXT.current_signature
-        super().__init__(f"No time-series inputs provided")
+        super().__init__("No time-series inputs provided")
 
     def print_error(self):
         msg = f"When resolving '{self.signature.signature}' \n" \

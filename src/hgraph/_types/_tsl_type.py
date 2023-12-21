@@ -29,8 +29,10 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
 
     def __class_getitem__(cls, item) -> Any:
         # For now limit to validation of item
-        if (is_not_tuple := type(item) is not tuple) or len(item) != 2:
-            item = (item if is_not_tuple else item[0] if item else TIME_SERIES_TYPE, SIZE)
+        is_tuple = type(item) is tuple
+        if not is_tuple or len(item) != 2:
+            if is_tuple:
+                item = (item[0] if len(item) == 1 else TIME_SERIES_TYPE), SIZE
         out = super(TimeSeriesList, cls).__class_getitem__(item)
         if item != (TIME_SERIES_TYPE, SIZE):
             from hgraph._types._type_meta_data import HgTypeMetaData

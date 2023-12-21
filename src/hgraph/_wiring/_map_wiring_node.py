@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Any, TypeVar, Mapping, TYPE_CHECKING, cast
+from typing import Callable, Any, TypeVar, Mapping, TYPE_CHECKING, cast, Optional
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
@@ -26,8 +26,8 @@ class TsdMapWiringSignature(WiringNodeSignature):
 
 @dataclass(frozen=True)
 class TslMapWiringSignature(WiringNodeSignature):
-    map_fn_signature: WiringNodeSignature = None
-    size_tp: HgAtomicType = None
+    map_fn_signature: WiringNodeSignature | None = None
+    size_tp: HgAtomicType | None = None
     key_arg: str | None = None
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
 
@@ -52,7 +52,7 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         super().__init__(signature, fn)
-        self.inner_graph: "GraphBuilder" = None
+        self.inner_graph: Optional["GraphBuilder"] = None
 
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
         # This acts a bit like a graph, in that it needs to evaluate the inputs and build a sub-graph for

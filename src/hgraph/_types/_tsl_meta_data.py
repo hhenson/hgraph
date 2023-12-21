@@ -90,7 +90,7 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         return type(o) is HgTSLTypeMetaData and self.value_tp == o.value_tp and self.size_tp == o.size_tp
 
     def _to_str(self, tp: str = 'TSL') -> str:
-        return f'TSL[{str(self.value_tp)}, {str(self.size_tp)}]' if self.size_tp else f'TSL[{str(self.value_tp)}]'
+        return f'{tp}[{str(self.value_tp)}, {str(self.size_tp)}]' if self.size_tp else f'TSL[{str(self.value_tp)}]'
 
     def __str__(self) -> str:
         return self._to_str()

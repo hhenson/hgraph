@@ -38,10 +38,11 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
             else:
                 node_signature += "..."
         node_signature += ")"
-        if node.signature.time_series_output:
-            if add_output:
-                node_signature += (f"{' *->* ' if (mod_ := node.output.modified) else ' -> '}"
-                                   f"{(node.output.delta_value if mod_ else node.output.value) if node.output.valid else '<UnSet>'}")
+        if node.signature.time_series_output and add_output:
+            mod_ = node.output.modified
+            value_ = node.output.delta_value if mod_ else node.output.value
+            node_signature += (f"{' *->* ' if mod_ else ' -> '}"
+                               f"{value_ if node.output.valid else '<UnSet>'}")
         self._print(node.graph.evaluation_clock,
                     f"{self._graph_name(node.graph)} {node_signature} {msg}")
 
