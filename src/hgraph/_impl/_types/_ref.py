@@ -11,7 +11,6 @@ from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
 
 
-
 __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
 
 
@@ -84,9 +83,10 @@ class PythonTimeSeriesReference(TimeSeriesReference):
 @dataclass
 class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
 
-    _tp: type = None
+    _tp: type | None = None
     _value: typing.Optional[TimeSeriesReference] = None
-    _reference_observers: typing.Dict[int, TimeSeriesInput] = field(default_factory=dict)  # TODO: dict to avoid requiring inputs to hash
+    # NOTE: Using dict to avoid requiring the inputs to be hashable
+    _reference_observers: dict[int, TimeSeriesInput] = field(default_factory=dict)
 
     @property
     def value(self) -> TimeSeriesReference:
@@ -140,7 +140,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
     """
 
     _value: typing.Optional[TimeSeriesReference] = None
-    _items: list[TimeSeriesReferenceInput] = None
+    _items: list[TimeSeriesReferenceInput] | None = None
 
     def bind_output(self, output: TimeSeriesOutput) -> bool:
         peer = self.do_bind_output(output)
