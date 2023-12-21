@@ -9,6 +9,7 @@ from hgraph._types._schema_type import AbstractSchema
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+    from hgraph._types._type_meta_data import HgTypeMetaData
 
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_scalar",
@@ -31,7 +32,7 @@ class Size:
 
     Use this as Size[n] where n is the size represented as an integer value.
     """
-    SIZE: int = -1
+    SIZE: int = -1  # NOSONAR
     FIXED_SIZE: bool = False
 
     @classmethod
@@ -40,11 +41,12 @@ class Size:
         global __CACHED_SIZES__
         tp = __CACHED_SIZES__.get(item)
         if tp is None:
-            __CACHED_SIZES__[item] = (tp := type(f"Size_{item}", (Size,), {'SIZE': item, 'FIXED_SIZE': True}))
+            tp = type(f"Size_{item}", (Size,), {'SIZE': item, 'FIXED_SIZE': True})
+            __CACHED_SIZES__[item] = tp
         return tp
 
     def __str__(self):
-        return f"Size[{str(self.SIZE) if self.FIXED_SIZE else ''}]"
+        return f"Size[{str(self.SIZE) if self.FIXED_SIZE else ''}]"  # NOSONAR
 
 
 class CompoundScalar(AbstractSchema):
@@ -62,6 +64,7 @@ SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, st
                  CompoundScalar)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
 SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
+
 
 class STATE(dict):
     """

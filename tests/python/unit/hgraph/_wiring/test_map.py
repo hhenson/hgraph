@@ -69,7 +69,6 @@ def test_guess_arguments_add_keys():
 def test_guess_arguments_add_no_keys():
     lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
     rhs = const(2)
-    keys = const(frozenset({'a', 'b'}), TSS[str])
     wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs)
     signature: TsdMapWiringSignature = wiring_node.signature
     assert signature.args == ('lhs', 'rhs', '__keys__')
@@ -134,7 +133,6 @@ def test_guess_arguments_add_keys_tsl():
 def test_guess_arguments_add_no_keys_tsl():
     lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
     rhs = const(2)
-    keys = const(frozenset({'a', 'b'}), TSS[str])
     wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs)
     signature: TsdMapWiringSignature = wiring_node.signature
     assert signature.args == ('lhs', 'rhs')

@@ -139,7 +139,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 @dataclass
 class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[K, V], TSDKeyObserver, Generic[K, V]):
 
-    _prev_output: TimeSeriesDictOutput = None
+    _prev_output: TimeSeriesDictOutput | None = None
 
     def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)

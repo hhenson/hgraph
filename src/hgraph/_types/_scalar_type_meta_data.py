@@ -640,7 +640,7 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
             return type(self)(resolved)
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        if not type(wired_type) == HgTypeOfTypeMetaData:
+        if not type(wired_type) is HgTypeOfTypeMetaData:
             raise ParseError(f"Wired type '{wired_type}' is not a type value")
         wired_type: HgTypeOfTypeMetaData
         self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)

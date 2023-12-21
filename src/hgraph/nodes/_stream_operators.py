@@ -4,7 +4,7 @@ from datetime import timedelta
 from hgraph import compute_node, TIME_SERIES_TYPE, MIN_TD, STATE, SCHEDULER, SIGNAL
 
 
-# __all__ = ("lag_ts",)
+__all__ = ("sample",)
 
 
 @compute_node(active=('signal',))

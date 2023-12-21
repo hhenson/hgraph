@@ -33,13 +33,13 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     from hgraph._wiring._graph_builder import wire_graph
     if print_progress:
         print()
-        print(f"Wiring Graph")
+        print("Wiring Graph")
     if not isinstance(graph, GraphBuilder):
         graph_builder = wire_graph(graph, *args, **kwargs)
     else:
         graph_builder = graph
     if print_progress:
-        print(f"Initialising Graph Engine")
+        print("Initialising Graph Engine")
     engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
 
     if print_progress:
@@ -48,7 +48,7 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     engine.run(start_time, end_time, life_cycle_observers)
 
     if print_progress:
-        print(f"Graph Complete")
+        print("Graph Complete")
 
     if print_progress:
         print("Done")

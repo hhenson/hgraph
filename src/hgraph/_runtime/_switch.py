@@ -116,7 +116,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
 
 def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
                         **kwargs) -> WiringNodeSignature:
-    check_signature: WiringNodeSignature = None
+    check_signature: WiringNodeSignature | None = None
     for k, v in switches.items():
         if check_signature is None:
             check_signature = cast(WiringNodeClass, v).resolve_signature(**kwargs)

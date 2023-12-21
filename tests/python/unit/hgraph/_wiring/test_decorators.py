@@ -15,7 +15,7 @@ def test_generator_node():
     assert type(simple_generator) is PythonGeneratorWiringNodeClass
     signature: WiringNodeSignature = simple_generator.signature
     assert signature.node_type is WiringNodeType.PULL_SOURCE_NODE
-    assert signature.name is "simple_generator"
+    assert signature.name == "simple_generator"
     assert simple_generator.fn is not None
 
 
@@ -28,7 +28,7 @@ def test_compute_node():
     assert type(simple_compute_node) is PythonWiringNodeClass
     signature: WiringNodeSignature = simple_compute_node.signature
     assert signature.node_type is WiringNodeType.COMPUTE_NODE
-    assert signature.name is "simple_compute_node"
+    assert signature.name == "simple_compute_node"
     assert simple_compute_node.fn is not None
 
 
@@ -41,7 +41,7 @@ def test_sink_node():
     assert type(simple_sink_node) is PythonWiringNodeClass
     signature: WiringNodeSignature = simple_sink_node.signature
     assert signature.node_type is WiringNodeType.SINK_NODE
-    assert signature.name is "simple_sink_node"
+    assert signature.name == "simple_sink_node"
     assert simple_sink_node.fn is not None
 
 
@@ -54,5 +54,5 @@ def test_graph():
     assert type(simple_graph) is GraphWiringNodeClass
     signature: WiringNodeSignature = simple_graph.signature
     assert signature.node_type is WiringNodeType.GRAPH
-    assert signature.name is "simple_graph"
+    assert signature.name == "simple_graph"
     assert simple_graph.fn is not None

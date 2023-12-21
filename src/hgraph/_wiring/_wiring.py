@@ -60,10 +60,11 @@ class WiringNodeClass:
         for s in item:
             assert s.step is None, f"Signature of type resolution is incorrect, expect TypeVar: Type, ... got {s}"
             assert s.start is not None, f"Signature of type resolution is incorrect, expect TypeVar: Type, ... got {s}"
-            assert s.stop is not None, f"signature of type resolution is incorrect, None is not a valid type"
+            assert s.stop is not None, "signature of type resolution is incorrect, None is not a valid type"
             assert isinstance(s.start,
                               TypeVar), f"Signature of type resolution is incorrect first item must be of type TypeVar, got {s.start}"
-            out[s.start] = (parsed := HgTypeMetaData.parse(s.stop))
+            parsed = HgTypeMetaData.parse(s.stop)
+            out[s.start] = parsed
             assert parsed is not None, f"Can not resolve {s.stop} into a valid scalar or time-series type"
             assert parsed.is_resolved, f"The resolved value {s.stop} is not resolved, this is not supported."
         return out
@@ -151,7 +152,7 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.stop_fn: Callable = None
 
     def overload(self, other: "WiringNodeClass"):
-        if o := getattr(self, "overload_list", None) is None:
+        if getattr(self, "overload_list", None) is None:
             self.overload_list = OverloadedWiringNodeHelper(self)
 
         self.overload_list.overload(other)
@@ -207,7 +208,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                     v = HgTypeMetaData.parse(arg) if arg is not AUTO_RESOLVE else v.value_tp
                     kwarg_types[k] = HgTypeOfTypeMetaData(v)
                 else:
-                    kwarg_types[k] = (tp := HgScalarTypeMetaData.parse(arg))
+                    tp = HgScalarTypeMetaData.parse(arg)
+                    kwarg_types[k] = tp
                     if tp is None:
                         if k in self.signature.unresolved_args:
                             raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
@@ -304,7 +306,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
                     rank = max(v.rank for k, v in kwargs_.items() if
                                v is not None and k in self.signature.time_series_args) + 1
-                case default:
+                case _:
                     rank = -1
 
             wiring_node_instance = WiringNodeInstance(self, resolved_signature, frozendict(kwargs_), rank=rank)
@@ -423,7 +425,7 @@ class OverloadedWiringNodeHelper:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
                 c.resolve_signature(*args, **kwargs)
                 candidates.append((c, r))
-            except Exception as e:
+            except Exception:
                 pass
         if not candidates:
             raise WiringError(
@@ -751,10 +753,10 @@ class TSBWiringPort(WiringPort):
     def _wiring_port_for(self, item):
         """Support the path selection using property names"""
         schema: TimeSeriesSchema = self.__schema__
-        if type(item) == str:
+        if type(item) is str:
             arg = item
             ndx = schema.index_of(item)
-        elif type(item) == int:
+        elif type(item) is int:
             ndx = item
             arg = nth(schema.__meta_data_schema__.keys(), item)
         else:

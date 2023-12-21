@@ -18,7 +18,7 @@ if typing.TYPE_CHECKING:
 @dataclass
 class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[SCALAR], Generic[SCALAR]):
 
-    _tp: type = None
+    _tp: type | None = None
     _value: Optional[SCALAR] = None
 
     @property

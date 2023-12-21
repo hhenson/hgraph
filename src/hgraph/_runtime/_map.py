@@ -208,17 +208,16 @@ def _build_map_wiring_node_and_inputs(
                              **kwargs)
 
     # 3. Split out the inputs into multiplexed, no_key, pass_through and direct and key_tp
-    multiplex_args, no_key_args, pass_through_args, direct_args, map_type, key_tp_ = _split_inputs(signature, kwargs_)
+    multiplex_args, no_key_args, pass_through_args, _, map_type, key_tp_ = _split_inputs(signature, kwargs_)
 
     # 4. If the key is present, make sure the extracted key type matches what we found in the multiplexed inputs.
     if map_type == "TSL":
         tp = HgTSTypeMetaData.parse(TS[int])
     else:
         tp = key_tp_
-    if input_has_key_arg:
-        if not input_key_tp.matches(tp):
-            raise CustomMessageWiringError(
-                f"The ndx argument '{signature.args[0]}: {input_key_tp}' does not match '{tp}'")
+    if input_has_key_arg and not input_key_tp.matches(tp):
+        raise CustomMessageWiringError(
+            f"The ndx argument '{signature.args[0]}: {input_key_tp}' does not match '{tp}'")
     input_key_tp = tp
 
     # 5. Extract provided key signature
@@ -234,8 +233,8 @@ def _build_map_wiring_node_and_inputs(
                 kwargs_[KEYS_ARG] = __keys__
             else:
                 from hgraph.nodes import union_
-                kwargs_[KEYS_ARG] = (
-                    __keys__ := union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args)))
+                __keys__ = union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args))
+                kwargs_[KEYS_ARG] = __keys__
             input_types = input_types | {KEYS_ARG: __keys__.output_type}
             map_wiring_node = _create_tsd_map_wiring_node(fn, kwargs_, input_types, multiplex_args, no_key_args,
                                                           input_key_tp, input_key_name if input_has_key_arg else None)
@@ -335,7 +334,7 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
     _validate_multiplex_types(signature, kwargs_, multiplex_args, no_key_args)
 
     if len(no_key_args) + len(multiplex_args) == 0:
-        raise CustomMessageWiringError(f"No multiplexed inputs found")
+        raise CustomMessageWiringError("No multiplexed inputs found")
 
     if len(multiplex_args) + len(direct_args) + len(pass_through_args) != len(kwargs_):
         raise CustomMessageWiringError(
@@ -343,8 +342,7 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
 
     if is_tsl := any(isinstance(v, HgTSLTypeMetaData) for v in input_types.values()):
         if not all(isinstance(input_types[k], HgTSLTypeMetaData) for k in multiplex_args):
-            raise CustomMessageWiringError(
-                f"Not all multiplexed inputs are of type TSL or TSD")
+            raise CustomMessageWiringError("Not all multiplexed inputs are of type TSL or TSD")
 
     if is_tsl:
         key_tp = _extract_tsl_size(kwargs_, multiplex_args, no_key_args)
@@ -445,6 +443,8 @@ def _create_tsl_map_signature(
         {k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _INDEX else v for
          k, v in input_types.items()})
 
+    has_keys = _INDEX in input_types
+
     map_signature = TslMapWiringSignature(
         node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
         name="map",
@@ -455,7 +455,7 @@ def _create_tsl_map_signature(
         output_type=HgTSLTypeMetaData(HgREFTypeMetaData(resolved_signature.output_type),
                                       size_tp) if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
-        active_inputs=frozenset({_INDEX, }) if (has_keys := _INDEX in input_types) else multiplex_args,
+        active_inputs=frozenset({_INDEX, }) if has_keys else multiplex_args,
         valid_inputs=frozenset({_INDEX, }) if has_keys else tuple(),
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),

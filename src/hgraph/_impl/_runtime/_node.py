@@ -40,14 +40,14 @@ class NodeImpl(Node):
         self._owning_graph_id: tuple[int, ...] = owning_graph_id
         self._signature: NodeSignature = signature
         self._scalars: Mapping[str, Any] = scalars
-        self._graph: Graph = None
+        self._graph: Graph | None = None
         self.eval_fn: Callable = eval_fn
         self.start_fn: Callable = start_fn
         self.stop_fn: Callable = stop_fn
         self._input: Optional["TimeSeriesBundleInput"] = None
         self._output: Optional["TimeSeriesOutput"] = None
         self._scheduler: Optional["NodeSchedulerImpl"] = None
-        self._kwargs: dict[str, Any] = None
+        self._kwargs: dict[str, Any] | None = None
 
     @property
     def node_ndx(self) -> int:
@@ -110,7 +110,7 @@ class NodeImpl(Node):
         return self._scheduler
 
     def initialise(self):
-        pass
+        """Nothing to do"""
 
     def _initialise_kwargs(self):
         from hgraph._types._scalar_type_meta_data import Injector
@@ -215,8 +215,7 @@ class NodeSchedulerImpl(NodeScheduler):
             return default
 
     def schedule(self, when: datetime | timedelta, tag: str = None):
-        if tag is not None:
-            if tag in self._tags:
+        if tag is not None and tag in self._tags:
                 self._scheduled_events.remove((self._tags[tag], tag))
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
@@ -225,8 +224,8 @@ class NodeSchedulerImpl(NodeScheduler):
             self._tags[tag] = when
             current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
             self._scheduled_events.add((when, "" if tag is None else tag))
-            if is_stated and current_first > (next := self.next_scheduled_time):
-                self._node.graph.schedule_node(self._node.node_ndx, next)
+            if is_stated and current_first > (next_ := self.next_scheduled_time):
+                self._node.graph.schedule_node(self._node.node_ndx, next_)
 
     def un_schedule(self, tag: str = None):
         if tag is not None:
@@ -252,7 +251,7 @@ class GeneratorNodeImpl(NodeImpl):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.generator: Iterator = None
+        self.generator: Iterator | None = None
         self.next_value: object = None
 
     @start_guard

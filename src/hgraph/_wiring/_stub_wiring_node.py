@@ -49,7 +49,7 @@ def create_output_stub(output: WiringPort):
     ref_tp = tp if type(tp) is HgREFTypeMetaData else HgREFTypeMetaData(tp)
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
-        name=f"stub:__out__",
+        name="stub:__out__",
         args=('ts',),
         defaults=frozendict(),
         input_types=frozendict({'ts': ref_tp}),

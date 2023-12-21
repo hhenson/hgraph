@@ -96,10 +96,12 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
             WiringNodeInstance, HgTimeSeriesTypeMetaData, HgAtomicType
         hg_tp_ = HgTimeSeriesTypeMetaData.parse(tp_)
+        args_ = tuple(f'ts_{i}' for i in range(size_.SIZE))
+
         wiring_node_signature = WiringNodeSignature(
             node_type=WiringNodeType.STUB,
             name=f"TSL[{tp_}, {size_}].from_ts",
-            args=(args_ := tuple(f'ts_{i}' for i in range(size_.SIZE))),
+            args=args_,
             defaults=frozendict(),
             input_types=frozendict({k: hg_tp_ for k in args_}),
             output_type=HgTSLTypeMetaData(hg_tp_, HgAtomicType.parse(size_)),

@@ -199,9 +199,8 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
         if valid is not None:
             raise ValueError("Graphs do not support valid")
 
-    if overloads is not None:
-        if impl_fn is None:
-            kwargs['overloads'] = overloads
+    if overloads is not None and impl_fn is None:
+        kwargs['overloads'] = overloads
 
     if impl_fn is None:
         return lambda fn: _node_decorator(impl_fn=fn, **kwargs)
@@ -223,9 +222,10 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
     if impl_fn is None:
         impl_fn = signature_fn
     from hgraph._wiring._wiring import WiringNodeSignature
+    active_inputs = frozenset(active) if active is not None else None
+    valid_inputs = frozenset(valid) if valid is not None else None
     signature = signature_fn if isinstance(signature_fn, WiringNodeSignature) else \
-        extract_signature(signature_fn, node_type, active_inputs=frozenset(active) if active is not None else None,
-                          valid_inputs=frozenset(valid) if valid is not None else None)
+        extract_signature(signature_fn, node_type, active_inputs=active_inputs, valid_inputs=valid_inputs)
     return node_class(signature, impl_fn)
 
 

@@ -24,7 +24,7 @@ __all__ = ("stub_wiring_port", "StubWiringPort", "as_reference", "wire_nested_gr
 
 @dataclass(frozen=True)
 class StubWiringPort(WiringPort):
-    _value_tp: HgTypeMetaData = None
+    _value_tp: HgTypeMetaData | None = None
 
     @property
     def output_type(self) -> HgTypeMetaData:

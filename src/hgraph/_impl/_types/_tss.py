@@ -52,7 +52,7 @@ class Extensions:
 
 @dataclass
 class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCALAR], Generic[SCALAR]):
-    _tp: type = None
+    _tp: type | None = None
     _value: set[SCALAR] = field(default_factory=set)
     _added: set[SCALAR] | None = None
     _removed: set[SCALAR] | None = None
