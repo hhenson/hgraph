@@ -35,4 +35,4 @@ def test_auto_const(ts_tp, value, should_work):
         assert eval_node(g) == [True]
     else:
         with pytest.raises(Exception):
-            assert eval_node(g) == [True]
+            eval_node(g)

@@ -13,7 +13,8 @@ def test_wp_operators_wiring():
 
     assert eval_node(g[TIME_SERIES_TYPE: TS[int]], lhs=[1, 2, None], rhs=[2, None, 3]) == [3, 4, 5]
     with pytest.raises(WiringError):
-        assert eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[], rhs=[]) == []
+        eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[], rhs=[])
+
 
 def test_wp_operators_wiring_w_consts():
     @graph
@@ -22,7 +23,7 @@ def test_wp_operators_wiring_w_consts():
 
     assert eval_node(g[TIME_SERIES_TYPE: TS[int]], lhs=[1, 2, None]) == [4, 6, None]
     with pytest.raises(WiringError):
-        assert eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[]) == []
+        eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[])
 
 
 @pytest.mark.parametrize("lhs,rhs,expected", [

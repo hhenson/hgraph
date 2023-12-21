@@ -5,7 +5,7 @@ from hgraph._wiring._wiring_node_signature import extract_signature, WiringNodeT
 def test_extract_fn():
 
     def my_fn(a: TS[int], b: str = "const") -> TS[str]:
-        pass
+        """Stub function to test extraction logic"""
 
     signature = extract_signature(my_fn, WiringNodeType.GRAPH)
 
