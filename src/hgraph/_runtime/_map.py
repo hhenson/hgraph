@@ -483,7 +483,7 @@ def _validate_tsd_keys(kwargs_, multiplex_args, no_key_args):
 
 def _validate_pass_through(signature: WiringNodeSignature, kwargs_, pass_through_args):
     """
-    Validates that the pass through inputs are valid.
+    Validates that the pass-through inputs are valid.
     """
     for arg in pass_through_args:
         if isinstance(pt_type := kwargs_[arg], _PassthroughMarker):
