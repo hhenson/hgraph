@@ -1,17 +1,14 @@
 from dataclasses import dataclass
-from typing import Callable, Any, TypeVar, Mapping, TYPE_CHECKING, cast, Optional
+from typing import Any, Mapping, TYPE_CHECKING
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
-from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._wiring import WiringPort, BaseWiringNodeClass, create_input_output_builders, WiringNodeClass
+from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._runtime._node import NodeSignature
-    from hgraph._wiring._graph_builder import GraphBuilder
 
 __all__ = ("TsdMapWiringNodeClass", "TslMapWiringNodeClass")
 
@@ -37,52 +34,30 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
-        from hgraph._impl._builder._map_builder import PythonMapNodeBuilder
+        from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
         inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature)
         input_node_ids, output_node_id = extract_stub_node_indices(
             inner_graph,
             set(node_signature.time_series_inputs.keys()) | {'key'}
         )
         input_builder, output_builder = create_input_output_builders(node_signature)
-        return PythonMapNodeBuilder(node_signature, scalars, input_builder, output_builder, inner_graph,
-                                    input_node_ids, output_node_id, self.signature.multiplexed_args)
+        return PythonTsdMapNodeBuilder(node_signature, scalars, input_builder, output_builder, inner_graph,
+                                       input_node_ids, output_node_id, self.signature.multiplexed_args)
 
 
 class TslMapWiringNodeClass(BaseWiringNodeClass):
-
-    def __init__(self, signature: WiringNodeSignature, fn: Callable):
-        super().__init__(signature, fn)
-        self.inner_graph: Optional["GraphBuilder"] = None
-
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
-        # This acts a bit like a graph, in that it needs to evaluate the inputs and build a sub-graph for
-        # the mapping function.
-        return super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+    signature: TslMapWiringSignature
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
-        # TODO: implement
-        ...
-
-
-class TsdReduceWiringNodeClass(BaseWiringNodeClass):
-    signature: WiringNodeSignature
-
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
-        from hgraph._impl._builder._map_builder import PythonReduceNodeBuilder
-        fn_signature = cast(WiringNodeClass, self.fn).signature
-        if fn_signature.is_resolved:
-            input_types = fn_signature.input_types
-        else:
-            tp_ = cast(HgTSDTypeMetaData, self.signature.input_types['ts']).value_tp
-            input_types = fn_signature.input_types | {k: tp_ for k in fn_signature.time_series_args}
-
-        inner_graph = wire_nested_graph(self.fn, input_types, scalars, self.signature)
+        from hgraph._impl._builder._map_builder import PythonTslMapNodeBuilder
+        inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature)
         input_node_ids, output_node_id = extract_stub_node_indices(
             inner_graph,
-            set(fn_signature.time_series_inputs.keys())
+            set(node_signature.time_series_inputs.keys()) | {'ndx'}
         )
         input_builder, output_builder = create_input_output_builders(node_signature)
-        return PythonReduceNodeBuilder(node_signature, scalars, input_builder, output_builder, inner_graph,
-                                    tuple(input_node_ids.values()), output_node_id)
+        return PythonTslMapNodeBuilder(node_signature, scalars, input_builder, output_builder, inner_graph,
+                                       input_node_ids, output_node_id, self.signature.multiplexed_args)
+
+

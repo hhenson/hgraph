@@ -1,54 +1,16 @@
-from datetime import datetime
 from typing import Mapping, Any, Callable, Optional, cast
 
 from hgraph._builder._graph_builder import GraphBuilder
+from hgraph._impl._runtime._nested_evaluation_engine import PythonNestedNodeImpl, NestedEvaluationEngine, \
+    NestedEngineEvaluationClock
 from hgraph._impl._runtime._node import NodeImpl
-from hgraph._runtime._constants import MIN_DT
-from hgraph._runtime._evaluation_clock import EngineEvaluationClockDelegate, EngineEvaluationClock
-from hgraph._runtime._evaluation_engine import EvaluationEngineDelegate, EvaluationEngine
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature, Node
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._ts_type import TS
 
 
-class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
-
-    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, switch_node: "PythonSwitchNodeImpl"):
-        super().__init__(engine_evaluation_clock)
-        self._switch_node: "PythonSwitchNodeImpl" = switch_node
-
-    def update_next_scheduled_evaluation_time(self, next_time: datetime):
-        # NOTE: We only need to schedule if the next time is after the current evaluation time (or if the map_node has
-        # not yet been evaluated).
-        if next_time < self.evaluation_time or self._switch_node._last_evaluation_time == self.evaluation_time:
-            # No point doing anything as we are already scheduled to run.
-            return
-        self._switch_node.graph.schedule_node(self._switch_node.node_ndx, next_time)
-
-
-class NestedEvaluationEngine(EvaluationEngineDelegate):
-    """
-
-    Requesting a stop of the engine will stop the outer engine.
-    Stopping an inner graph is a source of bugs and confusion. Instead, the user should create a mechanism to
-    remove the key used to create the graph.
-    """
-
-    def __init__(self, engine: EvaluationEngine, key: SCALAR, switch_node: "PythonSwitchNodeImpl"):
-        super().__init__(engine)
-        self._engine_evaluation_clock = NestedEngineEvaluationClock(engine.engine_evaluation_clock, switch_node)
-
-    @property
-    def evaluation_clock(self) -> "EvaluationClock":
-        return self._engine_evaluation_clock
-
-    @property
-    def engine_evaluation_clock(self) -> "EngineEvaluationClock":
-        return self._engine_evaluation_clock
-
-
-class PythonSwitchNodeImpl(NodeImpl):
+class PythonSwitchNodeImpl(PythonNestedNodeImpl):
 
     def __init__(self,
                  node_ndx: int,
@@ -71,7 +33,6 @@ class PythonSwitchNodeImpl(NodeImpl):
         self._active_graph: Graph | None = None
         self._active_key: Optional[SCALAR] = None
         self._count: int = 0
-        self._last_evaluation_time: datetime = MIN_DT
 
     def eval(self):
         self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
@@ -87,7 +48,10 @@ class PythonSwitchNodeImpl(NodeImpl):
                 self._active_graph = self.nested_graph_builders[self._active_key].make_instance(
                     self.node_id + (self._count,))
                 self._count += 1
-                self._active_graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, self._active_key, self)
+                self._active_graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine,
+                                                                              NestedEngineEvaluationClock(
+                                                                                  self.graph.engine_evaluation_clock,
+                                                                                  self))
                 self._active_graph.initialise()
                 self._wire_graph(self._active_graph)
                 self._active_graph.start()
