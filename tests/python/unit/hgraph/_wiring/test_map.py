@@ -236,7 +236,18 @@ def _test_tsl_map(map_test):
         [[None, {'a': 1}, {'b': 2}, {'b': REMOVE_IF_EXISTS}, {'a': REMOVE_IF_EXISTS}], [0, 1, 3, 1, 0]],
         [[{'a': 1, 'b': 2, 'c': 3}, {'b': REMOVE_IF_EXISTS}, {'a': REMOVE_IF_EXISTS}], [6, 4, 3]],
         [[{'a': 1}, {'b': 2}, {'c': 3}, {'d': 4}, {'e': 5}], [1, 3, 6, 10, 15]],
-        [[{(chr(ord('a') + i)): i for i in range(26)}, {(chr(ord('a') + i)): REMOVE_IF_EXISTS for i in range(26)}], [325, 0]]
+
+        [[{(chr(ord('a') + i)): i for i in range(26)},
+          {(chr(ord('a') + i)): REMOVE_IF_EXISTS for i in range(26)}, ], [325, 0]],
+
+        [
+            [
+                {(chr(ord('a') + i)): i for i in range(26)},
+                {(chr(ord('a') + i)): REMOVE_IF_EXISTS for i in range(20)},
+                {(chr(ord('a') + i)): i for i in range(20)},
+                {(chr(ord('a') + i)): REMOVE_IF_EXISTS for i in range(26)},
+                {(chr(ord('a') + i)): i for i in range(26)}
+            ], [325, 135, 325, 0, 325]]
     ]
 )
 def test_tsd_reduce(inputs, expected):
@@ -245,7 +256,9 @@ def test_tsd_reduce(inputs, expected):
         return reduce(add_, tsd, 0)
 
     assert eval_node(reduce_test, inputs) == expected
-   # assert eval_node(reduce_test, inputs, __trace__=True) == expected
+
+
+# assert eval_node(reduce_test, inputs, __trace__=True) == expected
 
 
 @pytest.mark.parametrize(

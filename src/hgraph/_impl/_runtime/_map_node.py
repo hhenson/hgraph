@@ -5,6 +5,8 @@ from collections import deque
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast, Iterable, Sequence
 
+from more_itertools import take
+
 from hgraph import start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
@@ -408,7 +410,16 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """Shrink the tree by halving the capacity"""
         # The nodes are expected to remain left based by ensuring we switch out with the outermost node
         # when deleting
-
-        count = min(self._node_count, 15)  # Don't want to shrink smaller then at least 4 inputs.
-        start = (count - 1) // 2
+        capacity = (active_count := len(self._bound_node_indexes)) + len(self._free_node_indexes)
+        if capacity <= 8:
+            return
+        halved_capacity = capacity // 2  # Halved capacity gives number of top nodes
+        if halved_capacity < active_count:
+            return  # Should not be, but best to ensure
+        last_node = (self._node_count - 1) // 2 # Reverse out the size calc to get correct starting point for deletion
+        start = last_node
         self._nested_graph.reduce_graph(start*self._node_size)
+        # Now remove from free list
+        free_nodes = list(take((halved_capacity-active_count), sorted(self._free_node_indexes)))
+        self._free_node_indexes = sorted(free_nodes, reverse=True)
+

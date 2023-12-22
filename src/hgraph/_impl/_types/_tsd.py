@@ -192,12 +192,17 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             self._ts_values = {}
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
+            to_keep = {}
             for k, v in self._removed_items.items():
                 if v.parent_input is not self:
                     # Check for transplanted items, these do not get removed, but can be un-bound
                     v.un_bind_output()
                     self._ts_values[k] = v
-                    self._removed_items.pop(k)
+                else:
+                    to_keep[k] = v
+            self._removed_items = to_keep
+        if self.has_peer:
+            super().do_un_bind_output()
 
     def _create(self, key: K):
         self._ts_values[key] = self._ts_builder.make_instance(owning_input=self)

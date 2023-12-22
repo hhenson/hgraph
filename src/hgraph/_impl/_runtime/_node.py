@@ -172,6 +172,9 @@ class NodeImpl(Node):
         if self.stop_fn is not None:
             self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 
+        if self.input:
+            self.input.un_bind_output()
+
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.
 
