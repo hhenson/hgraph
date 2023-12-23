@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 __all__ = ("map_", "pass_through", "no_key", "KEYS_ARG")
 
 
-_INDEX = "__index__"
 KEYS_ARG = '__keys__'
 _KEY_ARG = "__key_arg__"
 
@@ -89,7 +88,7 @@ class _NoKeyMarker(_MappingMarker):
 
 
 def _build_map_wiring_node_and_inputs(
-        fn: Callable, signature: WiringNodeSignature, *args, __keys__=None, __index__=None, __key_arg__=None,
+        fn: Callable, signature: WiringNodeSignature, *args, __keys__=None, __key_arg__=None,
         **kwargs) -> tuple[WiringNodeClass, dict[str, WiringPort | SCALAR]]:
     """
     Build the maps wiring signature. This will process the inputs looking to work out which are multiplexed inputs,
@@ -138,9 +137,6 @@ def _build_map_wiring_node_and_inputs(
                                                           input_key_tp, input_key_name if input_has_key_arg else None)
         case "TSL":
             from hgraph._types._scalar_type_meta_data import HgAtomicType
-            if __index__ is not None:
-                input_types = input_types | {_INDEX: __index__.output_type}
-                kwargs_[_INDEX] = __index__
             map_wiring_node = _create_tsl_map_signature(fn, kwargs_, input_types, multiplex_args,
                                                         HgAtomicType.parse(key_tp_),
                                                         input_key_name if input_has_key_arg else None)
@@ -264,7 +260,7 @@ def _prepare_stub_inputs(
         if key in multiplex_args or key in no_key_args:
             arg: HgTSDTypeMetaData | HgTSLTypeMetaData
             call_kwargs[key] = stub_wiring_port(arg.value_tp)
-        elif key in (KEYS_ARG, _INDEX):
+        elif key == KEYS_ARG:
             continue
         elif arg.is_scalar:
             call_kwargs[key] = kwargs_[key]
@@ -338,10 +334,8 @@ def _create_tsl_map_signature(
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
     reference_inputs = frozendict(
-        {k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != _INDEX else v for
+        {k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) else v for
          k, v in input_types.items()})
-
-    has_keys = _INDEX in input_types
 
     map_signature = TslMapWiringSignature(
         node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
@@ -353,8 +347,8 @@ def _create_tsl_map_signature(
         output_type=HgTSLTypeMetaData(HgREFTypeMetaData(resolved_signature.output_type),
                                       size_tp) if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
-        active_inputs=frozenset({_INDEX, }) if has_keys else multiplex_args,
-        valid_inputs=frozenset({_INDEX, }) if has_keys else tuple(),
+        active_inputs=frozenset(),
+        valid_inputs=frozenset(),
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         uses_scheduler=False,

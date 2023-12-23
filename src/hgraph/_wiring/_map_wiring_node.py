@@ -1,8 +1,11 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
-from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders
+from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders, WiringGraphContext, WiringPort
+from hgraph._wiring._wiring_context import WiringContext
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 
@@ -48,16 +51,33 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
 class TslMapWiringNodeClass(BaseWiringNodeClass):
     signature: TslMapWiringSignature
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
-        from hgraph._impl._builder._map_builder import PythonTslMapNodeBuilder
-        inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature)
-        input_node_ids, output_node_id = extract_stub_node_indices(
-            inner_graph,
-            set(node_signature.time_series_inputs.keys()) | {'ndx'}
-        )
-        input_builder, output_builder = create_input_output_builders(node_signature)
-        return PythonTslMapNodeBuilder(node_signature, scalars, input_builder, output_builder, inner_graph,
-                                       input_node_ids, output_node_id, self.signature.multiplexed_args)
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
+        # This should be pre-resolved in previous steps.
+        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+            if not self.signature.is_resolved:
+                raise CustomMessageWiringError("The signature must have been resolved before calling this")
+            if len(args) > 0:
+                raise CustomMessageWiringError("Non-kwarg arguments are not expected at this point in the wiring")
+            # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
+            with WiringGraphContext(self.signature) as g:
+                out: WiringPort = self._map_no_index(**kwargs)
+                # Since we did lots of checking before creating this, I imaged we should be safe to just let it all out
+                return out
 
+    def _map_with_index(self, **kwargs) -> "WiringPort":
+        ...
 
+    def _map_no_index(self, **kwargs) -> "WiringPort":
+        """In this scenario, we can just map the nodes using the max size"""
+        from hgraph._types._scalar_types import Size
+        from hgraph.nodes._const import const
+        from hgraph._types._tsl_type import TSL
+        out = []
+
+        for i in range(cast(Size, self.signature.size_tp.py_type).SIZE):
+            kwargs_ = {k: (v[i] if k in self.signature.multiplexed_args else v) for k, v in kwargs.items()}
+            if self.signature.key_arg:
+                kwargs_ = {self.signature.key_arg: const(i)} | kwargs_
+            out.append(self.fn(**kwargs_))
+
+        return TSL.from_ts(*out)

@@ -97,39 +97,6 @@ def test_guess_arguments_f_sum_lhs_tsl():
     assert wiring_inputs.keys() == {'lhs', 'rhs'}
 
 
-def test_guess_arguments_f_sum_keys_tsl():
-    lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
-    rhs = const(2)
-    keys = const(tuple([True, True]), TSL[TS[bool], Size[2]])
-    wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs, __index__=keys,
-                                                                   __key_arg__='key')
-    signature: TslMapWiringSignature = wiring_node.signature
-    assert signature.args == ('lhs', 'rhs', '__index__')
-    assert signature.key_arg == 'key'
-    assert signature.output_type == HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]])
-    assert signature.input_types == frozendict(
-        {'lhs': HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]]),
-         '__index__': HgTypeMetaData.parse(TSL[TS[bool], Size[2]])})
-    assert signature.multiplexed_args == frozenset({'lhs', })
-    assert wiring_inputs.keys() == {'lhs', 'rhs', '__index__'}
-
-
-def test_guess_arguments_add_keys_tsl():
-    lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
-    rhs = const(2)
-    keys = const(tuple([True, True]), TSL[TS[bool], Size[2]])
-    wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs, __index__=keys)
-    signature: TsdMapWiringSignature = wiring_node.signature
-    assert signature.args == ('lhs', 'rhs', '__index__')
-    assert signature.key_arg == None
-    assert signature.output_type == HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]])
-    assert signature.input_types == frozendict(
-        {'lhs': HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]]),
-         '__index__': HgTypeMetaData.parse(TSL[TS[bool], Size[2]])})
-    assert signature.multiplexed_args == frozenset({'lhs', })
-    assert wiring_inputs.keys() == {'lhs', 'rhs', '__index__'}
-
-
 def test_guess_arguments_add_no_keys_tsl():
     lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
     rhs = const(2)
@@ -184,48 +151,31 @@ def _test_tsd_map(map_test):
     assert out == [{'a': 3}, {'b': 5}]
 
 
-# @pytest.mark.xfail(reason="Not implemented", strict=True)
-# def test_tsl_map_wiring():
-#     @graph
-#     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-#         m = map_(f_sum, lhs=ts1, rhs=ts2)
-#         return m
-#
-#     _test_tsl_map(map_test)
-
-
-# @pytest.mark.xfail(reason="Not implemented", strict=True)
-# def test_tsl_map_wiring_no_key():
-#     @graph
-#     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-#         m = map_(add_, lhs=ts1, rhs=ts2)
-#         return m
-#
-#     _test_tsl_map(map_test)
-
-
-@pytest.mark.xfail(reason="Not implemented", strict=True)
-def test_tsl_map_wiring_no_key_no_kwargs():
+#@pytest.mark.xfail(reason="Not implemented", strict=True)
+def test_tsl_map_wiring():
     @graph
-    def map_test(index: TSL[TS[bool], SIZE], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-        m = map_(add_, ts1, ts2, index=index)
+    def map_test(index: TSL[TS[bool], SIZE], ts1: TSL[TS[int], SIZE], ts2: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
+        m = map_(f_sum, lhs=ts1, rhs=ts2)
         return m
 
     _test_tsl_map(map_test)
 
 
-@pytest.mark.xfail(reason="Not implemented", strict=True)
-def test_tsl_map_wiring_no_kwargs():
+#@pytest.mark.xfail(reason="Not implemented", strict=True)
+def test_tsl_map_wiring_no_key():
     @graph
     def map_test(index: TSL[TS[bool], SIZE], ts1: TSL[TS[int], SIZE], ts2: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
-        m = map_(add_, ts1, ts2, index=index)
+        m = map_(add_, lhs=ts1, rhs=ts2)
         return m
 
     _test_tsl_map(map_test)
 
 
 def _test_tsl_map(map_test):
-    out = eval_node(map_test, [{0: True, 1: True}, ], [{0: 1}, {1: 2}], [{0: 2}, {1: 3}])
+    out = eval_node(map_test, [{0: 1, 1: 0}, ], [{0: 1}, {1: 2}], [{0: 2}, {1: 3}],
+                    resolution_dict={'index': TSL[TS[bool], Size[2]],
+                                     'ts1': TSL[TS[int], Size[2]],
+                                     'ts2': TSL[TS[int], Size[2]]})
     assert out == [{0: 3}, {1: 5}]
 
 
