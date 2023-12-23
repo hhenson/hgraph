@@ -113,14 +113,14 @@ class PythonGraph(Graph):
         for node in self.nodes:
             node.initialise()
 
-    def schedule_node(self, node_ndx, time):
+    def schedule_node(self, node_ndx, when):
         clock = self._evaluation_engine.engine_evaluation_clock
-        if time < clock.evaluation_time:
+        if when < clock.evaluation_time:
             raise RuntimeError(
                 f"Graph[{self.graph_id}] Trying to schedule node: {self.nodes[node_ndx].signature.signature}[{node_ndx}]"
-                f" for {time} but current time is {self.evaluation_clock.evaluation_time}")
-        self.schedule[node_ndx] = time
-        clock.update_next_scheduled_evaluation_time(time)
+                f" for {when} but current time is {self.evaluation_clock.evaluation_time}")
+        self.schedule[node_ndx] = when
+        clock.update_next_scheduled_evaluation_time(when)
 
     def start_subgraph(self, start: int, end: int):
         """Start the subgraph (end is exclusive), i.e. [start, end)"""

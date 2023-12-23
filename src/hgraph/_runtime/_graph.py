@@ -70,7 +70,7 @@ class Graph(ComponentLifeCycle):
         """ The index of the first compute node """
 
     @abstractmethod
-    def schedule_node(self, node_id, time):
+    def schedule_node(self, node_ndx, when):
         """Schedule the node with the given node_id to evaluate at the given time"""
 
     @property
