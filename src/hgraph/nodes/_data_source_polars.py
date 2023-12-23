@@ -88,7 +88,7 @@ def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polar
         df_s = [pl.DataFrame(get_recorded_value(label=f"{location}::{k}"), schema=[time_col, k]) for k in schema.keys()]
         df = df_s[0]
         for df_other in df_s[1:]:
-            df = df.join(df_other, on=time_col, how="outer")
+            df = df.join(df_other, on=time_col, how="outer_coalesce")
         GlobalState.instance()[f"nodes.{to_polars.signature.name}.{location}"] = df
 
     _stub(ts, location, schema)
