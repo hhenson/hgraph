@@ -12,7 +12,7 @@ with no input edges. Sink nodes are the leaves of the node and have no output ed
 Finally, the compute nodes are found between the source and sink nodes. These nodes
 have both input and output edges.
 
-<div hidden>
+<--
 ```plantuml
 @startditaa src_cmpt_snk_diagram
  +--------+
@@ -30,7 +30,7 @@ have both input and output edges.
  +-------+
 @endditaa
 ```
-</div>
+-->
 
 ![](src_cmpt_snk_diagram.png)
 
@@ -86,7 +86,7 @@ consists of the graph execution, evaluation engine, evaluation engine api, graph
 
 ### Evaluation Engine
 
-<div hidden>
+<--
 ```plantuml
 @startuml run_mode_uml
 enum RunMode {
@@ -95,11 +95,11 @@ enum RunMode {
 }
 @enduml
 ```
-</div>
+-->
 
 ![](run_mode_uml.png)
 
-<div hidden>
+<--
 ```plantuml
 @startuml graph_executor_uml
 interface GraphExecutor {
@@ -109,7 +109,7 @@ interface GraphExecutor {
 }
 @enduml
 ```
-</div>
+-->
 
 ![](graph_executor_uml.png)
 
@@ -129,7 +129,7 @@ process push source node ticks at whatever time point the engine is when the tic
 
 ### Evaluation Clock
 
-<div hidden>
+<--
 ```plantuml
 @startuml evaluation_clock_uml
 interface EvaluationClock {
@@ -140,7 +140,7 @@ interface EvaluationClock {
 }
 @enduml
 ```
-</div>
+-->
 
 ![](evaluation_clock_uml.png)
 
@@ -157,7 +157,7 @@ The ``next_cycle_evaluation_time`` is the smallest next evaluation time possible
 
 ### Evaluation Engine API
 
-<div hidden>
+<--
 ```plantuml
 @startuml evaluation_engine_api
 interface EvaluationEngineAPI {
@@ -173,7 +173,7 @@ interface EvaluationEngineAPI {
 }
 @enduml
 ```
-</div>
+-->
 
 ![](evaluation_engine_api.png)
 
@@ -192,7 +192,7 @@ support the nested state.
 
 ### Graph
 
-<div hidden>
+<--
 ```plantuml
 @startuml graph_uml
 interface Graph {
@@ -206,7 +206,7 @@ interface Graph {
 }
 @enduml
 ```
-</div>
+-->
 
 ![](graph_uml.png)
 
@@ -226,7 +226,7 @@ As disused in the introduction, there are three key node types: source, compute,
 and sink nodes. Nodes in the graph are represented as classes within the internals
 of the system. The base class is as follows:
 
-<div hidden>
+<--
 ```
 @startuml node_uml
 interface Node {
@@ -243,7 +243,7 @@ interface Node {
 }
 @enduml
 ```
-</div>
+-->
 
 ![](node_uml.png)
 
