@@ -7,8 +7,8 @@ def test_const_wiring():
 
     assert type(const) is PythonGeneratorWiringNodeClass
     const_: PythonGeneratorWiringNodeClass = const
-    assert const_.signature.args == ("value", "tp", "delay", "context")
-    assert const_.signature.input_types['context'].is_injectable
+    assert const_.signature.args == ("value", "tp", "delay", "_clock")
+    assert const_.signature.input_types['_clock'].is_injectable
 
 
 def test_const():

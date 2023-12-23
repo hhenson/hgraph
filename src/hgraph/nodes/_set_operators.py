@@ -13,7 +13,7 @@ def union_(*args: TSS[SCALAR]) -> TSS[SCALAR]:
 
 
 @compute_node(valid=tuple())
-def _union_tsl(tsl: TSL[TSS[SCALAR], SIZE], output: TSS_OUT[SCALAR] = None) -> TSS[SCALAR]:
+def _union_tsl(tsl: TSL[TSS[SCALAR], SIZE], _output: TSS_OUT[SCALAR] = None) -> TSS[SCALAR]:
     tss: TSS[SCALAR, SIZE]
     to_add: set[SCALAR] = set()
     to_remove: set[SCALAR] = set()
@@ -23,9 +23,9 @@ def _union_tsl(tsl: TSL[TSS[SCALAR], SIZE], output: TSS_OUT[SCALAR] = None) -> T
     if (disputed:=to_add.intersection(to_remove)):
         # These items are marked for addition and removal, so at least some set is hoping to add these items.
         # Thus, overall these are an add, unless they are already added.
-        new_items = disputed.intersection(output.value)
+        new_items = disputed.intersection(_output.value)
         to_remove -= new_items
-    to_remove &= output.value  # Only remove items that are already in the output.
+    to_remove &= _output.value  # Only remove items that are already in the output.
     if to_remove:
         # Now we need to make sure there are no items that may be duplicated in other inputs.
         for tss in tsl.valid_values():

@@ -37,7 +37,7 @@ def set_replay_values(label: str, value: ReplaySource):
 
 
 @generator
-def replay(label: str, tp: type[TIME_SERIES_TYPE], context: EvaluationClock = None) -> TIME_SERIES_TYPE:
+def replay(label: str, tp: type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
     The type of the elements of the sequence must be a delta value of the time series type.

@@ -49,9 +49,9 @@ def lag(ts: TS[SCALAR], period: WINDOW_SCALAR) -> TS[SCALAR]:
 
 
 @compute_node(overloads=window)
-def cyclic_buffer_window(ts: TS[SCALAR], period: int, wait_till_full: bool, state: STATE = None) -> TSB[WindowResult]:
-    buffer: deque[SCALAR] = state.buffer
-    index: deque[datetime] = state.index
+def cyclic_buffer_window(ts: TS[SCALAR], period: int, wait_till_full: bool, _state: STATE = None) -> TSB[WindowResult]:
+    buffer: deque[SCALAR] = _state.buffer
+    index: deque[datetime] = _state.index
     buffer.append(ts.value)
     index.append(ts.last_modified_time)
     if not wait_till_full or len(buffer) == period:
@@ -59,16 +59,16 @@ def cyclic_buffer_window(ts: TS[SCALAR], period: int, wait_till_full: bool, stat
 
 
 @cyclic_buffer_window.start
-def cyclic_buffer_window_start(period: int, state: STATE):
-    state.buffer = deque[SCALAR](maxlen=period)
-    state.index = deque[datetime](maxlen=period)
+def cyclic_buffer_window_start(period: int, _state: STATE):
+    _state.buffer = deque[SCALAR](maxlen=period)
+    _state.index = deque[datetime](maxlen=period)
 
 
 @compute_node(overloads=window)
-def time_delta_window(ts: TS[SCALAR], period: timedelta, wait_till_full: bool, state: STATE = None) -> TSB[
+def time_delta_window(ts: TS[SCALAR], period: timedelta, wait_till_full: bool, _state: STATE = None) -> TSB[
     WindowResult]:
-    buffer: deque[SCALAR] = state.buffer
-    index: deque[datetime] = state.index
+    buffer: deque[SCALAR] = _state.buffer
+    index: deque[datetime] = _state.index
     buffer.append(ts.value)
     index.append(ts.last_modified_time)
     is_full = index[-1] - index[0] >= period
@@ -80,14 +80,14 @@ def time_delta_window(ts: TS[SCALAR], period: timedelta, wait_till_full: bool, s
 
 
 @time_delta_window.start
-def time_delta_window_start(state: STATE):
-    state.buffer = deque[SCALAR]()
-    state.index = deque[datetime]()
+def time_delta_window_start(_state: STATE):
+    _state.buffer = deque[SCALAR]()
+    _state.index = deque[datetime]()
 
 
 @compute_node(overloads=lag)
-def tick_lag(ts: TS[SCALAR], period: int, state: STATE = None) -> TS[SCALAR]:
-    buffer: deque[SCALAR] = state.buffer
+def tick_lag(ts: TS[SCALAR], period: int, _state: STATE = None) -> TS[SCALAR]:
+    buffer: deque[SCALAR] = _state.buffer
     try:
         if len(buffer) == period:
             return buffer.popleft()
@@ -96,42 +96,42 @@ def tick_lag(ts: TS[SCALAR], period: int, state: STATE = None) -> TS[SCALAR]:
 
 
 @tick_lag.start
-def tick_lag_start(period: int, state: STATE):
+def tick_lag_start(period: int, _state: STATE):
     from collections import deque
-    state.buffer = deque[SCALAR](maxlen=period)
+    _state.buffer = deque[SCALAR](maxlen=period)
 
 
 @compute_node(overloads=lag)
-def time_delta_lag(ts: TS[SCALAR], period: timedelta, sched: SCHEDULER = None, state: STATE = None) -> TS[SCALAR]:
+def time_delta_lag(ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None, _state: STATE = None) -> TS[SCALAR]:
     # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
-    buffer: deque[SCALAR] = state.buffer
+    buffer: deque[SCALAR] = _state.buffer
     if ts.modified:
         buffer.append(ts.value)
-        sched.schedule(ts.last_modified_time + period)
+        _scheduler.schedule(ts.last_modified_time + period)
 
-    if sched.is_scheduled_now:
+    if _scheduler.is_scheduled_now:
         return buffer.popleft()
 
 
 @time_delta_lag.start
-def time_delta_lag_start(state: STATE):
-    state.buffer = deque[SCALAR]()
+def time_delta_lag_start(_state: STATE):
+    _state.buffer = deque[SCALAR]()
 
 
 @compute_node
-def accumulate(ts: TS[NUMBER], output: TS_OUT[NUMBER] = None) -> TS[NUMBER]:
+def accumulate(ts: TS[NUMBER], _output: TS_OUT[NUMBER] = None) -> TS[NUMBER]:
     """
     Performs a running sum of the time-series.
     """
-    return output.value + ts.value if output.valid else ts.value
+    return _output.value + ts.value if _output.valid else ts.value
 
 
 @compute_node
-def count(ts: SIGNAL, output: TS_OUT[int] = None) -> TS[int]:
+def count(ts: SIGNAL, _output: TS_OUT[int] = None) -> TS[int]:
     """
     Performs a running count of the number of times the time-series has ticked (i.e. emitted a value).
     """
-    return output.value + 1 if output.valid else 1
+    return _output.value + 1 if _output.valid else 1
 
 
 @graph

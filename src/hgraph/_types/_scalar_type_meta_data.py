@@ -193,14 +193,12 @@ class HgInjectableType(HgScalarTypeMetaData):
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         value_tp = value if isinstance(value, type) else type(value)
         from hgraph._runtime._evaluation_clock import EvaluationClock
-        from hgraph._types._time_series_types import OUTPUT_TYPE
         from hgraph._runtime._evaluation_engine import EvaluationEngineApi
         from hgraph._runtime._node import SCHEDULER
         return {
             EvaluationClock: lambda: HgEvaluationClockType(),
             EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
             STATE: lambda: HgStateType(),
-            OUTPUT_TYPE: lambda: HgOutputType(),
             SCHEDULER: lambda: HgSchedulerType(),
         }.get(value_tp, lambda: None)()
 

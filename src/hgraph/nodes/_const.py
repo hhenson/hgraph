@@ -8,7 +8,7 @@ __all__ = ("const", "default")
 
 @generator
 def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedelta = timedelta(),
-          context: EvaluationClock = None) -> TIME_SERIES_TYPE:
+          _clock: EvaluationClock = None) -> TIME_SERIES_TYPE:
     """
     Produces a single tick at the start of the graph evaluation after which this node does nothing.
 
@@ -16,10 +16,10 @@ def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedel
     :param tp: Used to resolve the correct type for the output, by default this is TS[SCALAR] where SCALAR is the type
                of the value.
     :param delay: The amount of time to delay the value by. The default is 0.
-    :param context: The execution context.
+    :param _clock: The evaluation clock. (To be injected)
     :return: A single tick of the value supplied.
     """
-    yield context.evaluation_time + delay, value
+    yield _clock.evaluation_time + delay, value
 
 
 @graph

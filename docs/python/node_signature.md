@@ -9,39 +9,62 @@ not meaningful to graph components.
 
 These special inputs include:
 
-* context: ``ExecutionContext``
-* state: ``NodeState``
-* output: ``TSOut[str]`` (for example)
+* _clock: ``EvaluationClock``
+* _engine: ``EvaluationEngineApi``
+* _state: ``STATE``
+* _scheduler: ``SCHEDULER``
+* _output: ``TSOut[str]`` (for example)
 
-The names of the arguments are user defined, but following the suggested
-names makes it easier to read the code (where sensible).
+In all cases, except for ``_output``, the names of the special inputs are not important, but for consistency
+follow the naming patterns when possible.
 
-These special variable must appear in the formal kwargs sections and be defined
-to have None as the default value, for example:
+In the case of ``_output``, the name is what is used to identify the special input and the type must
+be compatible with the output of the component.
+
+In all cases the special input should be followed by ``= None`` as the framework wil inject the value
+into the method at runtime. This should not be set by users of the code. For example:
 
 ```python
 @generator
-def const(value: SCALAR, context: ExecutionContext=None) -> TIME_SERIES_VALUE:
+def const(value: SCALAR, _engine: EvaluationEngineApi=None) -> TIME_SERIES_VALUE:
     ...
 ```
 
-The runtime engine will supply the instance values, but these can never be supplied
+The runtime engine will supply the instance when called by the runtime, but these can never be supplied
 during the wiring phase, as such setting these to None as kwargs allows the
-wiring builder detect misconfigurations more easily, and the kwarg aspect
-hides the value from the user.
+wiring builder detect misconfigurations more easily, using an ``_`` before the name (i.e. ``_clock``) 
+will help hide this property from the users of the nodes.
 
-ExecutionContext
-----------------
+EvaluationClock
+---------------
 
-The execution context provides access to information about the state of
-the running graph, this includes useful attributes such as:
+The evaluation clock provides access to the evaluation engines clock, this exposes useful
+such as:
 
-* current_engine_time - The time the engine is evaluating the graph for.
-* wall_clock_time - The wall clock time as of now, in simulation mode this is not the computer clock.
-* engine_lag - The time taken till now to evaluate this loop (or wave) of the graph.
+* evaluation_time - The time the engine is evaluating the graph for.
+* now - The wall clock time as of now, in simulation mode this is not the computer clock.
+* cycle_time - The time taken till now to evaluate this loop (or wave) of the graph.
 
-NodeState
----------
+EvaluationEngineApi
+-------------------
+
+Provides access to the engines public API. This provides information such as:
+
+* start_time - The time when the engine was configured to start.
+* end_time - The time the engine was configured to stop.
+* evaluation_clock - The evaluation clock for this engine.
+* is_stop_requested - If the engine has been requested to stop.
+
+This also provides the ability to interact with the engine such as:
+
+* request_engine_stop - Allows the node to stop the running engine.
+* add_before_evaluation_notification - Add a callback to be called before the next evaluation cycle.
+* add_after_evaluation_notification - Add a callback to be called after the current evaluation cycle.
+* add_life_cycle_observer - Add a life-cycle observer to the engine
+* remove_life_cycle_observer - Remove a previously registered life-cycle observer.
+
+STATE
+-----
 
 Given the paradigm of evaluation of the graph is functional, all behaviour is
 stateless and should be idempotent. However, we also live in a stateful world,
@@ -50,20 +73,25 @@ is not the owner of it's state, but rather the state is provided to the node.
 For the most part the state provided is the state computed during the last
 evaluation of the node, but this can also be managed to deal with testing
 with assumed prior states, etc.
-The NodeState object is effectively a dictionary from the users point of view,
+The STATE object is effectively a dictionary from the users point of view,
 with the ability to access keys using ``.<key>`` type syntax as well as ``['key']`` 
 syntax. The user can think of it as ``self``.
 
-Output
-------
+Another way of thinking about ``STATE`` is to think of it as a feedback cycle, where
+state is injected in and modifications of state are returned out of the node and then
+fed back in during the next evaluation cycle.
+
+_output
+-------
 
 Ofttimes it useful to be able to see the previous state of the output when computing
 a new result, having access to the values of the outputs reduces anti-patterns where
 values are cached in state that could be read directly from the output node.
 
 The output can be directly typed using the <time-series-type>Out syntax to identify
-the output or use ``TIME_SERIES_OUTPUT`` to indicate the variable is to receive a reference
-to the outputs.
+the output or use ``TIME_SERIES_TYPE``, etc. to type the input variable. Remember in this
+one case it is the input argument name that defines the fact that the node is interested
+in having the value injected, not the associated type, unlike the other injectable inputs.
 
 In either case the output will be provided, but in the former, the IDE will be able to
 resolve the type signature and be able to provide auto-completion support. The latter mode
@@ -74,8 +102,8 @@ For example:
 ```python
 
 @compute_node
-def count(ts: TIME_SERIES_TYPE, output: TSOut[int]) -> TS[int]:
-    return output.value + 1
+def count(ts: TIME_SERIES_TYPE, _output: TSOut[int]) -> TS[int]:
+    return _output.value + 1
 ```
 
 Using the output it is also possible to set the output directly, for example:
@@ -83,8 +111,8 @@ Using the output it is also possible to set the output directly, for example:
 ```python
 
 @compute_node
-def count(ts: TIME_SERIES_TYPE, output: TSOut[int]) -> TS[int]:
-    output.value += 1
+def count(ts: TIME_SERIES_TYPE, _output: TSOut[int]) -> TS[int]:
+    _output.value += 1
 ```
 
 In which case nothing is returned, but the output is updated. If the output is updated
