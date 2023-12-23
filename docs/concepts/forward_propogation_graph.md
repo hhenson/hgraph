@@ -12,7 +12,8 @@ with no input edges. Sink nodes are the leaves of the node and have no output ed
 Finally, the compute nodes are found between the source and sink nodes. These nodes
 have both input and output edges.
 
-<--
+![](src_cmpt_snk_diagram.png)
+<details>
 ```plantuml
 @startditaa src_cmpt_snk_diagram
  +--------+
@@ -30,9 +31,8 @@ have both input and output edges.
  +-------+
 @endditaa
 ```
--->
+</details>
 
-![](src_cmpt_snk_diagram.png)
 
 HGraph (HG) is a FPG graph that is a time-series evaluation engine. That is, the graph evaluates information
 over time, the time is typically introduced by the source nodes. There are two types of source
@@ -86,7 +86,8 @@ consists of the graph execution, evaluation engine, evaluation engine api, graph
 
 ### Evaluation Engine
 
-<--
+![](run_mode_uml.png)
+<details>
 ```plantuml
 @startuml run_mode_uml
 enum RunMode {
@@ -95,11 +96,10 @@ enum RunMode {
 }
 @enduml
 ```
--->
+</details>
 
-![](run_mode_uml.png)
-
-<--
+![](graph_executor_uml.png)
+<details>
 ```plantuml
 @startuml graph_executor_uml
 interface GraphExecutor {
@@ -109,9 +109,9 @@ interface GraphExecutor {
 }
 @enduml
 ```
--->
+</details>
 
-![](graph_executor_uml.png)
+
 
 The ``GraphExecutor`` is the component that is responsible for evaluating the graph.
 This contains the master run-loop. The run-loop evaluates the graph in the time
@@ -129,7 +129,8 @@ process push source node ticks at whatever time point the engine is when the tic
 
 ### Evaluation Clock
 
-<--
+![](evaluation_clock_uml.png)
+<details>
 ```plantuml
 @startuml evaluation_clock_uml
 interface EvaluationClock {
@@ -140,9 +141,7 @@ interface EvaluationClock {
 }
 @enduml
 ```
--->
-
-![](evaluation_clock_uml.png)
+</details>
 
 The evaluation clock is available to be injection into a node. The most useful property is the ``evaluation_time``,
 this provides the logical notion of the current time, this is considered as the computation time.
@@ -157,7 +156,8 @@ The ``next_cycle_evaluation_time`` is the smallest next evaluation time possible
 
 ### Evaluation Engine API
 
-<--
+![](evaluation_engine_api.png)
+<details>
 ```plantuml
 @startuml evaluation_engine_api
 interface EvaluationEngineAPI {
@@ -173,9 +173,7 @@ interface EvaluationEngineAPI {
 }
 @enduml
 ```
--->
-
-![](evaluation_engine_api.png)
+</details>
 
 This is an injectable property and provides access to the exposed evaluation engine API.
 
@@ -192,7 +190,8 @@ support the nested state.
 
 ### Graph
 
-<--
+![](graph_uml.png)
+<details>
 ```plantuml
 @startuml graph_uml
 interface Graph {
@@ -206,9 +205,7 @@ interface Graph {
 }
 @enduml
 ```
--->
-
-![](graph_uml.png)
+</details>
 
 The graph contains the nodes that belong to the graph. This ``Graph`` is not the same
 as that of the wiring structure, but is the flattened graph of all nodes that 
@@ -226,7 +223,8 @@ As disused in the introduction, there are three key node types: source, compute,
 and sink nodes. Nodes in the graph are represented as classes within the internals
 of the system. The base class is as follows:
 
-<--
+![](node_uml.png)
+<details>
 ```
 @startuml node_uml
 interface Node {
@@ -243,9 +241,7 @@ interface Node {
 }
 @enduml
 ```
--->
-
-![](node_uml.png)
+</details>
 
 The node signature describes the important static meta-data of the node. This includes attributes such as the node type.
 The inputs and output signatures, etc.
