@@ -1,10 +1,10 @@
-Node Signature
-==============
+Node Signature Extension
+========================
 
 The node signatures extend the component signature in their ability to
 mark interest in special arguments to be provided as inputs.
 
-These special inputs are only useful to runtime behaviour and as such are
+These special inputs are only useful to runtime behaviour and as such, are
 not meaningful to graph components.
 
 These special inputs include:
