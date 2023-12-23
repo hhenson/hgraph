@@ -81,6 +81,22 @@ Another way of thinking about ``STATE`` is to think of it as a feedback cycle, w
 state is injected in and modifications of state are returned out of the node and then
 fed back in during the next evaluation cycle.
 
+
+SCHEDULER
+---------
+
+This provides access to the nodes scheduling logic, allowing the node to add scheduling
+requests. The basic functionality is:
+
+* is_scheduled - True if the node was activated due to a schedule request.
+* schedule - Schedule the node for future evaluation at a particular time or time-delta.
+* un_schedule - Remove a previous scheduling event, this only works with tagged scheduled items.
+* pop_tag - Removes and returns a previous scheduled event with the tag name.
+* has_tag - Indicates if the scheduler has a tag currently schedule.
+* next_scheduled_time - The time the node is next scheduled.
+* reset - Removes all pending scheduled events (both tagged and non-tagged events)
+
+
 _output
 -------
 
