@@ -45,25 +45,26 @@ run_graph(what_is_one_plus_one)
 In this case, when run initiates its wiring, the graph ``what_is_one_plus_one`` is evaluated, this builds a wiring
 graph that looks a bit like this:
 
+![](what_is_1_1.png)
+<details>
+
 ```plantuml
-@startuml
+@startuml what_is_1_1
 state const {
 }
 state add_ {
-    state rhs <<entryPoint>>
-    state lhs <<entryPoint>>
-    state out <<exitPoint>>
 }
 
 state debug_print {
 }
 
-const --> lhs 
-const --> rhs 
-out --> debug_print
+const --> add_ : lhs 
+const --> add_ : rhs 
+add_ --> debug_print
 
 @enduml
 ```
+</details>
 
 Thus the graph consist of three nodes *(const, add_ and debug_print)* and three edges 
 *( (const:out, add_:rhs), (const:out, add_:lhs), (add_:out, debug_print:ts))*.
