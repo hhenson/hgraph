@@ -27,7 +27,7 @@ for example Rust) implementation of the runtime and library nodes.
 The HGraph defines a set of scalar and time-series types, these types are described in the
 link below.
 
-[HGrap Types](python/hg_types.md)
+[HGraph Types](python/hg_types.md)
 
 Framework Details
 -----------------
