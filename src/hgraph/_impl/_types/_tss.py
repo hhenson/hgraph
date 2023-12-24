@@ -8,7 +8,7 @@ from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._tss_type import SetDelta, TimeSeriesSetOutput, TimeSeriesSetInput
 
-__all__ = ("PythonSetDelta", "PythonTimeSeriesSetOutput", "PythonTimeSeriesSetInput")
+__all__ = ("PythonSetDelta", "PythonTimeSeriesSetOutput", "PythonTimeSeriesSetInput", "Removed")
 
 
 @dataclass(frozen=True, eq=False)

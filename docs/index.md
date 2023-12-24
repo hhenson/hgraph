@@ -22,10 +22,12 @@ is a Python evaluation engine, but the end-goal is to have a C++ (or other langu
 for example Rust) implementation of the runtime and library nodes.
 
 
-[Component Signature](python/component_signature.md)
+[Program Anatomy](python/program_anatomy.md)
 
-[Node Signature](python/node_signature.md)
+The HGraph defines a set of scalar and time-series types, these types are described in the
+link below.
 
+[HGrap Types](python/hg_types.md)
 
 Framework Details
 -----------------
