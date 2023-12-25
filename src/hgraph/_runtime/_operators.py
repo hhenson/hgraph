@@ -127,6 +127,9 @@ def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     return lhs.value == rhs.value
 
 
+# This is currently safe to do as the wiring port needs to be immutable, but is never used as a key in a dict or
+# compared to another port. But in case we need access to the original store it back on the class.
+WiringPort.__orig_eq__ = WiringPort.__eq__
 WiringPort.__eq__ = lambda x, y: eq_(x, y)
 
 

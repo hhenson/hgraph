@@ -168,7 +168,6 @@ class BaseWiringNodeClass(WiringNodeClass):
         This does not validate the types, just that all args are provided.
         """
         kwargs_ = prepare_kwargs(self.signature, *args, **kwargs)
-        # TODO: add support for useful defaults for things like null_source inputs.
         return kwargs_
 
     def _convert_kwargs_to_types(self, **kwargs) -> dict[str, HgTypeMetaData]:
@@ -248,7 +247,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                                                                          resolved_inputs)
 
             if self.signature.is_resolved:
-                self.signature.resolve_auto_const_kwargs(kwarg_types, kwargs)
+                self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                 return kwargs, self.signature
             else:
                 # Only need to re-create if we actually resolved the signature.
@@ -267,7 +266,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     uses_scheduler=self.signature.uses_scheduler,  # This should not differ based on resolution
                     label=self.signature.label)
                 if resolve_signature.is_resolved:
-                    resolve_signature.resolve_auto_const_kwargs(kwarg_types, kwargs)
+                    resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     return kwargs, resolve_signature
                 else:
                     raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
@@ -438,7 +437,6 @@ class OverloadedWiringNodeHelper:
                 f"{self.overloads[0][0].signature.name} overloads are ambiguous with given parameters - more than one top candidate")
 
         return best_candidates[0][0]
-
 
 
 class CppWiringNodeClass(BaseWiringNodeClass):
@@ -623,12 +621,20 @@ class NonPeeredWiringNodeClass(StubWiringNodeClass):
         ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)  # We will write our own equality check, but still want a hash
 class WiringNodeInstance:
     node: WiringNodeClass
     resolved_signature: WiringNodeSignature
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.node == other.node and \
+            self.resolved_signature == other.resolved_signature and self.rank == other.rank and \
+            self.inputs.keys() == other.inputs.keys() and \
+            all(v.__orig_eq__(other.inputs[k]) if hasattr(v, '__orig_eq__') else  v == other.inputs[k]
+                for k, v in self.inputs.items())
+        # Deal with possible WiringPort equality issues due to operator overloading in the syntactical sugar wrappers
 
     @property
     def is_stub(self) -> bool:
@@ -655,7 +661,7 @@ class WiringNodeInstance:
         )
 
     def create_node_builder_and_edges(self, node_map: MutableMapping["WiringNodeInstance", int],
-                                      nodes: ["NodeBuilder"]) ->  tuple["NodeBuilder", set["Edge"]]:
+                                      nodes: ["NodeBuilder"]) -> tuple["NodeBuilder", set["Edge"]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
@@ -690,14 +696,14 @@ class WiringPort:
     """
     A wiring port is the abstraction that describes the src of an edge in a wiring graph. This source is used to
     connect to a destination node in the graph, typically an input in the graph.
-    The port consist of a reference to a node instance, this is the node in the graph to connect to, and a path, this
+    The port consists of a reference to a node instance, this is the node in the graph to connect to, and a path, this
     is the selector used to identify to which time-series owned by the node this portion of the edge refers to.
 
-    For a simple time-series (e.g. TS[SCALAR]), the path is an empty tuple. For more complex time-series containers
+    For a simple time-series (e.g. TS[SCALAR]), the path is an empty tuple. For more complex time-series containers,
     the path can be any valid SCALAR value that makes sense in the context of the container.
     The builder will ultimately walk the path calling __getitem__ the time-series until the path is completed.
 
-    For example node.output[p1][p2][p3] for a path of (p1, p2, p3).
+    For example, node.output[p1][p2][p3] for a path of (p1, p2, p3).
     """
     node_instance: WiringNodeInstance
     path: tuple[SCALAR, ...] = tuple()  # The path from out () to the time-series to be bound.

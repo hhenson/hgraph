@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 
 from frozendict import frozendict
 
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
+    HgTypeOfTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._types._type_meta_data import ParseError
@@ -116,7 +117,8 @@ class WiringNodeSignature:
                              f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}")
         return out_dict
 
-    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Mapping[str, HgTypeMetaData]:
+    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Mapping[
+        str, HgTypeMetaData]:
         if self.is_resolved:
             return self.input_types
 
@@ -151,11 +153,19 @@ class WiringNodeSignature:
         else:
             return resolved_inputs
 
-    def resolve_auto_const_kwargs(self, kwarg_types, kwargs):
+    def resolve_auto_const_and_type_kwargs(self, kwarg_types, kwargs):
+        """
+        If there are scalar inputs that should be time-series inputs, then convert them to const inputs.
+        If there are type-of-type inputs, then use the resolved type instead of the input type. This ensures
+        we use fully resolved inputs when doing comparisons of WiringNodeInstance'. Which reduces the number
+        of duplicate nodes we create (especially for const nodes).
+        """
         for arg, v in self.input_types.items():
             if not v.is_scalar and kwarg_types[arg].is_scalar:
                 from hgraph.nodes import const
                 kwargs[arg] = const(kwargs[arg], tp=v.py_type)
+            if type(v) is HgTypeOfTypeMetaData:
+                kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,
@@ -179,7 +189,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
     # to know where to apply the defaults.
     input_types: frozendict[str, HgTypeMetaData] = frozendict(
-        (k, extract_hg_type(v) if (k != "_output" or defaults.get("_output", True) is not None) else HgOutputType(v)) for
+        (k, extract_hg_type(v) if (k != "_output" or defaults.get("_output", True) is not None) else HgOutputType(v))
+        for
         k, v in annotations.items() if k != "return")
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
