@@ -3,22 +3,22 @@ from typing import Mapping, cast
 
 from frozendict import frozendict
 
-from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
                                          TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder,
                                          TSSOutputBuilder, TSSInputBuilder, TSLOutputBuilder, TSLInputBuilder,
                                          TSDOutputBuilder, TSDInputBuilder, REFOutputBuilder, REFInputBuilder,
                                          )
 from hgraph._runtime._node import Node
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
-from hgraph._types._ts_meta_data import HgTSTypeMetaData
+from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
 from hgraph._types._ts_signal_meta_data import HgSignalMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
-from hgraph._types._tss_meta_data import HgTSSTypeMetaData
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
 
 __all__ = ('PythonTSOutputBuilder', 'PythonTSInputBuilder', 'PythonTimeSeriesBuilderFactory')
 
@@ -260,6 +260,9 @@ class PythonREFInputBuilder(REFInputBuilder):
 
 
 def _throw(value_tp):
+    if type(value_tp) in (HgTSOutTypeMetaData, HgTSDOutTypeMetaData, HgTSSOutTypeMetaData):
+        raise TypeError(f"An output type was detected in the wiring input signature ({value_tp})\n"
+                        "Check input name, consider using '_output' for the argument name.")
     raise TypeError(f"Got unexpected value type {type(value_tp)}: {value_tp}")
 
 
@@ -288,6 +291,6 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSLTypeMetaData: lambda: PythonTSLOutputBuilder(value_tp=cast(HgTSLTypeMetaData, value_tp).value_tp,
                                                               size_tp=cast(HgTSLTypeMetaData, value_tp).size_tp),
             HgTSDTypeMetaData: lambda: PythonTSDOutputBuilder(key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp,
-                                                             value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp),
+                                                              value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp),
             HgREFTypeMetaData: lambda: PythonREFOutputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp)
         }.get(type(value_tp), lambda: _throw(value_tp))()

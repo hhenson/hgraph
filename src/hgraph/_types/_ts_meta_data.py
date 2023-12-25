@@ -89,3 +89,6 @@ class HgTSOutTypeMetaData(HgTSTypeMetaData):
 
     def __repr__(self) -> str:
         return f'HgTSOutTypeMetaData({repr(self.value_scalar_tp)})'
+
+    def __hash__(self):
+        return super().__hash__()
