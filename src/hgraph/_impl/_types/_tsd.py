@@ -152,6 +152,11 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         from hgraph._builder._ts_builder import TSInputBuilder
         self._ts_builder: TSInputBuilder = PythonTimeSeriesBuilderFactory.instance().make_input_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
+        self._has_peer: bool = False
+
+    @property
+    def has_peer(self) -> bool:
+        return self._has_peer
 
     def do_bind_output(self, output: "TimeSeriesOutput"):
         output: PythonTimeSeriesDictOutput
@@ -165,6 +170,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             peer = False
         else:
             peer = True
+        self._has_peer = peer
 
         if self.owning_node.is_started and self.output:
             self.output.remove_key_observer(self)

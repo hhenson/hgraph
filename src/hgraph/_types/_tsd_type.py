@@ -19,6 +19,7 @@ REMOVE_IF_EXISTS = Sentinel("REMOVE_IF_EXISTS")
 
 KEY_SET_ID = '__key_set__'
 
+
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):
     """
     A TSD is a collection of time-series values keyed off of a scalar key K.
