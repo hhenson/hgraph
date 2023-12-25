@@ -117,7 +117,7 @@ run_graph(main)
 This will build the graph (*main*) and then run it in simulation mode.
 
 The graph building step is done prior to running the graph. To see how this looks
-add a few ``print`` statements of put a debug point into the code and see how it works.
+add a few ``print`` statements, or put a debug point, into the code and see how it works.
 
 What you should see is the graph run, and then the source, compute and sink nodes being called
 after the graph has been built. The nodes will be called for as many times as a source
