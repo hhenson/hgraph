@@ -32,7 +32,7 @@ def extract_hg_type(tp) -> HgTypeMetaData:
 
 
 def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData | None:
-    if tp is None:
+    if tp is None or tp is type(None):
         return
 
     tp_ = HgTimeSeriesTypeMetaData.parse(tp)
