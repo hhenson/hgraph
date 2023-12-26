@@ -43,7 +43,7 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
     if not isinstance(ts, WiringPort):
         raise RuntimeError(f"The supplied time-series is not a valid input: '{ts}'")
-    with WiringContext(current_signature=STATE(current_signature=f"reduce('{func.signature.signature}', {ts.output_type}, {zero})")):
+    with WiringContext(current_signature=STATE(signature=f"reduce('{func.signature.signature}', {ts.output_type}, {zero})")):
         if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
             return _reduce_tsl(func, ts, zero, is_associated)
         elif type(tp_) is HgTSDTypeMetaData:

@@ -7,7 +7,7 @@ from hgraph._types._scalar_types import SCALAR, STATE, Size
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
-from hgraph._types._ts_type_var_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._ts_type_var_meta_data import HgTimeSeriesTypeMetaData, HgTsTypeVarTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -24,9 +24,7 @@ from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgAtomicType
 
-
 __all__ = ("map_", "pass_through", "no_key", "KEYS_ARG")
-
 
 KEYS_ARG = '__keys__'
 _KEY_ARG = "__key_arg__"
@@ -60,7 +58,7 @@ def map_(func: Callable, *args, **kwargs):
     """
     if not isinstance(func, WiringNodeClass):
         raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
-    with WiringContext(current_signature=STATE(current_signature=f"map_('{func.signature.signature}', ...)")):
+    with WiringContext(current_signature=STATE(signature=f"map_('{func.signature.signature}', ...)")):
         if len(args) + len(kwargs) == 0:
             raise NoTimeSeriesInputsError()
         signature: WiringNodeSignature = func.signature
@@ -105,7 +103,7 @@ def _build_map_wiring_node_and_inputs(
                              **kwargs)
 
     # 3. Split out the inputs into multiplexed, no_key, pass_through and direct and key_tp
-    multiplex_args, no_key_args, pass_through_args, _, map_type, key_tp_ = _split_inputs(signature, kwargs_)
+    multiplex_args, no_key_args, pass_through_args, _, map_type, key_tp_ = _split_inputs(signature, kwargs_, __keys__)
 
     # 4. If the key is present, make sure the extracted key type matches what we found in the multiplexed inputs.
     if map_type == "TSL":
@@ -188,7 +186,7 @@ def _extract_map_fn_key_arg_and_type(signature: WiringNodeSignature, __key_arg__
     return input_has_key_arg, input_key_name, cast(HgTSTypeMetaData, input_key_tp)
 
 
-def _split_inputs(signature: WiringNodeSignature, kwargs_) \
+def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
         -> tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str], str, HgTimeSeriesTypeMetaData]:
     # multiplex, no_key passthrough, direct, tp, key_tp
     """
@@ -204,19 +202,22 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
     Key type is only present if validate_type is True.
     """
     if non_ts_inputs := [arg for arg in kwargs_ if not isinstance(kwargs_[arg], (WiringPort, _MappingMarker))]:
-        raise CustomMessageWiringError(
-            f" The following args are not time-series inputs, but should be: {non_ts_inputs}")
+        if not all(k in signature.scalar_inputs for k in non_ts_inputs):
+            raise CustomMessageWiringError(
+                f" The following args are not time-series inputs, but should be: {non_ts_inputs}")
 
     marker_args = frozenset(arg for arg in kwargs_ if isinstance(kwargs_[arg], _MappingMarker))
     pass_through_args = frozenset(arg for arg in marker_args if isinstance(kwargs_[arg], _PassthroughMarker))
-    no_key_args = frozenset(arg for arg in marker_args if arg not in pass_through)
+    no_key_args = frozenset(arg for arg in marker_args if arg not in pass_through_args)
 
     _validate_pass_through(signature, kwargs_, pass_through_args)  # Ensure the pass through args are correctly typed.
 
-    input_types = {k: v.output_type for k, v in kwargs_.items()}
+    input_types = {k: v.output_type for k, v in kwargs_.items() if k not in non_ts_inputs}
 
     direct_args = frozenset(
-        k for k, v in input_types.items() if k not in marker_args and signature.input_types[k].matches(v))
+        k for k, v in input_types.items() if k not in marker_args and signature.input_types[k].matches(v) if
+        (type(signature.input_types[k]) is not HgTsTypeVarTypeMetaData and  # All time-series value match this!
+         type(v) in (HgTSLTypeMetaData, HgTSDTypeMetaData)))  # So if it is possibly not direct, don't mark it direct
 
     multiplex_args = frozenset(
         k for k, v in input_types.items() \
@@ -227,10 +228,10 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
 
     _validate_multiplex_types(signature, kwargs_, multiplex_args, no_key_args)
 
-    if len(no_key_args) + len(multiplex_args) == 0:
+    if not tsd_keys and (len(no_key_args) + len(multiplex_args) == 0):
         raise CustomMessageWiringError("No multiplexed inputs found")
 
-    if len(multiplex_args) + len(direct_args) + len(pass_through_args) != len(kwargs_):
+    if len(multiplex_args) + len(direct_args) + len(pass_through_args) + len(non_ts_inputs) != len(kwargs_):
         raise CustomMessageWiringError(
             f"Unable to determine how to split inputs with args:\n {kwargs_}")
 
@@ -241,7 +242,7 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_) \
     if is_tsl:
         key_tp = _extract_tsl_size(kwargs_, multiplex_args, no_key_args)
     else:
-        key_tp = _validate_tsd_keys(kwargs_, multiplex_args, no_key_args)
+        key_tp = _validate_tsd_keys(kwargs_, multiplex_args, no_key_args, tsd_keys)
 
     return (multiplex_args, no_key_args, pass_through_args, direct_args, "TSL" if is_tsl else "TSD", key_tp if is_tsl
     else HgTSTypeMetaData(key_tp))
@@ -362,11 +363,13 @@ def _create_tsl_map_signature(
     return wiring_node
 
 
-def _validate_tsd_keys(kwargs_, multiplex_args, no_key_args):
+def _validate_tsd_keys(kwargs_, multiplex_args, no_key_args, tsd_keys):
     """
     Ensure all the multiplexed inputs use the same input key.
     """
     types = set(kwargs_[arg].output_type.key_tp for arg in chain(multiplex_args, no_key_args))
+    if tsd_keys:
+        types.add(tsd_keys.output_type.value_scalar_tp)
     if len(types) > 1:
         raise CustomMessageWiringError(
             f"The TSD multiplexed inputs have different key types: {types}")

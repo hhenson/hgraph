@@ -53,7 +53,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
     """
     # Create a nifty simplified signature for the switch node.
     with WiringContext(
-            current_signature=STATE(current_signature=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)")):
+            current_signature=STATE(signature=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)")):
         from hgraph._wiring._wiring import WiringPort
 
         # Perform basic validations fo the inputs
