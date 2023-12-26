@@ -1,28 +1,30 @@
-from hgraph import compute_node, TS, graph, TSD, map_, TSL, Size, sink_node, TIME_SERIES_TYPE, pass_through
+from hgraph import TS, graph, TSD, map_, sink_node, TIME_SERIES_TYPE, pass_through, reduce, compute_node, TSL, Size
+from hgraph.nodes import add_
 from hgraph.test import eval_node
 
 # Map
-#
-# @compute_node
-# def convert(ts: TS[int]) -> TS[str]:
-#     """Convert the input to a time series."""
-#     return str(ts.value)
-#
-#
-# @graph
-# def graph_tsd(tsd: TSD[str, TS[int]]) -> TSD[str, TS[str]]:
-#     return map_(convert, tsd)
-#
-#
-# print(eval_node(graph_tsd, tsd=[{"a": 1, "b": 6}, {"a": 2, "b": 7}]))
-#
-#
-# @graph
-# def graph_tsl(tsl: TSL[TS[int], Size[2]]) -> TSL[TS[str], Size[2]]:
-#     return map_(convert, tsl)
-#
-#
-# print(eval_node(graph_tsl, tsl=[{0: 1, 1: 6}, {0: 2, 1: 7}]))
+
+
+@compute_node
+def convert(ts: TS[int]) -> TS[str]:
+    """Convert the input to a time series."""
+    return str(ts.value)
+
+
+@graph
+def graph_tsd(tsd: TSD[str, TS[int]]) -> TSD[str, TS[str]]:
+    return map_(convert, tsd)
+
+
+print(eval_node(graph_tsd, tsd=[{"a": 1, "b": 6}, {"a": 2, "b": 7}]))
+
+
+@graph
+def graph_tsl(tsl: TSL[TS[int], Size[2]]) -> TSL[TS[str], Size[2]]:
+    return map_(convert, tsl)
+
+
+print(eval_node(graph_tsl, tsl=[{0: 1, 1: 6}, {0: 2, 1: 7}]))
 
 
 @sink_node
@@ -40,3 +42,10 @@ print(eval_node(graph_undecided, tsd=[{"a": 1, "b": 6}, {"a": 2, "b": 7}]))
 
 # Reduce
 
+
+@graph
+def graph_reduce_tsd(tsd: TSD[str, TS[int]]) -> TS[int]:
+    return reduce(add_, tsd, 0)
+
+
+print(eval_node(graph_reduce_tsd, tsd=[{"a": 1, "b": 6}, {"a": 2, "b": 7}]))

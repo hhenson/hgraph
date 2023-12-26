@@ -217,7 +217,7 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
     direct_args = frozenset(
         k for k, v in input_types.items() if k not in marker_args and signature.input_types[k].matches(v) if
         (type(signature.input_types[k]) is not HgTsTypeVarTypeMetaData and  # All time-series value match this!
-         type(v) in (HgTSLTypeMetaData, HgTSDTypeMetaData)))  # So if it is possibly not direct, don't mark it direct
+         type(v) not in (HgTSLTypeMetaData, HgTSDTypeMetaData)))  # So if it is possibly not direct, don't mark it direct
 
     multiplex_args = frozenset(
         k for k, v in input_types.items() \

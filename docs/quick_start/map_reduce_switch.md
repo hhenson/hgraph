@@ -74,3 +74,30 @@ Non-key inputs are wrapped in a similar ways as pass-through inputs, but using t
 inputs where one of the inputs may be larger than the set of keys you wish the 
 ``map_`` to operate over.
 
+reduce
+------
+
+Reduce support applying a function across a collection of values recursively to produce
+a single value.
+
+For example:
+
+```python
+from hgraph import TS, graph, TSD, reduce
+from hgraph.nodes import add_
+
+@graph
+def graph_reduce_tsd(tsd: TSD[str, TS[int]]) -> TS[int]:
+    return reduce(add_, tsd, 0)
+
+```
+This will sum the values of the inputs and produce a time-series of values
+representing the sum of the inputs.
+
+Not the requirement of a zero value.
+
+Reduce currently can accept both ``TSD`` and ``TSL`` inputs, but does not support
+mixed inputs (i.e. where the LHS and RHS of the reduction function are different types)
+for anything other than the ``TSL`` input type with the is_associated argument set to True.
+
+
