@@ -1,5 +1,6 @@
-from hgraph import TS, graph, TSD, map_, sink_node, TIME_SERIES_TYPE, pass_through, reduce, compute_node, TSL, Size
-from hgraph.nodes import add_
+from hgraph import TS, graph, TSD, map_, sink_node, TIME_SERIES_TYPE, pass_through, reduce, compute_node, TSL, Size, \
+    switch_
+from hgraph.nodes import add_, sub_
 from hgraph.test import eval_node
 
 # Map
@@ -49,3 +50,16 @@ def graph_reduce_tsd(tsd: TSD[str, TS[int]]) -> TS[int]:
 
 
 print(eval_node(graph_reduce_tsd, tsd=[{"a": 1, "b": 6}, {"a": 2, "b": 7}]))
+
+
+# Switch
+
+@graph
+def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return switch_({
+        "add": add_,
+        "sub": sub_,
+    }, selector, lhs, rhs)
+
+
+print(eval_node(graph_switch, selector=["add", None, "sub", None], lhs=[1, 2, 3, 4], rhs=[2, 3, 4, 5]))

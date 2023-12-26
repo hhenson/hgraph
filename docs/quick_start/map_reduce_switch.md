@@ -101,3 +101,40 @@ mixed inputs (i.e. where the LHS and RHS of the reduction function are different
 for anything other than the ``TSL`` input type with the is_associated argument set to True.
 
 
+switch
+------
+
+The ``switch`` function provides the mechanism to switch between different functions
+that share the same function signature, but provide different implementations.
+
+For example:
+
+```python
+from hgraph import TS, graph, switch_
+from hgraph.nodes import add_, sub_
+
+@graph
+def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return switch_({
+        "add": add_,
+        "sub": sub_,
+    }, selector, lhs, rhs)
+```
+
+In this case we initial wire in the ``add_`` functions, based on the value of selector.
+Then until the selector changes, the inputs are few to add that is the output.
+Then, when we tick 'sub', the inputs are switched to the ``sub_`` function and the results
+represent the process through the ``sub_`` function.
+
+The combination of ``map_``, ``reduce`` and ``switch`` provide the basis for dynamic
+graph construction. With ``map_`` de-multiplexing the inputs and ``switch`` providing
+the ability to switch between different functions based on a selection criteria, 
+Finally the ``reduce`` is able to convert a multiplexed result into an aggregate value.
+
+An example of this would be when dealing with a stream of various orders, then each
+order is de-multiplexed, then using the order-type the order is associated to 
+the appropriate order handling function. The result is re-multiplexed.
+
+The user may be interested in some aggregates from the order stream, such as the
+net open value of the orders. This can be achieved by using the ``reduce`` function
+to operate over the orders' dollar value, for example, using the ``add_`` function.
