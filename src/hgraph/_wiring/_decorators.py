@@ -27,25 +27,23 @@ def compute_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid:
     return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, cpp_impl, active, valid, overloads=overloads)
 
 
-def pull_source_node(cpp_impl):
+def pull_source_node(fn=None, /, cpp_impl=None):
     """
     Used to indicate the signature for a C++ source node. For Python source nodes use either the
     generator or source_adapter annotations.
     """
-    from hgraph._wiring._wiring import CppWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return partial(_create_node, WiringNodeType.PULL_SOURCE_NODE, CppWiringNodeClass, cpp_impl)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, cpp_impl)
 
 
-def push_source_node(cpp_impl):
+def push_source_node(fn=None, /, cpp_impl=None):
     """
     Used to indicate the signature for a C++ push source node.
     :param cpp_impl:
     :return:
     """
-    from hgraph._wiring._wiring import CppWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return partial(_create_node, WiringNodeType.PUSH_SOURCE_NODE, CppWiringNodeClass, cpp_impl)
+    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, cpp_impl)
 
 
 def sink_node(fn=None, /, cpp_impl=None, active: Sequence[str] = None, valid: Sequence[str] = None,

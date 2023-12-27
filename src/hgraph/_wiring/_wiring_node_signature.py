@@ -50,7 +50,7 @@ def extract_scalar_type(tp: Type) -> HgScalarTypeMetaData:
     return tp_
 
 
-@dataclass(frozen=True, unsafe_hash=True)
+@dataclass(frozen=True, unsafe_hash=True,)
 class WiringNodeSignature:
     """
     The wiring node signature is similar to the final node signature, but it deals with templated node instances,
@@ -72,6 +72,17 @@ class WiringNodeSignature:
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
     # supplied via inputs
     label: str | None = None  # A label if provided, this can help to disambiguate the node
+
+    def as_dict(self) -> dict:
+        return dict(node_type=self.node_type, name=self.name, args=self.args, defaults=self.defaults,
+                       input_types=self.input_types, output_type=self.output_type, src_location=self.src_location,
+                    active_inputs=self.active_inputs, valid_inputs=self.valid_inputs,
+                    unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
+                    uses_scheduler=self.uses_scheduler, label=self.label)
+
+    def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
+        kwargs_ = self.as_dict() | kwargs
+        return WiringNodeSignature(**kwargs_)
 
     @property
     def signature(self) -> str:

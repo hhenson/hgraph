@@ -7,17 +7,24 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
+from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeSignature, Node, NodeScheduler
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData
+from hgraph._impl._types._tss import PythonSetDelta
+
 
 if TYPE_CHECKING:
     from hgraph._types._ts_type import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
 
-__all__ = ("NodeImpl",)
+
+__all__ = ("NodeImpl", "NodeSchedulerImpl", "GeneratorNodeImpl", "PythonPushQueueNodeImpl", "PythonLastValuePullNodeImpl")
 
 
 class NodeImpl(Node):
@@ -46,6 +53,7 @@ class NodeImpl(Node):
         self.stop_fn: Callable = stop_fn
         self._input: Optional["TimeSeriesBundleInput"] = None
         self._output: Optional["TimeSeriesOutput"] = None
+        self._error_output: Optional["TimeSeriesOutput"] = None
         self._scheduler: Optional["NodeSchedulerImpl"] = None
         self._kwargs: dict[str, Any] | None = None
 
@@ -97,6 +105,10 @@ class NodeImpl(Node):
         self._output = value
         if self._kwargs is not None:
             self._initialise_kwargs()
+
+    @property
+    def error_output(self) -> Optional["TimeSeriesOutput"]:
+        return self._error_output
 
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
@@ -185,6 +197,12 @@ class NodeImpl(Node):
         else:
             self.scheduler.schedule(when=MIN_ST, tag="start")
 
+    def notify_next_cycle(self):
+        if self.is_started or self.is_starting:
+            self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.next_cycle_evaluation_time)
+        else:
+            self.notify()
+
 
 class NodeSchedulerImpl(NodeScheduler):
 
@@ -219,7 +237,7 @@ class NodeSchedulerImpl(NodeScheduler):
 
     def schedule(self, when: datetime | timedelta, tag: str = None):
         if tag is not None and tag in self._tags:
-                self._scheduled_events.remove((self._tags[tag], tag))
+            self._scheduled_events.remove((self._tags[tag], tag))
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
         if when > (
@@ -338,3 +356,53 @@ class _SenderReceiverState:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.lock.release()
+
+
+class PythonLastValuePullNodeImpl(NodeImpl):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._delta_value: Optional[Any] = None
+        self._delta_combine_fn: Callable[[Any, Any], Any] = {
+            HgTSSTypeMetaData: PythonLastValuePullNodeImpl._combine_tss_delta,
+            HgTSDTypeMetaData: PythonLastValuePullNodeImpl._combine_tsd_delta,
+            HgTSBTypeMetaData: PythonLastValuePullNodeImpl._combine_tsb_delta,
+            HgTSLTypeMetaData: PythonLastValuePullNodeImpl._combine_tsl_delta_value,
+        }.get(self.signature.time_series_output, lambda old_delta, new_delta: new_delta)
+        if self.scalars:
+            self._delta_value = self.scalars["default"]
+            self.notify()
+
+    def copy_from_input(self, output: "TimeSeriesOutput"):
+        self._delta_value = output.delta_value if self._delta_value is None else \
+            self._delta_combine_fn(self._delta_value, output.delta_value)
+        self.notify_next_cycle()  # If we are copying the value now, then we expect it to be used in the next cycle
+
+    def eval(self):
+        if self._delta_value is not None:
+            self.output.value = self._delta_value
+            self._delta_value = None
+
+    @staticmethod
+    def _combine_tss_delta(old_delta: PythonSetDelta, new_delta: PythonSetDelta) -> PythonSetDelta:
+        """We get TimeSeriesSetDelta from output"""
+        # Only addd items that have not subsequently been removed plus the new added items less the "re-added elements"
+        added = (old_delta.added - new_delta.removed) | (new_delta.added -  old_delta.removed)
+        removed = (old_delta.removed - new_delta.added) | (new_delta.removed - old_delta.added)
+        # Only remove elements that have not been recently added and don't remove old removes that have been re-added
+        return PythonSetDelta(added=added, removed=removed)
+
+    @staticmethod
+    def _combine_tsd_delta(old_delta: Mapping, new_delta: Mapping) -> Mapping:
+        # REMOVES are tracked inside-of the dict, so if we re-add a removed element, the union operator
+        # Will take care of changing the remove to a modify operation. If we remove a new added element, the remove
+        # will overwrite the remove operation, and it will become an update.
+        return old_delta | new_delta
+
+    @staticmethod
+    def _combine_tsb_delta(old_delta: Mapping, new_delta: Mapping) -> Mapping:
+        return old_delta | new_delta
+
+    @staticmethod
+    def _combine_tsl_delta_value(old_delta: Mapping, new_delta: Mapping) -> Mapping:
+        return old_delta | new_delta

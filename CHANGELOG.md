@@ -19,3 +19,7 @@ Version 0.0.5 (26-12-2023)
  * Fixes to REF handling in TSD.
  * Documentation updates. Most of the basic documentation is now in place.
 
+Version 0.0.6 (27-12-2023)
+--------------------------
+
+* Add feedback operator.

@@ -2,12 +2,13 @@ from dataclasses import dataclass
 from typing import Callable
 
 from hgraph._builder._node_builder import NodeBuilder
-from hgraph._impl._runtime._node import NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl
+from hgraph._impl._runtime._node import NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl, \
+    PythonLastValuePullNodeImpl
 from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._types._tsb_type import TimeSeriesBundleInput
 
-
-__all__ = ("PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder")
+__all__ = (
+"PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder", "PythonLastValuePullNodeImpl")
 
 
 @dataclass(frozen=True)
@@ -84,4 +85,23 @@ class PythonPushQueueNodeBuilder(NodeBuilder):
         return node
 
     def release_instance(self, item: PythonPushQueueNodeImpl):
+        """Nothing to do"""
+
+
+@dataclass(frozen=True)
+class PythonLastValuePullNodeBuilder(NodeBuilder):
+
+    def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonLastValuePullNodeImpl:
+        node = PythonLastValuePullNodeImpl(
+            node_ndx=node_ndx,
+            owning_graph_id=owning_graph_id,
+            signature=self.signature,
+            scalars=self.scalars,
+        )
+        ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
+        node.output = ts_output
+
+        return node
+
+    def release_instance(self, item: PythonLastValuePullNodeImpl):
         """Nothing to do"""

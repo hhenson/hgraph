@@ -34,11 +34,7 @@ if TYPE_CHECKING:
 
 __all__ = ("WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
            "CppWiringNodeClass", "PythonGeneratorWiringNodeClass", "PythonWiringNodeClass", "WiringGraphContext",
-           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "prepare_kwargs")
-
-
-# TODO: Add ability to specify resolution of inputs / outputs at wiring time.
-#  In which case unresolved outputs are possible!
+           "GraphWiringNodeClass", "WiringNodeInstance", "WiringPort", "prepare_kwargs",)
 
 
 class WiringNodeClass:
@@ -473,6 +469,22 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
                                           eval_fn=self.fn)
 
 
+class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
+
+    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
+        from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
+        from hgraph import TimeSeriesBuilderFactory
+        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
+        output_type = node_signature.time_series_output
+        assert output_type is not None, "PythonLastValuePullWiringNodeClass must have a time series output"
+        return PythonLastValuePullNodeBuilder(
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=None,
+            output_builder=factory.make_output_builder(output_type)
+        )
+
+
 class PythonWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
@@ -632,7 +644,7 @@ class WiringNodeInstance:
         return type(self) is type(other) and self.node == other.node and \
             self.resolved_signature == other.resolved_signature and self.rank == other.rank and \
             self.inputs.keys() == other.inputs.keys() and \
-            all(v.__orig_eq__(other.inputs[k]) if hasattr(v, '__orig_eq__') else  v == other.inputs[k]
+            all(v.__orig_eq__(other.inputs[k]) if hasattr(v, '__orig_eq__') else v == other.inputs[k]
                 for k, v in self.inputs.items())
         # Deal with possible WiringPort equality issues due to operator overloading in the syntactical sugar wrappers
 
@@ -838,3 +850,4 @@ class TSLWiringPort(WiringPort):
                 wiring_port = self[ndx]
                 edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
         return edges
+

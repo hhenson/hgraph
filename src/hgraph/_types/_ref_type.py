@@ -1,7 +1,6 @@
 from abc import abstractmethod, ABC
 from typing import Generic, Optional
 
-from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TimeSeriesDeltaValue, TIME_SERIES_TYPE
 
 __all__ = ("REF", "REF_OUT", "TimeSeriesReferenceOutput", "TimeSeriesReferenceInput")

@@ -149,6 +149,15 @@ class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
+    def error_output(self) -> Optional["TimeSeriesOutput"]:
+        """
+        An error output of this node. This will tick when the eval method produces an exception
+        instead of a result.
+        This is only available when the node is marked as error checking.
+        """
+
+    @property
+    @abstractmethod
     def scheduler(self) -> "NodeScheduler":
         """
         The scheduler for this node.
@@ -159,6 +168,9 @@ class Node(ComponentLifeCycle, ABC):
 
     def notify(self):
         """Notify the node that it is need of scheduling"""
+
+    def notify_next_cycle(self):
+        """Notify the node to be evaluated in the next evaluation cycle"""
 
 
 class NodeScheduler(ABC):

@@ -44,5 +44,11 @@ Now we take a look at some of the more advance graph wiring features.
 
 [map_, reduce, switch](map_reduce_switch.md).
 
+Occasionally, there will be times when it is useful to create a cycle in the graph. Where
+data from a computation is required as an input back into a computation. An example of this
+is when we compute a position and require it as an input into the positions calcuation.
+
+There are enough of these kinds of examples that providing a mechanism to solve this is 
+provided by the framework. We call this the [``feedback``](feedback.md).
 
 
