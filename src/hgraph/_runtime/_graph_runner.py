@@ -9,8 +9,8 @@ __all__ = ("run_graph",)
 
 
 def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION,
-              start_time: datetime = MIN_ST,
-              end_time: datetime = MAX_ET, print_progress: bool = True,
+              start_time: datetime = None,
+              end_time: datetime = None, print_progress: bool = True,
               life_cycle_observers: [EvaluationLifeCycleObserver] = None, **kwargs):
     """
     Use this to initiate the graph engine run loop.
@@ -31,6 +31,12 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     """
     from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._wiring._graph_builder import wire_graph
+
+    if start_time is None:
+        start_time = MIN_ST if run_mode is EvaluationMode.SIMULATION else datetime.utcnow()
+    if end_time is None:
+        end_time = MAX_ET
+
     if print_progress:
         print()
         print("Wiring Graph")
