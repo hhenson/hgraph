@@ -1,6 +1,9 @@
 from hgraph import TS, compute_node, TIME_SERIES_TYPE, REF
 
 
+__all__ = ("if_then_else", "if_true")
+
+
 @compute_node(valid=("condition",))
 def if_then_else(condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]) \
         -> REF[TIME_SERIES_TYPE]:

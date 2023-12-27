@@ -1,4 +1,5 @@
 from hgraph.nodes._const import *
+from hgraph.nodes._conditional import *
 try:
     from hgraph.nodes._data_source_polars import *
 except ImportError:

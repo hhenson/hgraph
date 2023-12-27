@@ -51,4 +51,10 @@ is when we compute a position and require it as an input into the positions calc
 There are enough of these kinds of examples that providing a mechanism to solve this is 
 provided by the framework. We call this the [``feedback``](feedback.md).
 
+Up till now we have focused on SIMULATION-based examples. Obviously the framework is
+designed to work in both SIMULATION and REAL_TIME modes. So almost everything
+that works in one will work in the other. However, there is one thing that only
+works in REAL_TIME mode, namely the PUSH source node.
+
+Here is an example of the [push source node](push_source_node.md) in python.
 

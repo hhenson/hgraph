@@ -122,14 +122,14 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
 
     def advance_to_next_scheduled_time(self):
         next_scheduled_time = self.next_scheduled_evaluation_time
-        print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: {next_scheduled_time}", file=sys.stderr)
+        #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: {next_scheduled_time}", file=sys.stderr)
         with self._push_node_requires_scheduling_condition:
             while datetime.utcnow() < next_scheduled_time and not self._push_node_requires_scheduling:
                 sleep_time = (next_scheduled_time - datetime.utcnow()).total_seconds()
-                print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: sleeping for {sleep_time}", file=sys.stderr)
+                #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: sleeping for {sleep_time}", file=sys.stderr)
                 self._push_node_requires_scheduling_condition.wait(sleep_time)
             # It could be that a push node has triggered
-        print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
+        #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
         self.evaluation_time = min(next_scheduled_time, datetime.utcnow())
 
     def reset_push_node_requires_scheduling(self):

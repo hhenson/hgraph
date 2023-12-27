@@ -97,10 +97,11 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
     """
     Creates a push source node that supports injecting values into the graph asynchronously.
     The function that is wrapped by this decorator will be called as a start lifecycle method.
-    The function must take as it's first parameter the sender callable.
+    The function must take as its first parameter the sender callable.
     It is possible to take additional scalar values that will be provided as kwargs.
 
-    For example:
+    For example,
+
     ```Python
         @push_queue(TS[bool])
         def my_message_sender(sender: Callable[[SCALAR], None):

@@ -23,3 +23,8 @@ Version 0.0.6 (27-12-2023)
 --------------------------
 
 * Add feedback operator.
+
+Version 0.0.7 (TBD)
+-------------------
+
+* Add documentation describing PUSH Queues.
