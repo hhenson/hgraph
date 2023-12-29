@@ -31,6 +31,6 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             inner_graph,
             set(fn_signature.time_series_inputs.keys())
         )
-        input_builder, output_builder = create_input_output_builders(node_signature)
-        return PythonReduceNodeBuilder(node_signature, scalars, input_builder, output_builder, inner_graph,
-                                    tuple(input_node_ids.values()), output_node_id)
+        input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
+        return PythonReduceNodeBuilder(node_signature, scalars, input_builder, output_builder, error_builder,
+                                       inner_graph, tuple(input_node_ids.values()), output_node_id)

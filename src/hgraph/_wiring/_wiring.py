@@ -8,6 +8,8 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 from frozendict import frozendict
 from more_itertools import nth
 
+from hgraph._types._ts_meta_data import HgTSTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
 from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -336,7 +338,8 @@ class BaseWiringNodeClass(WiringNodeClass):
         return self
 
 
-def create_input_output_builders(node_signature: "NodeSignature") -> tuple["InputBuilder", "OutputBuilder"]:
+def create_input_output_builders(node_signature: "NodeSignature") \
+        -> tuple["InputBuilder", "OutputBuilder", "OutputBuilder"]:
     from hgraph import TimeSeriesBuilderFactory
     factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
     output_type = node_signature.time_series_output
@@ -349,7 +352,12 @@ def create_input_output_builders(node_signature: "NodeSignature") -> tuple["Inpu
         input_builder = factory.make_input_builder(un_named_bundle)
     else:
         input_builder = None
-    return input_builder, None if output_type is None else factory.make_output_builder(output_type)
+    output_builder = None if output_type is None else factory.make_output_builder(output_type)
+    from hgraph._types._error_type import NodeError
+    error_builder = factory.make_output_builder(
+        HgTSTypeMetaData(HgCompoundScalarType(NodeError))) if node_signature.capture_exception else None
+
+    return input_builder, output_builder, error_builder
 
 
 class PreResolvedWiringNodeWrapper(WiringNodeClass):
@@ -489,12 +497,13 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder import PythonNodeBuilder
-        input_builder, output_builder = create_input_output_builders(node_signature)
+        input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
 
         return PythonNodeBuilder(signature=node_signature,
                                  scalars=scalars,
                                  input_builder=input_builder,
                                  output_builder=output_builder,
+                                 error_builder=error_builder,
                                  eval_fn=self.fn,
                                  start_fn=self.start_fn,
                                  stop_fn=self.stop_fn)
@@ -850,4 +859,3 @@ class TSLWiringPort(WiringPort):
                 wiring_port = self[ndx]
                 edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
         return edges
-

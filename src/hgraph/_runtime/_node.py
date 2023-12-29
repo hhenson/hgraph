@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional, Mapping, TYPE_CHECKING, Any, Protocol
+from typing import Optional, Mapping, TYPE_CHECKING, Any
 
 from hgraph._runtime._lifecycle import ComponentLifeCycle
 
@@ -39,6 +39,9 @@ class NodeSignature:
     active_inputs: Optional[frozenset[str]] = None
     valid_inputs: Optional[frozenset[str]] = None
     uses_scheduler: bool = False
+    capture_exception: bool = False
+    capture_full_traceback: bool = False
+    capture_values: bool = False
 
     @property
     def signature(self) -> str:

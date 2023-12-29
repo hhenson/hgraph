@@ -157,7 +157,14 @@ class NodeImpl(Node):
                 # so we need to check that something has caused this to be scheduled.
                 if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
                     return
-        out = self.eval_fn(**self._kwargs)
+        if self.error_output:
+            try:
+                out = self.eval_fn(**self._kwargs)
+            except Exception as e:
+                out = None
+                self.error_output.apply_result((self.signature, e))
+        else:
+            out = self.eval_fn(**self._kwargs)
         if out is not None:
             self.output.apply_result(out)
         if scheduled:

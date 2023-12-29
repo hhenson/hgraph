@@ -38,8 +38,8 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
             nested_graph_input_ids[k], nested_graph_output_ids[k] = \
                 extract_stub_node_indices(v, self._resolved_signature_inner.time_series_args)
 
-        input_builder, output_builder = create_input_output_builders(node_signature)
+        input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
 
-        return PythonSwitchNodeBuilder(node_signature, scalars, input_builder, output_builder,
+        return PythonSwitchNodeBuilder(node_signature, scalars, input_builder, output_builder, error_builder,
                                        frozendict(nested_graphs), frozendict(nested_graph_input_ids),
                                        frozendict(nested_graph_output_ids), self._reload_on_ticked)
