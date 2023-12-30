@@ -45,8 +45,12 @@ class PythonGraphBuilder(GraphBuilder):
             src_node: Node = nodes[edge.src_node]
             dst_node: Node = nodes[edge.dst_node]
             # TODO: Should we normalise outputs to always be an UnnamedBundleOutput? For now if the path is tuple() assume
-            #  the output is the node output
-            output = src_node.output if edge.output_path == tuple() else self._extract_output(src_node,
+            #  the output is the node output [This would be useful dealing with special outputs like error.
+            if edge.output_path == (-1,):
+                # This is an error handler
+                output = src_node.error_output
+            else:
+                output = src_node.output if edge.output_path == tuple() else self._extract_output(src_node,
                                                                                               edge.output_path)
             input_ = self._extract_input(dst_node, edge.input_path)
             input_.bind_output(output)

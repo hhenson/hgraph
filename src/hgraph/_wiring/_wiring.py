@@ -754,6 +754,21 @@ class WiringPort:
     def rank(self) -> int:
         return self.node_instance.rank
 
+    @property
+    def __error__(self) -> "WiringPort":
+        if self.path  == tuple():
+            return ErrorWiringPort(self.node_instance, tuple([-1,]))
+        else:
+            raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
+
+
+@dataclass(frozen=True)
+class ErrorWiringPort(WiringPort):
+
+    @property
+    def __error__(self) -> "WiringPort":
+        raise CustomMessageWiringError("This is the error wiring Port")
+
 
 @dataclass(frozen=True)
 class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
@@ -833,6 +848,10 @@ class TSLWiringPort(WiringPort):
             msg = f"When resolving '{WIRING_CONTEXT.signature}' \n"
             f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}"
             raise IndexError(msg)
+
+        if item < 0:
+            # TODO: Temp fix for negative indices. This needs a different solution when we have non-fixed TSL impl
+            item = size_.SIZE + item
 
         if self.has_peer:
             path = self.path + (item,)

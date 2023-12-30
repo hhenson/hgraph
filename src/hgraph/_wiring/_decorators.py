@@ -121,7 +121,7 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
 def service(fn):
     """
     Decorates a function that describes the service signature. A service requires an implementation
-    to describes it behavior.
+    to describe its behavior.
     A service implementation must be registered by the graph.
 
     A service definition cannot take any scalar values except for the path.
