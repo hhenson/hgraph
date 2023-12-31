@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Mapping, TYPE_CHECKING, cast
 
+from hgraph._impl._builder._node_builder import PythonBaseNodeBuilder
 from hgraph._types._tsb_type import TimeSeriesBundleInput
 from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._impl._runtime._switch_node import PythonSwitchNodeImpl
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class PythonSwitchNodeBuilder(NodeBuilder):
+class PythonSwitchNodeBuilder(PythonBaseNodeBuilder):
     nested_graphs: Mapping[SCALAR, "GraphBuilder"] | None = None  # This is the generator function
     # The nodes representing the stub inputs in the nested graph.
     input_node_ids: Mapping[SCALAR, Mapping[str, int]] | None = None
@@ -32,16 +33,7 @@ class PythonSwitchNodeBuilder(NodeBuilder):
             reload_on_ticked=self.reload_on_ticked
         )
 
-        if self.input_builder:
-            ts_input: TimeSeriesBundleInput = cast(TimeSeriesBundleInput,
-                                                   self.input_builder.make_instance(owning_node=node))
-            node.input = ts_input
-
-        if self.output_builder:
-            ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
-            node.output = ts_output
-
-        return node
+        return self._build_inputs_and_outputs(node)
 
     def release_instance(self, item: PythonSwitchNodeImpl):
         """Nothing to be done here"""

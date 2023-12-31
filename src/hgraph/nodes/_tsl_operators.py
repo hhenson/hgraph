@@ -1,7 +1,7 @@
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS
 
 
-__all__ = ("flatten_tsl_values",)
+__all__ = ("flatten_tsl_values", "merge")
 
 
 @compute_node
@@ -18,3 +18,13 @@ def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool=False) 
     ```
     """
     return tsl.value if not all_valid or tsl.all_valid else None
+
+
+@compute_node
+def merge(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+    """
+    Selects and returns the first of the values that tick (are modified) in the list provided.
+    If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
+    list.
+    """
+    return next(tsl.modified_values()).delta_value

@@ -110,6 +110,11 @@ class NodeImpl(Node):
     def error_output(self) -> Optional["TimeSeriesOutput"]:
         return self._error_output
 
+    @error_output.setter
+    def error_output(self, value: "TimeSeriesOutput"):
+        self._error_output = value
+        # We may need to update kwargs if we choose to let error outputs be made available to the user.
+
     @property
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
         # noinspection PyTypeChecker

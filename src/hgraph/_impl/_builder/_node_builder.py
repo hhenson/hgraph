@@ -1,5 +1,6 @@
+from abc import ABC
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, TypeVar
 
 from hgraph._builder._node_builder import NodeBuilder
 from hgraph._impl._runtime._node import NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl, \
@@ -8,11 +9,32 @@ from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._types._tsb_type import TimeSeriesBundleInput
 
 __all__ = (
-"PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder", "PythonLastValuePullNodeImpl")
+    "PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder", "PythonLastValuePullNodeImpl",
+    "PythonBaseNodeBuilder")
+
+NODE = TypeVar("NODE", bound=NodeImpl)
+
+
+class PythonBaseNodeBuilder(NodeBuilder, ABC):
+
+    def _build_inputs_and_outputs(self, node: NODE) -> NODE:
+        if self.input_builder:
+            ts_input: TimeSeriesBundleInput = self.input_builder.make_instance(owning_node=node)
+            node.input = ts_input
+
+        if self.output_builder:
+            ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
+            node.output = ts_output
+
+        if self.error_builder:
+            ts_error_output: TimeSeriesOutput = self.error_builder.make_instance(owning_node=node)
+            node.error_output = ts_error_output
+
+        return node
 
 
 @dataclass(frozen=True)
-class PythonNodeBuilder(NodeBuilder):
+class PythonNodeBuilder(PythonBaseNodeBuilder):
     eval_fn: Callable = None  # The eval fn must be supplied.
     start_fn: Callable = None
     stop_fn: Callable = None
@@ -28,22 +50,14 @@ class PythonNodeBuilder(NodeBuilder):
             stop_fn=self.stop_fn
         )
 
-        if self.input_builder:
-            ts_input: TimeSeriesBundleInput = self.input_builder.make_instance(owning_node=node)
-            node.input = ts_input
-
-        if self.output_builder:
-            ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
-            node.output = ts_output
-
-        return node
+        return self._build_inputs_and_outputs(node)
 
     def release_instance(self, item: NodeImpl):
         """Nothing to do"""
 
 
 @dataclass(frozen=True)
-class PythonGeneratorNodeBuilder(NodeBuilder):
+class PythonGeneratorNodeBuilder(PythonBaseNodeBuilder):
     eval_fn: Callable = None  # This is the generator function
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> GeneratorNodeImpl:
@@ -55,18 +69,14 @@ class PythonGeneratorNodeBuilder(NodeBuilder):
             eval_fn=self.eval_fn
         )
 
-        if self.output_builder:
-            ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
-            node.output = ts_output
-
-        return node
+        return self._build_inputs_and_outputs(node)
 
     def release_instance(self, item: GeneratorNodeImpl):
         """Nothing to do"""
 
 
 @dataclass(frozen=True)
-class PythonPushQueueNodeBuilder(NodeBuilder):
+class PythonPushQueueNodeBuilder(PythonBaseNodeBuilder):
     eval_fn: Callable = None  # This is the generator function
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonPushQueueNodeImpl:
@@ -78,18 +88,14 @@ class PythonPushQueueNodeBuilder(NodeBuilder):
             eval_fn=self.eval_fn
         )
 
-        if self.output_builder:
-            ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
-            node.output = ts_output
-
-        return node
+        return self._build_inputs_and_outputs(node)
 
     def release_instance(self, item: PythonPushQueueNodeImpl):
         """Nothing to do"""
 
 
 @dataclass(frozen=True)
-class PythonLastValuePullNodeBuilder(NodeBuilder):
+class PythonLastValuePullNodeBuilder(PythonBaseNodeBuilder):
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonLastValuePullNodeImpl:
         node = PythonLastValuePullNodeImpl(
@@ -98,10 +104,8 @@ class PythonLastValuePullNodeBuilder(NodeBuilder):
             signature=self.signature,
             scalars=self.scalars,
         )
-        ts_output: TimeSeriesOutput = self.output_builder.make_instance(owning_node=node)
-        node.output = ts_output
 
-        return node
+        return self._build_inputs_and_outputs(node)
 
     def release_instance(self, item: PythonLastValuePullNodeImpl):
         """Nothing to do"""

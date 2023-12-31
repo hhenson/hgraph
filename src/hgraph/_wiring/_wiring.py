@@ -769,6 +769,12 @@ class ErrorWiringPort(WiringPort):
     def __error__(self) -> "WiringPort":
         raise CustomMessageWiringError("This is the error wiring Port")
 
+    @property
+    def output_type(self) -> HgTimeSeriesTypeMetaData:
+        from hgraph import NodeError
+        from hgraph import TS
+        return HgTimeSeriesTypeMetaData.parse(TS[NodeError])
+
 
 @dataclass(frozen=True)
 class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
