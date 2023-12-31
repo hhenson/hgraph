@@ -7,17 +7,16 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
+from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeSignature, Node, NodeScheduler
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
-from hgraph._impl._types._tss import PythonSetDelta
-
 
 if TYPE_CHECKING:
     from hgraph._types._ts_type import TimeSeriesInput, TimeSeriesOutput
