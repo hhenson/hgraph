@@ -1,13 +1,9 @@
 from dataclasses import dataclass
-from typing import Mapping, TYPE_CHECKING, cast
+from typing import Mapping, TYPE_CHECKING
 
 from hgraph._impl._builder._node_builder import PythonBaseNodeBuilder
-from hgraph._types._tsb_type import TimeSeriesBundleInput
-from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._impl._runtime._switch_node import PythonSwitchNodeImpl
 from hgraph._types._scalar_types import SCALAR
-from hgraph._builder._node_builder import NodeBuilder
-
 
 if TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
