@@ -1,11 +1,10 @@
 from dataclasses import dataclass
-from typing import List, Iterable
+from typing import Iterable
 
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import Node
-
 
 __all__ = ("PythonGraphBuilder",)
 

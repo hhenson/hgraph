@@ -166,7 +166,8 @@ class NodeImpl(Node):
                 out = self.eval_fn(**self._kwargs)
             except Exception as e:
                 out = None
-                self.error_output.apply_result((self.signature, e))
+                from hgraph._types._error_type import NodeError
+                self.error_output.apply_result(NodeError.capture_error(e, self))
         else:
             out = self.eval_fn(**self._kwargs)
         if out is not None:

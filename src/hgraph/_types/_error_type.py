@@ -22,9 +22,9 @@ class BackTrace:
     input_values: Mapping[str, str]
 
     def _arg_str(self, arg_name: str) -> str:
-        if arg_name in self.active_inputs:
+        if self.active_inputs and arg_name in self.active_inputs:
             arg_name = f"*{arg_name}*"
-        if arg_name in self.input_values:
+        if self.input_values and arg_name in self.input_values:
             return f"{arg_name}={self.input_values[arg_name]}"
         else:
             return arg_name
@@ -33,7 +33,8 @@ class BackTrace:
         indent = ' ' * 2 * level
         args = ", ".join(self._arg_str(arg) for arg in self.signature.args)
         s = f"{indent}{self.signature.name}({args})\n"
-        s += "\n".join(f"{arg}:\n{value._level_str(level + 1)}" for arg, value in self.active_inputs.items())
+        s += "\n".join(f"{arg}:\n{value._level_str(level + 1)}" for arg, value in
+                       (self.active_inputs.items() if self.active_inputs else tuple()))
         return s
 
     def __str__(self):
@@ -41,13 +42,14 @@ class BackTrace:
 
     @staticmethod
     def capture_back_trace(node: "Node", capture_values: bool = False, depth: int = 4) -> "BackTrace":
-        signature = BacktraceSignature(node.signature.name, node.signature.args)
+        signature = BacktraceSignature(node.signature.name, node.signature.args) if node else None
         if depth > 0:
             active_inputs = {}
             input_values = {}
-            for input_name, input in node.inputs.items():
+            for input_name, input in node.inputs.items() if node else tuple():
                 if input.modified:
-                    active_inputs[input_name] = BackTrace.capture_back_trace(node, capture_values, depth - 1)
+                    active_inputs[input_name] = BackTrace.capture_back_trace(
+                        input.output.owning_node if input.bound else None, capture_values, depth - 1)
                 if capture_values:
                     input_values[input_name] = (v := str(input.value))[0:256] + ("..." if len(v) > 255 else "")
             return BackTrace(signature=signature, active_inputs=active_inputs,
@@ -64,10 +66,8 @@ class NodeError(CompoundScalar):
     activation_back_trace: str
 
     def __str__(self):
-        s = f"NodeError: {self.error_msg}"
-        f"\nStack trace:\n"
-        s += '\n'.join(self.stack_trace)
-        s += f"\nActivation Back Trace:\n{self.activation_back_trace}"
+        s = (f"NodeError: {self.error_msg}\nStack trace:\n{self.stack_trace}"
+             f"\nActivation Back Trace:\n{self.activation_back_trace}")
         return s
 
     @staticmethod

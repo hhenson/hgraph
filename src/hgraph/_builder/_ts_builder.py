@@ -215,3 +215,14 @@ class TimeSeriesBuilderFactory:
     def make_output_builder(self, value_tp: "HgTimeSeriesTypeMetaData") -> TSOutputBuilder:
         """Return an instance of an output builder for the given type"""
 
+    def make_error_builder(self) -> TSOutputBuilder:
+        """
+        Return an instance of an output builder for the error type.
+        Since the error type is fixed, this does not require a type.
+        Additionally, since this is defined in terms of an abstract method,
+        we can implement directly.
+        """
+        from hgraph._types._ts_meta_data import HgTSTypeMetaData
+        from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
+        from hgraph._types._error_type import  NodeError
+        return self.make_output_builder(HgTSTypeMetaData(HgCompoundScalarType(NodeError)))

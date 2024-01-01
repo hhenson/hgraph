@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._runtime._node import NodeSignature
 
-
 __all__ = ("TsdReduceWiringNodeClass",)
 
 
@@ -32,5 +31,13 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             set(fn_signature.time_series_inputs.keys())
         )
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
-        return PythonReduceNodeBuilder(node_signature, scalars, input_builder, output_builder, error_builder,
-                                       inner_graph, tuple(input_node_ids.values()), output_node_id)
+        return PythonReduceNodeBuilder(
+            node_signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            inner_graph,
+            tuple(input_node_ids.values()),
+            output_node_id
+        )

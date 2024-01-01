@@ -8,8 +8,6 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 from frozendict import frozendict
 from more_itertools import nth
 
-from hgraph._types._ts_meta_data import HgTSTypeMetaData
-from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
 from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -353,10 +351,7 @@ def create_input_output_builders(node_signature: "NodeSignature") \
     else:
         input_builder = None
     output_builder = None if output_type is None else factory.make_output_builder(output_type)
-    from hgraph._types._error_type import NodeError
-    error_builder = factory.make_output_builder(
-        HgTSTypeMetaData(HgCompoundScalarType(NodeError))) if node_signature.capture_exception else None
-
+    error_builder = factory.make_error_builder() if node_signature.capture_exception else None
     return input_builder, output_builder, error_builder
 
 
@@ -455,11 +450,14 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonGeneratorWiringNodeClass must have a time series output"
-        return PythonGeneratorNodeBuilder(signature=node_signature,
-                                          scalars=scalars,
-                                          input_builder=None,
-                                          output_builder=factory.make_output_builder(output_type),
-                                          eval_fn=self.fn)
+        return PythonGeneratorNodeBuilder(
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=None,
+            output_builder=factory.make_output_builder(output_type),
+            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
+            eval_fn=self.fn
+        )
 
 
 class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
@@ -470,11 +468,14 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonPushQueueWiringNodeClass must have a time series output"
-        return PythonPushQueueNodeBuilder(signature=node_signature,
-                                          scalars=scalars,
-                                          input_builder=None,
-                                          output_builder=factory.make_output_builder(output_type),
-                                          eval_fn=self.fn)
+        return PythonPushQueueNodeBuilder(
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=None,
+            output_builder=factory.make_output_builder(output_type),
+            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
+            eval_fn=self.fn
+        )
 
 
 class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
@@ -489,7 +490,8 @@ class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
-            output_builder=factory.make_output_builder(output_type)
+            output_builder=factory.make_output_builder(output_type),
+            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
         )
 
 
@@ -642,12 +644,16 @@ class NonPeeredWiringNodeClass(StubWiringNodeClass):
         ...
 
 
-@dataclass(frozen=True, eq=False, unsafe_hash=True)  # We will write our own equality check, but still want a hash
+@dataclass(frozen=True, eq=False)  # We will write our own equality check, but still want a hash
 class WiringNodeInstance:
     node: WiringNodeClass
     resolved_signature: WiringNodeSignature
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
+    error_handler_registered: bool = False
+    capture_full_traceback: bool = False  # TODO: decide how to pick this up, probably via the error context?
+    capture_values: bool = False
+    _hash: int | None = None
 
     def __eq__(self, other):
         return type(self) is type(other) and self.node == other.node and \
@@ -655,7 +661,16 @@ class WiringNodeInstance:
             self.inputs.keys() == other.inputs.keys() and \
             all(v.__orig_eq__(other.inputs[k]) if hasattr(v, '__orig_eq__') else v == other.inputs[k]
                 for k, v in self.inputs.items())
-        # Deal with possible WiringPort equality issues due to operator overloading in the syntactical sugar wrappers
+        # Deals with possible WiringPort equality issues due to operator overloading in the syntactical sugar wrappers
+        # NOTE: This need performance improvement as it will currently have to walk the reachable graph from here.
+
+    def __hash__(self) -> int:
+        if self._hash is None:
+            super().__setattr__("_hash", hash((self.node, self.resolved_signature, self.rank, self.inputs)))
+        return self._hash
+
+    def mark_error_handler_registered(self):
+        super().__setattr__("error_handler_registered", True)
 
     @property
     def is_stub(self) -> bool:
@@ -678,7 +693,10 @@ class WiringNodeInstance:
             src_location=self.resolved_signature.src_location,
             active_inputs=self.resolved_signature.active_inputs,
             valid_inputs=self.resolved_signature.valid_inputs,
-            uses_scheduler=self.resolved_signature.uses_scheduler
+            uses_scheduler=self.resolved_signature.uses_scheduler,
+            capture_exception=self.error_handler_registered,
+            capture_full_traceback=self.capture_full_traceback,
+            capture_values=self.capture_values
         )
 
     def create_node_builder_and_edges(self, node_map: MutableMapping["WiringNodeInstance", int],
@@ -756,8 +774,9 @@ class WiringPort:
 
     @property
     def __error__(self) -> "WiringPort":
-        if self.path  == tuple():
-            return ErrorWiringPort(self.node_instance, tuple([-1,]))
+        if self.path == tuple():
+            self.node_instance.mark_error_handler_registered()
+            return ErrorWiringPort(self.node_instance, tuple([-1, ]))
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
 

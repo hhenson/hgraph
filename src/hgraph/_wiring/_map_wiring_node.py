@@ -44,8 +44,17 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             set(node_signature.time_series_inputs.keys()) | {'key'}
         )
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
-        return PythonTsdMapNodeBuilder(node_signature, scalars, input_builder, output_builder, error_builder,
-                                       inner_graph, input_node_ids, output_node_id, self.signature.multiplexed_args)
+        return PythonTsdMapNodeBuilder(
+            node_signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            inner_graph,
+            input_node_ids,
+            output_node_id,
+            self.signature.multiplexed_args
+        )
 
 
 class TslMapWiringNodeClass(BaseWiringNodeClass):
