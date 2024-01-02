@@ -24,7 +24,10 @@ Version 0.0.6 (27-12-2023)
 
 * Add feedback operator.
 
-Version 0.0.7 (TBD)
--------------------
+Version 0.0.7 (02-01-2024)
+--------------------------
 
 * Add documentation describing PUSH Queues.
+* Add first pass support for error handling
+* Add a few small node extensions (e.g. emwa)
+
