@@ -64,14 +64,17 @@ class NodeError(CompoundScalar):
     error_msg: str
     stack_trace: str
     activation_back_trace: str
+    additional_context: str = None
 
     def __str__(self):
-        s = (f"NodeError: {self.error_msg}\nStack trace:\n{self.stack_trace}"
+        s = (f"{self.signature_name}"
+             f"{' :: ' + self.additional_context if self.additional_context else ''}\n"
+             f"NodeError: {self.error_msg}\nStack trace:\n{self.stack_trace}"
              f"\nActivation Back Trace:\n{self.activation_back_trace}")
         return s
 
     @staticmethod
-    def capture_error(exception: Exception, node: "Node"):
+    def capture_error(exception: Exception, node: "Node", message: str = None):
         import traceback
         back_trace = BackTrace.capture_back_trace(node, capture_values=node.signature.capture_values,
                                                   depth=5 if node.signature.capture_full_traceback else 1)

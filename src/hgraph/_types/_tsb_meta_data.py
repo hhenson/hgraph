@@ -79,7 +79,9 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
 
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
         if self.has_references:
-            return HgTimeSeriesSchemaTypeMetaData(self.py_type.dereference())
+            schema = {k: v.dereference() for k, v in self.meta_data_schema.items()}
+            from hgraph import ts_schema
+            return HgTimeSeriesSchemaTypeMetaData(ts_schema(**schema))
         else:
             return self
 

@@ -78,6 +78,9 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             self._create(key)
         return self._ts_values[key]
 
+    def get(self, key: K) -> V | None:
+        return self._ts_values.get(key)
+
     @abstractmethod
     def _create(self, key: K):
         """ Implemented by subclasses to create a new time series at this index position"""
@@ -195,6 +198,13 @@ class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[
 
     def __setitem__(self, key: K, value: "SCALAR"):
         self._ts_values[key].value = value
+
+    def __delitem__(self, key: K):
+        del self._ts_values[key]
+
+    def pop(self, key: K) -> V:
+        """Deletes the key (if it exists) and returns the value."""
+        return self._ts_values.pop(key)
 
     value: frozendict
 

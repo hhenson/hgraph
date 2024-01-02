@@ -1,19 +1,20 @@
 from contextlib import contextmanager
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Union
 
 from hgraph._types._error_type import NodeError
+from hgraph._types._scalar_types import SCALAR, SIZE
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
+from hgraph._types._tsd_type import TSD
+from hgraph._types._tsl_type import TSL
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring import WiringPort
-
 
 __all__ = ("ErrorTimeSeriesBuilder", "error_context", "error_time_series")
 
 
 class ErrorTimeSeriesBuilder:
-
     _INSTANCE: List["ErrorTimeSeriesBuilder"] = []
 
     def __init__(self):
@@ -51,5 +52,6 @@ def error_context():
         error_builder._output = merge(errors)
 
 
-def error_time_series(ts: TIME_SERIES_TYPE) -> TS[NodeError]:
+def error_time_series(ts: TIME_SERIES_TYPE) -> Union[
+    TSL[TS[NodeError], SIZE], TSD[SCALAR, TS[NodeError]], TS[NodeError]]:
     return ts.__error__

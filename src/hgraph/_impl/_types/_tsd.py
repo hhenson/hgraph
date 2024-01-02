@@ -87,6 +87,13 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         for observer in self._key_observers:
             observer.on_key_removed(k)
 
+    def pop(self, key: K) -> V:
+        v = None
+        if key in self._ts_values:
+            v = self._ts_values[key]
+            del self._ts_values[key]
+        return v
+
     def invalidate(self):
         for v in self.values():
             v.invalidate()

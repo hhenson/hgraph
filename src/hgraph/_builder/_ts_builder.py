@@ -4,8 +4,10 @@ from typing import Optional, TYPE_CHECKING
 
 from _pytest.nodes import Node
 
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._builder._input_builder import InputBuilder
 from hgraph._builder._output_builder import OutputBuilder
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
@@ -215,14 +217,14 @@ class TimeSeriesBuilderFactory:
     def make_output_builder(self, value_tp: "HgTimeSeriesTypeMetaData") -> TSOutputBuilder:
         """Return an instance of an output builder for the given type"""
 
-    def make_error_builder(self) -> TSOutputBuilder:
+    def make_error_builder(self, error_tp: "HgTimeSeriesTypeMetaData") -> TSOutputBuilder:
         """
         Return an instance of an output builder for the error type.
         Since the error type is fixed, this does not require a type.
         Additionally, since this is defined in terms of an abstract method,
         we can implement directly.
+
+        The node may require a collection type output. The is_tsd and scalar_tp arguments should be provided
+        if the node requires a tsd or is_tsl and size_tp arguments are required if the node requires a list type.
         """
-        from hgraph._types._ts_meta_data import HgTSTypeMetaData
-        from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
-        from hgraph._types._error_type import  NodeError
-        return self.make_output_builder(HgTSTypeMetaData(HgCompoundScalarType(NodeError)))
+        return self.make_output_builder(error_tp)

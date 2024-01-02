@@ -171,3 +171,4 @@ def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
     Computes the difference between the current value and the previous value in the time-series.
     """
     return  ts - lag(ts, 1)
+

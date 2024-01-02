@@ -95,6 +95,12 @@ class WiringNodeClass:
         """
         raise NotImplementedError()
 
+    @property
+    def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
+        from hgraph import NodeError
+        from hgraph import TS
+        return HgTimeSeriesTypeMetaData.parse(TS[NodeError])
+
 
 def extract_kwargs(signature: WiringNodeSignature, *args,
                    _ignore_defaults: bool = False,
@@ -336,7 +342,8 @@ class BaseWiringNodeClass(WiringNodeClass):
         return self
 
 
-def create_input_output_builders(node_signature: "NodeSignature") \
+def create_input_output_builders(
+        node_signature: "NodeSignature", error_type: "HgTimeSeriesTypeMetaData") \
         -> tuple["InputBuilder", "OutputBuilder", "OutputBuilder"]:
     from hgraph import TimeSeriesBuilderFactory
     factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
@@ -351,7 +358,7 @@ def create_input_output_builders(node_signature: "NodeSignature") \
     else:
         input_builder = None
     output_builder = None if output_type is None else factory.make_output_builder(output_type)
-    error_builder = factory.make_error_builder() if node_signature.capture_exception else None
+    error_builder = factory.make_error_builder(error_type) if node_signature.capture_exception else None
     return input_builder, output_builder, error_builder
 
 
@@ -499,7 +506,8 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder import PythonNodeBuilder
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
+        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
+                                                                                    self.error_output_type)
 
         return PythonNodeBuilder(signature=node_signature,
                                  scalars=scalars,
@@ -699,6 +707,10 @@ class WiringNodeInstance:
             capture_values=self.capture_values
         )
 
+    @property
+    def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
+        return self.node.error_output_type
+
     def create_node_builder_and_edges(self, node_map: MutableMapping["WiringNodeInstance", int],
                                       nodes: ["NodeBuilder"]) -> tuple["NodeBuilder", set["Edge"]]:
         """Create an runtime node instance"""
@@ -790,9 +802,7 @@ class ErrorWiringPort(WiringPort):
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
-        from hgraph import NodeError
-        from hgraph import TS
-        return HgTimeSeriesTypeMetaData.parse(TS[NodeError])
+        return self.node_instance.error_output_type
 
 
 @dataclass(frozen=True)

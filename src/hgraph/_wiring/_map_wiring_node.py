@@ -43,7 +43,8 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             inner_graph,
             set(node_signature.time_series_inputs.keys()) | {'key'}
         )
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature)
+        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
+                                                                                    self.error_output_type)
         return PythonTsdMapNodeBuilder(
             node_signature,
             scalars,
@@ -55,6 +56,12 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             output_node_id,
             self.signature.multiplexed_args
         )
+
+    @property
+    def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
+        from hgraph import NodeError, TS, TSD
+        from hgraph import HgTimeSeriesTypeMetaData
+        return HgTimeSeriesTypeMetaData.parse(TSD[self.signature.key_tp.py_type, TS[NodeError]])
 
 
 class TslMapWiringNodeClass(BaseWiringNodeClass):

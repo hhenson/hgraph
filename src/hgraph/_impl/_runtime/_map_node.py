@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
+from hgraph._types._ts_type import TS
+from hgraph._types._error_type import NodeError
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \
     PythonNestedNodeImpl
@@ -94,6 +96,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
 
     def _remove_graph(self, key: SCALAR):
         """Un-wire graph and schedule for removal"""
+        if self.signature.capture_exception:
+            # Remove the error output associated to the graph if there is one.
+            cast(TSD_OUT[SCALAR, TS[NodeError]], self.error_output).pop(key)
         graph: Graph = self._active_graphs.pop(key)
         graph.stop()
         graph.dispose()
@@ -101,7 +106,17 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
     def _evaluate_graph(self, key: SCALAR):
         """Evaluate the graph for this key"""
         graph: Graph = self._active_graphs[key]
-        graph.evaluate_graph()
+        # TODO: This can be done at start time or initialisation time (decide on behaviour) and then we don't
+        # have to pay for the if.
+        if self.signature.capture_exception:
+            try:
+                graph.evaluate_graph()
+            except Exception as e:
+                error_output = cast(TSD[SCALAR, TS[NodeError]], self.error_output).get_or_create(key)
+                node_error = NodeError.capture_error(exception=e, node=self, message=f"key: {key}")
+                error_output.value = node_error
+        else:
+            graph.evaluate_graph()
 
     def _wire_graph(self, key: SCALAR, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
