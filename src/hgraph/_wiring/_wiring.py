@@ -659,7 +659,7 @@ class WiringNodeInstance:
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
     error_handler_registered: bool = False
-    capture_full_traceback: bool = False  # TODO: decide how to pick this up, probably via the error context?
+    trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
     _hash: int | None = None
 
@@ -677,8 +677,10 @@ class WiringNodeInstance:
             super().__setattr__("_hash", hash((self.node, self.resolved_signature, self.rank, self.inputs)))
         return self._hash
 
-    def mark_error_handler_registered(self):
+    def mark_error_handler_registered(self, trace_back_depth: int = 1, capture_values: bool = False):
         super().__setattr__("error_handler_registered", True)
+        super().__setattr__("trace_back_depth", trace_back_depth)
+        super().__setattr__("capture_values", capture_values)
 
     @property
     def is_stub(self) -> bool:
@@ -703,7 +705,7 @@ class WiringNodeInstance:
             valid_inputs=self.resolved_signature.valid_inputs,
             uses_scheduler=self.resolved_signature.uses_scheduler,
             capture_exception=self.error_handler_registered,
-            capture_full_traceback=self.capture_full_traceback,
+            trace_back_depth=self.trace_back_depth,
             capture_values=self.capture_values
         )
 
@@ -784,10 +786,9 @@ class WiringPort:
     def rank(self) -> int:
         return self.node_instance.rank
 
-    @property
-    def __error__(self) -> "WiringPort":
+    def __error__(self, trace_back_depth: int = 1, capture_values: bool = False) -> "WiringPort":
         if self.path == tuple():
-            self.node_instance.mark_error_handler_registered()
+            self.node_instance.mark_error_handler_registered(trace_back_depth, capture_values)
             return ErrorWiringPort(self.node_instance, tuple([-1, ]))
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
@@ -796,8 +797,7 @@ class WiringPort:
 @dataclass(frozen=True)
 class ErrorWiringPort(WiringPort):
 
-    @property
-    def __error__(self) -> "WiringPort":
+    def __error__(self, *args, **kwargs) -> "WiringPort":
         raise CustomMessageWiringError("This is the error wiring Port")
 
     @property

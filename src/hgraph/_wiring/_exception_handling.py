@@ -11,7 +11,7 @@ from hgraph._types._tsl_type import TSL
 if TYPE_CHECKING:
     from hgraph._wiring._wiring import WiringPort
 
-__all__ = ("ErrorTimeSeriesBuilder", "error_context", "error_time_series")
+__all__ = ("ErrorTimeSeriesBuilder", "error_context", "exception_time_series")
 
 
 class ErrorTimeSeriesBuilder:
@@ -52,6 +52,6 @@ def error_context():
         error_builder._output = merge(errors)
 
 
-def error_time_series(ts: TIME_SERIES_TYPE) -> Union[
+def exception_time_series(ts: TIME_SERIES_TYPE, trace_back_depth: int = 1, capture_values: bool = False) -> Union[
     TSL[TS[NodeError], SIZE], TSD[SCALAR, TS[NodeError]], TS[NodeError]]:
-    return ts.__error__
+    return ts.__error__(trace_back_depth=trace_back_depth, capture_values=capture_values)

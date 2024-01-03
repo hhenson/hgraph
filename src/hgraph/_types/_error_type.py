@@ -23,7 +23,8 @@ class BackTrace:
 
     def _arg_str(self, arg_name: str) -> str:
         if self.active_inputs and arg_name in self.active_inputs:
-            arg_name = f"*{arg_name}*"
+            arg_name = f"*{arg_name}*" + f"={self.input_values[arg_name]}" if (
+                        self.input_values and arg_name in self.input_values) else ''
         if self.input_values and arg_name in self.input_values:
             return f"{arg_name}={self.input_values[arg_name]}"
         else:
@@ -33,7 +34,7 @@ class BackTrace:
         indent = ' ' * 2 * level
         args = ", ".join(self._arg_str(arg) for arg in self.signature.args)
         s = f"{indent}{self.signature.name}({args})\n"
-        s += "\n".join(f"{arg}:\n{value._level_str(level + 1)}" for arg, value in
+        s += "\n".join(f"{indent}{arg}:\n{value._level_str(level + 1)}" for arg, value in
                        (self.active_inputs.items() if self.active_inputs else tuple()))
         return s
 
@@ -77,7 +78,7 @@ class NodeError(CompoundScalar):
     def capture_error(exception: Exception, node: "Node", message: str = None):
         import traceback
         back_trace = BackTrace.capture_back_trace(node, capture_values=node.signature.capture_values,
-                                                  depth=5 if node.signature.capture_full_traceback else 1)
+                                                  depth=node.signature.trace_back_depth)
         error = NodeError(
             signature_name=node.signature.signature,
             error_msg=str(exception),

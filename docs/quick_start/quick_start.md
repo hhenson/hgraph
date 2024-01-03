@@ -58,3 +58,5 @@ works in REAL_TIME mode, namely the PUSH source node.
 
 Here is an example of the [push source node](push_source_node.md) in python.
 
+Of course there is also the problem of dealing with exceptions.
+Here is how hgraph can [capture and integrate exception handling](exception_handling.md).

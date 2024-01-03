@@ -40,7 +40,7 @@ class NodeSignature:
     valid_inputs: Optional[frozenset[str]] = None
     uses_scheduler: bool = False
     capture_exception: bool = False
-    capture_full_traceback: bool = False
+    trace_back_depth: int = 1
     capture_values: bool = False
 
     @property

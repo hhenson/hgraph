@@ -1,4 +1,5 @@
 from hgraph._wiring._decorators import *
+from hgraph._wiring._exception_handling import *
 from hgraph._wiring._graph_builder import *
 from hgraph._wiring._map_wiring_node import *
 from hgraph._wiring._reduce_wiring_node import *
