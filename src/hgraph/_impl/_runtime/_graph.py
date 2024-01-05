@@ -147,7 +147,7 @@ class PythonGraph(Graph):
         for node in self._nodes:
             engine.notify_before_stop_node(node)
             node.stop()
-            engine.notify_before_start_node(node)
+            engine.notify_after_stop_node(node)
         engine.notify_after_stop_graph(self)
 
     def stop_subgraph(self, start: int, end: int):
