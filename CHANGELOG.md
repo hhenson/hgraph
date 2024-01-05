@@ -31,3 +31,8 @@ Version 0.0.7 (02-01-2024)
 * Add first pass support for error handling
 * Add a few small node extensions (e.g. emwa)
 
+Version 0.0.8 (05-01-2024)
+--------------------------
+
+* Add try_except and exception_time_series to deal with exception management in graph.
+

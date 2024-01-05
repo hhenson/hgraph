@@ -35,7 +35,6 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         self._count: int = 0
 
     def eval(self):
-        self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
         # 1. If the key has ticked we need to create a new graph.
         # (if the value has changed or if reload_on_ticked is True)
         key: TS[SCALAR] = self._kwargs['key']

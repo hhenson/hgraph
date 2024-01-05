@@ -1,6 +1,8 @@
 from hashlib import shake_256
 from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView
 
+from frozendict import frozendict
+
 if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData
 
@@ -16,9 +18,9 @@ class AbstractSchema:
     There are two key implementations, namely the ``CompoundScalar`` and the ``TimeSeriesSchema``. These provide
     a scalar and time-series aggregated type information.
     """
-    __meta_data_schema__: dict[str, "HgTypeMetaData"] = {}
+    __meta_data_schema__: frozendict[str, "HgTypeMetaData"] = {}
     __resolved__: dict[str, Type["AbstractSchema"]] = {}  # Cache of resolved classes
-    __partial_resolution__: dict[TypeVar, Type]
+    __partial_resolution__: frozendict[TypeVar, Type]
     __partial_resolution_parent__: Type["AbstractSchema"]
 
     @classmethod
@@ -50,15 +52,16 @@ class AbstractSchema:
         super().__init_subclass__(**kwargs)
         from hgraph._types._type_meta_data import ParseError
 
-        cls.__meta_data_schema__ = dict(cls.__meta_data_schema__)
+        schema = dict(cls.__meta_data_schema__)
         for k, v in cls.__annotations__.items():
             s = cls._parse_type(v)
             if s is None:
                 raise ParseError(f"When parsing '{cls}', unable to parse item {k} with value {v}")
-            if k in cls.__meta_data_schema__ and not (s_p := cls.__meta_data_schema__[k]).is_convertable(s):
+            if k in schema and not (s_p := schema[k]).is_convertable(s):
                 raise ParseError(f"Attribute: '{k}' in '{cls}' is already defined in a parent as '{str(s_p)}'"
                                  f" but attempted to be redefined as '{str(s)}")
-            cls.__meta_data_schema__[k] = s
+            schema[k] = s
+        cls.__meta_data_schema__ = frozendict(schema)
 
     @classmethod
     def _root_cls(cls) -> Type["AbstractSchema"]:
@@ -74,7 +77,7 @@ class AbstractSchema:
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             r_cls = type(cls_name, (root_cls,), {})
-            r_cls.__meta_data_schema__ = schema
+            r_cls.__meta_data_schema__ = frozendict(schema)
             cls.__resolved__[cls_name] = r_cls
         return r_cls
 
@@ -85,7 +88,7 @@ class AbstractSchema:
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             r_cls = type(cls_name, (cls,), {})
-            r_cls.__partial_resolution__ = resolution_dict
+            r_cls.__partial_resolution__ = frozendict(resolution_dict)
             r_cls.__parameters__ = cls.__parameters__
             r_cls.__partial_resolution_parent__ = cls._root_cls()
             cls.__resolved__[cls_name] = r_cls

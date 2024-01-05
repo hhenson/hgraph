@@ -28,19 +28,19 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             return
 
         if isinstance(ts, TimeSeriesOutput):  # constructing from sn output
-            self.output = ts
+            self._output = ts
             tp = type(ts)
             has_peer = True
         elif isinstance(ts, TimeSeriesReferenceInput):  # reference input gets the value from a ref output, copy construct
             ref = ts.value
             if has_peer := ref.has_peer:
-                self.output = ref.output
+                self._output = ref.output
             else:
                 self.items = ref.items
             self.has_peer = ref.has_peer
             tp = ref.tp
         elif has_peer := ts.has_peer:  # any input with a peer, construct from its output
-            self.output = ts.output
+            self._output = ts.output
             tp = type(ts)
         else:
             # Rely on the assumption that all time-series' that support peering are also iterable.
@@ -52,6 +52,10 @@ class PythonTimeSeriesReference(TimeSeriesReference):
         self.has_peer = has_peer
         self.tp = tp
         self.valid = True
+
+    @property
+    def output(self) -> TimeSeriesOutput:
+        return self._output
 
     def bind_input(self, ts_input: TimeSeriesInput):
         if not self.valid:

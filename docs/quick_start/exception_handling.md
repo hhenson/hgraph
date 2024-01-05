@@ -4,7 +4,10 @@ Exception Handling
 There are two key mechanisms to capture exceptions in the graph, 
 one is to capture an exception on a specific node, the other is
 to create the equivalent of a ``try`` ``catch`` block which will
-capture the exceptions of the nodes included in the block.
+capture the exceptions of the nodes included in a graph.
+
+exception_time_series
+---------------------
 
 The single node approach will effectively wrap the evaluation function
 with a try/catch block and then convert the error into a ``NodeError``
@@ -78,3 +81,19 @@ def capture_an_exception():
     debug_print("exception", e)
 ```
 
+try_except
+----------
+
+The ``try_except`` function effectively wraps a graph into a ``try`` \ ``except`` block.
+The return of the function is a TSB with a schema containing 'exception' and 'out' where ``exception``
+is a time-series of ``ErrorNode`` (in the same way as ``exception_time_series``). The ``out`` is the time-series
+type of the wrapped graph.
+
+If ``try_except`` is given a node, it will effectively delegate to ``exception_time_series``, so you can use
+this for all use-cases, the key difference being how the output is returned.
+
+Here is an example using this:
+
+```python
+
+```

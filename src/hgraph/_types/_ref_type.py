@@ -16,6 +16,11 @@ class TimeSeriesReference:
     def bind_input(self, input_: TimeSeriesInput):
         """Binds given input to the value of this reference"""
 
+    @property
+    @abstractmethod
+    def output(self) -> TimeSeriesOutput:
+        """The output associated to this reference"""
+
 
 class TimeSeriesReferenceOutput(TimeSeriesOutput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], Generic[TIME_SERIES_TYPE]):
     """

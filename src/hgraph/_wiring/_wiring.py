@@ -309,7 +309,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                     rank = max(v.rank for k, v in kwargs_.items() if
                                v is not None and k in self.signature.time_series_args) + 1
                 case _:
-                    rank = -1
+                    raise CustomMessageWiringError(
+                        f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")
 
             wiring_node_instance = WiringNodeInstance(self, resolved_signature, frozendict(kwargs_), rank=rank)
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Mapping, TYPE_CHECKING
 
+from hgraph._types._ref_type import TimeSeriesReference
 from hgraph._types._scalar_types import CompoundScalar
 
 if TYPE_CHECKING:
@@ -23,16 +24,18 @@ class BackTrace:
 
     def _arg_str(self, arg_name: str) -> str:
         if self.active_inputs and arg_name in self.active_inputs:
-            arg_name = f"*{arg_name}*" + f"={self.input_values[arg_name]}" if (
-                        self.input_values and arg_name in self.input_values) else ''
+            return f"*{arg_name}*" + (f"={self.input_values[arg_name]}" if (
+                        self.input_values and arg_name in self.input_values) else '')
         if self.input_values and arg_name in self.input_values:
             return f"{arg_name}={self.input_values[arg_name]}"
         else:
             return arg_name
 
     def _level_str(self, level: int = 0) -> str:
+        if self.signature is None:
+            return ""
         indent = ' ' * 2 * level
-        args = ", ".join(self._arg_str(arg) for arg in self.signature.args)
+        args = ", ".join(self._arg_str(arg) for arg in self.signature.args if not arg.startswith("_"))
         s = f"{indent}{self.signature.name}({args})\n"
         s += "\n".join(f"{indent}{arg}:\n{value._level_str(level + 1)}" for arg, value in
                        (self.active_inputs.items() if self.active_inputs else tuple()))
@@ -49,8 +52,12 @@ class BackTrace:
             input_values = {}
             for input_name, input in node.inputs.items() if node else tuple():
                 if input.modified:
-                    active_inputs[input_name] = BackTrace.capture_back_trace(
-                        input.output.owning_node if input.bound else None, capture_values, depth - 1)
+                    node = None
+                    if input.bound:
+                        node = input.output.owning_node
+                    elif isinstance(input.value, TimeSeriesReference) and input.value.output:
+                        node = input.value.output.owning_node
+                    active_inputs[input_name] = BackTrace.capture_back_trace(node, capture_values, depth - 1)
                 if capture_values:
                     input_values[input_name] = (v := str(input.value))[0:256] + ("..." if len(v) > 255 else "")
             return BackTrace(signature=signature, active_inputs=active_inputs,

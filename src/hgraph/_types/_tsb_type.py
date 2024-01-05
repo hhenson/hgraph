@@ -28,11 +28,6 @@ class TimeSeriesSchema(AbstractSchema):
     it's point-in-time value.
     """
 
-    @classmethod
-    def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
-        from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-        return HgTimeSeriesTypeMetaData.parse(tp)
-
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
 

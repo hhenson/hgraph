@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS
-from hgraph._runtime._map import _build_map_wiring_node_and_inputs
+from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph.nodes import add_, debug_print, const
 from hgraph.test import eval_node

@@ -203,7 +203,7 @@ class HgInjectableType(HgScalarTypeMetaData):
         }.get(value_tp, lambda: None)()
 
 
-@dataclass
+@dataclass(frozen=True)
 class Injector:
     fn: Callable
 

@@ -32,10 +32,10 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return self.meta_data_schema[item]
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return (tp_ := type(tp)) is HgTsTypeVarTypeMetaData or  \
+        return (tp_ := type(tp)) is HgTsTypeVarTypeMetaData or \
             (tp_ is HgTimeSeriesSchemaTypeMetaData and \
-            self.meta_data_schema.keys() == tp.meta_data_schema.keys() and \
-            all( v.matches(w_v) for v, w_v in zip(self.meta_data_schema.values(), tp.meta_data_schema.values())))
+             self.meta_data_schema.keys() == tp.meta_data_schema.keys() and \
+             all(v.matches(w_v) for v, w_v in zip(self.meta_data_schema.values(), tp.meta_data_schema.values())))
 
     @property
     def meta_data_schema(self) -> dict[str, "HgTimeSeriesTypeMetaData"]:
@@ -93,7 +93,8 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         return None
 
     def __eq__(self, o: object) -> bool:
-        return type(o) is HgTimeSeriesSchemaTypeMetaData and self.py_type == o.py_type
+        return type(o) is HgTimeSeriesSchemaTypeMetaData and \
+            self.meta_data_schema == o.meta_data_schema
 
     def __str__(self) -> str:
         return self.py_type.__name__
@@ -102,7 +103,7 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         return f'HgTimeSeriesSchemaTypeMetaData({repr(self.py_type)})'
 
     def __hash__(self) -> int:
-        return hash(self.py_type)
+        return hash(self.meta_data_schema)
 
 
 class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
@@ -166,7 +167,7 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         return f'TSB[{str(self.bundle_schema_tp)}]'
 
     def __repr__(self) -> str:
-        return f'HgTSTypeMetaData({repr(self.bundle_schema_tp)})'
+        return f'HgTSBTypeMetaData({repr(self.bundle_schema_tp)})'
 
     def __hash__(self) -> int:
         from hgraph._types import TSB

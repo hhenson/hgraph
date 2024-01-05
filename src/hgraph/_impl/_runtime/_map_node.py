@@ -9,7 +9,7 @@ from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluati
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
-from hgraph._runtime._map import KEYS_ARG
+from hgraph._wiring._map import KEYS_ARG
 from hgraph._runtime._node import Node, NodeSignature
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
