@@ -91,7 +91,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         v = None
         if key in self._ts_values:
             v = self._ts_values[key]
-            del self._ts_values[key]
+            del self[key]
         return v
 
     def invalidate(self):

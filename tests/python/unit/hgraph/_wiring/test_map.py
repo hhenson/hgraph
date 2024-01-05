@@ -1,10 +1,11 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS
+from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS, \
+    REMOVE
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
-from hgraph.nodes import add_, debug_print, const
+from hgraph.nodes import add_, debug_print, const, pass_through
 from hgraph.test import eval_node
 
 
@@ -151,7 +152,6 @@ def _test_tsd_map(map_test):
     assert out == [{'a': 3}, {'b': 5}]
 
 
-#@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_map_wiring():
     @graph
     def map_test(index: TSL[TS[bool], SIZE], ts1: TSL[TS[int], SIZE], ts2: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
@@ -161,7 +161,6 @@ def test_tsl_map_wiring():
     _test_tsl_map(map_test)
 
 
-#@pytest.mark.xfail(reason="Not implemented", strict=True)
 def test_tsl_map_wiring_no_key():
     @graph
     def map_test(index: TSL[TS[bool], SIZE], ts1: TSL[TS[int], SIZE], ts2: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
@@ -225,3 +224,21 @@ def test_tsl_reduce(inputs, size, expected):
         return reduce(add_, tsl, 0)
 
     assert eval_node(reduce_test, inputs, resolution_dict={'tsl': TSL[TS[int], size]}) == expected
+
+
+@pytest.mark.parametrize(
+    ["inputs", "expected"],
+    [
+        [[{0: 1, 1: 2}, {1: REMOVE_IF_EXISTS}, {1: 3}],
+         [{0: 1, 1: 2}, {1: REMOVE}, {1: 3}]],
+        [[{0: 1}, {1: 2}, {0: REMOVE_IF_EXISTS, 1: REMOVE_IF_EXISTS}, {2: 3}],
+         [{0: 1}, {1: 2}, {0: REMOVE, 1: REMOVE}, {2: 3}]]
+    ]
+)
+def test_tsd_map_life_cycle(inputs, expected):
+    @graph
+    def map_graph(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(pass_through, tsd)
+
+    out = eval_node(map_graph, inputs)
+    assert out == expected

@@ -100,6 +100,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             # Remove the error output associated to the graph if there is one.
             cast(TSD_OUT[SCALAR, TS[NodeError]], self.error_output).pop(key)
         graph: Graph = self._active_graphs.pop(key)
+        self._un_wire_graph(key, graph)
         graph.stop()
         graph.dispose()
 
@@ -117,6 +118,11 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 error_output.value = node_error
         else:
             graph.evaluate_graph()
+
+    def _un_wire_graph(self, key: SCALAR, graph: Graph):
+        if self.output_node_id:
+            # Replace the nodes output with the map node's output for the key
+            del self.output[key]
 
     def _wire_graph(self, key: SCALAR, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
