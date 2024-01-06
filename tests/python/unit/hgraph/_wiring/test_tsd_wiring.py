@@ -1,4 +1,4 @@
-from hgraph import compute_node, TS, TSD, graph, TSS
+from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE
 from hgraph.test import eval_node
 
 
@@ -12,9 +12,17 @@ def test_tsd():
 
 
 def test_tsd_key_set():
-
     @graph
     def _extract_key_set(tsd: TSD[str, TS[int]]) -> TSS[str]:
         return tsd.key_set
 
     assert eval_node(_extract_key_set, tsd=[{'a': 1}, {'b': 2}]) == [{'a'}, {'b'}]
+
+
+def test_tsd_get_item():
+    @graph
+    def main(tsd: TSD[str, TS[int]], k: TS[str]) -> TS[int]:
+        return tsd[k]
+
+    assert eval_node(main, [{"a": 1}, {"b": 2}, {"b": 3}, {}, {"a": REMOVE}], ["b", None, None, "a"]) \
+           == [None, 2, 3, 1, None]

@@ -1,5 +1,5 @@
 from abc import abstractmethod, ABC
-from typing import Generic, Iterable, Mapping, Union, Any, TYPE_CHECKING, Tuple
+from typing import Generic, Iterable, Union, Any, TYPE_CHECKING, Tuple
 
 from frozendict import frozendict
 
@@ -8,11 +8,11 @@ from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput
 from hgraph._types._typing_utils import Sentinel
 
 if TYPE_CHECKING:
-    from hgraph import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData, SCALAR, TimeSeriesSet
+    from hgraph import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData, SCALAR, TimeSeriesSet, \
+        TimeSeriesReferenceOutput, K, V
 
 __all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE",
            "REMOVE_IF_EXISTS", "KEY_SET_ID")
-
 
 REMOVE = Sentinel("REMOVE")
 REMOVE_IF_EXISTS = Sentinel("REMOVE_IF_EXISTS")
@@ -25,7 +25,8 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
     A TSD is a collection of time-series values keyed off of a scalar key K.
     """
 
-    def __init__(self, __key_set__: "TimeSeriesSet", __key_tp__: "HgScalarTypeMetaData", __value_tp__: "HgTimeSeriesTypeMetaData"):
+    def __init__(self, __key_set__: "TimeSeriesSet", __key_tp__: "HgScalarTypeMetaData",
+                 __value_tp__: "HgTimeSeriesTypeMetaData"):
         Generic.__init__(self)
         TimeSeriesDeltaValue.__init__(self)
         TimeSeriesIterable.__init__(self)
@@ -205,6 +206,19 @@ class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[
     def pop(self, key: K) -> V:
         """Deletes the key (if it exists) and returns the value."""
         return self._ts_values.pop(key)
+
+    def get_ref(self, key: K, requester: Any) -> "TimeSeriesReferenceOutput":
+        """
+        Returns a reference time-series output for the key supplied, this will not actually create the time-series.
+        This is useful to subscribe to a time-series where the coming and going of the time-series can be tracked.
+        The requester is provided to assist with tracking the reference count, many requesters can request a key
+        and when they are no longer interested they will release the reference. We need to ensure that we only remove
+        the reference once all requesters have gone. We could just leave them dangling, but that could cause a memory
+        leak. When requesting this from the input perspective, the reference is not provided.
+        """
+
+    def release_ref(self, key: K, requester: Any) -> None:
+        """Releases the reference request"""
 
     value: frozendict
 

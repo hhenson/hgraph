@@ -813,6 +813,10 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
     def key_set(self) -> TSS[str]:
         return WiringPort(self.node_instance, self.path + (KEY_SET_ID,))
 
+    def __getitem__(self, key):
+        from hgraph.nodes import tsd_get_item
+        return tsd_get_item(self, key)
+
 
 @dataclass(frozen=True)
 class TSBWiringPort(WiringPort):

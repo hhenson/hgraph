@@ -1,9 +1,13 @@
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING, cast
+from unittest import result
 
 from frozendict import frozendict
 
+from hgraph._impl._types._ref import PythonTimeSeriesReference
+from hgraph._types._ref_type import REF_OUT, TimeSeriesReferenceOutput, REF
 from hgraph._types._tss_type import TimeSeriesSetOutput
 from hgraph._types._scalar_types import SCALAR
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
@@ -31,9 +35,16 @@ class TSDKeyObserver:
         """Called when a key is removed"""
 
 
+@dataclass
+class _RefTracker:
+    output: TimeSeriesReferenceOutput
+    requesters: set = field(default_factory=set)
+
+
 class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K, V], Generic[K, V]):
 
-    def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
+    def __init__(self, __key_set__, __key_tp__, __value_tp__, __value_output_builder__, __value_reference_builder__,
+                 *args, **kwargs):
         Generic.__init__(self)
         __key_set__: TimeSeriesSetOutput
         __key_set__._owning_node = kwargs['_owning_node']
@@ -41,11 +52,12 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         TimeSeriesDictOutput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         super().__init__(*args, **kwargs)
         self._key_observers: list[TSDKeyObserver] = []
-        from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hgraph._builder._ts_builder import TSOutputBuilder
-        self._ts_builder: TSOutputBuilder = PythonTimeSeriesBuilderFactory.instance().make_output_builder(__value_tp__)
+        self._ts_builder: TSOutputBuilder = __value_output_builder__
+        self._ts_ref_builder: TSOutputBuilder = __value_reference_builder__
         self._removed_items: dict[K, V] = {}
         self._added_keys: set[str] = set()
+        self._reference_outputs: dict[K, _RefTracker] = {}
 
     def add_key_observer(self, observer: TSDKeyObserver):
         self._key_observers.append(observer)
@@ -83,9 +95,28 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         if k not in self._ts_values:
             raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
         self._removed_items[k] = self._ts_values.pop(k)
+        if tracker := self._reference_outputs.get(k):
+            tracker.output.value = PythonTimeSeriesReference()  # Send None output
         cast(TimeSeriesSetOutput, self.key_set).remove(k)
         for observer in self._key_observers:
             observer.on_key_removed(k)
+
+    def get_ref(self, key: K, reference: Any) -> TimeSeriesReferenceOutput:
+        tracker = self._reference_outputs.get(key, None)
+        if tracker is None:
+            self._reference_outputs[key] = tracker = _RefTracker(
+                output=self._ts_ref_builder.make_instance(owning_output=self))
+            if key in self._ts_values:
+                tracker.output.value = PythonTimeSeriesReference(self._ts_values[key])
+        tracker.requesters.add(reference)
+        return tracker.output
+
+    def release_ref(self, key: K, requester: Any) -> None:
+        if key in self._reference_outputs:
+            tracker = self._reference_outputs[key]
+            tracker.requesters.remove(requester)
+            if not tracker.requesters:
+                del self._reference_outputs[key]
 
     def pop(self, key: K) -> V:
         v = None
@@ -106,7 +137,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def _create(self, key: K):
         cast(TimeSeriesSetOutput, self.key_set).add(key)
-        self._ts_values[key] = self._ts_builder.make_instance(owning_output=self)
+        self._ts_values[key] = output = self._ts_builder.make_instance(owning_output=self)
+        if tracker := self._reference_outputs.get(key):
+            tracker.output.value = PythonTimeSeriesReference(output)
         for observer in self._key_observers:
             observer.on_key_added(key)
 
@@ -145,7 +178,6 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
 @dataclass
 class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[K, V], TSDKeyObserver, Generic[K, V]):
-
     _prev_output: TimeSeriesDictOutput | None = None
 
     def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
@@ -170,7 +202,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         key_set: "TimeSeriesSetInput" = self.key_set
         key_set.bind_output(output.key_set)
 
-        if output.__value_tp__ != self.__value_tp__ and (output.__value_tp__.has_references or self.__value_tp__.has_references):
+        if output.__value_tp__ != self.__value_tp__ and (
+                output.__value_tp__.has_references or self.__value_tp__.has_references):
             # TODO: there might be a corner case where the above check is not sufficient, like a bundle on both sides
             #  that contains REFs but there are other items that are of different but compatible non-REF types.
             #  It would be very esoteric and I cannot think of an example so will leave the check as is
@@ -274,5 +307,3 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def removed_items(self) -> Iterable[Tuple[K, V]]:
         return ((key, self._removed_items[key]) for key in self.removed_keys())
-
-

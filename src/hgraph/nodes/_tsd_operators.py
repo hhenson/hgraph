@@ -1,8 +1,8 @@
-from typing import Type, Mapping
+from typing import Type, Mapping, cast
 
-from frozendict import frozendict
-
-from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, SCALAR_1, SCALAR_2
+from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, SCALAR_1, SCALAR_2, REF, \
+    TimeSeriesDictOutput, STATE
+from hgraph._impl._types._ref import PythonTimeSeriesReference
 
 
 @compute_node(valid=("key",))
@@ -38,3 +38,34 @@ def extract_tsd(ts: TS[Mapping[SCALAR_1, SCALAR_2]]) -> TSD[SCALAR_1, TIME_SERIE
     Extracts a TSD from a stream of delta dictionaries.
     """
     return ts.value
+
+
+@compute_node
+def tsd_get_item(tsd: REF[TSD[SCALAR, TIME_SERIES_TYPE]], key: TS[SCALAR], _ref: REF[TIME_SERIES_TYPE] = None,
+                 _state: STATE = None) -> REF[TIME_SERIES_TYPE]:
+    """
+    Returns the time-series associated to the key provided.
+    """
+    # Use tsd as a reference to avoid the cost of the input wrapper
+    # If we got here something was modified so release any previous value and replace
+    if tsd.modified or key.modified:
+        if _state.tsd is not None:
+            _ref.make_passive()
+            _state.tsd.release_ref(_state.key, _state.reference)
+        if tsd.value.valid:
+            _state.tsd = tsd.value.output
+            _state.key = key.value
+        else:
+            _state.tsd = None
+            _state.key = None
+        output = _state.tsd.get_ref(_state.key, _state.reference)
+        _ref.bind_output(output)
+        _ref.make_active()
+    return _ref.value
+
+
+@tsd_get_item.start
+def tsd_get_item_start(_state: STATE):
+    _state.reference = object()
+    _state.tsd = None
+    _state.key = None

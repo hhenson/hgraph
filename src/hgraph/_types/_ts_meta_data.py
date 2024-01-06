@@ -2,6 +2,7 @@ from typing import Type, TypeVar, Optional, _GenericAlias
 
 __all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData",)
 
+from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
@@ -56,7 +57,7 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
     def matches(self, tp: "HgTypeMetaData") -> bool:
         # TODO: If we loose the TS_OUT type we can return to an is, which is much faster.
         return (issubclass((tp_ := type(tp)), HgTSTypeMetaData) and self.value_scalar_tp.matches(
-            tp.value_scalar_tp)) or tp_ is HgTimeSeriesTypeMetaData
+            tp.value_scalar_tp)) or tp_ in (HgTimeSeriesTypeMetaData, HgTsTypeVarTypeMetaData)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSTypeMetaData and self.value_scalar_tp == o.value_scalar_tp
