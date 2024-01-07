@@ -1,4 +1,4 @@
-from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE
+from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE, contains_
 from hgraph.test import eval_node
 
 
@@ -26,3 +26,13 @@ def test_tsd_get_item():
 
     assert eval_node(main, [{"a": 1}, {"b": 2}, {"b": 3}, {}, {"a": REMOVE}], ["b", None, None, "a"]) \
            == [None, 2, 3, 1, None]
+
+
+def test_tsd_contains():
+
+    @graph
+    def main(tsd: TSD[str, TS[int]], k: TS[str]) -> TS[bool]:
+        return contains_(tsd, k)
+
+    assert eval_node(main, [{"a": 1}, {"b": 2}, {"b": 3}, {}, {"a": REMOVE}], ["b", None, None, "a"]) \
+           == [False, True, None, True, False]

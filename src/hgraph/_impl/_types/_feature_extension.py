@@ -25,7 +25,8 @@ class FeatureOutputExtension:
     def create_or_increment(self, key: SCALAR, requester: object) -> TimeSeriesOutput:
         tracker = self._outputs.get(key, None)
         if tracker is None:
-            tracker = _RefTracker(output=self.output_builder.make_instance(owning_output=self.owning_output))
+            # Features are bound to the node, but not the output they are associated to.
+            tracker = _RefTracker(output=self.output_builder.make_instance(owning_node=self.owning_output.owning_node))
             self._outputs[key] = tracker
             if (value := self.value_getter(self.owning_output, key) \
                     if self.initial_value_getter is None else \

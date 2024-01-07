@@ -209,9 +209,9 @@ def invert_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 WiringPort.__invert__ = lambda x: invert_(x)
 
 
-@graph
+@compute_node
 def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
-    raise WiringError(f"operator contains_ is not implemented for {ts.output_type}")
+    return item.value in ts.value
 
-
-WiringPort.__contains__ = lambda x, y: contains_(x, y)
+# Can't override __contains__ as it seems to always returns a bool value.
+# WiringPort.__contains__ = lambda x, y: contains_(x, y)

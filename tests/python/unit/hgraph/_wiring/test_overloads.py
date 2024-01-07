@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR
+from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR, contains_
 from hgraph.test import eval_node
 
 
@@ -62,3 +62,10 @@ def test_scalar_overloads():
     assert eval_node(t_add[TIME_SERIES_TYPE: TSL[TS[int], Size[2]]], lhs=[(1, 1)], rhs=(2, 2)) == [{0: 3, 1: 3}]
 
 
+def test_contains():
+
+    @graph
+    def main(ts: TS[frozenset[int]], item: TS[int]) -> TS[bool]:
+        return contains_(ts, item)
+
+    assert eval_node(main, [frozenset({1}), frozenset({1, 2}), frozenset({3})], [2]) == [False, True, False]
