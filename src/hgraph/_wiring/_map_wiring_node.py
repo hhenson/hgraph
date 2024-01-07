@@ -3,7 +3,8 @@ from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders, WiringGraphContext, WiringPort
+from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders, WiringGraphContext
+from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._runtime._node import NodeSignature
 
-__all__ = ("TsdMapWiringNodeClass", "TslMapWiringNodeClass")
+__all__ = ("TsdMapWiringNodeClass", "TslMapWiringNodeClass", "TsdMapWiringSignature", "TslMapWiringSignature")
 
 
 @dataclass(frozen=True)

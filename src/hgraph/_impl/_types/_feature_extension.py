@@ -1,0 +1,53 @@
+from dataclasses import dataclass, field
+from typing import Callable, Any, Sequence
+
+from hgraph import OutputBuilder
+from hgraph._types._scalar_types import SCALAR
+from hgraph._types._time_series_types import TimeSeriesOutput
+
+__all__ = ("FeatureOutputExtension",)
+
+
+@dataclass
+class _RefTracker:
+    output: TimeSeriesOutput
+    requesters: set = field(default_factory=set)
+
+
+@dataclass
+class FeatureOutputExtension:
+    owning_output: TimeSeriesOutput
+    output_builder: OutputBuilder
+    value_getter: Callable[[TimeSeriesOutput, SCALAR], Any | None]
+    initial_value_getter: Callable[[TimeSeriesOutput, SCALAR], Any | None] | None = None
+    _outputs: dict[SCALAR, _RefTracker] = field(default_factory=dict)
+
+    def create_or_increment(self, key: SCALAR, requester: object) -> TimeSeriesOutput:
+        tracker = self._outputs.get(key, None)
+        if tracker is None:
+            tracker = _RefTracker(output=self.output_builder.make_instance(owning_output=self.owning_output))
+            self._outputs[key] = tracker
+            if (value := self.value_getter(self.owning_output, key) \
+                    if self.initial_value_getter is None else \
+                    self.initial_value_getter(self.owning_output, key)) is not None:
+                tracker.output.value = value
+        tracker.requesters.add(requester)
+        return tracker.output
+
+    def update(self, key: SCALAR):
+        tracker = self._outputs.get(key, None)
+        if tracker is not None:
+            if (value := self.value_getter(self.owning_output, key)) is not None:
+                tracker.output.value = value
+
+    def update_all(self, keys: Sequence[SCALAR]):
+        if self._outputs:
+            for key in keys:  # This may be better if we do a pre-intersection check
+                self.update(key)
+
+    def release(self, key: SCALAR, requester: object):
+        tracker = self._outputs.get(key, None)
+        if tracker is not None:
+            tracker.requesters.remove(requester)
+            if not tracker.requesters:
+                del self._outputs[key]

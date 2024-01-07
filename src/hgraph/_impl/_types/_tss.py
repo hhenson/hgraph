@@ -1,11 +1,12 @@
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Generic, Iterable, Any, Set, Optional, cast
 
-from hgraph._types._time_series_types import TimeSeriesOutput
+from hgraph._impl._types import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._scalar_types import SCALAR
+from hgraph._types._time_series_types import TimeSeriesOutput
+from hgraph._types._ts_type import TS
 from hgraph._types._tss_type import SetDelta, TimeSeriesSetOutput, TimeSeriesSetInput
 
 __all__ = ("PythonSetDelta", "PythonTimeSeriesSetOutput", "PythonTimeSeriesSetInput", "Removed")
@@ -46,24 +47,22 @@ class Removed(Generic[SCALAR]):
         return self.item == other.item if type(other) is Removed else other
 
 
-class Extensions:
-    pass
-
-
 @dataclass
 class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCALAR], Generic[SCALAR]):
     _tp: type | None = None
     _value: set[SCALAR] = field(default_factory=set)
     _added: set[SCALAR] | None = None
     _removed: set[SCALAR] | None = None
-    _extensions: dict[SCALAR, Extensions] = field(default_factory=lambda: defaultdict(Extensions))
+    _contains_ref_outputs: FeatureOutputExtension = None
 
     def __post_init__(self):
         from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hgraph import TS
         from hgraph import HgTimeSeriesTypeMetaData
-        self._bool_ts_builder = PythonTimeSeriesBuilderFactory.instance().make_output_builder(
+        bool_ts_builder = PythonTimeSeriesBuilderFactory.instance().make_output_builder(
             HgTimeSeriesTypeMetaData.parse(TS[bool]))
+        self._contains_ref_outputs = FeatureOutputExtension(
+            self, bool_ts_builder, lambda output, key: key in output.value)
 
     def invalidate(self):
         self.clear()
@@ -96,33 +95,21 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def _post_modify(self):
         if self._added or self._removed or not self.valid:
             self.mark_modified()
-            if self._extensions:
-                for notify in self._added & self._extensions.keys():
-                    # Perhaps the default dict is not a good idea?
-                    if (ts := vars(self._extensions[notify]).get('ts_contains', None)) is not None:
-                        ts.value = True
-                for notify in self._removed & self._extensions.keys():
-                    if (ts := vars(self._extensions[notify]).get('ts_contains', None)) is not None:
-                        ts.value = False
+            self._contains_ref_outputs.update_all(self._added)
+            self._contains_ref_outputs.update_all(self._removed)
 
     @property
     def delta_value(self) -> SetDelta[SCALAR]:
         return PythonSetDelta(self._added, self._removed)
 
     def add(self, element: SCALAR, extensions=None):
-        if extensions is not None:
-            vars(self._extensions[element]).update(extensions if type(extensions) is dict else vars(extensions))
         if element not in self._value:
             if self._added is not None:
                 self._added.add(element)
             else:
                 self._added = {element}
-
             self._value.add(element)
-
-            if (ex := self._extensions.get(element, None)) is not None:
-                if (ts := getattr(ex, "ts_contains", None)) is not None:
-                    ts.value = True
+            self._contains_ref_outputs.update(element)
 
             self.mark_modified()
 
@@ -134,21 +121,14 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
                 self._removed = {element}
 
             self._value.remove(element)
-
-            if (ex := self._extensions.get(element, None)) is not None:
-                if (ts := getattr(ex, "ts_contains", None)) is not None:
-                    ts.value = False
+            self._contains_ref_outputs.update(element)
 
             self.mark_modified()
 
     def clear(self):
         self._removed = self._value
         self._value = set()
-        for element in self._removed:
-            if (ex := self._extensions.get(element, None)) is not None:
-                if (ts := getattr(ex, "ts_contains", None)) is not None:
-                    ts.value = False
-
+        self._contains_ref_outputs.update_all(self._removed)
         self.mark_modified()
 
     def apply_result(self, result: Any):
@@ -164,13 +144,11 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         self._added = None
         self._removed = None
 
-    def ts_contains(self, item: SCALAR):
-        if (ts := vars(self._extensions[item]).get('ts_contains', None)) is None:
-            from hgraph import TimeSeriesValueOutput
-            ts: TimeSeriesValueOutput = self._bool_ts_builder.make_instance(self.owning_node, self)
-            ts.value = item in self._value
-            self._extensions[item].ts_contains = ts
-        return ts
+    def get_contains_ref(self, item: SCALAR, requester: Any) -> TS[bool]:
+        return self._contains_ref_outputs.create_or_increment(item, requester)
+
+    def release_contains_ref(self, item: SCALAR, requester: Any):
+        self._contains_ref_outputs.release(item, requester)
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         self._added = frozenset(output.value.difference(self._value))

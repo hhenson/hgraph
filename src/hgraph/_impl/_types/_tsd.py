@@ -1,19 +1,18 @@
-from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from itertools import chain
 from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING, cast
-from unittest import result
 
 from frozendict import frozendict
 
-from hgraph._impl._types._ref import PythonTimeSeriesReference
-from hgraph._types._ref_type import REF_OUT, TimeSeriesReferenceOutput, REF
-from hgraph._types._tss_type import TimeSeriesSetOutput
-from hgraph._types._scalar_types import SCALAR
+from hgraph._impl._types._feature_extension import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
+from hgraph._impl._types._ref import PythonTimeSeriesReference
+from hgraph._types._ref_type import TimeSeriesReferenceOutput
+from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import K, V
 from hgraph._types._tsd_type import TimeSeriesDictOutput, TimeSeriesDictInput, REMOVE_IF_EXISTS, REMOVE
+from hgraph._types._tss_type import TimeSeriesSetOutput
 
 if TYPE_CHECKING:
     from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
@@ -35,12 +34,6 @@ class TSDKeyObserver:
         """Called when a key is removed"""
 
 
-@dataclass
-class _RefTracker:
-    output: TimeSeriesReferenceOutput
-    requesters: set = field(default_factory=set)
-
-
 class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K, V], Generic[K, V]):
 
     def __init__(self, __key_set__, __key_tp__, __value_tp__, __value_output_builder__, __value_reference_builder__,
@@ -57,7 +50,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._ts_ref_builder: TSOutputBuilder = __value_reference_builder__
         self._removed_items: dict[K, V] = {}
         self._added_keys: set[str] = set()
-        self._reference_outputs: dict[K, _RefTracker] = {}
+        self._ref_ts_feature: FeatureOutputExtension = FeatureOutputExtension(
+            self, self._ts_ref_builder,
+            lambda output, key: PythonTimeSeriesReference(output.get(key)))
 
     def add_key_observer(self, observer: TSDKeyObserver):
         self._key_observers.append(observer)
@@ -95,28 +90,16 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         if k not in self._ts_values:
             raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
         self._removed_items[k] = self._ts_values.pop(k)
-        if tracker := self._reference_outputs.get(k):
-            tracker.output.value = PythonTimeSeriesReference()  # Send None output
+        self._ref_ts_feature.update(k)
         cast(TimeSeriesSetOutput, self.key_set).remove(k)
         for observer in self._key_observers:
             observer.on_key_removed(k)
 
     def get_ref(self, key: K, reference: Any) -> TimeSeriesReferenceOutput:
-        tracker = self._reference_outputs.get(key, None)
-        if tracker is None:
-            self._reference_outputs[key] = tracker = _RefTracker(
-                output=self._ts_ref_builder.make_instance(owning_output=self))
-            if key in self._ts_values:
-                tracker.output.value = PythonTimeSeriesReference(self._ts_values[key])
-        tracker.requesters.add(reference)
-        return tracker.output
+        return self._ref_ts_feature.create_or_increment(key, reference)
 
     def release_ref(self, key: K, requester: Any) -> None:
-        if key in self._reference_outputs:
-            tracker = self._reference_outputs[key]
-            tracker.requesters.remove(requester)
-            if not tracker.requesters:
-                del self._reference_outputs[key]
+        return self._ref_ts_feature.release(key, requester)
 
     def pop(self, key: K) -> V:
         v = None
@@ -138,8 +121,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def _create(self, key: K):
         cast(TimeSeriesSetOutput, self.key_set).add(key)
         self._ts_values[key] = output = self._ts_builder.make_instance(owning_output=self)
-        if tracker := self._reference_outputs.get(key):
-            tracker.output.value = PythonTimeSeriesReference(output)
+        self._ref_ts_feature.update(key)
         for observer in self._key_observers:
             observer.on_key_added(key)
 

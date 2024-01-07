@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, SCALAR
+from hgraph import CompoundScalar, SCALAR, WiringPort
 from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
 from hgraph._types._scalar_types import is_compound_scalar
 from hgraph._types._ts_type import TS
-from hgraph._wiring._wiring import WiringPort, WiringNodeInstance
+from hgraph._wiring._wiring import WiringNodeInstance
 
 
 @dataclass

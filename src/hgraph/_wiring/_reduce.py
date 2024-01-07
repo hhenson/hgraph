@@ -7,8 +7,11 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._scalar_types import SIZE
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_type import TSL
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._wiring._reduce_wiring_node import TsdReduceWiringNodeClass
-from hgraph._wiring._wiring import WiringNodeSignature, WiringPort, HgTSLTypeMetaData, WiringNodeClass
+from hgraph._wiring._wiring import WiringNodeClass
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_context import WiringContext
 
 __all__ = ("reduce",)

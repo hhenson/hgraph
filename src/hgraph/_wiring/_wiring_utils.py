@@ -13,7 +13,7 @@ from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._wiring import WiringPort
+from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if TYPE_CHECKING:

@@ -1,23 +1,22 @@
 from pathlib import Path
-from typing import Callable, Optional, cast, Mapping, TYPE_CHECKING
+from typing import Callable, Optional, cast, TYPE_CHECKING
 
 from frozendict import frozendict
 
-from hgraph._wiring._source_code_details import SourceCodeDetails
-from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference
-from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
-from hgraph._wiring._wiring import WiringNodeClass, extract_kwargs, WiringPort
-from hgraph._types._ts_meta_data import HgTSTypeMetaData
-from hgraph._wiring._wiring import WiringContext
 from hgraph._types._scalar_types import SCALAR, STATE
+from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
+from hgraph._wiring._source_code_details import SourceCodeDetails
+from hgraph._wiring._wiring_context import WiringContext
+from hgraph._wiring._wiring import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_utils import as_reference
 
 if TYPE_CHECKING:
-    from hgraph._builder._graph_builder import GraphBuilder
+    pass
 
 __all__ = ("switch_",)
 

@@ -8,9 +8,9 @@ from frozendict import frozendict
 from more_itertools import nth
 
 from hgraph._types._schema_type import AbstractSchema
-from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, SCALAR, DELTA_SCALAR, \
-    TimeSeriesDeltaValue, \
-    TimeSeries
+from hgraph._types._scalar_types import SCALAR
+from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
+    TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
@@ -146,12 +146,12 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
 
     @staticmethod
     def _validate_kwargs(schema: TS_SCHEMA, **kwargs):
+        from hgraph._wiring._wiring_port import WiringPort
         meta_data_schema: dict[str, "HgTypeMetaData"] = schema.__meta_data_schema__
         if any(k not in meta_data_schema for k in kwargs.keys()):
             from hgraph._wiring._wiring_errors import InvalidArgumentsProvided
             raise InvalidArgumentsProvided(tuple(k for k in kwargs.keys() if k not in meta_data_schema))
 
-        from hgraph._wiring._wiring import WiringPort
         for k, v in kwargs.items():
             # If v is a wiring port then we perform a validation of the output type to the expected input type.
             if isinstance(v, WiringPort):
@@ -191,7 +191,8 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             uses_scheduler=False
         )
         TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
-        from hgraph._wiring._wiring import TSBWiringPort, NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring import NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring_port import TSBWiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         wiring_node_instance = WiringNodeInstance(
             node=wiring_node,

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from hgraph._builder._graph_builder import Graph
     from hgraph._types._time_series_types import TimeSeries
 
-__all__ = ("PythonTimeSeriesInput",)
+__all__ = ("PythonTimeSeriesInput", "PythonBoundTimeSeriesInput")
 
 
 @dataclass

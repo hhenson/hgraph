@@ -1,5 +1,7 @@
+from hgraph._impl._types._feature_extension import *
 from hgraph._impl._types._input import *
 from hgraph._impl._types._output import *
+from hgraph._impl._types._ref import *
 from hgraph._impl._types._scalar_value import *
 from hgraph._impl._types._signal import *
 from hgraph._impl._types._ts import *

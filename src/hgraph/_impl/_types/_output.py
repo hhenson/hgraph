@@ -38,8 +38,8 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
         self._notify()
 
     def mark_modified(self):
-        context = self.owning_graph.evaluation_clock
-        et = context.evaluation_time
+        clock = self.owning_graph.evaluation_clock
+        et = clock.evaluation_time
         if self._last_modified_time < et:
             self._last_modified_time = et
             if self._parent_output is not None:

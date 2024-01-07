@@ -113,7 +113,8 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             time_series_args=frozenset(args_),
             uses_scheduler=False
         )
-        from hgraph._wiring._wiring import TSLWiringPort, NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring import NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring_port import TSLWiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         wiring_node_instance = WiringNodeInstance(
             node=wiring_node,

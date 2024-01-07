@@ -1,8 +1,8 @@
 from typing import cast, Type
 
-from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, SCALAR, TSD, REMOVE
-from hgraph._impl._types._ref import PythonTimeSeriesReference
-from hgraph._impl._types._tss import Removed
+from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, SCALAR, TSD, REMOVE, \
+    PythonTimeSeriesReference, Removed
+from hgraph.nodes import tss_contains
 from hgraph.test import eval_node
 
 
@@ -17,7 +17,8 @@ def test_ref():
 
 @compute_node
 def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], Size[2]]:
-    return cast(TSL, (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))
+    return cast(TSL,
+                (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))
 
 
 def test_route_ref():
@@ -31,12 +32,14 @@ def merge_ref(index: TS[int], ts: TSL[REF[TIME_SERIES_TYPE], SIZE]) -> REF[TIME_
 
 
 def test_merge_ref():
-    assert eval_node(merge_ref[TIME_SERIES_TYPE: TS[int], SIZE: Size[2]], index=[0, None, 1, None], ts=[(1, -1), (2, -2), None, (4, -4)]) == [1, 2, -2, -4]
+    assert eval_node(merge_ref[TIME_SERIES_TYPE: TS[int], SIZE: Size[2]], index=[0, None, 1, None],
+                     ts=[(1, -1), (2, -2), None, (4, -4)]) == [1, 2, -2, -4]
 
 
 @graph
 def merge_ref_non_peer(index: TS[int], ts1: TIME_SERIES_TYPE, ts2: TIME_SERIES_TYPE) -> REF[TIME_SERIES_TYPE]:
-    return merge_ref(index, TSL.from_ts(ts1, ts2))  # TODO: This TSL building syntax is quite a mouthful, TSL(ts1, ts2) would be preferrable, ideally wiring should accept just (ts1, ts2) here
+    return merge_ref(index, TSL.from_ts(ts1,
+                                        ts2))  # TODO: This TSL building syntax is quite a mouthful, TSL(ts1, ts2) would be preferrable, ideally wiring should accept just (ts1, ts2) here
 
 
 def test_merge_ref_non_peer():
@@ -56,8 +59,10 @@ def test_merge_ref_non_peer_complex_inner_ts():
 
 
 @graph
-def merge_ref_non_peer_inner(index: TS[int], ts1: TIME_SERIES_TYPE, ts2: TIME_SERIES_TYPE, ts3: TIME_SERIES_TYPE, ts4: TIME_SERIES_TYPE) -> REF[TSL[TIME_SERIES_TYPE, Size[2]]]:
+def merge_ref_non_peer_inner(index: TS[int], ts1: TIME_SERIES_TYPE, ts2: TIME_SERIES_TYPE, ts3: TIME_SERIES_TYPE,
+                             ts4: TIME_SERIES_TYPE) -> REF[TSL[TIME_SERIES_TYPE, Size[2]]]:
     return merge_ref(index, TSL.from_ts(TSL.from_ts(ts1, ts2), TSL.from_ts(ts3, ts4)))
+
 
 def test_merge_ref_inner_non_peer_ts():
     assert eval_node(merge_ref_non_peer_inner[TIME_SERIES_TYPE: TS[int]],
@@ -77,14 +82,9 @@ def test_merge_ref_set():
                      ) == [{1, 2}, None, {-2, -3, Removed(1), Removed(2)}, {-4}]
 
 
-@compute_node
-def ref_contains(tss: REF[TSS[SCALAR]], item: TS[SCALAR]) -> REF[TS[bool]]:
-    return PythonTimeSeriesReference(tss.value.output.ts_contains(item.value))
-
-
 def test_tss_ref_contains():
-    assert eval_node(ref_contains[SCALAR: int],
-                     tss=[{1}, {2}, None, {Removed(2)}],
+    assert eval_node(tss_contains[SCALAR: int],
+                     ts=[{1}, {2}, None, {Removed(2)}],
                      item=[2, None, None, None, 1]
                      ) == [False, True, None, False, True]
 

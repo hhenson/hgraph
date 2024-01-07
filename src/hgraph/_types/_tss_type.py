@@ -1,6 +1,7 @@
 from abc import abstractmethod
-from typing import Protocol, Iterable, Generic, Set, runtime_checkable
+from typing import Protocol, Iterable, Generic, Set, runtime_checkable, Any
 
+from hgraph._types._ref_type import REF_OUT
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, TimeSeriesDeltaValue
 from hgraph._types._ts_type import TS
@@ -77,10 +78,14 @@ class TimeSeriesSetOutput(TimeSeriesOutput, TimeSeriesSet[SCALAR], Generic[SCALA
     """
 
     @abstractmethod
-    def ts_contains(self, item: SCALAR) -> TS[bool]:
+    def get_contains_ref(self, item: SCALAR, requester: Any) -> REF_OUT[TS[bool]]:
         """
-        Returns a timeseries indicating whether the item is in the set or not
+        Returns a TS[bool] output reference that ticks True when the item value is present and False otherwise.
         """
+
+    @abstractmethod
+    def release_contains_ref(self, item: SCALAR, requester: Any) -> None:
+        """Releases the reference request"""
 
     @property
     @abstractmethod

@@ -1,8 +1,11 @@
 from hgraph._wiring._decorators import graph, compute_node
-from hgraph._wiring._wiring import WiringPort, WiringError
-from hgraph._types import TIME_SERIES_TYPE, TS
+from hgraph._wiring._wiring import WiringError
+from hgraph._wiring._wiring_port import WiringPort
+from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR
 
-__all__ = ("add_", "sub_", "mul_", "div_")
+__all__ = (
+    "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
+    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_")
 
 
 @graph
@@ -149,6 +152,7 @@ def lt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
 WiringPort.__lt__ = lambda x, y: lt_(x, y)
 
+
 @graph
 def le_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     raise WiringError(f"operator le_ is not implemented for {lhs.output_type} and {rhs.output_type}")
@@ -204,3 +208,10 @@ def invert_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 WiringPort.__invert__ = lambda x: invert_(x)
 
+
+@graph
+def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
+    raise WiringError(f"operator contains_ is not implemented for {ts.output_type}")
+
+
+WiringPort.__contains__ = lambda x, y: contains_(x, y)
