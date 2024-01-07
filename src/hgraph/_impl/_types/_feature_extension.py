@@ -5,11 +5,11 @@ from hgraph import OutputBuilder
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesOutput
 
-__all__ = ("FeatureOutputExtension",)
+__all__ = ("FeatureOutputExtension", "FeatureOutputRequestTracker")
 
 
 @dataclass
-class _RefTracker:
+class FeatureOutputRequestTracker:
     output: TimeSeriesOutput
     requesters: set = field(default_factory=set)
 
@@ -20,13 +20,13 @@ class FeatureOutputExtension:
     output_builder: OutputBuilder
     value_getter: Callable[[TimeSeriesOutput, SCALAR], Any | None]
     initial_value_getter: Callable[[TimeSeriesOutput, SCALAR], Any | None] | None = None
-    _outputs: dict[SCALAR, _RefTracker] = field(default_factory=dict)
+    _outputs: dict[SCALAR, FeatureOutputRequestTracker] = field(default_factory=dict)
 
     def create_or_increment(self, key: SCALAR, requester: object) -> TimeSeriesOutput:
         tracker = self._outputs.get(key, None)
         if tracker is None:
             # Features are bound to the node, but not the output they are associated to.
-            tracker = _RefTracker(output=self.output_builder.make_instance(owning_node=self.owning_output.owning_node))
+            tracker = FeatureOutputRequestTracker(output=self.output_builder.make_instance(owning_node=self.owning_output.owning_node))
             self._outputs[key] = tracker
             if (value := self.value_getter(self.owning_output, key) \
                     if self.initial_value_getter is None else \

@@ -14,11 +14,11 @@ def test_overloads():
         return add(lhs, rhs)
 
     @compute_node(overloads=add)
-    def add_ints(lhs:  TS[int], rhs: TS[int]) -> TS[int]:
+    def add_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
         return lhs.value + rhs.value + 1
 
     @compute_node(overloads=add)
-    def add_strs(lhs:  TS[str], rhs: TS[str]) -> TS[str]:
+    def add_strs(lhs: TS[str], rhs: TS[str]) -> TS[str]:
         return lhs.value + rhs.value + "~"
 
     @graph(overloads=add)
@@ -27,7 +27,8 @@ def test_overloads():
 
     assert eval_node(t_add[TIME_SERIES_TYPE: TS[int]], lhs=[1, 2, 3], rhs=[1, 5, 7]) == [3, 8, 11]
     assert eval_node(t_add[TIME_SERIES_TYPE: TS[float]], lhs=[1., 2., 3.], rhs=[1., 5., 7.]) == [2., 7., 10.]
-    assert eval_node(t_add[TIME_SERIES_TYPE: TS[str]], lhs=["1.", "2.", "3."], rhs=["1.", "5.", "7."]) == ['1.1.~', "2.5.~", "3.7.~"]
+    assert eval_node(t_add[TIME_SERIES_TYPE: TS[str]], lhs=["1.", "2.", "3."], rhs=["1.", "5.", "7."]) \
+           == ['1.1.~', "2.5.~", "3.7.~"]
     assert eval_node(t_add[TIME_SERIES_TYPE: TSL[TS[int], Size[2]]], lhs=[(1, 1)], rhs=[(2, 2)]) == [{0: 3, 1: 3}]
 
 
@@ -63,7 +64,6 @@ def test_scalar_overloads():
 
 
 def test_contains():
-
     @graph
     def main(ts: TS[frozenset[int]], item: TS[int]) -> TS[bool]:
         return contains_(ts, item)

@@ -1,6 +1,6 @@
-from hgraph import TSS, SCALAR, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta
+from hgraph import TSS, SCALAR, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta, TIME_SERIES_TYPE, TS, graph
 
-__all__ = ("union_",)
+__all__ = ("union_", "is_empty")
 
 
 def union_(*args: TSS[SCALAR]) -> TSS[SCALAR]:
@@ -33,3 +33,8 @@ def _union_tsl(tsl: TSL[TSS[SCALAR], SIZE], _output: TSS_OUT[SCALAR] = None) -> 
             if not to_remove:
                 break
     return PythonSetDelta(to_add, to_remove)
+
+
+@compute_node
+def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
+    return len(ts.value) == 0

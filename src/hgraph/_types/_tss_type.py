@@ -78,14 +78,18 @@ class TimeSeriesSetOutput(TimeSeriesOutput, TimeSeriesSet[SCALAR], Generic[SCALA
     """
 
     @abstractmethod
-    def get_contains_ref(self, item: SCALAR, requester: Any) -> REF_OUT[TS[bool]]:
+    def get_contains_output(self, item: SCALAR, requester: object) -> TS[bool]:
         """
         Returns a TS[bool] output reference that ticks True when the item value is present and False otherwise.
         """
 
     @abstractmethod
-    def release_contains_ref(self, item: SCALAR, requester: Any) -> None:
+    def release_contains_output(self, item: SCALAR, requester: object):
         """Releases the reference request"""
+
+    @abstractmethod
+    def is_empty_output(self) -> TS[bool]:
+        """Returns a TS[bool] output that tracks the empty state of the set."""
 
     @property
     @abstractmethod

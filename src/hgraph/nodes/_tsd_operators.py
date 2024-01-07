@@ -1,8 +1,8 @@
-from typing import Type, Mapping, cast
+from typing import Type, Mapping
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, SCALAR_1, SCALAR_2, REF, \
-    TimeSeriesDictOutput, STATE, graph, contains_
-from hgraph._impl._types._ref import PythonTimeSeriesReference
+    STATE, graph, contains_, not_
+from hgraph.nodes._set_operators import is_empty
 
 
 @compute_node(valid=("key",))
@@ -75,3 +75,13 @@ def tsd_get_item_start(_state: STATE):
 def tsd_contains(ts: TSD[SCALAR, TIME_SERIES_TYPE], item: TS[SCALAR]) -> TS[bool]:
     """Contains for TSD delegates to the key-set contains"""
     return contains_(ts.key_set, item)
+
+
+@graph(overloads=not_)
+def tsd_not(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[bool]:
+    return not_(ts.key_set)
+
+
+@graph(overloads=is_empty)
+def tsd_is_empty(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[bool]:
+    return is_empty(ts.key_set)

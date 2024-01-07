@@ -42,4 +42,6 @@ Version 0.0.9 (TBD)
 * Add __getitem__ for TSD to get the value as a time-series from a key as a time-series.
   Support ``ts = my_tsd[key_ts]`` in a graph context.
 * Extract extension logic, make contains_ work for TSS and TSD.
+* Implement not_ and is_empty for TSS and TSD
+
 

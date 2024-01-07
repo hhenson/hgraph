@@ -5,7 +5,7 @@ from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR
 
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
-    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_")
+    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_")
 
 
 @graph
@@ -213,5 +213,12 @@ WiringPort.__invert__ = lambda x: invert_(x)
 def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
     return item.value in ts.value
 
+
 # Can't override __contains__ as it seems to always returns a bool value.
 # WiringPort.__contains__ = lambda x, y: contains_(x, y)
+
+
+@compute_node
+def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
+    """logic not"""
+    return not ts.value

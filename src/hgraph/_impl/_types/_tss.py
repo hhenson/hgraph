@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, Iterable, Any, Set, Optional, cast
 
-from hgraph._impl._types import FeatureOutputExtension
+from hgraph._impl._types._feature_extension import FeatureOutputRequestTracker, FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._scalar_types import SCALAR
@@ -54,15 +54,20 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     _added: set[SCALAR] | None = None
     _removed: set[SCALAR] | None = None
     _contains_ref_outputs: FeatureOutputExtension = None
+    _is_empty_ref_output: TimeSeriesOutput = None
 
     def __post_init__(self):
         from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hgraph import TS
         from hgraph import HgTimeSeriesTypeMetaData
-        bool_ts_builder = PythonTimeSeriesBuilderFactory.instance().make_output_builder(
+        factory = PythonTimeSeriesBuilderFactory.instance()
+        bool_ts_builder = factory.make_output_builder(
             HgTimeSeriesTypeMetaData.parse(TS[bool]))
         self._contains_ref_outputs = FeatureOutputExtension(
             self, bool_ts_builder, lambda output, key: key in output.value)
+        # Use owning output as the empty state will only occur if this output is going change anyhow and it
+        # Deals with state not being fully ready on construction when creating a TSD key_set.
+        self._is_empty_ref_output = bool_ts_builder.make_instance(owning_output=self)
 
     def invalidate(self):
         self.clear()
@@ -95,6 +100,10 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def _post_modify(self):
         if self._added or self._removed or not self.valid:
             self.mark_modified()
+            if self._added and self._is_empty_ref_output.value:
+                self._is_empty_ref_output.value = False
+            elif self._removed and not self._value:
+                self._is_empty_ref_output.value = True
             self._contains_ref_outputs.update_all(self._added)
             self._contains_ref_outputs.update_all(self._removed)
 
@@ -104,6 +113,8 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     def add(self, element: SCALAR, extensions=None):
         if element not in self._value:
+            if not self._value:
+                self._is_empty_ref_output.value = False
             if self._added is not None:
                 self._added.add(element)
             else:
@@ -122,13 +133,16 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
             self._value.remove(element)
             self._contains_ref_outputs.update(element)
-
+            if not self._value:
+                self._is_empty_ref_output.value = True
             self.mark_modified()
 
     def clear(self):
         self._removed = self._value
         self._value = set()
         self._contains_ref_outputs.update_all(self._removed)
+        if self._removed:
+            self._is_empty_ref_output.value = True
         self.mark_modified()
 
     def apply_result(self, result: Any):
@@ -144,11 +158,17 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         self._added = None
         self._removed = None
 
-    def get_contains_ref(self, item: SCALAR, requester: Any) -> TS[bool]:
+    def get_contains_output(self, item: SCALAR, requester: Any) -> TS[bool]:
         return self._contains_ref_outputs.create_or_increment(item, requester)
 
-    def release_contains_ref(self, item: SCALAR, requester: Any):
+    def release_contains_output(self, item: SCALAR, requester: Any):
         self._contains_ref_outputs.release(item, requester)
+
+    def is_empty_output(self) -> TS[bool]:
+        if not self._is_empty_ref_output.valid:
+            # Initialise the output.
+            self._is_empty_ref_output.value = bool(not self._value)
+        return self._is_empty_ref_output
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         self._added = frozenset(output.value.difference(self._value))
