@@ -61,6 +61,7 @@ class WiringNodeInstance:
             src_location=self.resolved_signature.src_location,
             active_inputs=self.resolved_signature.active_inputs,
             valid_inputs=self.resolved_signature.valid_inputs,
+            all_valid_inputs=self.resolved_signature.all_valid_inputs,
             uses_scheduler=self.resolved_signature.uses_scheduler,
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,

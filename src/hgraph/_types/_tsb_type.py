@@ -186,6 +186,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             src_location=SourceCodeDetails(fn_details.co_filename, fn_details.co_firstlineno),
             active_inputs=None,
             valid_inputs=None,
+            all_valid_inputs=None,
             unresolved_args=frozenset(),
             time_series_args=frozenset(kwargs.keys()),
             uses_scheduler=False

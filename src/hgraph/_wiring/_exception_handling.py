@@ -93,6 +93,7 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
             src_location=SourceCodeDetails(Path(__file__), 25),
             active_inputs=frozenset(),
             valid_inputs=frozenset(),
+            all_valid_inputs=frozenset(),
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,

@@ -156,6 +156,9 @@ class NodeImpl(Node):
             if not all(self.input[k].valid for k in args):
                 return  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
+            all_valid = self.signature.all_valid_inputs
+            if not all(self.input[k].all_valid for k in ([] if all_valid is None else all_valid)):
+                return  # This really could do with some optimisation as on large collections this will be expensive!
             if self.signature.uses_scheduler:
                 # It is possible we have scheduled and then remove the schedule,
                 # so we need to check that something has caused this to be scheduled.

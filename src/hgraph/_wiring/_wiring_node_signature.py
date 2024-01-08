@@ -50,7 +50,7 @@ def extract_scalar_type(tp: Type) -> HgScalarTypeMetaData:
     return tp_
 
 
-@dataclass(frozen=True, unsafe_hash=True,)
+@dataclass(frozen=True, unsafe_hash=True, )
 class WiringNodeSignature:
     """
     The wiring node signature is similar to the final node signature, but it deals with templated node instances,
@@ -66,6 +66,7 @@ class WiringNodeSignature:
     src_location: SourceCodeDetails
     active_inputs: frozenset[str] | None
     valid_inputs: frozenset[str] | None
+    all_valid_inputs: frozenset[str] | None
     unresolved_args: frozenset[str]
     time_series_args: frozenset[str]
     uses_scheduler: bool
@@ -75,8 +76,9 @@ class WiringNodeSignature:
 
     def as_dict(self) -> dict:
         return dict(node_type=self.node_type, name=self.name, args=self.args, defaults=self.defaults,
-                       input_types=self.input_types, output_type=self.output_type, src_location=self.src_location,
+                    input_types=self.input_types, output_type=self.output_type, src_location=self.src_location,
                     active_inputs=self.active_inputs, valid_inputs=self.valid_inputs,
+                    all_valid_inputs=self.all_valid_inputs,
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     uses_scheduler=self.uses_scheduler, label=self.label)
 
@@ -153,6 +155,17 @@ class WiringNodeSignature:
         else:
             return self.valid_inputs
 
+    def resolve_all_valid_inputs(self, **kwargs) -> frozenset[str] | None:
+        optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
+        if optional_inputs:
+            if self.all_valid_inputs:
+                # Remove any optional inputs from validity requirements if not provided.
+                return frozenset(k for k in self.all_valid_inputs if k not in optional_inputs)
+            else:
+                return None
+        else:
+            return self.valid_inputs
+
     def resolve_auto_resolve_kwargs(self, resolution_dict, kwarg_types, kwargs, resolved_inputs):
         new_resolved_inputs = {}
         for arg, v in self.defaults.items():
@@ -180,8 +193,9 @@ class WiringNodeSignature:
 
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,
-                      active_inputs: Optional[frozenset[str]] = None,
-                      valid_inputs: Optional[frozenset[str]] = None) -> WiringNodeSignature:
+                      active_inputs: frozenset[str] | None = None,
+                      valid_inputs: frozenset[str] | None = None,
+                      all_valid_inputs: frozenset[str] | None = None) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
     :param fn:
@@ -227,6 +241,12 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     if valid_inputs is not None:
         assert all(a in input_types for a in valid_inputs), \
             f"valid inputs {valid_inputs} are not in the signature for {name}"
+    if all_valid_inputs is not None:
+        assert all(a in input_types for a in all_valid_inputs), \
+            f"all_valid inputs {all_valid_inputs} are not in signature for {name}"
+        if valid_inputs is not None:
+            assert len(set(all_valid_inputs).intersection(valid_inputs)) == 0, \
+                f"valid and all_valid inputs are overlapping, {all_valid_inputs}, {valid_inputs} for {name}"
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
 
@@ -239,6 +259,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         output_type=output_type,
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,
+        all_valid_inputs=all_valid_inputs,
         src_location=SourceCodeDetails(file=filename, start_line=first_line),
         unresolved_args=unresolved_inputs,
         time_series_args=time_series_inputs,

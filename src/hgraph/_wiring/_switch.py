@@ -99,6 +99,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             src_location=SourceCodeDetails(Path(__file__), 25),
             active_inputs=frozenset({'key', }),
             valid_inputs=frozenset({'key', }),
+            all_valid_inputs=None,
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,

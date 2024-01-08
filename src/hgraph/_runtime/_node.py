@@ -36,8 +36,9 @@ class NodeSignature:
     time_series_output: Optional["HgTimeSeriesTypeMetaData"]
     scalars: Optional[Mapping[str, "HgScalarTypeMetaData"]]
     src_location: "SourceCodeDetails"
-    active_inputs: Optional[frozenset[str]] = None
-    valid_inputs: Optional[frozenset[str]] = None
+    active_inputs: frozenset[str] | None = None
+    valid_inputs: frozenset[str] | None = None
+    all_valid_inputs: frozenset[str] | None = None
     uses_scheduler: bool = False
     capture_exception: bool = False
     trace_back_depth: int = 1

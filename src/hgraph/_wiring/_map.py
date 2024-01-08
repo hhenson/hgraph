@@ -308,6 +308,7 @@ def _create_tsd_map_wiring_node(
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=None,  # We will follow a copy approach to transfer the inputs to inner graphs
         valid_inputs=frozenset({KEYS_ARG, }),  # We have constructed the map so that the key are is always present.
+        all_valid_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         uses_scheduler=False,
@@ -353,6 +354,7 @@ def _create_tsl_map_signature(
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=frozenset(),
         valid_inputs=frozenset(),
+        all_valid_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         uses_scheduler=False,

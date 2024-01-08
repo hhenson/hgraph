@@ -236,6 +236,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict)
             valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
+            all_valid_inputs = self.signature.resolve_all_valid_inputs(**kwargs)
             resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
                                                                          resolved_inputs)
 
@@ -254,6 +255,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     src_location=self.signature.src_location,
                     active_inputs=self.signature.active_inputs,
                     valid_inputs=valid_inputs,
+                    all_valid_inputs=all_valid_inputs,
                     unresolved_args=frozenset(),
                     time_series_args=self.signature.time_series_args,
                     uses_scheduler=self.signature.uses_scheduler,  # This should not differ based on resolution

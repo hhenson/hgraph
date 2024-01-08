@@ -44,7 +44,7 @@ Version 0.0.9 (08-01-2024)
 * Extract extension logic, make contains_ work for TSS and TSD.
 * Implement not_ and is_empty for TSS and TSD
 
-Version 0.0.10 (TBD)
+Version 0.0.10 (08-01-2024)
 --------------------
 
 * Fix an issue with AUTO_RESOLVE
@@ -52,3 +52,4 @@ Version 0.0.10 (TBD)
 * Fix imports and __all__ statements in nodes
 * Preparation work for NodeInstance inlining
 * Add mean and len_ operators
+* Add all_valid attribute to decorators, WiringNodeSignature and NodeSignature as well as impl.
