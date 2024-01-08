@@ -44,4 +44,11 @@ Version 0.0.9 (08-01-2024)
 * Extract extension logic, make contains_ work for TSS and TSD.
 * Implement not_ and is_empty for TSS and TSD
 
+Version 0.0.10 (TBD)
+--------------------
+
+* Fix an issue with AUTO_RESOLVE
+* Fix missing defaults in window implementations
+* Fix imports and __all__ statements in nodes
+* Preparation work for NodeInstance inlining
 
