@@ -6,7 +6,7 @@ from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._wiring._wiring import PythonWiringNodeClass
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._wiring._wiring import SourceCodeDetails, WiringGraphContext
-from hgraph._wiring._wiring import WiringNodeInstance
+from hgraph._wiring._wiring_node_instance import WiringNodeInstance
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
