@@ -1,4 +1,7 @@
-from hgraph.nodes._analytical import ewma, center_of_mass_to_alpha, span_to_alpha
+import pytest
+
+from hgraph import Size, TS, TSL, TSD
+from hgraph.nodes._analytical import ewma, center_of_mass_to_alpha, span_to_alpha, mean
 from hgraph.test import eval_node
 
 
@@ -11,3 +14,16 @@ def test_ewma():
 def test_conversions():
     assert center_of_mass_to_alpha(1.0) == 0.5
     assert span_to_alpha(1.0) == 1.0
+
+
+@pytest.mark.parametrize(
+    ['value', 'expected', 'tp'],
+    [
+        [[1.0, 2.0, 3.0, 4.0, 5.0], [3.0], TSL[TS[float], Size[5]]],
+        [{0: 1.0, 1: 2.0, 2: 3.0, 3: 4.0, 4: 5.0}, [3.0], TSD[int, TS[float]]],
+        [[1, 2, 3, 4, 5], [3.0], TSL[TS[int], Size[5]]],
+        [{0: 1, 1: 2, 2: 3, 3: 4, 4: 5}, [3.0], TSD[int, TS[int]]],
+    ]
+)
+def test_mean(value, expected, tp):
+    assert eval_node(mean, [value, ], resolution_dict={'ts': tp}) == expected

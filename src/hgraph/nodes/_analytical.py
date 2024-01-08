@@ -1,7 +1,9 @@
-from hgraph import compute_node, TS, STATE
+from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_, TSD, \
+    SCALAR
+from hgraph.nodes._operators import cast_, len_
 
+__all__ = ("ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean")
 
-__all__ = ("ewma", "center_of_mass_to_alpha", "span_to_alpha")
 
 @compute_node
 def ewma(ts: TS[float], alpha: float, min_periods: int = 0, _state: STATE = None) -> TS[float]:
@@ -40,3 +42,33 @@ def span_to_alpha(span: float) -> float:
     if span <= 0:
         raise ValueError(f"Span must be positive, got {span}")
     return 2.0 / (span + 1.0)
+
+
+@graph
+def mean(ts: TIME_SERIES_TYPE) -> TS[float]:
+    """
+    The mean of the values at point in time.
+    For example:
+
+        ``mean(TSL[TS[float], SIZE) ``
+
+    will produce the mean of the values of the time-series list each time the list changes
+    """
+    raise NotImplementedError(f"No implementation found for {ts.output_type}")
+
+
+@graph(overloads=mean)
+def tsl_mean(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE,
+             _num_tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+    numerator = reduce(add_, ts, 0.0 if _num_tp is float else 0)
+    if _num_tp is int:
+        numerator = cast_(float, numerator)
+    return numerator / float(_sz.SIZE)
+
+
+@graph(overloads=mean)
+def tsd_mean(ts: TSD[SCALAR, TS[NUMBER]], _num_tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+    numerator = reduce(add_, ts, 0.0 if _num_tp is float else 0)
+    if _num_tp is int:
+        numerator = cast_(float, numerator)
+    return numerator / cast_(float, len_(ts))

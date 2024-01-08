@@ -1,4 +1,5 @@
 from hgraph import compute_node, contains_, REF, TSS, SCALAR, TS, STATE, PythonTimeSeriesReference, not_, graph
+from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 
 
@@ -32,3 +33,8 @@ def tss_is_empty(ts: REF[TSS[SCALAR]]) -> REF[TS[bool]]:
 @graph(overloads=not_)
 def tss_not_(ts: TSS[SCALAR]) -> TS[bool]:
     return tss_is_empty(ts)
+
+
+@compute_node(overloads=len_)
+def tss_len(ts: TSS[SCALAR]) -> TS[int]:
+    return len(ts.value)

@@ -51,4 +51,4 @@ Version 0.0.10 (TBD)
 * Fix missing defaults in window implementations
 * Fix imports and __all__ statements in nodes
 * Preparation work for NodeInstance inlining
-
+* Add mean and len_ operators

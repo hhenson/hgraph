@@ -2,6 +2,7 @@ from typing import Type, Mapping
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, SCALAR_1, SCALAR_2, REF, \
     STATE, graph, contains_, not_
+from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 
 
@@ -88,3 +89,8 @@ def tsd_not(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[bool]:
 @graph(overloads=is_empty)
 def tsd_is_empty(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[bool]:
     return is_empty(ts.key_set)
+
+
+@graph(overloads=len_)
+def tsd_len(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[int]:
+    return len_(ts.key_set)

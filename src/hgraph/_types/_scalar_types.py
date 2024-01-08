@@ -1,5 +1,5 @@
 from datetime import date, datetime, time, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 from typing import TypeVar, Type
 
 from frozendict import frozendict
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_scalar",
-           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2")
+           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER")
 
 
 class _UnSet:
@@ -64,6 +64,7 @@ SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, st
                  CompoundScalar)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
 SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
+NUMBER = TypeVar("NUMBER", int, float)
 
 
 class STATE(dict):
@@ -95,3 +96,4 @@ def is_scalar(value) -> bool:
 def is_compound_scalar(value) -> bool:
     """Is the value an instance of CompoundScalar or is a type which is a subclass of CompoundScalar"""
     return isinstance(value, CompoundScalar) or (isinstance(value, type) and issubclass(value, CompoundScalar))
+

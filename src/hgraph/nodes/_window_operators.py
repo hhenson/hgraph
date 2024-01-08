@@ -2,9 +2,8 @@ from collections import deque
 from datetime import timedelta, datetime
 from typing import TypeVar
 
-from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL
+from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL, NUMBER
 from hgraph.nodes._conditional import if_then_else
-from hgraph.nodes._math import NUMBER
 from hgraph.nodes._operators import cast_
 
 __all__ = ("window", "WindowResult", "lag", "accumulate", "rolling_average", "average", "count", "diff")

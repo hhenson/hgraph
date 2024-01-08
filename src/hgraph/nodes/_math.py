@@ -1,12 +1,7 @@
-from typing import TypeVar
-
 import hgraph
-from hgraph import compute_node, TS
+from hgraph import compute_node, TS, NUMBER
 
-__all__ = ("NUMBER", "add_", "sub_", "mult_", "div_")
-
-
-NUMBER = TypeVar("NUMBER", int, float)
+__all__ = ("add_", "sub_", "mult_", "div_")
 
 
 @compute_node(overloads=hgraph.add_)

@@ -1,7 +1,10 @@
-from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS
-
+from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE
 
 __all__ = ("flatten_tsl_values", "merge")
+
+from hgraph.nodes import const
+
+from hgraph.nodes._operators import len_
 
 
 @compute_node
@@ -28,3 +31,8 @@ def merge(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     list.
     """
     return next(tsl.modified_values()).delta_value
+
+
+@graph(overloads=len_)
+def tsl_len(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
+    return const(_sz.SIZE)
