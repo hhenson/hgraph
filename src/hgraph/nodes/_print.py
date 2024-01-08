@@ -1,6 +1,9 @@
 from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock
 
 
+__all__ = ("debug_print",)
+
+
 @sink_node
 def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, _clock: EvaluationClock = None):
     """

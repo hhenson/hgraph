@@ -19,8 +19,7 @@ from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_context import WIRING_CONTEXT
 
 if typing.TYPE_CHECKING:
-    from hgraph._wiring._wiring import WiringNodeInstance
-
+    from hgraph import WiringNodeInstance
 
 
 def _wiring_port_for(tp: HgTypeMetaData, node_instance: "WiringNodeInstance", path: [int, ...]) -> "WiringPort":

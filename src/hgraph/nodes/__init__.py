@@ -1,9 +1,11 @@
-from hgraph.nodes._const import *
+from hgraph.nodes._analytical import *
 from hgraph.nodes._conditional import *
+from hgraph.nodes._const import *
 try:
     from hgraph.nodes._data_source_polars import *
 except ImportError:
     pass
+from hgraph.nodes._drop_dups import *
 from hgraph.nodes._format import *
 from hgraph.nodes._graph import *
 from hgraph.nodes._logical import *

@@ -1,5 +1,6 @@
 from hgraph import TSS, SCALAR, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta, TIME_SERIES_TYPE, TS, graph
 
+
 __all__ = ("union_", "is_empty")
 
 

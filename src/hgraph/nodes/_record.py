@@ -4,6 +4,9 @@ from typing import Any
 from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, GlobalState, STATE
 
 
+__all__ = ("record", "get_recorded_value")
+
+
 @sink_node
 def record(ts: TIME_SERIES_TYPE, label: str = "out", record_delta_values: bool = True,
            _clock: EvaluationClock = None, _state: STATE = None):

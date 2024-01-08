@@ -5,6 +5,9 @@ from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EX
 from hgraph.nodes._set_operators import is_empty
 
 
+__all__ = ("make_tsd", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_contains", "tsd_not", "tsd_is_empty")
+
+
 @compute_node(valid=("key",))
 def make_tsd(key: TS[SCALAR_1], value: TS[SCALAR_2], remove_key: TS[bool] = None,
              ts_type: Type[TIME_SERIES_TYPE] = TS[SCALAR_2]) -> TSD[SCALAR_1, TIME_SERIES_TYPE]:

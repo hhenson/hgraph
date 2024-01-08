@@ -1,15 +1,13 @@
-from datetime import timedelta, datetime
-from typing import TypeVar, cast
 from collections import deque
+from datetime import timedelta, datetime
+from typing import TypeVar
 
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL
-from hgraph.nodes._const import const
 from hgraph.nodes._conditional import if_then_else
 from hgraph.nodes._math import NUMBER
-
-__all__ = ("window", "WindowResult", "lag", "accumulate", "rolling_average", "average", "count",)
-
 from hgraph.nodes._operators import cast_
+
+__all__ = ("window", "WindowResult", "lag", "accumulate", "rolling_average", "average", "count", "diff")
 
 
 class WindowResult(TimeSeriesSchema):
@@ -49,7 +47,8 @@ def lag(ts: TS[SCALAR], period: WINDOW_SCALAR) -> TS[SCALAR]:
 
 
 @compute_node(overloads=window)
-def cyclic_buffer_window(ts: TS[SCALAR], period: int, wait_till_full: bool, _state: STATE = None) -> TSB[WindowResult]:
+def cyclic_buffer_window(ts: TS[SCALAR], period: int, wait_till_full: bool = True, _state: STATE = None) -> TSB[
+    WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
@@ -65,7 +64,7 @@ def cyclic_buffer_window_start(period: int, _state: STATE):
 
 
 @compute_node(overloads=window)
-def time_delta_window(ts: TS[SCALAR], period: timedelta, wait_till_full: bool, _state: STATE = None) -> TSB[
+def time_delta_window(ts: TS[SCALAR], period: timedelta, wait_till_full: bool = True, _state: STATE = None) -> TSB[
     WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
@@ -170,5 +169,4 @@ def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
     """
     Computes the difference between the current value and the previous value in the time-series.
     """
-    return  ts - lag(ts, 1)
-
+    return ts - lag(ts, 1)

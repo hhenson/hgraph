@@ -95,7 +95,8 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         size_, tp_ = cls._validate_inputs(*args, **kwargs)
         fn_details = TimeSeriesListInput.from_ts.__code__
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
-            WiringNodeInstance, HgTimeSeriesTypeMetaData, HgAtomicType
+            HgTimeSeriesTypeMetaData, HgAtomicType
+        from hgraph import WiringNodeInstance
         hg_tp_ = HgTimeSeriesTypeMetaData.parse(tp_)
         args_ = tuple(f'ts_{i}' for i in range(size_.SIZE))
 

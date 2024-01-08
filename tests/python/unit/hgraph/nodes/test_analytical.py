@@ -1,4 +1,4 @@
-from hgraph.nodes._analytical import ewma, center_of_mass_to_alpha, span_top_aplha
+from hgraph.nodes._analytical import ewma, center_of_mass_to_alpha, span_to_alpha
 from hgraph.test import eval_node
 
 
@@ -10,4 +10,4 @@ def test_ewma():
 
 def test_conversions():
     assert center_of_mass_to_alpha(1.0) == 0.5
-    assert span_top_aplha(1.0) == 1.0
+    assert span_to_alpha(1.0) == 1.0

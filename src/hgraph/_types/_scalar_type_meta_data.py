@@ -78,7 +78,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             raise ParseError(f"Scalar TypeVar '{str(self)}' does not match non-scalar type: '{str(wired_type)}'")
         type_var: TypeVar = cast(TypeVar, self.py_type)
         if self == wired_type:
-            return # No additional information can be gleaned!
+            return  # No additional information can be gleaned!
         if type_var in resolution_dict:
             if resolution_dict[type_var] != wired_type:
                 from hgraph._wiring._wiring_errors import TemplateTypeIncompatibleResolution

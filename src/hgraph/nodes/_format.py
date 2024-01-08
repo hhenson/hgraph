@@ -14,3 +14,4 @@ def format_ts(format_str: str, *args, **kwargs) -> TS[str]:
     :param kwargs: Time series kwargs
     :return:
     """
+    raise NotImplementedError()
