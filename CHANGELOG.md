@@ -36,8 +36,8 @@ Version 0.0.8 (05-01-2024)
 
 * Add try_except and exception_time_series to deal with exception management in graph.
 
-Version 0.0.9 (TBD)
--------------------
+Version 0.0.9 (08-01-2024)
+--------------------------
 
 * Add __getitem__ for TSD to get the value as a time-series from a key as a time-series.
   Support ``ts = my_tsd[key_ts]`` in a graph context.
