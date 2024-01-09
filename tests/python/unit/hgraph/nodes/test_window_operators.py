@@ -16,7 +16,7 @@ def test_cyclic_operator():
     assert eval_node(window, [1, 2, 3, 4, 5], 3) == expected
 
 
-def test_time_delta_operator():
+def test_cyclic_operator_min_window_period():
     expected = [
         {'buffer': (1,), 'index': (MIN_ST,)},
         {'buffer': (1, 2,), 'index': (MIN_ST, MIN_ST + MIN_TD,)},
@@ -25,7 +25,19 @@ def test_time_delta_operator():
         {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
-    assert eval_node(window, [1, 2, 3, 4, 5], MIN_TD * 2, False) == expected
+    assert eval_node(window, [1, 2, 3, 4, 5], 3, 1) == expected
+
+
+def test_time_delta_operator():
+    expected = [
+        None,
+        {'buffer': (1, 2,), 'index': (MIN_ST, MIN_ST + MIN_TD,)},
+        {'buffer': (1, 2, 3), 'index': (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
+        {'buffer': (2, 3, 4), 'index': (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
+        {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
+    ]
+
+    assert eval_node(window, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected
 
 
 def test_tick_lag():

@@ -45,7 +45,7 @@ Version 0.0.9 (08-01-2024)
 * Implement not_ and is_empty for TSS and TSD
 
 Version 0.0.10 (08-01-2024)
---------------------
+---------------------------
 
 * Fix an issue with AUTO_RESOLVE
 * Fix missing defaults in window implementations
@@ -53,3 +53,10 @@ Version 0.0.10 (08-01-2024)
 * Preparation work for NodeInstance inlining
 * Add mean and len_ operators
 * Add all_valid attribute to decorators, WiringNodeSignature and NodeSignature as well as impl.
+
+Version 0.0.11 (TBD)
+--------------------
+
+* Add min_window to window node.
+* Fix resolve_all_valid_inputs
+* Ensure that we check for start and end times not exceeding bounds

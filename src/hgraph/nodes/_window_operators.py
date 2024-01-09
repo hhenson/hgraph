@@ -18,7 +18,7 @@ WINDOW_SCALAR = TypeVar("WINDOW_SCALAR", int, timedelta)
 
 
 @graph
-def window(ts: TS[SCALAR], period: WINDOW_SCALAR, wait_till_full: bool = True) -> TSB[WindowResult]:
+def window(ts: TS[SCALAR], period: WINDOW_SCALAR, min_window_period: WINDOW_SCALAR = None) -> TSB[WindowResult]:
     """
     Buffers the time-series. Emits a tuple of values representing the elements in the buffer.
     and a tuple of corresponding time-stamps representing the time-points at which the elements
@@ -46,13 +46,14 @@ def lag(ts: TS[SCALAR], period: WINDOW_SCALAR) -> TS[SCALAR]:
 
 
 @compute_node(overloads=window)
-def cyclic_buffer_window(ts: TS[SCALAR], period: int, wait_till_full: bool = True, _state: STATE = None) -> TSB[
-    WindowResult]:
+def cyclic_buffer_window(ts: TS[SCALAR], period: int, min_window_period: int = None, _state: STATE = None) \
+        -> TSB[WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
     index.append(ts.last_modified_time)
-    if not wait_till_full or len(buffer) == period:
+    l = len(buffer)
+    if l == period or (min_window_period is not None and l>=min_window_period):
         return {'buffer': tuple(buffer), 'index': tuple(index)}
 
 
@@ -63,17 +64,20 @@ def cyclic_buffer_window_start(period: int, _state: STATE):
 
 
 @compute_node(overloads=window)
-def time_delta_window(ts: TS[SCALAR], period: timedelta, wait_till_full: bool = True, _state: STATE = None) -> TSB[
+def time_delta_window(ts: TS[SCALAR], period: timedelta,
+           min_window_period: timedelta = None, _state: STATE = None) -> TSB[
     WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
     index.append(ts.last_modified_time)
-    is_full = index[-1] - index[0] >= period
-    while index[-1] - index[0] > period:
+    delta = index[-1] - index[0]
+    is_full = delta >= period
+    while delta > period:
         buffer.popleft()
         index.popleft()
-    if not wait_till_full or is_full:
+        delta = index[-1] - index[0]
+    if is_full or (min_window_period is not None and delta >= min_window_period):
         return {'buffer': tuple(buffer), 'index': tuple(index)}
 
 
