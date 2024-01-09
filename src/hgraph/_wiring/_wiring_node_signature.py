@@ -164,7 +164,7 @@ class WiringNodeSignature:
             else:
                 return None
         else:
-            return self.valid_inputs
+            return self.all_valid_inputs
 
     def resolve_auto_resolve_kwargs(self, resolution_dict, kwarg_types, kwargs, resolved_inputs):
         new_resolved_inputs = {}
