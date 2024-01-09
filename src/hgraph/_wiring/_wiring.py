@@ -201,16 +201,19 @@ class BaseWiringNodeClass(WiringNodeClass):
                     v = HgTypeMetaData.parse(arg) if arg is not AUTO_RESOLVE else v.value_tp
                     kwarg_types[k] = HgTypeOfTypeMetaData(v)
                 else:
-                    tp = HgScalarTypeMetaData.parse(arg)
-                    kwarg_types[k] = tp
-                    if tp is None:
-                        if k in self.signature.unresolved_args:
-                            raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
-                                             f"but we require type resolution")
-                        else:
-                            # If the signature was not unresolved, then we can use the signature, but the input value
-                            # May yet be incorrectly typed.
-                            kwarg_types[k] = v
+                    if arg is None:
+                        kwarg_types[k] = v
+                    else:
+                        tp = HgScalarTypeMetaData.parse(arg)
+                        kwarg_types[k] = tp
+                        if tp is None:
+                            if k in self.signature.unresolved_args:
+                                raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
+                                                 f"but we require type resolution")
+                            else:
+                                # If the signature was not unresolved, then we can use the signature, but the input value
+                                # May yet be incorrectly typed.
+                                kwarg_types[k] = v
         return kwarg_types
 
     def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
