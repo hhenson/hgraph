@@ -37,6 +37,12 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     if end_time is None:
         end_time = MAX_ET
 
+    if start_time < MIN_ST:
+        raise RuntimeError(f"Start time '{start_time}' is less than minimum time '{MIN_ST}'")
+
+    if end_time > MAX_ET:
+        raise RuntimeError(f"End time '{end_time}' is greater than maximum time '{MAX_ET}'")
+
     if print_progress:
         print()
         print("Wiring Graph")
