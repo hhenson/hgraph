@@ -1,3 +1,5 @@
+import pytest
+
 from hgraph import MIN_ST, MIN_TD, TS
 from hgraph.nodes import window, lag, count, accumulate, average
 from hgraph.nodes._window_operators import diff, rolling_average
@@ -109,16 +111,17 @@ def test_diff():
     assert eval_node(diff, [1, 2, 3, 4,]) == expected
 
 
-def test_rolling_average_int():
-    expected = [
-        None,
-        None,
-        None,
-        3.0,
-        4.0,
+@pytest.mark.parametrize(
+    ["ts", "period", "min_period", "expected"],
+    [
+        [[1, 2, 3, 4, 5], 3, None, [None, None, None, 3.0, 4.0,]],
+        [[1.0, 2.0, 3.0, 4.0, 5.0], 3, None, [None, None, None, 3.0, 4.0,]],
+        [[1, 2, 3, 4, 5], 3, 2, [None, 1.5, 2.0, 3.0, 4.0,]],
+        [[1.0, 2.0, 3.0, 4.0, 5.0], 3, 2, [None, 1.5, 2.0, 3.0, 4.0,]],
     ]
-
-    assert eval_node(rolling_average, [1, 2, 3, 4, 5], 3) == expected
+)
+def test_rolling_average_int(ts, period, min_period, expected):
+    assert eval_node(rolling_average, ts, period, min_period) == expected
 
     
 def test_rolling_average_time_delta():

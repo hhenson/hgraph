@@ -60,3 +60,8 @@ Version 0.0.11 (TBD)
 * Add min_window to window node.
 * Fix resolve_all_valid_inputs
 * Ensure that we check for start and end times not exceeding bounds
+* Add take, drop
+* Add lt_ operator, and default implementations of le_ and or_
+* Improve error when an operator overload fails.
+* add min_window_period to rolling_average
+

@@ -2,9 +2,11 @@ from collections import deque
 from datetime import timedelta, datetime
 from typing import TypeVar
 
-from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL, NUMBER
+from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL, NUMBER, \
+    AUTO_RESOLVE
+from hgraph.nodes import default, const, debug_print, sample
 from hgraph.nodes._conditional import if_then_else
-from hgraph.nodes._operators import cast_
+from hgraph.nodes._operators import cast_, take, drop
 
 __all__ = ("window", "WindowResult", "lag", "accumulate", "rolling_average", "average", "count", "diff")
 
@@ -53,7 +55,7 @@ def cyclic_buffer_window(ts: TS[SCALAR], period: int, min_window_period: int = N
     buffer.append(ts.value)
     index.append(ts.last_modified_time)
     l = len(buffer)
-    if l == period or (min_window_period is not None and l>=min_window_period):
+    if l == period or (min_window_period is not None and l >= min_window_period):
         return {'buffer': tuple(buffer), 'index': tuple(index)}
 
 
@@ -65,7 +67,7 @@ def cyclic_buffer_window_start(period: int, _state: STATE):
 
 @compute_node(overloads=window)
 def time_delta_window(ts: TS[SCALAR], period: timedelta,
-           min_window_period: timedelta = None, _state: STATE = None) -> TSB[
+                      min_window_period: timedelta = None, _state: STATE = None) -> TSB[
     WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
@@ -146,25 +148,48 @@ def average(ts: TS[NUMBER]) -> TS[float]:
 
 
 @graph
-def rolling_average(ts: TS[NUMBER], period: WINDOW_SCALAR) -> TS[float]:
+def rolling_average(ts: TS[NUMBER], period: WINDOW_SCALAR, min_window_period: WINDOW_SCALAR = None) -> TS[float]:
     """
     Computes the rolling average of the time-series.
     This will either average by the number of ticks or by the time-delta.
-    For now this will only start computing once there is one value from the original time-series. available.
-    TODO: Deal with computing an average when there are enough values to fill the window?
     """
+    raise NotImplementedError(f"rolling_average is not implemented for given inputs: "
+                              f"ts: {str(ts.output_type)}, period: {type(period)}, min_windowPeriod: {type(min_window_period)}")
+
+
+@graph(overloads=rolling_average)
+def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = None,
+                          _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     lagged_ts = lag(ts, period)
     current_value = accumulate(ts)
     delayed_value = accumulate(lagged_ts)
+    denom = float(period) if _tp is float else period
+
+    if min_window_period:
+        count_ = drop(count(take(ts, period)), min_window_period-1)
+        period_ = if_then_else(count_ < period, count_, period)
+        delayed_value = default(delayed_value, sample(count_, 0.0 if _tp is float else 0))
+        denom = cast_(float, period_) if _tp is float else period_
+
+    return (current_value - delayed_value) / denom
+
+
+@graph(overloads=rolling_average)
+def rolling_average_p_time_delta(ts: TS[NUMBER], period: timedelta, min_window_period: timedelta = None,
+                                 _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+    lagged_ts = lag(ts, period)
+    current_value = accumulate(ts)
+    delayed_value = accumulate(lagged_ts)
+
+    delayed_count = count(lagged_ts)
+    if min_window_period:
+        delayed_count = default(delayed_count, const(0, period))
+
+    delta_ticks = count(ts) - delayed_count
+    delta_ticks = if_then_else(delta_ticks == 0, float('NaN'), cast_(float, delta_ticks))
+
     delta_value = current_value - delayed_value
-    delta_ticks = count(ts) - count(lagged_ts)
-    if type(period) is int:
-        return delta_value / period
-    else:
-        return cast_(float, delta_value) / if_then_else(delta_ticks == 0,
-                                                        float('NaN'),
-                                                        cast_(float,
-                                                              delta_ticks))  # NOTE: Need to deal with divide by zero
+    return (delta_value if _tp is float else cast_(float, delta_value)) / delta_ticks
 
 
 @graph
