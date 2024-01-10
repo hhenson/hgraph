@@ -66,4 +66,6 @@ Version 0.0.11 (TBD)
 * add min_window_period to rolling_average
 * Fix a bug in reduce over a TSL
 * Fix average for float values.
+* Default implementation of abs_
+
 

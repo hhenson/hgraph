@@ -193,9 +193,9 @@ def pos_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 WiringPort.__pos__ = lambda x: pos_(x)
 
 
-@graph
+@compute_node
 def abs_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator abs_ is not implemented for {ts.output_type}")
+    return abs(ts.value)
 
 
 WiringPort.__abs__ = lambda x: abs_(x)

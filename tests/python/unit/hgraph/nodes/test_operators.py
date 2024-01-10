@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE
+from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, abs_
 from hgraph.nodes import cast_, len_, drop, take
 from hgraph.test import eval_node
 
@@ -34,3 +34,14 @@ def test_drop():
 
 def test_take():
     assert eval_node(take, [1, 2, 3, 4, 5], 3) == [1, 2, 3, None, None]
+
+
+@pytest.mark.parametrize(
+    ["values", "expected"],
+    [
+        [[1, 0, -1], [1, 0, 1]],
+        [[1.0, 0.0, -1.0], [1.0, 0.0, 1.0]],
+    ]
+)
+def test_abs(values, expected):
+    assert eval_node(abs_, values) == expected
