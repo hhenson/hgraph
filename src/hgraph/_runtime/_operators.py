@@ -107,9 +107,9 @@ WiringPort.__and__ = lambda x, y: and_(x, y)
 WiringPort.__rand__ = lambda x, y: and_(y, x)
 
 
-@graph
+@compute_node
 def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator or_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+    return lhs or rhs
 
 
 WiringPort.__or__ = lambda x, y: or_(x, y)
@@ -155,7 +155,7 @@ WiringPort.__lt__ = lambda x, y: lt_(x, y)
 
 @graph
 def le_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    raise WiringError(f"operator le_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+    return or_(lhs < rhs, lhs == rhs)
 
 
 WiringPort.__le__ = lambda x, y: le_(x, y)
