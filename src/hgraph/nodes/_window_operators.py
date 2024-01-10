@@ -139,12 +139,12 @@ def count(ts: SIGNAL, _output: TS_OUT[int] = None) -> TS[int]:
 
 
 @graph
-def average(ts: TS[NUMBER]) -> TS[float]:
+def average(ts: TS[NUMBER], _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     """
     Computes the average of the time-series.
     This will either average by the number of ticks or by the time-delta.
     """
-    return accumulate(ts) / count(ts)
+    return accumulate(ts) / (count(ts) if _tp is int else cast_(float, count(ts)))
 
 
 @graph

@@ -89,15 +89,15 @@ def test_accumulate():
     assert eval_node(accumulate, [1, 2, 3, 4,]) == expected
 
 
-def test_average():
-    expected = [
-        1,
-        1.5,
-        2,
-        2.5,
+@pytest.mark.parametrize(
+    ["value", "expected"],
+    [
+        [[1, 2, 3, 4,], [1.0, 1.5, 2.0, 2.5]],
+        [[1.0, 2.0, 3.0, 4.0,], [1.0, 1.5, 2.0, 2.5]],
     ]
-
-    assert eval_node(average, [1, 2, 3, 4,]) == expected
+)
+def test_average(value, expected):
+    assert eval_node(average, value) == expected
 
 
 def test_diff():

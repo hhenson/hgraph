@@ -65,5 +65,5 @@ Version 0.0.11 (TBD)
 * Improve error when an operator overload fails.
 * add min_window_period to rolling_average
 * Fix a bug in reduce over a TSL
-
+* Fix average for float values.
 
