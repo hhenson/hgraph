@@ -5,7 +5,6 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Optional, Mapping, TYP
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance
 from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
@@ -14,6 +13,7 @@ from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, \
     CustomMessageWiringError
+from hgraph._wiring._wiring_node_instance import WiringNodeInstance
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
 
@@ -431,8 +431,12 @@ class OverloadedWiringNodeHelper:
             except Exception:
                 pass
         if not candidates:
+            args = [str(a.output_type) if isinstance(a, WiringPort) else str(type(a)) for a in args]
+            kwargs = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(type(v))) for k, v in
+                      kwargs.items() if not k.startswith("_")]
             raise WiringError(
-                f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found")
+                f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
+                f"{args}, {kwargs}")
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
         if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
@@ -647,5 +651,3 @@ class NonPeeredWiringNodeClass(StubWiringNodeClass):
 
     def __call__(self, _tsb_meta_type: HgTSBTypeMetaData, **kwargs) -> "WiringPort":
         ...
-
-
