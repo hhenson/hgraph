@@ -69,3 +69,10 @@ Version 0.0.11 (10-01-2024)
 * Default implementation of abs_
 * add clip analytical function
 
+
+Version 0.1 (TBD)
+-----------------
+
+* Add format_ to perform time-series formatting of a string.
+* replace write_... with print_ to keep naming more consistent with std python.
+

@@ -1,6 +1,6 @@
 from hgraph import graph, run_graph, compute_node, TS, TIME_SERIES_TYPE
 from hgraph._runtime._evaluation_engine import EvaluationMode
-from hgraph.nodes import const, write_str
+from hgraph.nodes import const, print_
 from hgraph.nodes._print import debug_print
 
 
@@ -9,7 +9,7 @@ def test_hello_world():
     @graph
     def hello_world():
         c = const("Hello World")
-        write_str(c)
+        print_(c)
 
     run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)
 

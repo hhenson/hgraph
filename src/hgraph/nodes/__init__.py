@@ -21,4 +21,3 @@ from hgraph.nodes._tsd_operators import *
 from hgraph.nodes._tsl_operators import *
 from hgraph.nodes._tss_operators import *
 from hgraph.nodes._window_operators import *
-from hgraph.nodes._write import *
