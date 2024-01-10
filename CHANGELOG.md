@@ -67,5 +67,5 @@ Version 0.0.11 (TBD)
 * Fix a bug in reduce over a TSL
 * Fix average for float values.
 * Default implementation of abs_
-
+* add clip analytical function
 

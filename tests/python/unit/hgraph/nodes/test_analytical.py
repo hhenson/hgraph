@@ -1,7 +1,7 @@
 import pytest
 
 from hgraph import Size, TS, TSL, TSD
-from hgraph.nodes._analytical import ewma, center_of_mass_to_alpha, span_to_alpha, mean
+from hgraph.nodes import ewma, center_of_mass_to_alpha, span_to_alpha, mean, clip
 from hgraph.test import eval_node
 
 
@@ -27,3 +27,19 @@ def test_conversions():
 )
 def test_mean(value, expected, tp):
     assert eval_node(mean, [value, ], resolution_dict={'ts': tp}) == expected
+
+
+@pytest.mark.parametrize(
+    ["values", "min", "max", "expected"],
+    [
+        [[2, 1, 0, -1, -2], -1, 1, [1, 1, 0, -1, -1]],
+        [[2.0, 1.0, 0.0, -1.0, -2.0], -1.0, 1.0, [1.0, 1.0, 0.0, -1.0, -1.0]],
+    ]
+)
+def test_abs(values, min, max, expected):
+    assert eval_node(clip, values, min, max) == expected
+
+
+def test_abs_failure():
+    with pytest.raises(RuntimeError):
+        assert eval_node(clip, [1.0], 1.0, -1.0) == [1.0]

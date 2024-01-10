@@ -2,7 +2,7 @@ from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, 
     SCALAR
 from hgraph.nodes._operators import cast_, len_
 
-__all__ = ("ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean")
+__all__ = ("ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip")
 
 
 @compute_node
@@ -72,3 +72,19 @@ def tsd_mean(ts: TSD[SCALAR, TS[NUMBER]], _num_tp: type[NUMBER] = AUTO_RESOLVE) 
     if _num_tp is int:
         numerator = cast_(float, numerator)
     return numerator / cast_(float, len_(ts))
+
+
+@compute_node
+def clip(ts: TS[NUMBER], min_: NUMBER, max_: NUMBER) -> TS[NUMBER]:
+    v = ts.value
+    if v < min_:
+        return min_
+    if v > max_:
+        return max_
+    return v
+
+@clip.start
+def clip_start(min_: NUMBER, max_: NUMBER):
+    if min_ < max_:
+        return
+    raise RuntimeError(f"clip given min: {min_}, max: {max_}, but min is not < max")
