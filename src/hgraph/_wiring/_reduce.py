@@ -69,11 +69,16 @@ def _reduce_tsl(func, ts, zero, is_associated):
     else:
         outs = [func(default(ts[i], zero), default(ts[i + 1], zero)) for i in range(0, sz - sz % 2, 2)]
         over_run = None if sz % 2 == 0 else default(ts[-1], zero)
-        # "outs" must now be even. Thus, until we have a single value, we can reduce in pairs.
-        # Then, afterward, if we had an odd number of inputs, we can reduce the last value with the over run.
         while len(outs) > 1:
             l = len(outs)
-            outs = [func(outs[i], outs[i + 1]) for i in range(0, l, 2)]  # l must be even
+            if l % 2 == 1:
+                if over_run is not None:
+                    outs.append(over_run)
+                    l += 1
+                else:
+                    over_run = outs.pop()
+                    l -= 1
+            outs = [func(outs[i], outs[i + 1]) for i in range(0, l, 2)]
         if over_run is not None:
             out = func(outs[0], over_run)
         else:

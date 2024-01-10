@@ -216,6 +216,7 @@ def test_tsd_reduce(inputs, expected):
         [[None, {0: 1}, None, {1: 2}], Size[2], [0, 1, None, 3]],
         [[None, {0: 1, 3: 4}, {1: 2, 2: 3}], Size[4], [0, 5, 10]],
         [[None, {0: 1, 3: 4}, {1: 2, 2: 3}, {4: 8}], Size[5], [0, 5, 10, 18]],
+        [[None, {0: 1, 3: 4}, {1: 2, 2: 3}, {4: 8, 5: 9}], Size[6], [0, 5, 10, 27]],
     ]
 )
 def test_tsl_reduce(inputs, size, expected):
