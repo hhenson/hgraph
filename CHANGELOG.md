@@ -54,8 +54,8 @@ Version 0.0.10 (08-01-2024)
 * Add mean and len_ operators
 * Add all_valid attribute to decorators, WiringNodeSignature and NodeSignature as well as impl.
 
-Version 0.0.11 (TBD)
---------------------
+Version 0.0.11 (10-01-2024)
+---------------------------
 
 * Add min_window to window node.
 * Fix resolve_all_valid_inputs
