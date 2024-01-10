@@ -1,7 +1,7 @@
 from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._wiring import WiringError
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR
+from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_2
 
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
@@ -36,7 +36,7 @@ WiringPort.__rmul__ = lambda x, y: mul_(y, x)
 
 
 @graph
-def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_2:
     raise WiringError(f"operator div_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
@@ -109,7 +109,7 @@ WiringPort.__rand__ = lambda x, y: and_(y, x)
 
 @compute_node
 def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    return lhs or rhs
+    return lhs.value or rhs.value
 
 
 WiringPort.__or__ = lambda x, y: or_(x, y)
