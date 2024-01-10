@@ -70,9 +70,13 @@ Version 0.0.11 (10-01-2024)
 * add clip analytical function
 
 
-Version 0.1 (TBD)
------------------
+Version 0.1.0 (10-01-2024)
+--------------------------
 
 * Add format_ to perform time-series formatting of a string.
 * replace write_... with print_ to keep naming more consistent with std python.
+
+NOTE: This release is to indicate a milestone. The code meets
+the objectives of the 0.1 release. This will still have a lot
+of work cleaning up and adding to the standard library.
 
