@@ -95,5 +95,17 @@ this for all use-cases, the key difference being how the output is returned.
 Here is an example using this:
 
 ```python
+@graph
+def a_graph(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+    return lhs / rhs
 
+
+@graph
+def capture_an_exception():
+    result = try_except(a_graph, const(1.0), const(0.0))
+    debug_print("(1.0 + 2.0) / 0.0", result.out)
+    debug_print("exception", result.exception)
+
+
+run_graph(capture_an_exception)
 ```
