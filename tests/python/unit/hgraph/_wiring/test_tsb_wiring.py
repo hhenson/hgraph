@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph
+from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError
 from hgraph.test import eval_node
 
 
@@ -71,3 +71,14 @@ def test_tsb_input_peered():
         return split_my_tsb(tsb)
 
     assert eval_node(tsb_in_non_peered, [1, 2], ["a", "b"]) == [1, 2]
+
+
+def test_ts_schema_error():
+
+    try:
+        @graph
+        def tsb_bad_return_type() -> MyTsb:
+            ...
+        assert False, "Should have raised an exception"
+    except ParseError:
+        ...

@@ -80,3 +80,10 @@ NOTE: This release is to indicate a milestone. The code meets
 the objectives of the 0.1 release. This will still have a lot
 of work cleaning up and adding to the standard library.
 
+
+Version 0.1.1 (TBD)
+-------------------
+
+* Fix missing try_except example
+* Add len support to TSL wiring port
+* Error check on returning a TS Schema instead of TSB\[Ts Schema]

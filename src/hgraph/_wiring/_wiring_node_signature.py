@@ -9,8 +9,10 @@ from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputT
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._types._type_meta_data import ParseError
+from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
+from hgraph._wiring._wiring_errors import IncorrectTypeBinding
 
 __all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
            "extract_hg_time_series_type", "extract_scalar_type")
@@ -143,7 +145,9 @@ class WiringNodeSignature:
     def resolve_output(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Optional[HgTypeMetaData]:
         if self.output_type is None:
             return None
-        return self.output_type.resolve(resolution_dict, weak)
+        out_type = self.output_type.resolve(resolution_dict, weak)
+        if type(out_type) == HgTimeSeriesSchemaTypeMetaData:
+            raise IncorrectTypeBinding(HgTSBTypeMetaData(out_type), out_type)
 
     def resolve_valid_inputs(self, **kwargs) -> frozenset[str]:
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
@@ -218,6 +222,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         for
         k, v in annotations.items() if k != "return")
     output_type = extract_hg_time_series_type(annotations.get("return", None))
+    if output_type is not None and type(output_type) is HgTimeSeriesSchemaTypeMetaData:
+        raise ParseError(f"The output type is not valid, did you mean TSB[{output_type.py_type.__name__}]")
     unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
 
