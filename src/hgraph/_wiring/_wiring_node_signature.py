@@ -148,6 +148,7 @@ class WiringNodeSignature:
         out_type = self.output_type.resolve(resolution_dict, weak)
         if type(out_type) == HgTimeSeriesSchemaTypeMetaData:
             raise IncorrectTypeBinding(HgTSBTypeMetaData(out_type), out_type)
+        return out_type
 
     def resolve_valid_inputs(self, **kwargs) -> frozenset[str]:
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
