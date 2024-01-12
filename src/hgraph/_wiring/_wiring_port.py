@@ -160,6 +160,9 @@ class TSBWiringPort(WiringPort):
 @dataclass(frozen=True)
 class TSLWiringPort(WiringPort):
 
+    def __len__(self):
+        return typing.cast(HgTSLTypeMetaData, self.output_type).size.SIZE
+
     def __getitem__(self, item):
         """Return the wiring port for an individual TSL element"""
         output_type: HgTSLTypeMetaData = self.output_type
@@ -169,7 +172,7 @@ class TSLWiringPort(WiringPort):
             raise CustomMessageWiringError(
                 "Currently we are unable to select a time-series element from an unbounded TSL")
         elif item >= size_.SIZE:
-            # Unfortuantly zip seems to depend on an IndexError being raised, so try and provide
+            # Unfortunately, zip seems to depend on an IndexError being raised, so try and provide
             # as much useful context in the error message as possible
             msg = f"When resolving '{WIRING_CONTEXT.signature}' \n"
             f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}"

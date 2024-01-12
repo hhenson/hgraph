@@ -1,5 +1,5 @@
-from hgraph import TS, graph, TSL, Size, SCALAR, compute_node
-from hgraph.nodes import flatten_tsl_values
+from hgraph import TS, graph, TSL, Size, SCALAR, compute_node, SIZE
+from hgraph.nodes import flatten_tsl_values, const
 from hgraph.test import eval_node
 
 
@@ -38,3 +38,12 @@ def test_peered_to_peered_tsl():
         return flatten_tsl_values[SCALAR: int](tsl)
 
     assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1,3), (2, 4)]
+
+
+def test_len():
+
+    @graph
+    def l_test(tsl: TSL[TS[int], SIZE]) -> TS[int]:
+        return const(len(tsl))
+
+    assert eval_node(l_test, tsl=[None], resolution_dict={"tsl": TSL[TS[int], Size[5]]}) == [5]
