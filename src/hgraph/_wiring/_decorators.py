@@ -1,4 +1,5 @@
 import inspect
+from enum import Enum
 from functools import partial
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, TypeVarTuple
 
@@ -12,7 +13,8 @@ if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 __all__ = (
-    "compute_node", "pull_source_node", "push_source_node", "sink_node", "graph", "generator", "service",
+    "compute_node", "pull_source_node", "push_source_node", "sink_node", "graph", "generator", "reference_service",
+    "request_reply_service", "subscription_service",
     "service_impl", "service_adaptor", "register_service", "push_queue")
 
 SOURCE_NODE_SIGNATURE = TypeVar("SOURCE_NODE_SIGNATURE", bound=Callable)
@@ -143,24 +145,67 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
         node_type=WiringNodeType.PUSH_SOURCE_NODE, node_class=PythonPushQueueWiringNodeClass)
 
 
-def service(fn):
-    """
-    Decorates a function that describes the service signature. A service requires an implementation
-    to describe its behavior.
-    A service implementation must be registered by the graph.
+SERVICE_DEFINITION = TypeVar('SERVICE_DEFINITION', bound=Callable)
 
-    A service definition cannot take any scalar values except for the path.
+
+def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
+    """
+    A subscription service is a service where the input receives a subscription key and then
+    streams back results. This looks like:
+
+        default=None
+
+        @subscription_service
+        def my_subscription_svc(path: str | None, ts1: TS[str]) -> TS[float]:
+            ...
+
+        @service_impl(interface=my_subscription_svc)
+        def my_subscription_svc_impl(ts1: TSD[RequesterId, TS[str]]) -> TSD[RequesterId, TS[float]]:
+            ...
+
+        @graph
+        def my_code():
+            register_service(default, my_subscription_svc, my_subscription_svc_impl)
+            ...
+            out = my_subscription_svc(default, ts1="mkt_data.mcu_3m")
+    """
+
+
+def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
+    """
+    A reference service is a service that only produces a value that does not vary by request.
+    The pattern for a reference services is the same as a source node.
 
     for example:
 
-        @service
-        def my_service(path: str, ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
-            pass
+        @reference_service
+        def my_reference_service(path: str | None) -> OUT_TIME_SERIES:
+            ...
 
+    if path is not provided or defined in the configuration it is assumed there will only be one bound instance
+    and that bound instance will be to the path 'ref_svc://<module>.<svc_name>' for example:
+    'ref_svc://a.b.c.my_reference_service'
+
+    The implementation needs to be registered by the outer wiring node, if not registered, it will look for a remote
+    instance of the service to bind to.
     """
 
 
-SERVICE_DEFINITION = TypeVar('SERVICE_DEFINITION', bound=Callable)
+def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
+    """
+    A request-reply service takes a request and returns a response, error or time-out.
+    for example:
+
+        class RequestReplyService(Generic[TIME_SERIES_TYPE_1]):
+            result: TIME_SERIES_TYPE_1
+            time_out: TS[bool]
+            error: TS[str]
+
+        @request_reply_service
+        def my_request_replay(path: str | None, request: TIME_SERIES_TYPE) -> TSB[ReqRepResponse[TIME_SERIES_TYPE_1]]:
+            ...
+
+    """
 
 
 def service_impl(fn=None, /, interface: SERVICE_DEFINITION = None):

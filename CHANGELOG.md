@@ -87,3 +87,6 @@ Version 0.1.1 (TBD)
 * Fix missing try_except example
 * Add len support to TSL wiring port
 * Error check on returning a TS Schema instead of TSB\[Ts Schema]
+* Add an example of using the graph with a Flask application.
+* Start describing the service infrastructure.
+
