@@ -1,5 +1,4 @@
-import functools
-from abc import abstractmethod, ABC
+from abc import ABC
 from typing import Any, Generic, Iterable, TYPE_CHECKING, Tuple
 
 from frozendict import frozendict
@@ -115,7 +114,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             time_series_args=frozenset(args_),
             uses_scheduler=False
         )
-        from hgraph._wiring._wiring import NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSLWiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         wiring_node_instance = WiringNodeInstance(

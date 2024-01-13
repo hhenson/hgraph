@@ -49,7 +49,7 @@ class WiringPort:
 
     @property
     def has_peer(self) -> bool:
-        from hgraph._wiring._wiring import NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
 
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) \

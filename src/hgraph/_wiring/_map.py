@@ -15,10 +15,10 @@ from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._wiring._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
     TslMapWiringNodeClass
-from hgraph._wiring._wiring import WiringNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._wiring._wiring import extract_kwargs
+from hgraph._wiring._wiring_node_class._wiring_node_class import extract_kwargs
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError

@@ -1,7 +1,7 @@
 from typing import Any, Mapping, TYPE_CHECKING, cast
 
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
-from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders, WiringNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders, WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 

@@ -4,7 +4,8 @@ from collections.abc import Set
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring import WiringNodeClass, WiringGraphContext
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
 from hgraph._wiring._stub_wiring_node import create_input_stub, create_output_stub
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature

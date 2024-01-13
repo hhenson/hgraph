@@ -41,7 +41,7 @@ class WiringNodeInstance:
 
     @property
     def is_stub(self) -> bool:
-        from hgraph._wiring import StubWiringNodeClass
+        from hgraph._wiring._wiring_node_class._stub_wiring_node_class import StubWiringNodeClass
         return isinstance(self.node, StubWiringNodeClass)
 
     @property

@@ -1,7 +1,8 @@
 from typing import TypeVar, Generic, Type
 
-from hgraph import generator, compute_node, sink_node, graph, PythonGeneratorWiringNodeClass, WiringGraphContext, \
+from hgraph import generator, compute_node, sink_node, graph, WiringGraphContext, \
     SCALAR, WiringPort, WiringNodeInstance
+from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
 from hgraph._types import HgTypeMetaData
 from hgraph._types._ts_type import TS
 

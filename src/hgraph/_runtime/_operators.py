@@ -1,5 +1,5 @@
 from hgraph._wiring._decorators import graph, compute_node
-from hgraph._wiring._wiring import WiringError
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_2
 

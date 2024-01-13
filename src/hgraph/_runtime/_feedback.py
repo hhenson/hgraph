@@ -7,7 +7,8 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._scalar_types import SCALAR
 from hgraph._wiring._decorators import pull_source_node, sink_node
-from hgraph._wiring._wiring import WiringNodeClass, PythonLastValuePullWiringNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
+from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonLastValuePullWiringNodeClass
 from hgraph._wiring._wiring_node_instance import WiringNodeInstance
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData

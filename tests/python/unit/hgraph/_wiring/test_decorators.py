@@ -1,8 +1,9 @@
 from datetime import timedelta
 
-from hgraph import generator, SCALAR, compute_node, PythonWiringNodeClass, sink_node, graph, GraphWiringNodeClass
+from hgraph import generator, SCALAR, compute_node, PythonWiringNodeClass, sink_node, graph
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
 from hgraph._types._ts_type import TS
-from hgraph._wiring._wiring import PythonGeneratorWiringNodeClass
+from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeType, WiringNodeSignature
 
 

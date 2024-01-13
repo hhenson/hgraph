@@ -10,7 +10,7 @@ from hgraph._wiring._stub_wiring_node import *
 from hgraph._wiring._switch import *
 from hgraph._wiring._switch_wiring_node import *
 from hgraph._wiring._try_except_wiring_node import *
-from hgraph._wiring._wiring import *
+from hgraph._wiring._wiring_node_class import *
 from hgraph._wiring._wiring_context import *
 from hgraph._wiring._wiring_errors import *
 from hgraph._wiring._wiring_node_signature import *

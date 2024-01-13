@@ -25,6 +25,10 @@ class WiringNodeType(Enum):
     SINK_NODE = 3
     GRAPH = 4
     STUB = 5  # A stub acts as a placeholder for a node that will never be part of the runtime or builder graph
+    REF_SVC = 6
+    SUBS_SVC = 7
+    REQ_REP_SVC = 8
+    SVC_IMPL = 9
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:

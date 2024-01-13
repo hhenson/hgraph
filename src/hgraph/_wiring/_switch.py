@@ -10,7 +10,7 @@ from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring import WiringNodeClass, extract_kwargs
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_utils import as_reference
@@ -53,7 +53,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
     # Create a nifty simplified signature for the switch node.
     with WiringContext(
             current_signature=STATE(signature=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)")):
-        from hgraph._wiring._wiring import WiringPort
+        from hgraph._wiring._wiring_node_class._wiring_node_class import WiringPort
 
         # Perform basic validations fo the inputs
         if switches is None or len(switches) == 0:

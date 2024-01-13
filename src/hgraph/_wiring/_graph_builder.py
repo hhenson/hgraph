@@ -15,7 +15,7 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
     Evaluate the wiring graph and build a runtime graph.
     This graph is the actual graph objects that are used to be evaluated.
     """
-    from hgraph import WiringGraphContext
+    from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
     from hgraph._builder._ts_builder import TimeSeriesBuilderFactory
     from hgraph._wiring._wiring_errors import WiringError
@@ -45,7 +45,7 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
     This is extracted to support nested graph construction, where the sink nodes are limited to the new nested graph,
     but we wish to keep the nesting to allow for better debug information to be accumulated.
     """
-    from hgraph._wiring._wiring import WiringNodeInstance
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeInstance
     from hgraph._builder._graph_builder import Edge
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._runtime._node import NodeTypeEnum

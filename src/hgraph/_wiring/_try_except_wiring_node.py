@@ -2,7 +2,7 @@ from typing import Mapping, Any, TYPE_CHECKING
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring import BaseWiringNodeClass, WiringNodeClass, create_input_output_builders
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, WiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 

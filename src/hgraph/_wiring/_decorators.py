@@ -1,7 +1,4 @@
-import inspect
-from enum import Enum
-from functools import partial
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, TypeVarTuple
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
@@ -9,12 +6,12 @@ from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 
 if TYPE_CHECKING:
-    from hgraph._wiring._wiring import WiringNodeClass
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 __all__ = (
     "compute_node", "pull_source_node", "push_source_node", "sink_node", "graph", "generator", "reference_service",
-    "request_reply_service", "subscription_service",
+    "request_reply_service", "subscription_service", "default_path",
     "service_impl", "service_adaptor", "register_service", "push_queue")
 
 SOURCE_NODE_SIGNATURE = TypeVar("SOURCE_NODE_SIGNATURE", bound=Callable)
@@ -115,7 +112,7 @@ def generator(fn: SOURCE_NODE_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
     generator WILL do NOTHING.
 
     """
-    from hgraph._wiring._wiring import PythonGeneratorWiringNodeClass
+    from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_class=PythonGeneratorWiringNodeClass)
 
@@ -135,7 +132,7 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
             ...
     ```
     """
-    from hgraph._wiring._wiring import PythonPushQueueWiringNodeClass
+    from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonPushQueueWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return lambda fn: _create_node(_create_node_signature(
@@ -146,6 +143,9 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
 
 
 SERVICE_DEFINITION = TypeVar('SERVICE_DEFINITION', bound=Callable)
+
+
+default_path = None
 
 
 def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
@@ -189,6 +189,8 @@ def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
     The implementation needs to be registered by the outer wiring node, if not registered, it will look for a remote
     instance of the service to bind to.
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(WiringNodeType.REF_SVC, fn)
 
 
 def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
@@ -251,7 +253,9 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
                     overloads: "WiringNodeClass" = None):
-    from hgraph._wiring._wiring import CppWiringNodeClass, GraphWiringNodeClass, PythonWiringNodeClass
+    from hgraph._wiring._wiring_node_class._cpp_wiring_node_class import CppWiringNodeClass
+    from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
+    from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     kwargs = dict(node_type=node_type,
@@ -263,14 +267,13 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
         kwargs['node_class'] = CppWiringNodeClass
         kwargs['impl_fn'] = cpp_impl
 
-    if node_type is WiringNodeType.GRAPH:
-        kwargs['node_class'] = GraphWiringNodeClass
-        if active is not None:
-            raise ValueError("Graphs do not support ticked")
-        if valid is not None:
-            raise ValueError("Graphs do not support valid")
-        if all_valid is not None:
-            raise ValueError("Graph do not support all_valid")
+    match node_type:
+        case WiringNodeType.GRAPH:
+            kwargs['node_class'] = GraphWiringNodeClass
+            _assert_no_node_configs("Graphs", kwargs)
+        case WiringNodeType.REF_SVC:
+            kwargs['node_class'] = ReferenceServiceNodeClass
+            _assert_no_node_configs("Reference Services", kwargs)
 
     if overloads is not None and impl_fn is None:
         kwargs['overloads'] = overloads
@@ -285,6 +288,15 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
         return _create_node(impl_fn, **kwargs)
 
 
+def _assert_no_node_configs(label: str, kwargs):
+    if kwargs.get("active") is not None:
+        raise ValueError(f"{label} do not support ticked")
+    if kwargs.get("valid") is not None:
+        raise ValueError(f"{label} do not support valid")
+    if kwargs.get("all_valid") is not None:
+        raise ValueError(f"{label} do not support all_valid")
+
+
 def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
                  node_class: Type["WiringNodeClass"] = None, active: Sequence[str] = None, valid: Sequence[str] = None,
                  all_valid: Sequence[str] = None) -> "WiringNodeClass":
@@ -295,7 +307,7 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
     from hgraph._wiring._wiring_node_signature import extract_signature
     if impl_fn is None:
         impl_fn = signature_fn
-    from hgraph._wiring._wiring import WiringNodeSignature
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeSignature
     active_inputs = frozenset(active) if active is not None else None
     valid_inputs = frozenset(valid) if valid is not None else None
     all_valid_inputs = frozenset(all_valid) if all_valid is not None else None
@@ -312,7 +324,7 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
     Create a function that takes the kwargs and returns the kwargs. This is used to create a function that
     can be used to create a signature.
     """
-    from hgraph._wiring._wiring import WiringNodeSignature
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeSignature
     from hgraph import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData
 
     from hgraph import SourceCodeDetails

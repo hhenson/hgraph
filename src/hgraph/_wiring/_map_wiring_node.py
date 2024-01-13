@@ -3,7 +3,8 @@ from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._wiring import BaseWiringNodeClass, create_input_output_builders, WiringGraphContext
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError

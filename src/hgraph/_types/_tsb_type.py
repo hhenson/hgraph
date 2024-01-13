@@ -192,7 +192,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             uses_scheduler=False
         )
         TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
-        from hgraph._wiring._wiring import NonPeeredWiringNodeClass
+        from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSBWiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         wiring_node_instance = WiringNodeInstance(
