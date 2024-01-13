@@ -1,7 +1,7 @@
 from hashlib import sha1
 from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
-from more_itertools import nth
+from hgraph._types._typing_utils import nth
 
 from hgraph._types._scalar_type_meta_data import HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData

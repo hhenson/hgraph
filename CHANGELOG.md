@@ -81,12 +81,14 @@ the objectives of the 0.1 release. This will still have a lot
 of work cleaning up and adding to the standard library.
 
 
-Version 0.1.1 (TBD)
--------------------
+Version 0.1.1 (13-01-2024)
+--------------------------
 
 * Fix missing try_except example
 * Add len support to TSL wiring port
 * Error check on returning a TS Schema instead of TSB\[Ts Schema]
 * Add an example of using the graph with a Flask application.
 * Start describing the service infrastructure.
+* Remove dependnecy on more-itertools (replace nth and take functions)
+
 

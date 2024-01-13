@@ -1,6 +1,7 @@
+import itertools
 from typing import TypeVar
 
-__all__ = ("clone_typevar",)
+__all__ = ("clone_typevar", "nth", "take")
 
 
 def clone_typevar(tp: TypeVar, name: str) -> TypeVar:
@@ -22,3 +23,13 @@ class Sentinel:
 
     def __str__(self):
         return self.name
+
+
+def nth(iterable, n):
+    """Very trivial implementation of nth, to avoid the need to import more-itertools"""
+    return next(itertools.islice(iterable, n, n+1))
+
+
+def take(n, iterable):
+    """Very trivial implementation of take, to avoid the need to import more-itertools"""
+    return itertools.islice(iterable, n)

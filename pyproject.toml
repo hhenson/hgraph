@@ -7,7 +7,6 @@ name = "hgraph"
 dynamic = ["version"]
 dependencies = [
     "frozendict>=2.3.10",
-    "more-itertools>=10.1.0",
     "sortedcontainers>=2.4.0",
 ]
 requires-python = ">=3.11"

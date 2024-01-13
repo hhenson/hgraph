@@ -5,13 +5,13 @@ from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYP
     ItemsView, ValuesView, cast
 
 from frozendict import frozendict
-from more_itertools import nth
 
 from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
+from hgraph._types._typing_utils import nth
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if TYPE_CHECKING:
