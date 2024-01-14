@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta
+from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 from typing import TypeVar, Type
 
@@ -61,7 +62,7 @@ UnSet = _UnSet()  # The marker instance to indicate the value is not set.
 SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict, _UnSet,
-                 CompoundScalar)
+                 CompoundScalar, Enum)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
 SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
 NUMBER = TypeVar("NUMBER", int, float)
