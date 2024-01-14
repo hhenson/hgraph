@@ -96,6 +96,8 @@ Version 0.1.2 (TBD)
 -------------------
 
 * Prepare for reference services
+* Add Enum support to scalars.
+
 
 
 

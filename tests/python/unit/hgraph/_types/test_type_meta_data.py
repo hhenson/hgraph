@@ -1,5 +1,6 @@
 from collections.abc import Mapping as Mapping_, Set as Set_
 from datetime import time, datetime, date, timedelta
+from enum import Enum
 
 from frozendict import frozendict
 from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
@@ -20,6 +21,11 @@ from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData, HgTSLOutTypeMetaData
 from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
+
+
+class MyEnum(Enum):
+    A = "A"
+    B = "B"
 
 
 @pytest.mark.parametrize(
@@ -44,6 +50,8 @@ from hgraph._types._type_meta_data import HgTypeMetaData
         [timedelta(days=1), timedelta],
         [str, str],
         ["Test", str],
+        [MyEnum, MyEnum],
+        [MyEnum.A, MyEnum]
     ]
 )
 def test_atomic_scalars(value, expected: Type):

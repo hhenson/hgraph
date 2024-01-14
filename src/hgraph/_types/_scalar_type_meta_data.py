@@ -1,6 +1,7 @@
 from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from enum import Enum
 from types import GenericAlias
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast
 
@@ -146,6 +147,8 @@ class HgAtomicType(HgScalarTypeMetaData):
         value_tp = value if isinstance(value, type) else type(value)
         if issubclass(value_tp, Size):
             return HgAtomicType(value_tp, tuple())
+        if issubclass(value_tp, Enum):
+            return HgAtomicType(value_tp, (str, int))
         return {
             bool: lambda: HgAtomicType(bool, (int, float, str)),
             int: lambda: HgAtomicType(int, (bool, float, str)),
