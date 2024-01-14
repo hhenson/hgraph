@@ -92,12 +92,8 @@ Version 0.1.1 (13-01-2024)
 * Remove dependnecy on more-itertools (replace nth and take functions)
 
 
-Version 0.1.2 (TBD)
--------------------
+Version 0.1.2 (14-01-2024)
+--------------------------
 
 * Prepare for reference services
 * Add Enum support to scalars.
-
-
-
-
