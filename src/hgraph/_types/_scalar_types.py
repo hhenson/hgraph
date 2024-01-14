@@ -88,9 +88,9 @@ def is_scalar(value) -> bool:
     This is not a substitute for HgScalarType.parse.
     """
     return isinstance(value, (bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict,
-                              CompoundScalar, Size)) or (
+                              CompoundScalar, Size, Enum)) or (
         isinstance(value, type) and ( value in (bool, int, float, date, datetime, time, timedelta, str) or
-                                      issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size)) )
+                                      issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum)) )
     )
 
 
