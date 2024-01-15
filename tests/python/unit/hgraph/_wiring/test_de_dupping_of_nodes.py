@@ -10,7 +10,9 @@ def test_node_de_duping():
         d = const(1)
         debug_print("c+d", c+d)
 
-    out = wire_graph(main)
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+    with WiringNodeInstanceContext():
+        out = wire_graph(main)
     assert isinstance(out, GraphBuilder)
     assert len(out.node_builders) == 3
 
@@ -22,6 +24,8 @@ def test_node_de_duping_2():
         c = const(1)
         debug_print("c+d", c+1)
 
-    out = wire_graph(main)
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+    with WiringNodeInstanceContext():
+        out = wire_graph(main)
     assert isinstance(out, GraphBuilder)
     assert len(out.node_builders) == 3

@@ -9,7 +9,7 @@ from hgraph._types._scalar_types import SCALAR
 from hgraph._wiring._decorators import pull_source_node, sink_node
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonLastValuePullWiringNodeClass
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance
+from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
@@ -57,7 +57,7 @@ def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> TIME_SERIES
         inputs["default"] = default
 
     signature = cast(WiringNodeClass, _feedback[TIME_SERIES_TYPE: tp_]).resolve_signature().copy_with(**changes)
-    node_instance = WiringNodeInstance(node=PythonLastValuePullWiringNodeClass(signature, None),
+    node_instance = create_wiring_node_instance(node=PythonLastValuePullWiringNodeClass(signature, None),
                                        resolved_signature=signature,
                                        inputs=frozendict({"default": default}),
                                        rank=1)

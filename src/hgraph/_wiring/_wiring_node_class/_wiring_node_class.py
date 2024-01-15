@@ -12,7 +12,7 @@ from hgraph._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOL
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, \
     CustomMessageWiringError
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance
+from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
 
@@ -307,7 +307,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")
 
-            wiring_node_instance = WiringNodeInstance(self, resolved_signature, frozendict(kwargs_), rank=rank)
+            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank)
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
             # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 

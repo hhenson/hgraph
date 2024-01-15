@@ -5,7 +5,7 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if typing.TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder, GraphBuilderFactory
-    from hgraph._wiring._wiring_node_instance import WiringNodeInstance
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstance, WiringNodeInstanceContext
 
 __all__ = ("wire_graph", "create_graph_builder")
 

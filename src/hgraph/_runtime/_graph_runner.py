@@ -5,6 +5,7 @@ from hgraph._runtime._constants import MIN_ST, MAX_ET
 from hgraph._runtime._graph_executor import GraphEngineFactory
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 
+
 __all__ = ("run_graph",)
 
 
@@ -31,6 +32,7 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     """
     from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._wiring._graph_builder import wire_graph
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 
     if start_time is None:
         start_time = MIN_ST if run_mode is EvaluationMode.SIMULATION else datetime.utcnow()
@@ -47,7 +49,8 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
         print()
         print("Wiring Graph")
     if not isinstance(graph, GraphBuilder):
-        graph_builder = wire_graph(graph, *args, **kwargs)
+        with WiringNodeInstanceContext():
+            graph_builder = wire_graph(graph, *args, **kwargs)
     else:
         graph_builder = graph
     if print_progress:

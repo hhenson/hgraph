@@ -7,6 +7,7 @@ from hgraph._types._time_series_types import K, V
 from hgraph._types._scalar_types import SIZE, Size, STATE
 from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, TIME_SERIES_TYPE, \
     TimeSeriesDeltaValue
+from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_context import WiringContext
@@ -117,7 +118,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSLWiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
-        wiring_node_instance = WiringNodeInstance(
+        wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict({k: v for k, v in zip(args_, args)}),

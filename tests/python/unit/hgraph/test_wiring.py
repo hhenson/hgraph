@@ -5,6 +5,7 @@ from hgraph import generator, compute_node, sink_node, graph, WiringGraphContext
 from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
 from hgraph._types import HgTypeMetaData
 from hgraph._types._ts_type import TS
+from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 
 
 def test_simple_wiring():
@@ -27,7 +28,7 @@ def test_simple_wiring():
         out = t_cn(out)
         t_sink_n(out)
 
-    with WiringGraphContext(None) as context:
+    with WiringGraphContext(None) as context, WiringNodeInstanceContext():
         g()
         assert context.has_sink_nodes()
         sink_nodes = context.sink_nodes
@@ -55,7 +56,7 @@ def test_un_resolved_wiring():
         out = t_src_n("Test")
         t_sink_n(out)
 
-    with WiringGraphContext(None) as context:
+    with WiringGraphContext(None) as context, WiringNodeInstanceContext():
         g()
         assert context.has_sink_nodes()
         sink_nodes = context.sink_nodes

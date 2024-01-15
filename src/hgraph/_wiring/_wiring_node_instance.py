@@ -8,6 +8,43 @@ if typing.TYPE_CHECKING:
     from hgraph import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, NodeSignature, NodeBuilder, Edge, \
         WiringPort
 
+__all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
+
+
+class WiringNodeInstanceContext:
+    """
+    This must exist when wiring and is used to cache the WiringNodeInstances created during the
+    graph building process.
+    """
+    __stack__: ["WiringNodeInstanceContext"] = []
+
+    def __init__(self):
+        self._node_instances: dict[tuple, WiringNodeInstance] = {}
+
+    def create_wiring_node_instance(self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
+                                    inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
+        key = (rank, inputs, resolved_signature, node)
+        if (node_instance := self._node_instances.get(key, None)) is None:
+            self._node_instances[key] = node_instance = WiringNodeInstance(node=node,
+                                                                           resolved_signature=resolved_signature,
+                                                                           inputs=inputs, rank=rank)
+        return node_instance
+
+    @classmethod
+    def instance(cls) -> "WiringNodeInstanceContext":
+        return cls.__stack__[-1]
+
+    def __enter__(self):
+        self.__stack__.append(self)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__stack__.pop()
+
+
+def create_wiring_node_instance(node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
+                                    inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
+    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
+
 
 @dataclass(frozen=True, eq=False)  # We will write our own equality check, but still want a hash
 class WiringNodeInstance:
@@ -21,18 +58,12 @@ class WiringNodeInstance:
     _hash: int | None = None
 
     def __eq__(self, other):
-        return type(self) is type(other) and self.node == other.node and \
-            self.resolved_signature == other.resolved_signature and self.rank == other.rank and \
-            self.inputs.keys() == other.inputs.keys() and \
-            all(v.__orig_eq__(other.inputs[k]) if hasattr(v, '__orig_eq__') else v == other.inputs[k]
-                for k, v in self.inputs.items())
-        # Deals with possible WiringPort equality issues due to operator overloading in the syntactical sugar wrappers
-        # NOTE: This need performance improvement as it will currently have to walk the reachable graph from here.
+        # Rely on WiringNodeInstances to be interned data structures
+        return self is other
 
     def __hash__(self) -> int:
-        if self._hash is None:
-            super().__setattr__("_hash", hash((self.node, self.resolved_signature, self.rank, self.inputs)))
-        return self._hash
+        # Rely on WiringNodeInstances to be interned data structures
+        return id(self)
 
     def mark_error_handler_registered(self, trace_back_depth: int = 1, capture_values: bool = False):
         super().__setattr__("error_handler_registered", True)
@@ -94,5 +125,3 @@ class WiringNodeInstance:
 
         return node_builder, edges
 
-
-#TODO: Create node instance interning

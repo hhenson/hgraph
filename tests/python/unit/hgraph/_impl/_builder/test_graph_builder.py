@@ -9,7 +9,9 @@ def test_build_graph():
         c = const("Hello World")
         print_(c)
 
-    g = wire_graph(hello_world)
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+    with WiringNodeInstanceContext():
+        g = wire_graph(hello_world)
 
     assert g.edges == tuple([Edge(src_node=0, dst_node=1, output_path=tuple(), input_path=(0,))])
     assert g.node_builders[0].signature.name == "const"

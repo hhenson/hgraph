@@ -13,6 +13,7 @@ from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, 
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._typing_utils import nth
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
@@ -195,7 +196,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSBWiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
-        wiring_node_instance = WiringNodeInstance(
+        wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict(kwargs),

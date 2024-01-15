@@ -7,7 +7,7 @@ from hgraph._wiring._wiring_node_class._python_wiring_node_classes import Python
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance
+from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
@@ -39,7 +39,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
         label=key
     )
     node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
-    node_instance = WiringNodeInstance(node, signature, frozendict(), 1)
+    node_instance = create_wiring_node_instance(node, signature, frozendict(), 1)
     return WiringPort(node_instance, ())
 
 
@@ -67,7 +67,7 @@ def create_output_stub(output: WiringPort):
         label="graph:out"
     )
     node = PythonWiringNodeClass(signature, _stub)
-    node_instance = WiringNodeInstance(node, signature, frozendict({"ts": output}), output.rank + 1)
+    node_instance = create_wiring_node_instance(node, signature, frozendict({"ts": output}), output.rank + 1)
     WiringGraphContext.instance().add_sink_node(node_instance)  # We cheat a bit since this is not actually a sink_node.
 
 
