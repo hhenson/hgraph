@@ -109,3 +109,7 @@ Version 0.1.3 (15-01-2024)
 * Make lag generic and add tsl_lag (lag support for TSL's)
 
 
+Version 0.1.4 (15-01-2024)
+--------------------------
+
+* Fix for equality check of inputs in WiringNodeInstance interning

@@ -11,6 +11,19 @@ if typing.TYPE_CHECKING:
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
 
 
+class InputsKey:
+
+    def __init__(self, inputs):
+        self._inputs = inputs
+
+    def __eq__(self, other: Any) -> bool:
+        return all(v.__orig_eq__(other._inputs[k]) if hasattr(v, '__orig_eq__') else v == other._inputs[k]
+                for k, v in self._inputs.items())
+
+    def __hash__(self) -> int:
+        return hash(self._inputs)
+
+
 class WiringNodeInstanceContext:
     """
     This must exist when wiring and is used to cache the WiringNodeInstances created during the
@@ -23,7 +36,7 @@ class WiringNodeInstanceContext:
 
     def create_wiring_node_instance(self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
                                     inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
-        key = (rank, inputs, resolved_signature, node)
+        key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
             self._node_instances[key] = node_instance = WiringNodeInstance(node=node,
                                                                            resolved_signature=resolved_signature,
