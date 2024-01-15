@@ -3,7 +3,7 @@ from datetime import timedelta, datetime
 from typing import TypeVar
 
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL, NUMBER, \
-    AUTO_RESOLVE
+    AUTO_RESOLVE, TIME_SERIES_TYPE, SIZE, TSL
 from hgraph.nodes import default, const, debug_print, sample
 from hgraph.nodes._conditional import if_then_else
 from hgraph.nodes._operators import cast_, take, drop
@@ -37,7 +37,7 @@ def window(ts: TS[SCALAR], period: WINDOW_SCALAR, min_window_period: WINDOW_SCAL
 
 
 @graph
-def lag(ts: TS[SCALAR], period: WINDOW_SCALAR) -> TS[SCALAR]:
+def lag(ts: TIME_SERIES_TYPE, period: WINDOW_SCALAR) -> TIME_SERIES_TYPE:
     """
     Delays the delivery of an input by the period specified. This period can either be a number of ticks
     or a time-delta.
@@ -87,6 +87,11 @@ def time_delta_window(ts: TS[SCALAR], period: timedelta,
 def time_delta_window_start(_state: STATE):
     _state.buffer = deque[SCALAR]()
     _state.index = deque[datetime]()
+
+
+@graph(overloads=lag)
+def tsl_lag(ts: TSL[TIME_SERIES_TYPE, SIZE], period: WINDOW_SCALAR) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    return TSL.from_ts(lag(ts_, period) for ts_ in ts.values())
 
 
 @compute_node(overloads=lag)

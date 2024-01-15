@@ -106,5 +106,6 @@ Version 0.1.3 (15-01-2024)
 * De-dup processing nodes that have already been processed.
 * Add values, items, and keys to TSLWiringPort
 * Add support to expand generator in from_ts on TSL.
+* Make lag generic and add tsl_lag (lag support for TSL's)
 
 
