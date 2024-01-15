@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Any, Generic, Iterable, TYPE_CHECKING, Tuple
+from typing import Any, Generic, Iterable, TYPE_CHECKING, Tuple, Generator
 
 from frozendict import frozendict
 
@@ -92,6 +92,8 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
     @classmethod
     def from_ts(cls, *args, __type__=TIME_SERIES_TYPE, __size__=SIZE, **kwargs) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
         """To force a Type (to ensure input types are as expected, then provide __type__ and / or __size__"""
+        if len(args) == 1 and isinstance(args[0], Generator):
+            args = [arg for arg in args[0]]
         size_, tp_ = cls._validate_inputs(*args, **kwargs)
         fn_details = TimeSeriesListInput.from_ts.__code__
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \

@@ -104,4 +104,7 @@ Version 0.1.3 (15-01-2024)
 
 * Perform interning of WiringNodeInstance
 * De-dup processing nodes that have already been processed.
+* Add values, items, and keys to TSLWiringPort
+* Add support to expand generator in from_ts on TSL.
+
 

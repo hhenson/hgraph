@@ -22,6 +22,15 @@ def test_fixed_tsl_non_peered_input():
     assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1,3), (2, 4)]
 
 
+def test_fixed_tsl_non_peered_input_generator():
+    @graph
+    def my_tsl(ts1: TS[int], ts2: TS[int]) -> TS[tuple[int, ...]]:
+        tsl = TSL.from_ts((g for g in (ts1, ts2)))
+        return flatten_tsl_values[SCALAR: int](tsl)
+
+    assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1,3), (2, 4)]
+
+
 def test_fixed_tsl_peered():
     @graph
     def my_tsl(ts1: TS[int], ts2: TS[int]) -> TS[int]:

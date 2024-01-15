@@ -163,6 +163,15 @@ class TSLWiringPort(WiringPort):
     def __len__(self):
         return typing.cast(HgTSLTypeMetaData, self.output_type).size.SIZE
 
+    def values(self):
+        return (self[i] for i in range(len(self)))
+
+    def items(self):
+        return ((i, self[i]) for i in range(len(self)))
+
+    def keys(self):
+        return range(len(self))
+
     def __getitem__(self, item):
         """Return the wiring port for an individual TSL element"""
         output_type: HgTSLTypeMetaData = self.output_type
