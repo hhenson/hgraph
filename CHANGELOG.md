@@ -99,8 +99,9 @@ Version 0.1.2 (14-01-2024)
 * Add Enum support to scalars.
 
 
-Version 0.1.3 (TBD)
--------------------
+Version 0.1.3 (15-01-2024)
+--------------------------
 
 * Perform interning of WiringNodeInstance
+* De-dup processing nodes that have already been processed.
 
