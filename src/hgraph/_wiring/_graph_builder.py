@@ -57,7 +57,8 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
     max_rank = max(node.rank for node in sink_nodes)
     ranked_nodes: dict[int, set[WiringNodeInstance]] = defaultdict(set)
 
-    pending_nodes = list(sink_nodes)
+    processed_nodes = set(sink_nodes)
+    pending_nodes = list(processed_nodes)
     while pending_nodes:
         node = pending_nodes.pop()
         if (rank := node.rank) == 1:
@@ -73,8 +74,9 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
         ranked_nodes[rank].add(node)
         for arg in filter(lambda k_: k_ in node.resolved_signature.time_series_inputs,
                           node.resolved_signature.args):
-            if input_ := node.inputs.get(arg):
-                pending_nodes.append(input_.node_instance)
+            if (input_ := node.inputs.get(arg)) and (next_node := input_.node_instance) not in processed_nodes:
+                processed_nodes.add(next_node)
+                pending_nodes.append(next_node)
 
     # Now we can walk the tree in rank order and construct the nodes
     node_map: dict[WiringNodeInstance, int] = {}
