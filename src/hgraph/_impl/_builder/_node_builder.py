@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Callable, TypeVar
 
 from hgraph._builder._node_builder import NodeBuilder
-from hgraph._impl._runtime._node import NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl, \
+from hgraph._impl._runtime._node import BaseNodeImpl, NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl, \
     PythonLastValuePullNodeImpl
 from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._types._tsb_type import TimeSeriesBundleInput
@@ -12,7 +12,8 @@ __all__ = (
     "PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder", "PythonLastValuePullNodeImpl",
     "PythonBaseNodeBuilder")
 
-NODE = TypeVar("NODE", bound=NodeImpl)
+
+NODE = TypeVar("NODE", bound=BaseNodeImpl)
 
 
 class PythonBaseNodeBuilder(NodeBuilder, ABC):

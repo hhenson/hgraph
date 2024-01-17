@@ -1,5 +1,6 @@
 import functools
 import threading
+from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -23,23 +24,18 @@ if TYPE_CHECKING:
     from hgraph._types._tsb_type import TimeSeriesBundleInput
 
 
-__all__ = ("NodeImpl", "NodeSchedulerImpl", "GeneratorNodeImpl", "PythonPushQueueNodeImpl", "PythonLastValuePullNodeImpl")
+__all__ = ("NodeImpl", "NodeSchedulerImpl", "GeneratorNodeImpl", "PythonPushQueueNodeImpl",
+           "PythonLastValuePullNodeImpl", "BaseNodeImpl")
 
 
-class NodeImpl(Node):
-    """
-    Provide a basic implementation of the Node as a reference implementation.
-    """
+class BaseNodeImpl(Node, ABC):
 
     def __init__(self,
                  node_ndx: int,
                  owning_graph_id:
                  tuple[int, ...],
                  signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 eval_fn: Callable = None,
-                 start_fn: Callable = None,
-                 stop_fn: Callable = None
+                 scalars: Mapping[str, Any]
                  ):
         super().__init__()
         self._node_ndx: int = node_ndx
@@ -47,9 +43,6 @@ class NodeImpl(Node):
         self._signature: NodeSignature = signature
         self._scalars: Mapping[str, Any] = scalars
         self._graph: Graph | None = None
-        self.eval_fn: Callable = eval_fn
-        self.start_fn: Callable = start_fn
-        self.stop_fn: Callable = stop_fn
         self._input: Optional["TimeSeriesBundleInput"] = None
         self._output: Optional["TimeSeriesOutput"] = None
         self._error_output: Optional["TimeSeriesOutput"] = None
@@ -148,6 +141,9 @@ class NodeImpl(Node):
                 if self.signature.active_inputs is None or k in self.signature.active_inputs:
                     ts.make_active()
 
+    def do_eval(self):
+        ...
+
     def eval(self):
         scheduled = False if self._scheduler is None else self._scheduler.is_scheduled_now
         if self.input:
@@ -166,25 +162,25 @@ class NodeImpl(Node):
                     return
         if self.error_output:
             try:
-                out = self.eval_fn(**self._kwargs)
+                self.do_eval()
             except Exception as e:
                 out = None
                 from hgraph._types._error_type import NodeError
                 self.error_output.apply_result(NodeError.capture_error(e, self))
         else:
-            out = self.eval_fn(**self._kwargs)
-        if out is not None:
-            self.output.apply_result(out)
+            self.do_eval()
         if scheduled:
             self._scheduler.advance()
+
+    @abstractmethod
+    def do_start(self):
+        ...
 
     @start_guard
     def start(self):
         self._initialise_kwargs()
         self._initialise_inputs()
-        if self.start_fn is not None:
-            from inspect import signature
-            self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
+        self.do_start()
         if self._scheduler is not None:
             if self._scheduler.pop_tag("start", None) is not None:
                 self.notify()
@@ -193,12 +189,13 @@ class NodeImpl(Node):
             else:
                 self._scheduler.advance()
 
+    @abstractmethod
+    def do_stop(self):
+        ...
+
     @stop_guard
     def stop(self):
-        from inspect import signature
-        if self.stop_fn is not None:
-            self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
-
+        self.do_stop()
         if self.input:
             self.input.un_bind_output()
 
@@ -217,6 +214,41 @@ class NodeImpl(Node):
             self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.next_cycle_evaluation_time)
         else:
             self.notify()
+
+
+class NodeImpl(BaseNodeImpl):
+    """
+    Provide a basic implementation of the Node as a reference implementation.
+    """
+
+    def __init__(self,
+                 node_ndx: int,
+                 owning_graph_id: tuple[int, ...],
+                 signature: NodeSignature,
+                 scalars: Mapping[str, Any],
+                 eval_fn: Callable = None,
+                 start_fn: Callable = None,
+                 stop_fn: Callable = None
+                 ):
+        super().__init__(node_ndx, owning_graph_id, signature, scalars)
+        self.eval_fn: Callable = eval_fn
+        self.start_fn: Callable = start_fn
+        self.stop_fn: Callable = stop_fn
+
+    def do_eval(self):
+        out = self.eval_fn(**self._kwargs)
+        if out is not None:
+            self.output.apply_result(out)
+
+    def do_start(self):
+        if self.start_fn is not None:
+            from inspect import signature
+            self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
+
+    def do_stop(self):
+        from inspect import signature
+        if self.stop_fn is not None:
+            self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 
 
 class NodeSchedulerImpl(NodeScheduler):

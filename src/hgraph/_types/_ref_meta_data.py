@@ -4,7 +4,6 @@ from typing import Type, TypeVar, Optional, _GenericAlias
 __all__ = ("HgREFTypeMetaData", "HgREFOutTypeMetaData",)
 
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 
@@ -12,6 +11,7 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
     """Parses TS[...]"""
 
     value_tp: HgTimeSeriesTypeMetaData
+    if_reference: bool = True
 
     def __init__(self, value_type: HgTimeSeriesTypeMetaData):
         self.value_tp = value_type

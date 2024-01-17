@@ -16,6 +16,7 @@ class HgTypeMetaData:
     is_atomic: bool = False
     is_generic: bool = False  # Is this instance of metadata representing a template type (i.e. TypeVar)
     is_injectable: bool = False  # This indicates the type represent an injectable property (such as ExecutionContext)
+    is_reference: bool = False
     py_type: Type  # The python type that represents this type
 
     @classmethod

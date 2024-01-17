@@ -1,9 +1,12 @@
+import functools
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
 from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._wiring._wiring_node_class._reference_service_node_class import ReferenceServiceNodeClass
+from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -21,7 +24,7 @@ GRAPH_SIGNATURE = TypeVar("GRAPH_SIGNATURE", bound=Callable)
 
 
 def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
-                 cpp_impl=None,
+                 node_impl=None,
                  active: Sequence[str] = None,
                  valid: Sequence[str] = None,
                  all_valid: Sequence[str] = None,
@@ -32,35 +35,35 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
     A compute-node requires inputs and outputs.
 
     :param fn: The function to wrap
-    :param cpp_impl: The C++ implementation to use (this makes fn a signature only method)
+    :param node_impl: The node implementation to use (this makes fn a signature only method)
     :param active: Which inputs to mark as being active (by default all are active)
     :param valid: Which inputs to require to be valid (by default all are valid)
     :param all_valid: Which inputs are required to be ``all_valid`` (by default none are all_valid)
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, cpp_impl, active, valid, all_valid, overloads=overloads)
+    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads)
 
 
-def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, cpp_impl=None) -> SOURCE_NODE_SIGNATURE:
+def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None) -> SOURCE_NODE_SIGNATURE:
     """
-    Used to indicate the signature for a C++ source node. For Python source nodes use either the
+    Used to indicate the signature for a source node. For Python source nodes use either the
     generator or source_adapter annotations.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, cpp_impl)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_impl)
 
 
-def push_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, cpp_impl=None) -> SOURCE_NODE_SIGNATURE:
+def push_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None) -> SOURCE_NODE_SIGNATURE:
     """
-    Used to indicate the signature for a C++ push source node.
+    Used to indicate the signature for a push source node.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, cpp_impl)
+    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl)
 
 
 def sink_node(fn: SINK_NODE_SIGNATURE=None, /,
-              cpp_impl=None,
+              node_impl=None,
               active: Sequence[str] = None,
               valid: Sequence[str] = None,
               all_valid: Sequence[str] = None,
@@ -70,14 +73,14 @@ def sink_node(fn: SINK_NODE_SIGNATURE=None, /,
     Other than that it behaves in much the same way as compute node.
 
     :param fn: The function to wrap
-    :param cpp_impl: The C++ implementation to use (this makes fn a signature only method)
+    :param node_impl: The node implementation to use (this makes fn a signature only method)
     :param active: Which inputs to mark as being active (by default all are active)
     :param valid: Which inputs to require to be valid (by default all are valid)
     :param all_valid: Which inputs are required to be ``all_valid`` (by default none are all_valid)
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SINK_NODE, fn, cpp_impl, active, valid, all_valid, overloads=overloads)
+    return _node_decorator(WiringNodeType.SINK_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads)
 
 
 def graph(fn: GRAPH_SIGNATURE=None, overloads: "WiringNodeClass" = None) -> GRAPH_SIGNATURE:
@@ -214,6 +217,8 @@ def service_impl(fn=None, /, interface: SERVICE_DEFINITION = None):
     """
     Wraps a service implementation. The service is defined to implement the declared interface.
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(WiringNodeType.SVC_IMPL, fn, interface=interface)
 
 
 def register_service(path: str, interface, implementation, **kwargs):
@@ -249,11 +254,11 @@ def service_adaptor(interface):
     """
 
 
-def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active: Sequence[str] = None,
+def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active: Sequence[str] = None,
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
-                    overloads: "WiringNodeClass" = None):
-    from hgraph._wiring._wiring_node_class._cpp_wiring_node_class import CppWiringNodeClass
+                    overloads: "WiringNodeClass" = None, interface = None):
+    from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
@@ -263,9 +268,9 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
                   active=active,
                   valid=valid,
                   all_valid=all_valid)
-    if cpp_impl is not None:
-        kwargs['node_class'] = CppWiringNodeClass
-        kwargs['impl_fn'] = cpp_impl
+    if node_impl is not None:
+        kwargs['node_class'] = NodeImplWiringNodeClass
+        kwargs['impl_fn'] = node_impl
 
     match node_type:
         case WiringNodeType.GRAPH:
@@ -274,6 +279,10 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, cpp_impl=None, active:
         case WiringNodeType.REF_SVC:
             kwargs['node_class'] = ReferenceServiceNodeClass
             _assert_no_node_configs("Reference Services", kwargs)
+        case WiringNodeType.SVC_IMPL:
+            kwargs['node_class'] = functools.partial(ServiceImplNodeClass, interface=interface)
+            # TODO: process the interface to correctly configure class
+            _assert_no_node_configs("Service Impl", kwargs)
 
     if overloads is not None and impl_fn is None:
         kwargs['overloads'] = overloads
