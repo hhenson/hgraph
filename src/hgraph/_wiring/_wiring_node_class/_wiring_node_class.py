@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
 
 __all__ = ("WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
-           "prepare_kwargs", "extract_kwargs",)
+           "prepare_kwargs", "extract_kwargs", "create_wiring_node_instance", "create_input_output_builders")
 
 
 class WiringNodeClass:

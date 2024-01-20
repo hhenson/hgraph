@@ -213,15 +213,15 @@ def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
     """
 
 
-def service_impl(fn=None, /, interface: SERVICE_DEFINITION = None):
+def service_impl(fn=None, /, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION=None):
     """
     Wraps a service implementation. The service is defined to implement the declared interface.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SVC_IMPL, fn, interface=interface)
+    return _node_decorator(WiringNodeType.SVC_IMPL, fn, interfaces=interfaces)
 
 
-def register_service(path: str, interface, implementation, **kwargs):
+def register_service(path: str, implementation, **kwargs):
     """
     Binds the implementation of the interface to the path provided. The additional kwargs
     are passed to the implementation. These should be defined on the implementation and are independent of the
@@ -257,7 +257,7 @@ def service_adaptor(interface):
 def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active: Sequence[str] = None,
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
-                    overloads: "WiringNodeClass" = None, interface = None):
+                    overloads: "WiringNodeClass" = None, interfaces = None):
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
@@ -280,8 +280,7 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
             kwargs['node_class'] = ReferenceServiceNodeClass
             _assert_no_node_configs("Reference Services", kwargs)
         case WiringNodeType.SVC_IMPL:
-            kwargs['node_class'] = functools.partial(ServiceImplNodeClass, interface=interface)
-            # TODO: process the interface to correctly configure class
+            kwargs['node_class'] = functools.partial(ServiceImplNodeClass, interfaces=interfaces)
             _assert_no_node_configs("Service Impl", kwargs)
 
     if overloads is not None and impl_fn is None:

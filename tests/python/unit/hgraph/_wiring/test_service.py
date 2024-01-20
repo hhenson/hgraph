@@ -18,7 +18,7 @@ def test_reference_service():
 
     @graph
     def main() -> TS[str]:
-        register_service(default_path, my_service, my_service_impl)
+        register_service(default_path, my_service_impl)
         return my_service()["test"]
 
     assert eval_node(main) == ["a value"]

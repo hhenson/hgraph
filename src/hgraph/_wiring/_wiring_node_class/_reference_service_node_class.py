@@ -27,7 +27,7 @@ class ReferenceServiceNodeClass(BaseWiringNodeClass):
         if path is None:
             path = f"{self.fn.__module__}.{self.fn.__name__}"
 
-        path = f"ref_svc://{path}"
+        path = f"ref_svc://{path}.{self.fn.__name__}"
         scalars = frozendict({"path": path})
 
         from hgraph._impl._builder._node_builder import BaseNodeImpl

@@ -12,7 +12,7 @@ from hgraph._types._tsb_type import TimeSeriesSchema, TSB
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._map_wiring_node import TsdMapWiringSignature
+from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_context import WiringContext

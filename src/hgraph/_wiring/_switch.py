@@ -107,7 +107,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
         )
         # Create the outer wiring node, and call it with the inputs
-        from hgraph._wiring._switch_wiring_node import SwitchWiringNodeClass
+        from hgraph._wiring._wiring_node_class._switch_wiring_node import SwitchWiringNodeClass
         # noinspection PyTypeChecker
         return SwitchWiringNodeClass(
             resolved_signature_outer, switches, resolved_signature_inner, reload_on_ticked

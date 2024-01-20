@@ -4,7 +4,7 @@ from frozendict import frozendict
 from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS, \
     REMOVE
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
-from hgraph._wiring._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
+from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph.nodes import add_, debug_print, const, pass_through
 from hgraph.test import eval_node
