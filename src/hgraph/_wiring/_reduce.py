@@ -1,24 +1,24 @@
 from typing import Callable, cast
 
-from hgraph._wiring._decorators import compute_node
-from hgraph._types._scalar_types import SCALAR, STATE
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._scalar_types import SIZE
+from hgraph._types._scalar_types import STATE
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, K
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
-from hgraph._types._tsl_type import TSL
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+from hgraph._types._tsl_type import TSL
+from hgraph._wiring._decorators import compute_node
+from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_node_class._reduce_wiring_node import TsdReduceWiringNodeClass
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._wiring._wiring_context import WiringContext
 
 __all__ = ("reduce",)
 
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
-           ts: TSD[SCALAR, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
+           ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
            zero: TIME_SERIES_TYPE, is_associated: bool = True) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
@@ -91,7 +91,7 @@ def _reduce_tsd(func, ts, zero):
     # We need to ensure that the reduction graph contains no push nodes. (We should be able to support pull nodes)
 
     @compute_node
-    def _reduce_tsd_signature(ts: TSD[SCALAR, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) \
+    def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) \
             -> REF[TIME_SERIES_TYPE]:
         ...
         # Used to create a WiringNodeClass template

@@ -55,9 +55,15 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsd_type import TimeSeriesDictInput
+        from hgraph._types._type_meta_data import ParseError
         if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesDictInput:
-            return HgTSDTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]),
-                                     HgTimeSeriesTypeMetaData.parse(value.__args__[1]))
+            key_tp = HgScalarTypeMetaData.parse(value.__args__[0])
+            if key_tp is None:
+                raise ParseError(f"Could not parse key type {value.__args__[0]} when parsing {value}")
+            value_tp = HgTimeSeriesTypeMetaData.parse(value.__args__[1])
+            if value_tp is None:
+                raise ParseError(f"Could not parse value type {value.__args__[1]} when parsing {value}")
+            return HgTSDTypeMetaData(key_tp, value_tp)
 
     @property
     def has_references(self) -> bool:

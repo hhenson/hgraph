@@ -2,7 +2,7 @@ from typing import Tuple, Dict
 
 import pytest
 
-from hgraph import SCALAR, HgTypeMetaData, TIME_SERIES_TYPE, TS, TSL, SIZE, Size, TSD, V, K, TSS
+from hgraph import SCALAR, HgTypeMetaData, TIME_SERIES_TYPE, TS, TSD, V, K, TSL, SIZE, Size, TSS
 
 
 def test_rank_values():

@@ -4,22 +4,22 @@ from typing import Union, Callable, Generic
 from frozendict import frozendict
 
 from hgraph._types._error_type import NodeError
-from hgraph._types._scalar_types import SCALAR, SIZE, STATE
+from hgraph._types._scalar_types import SIZE, STATE
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, K
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TimeSeriesSchema, TSB
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature
-from hgraph._wiring._source_code_details import SourceCodeDetails
-from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
-from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
-from hgraph._wiring._wiring_utils import as_reference
 from hgraph._wiring._map import map_
 from hgraph._wiring._reduce import reduce
+from hgraph._wiring._source_code_details import SourceCodeDetails
+from hgraph._wiring._wiring_context import WiringContext
+from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+from hgraph._wiring._wiring_utils import as_reference
 
 __all__ = ("exception_time_series", "try_except", "TryExceptResult", "TryExceptTsdMapResult")
 
@@ -29,8 +29,8 @@ class TryExceptResult(TimeSeriesSchema, Generic[TIME_SERIES_TYPE]):
     out: TIME_SERIES_TYPE
 
 
-class TryExceptTsdMapResult(TimeSeriesSchema, Generic[SCALAR, TIME_SERIES_TYPE]):
-    exception: TSD[SCALAR, TS[NodeError]]
+class TryExceptTsdMapResult(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
+    exception: TSD[K, TS[NodeError]]
     out: TIME_SERIES_TYPE
 
 
@@ -121,12 +121,12 @@ def _try_except_node(func, *args, __trace_back_depth__: int = 1, __capture_value
 
 
 def exception_time_series(ts: TIME_SERIES_TYPE, trace_back_depth: int = 1, capture_values: bool = False) \
-        -> Union[TSL[TS[NodeError], SIZE], TSD[SCALAR, TS[NodeError]], TS[NodeError]]:
+        -> Union[TSL[TS[NodeError], SIZE], TSD[K, TS[NodeError]], TS[NodeError]]:
     """
     A light-weight wrapper to extract the error time-series from a single node.
     Depending on the nature of the node this will potentially return different results, for a normal node,
     this will return a ``TS[NodeError]``, but for a ``map_`` this will return a collection of ``TS[NodeError]``,
-    for example a TSD based ``map_`` (one with ``TSD`` inputs) will return a ``TSD[SCALAR, TS[NodeError]]`` where
+    for example a TSD based ``map_`` (one with ``TSD`` inputs) will return a ``TSD[K, TS[NodeError]]`` where
     ``SCALAR`` is the key type of the ``map_``.
 
     This is called on the result of calling the node, for example:

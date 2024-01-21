@@ -1,20 +1,20 @@
 from datetime import date, datetime, time, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, runtime_checkable, Protocol
 from typing import TypeVar, Type
 
 from frozendict import frozendict
 
-from hgraph._types._typing_utils import clone_typevar
 from hgraph._types._schema_type import AbstractSchema
+from hgraph._types._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
     from hgraph._types._type_meta_data import HgTypeMetaData
 
 
-__all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_scalar",
-           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER")
+__all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
+           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR")
 
 
 class _UnSet:
@@ -58,11 +58,21 @@ class CompoundScalar(AbstractSchema):
             return HgScalarTypeMetaData.parse(tp)
 
 
+@runtime_checkable
+class Hashable(Protocol):
+
+    def __eq__(self, other):
+        ...
+
+    def __hash__(self):
+        ...
+
+
 UnSet = _UnSet()  # The marker instance to indicate the value is not set.
 SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
-SCALAR = TypeVar("SCALAR", bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict, _UnSet,
-                 CompoundScalar, Enum)
+SCALAR = TypeVar("SCALAR", bound=object)
+KEYABLE_SCALAR = TypeVar("KEYABLE_SCALAR", bound=Hashable)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
 SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
 NUMBER = TypeVar("NUMBER", int, float)
@@ -81,7 +91,7 @@ class STATE(dict):
         self[key] = value
 
 
-def is_scalar(value) -> bool:
+def is_keyable_scalar(value) -> bool:
     """
     Is this value a supported scalar type. Not all python types are valid scalar types.
     This is a first pass estimate, and does not do a deep parse on container classes.

@@ -1,7 +1,7 @@
-from typing import cast, Type
+from typing import cast
 
-from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, SCALAR, TSD, REMOVE, \
-    PythonTimeSeriesReference, Removed
+from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, TSD, REMOVE, \
+    PythonTimeSeriesReference, Removed, K, KEYABLE_SCALAR
 from hgraph.nodes import tss_contains
 from hgraph.test import eval_node
 
@@ -83,7 +83,7 @@ def test_merge_ref_set():
 
 
 def test_tss_ref_contains():
-    assert eval_node(tss_contains[SCALAR: int],
+    assert eval_node(tss_contains[KEYABLE_SCALAR: int],
                      ts=[{1}, {2}, None, {Removed(2)}],
                      item=[2, None, None, None, 1]
                      ) == [False, True, None, False, True]
@@ -98,8 +98,8 @@ def test_merge_with_tsd():
 
 
 @compute_node
-def merge_tsd(tsd1: TSD[SCALAR, REF[TIME_SERIES_TYPE]], tsd2: TSD[SCALAR, REF[TIME_SERIES_TYPE]]) \
-        -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
+def merge_tsd(tsd1: TSD[K, REF[TIME_SERIES_TYPE]], tsd2: TSD[K, REF[TIME_SERIES_TYPE]]) \
+        -> TSD[K, REF[TIME_SERIES_TYPE]]:
     tick = {}
     tick.update({k: v.value for k, v in tsd1.modified_items()})
     tick.update({k: v.value for k, v in tsd2.modified_items() if k not in tsd1})
@@ -109,7 +109,7 @@ def merge_tsd(tsd1: TSD[SCALAR, REF[TIME_SERIES_TYPE]], tsd2: TSD[SCALAR, REF[TI
 
 
 def test_merge_tsd():
-    assert eval_node(merge_tsd[SCALAR: int, TIME_SERIES_TYPE: TS[int]],
+    assert eval_node(merge_tsd[K: int, TIME_SERIES_TYPE: TS[int]],
                      tsd1=[{1: 1}, {2: 2}, {3: 3}, {1: REMOVE}, {1: 11}],
                      tsd2=[{1: -1}, {-2: -2}, {1: -1, 3: -3}, None, {-2: REMOVE, 3: REMOVE}]
                      ) == [{1: 1}, {2: 2, -2: -2}, {3: 3}, {1: -1}, {-2: REMOVE, 1: 11}]

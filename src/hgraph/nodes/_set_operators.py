@@ -1,10 +1,9 @@
-from hgraph import TSS, SCALAR, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta, TIME_SERIES_TYPE, TS, graph
-
+from hgraph import TSS, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta, TIME_SERIES_TYPE, TS, KEYABLE_SCALAR
 
 __all__ = ("union_", "is_empty")
 
 
-def union_(*args: TSS[SCALAR]) -> TSS[SCALAR]:
+def union_(*args: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
     """
     Union of all the inputs
     :param args:
@@ -14,10 +13,10 @@ def union_(*args: TSS[SCALAR]) -> TSS[SCALAR]:
 
 
 @compute_node(valid=tuple())
-def _union_tsl(tsl: TSL[TSS[SCALAR], SIZE], _output: TSS_OUT[SCALAR] = None) -> TSS[SCALAR]:
-    tss: TSS[SCALAR, SIZE]
-    to_add: set[SCALAR] = set()
-    to_remove: set[SCALAR] = set()
+def _union_tsl(tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
+    tss: TSS[KEYABLE_SCALAR, SIZE]
+    to_add: set[KEYABLE_SCALAR] = set()
+    to_remove: set[KEYABLE_SCALAR] = set()
     for tss in tsl.modified_values():
         to_add |= tss.added()
         to_remove |= tss.removed()

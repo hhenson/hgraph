@@ -23,7 +23,7 @@ class HgScalarTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":
         parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgInjectableType]
+                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgInjectableType, HgObjectType]
         for parser in parses:
             if meta_data := parser.parse(value):
                 return meta_data
@@ -49,7 +49,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return tp.is_scalar
+        return tp.is_scalar and (isinstance(tp, HgScalarTypeMetaData) or isinstance(tp.py_type, self.contraints()))
 
     @property
     def type_var(self) -> TypeVar:
@@ -65,6 +65,13 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
     def operator_rank(self) -> float:
         # This is a complete wild card, so this is the weakest match (which strangely is 1.0)
         return 1.
+
+    def constraints(self) -> Sequence[type]:
+        if self.py_type.__constraints__:
+            return self.py_type.__constraints__
+        elif self.py_type.__bound__:
+            return [self.py_type.__bound__]
+        raise RuntimeError("Unexpected item in the bagging areas")
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
@@ -98,10 +105,9 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             else:
                 return None
 
-            from hgraph._types._scalar_types import _UnSet
-            from hgraph._types._scalar_types import is_scalar
+            from hgraph._types._time_series_types import TimeSeries
             for constraint in constraints:
-                if not is_scalar(constraint) and constraint is not _UnSet:
+                if isinstance(constraint, TimeSeries):
                     return None
 
             return HgScalarTypeVar(value)
@@ -160,6 +166,19 @@ class HgAtomicType(HgScalarTypeMetaData):
             str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
             ScalarValue: lambda: HgAtomicType(ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)),
         }.get(value_tp, lambda: None)()
+
+
+class HgObjectType(HgAtomicType):
+    """A catch-all type that will allow any valid pythong type to be a scalar value"""
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return ((tp_ := type(tp)) is HgObjectType and self.py_type == tp.py_type) or (tp_ is HgScalarTypeVar and tp_.matches(self))
+
+    @classmethod
+    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+        if not isinstance(value, type):
+            value = type(value)
+        return HgObjectType(value, tuple())
 
 
 class HgInjectableType(HgScalarTypeMetaData):

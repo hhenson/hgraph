@@ -3,14 +3,14 @@ from typing import Callable, cast, TYPE_CHECKING, List
 
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import SCALAR, STATE, Size
+from hgraph._types._scalar_types import STATE, Size, SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
-from hgraph._types._tsd_type import TSD
+from hgraph._types._tsd_type import TSD, K
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
@@ -33,7 +33,7 @@ KEYS_ARG = '__keys__'
 _KEY_ARG = "__key_arg__"
 
 
-def pass_through(tsd: TSD[SCALAR, TIME_SERIES_TYPE]) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+def pass_through(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     """
     Marks the TSD input as a pass through value. This will ensure the TSD is not included in the key mapping in the
     tsd_map function. This is useful when the function takes a template type and the TSD has the same SCALAR type as
@@ -43,7 +43,7 @@ def pass_through(tsd: TSD[SCALAR, TIME_SERIES_TYPE]) -> TSD[SCALAR, TIME_SERIES_
     return _PassthroughMarker(tsd)
 
 
-def no_key(tsd: TSD[SCALAR, TIME_SERIES_TYPE]) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+def no_key(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     """
     Marks the TSD input as not contributing to the keys of the tsd_map function.
     This is useful when the input TSD is likely to be larger than the desired keys to process.
@@ -71,7 +71,7 @@ def map_(func: Callable, *args, **kwargs):
 
 class _MappingMarker:
 
-    def __init__(self, value: TSD[SCALAR, TIME_SERIES_TYPE]):
+    def __init__(self, value: TSD[K, TIME_SERIES_TYPE]):
         assert isinstance(value, WiringPort), "Marker must wrap a valid time-series input."
         self.value = value
 
@@ -176,7 +176,7 @@ def _extract_map_fn_key_arg_and_type(signature: WiringNodeSignature, __key_arg__
         match signature.args[0]:
             case 'key':
                 input_key_name = 'key'
-                match_tp = HgTimeSeriesTypeMetaData.parse(TS[SCALAR])
+                match_tp = HgTimeSeriesTypeMetaData.parse(TS[K])
             case 'ndx':
                 input_key_name = 'ndx'
                 match_tp = HgTimeSeriesTypeMetaData.parse(TS[int])

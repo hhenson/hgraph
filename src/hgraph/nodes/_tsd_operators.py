@@ -1,17 +1,17 @@
 from typing import Type, Mapping
 
-from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, SCALAR_1, SCALAR_2, REF, \
-    STATE, graph, contains_, not_
+from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
+    STATE, graph, contains_, not_, K
+from hgraph._types._time_series_types import K_1
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
-
 
 __all__ = ("make_tsd", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_contains", "tsd_not", "tsd_is_empty")
 
 
 @compute_node(valid=("key",))
-def make_tsd(key: TS[SCALAR_1], value: TS[SCALAR_2], remove_key: TS[bool] = None,
-             ts_type: Type[TIME_SERIES_TYPE] = TS[SCALAR_2]) -> TSD[SCALAR_1, TIME_SERIES_TYPE]:
+def make_tsd(key: TS[K_1], value: TS[SCALAR], remove_key: TS[bool] = None,
+             ts_type: Type[TIME_SERIES_TYPE] = TS[SCALAR]) -> TSD[K_1, TIME_SERIES_TYPE]:
     """
     Make a TSD from a time-series of key and value, if either key or value ticks an entry in the TSD will be
     created / update. It is also possible to remove a key by setting remove_key to True.
@@ -29,7 +29,7 @@ def make_tsd(key: TS[SCALAR_1], value: TS[SCALAR_2], remove_key: TS[bool] = None
 
 
 @compute_node
-def flatten_tsd(tsd: TSD[SCALAR_1, TIME_SERIES_TYPE]) -> TS[Mapping[SCALAR_1, SCALAR_2]]:
+def flatten_tsd(tsd: TSD[K_1, TIME_SERIES_TYPE]) -> TS[Mapping[K_1, SCALAR]]:
     """
     Flatten a TSD into a time-series of frozen dicts (equivalent to the delta dictionary)
     """
@@ -37,7 +37,7 @@ def flatten_tsd(tsd: TSD[SCALAR_1, TIME_SERIES_TYPE]) -> TS[Mapping[SCALAR_1, SC
 
 
 @compute_node
-def extract_tsd(ts: TS[Mapping[SCALAR_1, SCALAR_2]]) -> TSD[SCALAR_1, TIME_SERIES_TYPE]:
+def extract_tsd(ts: TS[Mapping[K_1, SCALAR]]) -> TSD[K_1, TIME_SERIES_TYPE]:
     """
     Extracts a TSD from a stream of delta dictionaries.
     """
@@ -45,7 +45,7 @@ def extract_tsd(ts: TS[Mapping[SCALAR_1, SCALAR_2]]) -> TSD[SCALAR_1, TIME_SERIE
 
 
 @compute_node
-def tsd_get_item(tsd: REF[TSD[SCALAR, TIME_SERIES_TYPE]], key: TS[SCALAR], _ref: REF[TIME_SERIES_TYPE] = None,
+def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K], _ref: REF[TIME_SERIES_TYPE] = None,
                  _state: STATE = None) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
@@ -76,21 +76,21 @@ def tsd_get_item_start(_state: STATE):
 
 
 @graph(overloads=contains_)
-def tsd_contains(ts: TSD[SCALAR, TIME_SERIES_TYPE], item: TS[SCALAR]) -> TS[bool]:
+def tsd_contains(ts: TSD[K, TIME_SERIES_TYPE], item: TS[K]) -> TS[bool]:
     """Contains for TSD delegates to the key-set contains"""
     return contains_(ts.key_set, item)
 
 
 @graph(overloads=not_)
-def tsd_not(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[bool]:
+def tsd_not(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
     return not_(ts.key_set)
 
 
 @graph(overloads=is_empty)
-def tsd_is_empty(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[bool]:
+def tsd_is_empty(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
     return is_empty(ts.key_set)
 
 
 @graph(overloads=len_)
-def tsd_len(ts: TSD[SCALAR, TIME_SERIES_TYPE]) -> TS[int]:
+def tsd_len(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
     return len_(ts.key_set)

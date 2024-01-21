@@ -1,5 +1,5 @@
 from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_, TSD, \
-    SCALAR
+    K
 from hgraph.nodes._operators import cast_, len_
 
 __all__ = ("ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip")
@@ -67,7 +67,7 @@ def tsl_mean(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE,
 
 
 @graph(overloads=mean)
-def tsd_mean(ts: TSD[SCALAR, TS[NUMBER]], _num_tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+def tsd_mean(ts: TSD[K, TS[NUMBER]], _num_tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     numerator = reduce(add_, ts, 0.0 if _num_tp is float else 0)
     if _num_tp is int:
         numerator = cast_(float, numerator)
@@ -82,6 +82,7 @@ def clip(ts: TS[NUMBER], min_: NUMBER, max_: NUMBER) -> TS[NUMBER]:
     if v > max_:
         return max_
     return v
+
 
 @clip.start
 def clip_start(min_: NUMBER, max_: NUMBER):

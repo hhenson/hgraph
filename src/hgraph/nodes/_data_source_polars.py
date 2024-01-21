@@ -5,16 +5,15 @@ from datetime import date, datetime, time, timedelta
 
 import polars as pl
 
-from hgraph import TS_SCHEMA, TSB, TIME_SERIES_TYPE, SCALAR, TSD, HgScalarTypeMetaData, UnNamedTimeSeriesSchema, \
-    generator, HgTSTypeMetaData, graph, sink_node, GlobalState, CustomMessageWiringError, AUTO_RESOLVE
+from hgraph import TS_SCHEMA, TSB, TIME_SERIES_TYPE, TSD, HgScalarTypeMetaData, UnNamedTimeSeriesSchema, \
+    generator, HgTSTypeMetaData, graph, sink_node, GlobalState, CustomMessageWiringError, AUTO_RESOLVE, K
 from hgraph.nodes._record import record, get_recorded_value
-
 
 __all__ = ("from_polars", "to_polars", "get_polars_df")
 
 
 def from_polars(df: pl.DataFrame, time_col: str, as_bundle: bool = True, include_time_in_bundle: bool = False) \
-        -> TSB[TS_SCHEMA] | TSD[SCALAR, TIME_SERIES_TYPE]:
+        -> TSB[TS_SCHEMA] | TSD[K, TIME_SERIES_TYPE]:
     """
     Create a data source from a Polars data frame.
     """

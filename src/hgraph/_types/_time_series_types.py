@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 from datetime import datetime, timedelta
 from typing import Generic, TypeVar, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union, Any
 
-from hgraph._types._scalar_types import SCALAR
+from hgraph._types._scalar_types import SCALAR, KEYABLE_SCALAR
 from hgraph._types._typing_utils import clone_typevar
 
 if TYPE_CHECKING:
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 __all__ = ("TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
            "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR", 'OUTPUT_TYPE', "TIME_SERIES_TYPE_1",
-           "TIME_SERIES_TYPE", "K", "V", "TimeSeriesIterable", "SIGNAL", "TIME_SERIES_TYPE_2")
+           "TIME_SERIES_TYPE", "K", "K_1", "K_2", "V", "TimeSeriesIterable", "SIGNAL", "TIME_SERIES_TYPE_2")
 
 
 class TimeSeriesPushQueue(Protocol):
@@ -339,7 +339,9 @@ class TimeSeriesDeltaValue(TimeSeries, Generic[SCALAR, DELTA_SCALAR]):
         """
 
 
-K = clone_typevar(SCALAR, "K")
+K = clone_typevar(KEYABLE_SCALAR, "K")
+K_1 = clone_typevar(KEYABLE_SCALAR, "K_1")
+K_2 = clone_typevar(KEYABLE_SCALAR, "K_2")
 V = clone_typevar(TIME_SERIES_TYPE, "V")
 
 

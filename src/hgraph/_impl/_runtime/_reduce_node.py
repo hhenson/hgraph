@@ -10,8 +10,7 @@ from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluati
     PythonNestedNodeImpl
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._node import Node, NodeSignature
-from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, K
 from hgraph._types._tsd_type import TSD
 
 
@@ -49,7 +48,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         self.input_node_ids: tuple[int, int] = input_node_ids  # LHS index, RHS index
         self.output_node_id: int = output_node_id
 
-        self._bound_node_indexes: dict[SCALAR, tuple[int, int]] = {}
+        self._bound_node_indexes: dict[K, tuple[int, int]] = {}
         self._free_node_indexes: list[tuple[int, int]] = []  # This is a list of (ndx, 0(lhs)|1(rhs)) tuples.
 
     def initialise(self):
@@ -101,11 +100,11 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         return self._input['zero']
 
     @property
-    def _tsd(self) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+    def _tsd(self) -> TSD[K, TIME_SERIES_TYPE]:
         # noinspection PyTypeChecker
         return self._input['ts']
 
-    def _add_nodes(self, keys: Iterable[SCALAR]):
+    def _add_nodes(self, keys: Iterable[K]):
         """
         Add nodes to the tree, when the tree is full we grow the tree by doubling the capacity.
         This adds 2n+1 nodes to the tree where n is the current number of nodes in the graph (not the number of inputs).
@@ -119,7 +118,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
             ndx = self._free_node_indexes.pop()
             self._bind_key_to_node(key, ndx)
 
-    def _remove_nodes(self, keys: Iterable[SCALAR]):
+    def _remove_nodes(self, keys: Iterable[K]):
         """Remove nodes from the tree"""
         for key in keys:
             ndx = self._bound_node_indexes.pop(key)
@@ -171,7 +170,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """
         return self._nested_graph.nodes[ndx * self._node_size: (ndx + 1) * self._node_size]
 
-    def _bind_key_to_node(self, key: SCALAR, ndx: tuple[int, int]):
+    def _bind_key_to_node(self, key: K, ndx: tuple[int, int]):
         """Bind a key to a node"""
         self._bound_node_indexes[key] = ndx
         node_id, side = ndx

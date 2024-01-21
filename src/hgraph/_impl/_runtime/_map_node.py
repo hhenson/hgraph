@@ -1,27 +1,26 @@
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
-from hgraph._types._ts_type import TS
-from hgraph._types._error_type import NodeError
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \
     PythonNestedNodeImpl
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
-from hgraph._wiring._map import KEYS_ARG
 from hgraph._runtime._node import Node, NodeSignature
-from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._error_type import NodeError
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, K
+from hgraph._types._ts_type import TS
 from hgraph._types._tsd_type import TSD, TSD_OUT
 from hgraph._types._tss_type import TSS
+from hgraph._wiring._map import KEYS_ARG
 
 __all__ = ("PythonTsdMapNodeImpl",)
 
 
 class MapNestedEngineEvaluationClock(NestedEngineEvaluationClock):
 
-    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, key: SCALAR, nested_node: "PythonTsdMapNodeImpl"):
+    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, key: K, nested_node: "PythonTsdMapNodeImpl"):
         super().__init__(engine_evaluation_clock, nested_node)
         self._key = key
 
@@ -56,14 +55,14 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self.input_node_ids: Mapping[str, int] = input_node_ids
         self.output_node_id: int = output_node_id
         self.multiplexed_args: frozenset[str] = multiplexed_args
-        self._scheduled_keys: dict[SCALAR, datetime] = {}
-        self._active_graphs: dict[SCALAR, Graph] = {}
+        self._scheduled_keys: dict[K, datetime] = {}
+        self._active_graphs: dict[K, Graph] = {}
         self._count = 0
 
     def eval(self):
         self.mark_evaluated()
         # 1. All inputs should be reference, and we should only be active on the KEYS_ARG input
-        keys: TSS[SCALAR] = self._kwargs[KEYS_ARG]
+        keys: TSS[K] = self._kwargs[KEYS_ARG]
         if keys.modified:
             for k in keys.added():
                 self._create_new_graph(k)
@@ -82,7 +81,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 self._scheduled_keys[k] = dt
                 self.graph.schedule_node(self.node_ndx, dt)
 
-    def _create_new_graph(self, key: SCALAR):
+    def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""
         graph: Graph = self.nested_graph_builder.make_instance(self.graph.graph_id + (self._count,), self)
         self._count += 1
@@ -94,17 +93,17 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         graph.start()
         self._evaluate_graph(key)
 
-    def _remove_graph(self, key: SCALAR):
+    def _remove_graph(self, key: K):
         """Un-wire graph and schedule for removal"""
         if self.signature.capture_exception:
             # Remove the error output associated to the graph if there is one.
-            cast(TSD_OUT[SCALAR, TS[NodeError]], self.error_output).pop(key)
+            cast(TSD_OUT[K, TS[NodeError]], self.error_output).pop(key)
         graph: Graph = self._active_graphs.pop(key)
         self._un_wire_graph(key, graph)
         graph.stop()
         graph.dispose()
 
-    def _evaluate_graph(self, key: SCALAR):
+    def _evaluate_graph(self, key: K):
         """Evaluate the graph for this key"""
         graph: Graph = self._active_graphs[key]
         # TODO: This can be done at start time or initialisation time (decide on behaviour) and then we don't
@@ -113,18 +112,18 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             try:
                 graph.evaluate_graph()
             except Exception as e:
-                error_output = cast(TSD[SCALAR, TS[NodeError]], self.error_output).get_or_create(key)
+                error_output = cast(TSD[K, TS[NodeError]], self.error_output).get_or_create(key)
                 node_error = NodeError.capture_error(exception=e, node=self, message=f"key: {key}")
                 error_output.value = node_error
         else:
             graph.evaluate_graph()
 
-    def _un_wire_graph(self, key: SCALAR, graph: Graph):
+    def _un_wire_graph(self, key: K, graph: Graph):
         if self.output_node_id:
             # Replace the nodes output with the map node's output for the key
             del self.output[key]
 
-    def _wire_graph(self, key: SCALAR, graph: Graph):
+    def _wire_graph(self, key: K, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
         for arg, node_ndx in self.input_node_ids.items():
             node: NodeImpl = graph.nodes[node_ndx]

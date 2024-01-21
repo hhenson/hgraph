@@ -23,7 +23,7 @@ class HgTypeMetaData:
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-        parse_order = (HgScalarTypeMetaData, HgTimeSeriesTypeMetaData)
+        parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
         if isinstance(value, parse_order):
             return value
         for parser in parse_order:

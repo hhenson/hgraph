@@ -113,3 +113,9 @@ Version 0.1.4 (15-01-2024)
 --------------------------
 
 * Fix for equality check of inputs in WiringNodeInstance interning
+
+
+Version 0.1.5 (TBD)
+-------------------
+
+* Make end-time exclusive
