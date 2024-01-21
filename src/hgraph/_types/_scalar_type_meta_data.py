@@ -3,18 +3,20 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List
 
+import numpy as np
 from frozendict import frozendict
 
 from hgraph._types._scalar_types import Size, STATE
-from hgraph._types._scalar_value import ScalarValue
+from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgSetScalarType", "HgCollectionType",
            "HgAtomicType", "HgScalarTypeVar", "HgCompoundScalarType", "HgTupleFixedScalarType",
            "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData", "HgEvaluationClockType",
-           "HgEvaluationEngineApiType", "HgStateType", "HgOutputType", "HgSchedulerType", "Injector")
+           "HgEvaluationEngineApiType", "HgStateType", "HgOutputType", "HgSchedulerType", "Injector",
+           "HgArrayScalarTypeMetaData")
 
 
 class HgScalarTypeMetaData(HgTypeMetaData):
@@ -23,7 +25,7 @@ class HgScalarTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":
         parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgInjectableType, HgObjectType]
+                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgObjectType]
         for parser in parses:
             if meta_data := parser.parse(value):
                 return meta_data
@@ -365,6 +367,75 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
 
     def __hash__(self) -> int:
         return hash(tuple) ^ hash(self.element_type)
+
+
+class HgArrayScalarTypeMetaData(HgCollectionType):
+    py_collection_type = np.ndarray
+    element_type: HgScalarTypeMetaData  # The type items in the list
+    shape_types: tuple[HgScalarTypeMetaData]  # Size or SIZE
+
+    def __init__(self, element_type: HgScalarTypeMetaData, shape_types: tuple[HgScalarTypeMetaData]):
+        self.element_type = element_type
+        self.shape_types = shape_types
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgArrayScalarTypeMetaData and self.element_type.matches(tp.element_type) and \
+            len(self.shape_types) == len(tp.shape_types) and \
+            all(s1.matches(s2) for s1, s2 in zip(self.shape_types, tp.shape_types))
+
+    @property
+    def py_type(self) -> Type:
+        return Array[self.element_type.py_type, *(tp.py_type for tp in self.shape_types)]
+
+    @property
+    def operator_rank(self) -> float:
+        return self.element_type.operator_rank / 100.
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.element_type.is_resolved and all(tp.is_resolved for tp in self.shape_types)
+
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
+        if self.is_resolved:
+            return self
+        else:
+            return HgArrayScalarTypeMetaData(
+                self.element_type.resolve(resolution_dict, weak),
+                tuple(tp.resolve(resolution_dict, weak) for tp in self.shape_types)
+            )
+
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        super().do_build_resolution_dict(resolution_dict, wired_type)
+        wired_type: HgArrayScalarTypeMetaData
+        self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
+        for tp1, tp2 in zip(self.shape_types, wired_type.shape_types):
+            tp1.element_type.build_resolution_dict(resolution_dict, tp2)
+
+    @classmethod
+    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ == np.ndarray:
+            tp = HgScalarTypeMetaData.parse(value.__args__[0])
+            shape_types = tuple(HgScalarTypeMetaData.parse(v) for v in value.__args__[1:])
+            if tp is None:
+                raise ParseError(f"Could not parse {value.__args__[0]} as type from {value}")
+            if any(tp is None for tp in shape_types):
+                raise ParseError(f"Could not parse shape from {value}")
+            return HgArrayScalarTypeMetaData(tp, shape_types)
+
+    def __eq__(self, o: object) -> bool:
+        return type(o) is HgArrayScalarTypeMetaData and self.element_type == o.element_type and \
+            self.shape_types == o.shape_types
+
+    def __str__(self) -> str:
+        return f'Array[{str(self.element_type)}, {",".join(map(str, self.shape_types))}]'
+
+    def __repr__(self) -> str:
+        return (f'HgArrayScalarTypeMetaData({repr(self.element_type)}'
+                f'{", " if self.shape_types else ""}'
+                f'{", ".join(map(repr(s) for s in self.shape_types))})')
+
+    def __hash__(self) -> int:
+        return hash(tuple) ^ hash(self.element_type) ^ hash(self.shape_types)
 
 
 class HgTupleFixedScalarType(HgTupleScalarType):

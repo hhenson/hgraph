@@ -7,14 +7,16 @@ from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
 
 import pytest
 
-from hgraph import SIZE, Size
+from hgraph._types._scalar_types import SIZE, Size
+from hgraph._types._scalar_value import Array
 from hgraph._runtime import EvaluationClock
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._ref_type import REF
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
 from hgraph._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
-    HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType, HgTypeOfTypeMetaData, HgInjectableType
+    HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType, HgTypeOfTypeMetaData, HgInjectableType, \
+    HgArrayScalarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
@@ -91,16 +93,26 @@ def test_special_atomic_scalars(value, expected: Type):
         [frozendict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
         [TS[bool], HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TS_OUT[bool], HgTSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [TSL[TS[bool], SIZE], HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
-        [TSL_OUT[TS[bool], SIZE], HgTSLOutTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
+        [TSL[TS[bool], SIZE],
+         HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
+        [TSL_OUT[TS[bool], SIZE],
+         HgTSLOutTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
         [TSS[bool], HgTSSTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TSS_OUT[bool], HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [TSD[int, TS[str]], HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
-        [TSD[int, TSL[TS[int], Size[2]]], HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TSL[TS[int], Size[2]]))],
-        [TSD_OUT[int, TS[str]], HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
+        [TSD[int, TS[str]],
+         HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
+        [TSD[int, TSL[TS[int], Size[2]]],
+         HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TSL[TS[int], Size[2]]))],
+        [TSD_OUT[int, TS[str]],
+         HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
         [REF[TS[bool]], HgREFTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)))],
         [Type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
+        [Array[int], HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse(int), tuple())],
+        [Array[int, Size[1]],
+         HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse(int), (HgScalarTypeMetaData.parse(Size[1]),))],
+        [Array[int, Size[1], SIZE], HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse(int), (
+        HgScalarTypeMetaData.parse(Size[1]), HgScalarTypeMetaData.parse(SIZE)))],
     ]
 )
 def test_collection_scalars(value, expected: HgScalarTypeMetaData):
@@ -125,11 +137,16 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
         tuple[bool, int],
         Size[2],
         type[bool],
-        EvaluationClock
+        EvaluationClock,
+        Array[int],
+        Array[int, Size[1]],
+        Array[int, Size[1], SIZE]
     ]
 )
 def test_py_type(tp):
-    assert tp == HgTypeMetaData.parse(tp).py_type
+    tp_meta = HgTypeMetaData.parse(tp)
+    parsed = tp_meta.py_type
+    assert parsed == tp
 
 
 @pytest.mark.parametrize(
@@ -147,6 +164,7 @@ def test_py_type(tp):
 def test_py_type_collections(tp, py_tp):
     assert py_tp == HgTypeMetaData.parse(tp).py_type
 
+
 def test_size():
     sz = Size[20]
     assert sz.SIZE == 20
@@ -156,3 +174,10 @@ def test_size():
     assert sz is sz2
 
     assert sz.__name__ == 'Size_20'
+
+
+def test_array_type():
+    with pytest.raises(TypeError):
+        Array[int, 1]
+
+    Array[int, Size[1], SIZE]

@@ -123,3 +123,4 @@ Version 0.1.5 (TBD)
 * Add extension for python object (HgObjectType) this will match any non-time-series value.
 * ensure lt_ returns a bool value, and add default behaviour for gt_ and ge_.
 * Add sum_
+* Add support for ndarray (as Array)

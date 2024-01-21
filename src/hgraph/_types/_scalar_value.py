@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import _SpecialGenericAlias, _tp_cache, _LiteralGenericAlias, TypeVar
+from hgraph._types._scalar_types import Size
 
+import numpy as np
 
-__all__ = ("ScalarValue", "KeyableScalarValue")
+__all__ = ("ScalarValue", "KeyableScalarValue", "Array",)
 
 
 class ScalarValue(ABC):
@@ -54,3 +57,21 @@ class KeyableScalarValue(ScalarValue):
         """
         Provide a hash for the value.
         """
+
+
+class _ArrayTypeclass(_SpecialGenericAlias, _root=True):
+    @_tp_cache
+    def __getitem__(self, params):
+        if not isinstance(params, tuple):
+            params = (params,)
+        if len(params) == 0:
+            raise TypeError("Array must have at least a type")
+        if len(params) > 1:
+            for param in params[1:]:
+                if (isinstance(param, type) and issubclass(param, Size)) or isinstance(param, TypeVar):
+                    continue
+                raise TypeError("Array must have Size types after the data-type parameter")
+        return self.copy_with(params)
+
+
+Array = _ArrayTypeclass(np.ndarray, -1, inst=False, name='Array')
