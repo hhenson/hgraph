@@ -25,7 +25,7 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     :param args: Any arguments to pass to the graph
     :param run_mode: The mode to evaluate the graph in
     :param start_time: The time to start the graph
-    :param end_time: The time to end the graph
+    :param end_time: The time to end the graph (this is exclusive)
     :param print_progress: If true, print the progress of the graph (will go away and be replaced with logging later)
     :param life_cycle_observers: A list of observers to register with the runtime engine prior to evaluation.
     :param kwargs: Any additional kwargs to pass to the graph.

@@ -33,8 +33,11 @@ class PythonGraphExecutor(GraphExecutor):
         return self._graph
 
     def run(self, start_time: datetime, end_time: datetime, observers: Iterable[EvaluationLifeCycleObserver] = None):
-        if end_time < start_time:
-            raise ValueError("End time cannot be before the start time")
+        if end_time <= start_time:
+            if end_time < start_time:
+                raise ValueError("End time cannot be before the start time")
+            else:
+                raise ValueError("End time cannot be equal to the start time")
 
         match self.run_mode:
             case EvaluationMode.REAL_TIME:
@@ -50,7 +53,7 @@ class PythonGraphExecutor(GraphExecutor):
         for observer in observers if observers is not None else []:
             evaluation_engine.add_life_cycle_observer(observer)
         with initialise_dispose_context(self.graph), start_stop_context(self.graph):
-            while clock.evaluation_time <= end_time:
+            while clock.evaluation_time < end_time:
                 evaluation_engine.notify_before_evaluation()
                 graph.evaluate_graph()
                 evaluation_engine.notify_after_evaluation()
