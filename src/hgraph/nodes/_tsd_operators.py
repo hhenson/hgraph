@@ -1,8 +1,9 @@
 from typing import Type, Mapping
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
-    STATE, graph, contains_, not_, K
+    STATE, graph, contains_, not_, K, NUMBER
 from hgraph._types._time_series_types import K_1
+from hgraph.nodes import sum_
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 
@@ -94,3 +95,8 @@ def tsd_is_empty(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
 @graph(overloads=len_)
 def tsd_len(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
     return len_(ts.key_set)
+
+
+@compute_node(overloads=sum_)
+def sum_tsd(ts: TSD[K, TS[NUMBER]]) -> TS[NUMBER]:
+    return sum(i.value for i in ts.valid_values())
