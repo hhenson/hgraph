@@ -9,16 +9,17 @@ from hgraph.nodes._const import default, const
 from hgraph.nodes._operators import cast_, take, drop
 from hgraph.nodes._stream_operators import sample
 
-__all__ = ("window", "WindowResult", "rolling_average")
+__all__ = ("rolling_window", "RollingWindowResult", "rolling_average")
 
 
-class WindowResult(TimeSeriesSchema):
+class RollingWindowResult(TimeSeriesSchema):
     buffer: TS[tuple[SCALAR, ...]]
     index: TS[tuple[datetime, ...]]
 
 
 @graph
-def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TSB[WindowResult]:
+def rolling_window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
+        -> TSB[RollingWindowResult]:
     """
     Buffers the time-series. Emits a tuple of values representing the elements in the buffer.
     and a tuple of corresponding time-stamps representing the time-points at which the elements
@@ -34,9 +35,9 @@ def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_
     raise NotImplementedError(f"No resolution found for window: ts: {ts.output_type}, window: {period}")
 
 
-@compute_node(overloads=window)
+@compute_node(overloads=rolling_window)
 def cyclic_buffer_window(ts: TS[SCALAR], period: int, min_window_period: int = None, _state: STATE = None) \
-        -> TSB[WindowResult]:
+        -> TSB[RollingWindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
@@ -52,10 +53,10 @@ def cyclic_buffer_window_start(period: int, _state: STATE):
     _state.index = deque[datetime](maxlen=period)
 
 
-@compute_node(overloads=window)
+@compute_node(overloads=rolling_window)
 def time_delta_window(ts: TS[SCALAR], period: timedelta,
                       min_window_period: timedelta = None, _state: STATE = None) -> TSB[
-    WindowResult]:
+    RollingWindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
@@ -77,7 +78,8 @@ def time_delta_window_start(_state: STATE):
 
 
 @graph
-def rolling_average(ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TS[float]:
+def rolling_average(ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TS[
+    float]:
     """
     Computes the rolling average of the time-series.
     This will either average by the number of ticks or by the time-delta.
@@ -119,5 +121,3 @@ def rolling_average_p_time_delta(ts: TS[NUMBER], period: timedelta, min_window_p
 
     delta_value = current_value - delayed_value
     return (delta_value if _tp is float else cast_(float, delta_value)) / delta_ticks
-
-

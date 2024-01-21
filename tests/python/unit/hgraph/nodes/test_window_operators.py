@@ -1,7 +1,7 @@
 import pytest
 
 from hgraph import MIN_ST, MIN_TD, TS
-from hgraph.nodes import window
+from hgraph.nodes import rolling_window
 from hgraph.nodes._window_operators import rolling_average
 from hgraph.test import eval_node
 
@@ -15,7 +15,7 @@ def test_cyclic_operator():
         {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
-    assert eval_node(window, [1, 2, 3, 4, 5], 3) == expected
+    assert eval_node(rolling_window, [1, 2, 3, 4, 5], 3) == expected
 
 
 def test_cyclic_operator_min_window_period():
@@ -27,7 +27,7 @@ def test_cyclic_operator_min_window_period():
         {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
-    assert eval_node(window, [1, 2, 3, 4, 5], 3, 1) == expected
+    assert eval_node(rolling_window, [1, 2, 3, 4, 5], 3, 1) == expected
 
 
 def test_time_delta_operator():
@@ -39,7 +39,7 @@ def test_time_delta_operator():
         {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
-    assert eval_node(window, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected
+    assert eval_node(rolling_window, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected
 
 
 
