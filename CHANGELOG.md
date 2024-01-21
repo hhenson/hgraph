@@ -124,3 +124,5 @@ Version 0.1.5 (TBD)
 * ensure lt_ returns a bool value, and add default behaviour for gt_ and ge_.
 * Add sum_
 * Add support for ndarray (as Array)
+* Rename window to rolling_window
+* Add np_rolling_window to get first experimental numpy API tested
