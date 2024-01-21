@@ -1,9 +1,9 @@
-from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE
+from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER
 
 __all__ = ("flatten_tsl_values", "merge")
 
-from hgraph.nodes import const
-
+from hgraph.nodes._const import const
+from hgraph.nodes._analytical import sum_
 from hgraph.nodes._operators import len_
 
 
@@ -36,3 +36,8 @@ def merge(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
 @graph(overloads=len_)
 def tsl_len(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
     return const(_sz.SIZE)
+
+
+@compute_node(overloads=sum_)
+def sum_tsl(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[NUMBER]:
+    return sum(t.value for t in ts.valid_values())

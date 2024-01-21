@@ -1,14 +1,15 @@
 from collections import deque
 from datetime import timedelta, datetime
-from typing import TypeVar
 
-from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, SCHEDULER, TS_OUT, SIGNAL, NUMBER, \
-    AUTO_RESOLVE, TIME_SERIES_TYPE, SIZE, TSL
-from hgraph.nodes import default, const, debug_print, sample
+from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
+    AUTO_RESOLVE
+from hgraph.nodes._analytical import accumulate, count, lag, INT_OR_TIME_DELTA
 from hgraph.nodes._conditional import if_then_else
+from hgraph.nodes._const import default, const
 from hgraph.nodes._operators import cast_, take, drop
+from hgraph.nodes._stream_operators import sample
 
-__all__ = ("window", "WindowResult", "lag", "accumulate", "rolling_average", "average", "count", "diff")
+__all__ = ("window", "WindowResult", "rolling_average")
 
 
 class WindowResult(TimeSeriesSchema):
@@ -16,11 +17,8 @@ class WindowResult(TimeSeriesSchema):
     index: TS[tuple[datetime, ...]]
 
 
-WINDOW_SCALAR = TypeVar("WINDOW_SCALAR", int, timedelta)
-
-
 @graph
-def window(ts: TS[SCALAR], period: WINDOW_SCALAR, min_window_period: WINDOW_SCALAR = None) -> TSB[WindowResult]:
+def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TSB[WindowResult]:
     """
     Buffers the time-series. Emits a tuple of values representing the elements in the buffer.
     and a tuple of corresponding time-stamps representing the time-points at which the elements
@@ -34,17 +32,6 @@ def window(ts: TS[SCALAR], period: WINDOW_SCALAR, min_window_period: WINDOW_SCAL
     not be full until the 4th tick.
     """
     raise NotImplementedError(f"No resolution found for window: ts: {ts.output_type}, window: {period}")
-
-
-@graph
-def lag(ts: TIME_SERIES_TYPE, period: WINDOW_SCALAR) -> TIME_SERIES_TYPE:
-    """
-    Delays the delivery of an input by the period specified. This period can either be a number of ticks
-    or a time-delta.
-
-    When a time-delta is specified the value will be scheduled to be delivered at the receipt time + period.
-    """
-    raise NotImplementedError(f"No resolution found for lag: ts: {ts.output_type}, window: {period}")
 
 
 @compute_node(overloads=window)
@@ -89,71 +76,8 @@ def time_delta_window_start(_state: STATE):
     _state.index = deque[datetime]()
 
 
-@graph(overloads=lag)
-def tsl_lag(ts: TSL[TIME_SERIES_TYPE, SIZE], period: WINDOW_SCALAR) -> TSL[TIME_SERIES_TYPE, SIZE]:
-    return TSL.from_ts(lag(ts_, period) for ts_ in ts.values())
-
-
-@compute_node(overloads=lag)
-def tick_lag(ts: TS[SCALAR], period: int, _state: STATE = None) -> TS[SCALAR]:
-    buffer: deque[SCALAR] = _state.buffer
-    try:
-        if len(buffer) == period:
-            return buffer.popleft()
-    finally:
-        buffer.append(ts.value)
-
-
-@tick_lag.start
-def tick_lag_start(period: int, _state: STATE):
-    from collections import deque
-    _state.buffer = deque[SCALAR](maxlen=period)
-
-
-@compute_node(overloads=lag)
-def time_delta_lag(ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None, _state: STATE = None) -> TS[SCALAR]:
-    # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
-    buffer: deque[SCALAR] = _state.buffer
-    if ts.modified:
-        buffer.append(ts.value)
-        _scheduler.schedule(ts.last_modified_time + period)
-
-    if _scheduler.is_scheduled_now:
-        return buffer.popleft()
-
-
-@time_delta_lag.start
-def time_delta_lag_start(_state: STATE):
-    _state.buffer = deque[SCALAR]()
-
-
-@compute_node
-def accumulate(ts: TS[NUMBER], _output: TS_OUT[NUMBER] = None) -> TS[NUMBER]:
-    """
-    Performs a running sum of the time-series.
-    """
-    return _output.value + ts.value if _output.valid else ts.value
-
-
-@compute_node
-def count(ts: SIGNAL, _output: TS_OUT[int] = None) -> TS[int]:
-    """
-    Performs a running count of the number of times the time-series has ticked (i.e. emitted a value).
-    """
-    return _output.value + 1 if _output.valid else 1
-
-
 @graph
-def average(ts: TS[NUMBER], _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
-    """
-    Computes the average of the time-series.
-    This will either average by the number of ticks or by the time-delta.
-    """
-    return accumulate(ts) / (count(ts) if _tp is int else cast_(float, count(ts)))
-
-
-@graph
-def rolling_average(ts: TS[NUMBER], period: WINDOW_SCALAR, min_window_period: WINDOW_SCALAR = None) -> TS[float]:
+def rolling_average(ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TS[float]:
     """
     Computes the rolling average of the time-series.
     This will either average by the number of ticks or by the time-delta.
@@ -171,7 +95,7 @@ def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = 
     denom = float(period) if _tp is float else period
 
     if min_window_period:
-        count_ = drop(count(take(ts, period)), min_window_period-1)
+        count_ = drop(count(take(ts, period)), min_window_period - 1)
         period_ = if_then_else(count_ < period, count_, period)
         delayed_value = default(delayed_value, sample(count_, 0.0 if _tp is float else 0))
         denom = cast_(float, period_) if _tp is float else period_
@@ -197,9 +121,3 @@ def rolling_average_p_time_delta(ts: TS[NUMBER], period: timedelta, min_window_p
     return (delta_value if _tp is float else cast_(float, delta_value)) / delta_ticks
 
 
-@graph
-def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
-    """
-    Computes the difference between the current value and the previous value in the time-series.
-    """
-    return ts - lag(ts, 1)

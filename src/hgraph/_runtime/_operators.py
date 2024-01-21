@@ -3,6 +3,12 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_2
 
+"""
+The minimum implementation for comparisons are le_ and eq_, the remaining operators are synthesized, it is better to 
+provide an actual implementation for performance reasons.
+"""
+
+
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
     "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_")
@@ -163,7 +169,7 @@ WiringPort.__le__ = lambda x, y: le_(x, y)
 
 @graph
 def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    raise WiringError(f"operator gt_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+    raise not_(le_(lhs, rhs))
 
 
 WiringPort.__gt__ = lambda x, y: gt_(x, y)
@@ -171,7 +177,7 @@ WiringPort.__gt__ = lambda x, y: gt_(x, y)
 
 @graph
 def ge_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    raise WiringError(f"operator ge_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+    return not_(lt_(lhs, rhs))
 
 
 WiringPort.__ge__ = lambda x, y: ge_(x, y)

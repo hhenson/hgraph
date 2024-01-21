@@ -33,5 +33,5 @@ def div_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[float]:
 
 @compute_node(overloads=lt_)
 def lt_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
-    return lhs.value < rhs.value
+    return bool(lhs.value < rhs.value)
 

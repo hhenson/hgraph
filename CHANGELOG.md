@@ -119,3 +119,7 @@ Version 0.1.5 (TBD)
 -------------------
 
 * Make end-time exclusive
+* Convert TSD and TSS keys to KEYABLE_SCALAR
+* Add extension for python object (HgObjectType) this will match any non-time-series value.
+* ensure lt_ returns a bool value, and add default behaviour for gt_ and ge_.
+* Add sum_
