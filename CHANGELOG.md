@@ -115,8 +115,8 @@ Version 0.1.4 (15-01-2024)
 * Fix for equality check of inputs in WiringNodeInstance interning
 
 
-Version 0.1.5 (TBD)
--------------------
+Version 0.1.5 (21-01-2024)
+--------------------------
 
 * Make end-time exclusive
 * Convert TSD and TSS keys to KEYABLE_SCALAR
@@ -126,3 +126,10 @@ Version 0.1.5 (TBD)
 * Add support for ndarray (as Array)
 * Rename window to rolling_window
 * Add np_rolling_window to get first experimental numpy API tested
+
+Version 0.1.6 (22-01-2024)
+--------------------------
+
+* Add tsl_to_tsd
+* Adjust min version of numpy requirement
+* Fix bug in window logic

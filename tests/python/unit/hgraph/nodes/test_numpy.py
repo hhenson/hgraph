@@ -1,7 +1,7 @@
 import pytest
 
-from hgraph import MIN_ST, MIN_TD, Size
-from hgraph.nodes._numpy import np_rolling_window
+from hgraph import MIN_ST, MIN_TD, Size, TS, Array
+from hgraph.nodes._numpy import np_rolling_window, np_quantile
 from hgraph.test import eval_node
 import numpy as np
 
@@ -30,4 +30,11 @@ import numpy as np
     ]
 )
 def test_np_rolling_window(values, sz, expected):
-    eval_node(np_rolling_window, values, sz) == expected
+    result = eval_node(np_rolling_window, values, sz)
+    assert len(result) == len(expected)
+    assert all((r['buffer'] == e['buffer']).all() for r, e in zip(result, expected) if
+               not (r is None and e is None))
+
+
+def test_np_quantile():
+    assert eval_node(np_quantile, [np.array([1, 2])], 0.8, resolution_dict={'ts': TS[Array[int]]}) == [1.8]

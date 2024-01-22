@@ -1,4 +1,4 @@
-from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER
+from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD
 
 __all__ = ("flatten_tsl_values", "merge")
 
@@ -41,3 +41,11 @@ def tsl_len(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> 
 @compute_node(overloads=sum_)
 def sum_tsl(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[NUMBER]:
     return sum(t.value for t in ts.valid_values())
+
+
+@compute_node
+def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> TSD[str, REF[TIME_SERIES_TYPE]]:
+    """
+    Converts a time series into a time series dictionary with the keys provided.
+    """
+    return {k: ts.value for k, ts in zip(keys, tsl) if ts.modified}

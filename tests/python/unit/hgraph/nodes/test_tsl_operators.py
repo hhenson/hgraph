@@ -3,6 +3,7 @@ import pytest
 from hgraph import Size, TS, TSL, MIN_TD
 from hgraph.nodes import merge
 from hgraph.nodes._analytical import lag, sum_
+from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 
 
@@ -26,3 +27,9 @@ def test_tsl_lag():
 )
 def test_sum(inputs, expected):
     assert eval_node(sum_, inputs, resolution_dict={'ts': TSL[TS[type(inputs[0][0])], Size[2]]}) == expected
+
+
+def test_tsl_to_tsd():
+
+    assert eval_node(tsl_to_tsd, [(1, 2, 3), {1: 3}], ('a', 'b', 'c'),
+                     resolution_dict={'tsl': TSL[TS[int], Size[3]]}) == [{'a': 1, 'b': 2, 'c': 3}, {'b': 3}]

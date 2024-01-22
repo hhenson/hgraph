@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT
+from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER
 import numpy as np
 
 
@@ -28,7 +28,7 @@ def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = Non
     pos = (start+length-1) % capacity
     buffer[pos] = ts.value
     index[pos] = ts.last_modified_time
-    if length == period or (min_window_period is not None and length >= min_window_period):
+    if length == capacity or (min_window_period is not None and length >= min_window_period):
         b = np.roll(buffer, -start)
         i = np.roll(index, -start)
         if length != capacity:
@@ -38,7 +38,7 @@ def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = Non
 
 
 @np_rolling_window.start
-def cyclic_buffer_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: STATE):
+def np_rolling_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: STATE):
     _state.capacity = _sz.SIZE
     if _state.capacity < 1:
         raise RuntimeError('Period must be at least 1')
@@ -46,3 +46,9 @@ def cyclic_buffer_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: S
     _state.index = np.array([MIN_DT] * _sz.SIZE)
     _state.start = 0
     _state.length = 0
+
+
+@compute_node
+def np_quantile(ts: TS[Array[NUMBER]], q: float, method: str = 'linear') -> TS[float]:
+    """The np.quantile function, limited to a single axis"""
+    return np.quantile(ts.value, q, method=method)
