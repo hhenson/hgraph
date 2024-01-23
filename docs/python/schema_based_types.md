@@ -6,6 +6,7 @@ The schema object takes the form:
 
 ```python
 
+@dataclass
 class MySchema(ParentSchemaType):
     p1: type_1
     p2: type_2 = default_value
@@ -24,7 +25,9 @@ an example of this is:
 
 ```python
 from hgraph import CompoundScalar
+from dataclasses import dataclass
 
+@dataclass(frozen=True)
 class MyCompoundScalar(CompoundScalar):
     p1: int
     p2: str = "temp"
@@ -39,7 +42,9 @@ values. They can be any time-series types including ``TimeSeriesSchema`` objects
 
 ```python
 from hgraph import TimeSeriesSchema, TS
+from dataclasses import dataclass
 
+@dataclass
 class MyTimeSeriesSchema(TimeSeriesSchema):
     p1: TS[int]
     p2: TS[str]

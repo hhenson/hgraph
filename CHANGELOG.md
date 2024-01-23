@@ -131,5 +131,10 @@ Version 0.1.6 (22-01-2024)
 --------------------------
 
 * Add tsl_to_tsd
-* Adjust min version of numpy requirement
+* Adjust min-version of numpy requirement
 * Fix bug in window logic
+
+Version 0.1.7 (TBD)
+-------------------
+
+* Update docs
