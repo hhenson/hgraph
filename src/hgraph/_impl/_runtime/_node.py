@@ -171,6 +171,8 @@ class BaseNodeImpl(Node, ABC):
             self.do_eval()
         if scheduled:
             self._scheduler.advance()
+        elif self.scheduler.is_scheduled:
+            self.graph.schedule_node(self.node_ndx, self.scheduler.next_scheduled_time)
 
     @abstractmethod
     def do_start(self):
