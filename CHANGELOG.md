@@ -134,8 +134,9 @@ Version 0.1.6 (22-01-2024)
 * Adjust min-version of numpy requirement
 * Fix bug in window logic
 
-Version 0.1.7 (TBD)
--------------------
+Version 0.1.7 (24-01-2024)
+--------------------------
 
 * Update docs
 * Fix __trace__ to display _schedule when present and mark when active.
+* Fix bug in scheduler
