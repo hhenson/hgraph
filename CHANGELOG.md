@@ -138,3 +138,4 @@ Version 0.1.7 (TBD)
 -------------------
 
 * Update docs
+* Fix __trace__ to display _schedule when present and mark when active.
