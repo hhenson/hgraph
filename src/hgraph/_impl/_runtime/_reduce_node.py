@@ -3,7 +3,7 @@ import operator
 from collections import deque
 from typing import Mapping, Any, Callable, cast, Iterable, Sequence
 
-from hgraph import start_guard, stop_guard
+from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, Any, Sequence
 
-from hgraph import OutputBuilder
+from hgraph._builder._output_builder import OutputBuilder
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesOutput
 

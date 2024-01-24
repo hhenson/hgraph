@@ -5,7 +5,7 @@ from typing import Optional, TYPE_CHECKING, Union
 
 from hgraph._runtime._constants import MIN_DT
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
-from hgraph._builder._node_builder import Node
+from hgraph._runtime._node import Node
 
 if TYPE_CHECKING:
     from hgraph._builder._graph_builder import Graph

@@ -268,8 +268,8 @@ class NodeSchedulerImpl(NodeScheduler):
 
     @property
     def is_scheduled_now(self) -> bool:
-        return self._scheduled_events and \
-            self._scheduled_events[0][0] == self._node.graph.evaluation_clock.evaluation_time
+        return bool(self._scheduled_events and \
+            self._scheduled_events[0][0] == self._node.graph.evaluation_clock.evaluation_time)
 
     def has_tag(self, tag: str) -> bool:
         return tag in self._tags
