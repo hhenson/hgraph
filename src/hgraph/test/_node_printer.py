@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hgraph._runtime._node import NodeTypeEnum
+from hgraph._types import HgSchedulerType
 
 if TYPE_CHECKING:
     from hgraph import Graph, EvaluationClock
@@ -35,6 +36,9 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
                     for
                     arg in
                     node.signature.time_series_inputs.keys())
+                if node.signature.uses_scheduler:
+                    scheduler_arg, scheduler_value =[(k, v) for k, v in node.signature.scalars.items() if isinstance(v, HgSchedulerType)][0]
+                    node_signature += f", *{scheduler_arg}*" if node.scheduler.is_scheduled_now else f", {scheduler_arg}"
             else:
                 node_signature += "..."
         node_signature += ")"
