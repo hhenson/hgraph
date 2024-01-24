@@ -204,7 +204,7 @@ class HgInjectableType(HgScalarTypeMetaData):
         return f'{self.py_type.__name__}'
 
     def __repr__(self) -> str:
-        return f'HgSpecialAtomicType({repr(self.py_type)})'
+        return f'{type(self).__name__}({repr(self.py_type)})'
 
     def __hash__(self) -> int:
         return hash(self.py_type)
