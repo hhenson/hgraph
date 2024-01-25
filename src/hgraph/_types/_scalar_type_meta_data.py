@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -182,6 +183,9 @@ class HgObjectType(HgAtomicType):
             value = type(value)
         return HgObjectType(value, tuple())
 
+    def __repr__(self) -> str:
+        return f'HgObjectType({repr(self.py_type)})'
+
 
 class HgInjectableType(HgScalarTypeMetaData):
     """
@@ -223,18 +227,27 @@ class HgInjectableType(HgScalarTypeMetaData):
         from hgraph._runtime._node import SCHEDULER
         return {
             EvaluationClock: lambda: HgEvaluationClockType(),
+            EvaluationClockInjector: lambda: HgEvaluationClockType(),
             EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
+            EvaluationEngineApiInjector: lambda: HgEvaluationEngineApiType(),
             STATE: lambda: HgStateType(),
+            StateInjector: lambda: HgStateType(),
             SCHEDULER: lambda: HgSchedulerType(),
+            SchedulerInjector: lambda: HgSchedulerType(),
         }.get(value_tp, lambda: None)()
 
 
-@dataclass(frozen=True)
 class Injector:
-    fn: Callable
 
-    def __call__(self, *args, **kwargs):
-        return self.fn(*args, **kwargs)
+    @abstractmethod
+    def __call__(self, node):
+        ...
+
+
+class EvaluationClockInjector(Injector):
+
+    def __call__(self, node):
+        return node.graph.evaluation_clock
 
 
 class HgEvaluationClockType(HgInjectableType):
@@ -244,7 +257,13 @@ class HgEvaluationClockType(HgInjectableType):
 
     @property
     def injector(self):
-        return Injector(lambda node: node.graph.evaluation_clock)
+        return EvaluationClockInjector()
+
+
+class EvaluationEngineApiInjector(Injector):
+
+    def __call__(self, node):
+        return node.graph.evaluation_engine_api
 
 
 class HgEvaluationEngineApiType(HgInjectableType):
@@ -254,7 +273,16 @@ class HgEvaluationEngineApiType(HgInjectableType):
 
     @property
     def injector(self):
-        return Injector(lambda node: node.graph.evaluation_engine_api)
+        return EvaluationEngineApiInjector()
+
+
+class StateInjector(Injector):
+
+    def __init__(self):
+        self._state = STATE()
+
+    def __call__(self, node):
+        return self._state
 
 
 class HgStateType(HgInjectableType):
@@ -263,7 +291,13 @@ class HgStateType(HgInjectableType):
 
     @property
     def injector(self):
-        return Injector(lambda node: STATE())
+        return StateInjector()
+
+
+class OutputInjector(Injector):
+
+    def __call__(self, node):
+        return node.output
 
 
 class HgOutputType(HgInjectableType):
@@ -274,7 +308,13 @@ class HgOutputType(HgInjectableType):
 
     @property
     def injector(self):
-        return Injector(lambda node: node.output)
+        return OutputInjector()
+
+
+class SchedulerInjector(Injector):
+
+    def __call__(self, node):
+        return node.scheduler
 
 
 class HgSchedulerType(HgInjectableType):
@@ -285,7 +325,7 @@ class HgSchedulerType(HgInjectableType):
 
     @property
     def injector(self):
-        return Injector(lambda node: node.scheduler)
+        return SchedulerInjector()
 
     def __str__(self):
         return "SCHEDULER"

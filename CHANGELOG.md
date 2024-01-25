@@ -146,3 +146,4 @@ Version 0.1.8 (TBD)
 -------------------
 
 * Fix bug with matches on compound scalar.
+* Fix bug with processing compute_nodes with injectable attributes within a map.

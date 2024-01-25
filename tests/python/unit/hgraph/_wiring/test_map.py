@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS, \
-    REMOVE
+    REMOVE, compute_node, SCHEDULER
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -250,3 +250,16 @@ def test_tsd_map_life_cycle(inputs, expected):
 
     out = eval_node(map_graph, inputs)
     assert out == expected
+
+
+def test_map_over_compute_node_with_injectables():
+
+    @compute_node
+    def cn_with_scheduler(ts: TS[int], _scheduler: SCHEDULER = None) -> TS[int]:
+        return ts.value
+
+    @graph
+    def map_cn(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(cn_with_scheduler, tsd)
+
+    out = eval_node(map_cn, [{1: 1, 2: 2}]) == [{1:1, 2:2}]
