@@ -140,3 +140,9 @@ Version 0.1.7 (24-01-2024)
 * Update docs
 * Fix __trace__ to display _schedule when present and mark when active.
 * Fix bug in scheduler
+
+
+Version 0.1.8 (TBD)
+-------------------
+
+* Fix bug with matches on compound scalar.

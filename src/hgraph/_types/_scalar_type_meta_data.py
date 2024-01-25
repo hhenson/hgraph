@@ -637,7 +637,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgCompoundScalarType and all(v.meta_data_schema.matches(v_tp.meta_data_schema) for v, v_tp in
+        return type(tp) is HgCompoundScalarType and all(v.matches(v_tp) for v, v_tp in
                                                         zip(self.meta_data_schema.values(),
                                                             tp.meta_data_schema.values()))
 

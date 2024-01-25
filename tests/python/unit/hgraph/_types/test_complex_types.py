@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance
+from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData
 from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
 from hgraph._types._scalar_types import is_compound_scalar
 from hgraph._types._ts_type import TS
@@ -16,6 +16,11 @@ class SimpleSchema(TimeSeriesSchema):
 class LessSimpleBundle(SimpleSchema):
     p2: TS[str]
     p3: SimpleSchema
+
+
+def test_matches():
+    tp = HgTimeSeriesTypeMetaData.parse(LessSimpleBundle)
+    assert tp.matches(tp)
 
 
 def test_simple_bundle():
@@ -39,6 +44,11 @@ class SimpleCompoundScalar(CompoundScalar):
 class LessSimpleCompoundScalar(SimpleCompoundScalar):
     p2: str
     p3: SimpleCompoundScalar
+
+
+def test_matches():
+    tp = HgScalarTypeMetaData.parse(LessSimpleCompoundScalar)
+    assert tp.matches(tp)
 
 
 def test_simple_compound_scalar():
