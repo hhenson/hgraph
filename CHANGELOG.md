@@ -142,8 +142,8 @@ Version 0.1.7 (24-01-2024)
 * Fix bug in scheduler
 
 
-Version 0.1.8 (TBD)
--------------------
+Version 0.1.8 (25-01-2004)
+--------------------------
 
 * Fix bug with matches on compound scalar.
 * Fix bug with processing compute_nodes with injectable attributes within a map.
