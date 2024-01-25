@@ -18,7 +18,7 @@ class LessSimpleBundle(SimpleSchema):
     p3: SimpleSchema
 
 
-def test_matches():
+def test_matches_bundle():
     tp = HgTimeSeriesTypeMetaData.parse(LessSimpleBundle)
     assert tp.matches(tp)
 
@@ -46,7 +46,7 @@ class LessSimpleCompoundScalar(SimpleCompoundScalar):
     p3: SimpleCompoundScalar
 
 
-def test_matches():
+def test_matches_compound_scalar():
     tp = HgScalarTypeMetaData.parse(LessSimpleCompoundScalar)
     assert tp.matches(tp)
 
