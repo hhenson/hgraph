@@ -147,3 +147,10 @@ Version 0.1.8 (25-01-2004)
 
 * Fix bug with matches on compound scalar.
 * Fix bug with processing compute_nodes with injectable attributes within a map.
+
+
+Version 0.1.9 (TBD)
+-------------------
+
+* Add support for overrides where inputs are constants and not time-series values (where the
+  original input was a time-series value)
