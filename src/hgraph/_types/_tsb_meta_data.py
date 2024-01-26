@@ -160,6 +160,9 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     def operator_rank(self) -> float:
         return sum(t.operator_rank for t in self.bundle_schema_tp.meta_data_schema.values()) / 100.
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgTSBTypeMetaData and self.bundle_schema_tp.matches(tp.bundle_schema_tp)
+
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSBTypeMetaData and self.bundle_schema_tp == o.bundle_schema_tp
 

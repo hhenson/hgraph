@@ -6,8 +6,8 @@ from hgraph import SCALAR, HgTypeMetaData, TIME_SERIES_TYPE, TS, TSD, V, K, TSL,
 
 
 def test_rank_values():
-    assert HgTypeMetaData.parse(int).operator_rank == 0
-    assert HgTypeMetaData.parse(str).operator_rank == 0
+    assert HgTypeMetaData.parse(int).operator_rank == 1e-10
+    assert HgTypeMetaData.parse(str).operator_rank == 1e-10
 
     # In this case we expect a hard-coded 1.0 value, so == over float is fine.
     assert HgTypeMetaData.parse(SCALAR).operator_rank == 1.  # NOSONAR
@@ -29,7 +29,7 @@ def test_rank_values():
         (TSD[int, V], TSD[K, V]),
         (TSD[int, TS[SCALAR]], TSD[int, V]),
 
-        (TSS[int], TSS[K]),
+        (TSS[int], TSS[K])
 ))
 def test_rank_order(t1, t2):
     print(f"{HgTypeMetaData.parse(t1).operator_rank} < {HgTypeMetaData.parse(t2).operator_rank}")

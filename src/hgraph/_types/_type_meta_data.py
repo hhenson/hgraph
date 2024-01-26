@@ -81,7 +81,7 @@ class HgTypeMetaData:
         This ranking is used to determine the best match when wiring types by summing up the ranks and picking
         the lowest sum of the inputs as the best match.
         """
-        return 0
+        return 1e-10
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """

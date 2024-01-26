@@ -36,3 +36,20 @@ def test_auto_const(ts_tp, value, should_work):
     else:
         with pytest.raises(Exception):
             eval_node(g)
+
+
+def test_auto_cons_with_overload():
+    @compute_node
+    def op(a: TS[int], b: TS[int]) -> TS[int]:
+        return a.value + b.value + 1
+
+    @compute_node(overloads=op)
+    def op_scalar(a: TS[int], b: int) -> TS[int]:
+        return a.value + b
+
+    @graph
+    def g(a: TS[int]) -> TS[int]:
+        return op(a, 1)
+
+    assert eval_node(g, [1]) == [2]
+

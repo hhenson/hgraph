@@ -44,7 +44,6 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
         self.mark_modified()
 
     def invalidate(self):
-        self._value = None
         self.mark_invalid()
 
     def apply_result(self, result: SCALAR):
