@@ -5,8 +5,6 @@ from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, 
 
 __all__ = ("REF", "REF_OUT", "TimeSeriesReferenceOutput", "TimeSeriesReferenceInput")
 
-from hgraph._types._type_meta_data import FLAGS
-
 
 class TimeSeriesReference:
     @abstractmethod
@@ -48,7 +46,7 @@ class TimeSeriesReferenceOutput(TimeSeriesOutput, TimeSeriesDeltaValue[TimeSerie
         """Unregisters an input as observing the reference value"""
 
 
-class TimeSeriesReferenceInput(TimeSeriesInput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], ABC, Generic[TIME_SERIES_TYPE, *FLAGS]):
+class TimeSeriesReferenceInput(TimeSeriesInput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], ABC, Generic[TIME_SERIES_TYPE]):
     """
     This is the wrapper class of the TimeSeriesValueOutput. It is not able to modify
     the value. It also supports the input behaviours of the TimeSeriesInput

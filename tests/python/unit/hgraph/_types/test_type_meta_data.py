@@ -16,8 +16,7 @@ from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
 from hgraph._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
     HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType, HgTypeOfTypeMetaData, HgInjectableType, \
-    HgArrayScalarTypeMetaData, \
-    NoDups, HgTypeFlagsMetaData, NODUPS_FLAG
+    HgArrayScalarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
@@ -93,8 +92,6 @@ def test_special_atomic_scalars(value, expected: Type):
         [dict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
         [frozendict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
         [TS[bool], HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [TS[bool, NoDups], HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool), flags=HgTypeFlagsMetaData((NoDups,), {NoDups}))],
-        [TS[bool, NODUPS_FLAG], HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool), flags=HgTypeFlagsMetaData((NODUPS_FLAG,), {NODUPS_FLAG}))],
         [TS_OUT[bool], HgTSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
         [TSL[TS[bool], SIZE],
          HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
@@ -123,6 +120,7 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
     assert meta_type is not None
     assert meta_type == expected
     assert meta_type.matches(expected)
+
 
 @pytest.mark.parametrize(
     "tp",

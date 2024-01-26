@@ -1,9 +1,9 @@
 from hashlib import sha1
-from typing import Type, Optional, TypeVar, _GenericAlias, Dict, Tuple
+from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
 from hgraph._types._typing_utils import nth
 
-from hgraph._types._scalar_type_meta_data import HgDictScalarType, HgTypeFlagsMetaData
+from hgraph._types._scalar_type_meta_data import HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
@@ -109,9 +109,8 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
 class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     bundle_schema_tp: HgTimeSeriesSchemaTypeMetaData
 
-    def __init__(self, schema, flags: HgTypeFlagsMetaData = None):
+    def __init__(self, schema):
         self.bundle_schema_tp = schema
-        self.flags = flags or HgTypeFlagsMetaData()
 
     @property
     def is_resolved(self) -> bool:

@@ -1,13 +1,11 @@
 from abc import abstractmethod
 from typing import Generic, Optional
 
-from hgraph._types._type_meta_data import FLAGS
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TimeSeriesDeltaValue
 
 
 __all__ = ("TS", "TS_OUT", "TimeSeriesValueOutput", "TimeSeriesValueInput")
-
 
 
 class TimeSeriesValueOutput(TimeSeriesOutput, TimeSeriesDeltaValue[SCALAR, SCALAR], Generic[SCALAR]):
@@ -28,7 +26,7 @@ class TimeSeriesValueOutput(TimeSeriesOutput, TimeSeriesDeltaValue[SCALAR, SCALA
         """The output can set the value"""
 
 
-class TimeSeriesValueInput(TimeSeriesInput, TimeSeriesDeltaValue[SCALAR, SCALAR], Generic[SCALAR, *FLAGS]):
+class TimeSeriesValueInput(TimeSeriesInput, TimeSeriesDeltaValue[SCALAR, SCALAR], Generic[SCALAR]):
     """
     This is the wrapper class of the TimeSeriesValueOutput. It is not able to modify
     the value. It also supports the input behaviours of the TimeSeriesInput

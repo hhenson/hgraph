@@ -1,15 +1,13 @@
-from typing import TypeVar, Type, Optional, _GenericAlias, Tuple, TypeVarTuple, Set
+from typing import TypeVar, Type, Optional
 
 __all__ = ('ParseError', 'HgTypeMetaData', 'AUTO_RESOLVE')
+
 
 AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
 
 
 class ParseError(RuntimeError):
     ...
-
-
-FLAGS = TypeVarTuple(name="FLAGS")
 
 
 class HgTypeMetaData:
@@ -20,7 +18,6 @@ class HgTypeMetaData:
     is_injectable: bool = False  # This indicates the type represent an injectable property (such as ExecutionContext)
     is_reference: bool = False
     py_type: Type  # The python type that represents this type
-    flags: "HgTypeFlagsMetaData"  # these are type flags that give type non-value properties, like Deduped
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:

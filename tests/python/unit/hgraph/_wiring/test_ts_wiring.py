@@ -4,7 +4,6 @@ from hgraph import compute_node, TS, graph, IncorrectTypeBinding
 from hgraph.test import eval_node
 
 
-@pytest.mark.xfail(raises=IncorrectTypeBinding)
 def test_ts_type_mismatch():
     @compute_node
     def n(ts: TS[int]) -> TS[int]:
@@ -18,4 +17,5 @@ def test_ts_type_mismatch():
     def g(ts: TS[float]) -> TS[int]:
         return n(f(ts))
 
-    assert eval_node(g, [1.0]) == [1.0]
+    with pytest.raises(IncorrectTypeBinding):
+        assert eval_node(g, [1.0]) == [1.0]

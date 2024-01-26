@@ -7,8 +7,6 @@ from hgraph._types._ts_type import TS
 
 __all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput")
 
-from hgraph._types._type_meta_data import FLAGS
-
 
 @runtime_checkable
 class SetDelta(Protocol[KEYABLE_SCALAR],Generic[KEYABLE_SCALAR]):
@@ -66,7 +64,7 @@ class TimeSeriesSet(TimeSeriesDeltaValue[KEYABLE_SCALAR, SetDelta[KEYABLE_SCALAR
         """True if the item was removed in this engine cycle."""
 
 
-class TimeSeriesSetInput(TimeSeriesInput, TimeSeriesSet[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR, *FLAGS]):
+class TimeSeriesSetInput(TimeSeriesInput, TimeSeriesSet[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
     """
     The input version of the set.
     """

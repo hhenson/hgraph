@@ -1,12 +1,10 @@
-import itertools
-
-from typing import Type, TypeVar, Optional, _GenericAlias, Tuple, cast, Set
+from typing import Type, TypeVar, Optional, _GenericAlias
 
 __all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData",)
 
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTypeFlagsMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 
@@ -15,9 +13,8 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
 
     value_scalar_tp: HgScalarTypeMetaData
 
-    def __init__(self, scalar_type: HgScalarTypeMetaData, flags: HgTypeFlagsMetaData = None):
+    def __init__(self, scalar_type: HgScalarTypeMetaData):
         self.value_scalar_tp = scalar_type
-        self.flags = flags or HgTypeFlagsMetaData()
 
     @property
     def is_resolved(self) -> bool:
@@ -25,25 +22,23 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def operator_rank(self) -> float:
-        return self.value_scalar_tp.operator_rank / 100. + self.flags.operator_rank / 1000.
+        return self.value_scalar_tp.operator_rank / 100.
 
     @property
     def py_type(self) -> Type:
         from hgraph._types._ts_type import TS
-        return TS[self.value_scalar_tp.py_type, *self.flags.py_type]
+        return TS[self.value_scalar_tp.py_type]
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.value_scalar_tp.resolve(resolution_dict, weak),
-                              flags=self.flags.resolve(resolution_dict, weak))
+            return type(self)(self.value_scalar_tp.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgTSTypeMetaData
         self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.value_scalar_tp if wired_type else None)
-        self.flags.build_resolution_dict(resolution_dict, wired_type.flags)
 
     def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
                                           wired_type: "HgTypeMetaData", value: object):
@@ -65,12 +60,10 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
             tp.value_scalar_tp)) or tp_ in (HgTimeSeriesTypeMetaData, HgTsTypeVarTypeMetaData)
 
     def __eq__(self, o: object) -> bool:
-        if isinstance(o, HgTSTypeMetaData):
-            return self.value_scalar_tp == o.value_scalar_tp and self.flags == o.flags
-        return False
+        return type(o) is HgTSTypeMetaData and self.value_scalar_tp == o.value_scalar_tp
 
     def __str__(self) -> str:
-        return f"TS[{','.join([str(self.value_scalar_tp)] + [str(t) for t in self.flags.py_type])}]"
+        return f'TS[{str(self.value_scalar_tp)}]'
 
     def __repr__(self) -> str:
         return f'HgTSTypeMetaData({repr(self.value_scalar_tp)})'

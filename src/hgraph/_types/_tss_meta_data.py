@@ -1,7 +1,7 @@
-from typing import Type, TypeVar, Optional, _GenericAlias, Tuple
+from typing import Type, TypeVar, Optional, _GenericAlias
 
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgSetScalarType, HgTypeFlagsMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgSetScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
 
@@ -13,9 +13,8 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
 
     value_scalar_tp: HgScalarTypeMetaData
 
-    def __init__(self, scalar_type: HgScalarTypeMetaData, flags: HgTypeFlagsMetaData = None):
+    def __init__(self, scalar_type: HgScalarTypeMetaData):
         self.value_scalar_tp = scalar_type
-        self.flags = flags or HgTypeFlagsMetaData()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return isinstance(tp, HgTSSTypeMetaData) and self.value_scalar_tp.matches(tp.value_scalar_tp)

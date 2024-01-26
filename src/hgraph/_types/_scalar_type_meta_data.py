@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List, Generic, T, Dict
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List
 
 import numpy as np
 from frozendict import frozendict
@@ -17,10 +17,7 @@ __all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgS
            "HgAtomicType", "HgScalarTypeVar", "HgCompoundScalarType", "HgTupleFixedScalarType",
            "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData", "HgEvaluationClockType",
            "HgEvaluationEngineApiType", "HgStateType", "HgOutputType", "HgSchedulerType", "Injector",
-           "HgArrayScalarTypeMetaData",
-           "HgTypeFlagsMetaData", "NoDups", "AllowDups",
-           "NODUPS_FLAG"
-           )
+           "HgArrayScalarTypeMetaData")
 
 
 class HgScalarTypeMetaData(HgTypeMetaData):
@@ -798,127 +795,3 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
 
     def __hash__(self) -> int:
         return hash(self.py_type)
-
-
-class FlagMeta(type):
-    key: "FlagMeta"
-    value: bool
-
-    def __new__(cls, *args, **kwargs):
-        new_type = super().__new__(cls, *args, **kwargs)
-        if not hasattr(new_type, "key"):
-            new_type.key = new_type
-
-        new_type.is_resolved = True
-        new_type.py_type = new_type
-        return new_type
-
-    def __invert__(self):
-        return self.inverted()
-
-    def __repr__(cls):
-        return cls.__name__
-
-
-class HgTypeFlagsMetaData(HgScalarTypeMetaData):
-    is_resolved: bool  # Does this instance of metadata contain a generic entry, i.e. requires resolution
-    is_scalar: bool
-    flags: Dict[FlagMeta, bool | TypeVar]
-
-    def __init__(self, py_type = (), flags: Set[FlagMeta] = ()):
-        super().__init__()
-        self.py_type = py_type
-        self.flags = {f.key: f.value for f in flags if isinstance(f, FlagMeta)}
-        type_vars = {f.__constraints__[0]: f for f in flags if isinstance(f, TypeVar)}
-        self.is_resolved = not type_vars
-        self.flags.update(type_vars)
-
-    def __eq__(self, other):
-        return self.flags == other.flags
-
-    @classmethod
-    def parse(cls, value) -> "HgScalarTypeMetaData":
-        if type(value) != tuple:
-            return None
-        if not all(isinstance(f, (FlagMeta, TypeVar)) for f in value):
-            return None
-        flags = set(cast(FlagMeta, arg) for arg in value)
-        return HgTypeFlagsMetaData(value, flags)
-
-    @property
-    def operator_rank(self) -> float:
-        return sum(1. if isinstance(f, TypeVar) else -1e-10 for f in self.flags.values())
-
-    def __getitem__(self, item: FlagMeta):
-        return self.flags.get(item, False)
-
-    def get(self, item: FlagMeta, default = None):
-        return self.flags.get(item, default)
-
-    def matches(self, tp: "HgTypeMetaData") -> bool:
-        for key, v in self.flags:
-            if type(v) is bool:
-                if tp.flags.get(key) != v:
-                    return False
-        return True
-
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeFlagsMetaData":
-        if self.is_resolved:
-            return self
-
-        resolved_flags = set()
-        for key, v in self.flags.items():
-            if isinstance(v, TypeVar):
-                if (resolution := resolution_dict.get(v)) is not None:
-                    if (valid_value := next((c for c in v.__constraints__ if c == resolution), None)) is not None:
-                        resolved_flags.add(valid_value.value)
-                    else:
-                        from hgraph import IncorrectTypeBinding
-                        raise IncorrectTypeBinding(v, resolution)
-                elif not weak:
-                    raise ParseError(f"No resolution available for '{str(v)}'")
-                else:
-                    resolved_flags.add(v)
-        return HgTypeFlagsMetaData(resolved_flags, resolved_flags)
-
-    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().do_build_resolution_dict(resolution_dict, wired_type)
-
-        wired_type: HgTypeFlagsMetaData
-        for key, v in self.flags.items():
-            if isinstance(v, TypeVar):
-                if wired_type is not None:
-                    if (wired_value := wired_type.get(key)) is not None:
-                        if (pre_resolved := resolution_dict.get(v)) is None:
-                            resolution_dict[v] = key if wired_value else ~key
-                        else:
-                            if wired_value != pre_resolved:
-                                from hgraph import TemplateTypeIncompatibleResolution
-                                raise TemplateTypeIncompatibleResolution(v, pre_resolved, wired_value)
-                            else:
-                                pass
-                    else:
-                        resolution_dict[v] = ~key
-            elif v:
-                if wired_type and wired_type.get(key) != v:
-                    from hgraph import IncorrectTypeBinding
-                    raise IncorrectTypeBinding(key, wired_type.get(key))
-
-class NoDups(metaclass=FlagMeta):
-    value = True
-
-    @staticmethod
-    def inverted():
-        return AllowDups
-
-
-class AllowDups(metaclass=FlagMeta):
-    key = NoDups
-    value = False
-
-    @staticmethod
-    def inverted():
-        return NoDups
-
-
-NODUPS_FLAG = TypeVar("NODUPS_FLAG", NoDups, AllowDups)

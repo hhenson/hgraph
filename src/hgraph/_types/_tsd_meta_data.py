@@ -1,8 +1,8 @@
-from typing import Type, TypeVar, Optional, _GenericAlias, Dict, Tuple
+from typing import Type, TypeVar, Optional, _GenericAlias, Dict
 
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType, HgTypeFlagsMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 
@@ -14,10 +14,9 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
     key_tp: HgScalarTypeMetaData
     value_tp: HgTimeSeriesTypeMetaData
 
-    def __init__(self, key_tp: HgScalarTypeMetaData, value_tp: HgTimeSeriesTypeMetaData, flags: HgTypeFlagsMetaData = None):
+    def __init__(self, key_tp: HgScalarTypeMetaData, value_tp: HgTimeSeriesTypeMetaData):
         self.value_tp = value_tp
         self.key_tp = key_tp
-        self.flags = flags or HgTypeFlagsMetaData()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return isinstance(tp, HgTSDTypeMetaData) and self.key_tp.matches(tp.key_tp) and self.value_tp.matches(tp.value_tp)

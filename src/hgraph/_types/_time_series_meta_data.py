@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING, TypeVar, _GenericAlias
+from typing import Optional, TYPE_CHECKING, TypeVar
 
 from hgraph._types._type_meta_data import HgTypeMetaData
 if TYPE_CHECKING:
@@ -48,14 +48,6 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
 
         for parser in parsers:
             if meta_data := parser.parse(value):
-                if isinstance(value, _GenericAlias):
-                    from hgraph._types._scalar_type_meta_data import FlagMeta
-                    from hgraph._types._scalar_type_meta_data import HgTypeFlagsMetaData
-                    flags = tuple(arg for arg in value.__args__
-                                  if isinstance(arg, FlagMeta) or (
-                                      isinstance(arg, TypeVar) and arg.__constraints__ and
-                                      all(isinstance(a, FlagMeta) for a in arg.__constraints__)))
-                    meta_data.flags = HgTypeFlagsMetaData.parse(flags)
                 return meta_data
 
     @property
