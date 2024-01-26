@@ -19,6 +19,7 @@ if typing.TYPE_CHECKING:
 class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[SCALAR], Generic[SCALAR]):
 
     _tp: type | None = None
+    _dedupe: bool = False
     _value: Optional[SCALAR] = None
 
     @property
@@ -32,7 +33,8 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
     @value.setter
     def value(self, v: SCALAR):
         if v is None:
-            self.invalidate()
+            if not self._dedupe or self._value is not None:
+                self.invalidate()
             return
 
         if HG_TYPE_CHECKING:
@@ -40,11 +42,11 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
             if not isinstance(v, tp_):
                 raise TypeError(f"Expected {self._tp}, got {type(v)}")
 
-        self._value = v
-        self.mark_modified()
+        if not self._dedupe or v != self._value:
+            self._value = v
+            self.mark_modified()
 
     def invalidate(self):
-        self._value = None
         self.mark_invalid()
 
     def apply_result(self, result: SCALAR):

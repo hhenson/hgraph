@@ -83,7 +83,7 @@ def sink_node(fn: SINK_NODE_SIGNATURE=None, /,
     return _node_decorator(WiringNodeType.SINK_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads)
 
 
-def graph(fn: GRAPH_SIGNATURE=None, overloads: "WiringNodeClass" = None) -> GRAPH_SIGNATURE:
+def graph(fn: GRAPH_SIGNATURE=None, overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None) -> GRAPH_SIGNATURE:
     """
     Wraps a wiring function. The function can take the form of a function that looks like a compute_node,
     sink_node, souce_node, or a graph with no inputs or outputs. There is generally at least one graph in

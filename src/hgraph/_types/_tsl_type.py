@@ -3,6 +3,7 @@ from typing import Any, Generic, Iterable, TYPE_CHECKING, Tuple, Generator
 
 from frozendict import frozendict
 
+from hgraph._types._type_meta_data import FLAGS
 from hgraph._types._time_series_types import K, V
 from hgraph._types._scalar_types import SIZE, Size, STATE
 from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, TIME_SERIES_TYPE, \
@@ -16,7 +17,7 @@ __all__ = ("TSL", "TSL_OUT", "TimeSeriesList", "TimeSeriesListInput", "TimeSerie
 
 
 class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaValue[tuple, dict[int, Any]],
-                     Generic[TIME_SERIES_TYPE, SIZE]):
+                     Generic[TIME_SERIES_TYPE, SIZE, *FLAGS]):
     """
     Represents a linear collection of time-series inputs.
     Think of this as a list of time-series values.
@@ -30,10 +31,10 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
     def __class_getitem__(cls, item) -> Any:
         # For now limit to validation of item
         is_tuple = type(item) is tuple
-        if is_tuple and len(item) != 2:
+        if is_tuple and len(item) < 2:
             item = (item[0] if len(item) == 1 else TIME_SERIES_TYPE), SIZE
         out = super(TimeSeriesList, cls).__class_getitem__(item)
-        if item != (TIME_SERIES_TYPE, SIZE):
+        if item[:2] != (TIME_SERIES_TYPE, SIZE):
             from hgraph._types._type_meta_data import HgTypeMetaData
             if HgTypeMetaData.parse(item[0]).is_scalar:
                 from hgraph import ParseError
@@ -84,7 +85,7 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
         return ((i, v) for i, v in self.items() if v.valid)
 
 
-class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):
+class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE, *FLAGS], TimeSeriesInput, ABC, Generic[TIME_SERIES_TYPE, SIZE, *FLAGS]):
     """
     The input of a time series list.
     """

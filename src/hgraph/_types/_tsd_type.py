@@ -5,6 +5,7 @@ from frozendict import frozendict
 
 from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, K, V, \
     TimeSeriesDeltaValue
+from hgraph._types._type_meta_data import FLAGS
 from hgraph._types._typing_utils import Sentinel
 
 if TYPE_CHECKING:
@@ -173,7 +174,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         pass
 
 
-class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K, V]):
+class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K, V, *FLAGS]):
     """
     The TSD input
     """

@@ -1,9 +1,9 @@
 from hashlib import sha1
-from typing import Type, Optional, TypeVar, _GenericAlias, Dict
+from typing import Type, Optional, TypeVar, _GenericAlias, Dict, Tuple
 
 from hgraph._types._typing_utils import nth
 
-from hgraph._types._scalar_type_meta_data import HgDictScalarType
+from hgraph._types._scalar_type_meta_data import HgDictScalarType, HgTypeFlagsMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
@@ -109,8 +109,9 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
 class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     bundle_schema_tp: HgTimeSeriesSchemaTypeMetaData
 
-    def __init__(self, schema):
+    def __init__(self, schema, flags: HgTypeFlagsMetaData = None):
         self.bundle_schema_tp = schema
+        self.flags = flags or HgTypeFlagsMetaData()
 
     @property
     def is_resolved(self) -> bool:
@@ -159,6 +160,9 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     @property
     def operator_rank(self) -> float:
         return sum(t.operator_rank for t in self.bundle_schema_tp.meta_data_schema.values()) / 100.
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return type(tp) is HgTSBTypeMetaData and self.bundle_schema_tp.matches(tp.bundle_schema_tp)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSBTypeMetaData and self.bundle_schema_tp == o.bundle_schema_tp

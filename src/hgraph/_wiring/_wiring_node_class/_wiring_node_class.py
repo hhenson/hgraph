@@ -419,7 +419,7 @@ class OverloadedWiringNodeHelper:
 
     @staticmethod
     def _calc_rank(signature: WiringNodeSignature) -> float:
-        return sum(t.operator_rank for t in signature.input_types.values())
+        return sum(t.operator_rank * (0.001 if t.is_scalar else 1) for t in signature.input_types.values())
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []

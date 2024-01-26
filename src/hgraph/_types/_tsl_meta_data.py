@@ -1,8 +1,8 @@
-from typing import Type, TypeVar, Optional, _GenericAlias, TYPE_CHECKING, cast
+from typing import Type, TypeVar, Optional, _GenericAlias, TYPE_CHECKING, cast, Tuple
 
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTupleCollectionScalarType, \
-    HgDictScalarType
+    HgDictScalarType, HgTypeFlagsMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 if TYPE_CHECKING:
@@ -17,9 +17,10 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     value_tp: HgTimeSeriesTypeMetaData
     size_tp: HgScalarTypeMetaData
 
-    def __init__(self, value_tp: HgTimeSeriesTypeMetaData, size_tp: HgScalarTypeMetaData):
+    def __init__(self, value_tp: HgTimeSeriesTypeMetaData, size_tp: HgScalarTypeMetaData, flags: HgTypeFlagsMetaData = None):
         self.value_tp = value_tp
         self.size_tp = size_tp
+        self.flags = flags or HgTypeFlagsMetaData()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return isinstance(tp, HgTSLTypeMetaData) and self.value_tp.matches(tp.value_tp) and self.size_tp.matches(
@@ -84,7 +85,7 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def operator_rank(self) -> float:
-        return (self.value_tp.operator_rank) / 100. + (1e-15 if self.size_tp.operator_rank != 0 else 0)
+        return (self.value_tp.operator_rank) / 100. + self.size_tp.operator_rank / 1e10
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSLTypeMetaData and self.value_tp == o.value_tp and self.size_tp == o.size_tp

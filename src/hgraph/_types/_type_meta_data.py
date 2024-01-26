@@ -1,13 +1,15 @@
-from typing import TypeVar, Type, Optional
+from typing import TypeVar, Type, Optional, _GenericAlias, Tuple, TypeVarTuple, Set
 
 __all__ = ('ParseError', 'HgTypeMetaData', 'AUTO_RESOLVE')
-
 
 AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
 
 
 class ParseError(RuntimeError):
     ...
+
+
+FLAGS = TypeVarTuple(name="FLAGS")
 
 
 class HgTypeMetaData:
@@ -18,6 +20,7 @@ class HgTypeMetaData:
     is_injectable: bool = False  # This indicates the type represent an injectable property (such as ExecutionContext)
     is_reference: bool = False
     py_type: Type  # The python type that represents this type
+    flags: "HgTypeFlagsMetaData"  # these are type flags that give type non-value properties, like Deduped
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
@@ -81,7 +84,7 @@ class HgTypeMetaData:
         This ranking is used to determine the best match when wiring types by summing up the ranks and picking
         the lowest sum of the inputs as the best match.
         """
-        return 0
+        return 1e-10
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """

@@ -10,7 +10,7 @@ from hgraph._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFacto
                                          )
 from hgraph._runtime._node import Node
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, NoDups
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
 from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
@@ -28,7 +28,7 @@ class PythonTSOutputBuilder(TSOutputBuilder):
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hgraph import PythonTimeSeriesValueOutput
         return PythonTimeSeriesValueOutput(_owning_node=owning_node, _parent_output=owning_output,
-                                           _tp=self.value_tp.py_type)
+                                           _dedupe=self.deduplicate,_tp=self.value_tp.py_type)
 
     def release_instance(self, item):
         """Nothing to do"""
@@ -290,7 +290,9 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:
         return {
-            HgTSTypeMetaData: lambda: PythonTSOutputBuilder(value_tp=value_tp.value_scalar_tp),
+            HgTSTypeMetaData: lambda: PythonTSOutputBuilder(
+                value_tp=value_tp.value_scalar_tp,
+                deduplicate=value_tp.flags.get(NoDups, False)),
             HgTSBTypeMetaData: lambda: PythonTSBOutputBuilder(schema=value_tp.bundle_schema_tp.py_type),
             HgTSSTypeMetaData: lambda: PythonTSSOutputBuilder(value_tp=value_tp.value_scalar_tp),
             HgTSLTypeMetaData: lambda: PythonTSLOutputBuilder(value_tp=cast(HgTSLTypeMetaData, value_tp).value_tp,

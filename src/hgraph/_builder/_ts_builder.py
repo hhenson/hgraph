@@ -31,6 +31,7 @@ This is here to allow us to write generic wiring logic that will allow for multi
 class TSOutputBuilder(OutputBuilder):
 
     value_tp: "HgScalarTypeMetaData"
+    deduplicate: bool
 
     def make_instance(self, owning_node=None, owning_output=None) -> "TimeSeriesOutput":
         raise NotImplementedError()
