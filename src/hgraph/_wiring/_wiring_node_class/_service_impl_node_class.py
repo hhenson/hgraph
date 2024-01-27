@@ -1,8 +1,9 @@
 from typing import Callable, Mapping, Any, Sequence
 
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders, \
-    WiringNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders, WiringNodeClass, \
+    BaseWiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_utils import wire_nested_graph
 
 __all__ = ("ServiceImplNodeClass",)
 
@@ -14,11 +15,23 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
         # graph where we will stub out the inputs and outputs.
         signature = validate_and_prepare_signature(signature, interfaces)
         super().__init__(signature, fn)
+        self._interfaces = interfaces
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
                                                                                     self.error_output_type)
+        # TODO: Make this correct
+        inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature)
+        from hgraph._impl._builder._service_impl_builder import PythonServiceImplNodeBuilder
+        return PythonServiceImplNodeBuilder(
+            node_signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            inner_graph,
+        )
 
 
 def validate_and_prepare_signature(signature: WiringNodeSignature,
