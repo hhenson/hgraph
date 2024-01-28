@@ -1,8 +1,9 @@
 from typing import Callable, Mapping, Any, Sequence
 
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders, WiringNodeClass, \
     BaseWiringNodeClass
-from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_utils import wire_nested_graph
 
 __all__ = ("ServiceImplNodeClass",)
@@ -43,3 +44,26 @@ def validate_and_prepare_signature(signature: WiringNodeSignature,
     service graph in a magical way to ensure the values are copied in (since they will be created at a random point
     in the graph and be fed into a sink node.)
     """
+    if interfaces is None:
+        raise CustomMessageWiringError("No interfaces provided")
+    if not isinstance(interfaces, (tuple, list, set)):
+        interfaces = [interfaces]
+    if len(interfaces) == 1:
+        # The signature for the service should be representative of the singular service, i.e. for a reference
+        # service the signature is the same as the reference service, for the subscription service the singature
+        # takes a single input of type TSS[SUBSCRIPTION] and returns a TSD[SUBSCRIPTION, TIME_SERIES_TYPE]
+        # for a request reply service we should have a TSD[RequestorId, TS[REQUEST]] and returns a
+        # TSD[RequestorId, TIME_SERIES_TYPE].
+        s: WiringNodeSignature = interfaces[0].signature
+        match s.node_type:
+            case WiringNodeType.REF_SVC:
+                if signature.time_series_args:
+                    raise CustomMessageWiringError("The signature cannot have any time-series inputs")
+                if not signature.output_type.dereference().matches(s.output_type.dereference()):
+                    raise CustomMessageWiringError(
+                        "The output type does not match that of the reference service signature")
+                return signature
+            case _:
+                raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
+    else:
+        raise CustomMessageWiringError("Unable to handle multiple interfaces yet")

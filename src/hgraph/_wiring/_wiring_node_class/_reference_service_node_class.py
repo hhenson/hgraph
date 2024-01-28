@@ -12,9 +12,6 @@ __all__ = ("ReferenceServiceNodeClass",)
 class ReferenceServiceNodeClass(BaseWiringNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
-        if not signature.output_type.is_reference:
-            # The output must be a reference type, if it already is a reference then we are fine.
-            signature = signature.copy_with(output_type=HgREFTypeMetaData(signature.output_type))
         super().__init__(signature, fn)
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
@@ -30,7 +27,7 @@ class ReferenceServiceNodeClass(BaseWiringNodeClass):
         path = f"ref_svc://{path}.{self.fn.__name__}"
         scalars = frozendict({"path": path})
 
-        from hgraph._impl._builder._node_builder import BaseNodeImpl
+        from hgraph._impl._runtime._node import BaseNodeImpl
 
         class _PythonReferenceServiceStubSourceNode(BaseNodeImpl):
 

@@ -4,9 +4,12 @@ from typing import Any, MutableMapping
 
 from frozendict import frozendict
 
+from hgraph._wiring._wiring_node_signature import WiringNodeType
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+
 if typing.TYPE_CHECKING:
     from hgraph import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, NodeSignature, NodeBuilder, Edge, \
-        WiringPort
+    WiringPort
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
 
@@ -95,9 +98,22 @@ class WiringNodeInstance:
     @property
     def node_signature(self) -> "NodeSignature":
         from hgraph._runtime import NodeSignature, NodeTypeEnum
+        node_type: NodeTypeEnum
+        match self.resolved_signature.node_type:
+            case WiringNodeType.SINK_NODE:
+                node_type = NodeTypeEnum.SINK_NODE
+            case WiringNodeType.COMPUTE_NODE | WiringNodeType.REQ_REP_SVC | WiringNodeType.SUBS_SVC:
+                node_type = NodeTypeEnum.COMPUTE_NODE
+            case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
+                node_type = NodeTypeEnum.PULL_SOURCE_NODE
+            case WiringNodeType.PULL_SOURCE_NODE:
+                node_type = NodeTypeEnum.PUSH_SOURCE_NODE
+            case _:
+                raise CustomMessageWiringError(f"Unknown node type: {self.resolved_signature.node_type}")
+
         return NodeSignature(
             name=self.resolved_signature.name,
-            node_type=NodeTypeEnum(self.resolved_signature.node_type.value),
+            node_type=node_type,
             args=self.resolved_signature.args,
             time_series_inputs=self.resolved_signature.time_series_inputs,
             time_series_output=self.resolved_signature.output_type,

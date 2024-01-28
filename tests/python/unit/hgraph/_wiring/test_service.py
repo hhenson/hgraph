@@ -12,7 +12,7 @@ def test_reference_service():
     def my_service(path: str = None) -> TSD[str, TS[str]]:
         """The service description"""
 
-    @service_impl(my_service)
+    @service_impl(interfaces=my_service)
     def my_service_impl() -> TSD[str, TS[str]]:
         return const({"test": "a value"}, TSD[str, TS[str]])
 
