@@ -106,7 +106,7 @@ class WiringNodeInstance:
                 node_type = NodeTypeEnum.COMPUTE_NODE
             case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
                 node_type = NodeTypeEnum.PULL_SOURCE_NODE
-            case WiringNodeType.PULL_SOURCE_NODE:
+            case WiringNodeType.PUSH_SOURCE_NODE:
                 node_type = NodeTypeEnum.PUSH_SOURCE_NODE
             case _:
                 raise CustomMessageWiringError(f"Unknown node type: {self.resolved_signature.node_type}")
