@@ -3,6 +3,7 @@ from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_node_class._reference_service_node_class import ReferenceServiceNodeClass
@@ -227,11 +228,13 @@ def register_service(path: str, implementation, **kwargs):
     are passed to the implementation. These should be defined on the implementation and are independent of the
     attributes defined in the service.
     :param path:
-    :param interface:
     :param implementation:
     :param kwargs:
     :return:
     """
+    if not isinstance(implementation, ServiceImplNodeClass):
+        raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
+    implementation(path=path, **kwargs)
 
 
 def service_adaptor(interface):

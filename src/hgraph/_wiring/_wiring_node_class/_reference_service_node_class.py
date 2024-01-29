@@ -3,16 +3,23 @@ from typing import Callable, Mapping, Any
 from frozendict import frozendict
 
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
+from hgraph._wiring._wiring_node_class.service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 
 __all__ = ("ReferenceServiceNodeClass",)
 
 
-class ReferenceServiceNodeClass(BaseWiringNodeClass):
+class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         super().__init__(signature, fn)
+
+    def full_path(self, user_path: str | None) -> str:
+        if user_path is None:
+            user_path = f"{self.fn.__module__}"
+
+        return f"ref_svc://{user_path}/{self.fn.__name__}"
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
@@ -20,12 +27,7 @@ class ReferenceServiceNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
                                                                                     self.error_output_type)
 
-        path = scalars.get("path")
-        if path is None:
-            path = f"{self.fn.__module__}.{self.fn.__name__}"
-
-        path = f"ref_svc://{path}.{self.fn.__name__}"
-        scalars = frozendict({"path": path})
+        scalars = frozendict({"path": self.full_path(scalars.get("path"))})
 
         from hgraph._impl._runtime._node import BaseNodeImpl
 
