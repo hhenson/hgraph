@@ -1,11 +1,15 @@
-from typing import Callable, Mapping, Any
+from typing import Callable, Mapping, Any, TYPE_CHECKING
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
+from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders
 from hgraph._wiring._wiring_node_class.service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
-from hgraph._types._ref_meta_data import HgREFTypeMetaData
+
+if TYPE_CHECKING:
+    from hgraph._runtime._node import NodeSignature
+    from hgraph._builder._node_builder import NodeBuilder
 
 __all__ = ("ReferenceServiceNodeClass",)
 
@@ -23,6 +27,10 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
+        output_type = node_signature.time_series_output
+        if type(output_type) != HgREFTypeMetaData:
+            node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
+
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
                                                                                     self.error_output_type)
@@ -39,7 +47,8 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
                 service_output_reference = GlobalState.instance().get(self.scalars["path"])
                 if service_output_reference is None:
                     raise RuntimeError(f"Could not find reference service for path: {self.scalars['path']}")
-                self.output = service_output_reference
+                # TODO: The output needs to be a reference value output so we can set the value and continue!
+                self.output.value = service_output_reference
 
             def do_start(self):
                 """Make sure we get notified to serve the service output reference"""
@@ -56,5 +65,3 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
             error_builder=error_builder,
             node_impl=_PythonReferenceServiceStubSourceNode
         )
-
-

@@ -6,7 +6,6 @@ from hgraph.nodes import const
 from hgraph.test import eval_node
 
 
-@pytest.mark.xfail(reason="Not implemented yet", strict=True)
 def test_reference_service():
 
     @reference_service
