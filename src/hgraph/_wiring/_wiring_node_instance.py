@@ -104,7 +104,7 @@ class WiringNodeInstance:
                 node_type = NodeTypeEnum.SINK_NODE
             case WiringNodeType.COMPUTE_NODE | WiringNodeType.REQ_REP_SVC | WiringNodeType.SUBS_SVC:
                 node_type = NodeTypeEnum.COMPUTE_NODE
-            case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
+            case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC | WiringNodeType.SVC_IMPL:
                 node_type = NodeTypeEnum.PULL_SOURCE_NODE
             case WiringNodeType.PUSH_SOURCE_NODE:
                 node_type = NodeTypeEnum.PUSH_SOURCE_NODE

@@ -1,4 +1,5 @@
 import pytest
+from frozendict import frozendict
 
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path
 from hgraph.nodes import const
@@ -14,7 +15,7 @@ def test_reference_service():
 
     @service_impl(interfaces=my_service)
     def my_service_impl() -> TSD[str, TS[str]]:
-        return const({"test": "a value"}, TSD[str, TS[str]])
+        return const(frozendict({"test": "a value"}), TSD[str, TS[str]])
 
     @graph
     def main() -> TS[str]:

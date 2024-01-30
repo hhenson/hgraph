@@ -25,13 +25,25 @@ class PythonServiceNodeImpl(PythonNestedNodeImpl):
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self._active_graph: Graph | None = None
 
-    def eval(self):
-        self._active_graph.evaluate_graph()
+    def initialise(self):
+        self._active_graph = self.nested_graph_builder.make_instance(self.owning_graph_id + (self.node_ndx,), self)
+        self._active_graph.evaluation_engine = NestedEvaluationEngine(
+            self.graph.evaluation_engine,
+            NestedEngineEvaluationClock(
+                self.graph.engine_evaluation_clock,
+                self))
+        self._active_graph.initialise()
 
     def do_start(self):
-        self._active_graph = self.nested_graph_builder.make_instance(self.graph.graph_id, self)
         self._active_graph.start()
+
+    def eval(self):
+        self.mark_evaluated()
+        self._active_graph.evaluate_graph()
 
     def do_stop(self):
         self._active_graph.stop()
+
+    def dispose(self):
+        self._active_graph.dispose()
         self._active_graph = None
