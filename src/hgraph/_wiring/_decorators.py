@@ -8,6 +8,7 @@ from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_node_class._reference_service_node_class import ReferenceServiceNodeClass
 from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
+from hgraph._wiring._wiring_node_class._subscription_service_node_service import SubscriptionServiceNodeClass
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -173,6 +174,8 @@ def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
             ...
             out = my_subscription_svc(default, ts1="mkt_data.mcu_3m")
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(WiringNodeType.SUBS_SVC, fn)
 
 
 def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
@@ -284,6 +287,9 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         case WiringNodeType.REF_SVC:
             kwargs['node_class'] = ReferenceServiceNodeClass
             _assert_no_node_configs("Reference Services", kwargs)
+        case WiringNodeType.SUBS_SVC:
+            kwargs['node_class'] = SubscriptionServiceNodeClass
+            _assert_no_node_configs("Subscription Services", kwargs)
         case WiringNodeType.SVC_IMPL:
             kwargs['node_class'] = ServiceImplNodeClass
             kwargs['interfaces'] = interfaces
