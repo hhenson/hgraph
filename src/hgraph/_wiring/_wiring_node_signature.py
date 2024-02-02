@@ -210,10 +210,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     :param fn:
     :return:
     """
-    try:
-        name = fn.__name__
-    except:
-        ...
+    name = fn.__name__
     annotations = get_type_hints(fn)
     code = fn.__code__
     args: tuple[str, ...] = code.co_varnames[:code.co_argcount]
