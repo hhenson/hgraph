@@ -158,3 +158,6 @@ Version 0.1.9 (01-02-2024)
 
 Version 0.1.10 (TBD)
 --------------------
+
+* Fix a scheduler bug when updating a scheduled node in a map. Hard to replicate, the test
+  does not replicate.

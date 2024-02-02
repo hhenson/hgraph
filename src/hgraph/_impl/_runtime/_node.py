@@ -285,7 +285,9 @@ class NodeSchedulerImpl(NodeScheduler):
             return default
 
     def schedule(self, when: datetime | timedelta, tag: str = None):
+        original_time = None
         if tag is not None and tag in self._tags:
+            original_time = self.next_scheduled_time
             self._scheduled_events.remove((self._tags[tag], tag))
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
@@ -295,7 +297,8 @@ class NodeSchedulerImpl(NodeScheduler):
             current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
             self._scheduled_events.add((when, "" if tag is None else tag))
             if is_stated and current_first > (next_ := self.next_scheduled_time):
-                self._node.graph.schedule_node(self._node.node_ndx, next_)
+                force_set = original_time is not None and original_time < when
+                self._node.graph.schedule_node(self._node.node_ndx, next_, force_set)
 
     def un_schedule(self, tag: str = None):
         if tag is not None:

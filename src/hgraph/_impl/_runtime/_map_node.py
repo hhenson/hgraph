@@ -75,7 +75,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             if dt == self.last_evaluation_time:
                 self._evaluate_graph(k)
             elif dt < self.last_evaluation_time:
-                raise RuntimeError("Scheduled time is in the past")
+                raise RuntimeError(
+                    f"Scheduled time is in the past; last evaluation time: {self.last_evaluation_time}, "
+                    f"scheduled time: {dt}, evaluation time: {self.graph.evaluation_clock.evaluation_time}")
             else:
                 # Re-schedule for the next time.
                 self._scheduled_keys[k] = dt
@@ -146,5 +148,3 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             node: Node = graph.nodes[self.output_node_id]
             # Replace the nodes output with the map node's output for the key
             node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output).get_or_create(key)
-
-

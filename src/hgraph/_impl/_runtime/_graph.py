@@ -113,13 +113,15 @@ class PythonGraph(Graph):
         for node in self.nodes:
             node.initialise()
 
-    def schedule_node(self, node_ndx, when):
+    def schedule_node(self, node_ndx, when, force_set: bool = False):
         clock = self._evaluation_engine.engine_evaluation_clock
-        if when < clock.evaluation_time:
+        if when < (et := clock.evaluation_time):
             raise RuntimeError(
                 f"Graph[{self.graph_id}] Trying to schedule node: {self.nodes[node_ndx].signature.signature}[{node_ndx}]"
                 f" for {when} but current time is {self.evaluation_clock.evaluation_time}")
-        self.schedule[node_ndx] = when
+        st = self.schedule[node_ndx]
+        if force_set or st <= et or st > when:
+            self.schedule[node_ndx] = when
         clock.update_next_scheduled_evaluation_time(when)
 
     def start_subgraph(self, start: int, end: int):
