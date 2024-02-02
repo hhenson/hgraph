@@ -37,7 +37,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         output_type = node_signature.time_series_output
-        if type(output_type) != HgREFTypeMetaData:
+        if type(output_type) is not HgREFTypeMetaData:
             node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
 
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
