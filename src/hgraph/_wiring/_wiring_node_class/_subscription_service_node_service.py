@@ -2,6 +2,9 @@ from typing import Callable, Mapping, Any, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._types._scalar_types import is_keyable_scalar
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders
 from hgraph._wiring._wiring_node_class.service_interface_node_class import ServiceInterfaceNodeClass
@@ -11,16 +14,25 @@ if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
     from hgraph._builder._node_builder import NodeBuilder
 
-__all__ = ("ReferenceServiceNodeClass",)
+__all__ = ("SubscriptionServiceNodeClass",)
 
 
-class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
+class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
+
+
+
+    def __init__(self, signature: WiringNodeSignature, fn: Callable):
+        super().__init__(signature, fn)
+        if (l := len(signature.time_series_args)) != 1:
+            raise CustomMessageWiringError(f"Expected 1 time-series argument, got {l}")
+        ts_type = signature.input_types[next(iter(signature.time_series_args))]
+        if type(ts_type) is not HgTSTypeMetaData or not is_keyable_scalar(ts_type.value_scalar_tp.py_type):
+            raise CustomMessageWiringError(f"The subscription property must be a TS[KEYABLE_SCALAR]""")
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
             user_path = f"{self.fn.__module__}"
-
-        return f"ref_svc://{user_path}/{self.fn.__name__}"
+        return f"subs_svc://{user_path}/{self.fn.__name__}"
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":

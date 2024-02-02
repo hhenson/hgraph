@@ -3,10 +3,12 @@ from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_node_class._reference_service_node_class import ReferenceServiceNodeClass
 from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
+from hgraph._wiring._wiring_node_class._subscription_service_node_service import SubscriptionServiceNodeClass
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -172,6 +174,8 @@ def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
             ...
             out = my_subscription_svc(default, ts1="mkt_data.mcu_3m")
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(WiringNodeType.SUBS_SVC, fn)
 
 
 def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
@@ -213,12 +217,12 @@ def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
     """
 
 
-def service_impl(fn=None, /, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION=None):
+def service_impl(*, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION=None):
     """
     Wraps a service implementation. The service is defined to implement the declared interface.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SVC_IMPL, fn, interfaces=interfaces)
+    return _node_decorator(WiringNodeType.SVC_IMPL, None, interfaces=interfaces)
 
 
 def register_service(path: str, implementation, **kwargs):
@@ -227,11 +231,13 @@ def register_service(path: str, implementation, **kwargs):
     are passed to the implementation. These should be defined on the implementation and are independent of the
     attributes defined in the service.
     :param path:
-    :param interface:
     :param implementation:
     :param kwargs:
     :return:
     """
+    if not isinstance(implementation, ServiceImplNodeClass):
+        raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
+    implementation(path=path, **kwargs)
 
 
 def service_adaptor(interface):
@@ -267,11 +273,13 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                   node_class=PythonWiringNodeClass if node_class is None else node_class,
                   active=active,
                   valid=valid,
-                  all_valid=all_valid)
+                  all_valid=all_valid,
+                  interfaces=interfaces)
     if node_impl is not None:
         kwargs['node_class'] = NodeImplWiringNodeClass
         kwargs['impl_fn'] = node_impl
 
+    interfaces = kwargs.pop('interfaces')
     match node_type:
         case WiringNodeType.GRAPH:
             kwargs['node_class'] = GraphWiringNodeClass
@@ -279,8 +287,12 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         case WiringNodeType.REF_SVC:
             kwargs['node_class'] = ReferenceServiceNodeClass
             _assert_no_node_configs("Reference Services", kwargs)
+        case WiringNodeType.SUBS_SVC:
+            kwargs['node_class'] = SubscriptionServiceNodeClass
+            _assert_no_node_configs("Subscription Services", kwargs)
         case WiringNodeType.SVC_IMPL:
-            kwargs['node_class'] = functools.partial(ServiceImplNodeClass, interfaces=interfaces)
+            kwargs['node_class'] = ServiceImplNodeClass
+            kwargs['interfaces'] = interfaces
             _assert_no_node_configs("Service Impl", kwargs)
 
     if overloads is not None and impl_fn is None:
@@ -307,7 +319,7 @@ def _assert_no_node_configs(label: str, kwargs):
 
 def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
                  node_class: Type["WiringNodeClass"] = None, active: Sequence[str] = None, valid: Sequence[str] = None,
-                 all_valid: Sequence[str] = None) -> "WiringNodeClass":
+                 all_valid: Sequence[str] = None, interfaces = None) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
@@ -315,14 +327,17 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
     from hgraph._wiring._wiring_node_signature import extract_signature
     if impl_fn is None:
         impl_fn = signature_fn
-    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeSignature
+    from hgraph._wiring._wiring_node_signature import WiringNodeSignature
     active_inputs = frozenset(active) if active is not None else None
     valid_inputs = frozenset(valid) if valid is not None else None
     all_valid_inputs = frozenset(all_valid) if all_valid is not None else None
     signature = signature_fn if isinstance(signature_fn, WiringNodeSignature) else \
         extract_signature(signature_fn, node_type, active_inputs=active_inputs, valid_inputs=valid_inputs,
                           all_valid_inputs=all_valid_inputs)
-    return node_class(signature, impl_fn)
+    if interfaces is None:
+        return node_class(signature, impl_fn)
+    else:
+        return node_class(signature, impl_fn, interfaces=interfaces)
 
 
 def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType",

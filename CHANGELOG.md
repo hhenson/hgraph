@@ -142,15 +142,19 @@ Version 0.1.7 (24-01-2024)
 * Fix bug in scheduler
 
 
-Version 0.1.8 (25-01-2004)
+Version 0.1.8 (25-01-2024)
 --------------------------
 
 * Fix bug with matches on compound scalar.
 * Fix bug with processing compute_nodes with injectable attributes within a map.
 
 
-Version 0.1.9 (TBD)
+Version 0.1.9 (01-02-2024)
 -------------------
 
 * Add support for overrides where inputs are constants and not time-series values (where the
   original input was a time-series value)
+* Initial implementation of reference data services complete
+
+Version 0.1.10 (TBD)
+--------------------

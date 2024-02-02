@@ -52,6 +52,28 @@ class NodeSignature:
         return_ = '' if self.time_series_output is None else f" -> {self.time_series_output}"
         return f"{self.name}({', '.join(args)}){return_}"
 
+    def to_dict(self) -> dict[str, Any]:
+        return dict(
+            name=self.name,
+            node_type=self.node_type,
+            args=self.args,
+            time_series_inputs=self.time_series_inputs,
+            time_series_output=self.time_series_output,
+            scalars=self.scalars,
+            src_location=self.src_location,
+            active_inputs=self.active_inputs,
+            valid_inputs=self.valid_inputs,
+            all_valid_inputs=self.all_valid_inputs,
+            uses_scheduler=self.uses_scheduler,
+            capture_exception=self.capture_exception,
+            trace_back_depth=self.trace_back_depth,
+            capture_values=self.capture_values
+        )
+
+    def copy_with(self, **kwargs) -> "NodeSignature":
+        kwargs_ = self.to_dict() | kwargs
+        return NodeSignature(**kwargs_)
+
 
 class Node(ComponentLifeCycle, ABC):
 
