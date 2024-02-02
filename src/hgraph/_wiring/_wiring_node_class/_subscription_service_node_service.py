@@ -27,7 +27,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             raise CustomMessageWiringError(f"Expected 1 time-series argument, got {l}")
         ts_type = signature.input_types[next(iter(signature.time_series_args))]
         if type(ts_type) is not HgTSTypeMetaData or not is_keyable_scalar(ts_type.value_scalar_tp.py_type):
-            raise CustomMessageWiringError(f"The subscription property must be a TS[KEYABLE_SCALAR]""")
+            raise CustomMessageWiringError("The subscription property must be a TS[KEYABLE_SCALAR]")
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
