@@ -57,7 +57,8 @@ def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> TIME_SERIES
         inputs["default"] = default
 
     signature = cast(WiringNodeClass, _feedback[TIME_SERIES_TYPE: tp_]).resolve_signature().copy_with(**changes)
-    node_instance = create_wiring_node_instance(node=PythonLastValuePullWiringNodeClass(signature, None),
+    # Feed-backs need to be unique, use an object instance as the fn arg to ensure uniqueness
+    node_instance = create_wiring_node_instance(node=PythonLastValuePullWiringNodeClass(signature, object()),
                                        resolved_signature=signature,
                                        inputs=frozendict({"default": default}),
                                        rank=1)
