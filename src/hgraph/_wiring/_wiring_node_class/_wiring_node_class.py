@@ -68,7 +68,7 @@ class WiringNodeClass:
         return self.signature == other.signature and self.fn == other.fn
 
     def __hash__(self):
-        return hash(self.signature)
+        return hash(self.signature) ^ hash(self.fn)
 
     def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                           **kwargs) -> "WiringNodeSignature":
