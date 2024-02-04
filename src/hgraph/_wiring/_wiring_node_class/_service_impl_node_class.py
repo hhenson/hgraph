@@ -2,6 +2,7 @@ from typing import Callable, Mapping, Any, Sequence, TypeVar
 
 from frozendict import frozendict
 
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types._scalar_type_meta_data import HgAtomicType
@@ -112,6 +113,18 @@ def validate_signature_vs_interfaces(signature: WiringNodeSignature, fn: Callabl
                     raise CustomMessageWiringError(
                         "The output type does not match that of the reference service signature")
                 return signature
+            case WiringNodeType.SUBS_SVC:
+                # Check the input time-series type is a TSS[SCALAR] of the TS[SCALAR] of the service.
+                if signature.time_series_args != 1:
+                    raise CustomMessageWiringError("The signature can only have on time-series input")
+                ts_type: HgTSSTypeMetaData = signature.input_types.get(arg := next(iter(signature.time_series_args)))
+                if type(ts_type) is not HgTSSTypeMetaData:
+                    raise CustomMessageWiringError("The implementation signature input must be a TSS")
+                if not ts_type.value_scalar_tp.matches((ts_int_type := next(s.input_types.values())).value_scalar_tp):
+                    raise CustomMessageWiringError(f"The implementation input {ts_type} scalar value does not match: {ts_int_type}")
+                if not signature.output_type.dereference().matches(s.output_type.dereference()):
+                    raise CustomMessageWiringError(
+                        "The output type does not match that of the subscription service signature")
             case _:
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
     else:
@@ -125,8 +138,14 @@ def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scal
         match s.node_type:
             case WiringNodeType.REF_SVC:
                 return wire_reference_data_service(wiring_signature, fn, scalars, interfaces[0])
+            case WiringNodeType.SUBS_SVC:
+                return wire_subscription_service(wiring_signature, fn, scalars, interfaces[0])
             case _:
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
+
+
+def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any], interface):
+    ...
 
 
 def wire_reference_data_service(

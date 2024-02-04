@@ -19,8 +19,6 @@ __all__ = ("SubscriptionServiceNodeClass",)
 
 class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
-
-
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         super().__init__(signature, fn)
         if (l := len(signature.time_series_args)) != 1:
@@ -48,16 +46,26 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
         from hgraph._impl._runtime._node import BaseNodeImpl
 
-        class _PythonReferenceServiceStubSourceNode(BaseNodeImpl):
+        class _PythonServiceOutputStubSourceNode(BaseNodeImpl):
+
+            def __init__(self, node_ndx: int, owning_graph_id:
+            tuple[int, ...], signature: NodeSignature, scalars: Mapping[str, Any]):
+                super().__init__(node_ndx, owning_graph_id, signature, scalars)
+                self._first_eval: bool = False
+                self._service_subsription_node: BaseNodeImpl | None = None
+                self._subscription_id: object = object()
 
             def do_eval(self):
                 """The service must be available by now, so we can retrieve the output reference."""
-                from hgraph._runtime._global_state import GlobalState
-                service_output_reference = GlobalState.instance().get(self.scalars["path"])
-                if service_output_reference is None:
-                    raise RuntimeError(f"Could not find reference service for path: {self.scalars['path']}")
-                # TODO: The output needs to be a reference value output so we can set the value and continue!
-                self.output.value = service_output_reference
+                if self._first_eval:
+                    from hgraph._runtime._global_state import GlobalState
+                    self._service_subsription_node = GlobalState.instance().get(self.scalars["path"])
+                    if self._service_subsription_node is None:
+                        raise RuntimeError(f"Could not find reference service for path: {self.scalars['path']}")
+                    # The output must hold the reference of the inner graph by now.
+                    self.output.value = self._service_subsription_node.output.value
+                if self._input.modified:
+                    self._service_subsription_node.subscribe_to(self._input.value, self._subscription_id)
 
             def do_start(self):
                 """Make sure we get notified to serve the service output reference"""
@@ -72,5 +80,5 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
-            node_impl=_PythonReferenceServiceStubSourceNode
+            node_impl=_PythonServiceOutputStubSourceNode
         )
