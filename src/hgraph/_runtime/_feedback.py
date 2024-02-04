@@ -8,18 +8,14 @@ from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._scalar_types import SCALAR
 from hgraph._wiring._decorators import pull_source_node, sink_node
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
-from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonLastValuePullWiringNodeClass
+from hgraph._wiring._wiring_node_class._pull_source_node_class import PythonLastValuePullWiringNodeClass, \
+    last_value_source_node
 from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
 
 __all__ = ("feedback",)
-
-
-@pull_source_node
-def _feedback() -> TIME_SERIES_TYPE:
-    ...
 
 
 @sink_node(active=("ts",), valid=("ts",))
@@ -48,20 +44,7 @@ def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> TIME_SERIES
     fb(out)  # Bind the value to the feedback node
     ```
     """
-    changes = {"name": "feedback"}
-    inputs = {}
-    if default is not None:
-        default_type = HgScalarTypeMetaData.parse(default)
-        changes["args"] = tuple(["default"])
-        changes["input_types"] = frozendict({"default": default_type})
-        inputs["default"] = default
-
-    signature = cast(WiringNodeClass, _feedback[TIME_SERIES_TYPE: tp_]).resolve_signature().copy_with(**changes)
-    # Feed-backs need to be unique, use an object instance as the fn arg to ensure uniqueness
-    node_instance = create_wiring_node_instance(node=PythonLastValuePullWiringNodeClass(signature, object()),
-                                       resolved_signature=signature,
-                                       inputs=frozendict({"default": default}),
-                                       rank=1)
+    node_instance = last_value_source_node("feedback", tp_, default)
     real_wiring_port = _wiring_port_for(node_instance.output_type, node_instance, tuple())
     return FeedbackWiringPort(_delegate=real_wiring_port)
 
