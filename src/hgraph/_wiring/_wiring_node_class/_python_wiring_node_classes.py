@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
 
 
-__all__ = ("PythonWiringNodeClass", "PythonLastValuePullWiringNodeClass", "PythonPushQueueWiringNodeClass",
+__all__ = ("PythonWiringNodeClass", "PythonPushQueueWiringNodeClass",
            "PythonGeneratorWiringNodeClass")
 
 
@@ -43,23 +43,6 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
             output_builder=factory.make_output_builder(output_type),
             error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
             eval_fn=self.fn
-        )
-
-
-class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
-
-    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
-        from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
-        from hgraph import TimeSeriesBuilderFactory
-        factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
-        output_type = node_signature.time_series_output
-        assert output_type is not None, "PythonLastValuePullWiringNodeClass must have a time series output"
-        return PythonLastValuePullNodeBuilder(
-            signature=node_signature,
-            scalars=scalars,
-            input_builder=None,
-            output_builder=factory.make_output_builder(output_type),
-            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
         )
 
 

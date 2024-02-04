@@ -2,6 +2,7 @@ from typing import Callable, Mapping, Any, Sequence, TypeVar
 
 from frozendict import frozendict
 
+from hgraph._wiring._wiring_node_class._pull_source_node_class import last_value_source_node
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._runtime._global_state import GlobalState
@@ -121,7 +122,8 @@ def validate_signature_vs_interfaces(signature: WiringNodeSignature, fn: Callabl
                 if type(ts_type) is not HgTSSTypeMetaData:
                     raise CustomMessageWiringError("The implementation signature input must be a TSS")
                 if not ts_type.value_scalar_tp.matches((ts_int_type := next(s.input_types.values())).value_scalar_tp):
-                    raise CustomMessageWiringError(f"The implementation input {ts_type} scalar value does not match: {ts_int_type}")
+                    raise CustomMessageWiringError(
+                        f"The implementation input {ts_type} scalar value does not match: {ts_int_type}")
                 if not signature.output_type.dereference().matches(s.output_type.dereference()):
                     raise CustomMessageWiringError(
                         "The output type does not match that of the subscription service signature")
@@ -144,8 +146,27 @@ def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scal
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
 
 
-def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any], interface):
-    ...
+def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any],
+                              interface):
+    path = (scalars := dict(scalars)).pop("path")
+    path = interface.full_path(path if path else None)
+
+    from hgraph._wiring._decorators import graph
+    from hgraph.nodes._service_utils import capture_output_to_global_state
+
+    @graph
+    def subscription_service():
+        # Call the implementation graph with the scalars provided
+        sn_arg = next(iter(wiring_signature.time_series_args))
+        subscriptions = last_value_source_node(f"{wiring_signature.name}_{sn_arg}",
+                                               wiring_signature.input_types[sn_arg])
+        out = fn(**{sn_arg: subscriptions} | scalars)
+        capture_output_to_global_state(path, out)
+
+    with WiringGraphContext(wiring_signature) as context:
+        subscription_service()
+        sink_nodes = context.pop_sink_nodes()
+        return create_graph_builder(sink_nodes, False)
 
 
 def wire_reference_data_service(
@@ -153,7 +174,6 @@ def wire_reference_data_service(
         fn: Callable,
         scalars: Mapping[str, Any],
         interface) -> GraphBuilder:
-
     # The path was added to the scalars when initially wired to create the wiring node instance,
     # now we pop it off so that we can make use of both the scalars and the path.
     path = (scalars := dict(scalars)).pop("path")
