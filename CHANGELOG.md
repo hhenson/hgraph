@@ -156,8 +156,8 @@ Version 0.1.9 (01-02-2024)
   original input was a time-series value)
 * Initial implementation of reference data services complete
 
-Version 0.1.10 (TBD)
---------------------
+Version 0.1.10 (05-02-2024)
+---------------------------
 
 * Fix a scheduler bug when updating a scheduled node in a map. Hard to replicate, the test
   does not replicate.
