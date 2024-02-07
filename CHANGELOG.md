@@ -161,3 +161,10 @@ Version 0.1.10 (05-02-2024)
 
 * Fix a scheduler bug when updating a scheduled node in a map. Hard to replicate, the test
   does not replicate.
+
+Version 0.1.11 (07-02-2024)
+---------------------------
+
+* Fix issue with scheduler
+* Add __trace__ to run_graph command
+* 
