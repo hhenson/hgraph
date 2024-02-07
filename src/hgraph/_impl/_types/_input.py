@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
 
+from hgraph._types._scalar_types import UnSet
 from hgraph._runtime._constants import MIN_DT
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 from hgraph._runtime._node import Node
@@ -142,7 +143,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def value(self):
-        return self._output.value
+        return self._output.value if self._output else UnSet
 
     @property
     def delta_value(self):

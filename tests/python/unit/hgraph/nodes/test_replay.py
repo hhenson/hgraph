@@ -11,4 +11,4 @@ def test_replay_simple():
         values = replay("test", TS[str])
         print_(values)
 
-    run_graph(main)
+    run_graph(main, __trace__=True)

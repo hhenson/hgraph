@@ -22,6 +22,12 @@ class _UnSet:
     The marker class to indicate that value is not present.
     """
 
+    def __str__(self):
+        return "<UnSet>"
+
+    def __repr__(self):
+        return "<UnSet>"
+
 
 __CACHED_SIZES__: dict[int, Type["Size"]] = {}
 

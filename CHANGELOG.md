@@ -167,4 +167,5 @@ Version 0.1.11 (07-02-2024)
 
 * Fix issue with scheduler
 * Add __trace__ to run_graph command
-* 
+* Add additional details around scheduling to trace (specifically detailing when scheduling has occurred
+  and scheduling times for nodes).
