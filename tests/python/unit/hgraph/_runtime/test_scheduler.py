@@ -48,6 +48,6 @@ def test_tagged_scheduler():
 
     d = frozendict
     assert eval_node(_schedule_graph,
-                     [None, None, None, None, None, {"b": True}]) == [
+                     [None, None, None, None, None, {"b": True}], __trace__=True) == [
                d(), None, None, d({"b": False}), None, d({"b": True}), None, None,
                d({"b": False}), None, d({"a": False})]
