@@ -18,11 +18,6 @@ class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
         self._nested_node = nested_node
 
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
-        # NOTE: We only need to schedule if the next time is after the current evaluation time (or if the map_node has
-        # not yet been evaluated).
-        if next_time < self.evaluation_time or self._nested_node.last_evaluation_time == self.evaluation_time:
-            # No point doing anything as we are already scheduled to run.
-            return
         self._nested_node.graph.schedule_node(self._nested_node.node_ndx, next_time)
 
 
