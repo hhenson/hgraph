@@ -12,7 +12,8 @@ __all__ = ("run_graph",)
 def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION,
               start_time: datetime = None,
               end_time: datetime = None, print_progress: bool = True,
-              life_cycle_observers: [EvaluationLifeCycleObserver] = None, **kwargs):
+              life_cycle_observers: [EvaluationLifeCycleObserver] = None,
+              __trace__: bool = False, **kwargs):
     """
     Use this to initiate the graph engine run loop.
 
@@ -44,6 +45,12 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
 
     if end_time > MAX_ET:
         raise RuntimeError(f"End time '{end_time}' is greater than maximum time '{MAX_ET}'")
+
+    if __trace__:
+        if life_cycle_observers is None:
+            life_cycle_observers = []
+        from hgraph.test import EvaluationTrace
+        life_cycle_observers.append(EvaluationTrace())
 
     if print_progress:
         print()
