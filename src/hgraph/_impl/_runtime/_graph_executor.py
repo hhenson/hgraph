@@ -6,7 +6,7 @@ from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._lifecycle import initialise_dispose_context
 from hgraph._impl._runtime._evaluation_clock import RealTimeEvaluationClock, SimulationEvaluationClock
 from hgraph._impl._runtime._evaluation_engine import PythonEvaluationEngine
-from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
+from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver, StatefulElements
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._graph_executor import GraphExecutor
 from hgraph._runtime._lifecycle import start_stop_context
@@ -20,9 +20,15 @@ class PythonGraphExecutor(GraphExecutor):
     A graph engine that runs the graph in python.
     """
 
-    def __init__(self, graph: Graph, run_mode: EvaluationMode):
+    def __init__(self,
+                 graph: Graph,
+                 run_mode: EvaluationMode,
+                 persistence: StatefulElements = StatefulElements.NONE,
+                 observers: Iterable[EvaluationLifeCycleObserver] = None):
         self._graph = graph
         self._run_mode = run_mode
+        self._persistence = persistence
+        self.observers = observers or []
 
     @property
     def run_mode(self) -> EvaluationMode:
@@ -32,7 +38,10 @@ class PythonGraphExecutor(GraphExecutor):
     def graph(self) -> Graph:
         return self._graph
 
-    def run(self, start_time: datetime, end_time: datetime, observers: Iterable[EvaluationLifeCycleObserver] = None):
+    def replay(self, start_time: datetime, end_time: datetime):
+        ...
+
+    def run(self, start_time: datetime, end_time: datetime):
         if end_time <= start_time:
             if end_time < start_time:
                 raise ValueError("End time cannot be before the start time")
@@ -50,7 +59,7 @@ class PythonGraphExecutor(GraphExecutor):
         evaluation_engine = PythonEvaluationEngine(clock, start_time, end_time)
         graph = self.graph
         graph.evaluation_engine = evaluation_engine
-        for observer in observers if observers is not None else []:
+        for observer in self.observers:
             evaluation_engine.add_life_cycle_observer(observer)
         with initialise_dispose_context(self.graph), start_stop_context(self.graph):
             while clock.evaluation_time < end_time:

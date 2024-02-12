@@ -2,16 +2,17 @@ from datetime import datetime
 from typing import Callable
 
 from hgraph._runtime._constants import MIN_ST, MAX_ET
-from hgraph._runtime._graph_executor import GraphEngineFactory
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
-
+from hgraph._runtime._graph_executor import GraphEngineFactory
 
 __all__ = ("run_graph",)
 
 
-def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION,
+def run_graph(graph: Callable, *args,
+              run_mode: EvaluationMode = EvaluationMode.SIMULATION,
               start_time: datetime = None,
-              end_time: datetime = None, print_progress: bool = True,
+              end_time: datetime = None,
+              print_progress: bool = True,
               life_cycle_observers: [EvaluationLifeCycleObserver] = None,
               __trace__: bool = False, **kwargs):
     """
@@ -62,12 +63,13 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
         graph_builder = graph
     if print_progress:
         print("Initialising Graph Engine")
-    engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
+    engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode,
+                                     observers=life_cycle_observers)
 
     if print_progress:
         print(f"Running Graph from: {start_time} to {end_time}")
 
-    engine.run(start_time, end_time, life_cycle_observers)
+    engine.run(start_time, end_time)
 
     if print_progress:
         print("Graph Complete")

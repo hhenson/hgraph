@@ -61,6 +61,12 @@ class ComponentLifeCycle:
         managed components.
         """
 
+    def suspend(self, data_stream_writer):
+        """Suspend the component. Any state that needs to survive must be serialised into the writer stream"""
+
+    def resume(self, data_stream_reader):
+        """Resume the state of the component. State can be retrieved from the data reader"""
+
     def stop(self):
         """
         Perform any actions required to halt the activities of the component, this may entail activities such as stopping
