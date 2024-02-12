@@ -169,3 +169,9 @@ Version 0.1.11 (07-02-2024)
 * Add __trace__ to run_graph command
 * Add additional details around scheduling to trace (specifically detailing when scheduling has occurred
   and scheduling times for nodes).
+
+
+Version 0.1.12 (12-02-2024)
+---------------------------
+
+* Implement subscription service
