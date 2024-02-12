@@ -314,7 +314,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             match resolved_signature.node_type:
                 case WiringNodeType.PUSH_SOURCE_NODE:
                     rank = 0
-                case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC | WiringNodeType.SUBS_SVC:
+                case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
                     rank = 1
                 case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE | WiringNodeType.SUBS_SVC:
                     rank = max(v.rank for k, v in kwargs_.items() if
