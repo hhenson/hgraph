@@ -12,7 +12,7 @@ from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 
-def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
+def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> WiringPort:
     """
     Creates a stub input for a wiring node input.
     """
@@ -20,7 +20,6 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData) -> WiringPort:
     # if the component wrapped is a graph. This would have multiple dependencies and having the stubs in once
     # place at the start of the graph is better. Using references makes this reasonably light weights with
     # minimal overhead.
-    is_key = key in ('key', 'ndx')
     ref_tp = tp if type(tp) is HgREFTypeMetaData or is_key else HgREFTypeMetaData(tp)
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
