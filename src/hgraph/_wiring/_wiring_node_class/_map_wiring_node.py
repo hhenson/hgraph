@@ -3,12 +3,12 @@ from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
-from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
-from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 
 if TYPE_CHECKING:
@@ -40,10 +40,11 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
-        inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature)
+        inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature,
+                                        self.signature.key_arg)
         input_node_ids, output_node_id = extract_stub_node_indices(
             inner_graph,
-            set(node_signature.time_series_inputs.keys()) | {'key'}
+            set(node_signature.time_series_inputs.keys()) | {self.signature.key_arg}
         )
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
                                                                                     self.error_output_type)
@@ -56,7 +57,8 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             inner_graph,
             input_node_ids,
             output_node_id,
-            self.signature.multiplexed_args
+            self.signature.multiplexed_args,
+            self.signature.key_arg
         )
 
     @property

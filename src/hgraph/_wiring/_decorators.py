@@ -261,6 +261,7 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
                     overloads: "WiringNodeClass" = None, interfaces=None):
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
@@ -273,8 +274,11 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                   all_valid=all_valid,
                   interfaces=interfaces)
     if node_impl is not None:
-        kwargs['node_class'] = NodeImplWiringNodeClass
-        kwargs['impl_fn'] = node_impl
+        if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
+            kwargs["node_class"] = node_impl
+        else:
+            kwargs['node_class'] = NodeImplWiringNodeClass
+            kwargs['impl_fn'] = node_impl
 
     interfaces = kwargs.pop('interfaces')
     match node_type:

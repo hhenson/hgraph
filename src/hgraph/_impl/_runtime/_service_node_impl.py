@@ -5,8 +5,6 @@ from hgraph._impl._runtime._nested_evaluation_engine import PythonNestedNodeImpl
     NestedEngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature
-from hgraph._types._scalar_types import SCALAR
-from hgraph._types._ts_type import TS
 
 
 class PythonServiceNodeImpl(PythonNestedNodeImpl):

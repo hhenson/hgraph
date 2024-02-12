@@ -48,13 +48,15 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                  nested_graph_builder: GraphBuilder = None,
                  input_node_ids: Mapping[str, int] = None,
                  output_node_id: int = None,
-                 multiplexed_args: frozenset[str] = None
+                 multiplexed_args: frozenset[str] = None,
+                 key_arg: str = None,
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_ids: Mapping[str, int] = input_node_ids
         self.output_node_id: int = output_node_id
         self.multiplexed_args: frozenset[str] = multiplexed_args
+        self.key_arg: str = key_arg
         self._scheduled_keys: dict[K, datetime] = {}
         self._active_graphs: dict[K, Graph] = {}
         self._count = 0
@@ -130,7 +132,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         for arg, node_ndx in self.input_node_ids.items():
             node: NodeImpl = graph.nodes[node_ndx]
             node.notify()
-            if arg == 'key':
+            if arg == self.key_arg:
                 # The key should be a const node, then we can adjust the scalar values.
                 from hgraph._wiring._stub_wiring_node import KeyStubEvalFn
                 cast(KeyStubEvalFn, node.eval_fn).key = key

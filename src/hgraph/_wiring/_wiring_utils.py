@@ -64,7 +64,9 @@ def as_reference(tp_: HgTimeSeriesTypeMetaData, is_multiplexed: bool = False) ->
 def wire_nested_graph(fn: WiringNodeClass,
                       input_types: Mapping[str, HgTypeMetaData],
                       scalars: Mapping[str, Any],
-                      outer_wiring_node_signature: WiringNodeSignature) -> "GraphBuilder":
+                      outer_wiring_node_signature: WiringNodeSignature,
+                      key_arg: str
+                      ) -> "GraphBuilder":
     """
     Wire the inner function using stub inputs and wrap stub outputs.
     The outer wiring node signature is used to supply to the wiring graph context, this is for error and stack trace
@@ -76,7 +78,7 @@ def wire_nested_graph(fn: WiringNodeClass,
         if v.is_scalar:
             inputs_[k] = scalars[k]
         else:
-            inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v))
+            inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == key_arg)
     with WiringGraphContext(outer_wiring_node_signature) as context:
         out = fn(**inputs_)
         if out is not None:

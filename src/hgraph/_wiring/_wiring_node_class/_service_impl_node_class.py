@@ -19,6 +19,8 @@ from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNod
 
 __all__ = ("ServiceImplNodeClass",)
 
+from hgraph._wiring._wiring_port import _wiring_port_for
+
 from hgraph.nodes._service_utils import capture_output_node_to_global_state
 
 
@@ -165,8 +167,9 @@ def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callabl
         # Call the implementation graph with the scalars provided
         sn_arg = next(iter(wiring_signature.time_series_args))
         subscriptions = last_value_source_node(f"{wiring_signature.name}_{sn_arg}",
-                                               wiring_signature.input_types[sn_arg])
-        capture_output_node_to_global_state(f"{path}_sub", subscriptions)
+                                               (tp_ := wiring_signature.input_types[sn_arg]))
+        subscriptions = _wiring_port_for(tp_, subscriptions, tuple())
+        capture_output_node_to_global_state(f"{path}_subs", subscriptions)
         out = fn(**{sn_arg: subscriptions} | scalars)
         capture_output_to_global_state(f"{path}_out", out)
 

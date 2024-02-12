@@ -3,7 +3,8 @@ from typing import Mapping, Any, TYPE_CHECKING
 from frozendict import frozendict
 
 from hgraph._types import SCALAR
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, WiringNodeClass, create_input_output_builders
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, WiringNodeClass, \
+    create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 
@@ -29,9 +30,10 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         # create nested graphs
-        nested_graphs = {k: wire_nested_graph(v, self._resolved_signature_inner.input_types, scalars, self.signature)
-                         for k, v in
-                         self._nested_graphs.items()}
+        nested_graphs = {
+            k: wire_nested_graph(v, self._resolved_signature_inner.input_types, scalars, self.signature, 'key')
+            for k, v in
+            self._nested_graphs.items()}
         nested_graph_input_ids = {}
         nested_graph_output_ids = {}
         for k, v in nested_graphs.items():

@@ -46,10 +46,12 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
                 node_signature += "..."
         node_signature += ")"
         if node.signature.time_series_output and add_output:
-            mod_ = node.output.modified
-            value_ = node.output.delta_value if mod_ else node.output.value
+            mod_ = node.output.modified if node.output else False
+            value_ = (
+                node.output.delta_value if mod_ else node.output.value) if (
+                        node.output and node.output.valid) else '<UnSet>'
             node_signature += (f"{' *->* ' if mod_ else ' -> '}"
-                               f"{value_ if node.output.valid else '<UnSet>'}")
+                               f"{value_}")
         if add_scheduled_time:
             scheduled_msg = f" SCHED[{node.scheduler.next_scheduled_time}]"
         else:
