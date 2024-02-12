@@ -3,7 +3,7 @@ from frozendict import frozendict
 
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, \
     subscription_service, TSS, map_
-from hgraph.nodes import const
+from hgraph.nodes import const, pass_through
 from hgraph.test import eval_node
 
 
@@ -25,7 +25,6 @@ def test_reference_service():
     assert eval_node(main) == ["a value"]
 
 
-@pytest.mark.xfail(reason="Busy with implementation", strict=True)
 def test_subscription_service():
 
     @subscription_service
@@ -38,11 +37,11 @@ def test_subscription_service():
 
     @service_impl(interfaces=my_subs_service)
     def my_subs_service_impl(subscription: TSS[str]) -> TSD[str, TS[str]]:
-        return map_(const, __keys__=subscription)
+        return map_(pass_through, __keys__=subscription, __key_arg__="ts")
 
     @graph
     def main(subscription_topic: TS[str]) -> TS[str]:
         register_service(default_path, my_subs_service_impl)
-        return my_subs_service(default_path, subscription_topic)
+        return pass_through(my_subs_service(default_path, subscription_topic))  # To remove reference semantics
 
-    assert eval_node(main, ["subscription_topic",]) == ["subscription_topic"]
+    assert eval_node(main, ["subscription_topic",], __trace__=True) == [None, "subscription_topic"]

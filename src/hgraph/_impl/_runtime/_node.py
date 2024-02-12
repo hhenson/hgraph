@@ -22,6 +22,7 @@ from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 if TYPE_CHECKING:
     from hgraph._types._ts_type import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
+    from hgraph._types._scalar_types import SCALAR
 
 
 __all__ = ("NodeImpl", "NodeSchedulerImpl", "GeneratorNodeImpl", "PythonPushQueueNodeImpl",
@@ -427,6 +428,11 @@ class PythonLastValuePullNodeImpl(NodeImpl):
         self._delta_value = output.delta_value if self._delta_value is None else \
             self._delta_combine_fn(self._delta_value, output.delta_value)
         self.notify_next_cycle()  # If we are copying the value now, then we expect it to be used in the next cycle
+
+    def apply_value(self, new_value: "SCALAR"):
+        self._delta_value = new_value if self._delta_value is None else \
+            self._delta_combine_fn(self._delta_value, new_value)
+        self.notify_next_cycle()
 
     def eval(self):
         if self._delta_value is not None:

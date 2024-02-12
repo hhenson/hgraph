@@ -16,6 +16,8 @@ __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "Pyth
 
 class PythonTimeSeriesReference(TimeSeriesReference):
     def __init__(self, ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None, from_items: typing.Iterable[TimeSeriesReference] = None):
+        self._output = None
+
         if from_items is not None:  # Put this first to make it clearer that
             self.items = from_items
             self.tp = None

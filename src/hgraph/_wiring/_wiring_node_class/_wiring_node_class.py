@@ -68,7 +68,7 @@ class WiringNodeClass:
         return self.signature == other.signature and self.fn == other.fn
 
     def __hash__(self):
-        return hash(self.signature)
+        return hash(self.signature) ^ hash(self.fn)
 
     def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                           **kwargs) -> "WiringNodeSignature":
@@ -300,7 +300,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     rank = 0
                 case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
                     rank = 1
-                case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE:
+                case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE | WiringNodeType.SUBS_SVC:
                     rank = max(v.rank for k, v in kwargs_.items() if
                                v is not None and k in self.signature.time_series_args) + 1
                 case _:

@@ -25,7 +25,7 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             tp_ = cast(HgTSDTypeMetaData, self.signature.input_types['ts']).value_tp
             input_types = fn_signature.input_types | {k: tp_ for k in fn_signature.time_series_args}
 
-        inner_graph = wire_nested_graph(self.fn, input_types, scalars, self.signature)
+        inner_graph = wire_nested_graph(self.fn, input_types, scalars, self.signature, None)
         input_node_ids, output_node_id = extract_stub_node_indices(
             inner_graph,
             set(fn_signature.time_series_inputs.keys())

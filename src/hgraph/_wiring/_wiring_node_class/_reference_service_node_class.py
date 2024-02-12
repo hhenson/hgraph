@@ -4,7 +4,7 @@ from frozendict import frozendict
 
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders
-from hgraph._wiring._wiring_node_class.service_interface_node_class import ServiceInterfaceNodeClass
+from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
 if TYPE_CHECKING:
