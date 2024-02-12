@@ -97,8 +97,7 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
 def run_graph(graph: Callable, *args,
               run_mode: EvaluationMode = EvaluationMode.SIMULATION,
               start_time: datetime = None,
-              end_time: datetime = None,
-              print_progress: bool = True,
+              end_time: datetime = None, print_progress: bool = True,
               life_cycle_observers: [EvaluationLifeCycleObserver] = None,
               __trace__: bool = False, **kwargs):
     """
