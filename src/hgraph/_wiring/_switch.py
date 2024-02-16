@@ -1,9 +1,8 @@
 from pathlib import Path
-from typing import Callable, Optional, cast, TYPE_CHECKING
+from typing import Callable, Optional, cast
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._types._scalar_types import SCALAR, STATE
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -11,13 +10,11 @@ from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._wiring._wiring_utils import as_reference
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ("switch_",)
 
