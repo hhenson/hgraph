@@ -3,6 +3,7 @@ from typing import Callable, Optional, cast
 
 from frozendict import frozendict
 
+from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._types._scalar_types import SCALAR, STATE
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
