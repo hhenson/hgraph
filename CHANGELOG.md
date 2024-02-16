@@ -176,7 +176,7 @@ Version 0.1.12 (12-02-2024)
 
 * Implement subscription service
 
-Version 0.1.13 (TBD)
---------------------
+Version 0.1.13 (16-02-2024)
+---------------------------
 
 * Fix use of graph's in switch
