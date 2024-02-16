@@ -3,6 +3,7 @@ from typing import Callable, Optional, cast, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._types._scalar_types import SCALAR, STATE
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -89,7 +90,8 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             resolved_signature_inner.output_type) if resolved_signature_inner.output_type else None
 
         resolved_signature_outer = WiringNodeSignature(
-            node_type=resolved_signature_inner.node_type,
+            # QUESTION: Can we support a switch on a SOURCE_NODE?
+            node_type=WiringNodeType.COMPUTE_NODE if time_series_args and output_type else WiringNodeType.SINK_NODE,
             name="switch",
             # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
             args=resolved_signature_inner.args if input_has_key_arg else ('key',) + resolved_signature_inner.args,
