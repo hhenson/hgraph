@@ -77,3 +77,13 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
             node: Node = graph.nodes[self.output_node_ids[self._active_key]]
             # Replace the nodes output with the map node's output for the key
             node.output = self.output
+
+    def do_stop(self):
+        if self._active_graph is not None:
+            self._active_graph.stop()
+        super().do_stop()
+
+    def dispose(self):
+        if self._active_graph is not None:
+            self._active_graph.dispose()
+        super().dispose()
