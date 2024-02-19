@@ -180,3 +180,10 @@ Version 0.1.13 (16-02-2024)
 ---------------------------
 
 * Fix use of graph's in switch
+
+
+Version 0.1.14 (19-02-2024)
+---------------------------
+
+* Fix switch use of key
+* Fix switch stop when the switch itself goes away

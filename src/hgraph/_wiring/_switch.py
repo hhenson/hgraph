@@ -70,7 +70,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
 
         # We add the key to the inputs if the internal component has a key argument.
         kwargs_ = extract_kwargs(a_signature, *args,
-                                 _args_offset=1 if input_has_key_arg else 0, key=key,
+                                 _args_offset=1 if input_has_key_arg else 0,
                                  **(kwargs | dict(key=key) if input_has_key_arg else {}))
 
         # Now create a resolved signature for the inner graph, then for the outer switch node.
