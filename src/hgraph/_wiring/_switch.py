@@ -58,14 +58,15 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             raise CustomMessageWiringError("No components supplied to switch")
         if key is None:
             raise CustomMessageWiringError("No key supplied to switch")
-        if not isinstance(key, WiringPort) or not isinstance(cast(WiringPort, key).output_type, HgTSTypeMetaData):
+        if not isinstance(key, WiringPort) or not isinstance(cast(WiringPort, key).output_type.dereference(),
+                                                             HgTSTypeMetaData):
             raise CustomMessageWiringError("The key must be a time-series value of form TS[SCALAR]")
 
         # Assume that the switch items are correctly typed to start with, then we can take the first signature and
         # use it to create a signature for the outer switch node.
         a_signature = cast(WiringNodeClass, next(iter(switches.values()))).signature
 
-        input_has_key_arg = a_signature.args[0] == 'key' and \
+        input_has_key_arg = a_signature.args and a_signature.args[0] == 'key' and \
                             a_signature.input_types['key'] == cast(WiringPort, key).output_type
 
         # We add the key to the inputs if the internal component has a key argument.
@@ -76,11 +77,11 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
         # Now create a resolved signature for the inner graph, then for the outer switch node.
         resolved_signature_inner = _validate_signature(switches, **kwargs_)
 
-        input_types = {k: as_reference(v) if k != 'key' and isinstance(v, HgTimeSeriesTypeMetaData) else v for k, v in
-                       resolved_signature_inner.input_types.items()}
+        input_types = {k: as_reference(v) if k != 'key' and isinstance(v, HgTimeSeriesTypeMetaData) else v.dereference()
+                       for k, v in resolved_signature_inner.input_types.items()}
         time_series_args = resolved_signature_inner.time_series_args
         if not input_has_key_arg:
-            input_types['key'] = cast(WiringPort, key).output_type
+            input_types['key'] = cast(WiringPort, key).output_type.dereference()
             time_series_args = time_series_args | {'key', }
 
         output_type = as_reference(

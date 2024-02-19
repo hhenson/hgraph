@@ -1,7 +1,8 @@
 import pytest
+from frozendict import frozendict
 
-from hgraph import switch_, graph, TS, SCALAR, compute_node
-from hgraph.nodes import add_, sub_, const
+from hgraph import switch_, graph, TS, SCALAR, compute_node, generator, EvaluationClock, MIN_TD, TSD, TSS, map_
+from hgraph.nodes import add_, sub_, const, format_, default
 from hgraph.test import eval_node
 
 
@@ -61,3 +62,37 @@ def test_stop_start():
     assert STARTED == 2
     assert STOPPED == 2
 
+
+@generator
+def _generator(key: str, _clock: EvaluationClock = None) -> TS[str]:
+    for i in range(5):
+        yield _clock.next_cycle_evaluation_time, f"{key}_{i}"
+
+
+@graph
+def one_() -> TS[str]:
+    return _generator("one")
+
+
+@graph
+def two_() -> TS[str]:
+    return _generator("two")
+
+
+@graph
+def _switch(key: TS[str]) -> TS[str]:
+    key = default(const("two", delay=MIN_TD*3), key)
+    return switch_({'one': one_, 'two': two_}, key)
+
+
+@graph
+def _map(keys: TSS[str]) -> TSD[str, TS[str]]:
+    return map_(_switch, __keys__=keys, __key_arg__ = 'key')
+
+
+@pytest.mark.xfail(strict=True, reason="Still working on issues")
+def test_nested_switch():
+    fd = frozendict
+    assert eval_node(_map, [{"one"}, None, {"two"}], __trace__=True) == [
+        fd(), {"one": "one_0"}, {"one" "one_1"}
+    ]
