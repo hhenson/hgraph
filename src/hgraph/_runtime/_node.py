@@ -46,7 +46,7 @@ class NodeSignature:
 
     @property
     def signature(self) -> str:
-        input_types = (self.time_series_inputs) or {} | (self.scalars or {})
+        input_types = (self.time_series_inputs or {}) | (self.scalars or {})
         args = (f'{arg}: {input_types[arg]}'
                 for arg in self.args)
         return_ = '' if self.time_series_output is None else f" -> {self.time_series_output}"
