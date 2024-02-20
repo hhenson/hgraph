@@ -303,7 +303,7 @@ def _create_tsd_map_wiring_node(
         args=tuple(input_types.keys()),
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=reference_inputs,
-        output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type)) \
+        output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type.dereference())) \
             if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=None,  # We will follow a copy approach to transfer the inputs to inner graphs
