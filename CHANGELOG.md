@@ -192,3 +192,9 @@ Version 0.1.15 (21-02-2024)
 ---------------------------
 
 * Fix issue with nested graphs not ticking correctly.
+
+
+Version 0.1.16 (21-02-2024)
+---------------------------
+
+* Fix accidental issue added during fixing of nested graph issue.
