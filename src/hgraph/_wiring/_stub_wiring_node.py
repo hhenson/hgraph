@@ -57,7 +57,7 @@ def create_output_stub(output: WiringPort):
         input_types=frozendict({'ts': ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 42),
-        active_inputs=frozenset(),
+        active_inputs=frozenset({"ts",}),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         unresolved_args=frozenset(),

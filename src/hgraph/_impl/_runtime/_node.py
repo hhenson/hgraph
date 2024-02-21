@@ -197,6 +197,8 @@ class BaseNodeImpl(Node, ABC):
         self.do_stop()
         if self.input:
             self.input.un_bind_output()
+        if self.output:
+            self.output.value = None
 
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.
