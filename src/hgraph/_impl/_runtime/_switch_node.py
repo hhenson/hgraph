@@ -8,7 +8,7 @@ from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature, Node
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._ts_type import TS
-
+from hgraph._types._time_series_types import TimeSeriesOutput
 
 class PythonSwitchNodeImpl(PythonNestedNodeImpl):
 
@@ -33,6 +33,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         self._active_graph: Graph | None = None
         self._active_key: Optional[SCALAR] = None
         self._count: int = 0
+        self._old_output: TimeSeriesOutput | None = None
 
     def eval(self):
         # 1. If the key has ticked we need to create a new graph.
@@ -42,6 +43,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
             if self.reload_on_ticked or key.value != self._active_key:
                 if self._active_graph:
                     self._active_graph.stop()
+                    self._unwire_graph(self._active_graph)
                     self._active_graph.dispose()
                 self._active_key = key.value
                 self._active_graph = self.nested_graph_builders[self._active_key].make_instance(
@@ -76,7 +78,14 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         if self.output_node_ids:
             node: Node = graph.nodes[self.output_node_ids[self._active_key]]
             # Replace the nodes output with the map node's output for the key
+            self._old_output = node.output
             node.output = self.output
+
+    def _unwire_graph(self, graph: Graph):
+        if self._old_output is not None:
+            node: Node = graph.nodes[self.output_node_ids[self._active_key]]
+            node.output = self._old_output
+            self._old_output = None
 
     def do_stop(self):
         if self._active_graph is not None:
