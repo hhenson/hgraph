@@ -187,3 +187,8 @@ Version 0.1.14 (19-02-2024)
 
 * Fix switch use of key
 * Fix switch stop when the switch itself goes away
+
+Version 0.1.15 (21-02-2024)
+---------------------------
+
+* Fix issue with nested graphs not ticking correctly.
