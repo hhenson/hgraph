@@ -59,14 +59,25 @@ def map_(func: Callable, *args, **kwargs):
     This will attempt to infer which of the map functions are suitable to make use of based on the inputs provided.
     It will then delegate to the appropriate map function.
     """
-    if not isinstance(func, WiringNodeClass):
-        raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
-    with WiringContext(current_signature=STATE(signature=f"map_('{func.signature.signature}', ...)")):
-        if len(args) + len(kwargs) == 0:
-            raise NoTimeSeriesInputsError()
-        signature: WiringNodeSignature = func.signature
-        map_wiring_node, calling_kwargs = _build_map_wiring_node_and_inputs(func, signature, *args, **kwargs)
-        return map_wiring_node(**calling_kwargs)
+    if len(args) + len(kwargs) == 0:
+        raise NoTimeSeriesInputsError()
+
+    from inspect import isfunction
+    if isinstance(func, WiringNodeClass):
+        with WiringContext(current_signature=STATE(signature=f"map_('{func.signature.signature}', ...)")):
+            signature: WiringNodeSignature = func.signature
+            map_wiring_node, calling_kwargs = _build_map_wiring_node_and_inputs(func, signature, *args, **kwargs)
+            return map_wiring_node(**calling_kwargs)
+    elif isfunction(func) and func.__name__ == "<lambda>":
+            graph = _deduce_signature_from_lambda_and_args(func, *args, **kwargs)
+            signature: WiringNodeSignature = graph.signature
+            with WiringContext(current_signature=STATE(signature=f"map_('{signature.signature}', ...)")):
+                map_wiring_node, calling_kwargs = _build_map_wiring_node_and_inputs(graph, signature, *args, **kwargs)
+            return map_wiring_node(**calling_kwargs)
+    else:
+        raise RuntimeError(f"The supplied function is not a graph or node function or lambda: '{func.__name__}'")
+
+
 
 
 class _MappingMarker:
@@ -74,7 +85,6 @@ class _MappingMarker:
     def __init__(self, value: TSD[K, TIME_SERIES_TYPE]):
         assert isinstance(value, WiringPort), "Marker must wrap a valid time-series input."
         self.value = value
-
     @property
     def output_type(self):
         return self.value.output_type
@@ -86,6 +96,106 @@ class _PassthroughMarker(_MappingMarker):
 
 class _NoKeyMarker(_MappingMarker):
     ...
+
+
+def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg__='key', **kwargs) -> WiringNodeClass:
+    """
+    A lambda was provided for map_ so it will not have a signature to be used. This function will try to work out the
+    signature from the names of the lambda arguments and the incoming arguments and their types. The logic here
+    duplicates a little what is found in the _build_map_wiring_node_and_inputs and friends but it is essentially the
+    inside out of it
+    """
+    from inspect import signature, Parameter
+    sig = signature(func)
+
+    input_has_key_arg = False
+    input_key_tp = None
+    input_key_name = __key_arg__
+
+    # 1. First figure out what is the type of the keys
+    if __keys__ is not None:
+        key_set = __keys__
+    else:
+        key_set = next((i.key_set for i in chain(args, kwargs.values()) if
+                             isinstance(i.output_type, HgTSDTypeMetaData)), None)
+        if key_set is None:
+            raise CustomMessageWiringError("No multiplexed inputs found")
+
+    key_type = key_set.output_type.value_scalar_tp
+
+    # 2. Put together annotations for the lambda from the parameter types
+    annotations = {}
+    values = {}
+    for i, (n, p) in enumerate(sig.parameters.items()):
+        if p.kind in (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD):
+            raise CustomMessageWiringError("lambdas with variable argument list are not supported for map_()")
+
+        if i == 0:
+            if n == input_key_name:  # this is the key input
+                input_has_key_arg = True
+                input_key_tp = HgTimeSeriesTypeMetaData.parse(TS[key_type.py_type])
+                annotations[input_key_name] = input_key_tp
+                values[input_key_name] = key_set
+                continue
+
+        if input_has_key_arg:
+            i -= 1
+
+        if i < len(args):  # provided as positional and not key
+            if isinstance(args[i], WiringPort):
+                tp = args[i].output_type
+                if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
+                    annotations[n] = tp.value_tp
+                else:
+                    annotations[n] = tp
+            else:
+                annotations[n] = SCALAR
+
+            values[n] = args[i]
+            continue
+
+        if n in kwargs: # provided as keyword
+            if isinstance(kwargs[n], WiringPort):
+                tp = kwargs[n].output_type
+                if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
+                    annotations[n] = tp.value_tp
+                else:
+                    annotations[n] = tp
+            else:
+                annotations[n] = SCALAR
+
+            values[n] = kwargs[n]
+            continue
+
+        raise CustomMessageWiringError(f"no input for the parameter {n} of the lambda passed into map_")
+
+    if (unused := kwargs.keys() - sig.parameters.keys()) != set():
+        raise CustomMessageWiringError(f"keyword arguments {unused} are not used in the lambda signature")
+
+    if i + 1 < len(args):
+        raise CustomMessageWiringError(f"{len(args) - 2} of positional arguments not used in the lambda signature")
+
+    # 3. now we have annotations for the parameters of the lambda the only way to figure out the output type is to
+    # try to wire it
+    inputs_ = {}
+    for k, v in annotations.items():
+        if v.is_scalar:
+            inputs_[k] = values[k]
+        else:
+            from hgraph import create_input_stub
+            inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == input_key_name)
+
+    from hgraph import WiringGraphContext
+    with WiringGraphContext(None) as context:
+        out = func(**inputs_)
+        if out is not None:
+            output_type = out.output_type
+        else:
+            output_type = None
+
+    # 4. Now create a graph with the signature we worked out and return
+    from hgraph import with_signature, graph
+    return graph(with_signature(func, annotations=annotations, return_annotation=output_type))
 
 
 def _build_map_wiring_node_and_inputs(
@@ -217,16 +327,48 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
 
     input_types = {k: v.output_type for k, v in kwargs_.items() if k not in non_ts_inputs}
 
+    # Figure out if the map is done over a TSD or TSL by finding the first miltiplexing input
+    map_type = None
+    multiplex_type = None
+    if input_types:
+        for k, v in input_types.items():
+            if k not in marker_args and type(v_tp := v.dereference()) in (HgTSDTypeMetaData, HgTSLTypeMetaData):
+                sig_tp = signature.input_types[k]
+                if sig_tp.matches(v) and not isinstance(sig_tp, HgTsTypeVarTypeMetaData):  # not multiplexing
+                    continue
+                if isinstance(v_tp, HgTSDTypeMetaData) and sig_tp.matches(v_tp.value_tp):
+                    map_type = 'TSD'
+                    multiplex_type = HgTSDTypeMetaData
+                    break
+                elif isinstance(v_tp, HgTSLTypeMetaData) and sig_tp.matches(v_tp.value_tp):
+                    map_type = 'TSL'
+                    multiplex_type = HgTSLTypeMetaData
+                    break
+                else:
+                    raise CustomMessageWiringError(
+                        f"parameter {k}:{sig_tp} of the mapped graph does not match the input type {v_tp.py_type}"
+                        "for either direct match or multiplexing"
+                    )
+    elif tsd_keys is not None:  # corner case where there are no other inputs but explicitly provided keys
+        map_type = 'TSD'
+        multiplex_type = HgTSDTypeMetaData
+
+    if map_type is None:
+        raise CustomMessageWiringError(
+            f"failed to determine the type of mapping over {signature} with parameters "
+            f"of {','.join(f'{k}:{v}' for k, v in input_types.items())}"
+        )
+
     direct_args = frozenset(
         k for k, v in input_types.items() if k not in marker_args and signature.input_types[k].matches(v) if
         (type(signature.input_types[k]) is not HgTsTypeVarTypeMetaData and  # All time-series value match this!
-         type(v) not in (HgTSLTypeMetaData, HgTSDTypeMetaData)))  # So if it is possibly not direct, don't mark it direct
+         type(v) is not multiplex_type))  # So if it is possibly not direct, don't mark it direct
 
     multiplex_args = frozenset(
         k for k, v in input_types.items() \
         if k not in pass_through_args and \
         k not in direct_args and \
-        type(v) in (HgTSDTypeMetaData, HgTSLTypeMetaData)
+        type(v) is multiplex_type
     )
 
     _validate_multiplex_types(signature, kwargs_, multiplex_args, no_key_args)
@@ -238,17 +380,13 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
         raise CustomMessageWiringError(
             f"Unable to determine how to split inputs with args:\n {kwargs_}")
 
-    if is_tsl := any(isinstance(v, HgTSLTypeMetaData) for v in input_types.values()):
-        if not all(isinstance(input_types[k], HgTSLTypeMetaData) for k in multiplex_args):
-            raise CustomMessageWiringError("Not all multiplexed inputs are of type TSL or TSD")
-
-    if is_tsl:
+    if map_type == "TSL":
         key_tp = _extract_tsl_size(kwargs_, multiplex_args, no_key_args)
     else:
         key_tp = _validate_tsd_keys(kwargs_, multiplex_args, no_key_args, tsd_keys)
 
-    return (multiplex_args, no_key_args, pass_through_args, direct_args, "TSL" if is_tsl else "TSD", key_tp if is_tsl
-    else HgTSTypeMetaData(key_tp))
+    return (multiplex_args, no_key_args, pass_through_args, direct_args, map_type,
+            key_tp if map_type == "TSL" else HgTSTypeMetaData(key_tp))
 
 
 def _prepare_stub_inputs(

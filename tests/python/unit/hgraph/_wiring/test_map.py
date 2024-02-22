@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS, \
-    REMOVE, compute_node, SCHEDULER
+    REMOVE, compute_node, SCHEDULER, CustomMessageWiringError
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -262,4 +262,60 @@ def test_map_over_compute_node_with_injectables():
     def map_cn(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
         return map_(cn_with_scheduler, tsd)
 
-    out = eval_node(map_cn, [{1: 1, 2: 2}]) == [{1:1, 2:2}]
+    assert eval_node(map_cn, [{1: 1, 2: 2}]) == [{1:1, 2:2}]
+
+
+def test_map_over_lambda():
+    @graph
+    def map_l(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda key, v: v + 1, tsd)
+
+    assert eval_node(map_l, [{1: 1, 2: 2}]) == [{1: 2, 2: 3}]
+
+
+def test_map_over_lambda_no_key():
+    @graph
+    def map_l(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda v: v + 1, tsd)
+
+    assert eval_node(map_l, [{1: 1, 2: 2}]) == [{1: 2, 2: 3}]
+
+
+def test_map_over_lambda_passthru():
+    @graph
+    def map_l(tsd: TSD[int, TS[int]], a: TS[int]) -> TSD[int, TS[int]]:
+        return map_(lambda v, u: v + u, tsd, a)
+
+    assert eval_node(map_l, [{1: 1, 2: 2}], [2]) == [{1: 3, 2: 4}]
+
+
+# def test_map_over_lambda_tsl_passthru():
+#     @graph
+#     def map_l(tsd: TSD[int, TS[int]], a: TSL[TS[int], Size[2]]) -> TSD[int, TS[int]]:
+#         return map_(
+#             lambda v, u:
+#                 v + u[0] + u[1],
+#             tsd, a)
+#
+#     assert eval_node(map_l, [{1: 1, 2: 2}], [(1, 2)]) == [{1: 4, 2: 5}]
+
+
+def test_map_over_lambda_errors():
+    @graph
+    def map_l(tsd: TSD[int, TS[int]], a: TS[int]) -> TSD[int, TS[int]]:
+        return map_(lambda v, u, t: v + u, tsd, a)
+
+    with pytest.raises(CustomMessageWiringError, match='no input'):
+        eval_node(map_l, [{1: 1, 2: 2}], [2])
+
+
+def test_map_over_lambda_errors_2():
+    @graph
+    def map_l(tsd: TSD[int, TS[int]], a: TS[int]) -> TSD[int, TS[int]]:
+        return map_(lambda v, u: v + u, tsd, a, a)
+
+    with pytest.raises(CustomMessageWiringError, match='not used'):
+        eval_node(map_l, [{1: 1, 2: 2}], [2])
+
+
+

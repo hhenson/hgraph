@@ -28,6 +28,10 @@ class AbstractSchema:
         return list(cls.__meta_data_schema__.keys()).index(key)
 
     @classmethod
+    def get(cls, key: str) -> "HgTypeMetaData":
+        return cls.__meta_data_schema__.get(key)
+
+    @classmethod
     def items(cls) -> ItemsView[str, "HgTypeMetaData"]:
         return cls.__meta_data_schema__.items()
 

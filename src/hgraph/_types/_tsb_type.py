@@ -156,7 +156,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         for k, v in kwargs.items():
             # If v is a wiring port then we perform a validation of the output type to the expected input type.
             if isinstance(v, WiringPort):
-                if cast(WiringPort, v).output_type != meta_data_schema[k]:
+                if not meta_data_schema[k].matches(cast(WiringPort, v).output_type.dereference()):
                     from hgraph import IncorrectTypeBinding
                     from hgraph import WiringContext
                     from hgraph import STATE
