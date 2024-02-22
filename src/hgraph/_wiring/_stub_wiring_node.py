@@ -8,7 +8,7 @@ from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
-from hgraph._wiring._wiring_port import WiringPort
+from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 
@@ -39,7 +39,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
     )
     node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
     node_instance = create_wiring_node_instance(node, signature, frozendict(), 1)
-    return WiringPort(node_instance, ())
+    return _wiring_port_for(ref_tp, node_instance, ())
 
 
 def create_output_stub(output: WiringPort):

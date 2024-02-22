@@ -359,6 +359,36 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
             f"of {','.join(f'{k}:{v}' for k, v in input_types.items())}"
         )
 
+    # Figure out if the map is done over a TSD or TSL by finding the first miltiplexing input
+    map_type = None
+    multiplex_type = None
+    if input_types:
+        for k, v in input_types.items():
+            if k not in marker_args and type(v_tp := v.dereference()) in (HgTSDTypeMetaData, HgTSLTypeMetaData):
+                sig_tp = signature.input_types[k]
+                if sig_tp.matches(v) and not isinstance(sig_tp, HgTsTypeVarTypeMetaData):  # not multiplexing
+                    continue
+                if isinstance(v_tp, HgTSDTypeMetaData) and sig_tp.matches(v_tp.value_tp):
+                    map_type = 'TSD'
+                    multiplex_type = HgTSDTypeMetaData
+                elif isinstance(v_tp, HgTSLTypeMetaData) and sig_tp.matches(v_tp.value_tp):
+                    map_type = 'TSL'
+                    multiplex_type = HgTSLTypeMetaData
+                else:
+                    raise CustomMessageWiringError(
+                        f"parameter {k}:{sig_tp} of the mapped graph does not match the input type {v_tp.py_type}"
+                        "for either direct match or multiplexing"
+                    )
+    elif tsd_keys is not None:  # corner case where there are no other inputs but explicitly provided keys
+        map_type = 'TSD'
+        multiplex_type = HgTSDTypeMetaData
+
+    if map_type is None:
+        raise CustomMessageWiringError(
+            f"failed to determine the type of mapping over {signature} with parameters "
+            f"of {','.join(f'{k}:{v}' for k, v in input_types.items())}"
+        )
+
     direct_args = frozenset(
         k for k, v in input_types.items() if k not in marker_args and signature.input_types[k].matches(v) if
         (type(signature.input_types[k]) is not HgTsTypeVarTypeMetaData and  # All time-series value match this!

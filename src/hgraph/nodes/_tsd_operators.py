@@ -1,13 +1,13 @@
-from typing import Type, Mapping
+from typing import Type, Mapping, cast
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
-    STATE, graph, contains_, not_, K, NUMBER
+    STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference
 from hgraph._types._time_series_types import K_1
 from hgraph.nodes import sum_
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 
-__all__ = ("make_tsd", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_contains", "tsd_not", "tsd_is_empty")
+__all__ = ("make_tsd", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains", "tsd_not", "tsd_is_empty")
 
 
 @compute_node(valid=("key",))
@@ -74,6 +74,19 @@ def tsd_get_item_start(_state: STATE):
     _state.reference = object()
     _state.tsd = None
     _state.key = None
+
+
+@compute_node
+def tsd_get_key_set(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
+    """
+    Returns the key set time-series associated to the TSD pointed to by the reference.
+    """
+    # Use tsd as a reference to avoid the cost of the input wrapper
+    # If we got here the TSD got rebound so get the key set and return
+    if tsd.value.valid:
+        return cast(REF, PythonTimeSeriesReference(tsd.value.output.key_set))
+    else:
+        return cast(REF, PythonTimeSeriesReference())
 
 
 @graph(overloads=contains_)

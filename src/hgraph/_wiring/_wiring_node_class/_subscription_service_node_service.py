@@ -29,7 +29,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             user_path = f"{self.fn.__module__}"
         return f"subs_svc://{user_path}/{self.fn.__name__}"
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,

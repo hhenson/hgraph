@@ -59,7 +59,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
         for p in paths:
             gs[p] = self  # use this as a placeholder until we have built the node
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                  **kwargs) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self._original_signature):

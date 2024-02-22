@@ -1,4 +1,4 @@
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Callable
 
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -100,7 +100,7 @@ class WiringGraphContext:
 
 class GraphWiringNodeClass(BaseWiringNodeClass):
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                  **kwargs) -> "WiringPort":
 
         if (r := self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
@@ -118,6 +118,9 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
             with WiringGraphContext(self.signature) as g:
                 out: WiringPort = self.fn(**kwargs_)
                 if output_type := resolved_signature.output_type:
+                    from hgraph import HgTSBTypeMetaData
+                    if isinstance(out, dict) and isinstance(output_type, HgTSBTypeMetaData):
+                        out = output_type.py_type.from_ts(**out)
                     if not output_type.dereference().matches(out.output_type.dereference()):
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
                                           f"'{str(out.output_type)}' was returned from the graph")
