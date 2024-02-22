@@ -1,5 +1,5 @@
 import functools
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping
 
 from frozendict import frozendict
 
@@ -27,7 +27,8 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                  active: Sequence[str] = None,
                  valid: Sequence[str] = None,
                  all_valid: Sequence[str] = None,
-                 overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None) -> COMPUTE_NODE_SIGNATURE:
+                 overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
+                 resolvers: Mapping[TypeVar, Callable] = None) -> COMPUTE_NODE_SIGNATURE:
     """
     Used to define a python function to be a compute-node. A compute-node is the worker unit in the graph and
     will be called each time of the inputs to the compute node ticks.
@@ -41,7 +42,8 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads)
+    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
+                           resolvers=resolvers)
 
 
 def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None) -> SOURCE_NODE_SIGNATURE:
@@ -260,7 +262,8 @@ def service_adaptor(interface):
 def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active: Sequence[str] = None,
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
-                    overloads: "WiringNodeClass" = None, interfaces=None):
+                    overloads: "WiringNodeClass" = None, interfaces=None,
+                    resolvers: Mapping[TypeVar, Callable]=None):
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
@@ -304,13 +307,19 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         kwargs['overloads'] = overloads
 
     if impl_fn is None:
-        return lambda fn: _node_decorator(impl_fn=fn, **kwargs)
+        return lambda fn: _node_decorator(impl_fn=fn, **kwargs, resolvers=resolvers)
     elif overloads is not None:
         overload = _create_node(impl_fn, **kwargs)
+        if resolvers is not None:
+            overload = overload[tuple(slice(k, v) for k, v in resolvers.items())]
         overloads.overload(overload)
         return overload
     else:
-        return _create_node(impl_fn, **kwargs)
+        node = _create_node(impl_fn, **kwargs)
+        if resolvers is not None:
+            node = node[tuple(slice(k, v) for k, v in resolvers.items())]
+        return node
+
 
 
 def _assert_no_node_configs(label: str, kwargs):
@@ -324,7 +333,7 @@ def _assert_no_node_configs(label: str, kwargs):
 
 def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
                  node_class: Type["WiringNodeClass"] = None, active: Sequence[str] = None, valid: Sequence[str] = None,
-                 all_valid: Sequence[str] = None, interfaces=None) -> "WiringNodeClass":
+                 all_valid: Sequence[str] = None, interfaces=None, resolver=None) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.

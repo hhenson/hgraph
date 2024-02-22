@@ -76,3 +76,46 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, return_
     fn.__signature__ = sig
     fn.__annotations__ = new_annotations
     return fn
+
+
+def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, return_annotation=None):
+    from inspect import signature, Parameter, Signature
+
+    if fn is None:
+        return lambda fn: with_signature(fn, args, kwargs, return_annotation)
+
+    sig = signature(fn)
+    new_params = []
+    new_annotations = {}
+    for n, parameter in sig.parameters.items():
+        if parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY, Parameter.KEYWORD_ONLY):
+            if n in annotations:
+                new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD, annotation=annotations[n]))
+                new_annotations[n] = annotations[n]
+            else:
+                new_params.append(parameter)
+                new_annotations[n] = parameter.annotation
+        if parameter.kind == Parameter.VAR_POSITIONAL:
+            for n, a in args:
+                new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD, annotation=a))
+                new_annotations[n] = a
+            args = None
+        if parameter.kind == Parameter.VAR_KEYWORD:
+            for n, a in kwargs.items():
+                new_params.append(Parameter(n, Parameter.KEYWORD_ONLY, annotation=a))
+                new_annotations[n] = a
+            kwargs = None
+
+    if args is not None:
+        raise ValueError(f"with_signature was provided annotaitons for *args however there is no *argument in the current function signature")
+
+    if kwargs is not None:
+        raise ValueError(f"with_signature was provided annotaitons for **kwargs however there is no **argument in the current function signature")
+
+    if return_annotation is not None:
+        new_annotations['return'] = return_annotation
+
+    sig = Signature(parameters=new_params, return_annotation=return_annotation)
+    fn.__signature__ = sig
+    fn.__annotations__ = new_annotations
+    return fn

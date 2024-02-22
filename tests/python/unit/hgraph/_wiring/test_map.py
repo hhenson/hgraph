@@ -289,15 +289,15 @@ def test_map_over_lambda_passthru():
     assert eval_node(map_l, [{1: 1, 2: 2}], [2]) == [{1: 3, 2: 4}]
 
 
-# def test_map_over_lambda_tsl_passthru():
-#     @graph
-#     def map_l(tsd: TSD[int, TS[int]], a: TSL[TS[int], Size[2]]) -> TSD[int, TS[int]]:
-#         return map_(
-#             lambda v, u:
-#                 v + u[0] + u[1],
-#             tsd, a)
-#
-#     assert eval_node(map_l, [{1: 1, 2: 2}], [(1, 2)]) == [{1: 4, 2: 5}]
+def test_map_over_lambda_tsl_passthru():
+    @graph
+    def map_l(tsd: TSD[int, TS[int]], a: TSL[TS[int], Size[2]]) -> TSD[int, TS[int]]:
+        return map_(
+            lambda v, u:
+                v + u[0] + u[1],
+            tsd, a)
+
+    assert eval_node(map_l, [{1: 1, 2: 2}], [(1, 2)]) == [{1: 4, 2: 5}]
 
 
 def test_map_over_lambda_errors():

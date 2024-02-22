@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast
+from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast, Callable
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -71,7 +71,7 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
 class TslMapWiringNodeClass(BaseWiringNodeClass):
     signature: TslMapWiringSignature
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs) -> "WiringPort":
         # This should be pre-resolved in previous steps.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             if not self.signature.is_resolved:

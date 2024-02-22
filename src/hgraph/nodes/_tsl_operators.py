@@ -1,4 +1,5 @@
-from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD
+from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
+    PythonTimeSeriesReference
 
 __all__ = ("flatten_tsl_values", "merge")
 
@@ -49,3 +50,17 @@ def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> 
     Converts a time series into a time series dictionary with the keys provided.
     """
     return {k: ts.value for k, ts in zip(keys, tsl) if ts.modified}
+
+
+@compute_node
+def tsl_get_item(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: int) -> REF[TIME_SERIES_TYPE]:
+    """
+    Return a reference to an item in the TSB referenced, by its name
+    """
+    if tsl.value.valid:
+        if tsl.value.has_peer:
+            return PythonTimeSeriesReference(tsl.value.output[index])
+        else:
+            return PythonTimeSeriesReference(tsl.value[index])
+    else:
+        return PythonTimeSeriesReference()

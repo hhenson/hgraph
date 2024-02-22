@@ -39,7 +39,7 @@ class WiringNodeClass:
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         raise NotImplementedError()
 
-    def _convert_item(self, item) -> dict[TypeVar, HgTypeMetaData]:
+    def _convert_item(self, item) -> dict[TypeVar, HgTypeMetaData | Callable]:
         if isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
         out = {}
@@ -49,10 +49,13 @@ class WiringNodeClass:
             assert s.stop is not None, "signature of type resolution is incorrect, None is not a valid type"
             assert isinstance(s.start,
                               TypeVar), f"Signature of type resolution is incorrect first item must be of type TypeVar, got {s.start}"
-            parsed = HgTypeMetaData.parse(s.stop)
-            out[s.start] = parsed
-            assert parsed is not None, f"Can not resolve {s.stop} into a valid scalar or time-series type"
-            assert parsed.is_resolved, f"The resolved value {s.stop} is not resolved, this is not supported."
+            if isinstance(s.stop, (type,  _GenericAlias, HgTypeMetaData)):
+                parsed = HgTypeMetaData.parse(s.stop)
+                out[s.start] = parsed
+                assert parsed is not None, f"Can not resolve {s.stop} into a valid scalar or time-series type"
+                assert parsed.is_resolved, f"The resolved value {s.stop} is not resolved, this is not supported."
+            elif inspect.isfunction(s.stop):
+                out[s.start] = s.stop
         return out
 
     def __getitem__(self, item) -> "WiringNodeClass":
@@ -70,7 +73,7 @@ class WiringNodeClass:
     def __hash__(self):
         return hash(self.signature) ^ hash(self.fn)
 
-    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                           **kwargs) -> "WiringNodeSignature":
         """Resolve the signature of this node based on the inputs"""
         raise NotImplementedError()
@@ -214,14 +217,14 @@ class BaseWiringNodeClass(WiringNodeClass):
                                 kwarg_types[k] = v
         return kwarg_types
 
-    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                           **kwargs) -> "WiringNodeSignature":
         _, resolved_signature = self._validate_and_resolve_signature(*args,
                                                                      __pre_resolved_types__=__pre_resolved_types__,
                                                                      **kwargs)
         return resolved_signature
 
-    def _validate_and_resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData], **kwargs) \
+    def _validate_and_resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable], **kwargs) \
             -> tuple[dict[str, Any], WiringNodeSignature]:
         """
         Insure the inputs wired in match the signature of this node and resolve any missing types.
@@ -377,10 +380,21 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
         self.resolved_types = resolved_types
 
     def resolve_signature(self, *args, __pre_resolved_types__=None, **kwargs) -> "WiringNodeSignature":
-        return self.underlying_node.resolve_signature(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
+        more_resolved_types = __pre_resolved_types__ or {}
+        return self.underlying_node.resolve_signature(*args,
+                                                      __pre_resolved_types__={**self.resolved_types, **more_resolved_types},
+                                                      **kwargs)
 
-    def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
-        return self.underlying_node(*args, __pre_resolved_types__=self.resolved_types, **kwargs)
+    def __call__(self, *args, **kwargs) -> "WiringPort":
+        more_resolved_types = kwargs.pop('__pre_resolved_types__', None) or {}
+        return self.underlying_node(*args,
+                                    __pre_resolved_types__={**self.resolved_types, **more_resolved_types},
+                                    **kwargs)
+
+    def __getitem__(self, item):
+        return PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
+                                            underlying_node=self.underlying_node,
+                                            resolved_types={**self.resolved_types, **self._convert_item(item)})
 
 
 class OverloadedWiringNodeHelper:
