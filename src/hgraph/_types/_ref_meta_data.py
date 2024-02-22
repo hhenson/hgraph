@@ -31,6 +31,9 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return type(self)(self.value_tp.resolve(resolution_dict, weak))
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return self.value_tp.matches(tp.dereference())
+
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if isinstance(wired_type, HgREFTypeMetaData):
             self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
