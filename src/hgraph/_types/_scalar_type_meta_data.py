@@ -26,7 +26,8 @@ class HgScalarTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse(cls, value) -> "HgScalarTypeMetaData":
         parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgObjectType]
+                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgStateType,
+                  HgObjectType]
         for parser in parses:
             if meta_data := parser.parse(value):
                 return meta_data
@@ -175,7 +176,8 @@ class HgObjectType(HgAtomicType):
     """A catch-all type that will allow any valid pythong type to be a scalar value"""
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((tp_ := type(tp)) is HgObjectType and self.py_type == tp.py_type) or (tp_ is HgScalarTypeVar and tp_.matches(self))
+        return ((tp_ := type(tp)) is HgObjectType and self.py_type == tp.py_type) or (
+                    tp_ is HgScalarTypeVar and tp_.matches(self))
 
     @classmethod
     def parse(cls, value) -> Optional["HgTypeMetaData"]:
@@ -230,7 +232,6 @@ class HgInjectableType(HgScalarTypeMetaData):
             EvaluationClockInjector: lambda: HgEvaluationClockType(),
             EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
             EvaluationEngineApiInjector: lambda: HgEvaluationEngineApiType(),
-            STATE: lambda: HgStateType(),
             StateInjector: lambda: HgStateType(),
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
@@ -278,20 +279,39 @@ class HgEvaluationEngineApiType(HgInjectableType):
 
 class StateInjector(Injector):
 
-    def __init__(self):
-        self._state = STATE()
+    def __init__(self, schema):
+        self._state = STATE(__schema__=schema)
 
     def __call__(self, node):
         return self._state
 
 
 class HgStateType(HgInjectableType):
-    def __init__(self):
-        super().__init__(object)
+    """
+    State can contain any valid scalar as its value. If no value is provided, then the injected
+    scalar will be a dictionary.
+    """
+    state_type: HgScalarTypeMetaData
+
+    def __init__(self, state_type: HgScalarTypeMetaData):
+        super().__init__(STATE)
+        self.state_type = state_type
 
     @property
     def injector(self):
-        return StateInjector()
+        return StateInjector(self.state_type.py_type if self.state_type.is_resolved else None)
+
+    @classmethod
+    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._scalar_types import STATE
+        if isinstance(value, _GenericAlias) and value.__origin__ is STATE:
+            bundle_tp = HgScalarTypeMetaData.parse(value.__args__[0])
+            if bundle_tp is None:
+                raise ParseError(f"'{value.__args__[0]}' is not a valid input to STATE")
+            return HgStateType(bundle_tp)
+        if value is STATE:
+            from hgraph._types._scalar_types import COMPOUND_SCALAR
+            return HgStateType(HgScalarTypeMetaData.parse(COMPOUND_SCALAR))
 
 
 class OutputInjector(Injector):
