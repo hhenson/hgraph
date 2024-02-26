@@ -246,6 +246,7 @@ class BaseWiringNodeClass(WiringNodeClass):
 
             if self.signature.is_resolved:
                 self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
+                self.signature.validate_resolved_types(kwarg_types, kwargs)
                 return kwargs, self.signature
             else:
                 # Only need to re-create if we actually resolved the signature.
@@ -266,6 +267,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     label=self.signature.label)
                 if resolve_signature.is_resolved:
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
+                    self.signature.validate_resolved_types(kwarg_types, kwargs)
                     return kwargs, resolve_signature
                 else:
                     raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
@@ -455,8 +457,7 @@ class OverloadedWiringNodeHelper:
         best_candidates = sorted(candidates, key=lambda x: x[1])
         if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
             raise WiringError(
-                f"{self.overloads[0][0].signature.name} overloads are ambiguous with given parameters - more than one top candidate")
+                f"{self.overloads[0][0].signature.name} overloads are ambiguous with given parameters - more than one top candidate: "
+                f"{','.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}")
 
         return best_candidates[0][0]
-
-

@@ -82,7 +82,7 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, return_
     from inspect import signature, Parameter, Signature
 
     if fn is None:
-        return lambda fn: with_signature(fn, args, kwargs, return_annotation)
+        return lambda fn: with_signature(fn, annotations=annotations, args=args, kwargs=kwargs, return_annotation=return_annotation)
 
     sig = signature(fn)
     new_params = []

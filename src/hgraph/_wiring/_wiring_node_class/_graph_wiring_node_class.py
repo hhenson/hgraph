@@ -119,8 +119,16 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 out: WiringPort = self.fn(**kwargs_)
                 if output_type := resolved_signature.output_type:
                     from hgraph import HgTSBTypeMetaData
-                    if isinstance(out, dict) and isinstance(output_type, HgTSBTypeMetaData):
-                        out = output_type.py_type.from_ts(**out)
+                    if not isinstance(out, WiringPort):
+                        if isinstance(out, dict) and isinstance(output_type, HgTSBTypeMetaData):
+                            out = output_type.py_type.from_ts(**out)
+                        try:
+                            # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
+                            output_type.build_resolution_dict_from_scalar({}, HgTypeMetaData.parse_value(out), out)
+                            from hgraph.nodes import const
+                            out = const(out, tp=output_type.py_type)
+                        except:
+                            pass
                     if not output_type.dereference().matches(out.output_type.dereference()):
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
                                           f"'{str(out.output_type)}' was returned from the graph")
