@@ -43,18 +43,18 @@ def from_polars(df: pl.DataFrame, time_col: str, as_bundle: bool = True, include
 
 def _polars_type_to_hgraph_type(tp: pl.datatypes.PolarsDataType) -> HgScalarTypeMetaData:
     types: dict[pl.datatypes.PolarsDataType, HgScalarTypeMetaData] = {
-        pl.datatypes.Int8: HgScalarTypeMetaData.parse(int),
-        pl.datatypes.Int16: HgScalarTypeMetaData.parse(int),
-        pl.datatypes.Int32: HgScalarTypeMetaData.parse(int),
-        pl.datatypes.Int64: HgScalarTypeMetaData.parse(int),
-        pl.datatypes.Float32: HgScalarTypeMetaData.parse(float),
-        pl.datatypes.Float64: HgScalarTypeMetaData.parse(float),
-        pl.datatypes.Utf8: HgScalarTypeMetaData.parse(str),
-        pl.datatypes.Date: HgScalarTypeMetaData.parse(date),
-        pl.datatypes.Datetime: HgScalarTypeMetaData.parse(datetime),
-        pl.datatypes.Time: HgScalarTypeMetaData.parse(time),
-        pl.datatypes.Duration: HgScalarTypeMetaData.parse(timedelta),
-        pl.datatypes.Boolean: HgScalarTypeMetaData.parse(bool),
+        pl.datatypes.Int8: HgScalarTypeMetaData.parse_type(int),
+        pl.datatypes.Int16: HgScalarTypeMetaData.parse_type(int),
+        pl.datatypes.Int32: HgScalarTypeMetaData.parse_type(int),
+        pl.datatypes.Int64: HgScalarTypeMetaData.parse_type(int),
+        pl.datatypes.Float32: HgScalarTypeMetaData.parse_type(float),
+        pl.datatypes.Float64: HgScalarTypeMetaData.parse_type(float),
+        pl.datatypes.Utf8: HgScalarTypeMetaData.parse_type(str),
+        pl.datatypes.Date: HgScalarTypeMetaData.parse_type(date),
+        pl.datatypes.Datetime: HgScalarTypeMetaData.parse_type(datetime),
+        pl.datatypes.Time: HgScalarTypeMetaData.parse_type(time),
+        pl.datatypes.Duration: HgScalarTypeMetaData.parse_type(timedelta),
+        pl.datatypes.Boolean: HgScalarTypeMetaData.parse_type(bool),
         # pl.datatypes.Categorical: HgScalarTypeMetaData.parse(str),
     }
     return types[tp]

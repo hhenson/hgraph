@@ -29,7 +29,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     # End of Node constructor helper methods
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTimeSeriesTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTimeSeriesTypeMetaData"]:
         from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
         from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
         from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
@@ -43,11 +43,11 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
                   HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
                   HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData, HgSignalMetaData)
 
-        if isinstance(value, parsers):
-            return value
+        if isinstance(value_tp, parsers):
+            return value_tp
 
         for parser in parsers:
-            if meta_data := parser.parse(value):
+            if meta_data := parser.parse_type(value_tp):
                 return meta_data
 
     @property

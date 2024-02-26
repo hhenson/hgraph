@@ -60,11 +60,11 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
             resolution_dict[self.py_type] = resolved_type
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._time_series_types import TimeSeries
         from hgraph._types._tsb_type import TimeSeriesSchema
-        if isinstance(value, TypeVar) and value.__bound__ and issubclass(value.__bound__, (TimeSeries, TimeSeriesSchema)):
-            return HgTsTypeVarTypeMetaData(value)
+        if isinstance(value_tp, TypeVar) and value_tp.__bound__ and issubclass(value_tp.__bound__, (TimeSeries, TimeSeriesSchema)):
+            return HgTsTypeVarTypeMetaData(value_tp)
         return None
 
     def __eq__(self, o: object) -> bool:

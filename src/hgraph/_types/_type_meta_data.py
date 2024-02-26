@@ -20,16 +20,16 @@ class HgTypeMetaData:
     py_type: Type  # The python type that represents this type
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
         parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
-        if isinstance(value, parse_order):
-            return value
+        if isinstance(value_tp, parse_order):
+            return value_tp
         for parser in parse_order:
-            if meta_data := parser.parse(value):
+            if meta_data := parser.parse_type(value_tp):
                 return meta_data
-        raise ParseError(f"Unable to parse '{value}'")
+        raise ParseError(f"Unable to parse '{value_tp}'")
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         """

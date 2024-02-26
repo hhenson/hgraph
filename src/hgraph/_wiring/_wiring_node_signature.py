@@ -33,7 +33,7 @@ class WiringNodeType(Enum):
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
-    tp_ = HgTypeMetaData.parse(tp)
+    tp_ = HgTypeMetaData.parse_type(tp)
     if tp_ is None:
         raise ParseError(f"'{tp}' is not a valid HgType")
     return tp_
@@ -43,7 +43,7 @@ def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData | None:
     if tp is None or tp is type(None):
         return
 
-    tp_ = HgTimeSeriesTypeMetaData.parse(tp)
+    tp_ = HgTimeSeriesTypeMetaData.parse_type(tp)
     if tp_ is None:
         raise ParseError(f"'{tp}' is not a valid HgTimeSeriesType")
 
@@ -51,7 +51,7 @@ def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData | None:
 
 
 def extract_scalar_type(tp: Type) -> HgScalarTypeMetaData:
-    tp_ = HgScalarTypeMetaData.parse(tp)
+    tp_ = HgScalarTypeMetaData.parse_type(tp)
     if tp_ is None:
         raise ParseError(f"'{tp}' is not a valid HgScalarType")
     return tp_
@@ -141,7 +141,7 @@ class WiringNodeSignature:
                 if isfunction(v) and k not in out_dict:
                     resolved = v(resolution_dict, scalars)
                     if isinstance(resolved, type):
-                        resolved = HgTypeMetaData.parse(resolved)
+                        resolved = HgTypeMetaData.parse_type(resolved)
                     out_dict[k] = resolved
 
         if not all_resolved:

@@ -45,13 +45,13 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ref_type import TimeSeriesReferenceInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesReferenceInput:
-            value = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
-            if value is None:
-                raise ParseError(f"While parsing 'REF[{str(value.__args__[0])}]' unable to parse time series type from '{str(value.__args__[0])}'")
-            return HgREFTypeMetaData(value)
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesReferenceInput:
+            value_tp = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
+            if value_tp is None:
+                raise ParseError(f"While parsing 'REF[{str(value_tp.__args__[0])}]' unable to parse time series type from '{str(value_tp.__args__[0])}'")
+            return HgREFTypeMetaData(value_tp)
 
     @property
     def has_references(self) -> bool:
@@ -85,10 +85,10 @@ class HgREFOutTypeMetaData(HgREFTypeMetaData):
         return self.value_tp
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ref_type import TimeSeriesReferenceOutput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesReferenceOutput:
-            return HgREFOutTypeMetaData(HgTimeSeriesTypeMetaData.parse(value.__args__[0]))
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesReferenceOutput:
+            return HgREFOutTypeMetaData(HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0]))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgREFOutTypeMetaData and self.value_tp == o.value_tp

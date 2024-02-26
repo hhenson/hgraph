@@ -61,7 +61,7 @@ class CompoundScalar(AbstractSchema):
         @classmethod
         def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
             from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
-            return HgScalarTypeMetaData.parse(tp)
+            return HgScalarTypeMetaData.parse_type(tp)
 
 
 @runtime_checkable

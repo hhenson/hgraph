@@ -25,12 +25,12 @@ def test_guess_arguments_f_sum_lhs():
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs', '__keys__')
-        assert signature.key_tp == HgTypeMetaData.parse(str)
+        assert signature.key_tp == HgTypeMetaData.parse_type(str)
         assert signature.key_arg == 'key'
-        assert signature.output_type == HgTypeMetaData.parse(TSD[str, REF[TS[int]]])
+        assert signature.output_type == HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]]),
-             '__keys__': HgTypeMetaData.parse(TSS[str])})
+            {'lhs': HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]]),
+             '__keys__': HgTypeMetaData.parse_type(TSS[str])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs', '__keys__'}
 
@@ -43,12 +43,12 @@ def test_guess_arguments_f_sum_keys():
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs, __keys__=keys)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs', '__keys__')
-        assert signature.key_tp == HgTypeMetaData.parse(str)
+        assert signature.key_tp == HgTypeMetaData.parse_type(str)
         assert signature.key_arg == 'key'
-        assert signature.output_type == HgTypeMetaData.parse(TSD[str, REF[TS[int]]])
+        assert signature.output_type == HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]]),
-             '__keys__': HgTypeMetaData.parse(TSS[str])})
+            {'lhs': HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]]),
+             '__keys__': HgTypeMetaData.parse_type(TSS[str])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs', '__keys__'}
 
@@ -61,12 +61,12 @@ def test_guess_arguments_add_keys():
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs, __keys__=keys)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs', '__keys__')
-        assert signature.key_tp == HgTypeMetaData.parse(str)
+        assert signature.key_tp == HgTypeMetaData.parse_type(str)
         assert signature.key_arg == None
-        assert signature.output_type == HgTypeMetaData.parse(TSD[str, REF[TS[int]]])
+        assert signature.output_type == HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]]),
-             '__keys__': HgTypeMetaData.parse(TSS[str])})
+            {'lhs': HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]]),
+             '__keys__': HgTypeMetaData.parse_type(TSS[str])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs', '__keys__'}
 
@@ -78,12 +78,12 @@ def test_guess_arguments_add_no_keys():
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs', '__keys__')
-        assert signature.key_tp == HgTypeMetaData.parse(str)
+        assert signature.key_tp == HgTypeMetaData.parse_type(str)
         assert signature.key_arg == None
-        assert signature.output_type == HgTypeMetaData.parse(TSD[str, REF[TS[int]]])
+        assert signature.output_type == HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]]),
-             '__keys__': HgTypeMetaData.parse(TSS[str])})
+            {'lhs': HgTypeMetaData.parse_type(TSD[str, REF[TS[int]]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]]),
+             '__keys__': HgTypeMetaData.parse_type(TSS[str])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs', '__keys__'}
 
@@ -95,11 +95,11 @@ def test_guess_arguments_f_sum_lhs_tsl():
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs, __key_arg__='key')
         signature: TslMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs')
-        assert signature.size_tp == HgTypeMetaData.parse(Size[2])
+        assert signature.size_tp == HgTypeMetaData.parse_type(Size[2])
         assert signature.key_arg == 'key'
-        assert signature.output_type == HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]])
+        assert signature.output_type == HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]])})
+            {'lhs': HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs'}
 
@@ -111,9 +111,9 @@ def test_guess_arguments_add_no_keys_tsl():
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs')
-        assert signature.output_type == HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]])
+        assert signature.output_type == HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse(REF[TS[int]])})
+            {'lhs': HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs'}
 

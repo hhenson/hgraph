@@ -50,7 +50,7 @@ class WiringNodeClass:
             assert isinstance(s.start,
                               TypeVar), f"Signature of type resolution is incorrect first item must be of type TypeVar, got {s.start}"
             if isinstance(s.stop, (type,  _GenericAlias, HgTypeMetaData)):
-                parsed = HgTypeMetaData.parse(s.stop)
+                parsed = HgTypeMetaData.parse_type(s.stop)
                 out[s.start] = parsed
                 assert parsed is not None, f"Can not resolve {s.stop} into a valid scalar or time-series type"
                 assert parsed.is_resolved, f"The resolved value {s.stop} is not resolved, this is not supported."
@@ -91,7 +91,7 @@ class WiringNodeClass:
     def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
         from hgraph import NodeError
         from hgraph import TS
-        return HgTimeSeriesTypeMetaData.parse(TS[NodeError])
+        return HgTimeSeriesTypeMetaData.parse_type(TS[NodeError])
 
 
 def extract_kwargs(signature: WiringNodeSignature, *args,
@@ -188,7 +188,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     if arg is None:
                         continue  # We will wire in a null source later
                     if not isinstance(arg, WiringPort):
-                        tp = HgScalarTypeMetaData.parse(arg)
+                        tp = HgScalarTypeMetaData.parse_type(arg)
                         kwarg_types[k] = tp
                     elif arg.output_type:
                         kwarg_types[k] = arg.output_type
@@ -199,13 +199,13 @@ class BaseWiringNodeClass(WiringNodeClass):
                     if not isinstance(arg, (type, GenericAlias, _GenericAlias, TypeVar)) and arg is not AUTO_RESOLVE:
                         # This is not a type of something (Have seen this as being an instance of HgTypeMetaData)
                         raise IncorrectTypeBinding(v, arg)
-                    v = HgTypeMetaData.parse(arg) if arg is not AUTO_RESOLVE else v.value_tp
+                    v = HgTypeMetaData.parse_type(arg) if arg is not AUTO_RESOLVE else v.value_tp
                     kwarg_types[k] = HgTypeOfTypeMetaData(v)
                 else:
                     if arg is None:
                         kwarg_types[k] = v
                     else:
-                        tp = HgScalarTypeMetaData.parse(arg)
+                        tp = HgScalarTypeMetaData.parse_type(arg)
                         kwarg_types[k] = tp
                         if tp is None:
                             if k in self.signature.unresolved_args:

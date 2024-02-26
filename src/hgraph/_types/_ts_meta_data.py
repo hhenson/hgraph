@@ -45,13 +45,13 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
         self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ts_type import TimeSeriesValueInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesValueInput:
-            scalar = HgScalarTypeMetaData.parse(value.__args__[0])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesValueInput:
+            scalar = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if scalar is None:
                 raise ParseError(
-                    f"While parsing 'TS[{str(value.__args__[0])}]' unable to parse scalar type from '{str(value.__args__[0])}'")
+                    f"While parsing 'TS[{str(value_tp.__args__[0])}]' unable to parse scalar type from '{str(value_tp.__args__[0])}'")
             return HgTSTypeMetaData(scalar)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
@@ -77,10 +77,10 @@ class HgTSOutTypeMetaData(HgTSTypeMetaData):
     """Parses TSOut[...]"""
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ts_type import TimeSeriesValueOutput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesValueOutput:
-            return HgTSOutTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]))
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesValueOutput:
+            return HgTSOutTypeMetaData(HgScalarTypeMetaData.parse_type(value_tp.__args__[0]))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSOutTypeMetaData and self.value_scalar_tp == o.value_scalar_tp

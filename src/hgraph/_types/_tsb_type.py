@@ -40,7 +40,7 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
     def create(cls, **kwargs) -> Type["UnNamedTimeSeriesSchema"]:
         """Creates a type instance with root class UnNamedTimeSeriesSchema using the kwargs provided"""
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-        schema = {k: HgTimeSeriesTypeMetaData.parse(v) for k, v in kwargs.items()}
+        schema = {k: HgTimeSeriesTypeMetaData.parse_type(v) for k, v in kwargs.items()}
         if any(v is None for v in schema.values()):
             bad_inputs = {k: v for k, v in kwargs if schema[k] is None}
             raise CustomMessageWiringError(f"The following inputs are not valid time-series types: {bad_inputs}")
@@ -78,7 +78,7 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         out = super(TimeSeriesBundle, cls).__class_getitem__(item)
         if item is not TS_SCHEMA:
             from hgraph._types._type_meta_data import HgTypeMetaData
-            if HgTypeMetaData.parse(item).is_scalar:
+            if HgTypeMetaData.parse_type(item).is_scalar:
                 raise ParseError(
                     f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
             if hasattr(out, "from_ts"):

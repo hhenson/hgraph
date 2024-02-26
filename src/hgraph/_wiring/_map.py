@@ -133,7 +133,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
         if i == 0:
             if n == input_key_name:  # this is the key input
                 input_has_key_arg = True
-                input_key_tp = HgTimeSeriesTypeMetaData.parse(TS[key_type.py_type])
+                input_key_tp = HgTimeSeriesTypeMetaData.parse_type(TS[key_type.py_type])
                 annotations[input_key_name] = input_key_tp
                 values[input_key_name] = key_set
                 continue
@@ -220,7 +220,7 @@ def _build_map_wiring_node_and_inputs(
 
     # 4. If the key is present, make sure the extracted key type matches what we found in the multiplexed inputs.
     if map_type == "TSL":
-        tp = HgTSTypeMetaData.parse(TS[int])
+        tp = HgTSTypeMetaData.parse_type(TS[int])
     else:
         tp = key_tp_
     if input_has_key_arg and not input_key_tp.matches(tp):
@@ -249,7 +249,7 @@ def _build_map_wiring_node_and_inputs(
         case "TSL":
             from hgraph._types._scalar_type_meta_data import HgAtomicType
             map_wiring_node = _create_tsl_map_signature(fn, kwargs_, input_types, multiplex_args,
-                                                        HgAtomicType.parse(key_tp_),
+                                                        HgAtomicType.parse_type(key_tp_),
                                                         input_key_name if input_has_key_arg else None)
         case _:
             raise CustomMessageWiringError(f"Unable to determine map type for given inputs: {kwargs_}")
@@ -286,10 +286,10 @@ def _extract_map_fn_key_arg_and_type(signature: WiringNodeSignature, __key_arg__
         match signature.args[0]:
             case 'key':
                 input_key_name = 'key'
-                match_tp = HgTimeSeriesTypeMetaData.parse(TS[K])
+                match_tp = HgTimeSeriesTypeMetaData.parse_type(TS[K])
             case 'ndx':
                 input_key_name = 'ndx'
-                match_tp = HgTimeSeriesTypeMetaData.parse(TS[int])
+                match_tp = HgTimeSeriesTypeMetaData.parse_type(TS[int])
         if not (input_has_key_arg := (match_tp and signature.input_types[signature.args[0]].matches(match_tp))):
             if match_tp:
                 raise CustomMessageWiringError(
@@ -502,7 +502,7 @@ def _create_tsl_map_signature(
 
     # Resolve the mapped function signature
     stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, frozenset(),
-                                       HgTSTypeMetaData.parse(TS[int]),
+                                       HgTSTypeMetaData.parse_type(TS[int]),
                                        input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
 

@@ -65,7 +65,7 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
     def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
         from hgraph import NodeError, TS, TSD
         from hgraph import HgTimeSeriesTypeMetaData
-        return HgTimeSeriesTypeMetaData.parse(TSD[self.signature.key_tp.py_type, TS[NodeError]])
+        return HgTimeSeriesTypeMetaData.parse_type(TSD[self.signature.key_tp.py_type, TS[NodeError]])
 
 
 class TslMapWiringNodeClass(BaseWiringNodeClass):

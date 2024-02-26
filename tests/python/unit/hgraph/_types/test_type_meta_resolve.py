@@ -78,10 +78,10 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
 )
 def test_build_resolve_dict(ts, wiring_ts, expected_dict):
     # Convert to HgTypeMetaData values
-    expected_dict = {k: HgTypeMetaData.parse(v) for k, v in expected_dict.items()}
+    expected_dict = {k: HgTypeMetaData.parse_type(v) for k, v in expected_dict.items()}
     actual_dict = {}
-    ts_meta_data = HgTypeMetaData.parse(ts)
-    wiring_ts_meta_data = HgTypeMetaData.parse(wiring_ts)
+    ts_meta_data = HgTypeMetaData.parse_type(ts)
+    wiring_ts_meta_data = HgTypeMetaData.parse_type(wiring_ts)
     ts_meta_data.build_resolution_dict(actual_dict, wiring_ts_meta_data)
 
     assert actual_dict == expected_dict
@@ -101,13 +101,13 @@ def test_build_resolve_dict(ts, wiring_ts, expected_dict):
 )
 def test_build_resolve_dict_ref(ts, wiring_ts, expected_dict, resolved_ts):
     # Convert to HgTypeMetaData values
-    expected_dict = {k: HgTypeMetaData.parse(v) for k, v in expected_dict.items()}
+    expected_dict = {k: HgTypeMetaData.parse_type(v) for k, v in expected_dict.items()}
     actual_dict = {}
-    ts_meta_data = HgTypeMetaData.parse(ts)
-    wiring_ts_meta_data = HgTypeMetaData.parse(wiring_ts)
+    ts_meta_data = HgTypeMetaData.parse_type(ts)
+    wiring_ts_meta_data = HgTypeMetaData.parse_type(wiring_ts)
     ts_meta_data.build_resolution_dict(actual_dict, wiring_ts_meta_data)
 
     assert actual_dict == expected_dict
 
     resolved_meta_data = ts_meta_data.resolve(actual_dict)
-    assert resolved_meta_data == HgTypeMetaData.parse(resolved_ts)
+    assert resolved_meta_data == HgTypeMetaData.parse_type(resolved_ts)

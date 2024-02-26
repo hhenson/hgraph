@@ -37,7 +37,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
                 args=('path',) + tuple(arg for arg in signature.args if arg not in time_series_args),
 
                 input_types=frozendict(
-                    {k: v for k, v in (signature.input_types | {"path": HgAtomicType.parse(str)}).items() if
+                    {k: v for k, v in (signature.input_types | {"path": HgAtomicType.parse_type(str)}).items() if
                      k not in time_series_args}),
                 time_series_args=tuple(),
             ), fn)

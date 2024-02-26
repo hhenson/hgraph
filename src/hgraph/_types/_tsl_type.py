@@ -35,7 +35,7 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
         out = super(TimeSeriesList, cls).__class_getitem__(item)
         if item != (TIME_SERIES_TYPE, SIZE):
             from hgraph._types._type_meta_data import HgTypeMetaData
-            if HgTypeMetaData.parse(item[0]).is_scalar:
+            if HgTypeMetaData.parse_type(item[0]).is_scalar:
                 from hgraph import ParseError
                 raise ParseError(
                     f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
@@ -99,7 +99,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
             HgTimeSeriesTypeMetaData, HgAtomicType
         from hgraph import WiringNodeInstance
-        hg_tp_ = HgTimeSeriesTypeMetaData.parse(tp_)
+        hg_tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
         args_ = tuple(f'ts_{i}' for i in range(size_.SIZE))
 
         wiring_node_signature = WiringNodeSignature(
@@ -108,7 +108,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             args=args_,
             defaults=frozendict(),
             input_types=frozendict({k: hg_tp_ for k in args_}),
-            output_type=HgTSLTypeMetaData(hg_tp_, HgAtomicType.parse(size_)),
+            output_type=HgTSLTypeMetaData(hg_tp_, HgAtomicType.parse_type(size_)),
             src_location=SourceCodeDetails(fn_details.co_filename, fn_details.co_firstlineno),
             active_inputs=None,
             valid_inputs=None,
@@ -151,7 +151,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             tp_ = next(inputs).output_type
         else:
             from hgraph import HgTimeSeriesTypeMetaData
-            tp_ = HgTimeSeriesTypeMetaData.parse(tp_)
+            tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
         for v in inputs:
             if v.output_type != tp_:
                 with _from_ts_wiring_context(tp_, size_):

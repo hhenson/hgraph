@@ -69,7 +69,7 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             for k, v in self.meta_data_schema.items():
                 if k in value:
                     k_value = value[k]
-                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse(k_value), k_value)
+                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_type(k_value), k_value)
 
         # not sure if there are other scalar types applicable
 
@@ -86,10 +86,10 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsb_type import TimeSeriesSchema
-        if isinstance(value, type) and issubclass(value, TimeSeriesSchema):
-            return HgTimeSeriesSchemaTypeMetaData(value)
+        if isinstance(value_tp, type) and issubclass(value_tp, TimeSeriesSchema):
+            return HgTimeSeriesSchemaTypeMetaData(value_tp)
         return None
 
     def __eq__(self, o: object) -> bool:
@@ -137,13 +137,13 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         self.bundle_schema_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsb_type import TimeSeriesBundleInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesBundleInput:
-            bundle_tp = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesBundleInput:
+            bundle_tp = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
             if bundle_tp is None or not isinstance(bundle_tp,
                                                    (HgTimeSeriesSchemaTypeMetaData, HgTsTypeVarTypeMetaData)):
-                raise ParseError(f"'{value.__args__[0]}' is not a valid input to TSB")
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to TSB")
             return HgTSBTypeMetaData(bundle_tp)
 
     @property
