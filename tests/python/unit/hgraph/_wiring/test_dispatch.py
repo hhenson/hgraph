@@ -1,5 +1,5 @@
 from hgraph import graph, TS, CompoundScalar
-from hgraph._wiring._dispatch import dispatch_
+from hgraph import dispatch_, dispatch
 from hgraph.nodes import format_, cast_
 from hgraph.test import eval_node
 
@@ -9,7 +9,7 @@ def test_dispatch_1():
     class Dog(Pet): ...
     class Cat(Pet): ...
 
-    @graph
+    @dispatch
     def pet_sound(pet: TS[Pet], count: TS[int]) -> TS[str]:
         return format_("unknown {}", cast_(str, count))
 
@@ -23,7 +23,7 @@ def test_dispatch_1():
 
     @graph
     def make_sound(pet: TS[Pet], count: TS[int]) -> TS[str]:
-        return dispatch_(pet_sound, pet, count)
+        return pet_sound(pet, count)
 
     assert (eval_node(make_sound, [None, Dog(), None, Cat(), Pet(), None], [None, 1, None, None, 2, 3])
             == [None, "woof", None, "meow", "unknown 2", "unknown 3"])
