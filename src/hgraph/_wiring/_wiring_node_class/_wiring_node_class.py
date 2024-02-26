@@ -188,7 +188,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     if arg is None:
                         continue  # We will wire in a null source later
                     if not isinstance(arg, WiringPort):
-                        tp = HgScalarTypeMetaData.parse_type(arg)
+                        tp = HgScalarTypeMetaData.parse_value(arg)
                         kwarg_types[k] = tp
                     elif arg.output_type:
                         kwarg_types[k] = arg.output_type
@@ -205,7 +205,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     if arg is None:
                         kwarg_types[k] = v
                     else:
-                        tp = HgScalarTypeMetaData.parse_type(arg)
+                        tp = HgScalarTypeMetaData.parse_value(arg)
                         kwarg_types[k] = tp
                         if tp is None:
                             if k in self.signature.unresolved_args:

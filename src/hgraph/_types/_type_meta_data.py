@@ -31,6 +31,17 @@ class HgTypeMetaData:
                 return meta_data
         raise ParseError(f"Unable to parse '{value_tp}'")
 
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+        parse_order = (HgScalarTypeMetaData,)
+        if isinstance(value, HgTypeMetaData):
+            raise ParseError(f"Parse value was passed a type meta instead '{value}'")
+        for parser in parse_order:
+            if meta_data := parser.parse_value(value):
+                return meta_data
+        raise ParseError(f"Unable to parse '{value}'")
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
         """
         Can this instance of meta-date match the supplied type?
