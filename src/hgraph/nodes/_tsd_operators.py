@@ -1,7 +1,8 @@
+from dataclasses import field, dataclass
 from typing import Type, Mapping
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
-    STATE, graph, contains_, not_, K, NUMBER
+    STATE, graph, contains_, not_, K, NUMBER, CompoundScalar
 from hgraph._types._time_series_types import K_1
 from hgraph.nodes import sum_
 from hgraph.nodes._operators import len_
@@ -45,9 +46,16 @@ def extract_tsd(ts: TS[Mapping[K_1, SCALAR]]) -> TSD[K_1, TIME_SERIES_TYPE]:
     return ts.value
 
 
+@dataclass
+class KeyValueRefState:
+    reference: object = field(default_factory=object)
+    tsd: TSD[SCALAR, TIME_SERIES_TYPE] | None = None
+    key: SCALAR | None = None
+
+
 @compute_node
 def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K], _ref: REF[TIME_SERIES_TYPE] = None,
-                 _state: STATE = None) -> REF[TIME_SERIES_TYPE]:
+                 _state: STATE[KeyValueRefState] = None) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
     """
@@ -67,13 +75,6 @@ def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K], _ref: REF[TIME_
         _ref.bind_output(output)
         _ref.make_active()
     return _ref.value
-
-
-@tsd_get_item.start
-def tsd_get_item_start(_state: STATE):
-    _state.reference = object()
-    _state.tsd = None
-    _state.key = None
 
 
 @graph(overloads=contains_)
