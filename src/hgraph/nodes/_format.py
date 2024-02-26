@@ -17,9 +17,9 @@ def format_(format_str: TS[str] | str, *args, **kwargs) -> TS[str]:
     :param kwargs: Time series kwargs
     :return:
     """
-    schema_defn = {f"_{ndx}": value.output_type if isinstance(value, WiringPort) else HgTypeMetaData.parse(value) for
+    schema_defn = {f"_{ndx}": value.output_type if isinstance(value, WiringPort) else HgTypeMetaData.parse_type(value) for
                    ndx, value in enumerate(args)}
-    schema_defn |= {k: v.output_type if isinstance(v, WiringPort) else HgTypeMetaData.parse(v) for k, v in kwargs.items()}
+    schema_defn |= {k: v.output_type if isinstance(v, WiringPort) else HgTypeMetaData.parse_type(v) for k, v in kwargs.items()}
     kwargs_ = {f"_{ndx}": value if isinstance(value, WiringPort) else const(value) for ndx, value in enumerate(args)}
     kwargs_ |= {k: v if isinstance(v, WiringPort) else const(v) for k, v in kwargs.items()}
     schema_ = ts_schema(**schema_defn)

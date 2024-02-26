@@ -6,12 +6,12 @@ from hgraph import SCALAR, HgTypeMetaData, TIME_SERIES_TYPE, TS, TSD, V, K, TSL,
 
 
 def test_rank_values():
-    assert HgTypeMetaData.parse(int).operator_rank == 1e-10
-    assert HgTypeMetaData.parse(str).operator_rank == 1e-10
+    assert HgTypeMetaData.parse_type(int).operator_rank == 1e-10
+    assert HgTypeMetaData.parse_type(str).operator_rank == 1e-10
 
     # In this case we expect a hard-coded 1.0 value, so == over float is fine.
-    assert HgTypeMetaData.parse(SCALAR).operator_rank == 1.  # NOSONAR
-    assert HgTypeMetaData.parse(TIME_SERIES_TYPE).operator_rank == 1.  # NOSONAR
+    assert HgTypeMetaData.parse_type(SCALAR).operator_rank == 1.  # NOSONAR
+    assert HgTypeMetaData.parse_type(TIME_SERIES_TYPE).operator_rank == 1.  # NOSONAR
 
 
 @pytest.mark.parametrize(('t1', 't2'),(
@@ -32,5 +32,5 @@ def test_rank_values():
         (TSS[int], TSS[K])
 ))
 def test_rank_order(t1, t2):
-    print(f"{HgTypeMetaData.parse(t1).operator_rank} < {HgTypeMetaData.parse(t2).operator_rank}")
-    assert HgTypeMetaData.parse(t1).operator_rank < HgTypeMetaData.parse(t2).operator_rank
+    print(f"{HgTypeMetaData.parse_type(t1).operator_rank} < {HgTypeMetaData.parse_type(t2).operator_rank}")
+    assert HgTypeMetaData.parse_type(t1).operator_rank < HgTypeMetaData.parse_type(t2).operator_rank

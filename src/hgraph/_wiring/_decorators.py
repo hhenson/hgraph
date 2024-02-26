@@ -371,8 +371,8 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         name=name,
         args=tuple(kwargs.keys()),
         defaults=frozendict(),
-        input_types=frozendict({k: HgScalarTypeMetaData.parse(v) for k, v in kwargs.items()}),
-        output_type=HgTimeSeriesTypeMetaData.parse(ret_type) if ret_type is not None else None,
+        input_types=frozendict({k: HgScalarTypeMetaData.parse_type(v) for k, v in kwargs.items()}),
+        output_type=HgTimeSeriesTypeMetaData.parse_type(ret_type) if ret_type is not None else None,
         src_location=SourceCodeDetails(Path(), 0),  # TODO: make this point to a real place in code.
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,

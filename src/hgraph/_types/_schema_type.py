@@ -50,7 +50,7 @@ class AbstractSchema:
         By default, we use the top level parser.
         """
         from hgraph._types._type_meta_data import HgTypeMetaData
-        return HgTypeMetaData.parse(tp)
+        return HgTypeMetaData.parse_type(tp)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)

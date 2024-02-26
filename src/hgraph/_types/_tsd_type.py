@@ -42,8 +42,8 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             return out
         if item != (K, V):
             from hgraph._types._type_meta_data import HgTypeMetaData
-            __key_tp__ = HgTypeMetaData.parse(item[0])
-            __value_tp__ = HgTypeMetaData.parse(item[1])
+            __key_tp__ = HgTypeMetaData.parse_type(item[0])
+            __value_tp__ = HgTypeMetaData.parse_type(item[1])
             if not __key_tp__.is_scalar:
                 from hgraph import ParseError
                 raise ParseError(

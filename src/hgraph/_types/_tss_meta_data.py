@@ -51,10 +51,10 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tss_type import TimeSeriesSetInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesSetInput:
-            return HgTSSTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]))
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesSetInput:
+            return HgTSSTypeMetaData(HgScalarTypeMetaData.parse_type(value_tp.__args__[0]))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSSTypeMetaData and self.value_scalar_tp == o.value_scalar_tp
@@ -73,10 +73,10 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
 class HgTSSOutTypeMetaData(HgTSSTypeMetaData):
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tss_type import TimeSeriesSetOutput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesSetOutput:
-            return HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]))
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesSetOutput:
+            return HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse_type(value_tp.__args__[0]))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSSOutTypeMetaData and self.value_scalar_tp == o.value_scalar_tp

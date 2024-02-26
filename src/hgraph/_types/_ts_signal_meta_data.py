@@ -31,9 +31,9 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
         """A signal has no meaningful scalar resolution"""
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._time_series_types import SIGNAL
-        if value is SIGNAL:
+        if value_tp is SIGNAL:
             return HgSignalMetaData()
 
     def __eq__(self, o: object) -> bool:
