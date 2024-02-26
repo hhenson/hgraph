@@ -66,13 +66,13 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
         # use it to create a signature for the outer switch node.
         a_signature = cast(WiringNodeClass, next(iter(switches.values()))).signature
 
-        input_has_key_arg = a_signature.args and a_signature.args[0] == 'key' and \
-                            a_signature.input_types['key'] == cast(WiringPort, key).output_type
+        input_has_key_arg = bool(a_signature.args and a_signature.args[0] == 'key' and \
+                            a_signature.input_types['key'] == cast(WiringPort, key).output_type)
 
         # We add the key to the inputs if the internal component has a key argument.
         kwargs_ = extract_kwargs(a_signature, *args,
                                  _args_offset=1 if input_has_key_arg else 0,
-                                 **(kwargs | dict(key=key) if input_has_key_arg else {}))
+                                 **(kwargs | dict(key=key) if input_has_key_arg else kwargs))
 
         # Now create a resolved signature for the inner graph, then for the outer switch node.
         resolved_signature_inner = _validate_signature(switches, **kwargs_)

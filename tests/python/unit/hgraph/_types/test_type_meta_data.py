@@ -34,30 +34,44 @@ class MyEnum(Enum):
     ["value", "expected"],
     [
         [bool, bool],
-        [True, bool],
-        [False, bool],
         [int, int],
-        [0, int],
-        [1, int],
         [float, float],
-        [0.0, float],
-        [1.0, float],
         [date, date],
-        [date(2022, 6, 13), date],
         [datetime, datetime],
-        [datetime(2022, 6, 13, 10, 13, 0), datetime],
         [time, time],
-        [time(10, 13, 0), time],
         [timedelta, timedelta],
-        [timedelta(days=1), timedelta],
         [str, str],
-        ["Test", str],
         [MyEnum, MyEnum],
-        [MyEnum.A, MyEnum]
+        [Size, Size]
     ]
 )
-def test_atomic_scalars(value, expected: Type):
+def test_atomic_scalars_type(value, expected: Type):
     meta_type = HgTypeMetaData.parse_type(value)
+    assert meta_type is not None
+    assert isinstance(meta_type, HgAtomicType)
+    assert meta_type.py_type == expected
+
+
+@pytest.mark.parametrize(
+    ["value", "expected"],
+    [
+        [True, bool],
+        [False, bool],
+        [0, int],
+        [1, int],
+        [0.0, float],
+        [1.0, float],
+        [date(2022, 6, 13), date],
+        [datetime(2022, 6, 13, 10, 13, 0), datetime],
+        [time(10, 13, 0), time],
+        [timedelta(days=1), timedelta],
+        ["Test", str],
+        [MyEnum.A, MyEnum],
+        [Size[3], Size[3]]
+    ]
+)
+def test_atomic_scalars_value(value, expected: Type):
+    meta_type = HgTypeMetaData.parse_value(value)
     assert meta_type is not None
     assert isinstance(meta_type, HgAtomicType)
     assert meta_type.py_type == expected

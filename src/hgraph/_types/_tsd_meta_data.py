@@ -47,8 +47,8 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         if isinstance(wired_type, HgDictScalarType):
             value: Dict
             k, v = next(iter(value.items()))
-            self.key_tp.do_build_resolution_dict(resolution_dict, HgTypeMetaData.parse_type(k))
-            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_type(v), v)
+            self.key_tp.do_build_resolution_dict(resolution_dict, HgTypeMetaData.parse_value(k))
+            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_value(v), v)
         else:
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 

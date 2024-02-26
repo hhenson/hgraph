@@ -44,7 +44,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
                     v_ = kwargs_[ts_arg]
                     if not hasattr(v_, "__iter__"):  # Dealing with scalar to time-series support
                         v_ = [v_]
-                    ts_type = HgTypeMetaData.parse_type(next(i for i in v_ if i is not None))
+                    ts_type = HgTypeMetaData.parse_value(next(i for i in v_ if i is not None))
                     if ts_type is None or not ts_type.is_resolved:
                         raise RuntimeError(
                             f"Unable to auto resolve type for '{ts_arg}', "
