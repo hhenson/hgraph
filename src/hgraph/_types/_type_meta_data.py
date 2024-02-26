@@ -44,7 +44,7 @@ class HgTypeMetaData:
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         """
-        Can this instance of meta-date match the supplied type?
+        Can this instance of meta-data match the supplied type?
         This is used to determine if a type can be wired to another type.
         It does not provide a guarantee that the types are compatible, only that they could match.
         For example: add_(lhs: TS[NUMERIC], rhs: TS[NUMERIC]), in this case TS[int] and TS[float] could match,
