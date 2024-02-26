@@ -8,6 +8,7 @@ from hgraph._wiring._wiring_node_class._reduce_wiring_node import *
 from hgraph._wiring._source_code_details import *
 from hgraph._wiring._stub_wiring_node import *
 from hgraph._wiring._switch import *
+from hgraph._wiring._dispatch import *
 from hgraph._wiring._wiring_node_class._switch_wiring_node import *
 from hgraph._wiring._wiring_node_class._try_except_wiring_node import *
 from hgraph._wiring._wiring_node_class import *

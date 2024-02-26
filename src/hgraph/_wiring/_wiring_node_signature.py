@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from inspect import isfunction
+from inspect import isfunction, signature
 from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable
 
 from frozendict import frozendict
@@ -213,6 +213,15 @@ class WiringNodeSignature:
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
+    def validate_resolved_types(self, kwarg_types, kwargs):
+        for k, v in self.input_types.items():
+            from hgraph._wiring._wiring_port import WiringPort
+            if isinstance(kwargs[k], WiringPort):
+                if not v.dereference().matches(kwargs[k].output_type.dereference()):
+                    raise IncorrectTypeBinding(v, kwarg_types[k])
+            else:
+                if not v.dereference().matches(kwarg_types[k].dereference()):
+                    raise IncorrectTypeBinding(v, kwarg_types[k])
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,
                       active_inputs: frozenset[str] | None = None,
@@ -226,7 +235,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     name = fn.__name__
     annotations = get_type_hints(fn)
     code = fn.__code__
-    args: tuple[str, ...] = code.co_varnames[:code.co_argcount]
+    args: tuple[str, ...] = tuple(signature(fn).parameters.keys())
     filename = code.co_filename
     first_line = code.co_firstlineno
     if fn_defaults := fn.__defaults__:

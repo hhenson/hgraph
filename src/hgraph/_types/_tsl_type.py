@@ -165,7 +165,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
 def _from_ts_wiring_context(tp_, size_) -> "WiringContext":
     from hgraph._wiring._wiring_context import WiringContext
     return WiringContext(
-        current_signature=STATE(signature=f"TSL[{tp_}, {size_()}].from_ts(**kwargs) -> TSL[{tp_}, {size_()}]"))
+        current_signature=STATE(signature=f"TSL[{tp_}, {size_}].from_ts(**kwargs) -> TSL[{tp_}, {size_}]"))
 
 
 class TimeSeriesListOutput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):

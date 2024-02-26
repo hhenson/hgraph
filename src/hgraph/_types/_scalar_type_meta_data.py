@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Mapping, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
@@ -9,7 +9,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, c
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import Size, STATE
+from hgraph._types._scalar_types import Size, STATE, CompoundScalar
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -718,10 +718,12 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def __hash__(self) -> int:
         return hash(self.py_type)
 
+    @property
+    def operator_rank(self) -> float:
+        return super().operator_rank / self.py_type.__mro__.index(CompoundScalar)
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgCompoundScalarType and all(v.matches(v_tp) for v, v_tp in
-                                                        zip(self.meta_data_schema.values(),
-                                                            tp.meta_data_schema.values()))
+        return type(tp) is HgCompoundScalarType and issubclass(tp.py_type, self.py_type)
 
     @property
     def is_resolved(self) -> bool:
