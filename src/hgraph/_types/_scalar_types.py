@@ -93,6 +93,7 @@ class STATE(Generic[COMPOUND_SCALAR]):
 
     def __init__(self, __schema__: COMPOUND_SCALAR = None, **kwargs):
         self.__schema__: COMPOUND_SCALAR = __schema__
+        self._updated: bool = False # Dirty flag, useful for tracking updates when persisting.
         self._value: COMPOUND_SCALAR = dict(**kwargs) if __schema__ is None else __schema__(**kwargs)
 
     def __class_getitem__(cls, item) -> Any:
@@ -167,15 +168,25 @@ class STATE(Generic[COMPOUND_SCALAR]):
         return self.__dict__["_value"].values()
 
     def __setattr__(self, key, value):
-        if key in ["_value", "__schema__"]:
+        if key in ["_value", "__schema__", "_updated"]:
             self.__dict__[key] = value
         else:
             value_ = self.__dict__["_value"]
             schema = self.__dict__["__schema__"]
+            self.__dict__["_updated"] = True
             if schema is None:
                 value_[key] = value
             else:
                 setattr(value_, key, value)
+
+    def reset_updated(self) -> None:
+        """Resets the updated state back to false"""
+        self.__dict__["_updated"] = False
+
+    def is_updated(self) -> bool:
+        """Has the state been updated since last reset / created"""
+        return self.__dict__["_updated"]
+
 
     def __repr__(self) -> str:
         return f"SCALAR[{self.__schema__.__name__}]({', '.join(k + '=' + repr(v) for k, v in asdict(self._value).items())})"
