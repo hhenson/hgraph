@@ -114,7 +114,7 @@ def _reduce_tsd(func, ts, zero):
         all_valid_inputs=resolved_signature.all_valid_inputs,
         unresolved_args=resolved_signature.unresolved_args,
         time_series_args=resolved_signature.time_series_args,
-        uses_scheduler=resolved_signature.uses_scheduler,
+        injectable_inputs=resolved_signature.injectable_inputs,
         label=resolved_signature.label,
     )
     wiring_node = TsdReduceWiringNodeClass(resolved_signature, func)

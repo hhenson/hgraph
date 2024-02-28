@@ -34,7 +34,6 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
         all_valid_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset({'ts',}),
-        uses_scheduler=False,
         label=key
     )
     node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
@@ -62,7 +61,6 @@ def create_output_stub(output: WiringPort):
         all_valid_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset({'ts',}),
-        uses_scheduler=False,
         label="graph:out"
     )
     node = PythonWiringNodeClass(signature, _stub)
