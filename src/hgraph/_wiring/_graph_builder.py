@@ -84,7 +84,8 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
     edges: set[Edge] = set[Edge]()
     for i in range(max_rank + 1):
         wiring_node_set = ranked_nodes.get(i, set())
-        for wiring_node in wiring_node_set:
+        # Sorted nodes to try and ensure a stable flattening of nodes.
+        for wiring_node in sorted(wiring_node_set):
             if wiring_node.is_stub:
                 continue
             ndx = len(node_builders)
