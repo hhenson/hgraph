@@ -190,7 +190,6 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             all_valid_inputs=None,
             unresolved_args=frozenset(),
             time_series_args=frozenset(kwargs.keys()),
-            uses_scheduler=False
         )
         TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass

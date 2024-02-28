@@ -1,11 +1,10 @@
-import functools
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_signature import extract_injectable_inputs
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -370,6 +369,6 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         all_valid_inputs=all_valid_inputs,
         unresolved_args=frozenset(),
         time_series_args=frozenset(),
-        uses_scheduler=any(type(v) is HgSchedulerType for v in kwargs.values())
+        injectable_inputs=extract_injectable_inputs(**kwargs)
     )
     return signature

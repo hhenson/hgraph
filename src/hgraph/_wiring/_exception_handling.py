@@ -97,7 +97,6 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
-            uses_scheduler=False,
             label=f"try_except({resolved_signature.signature}, {', '.join(resolved_signature.args)})",
         )
         from hgraph import TryExceptWiringNodeClass
