@@ -48,7 +48,6 @@ class GraphBuilder(Builder["Graph"]):
         """
 
 
-
 class GraphBuilderFactory:
 
     _graph_builder_class: typing.Optional[typing.Type[GraphBuilder]] = None
