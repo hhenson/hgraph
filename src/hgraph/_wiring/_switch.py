@@ -103,7 +103,6 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
-            uses_scheduler=False,
             label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
         )
         # Create the outer wiring node, and call it with the inputs

@@ -115,7 +115,6 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             all_valid_inputs=None,
             unresolved_args=frozenset(),
             time_series_args=frozenset(args_),
-            uses_scheduler=False
         )
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSLWiringPort
