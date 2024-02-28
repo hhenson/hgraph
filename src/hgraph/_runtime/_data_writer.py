@@ -1,12 +1,19 @@
 from abc import abstractmethod, ABC
 from datetime import date, datetime, timedelta, time
 
+__all__ = ("DataWriter", "DataReader", "Persistable")
+
 
 class DataWriter(ABC):
 
     @abstractmethod
     def write(self, b: bytes):
         ...
+
+    def write_bytes(self, b: bytes):
+        """Writes the bytes including the count to enable reloading"""
+        self.write_int(len(b))
+        self.write(b)
 
     def write_date(self, d: date):
         self.write((d.year * 10000 + d.month * 100 + d.day).to_bytes(32 // 8, byteorder='big'))
@@ -45,8 +52,12 @@ class DataReader(ABC):
     def read(self, size: int) -> bytes:
         ...
 
+    def read_bytes(self) -> bytes:
+        sz = self.read_int()
+        return self.read(sz)
+
     def read_date(self) -> date:
-        i = int.from_bytes(self.read(32//8), "big")
+        i = int.from_bytes(self.read(32 // 8), "big")
         year = i // 10000
         month = i // 100 - year * 10000
         day = i - year * 10000 - month * 100
@@ -66,10 +77,10 @@ class DataReader(ABC):
 
     def read_float(self) -> float:
         import struct
-        return struct.unpack('d', self.read(64//8))
+        return struct.unpack('d', self.read(64 // 8))
 
     def read_int(self) -> int:
-        return int.from_bytes(self.read(64//8), "big")
+        return int.from_bytes(self.read(64 // 8), "big")
 
     def read_string(self) -> str:
         sz = self.read_int()
@@ -86,3 +97,19 @@ class DataReader(ABC):
         min = i // 60 - hr * 3600
         sec = i - hr * 3600 - min * 60
         return time(hr, min, sec)
+
+
+class Persistable(ABC):
+
+    @abstractmethod
+    def write_value(self, writer: DataWriter):
+        """
+        Write the full value into the data writer.
+        """
+
+    @abstractmethod
+    def read_value(self, tm: datetime, reader: DataReader):
+        """
+        Read the value as a full value.
+        The `tm` parameter is the time to use for the restoration of the value.
+        """
