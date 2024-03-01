@@ -40,7 +40,6 @@ class GraphSuspendable(Suspendable):
 
     def resume(self, reader: DataReader):
         dt = reader.read_datetime()
-        self._graph.evaluation_engine_api._start_time = dt
         self._graph.evaluation_clock._evaluation_time = dt
         for node_persisters in self._node_suspendables:
             node_persisters.resume(reader)
