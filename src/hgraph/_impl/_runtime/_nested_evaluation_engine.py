@@ -32,6 +32,11 @@ class NestedEvaluationEngine(EvaluationEngineDelegate):
     def __init__(self, engine: EvaluationEngine, evaluation_clock: EngineEvaluationClock):
         super().__init__(engine)
         self._engine_evaluation_clock = evaluation_clock
+        self._nested_start_time = evaluation_clock.evaluation_time
+
+    @property
+    def start_time(self) -> datetime:
+        return self._nested_start_time
 
     @property
     def evaluation_clock(self) -> "EvaluationClock":
