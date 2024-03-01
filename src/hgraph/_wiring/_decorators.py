@@ -303,7 +303,10 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         kwargs['overloads'] = overloads
 
     if impl_fn is None:
-        return lambda fn: _node_decorator(impl_fn=fn, **kwargs)
+        if "impl_fn" in kwargs:
+            return lambda fn: _create_node(fn, **kwargs)
+        else:
+            return lambda fn: _node_decorator(impl_fn=fn, **kwargs)
     elif overloads is not None:
         overload = _create_node(impl_fn, **kwargs)
         overloads.overload(overload)

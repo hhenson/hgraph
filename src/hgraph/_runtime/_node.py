@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from hgraph._runtime._graph import Graph
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
-__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler")
+__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes")
 
 
 class NodeTypeEnum(Enum):

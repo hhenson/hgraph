@@ -1,4 +1,3 @@
-import functools
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
 from enum import Enum
@@ -186,7 +185,6 @@ class STATE(Generic[COMPOUND_SCALAR]):
     def is_updated(self) -> bool:
         """Has the state been updated since last reset / created"""
         return self.__dict__["_updated"]
-
 
     def __repr__(self) -> str:
         return f"SCALAR[{self.__schema__.__name__}]({', '.join(k + '=' + repr(v) for k, v in asdict(self._value).items())})"

@@ -2,12 +2,13 @@ from typing import Any
 
 from hgraph import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, \
     MIN_DT, \
-    WiringContext, WiringError
+    WiringContext, WiringError, EvaluationLifeCycleObserver
 from hgraph.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
 from hgraph.test._node_printer import EvaluationTrace
 
 
-def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool = False, **kwargs):
+def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool = False,
+              __observers__: list[EvaluationLifeCycleObserver] = None, **kwargs):
     """
     Evaluates a node using the supplied arguments.
     This will detect time-series inputs in the node and will convert array inputs into time-series inputs.
@@ -29,6 +30,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
         raise e
 
     time_series_inputs = tuple(arg for arg in node.signature.args if arg in node.signature.time_series_inputs)
+
     @graph
     def eval_node_graph():
         inputs = {}
@@ -71,7 +73,9 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
         # Dealing with scalar to time-series support
         max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
         set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
-    run_graph(eval_node_graph, life_cycle_observers=[EvaluationTrace()] if __trace__ else None)
+    observers = [EvaluationTrace()] if __trace__ else []
+    observers.extend(__observers__ if __observers__ else [])
+    run_graph(eval_node_graph, life_cycle_observers=observers)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
     if results:
@@ -82,7 +86,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
         out = []
         result_iter = iter(results)
         result = next(result_iter)
-        for t in _time_iter(MIN_ST, MIN_ST + max_count*MIN_TD, MIN_TD):
+        for t in _time_iter(MIN_ST, MIN_ST + max_count * MIN_TD, MIN_TD):
             if result and t == result[0]:
                 out.append(result[1])
                 result = next(result_iter, None)

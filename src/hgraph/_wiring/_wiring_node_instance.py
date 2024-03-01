@@ -77,6 +77,12 @@ class WiringNodeInstance:
         # Rely on WiringNodeInstances to be interned data structures
         return self is other
 
+    def __lt__(self, other):
+        # A partial ordering for nodes.
+        return self.rank <= other.rank and \
+            self.resolved_signature.signature <= other.resolved_signature.signature and \
+            self.resolved_signature.src_location < other.resolved_signature.src_location
+
     def __hash__(self) -> int:
         # Rely on WiringNodeInstances to be interned data structures
         return id(self)
