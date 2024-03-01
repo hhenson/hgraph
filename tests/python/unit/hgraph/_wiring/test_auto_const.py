@@ -7,7 +7,7 @@ from hgraph.test import eval_node
 
 @pytest.mark.parametrize(('ts_tp', 'value', 'should_work'), (
                          (TS[int], 1, True),
-                         (TS[int], True, False),
+                         (TS[int], "1", False),
                          (TS[bool], True, True),
 
                          (TSL[TS[int], Size[2]], (1, 2), True),

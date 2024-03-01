@@ -1,10 +1,9 @@
 from abc import abstractmethod
 from collections.abc import Mapping, Set
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast
 
 import numpy as np
 from frozendict import frozendict
@@ -148,7 +147,7 @@ class HgAtomicType(HgScalarTypeMetaData):
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
-        if self.py_type != wired_type.py_type:
+        if not issubclass(wired_type.py_type, self.py_type):
             from hgraph._wiring._wiring_errors import IncorrectTypeBinding
             raise IncorrectTypeBinding(self, wired_type)
 
