@@ -333,8 +333,14 @@ class GeneratorNodeImpl(NodeImpl):
         self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
 
     def eval(self):
-        time, out = next(self.generator, (None, None))
-        if out is not None and time is not None and time <= self.graph.evaluation_clock.evaluation_time:
+        et = self.graph.evaluation_clock.evaluation_time
+        while (v := next(self.generator, None)) and v[0] < et:
+            ...
+        if v is not None:
+            time, out = v
+        else:
+            time, out = None, None
+        if out is not None and time is not None and time <= et:
             self.output.apply_result(out)
             self.next_value = None
             self.eval()  # We are going to apply now! Prepare next step,
