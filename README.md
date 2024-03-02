@@ -1,6 +1,30 @@
 # hgraph
 A functional reactive programming engine with a Python front-end.
 
+This provides a DSL and runtime to support the computation of results over time, featuring
+a graph based directed acyclic dependency graph and the concept of time-series properties.
+The language is function based, and promotes composition to extend behaviour.
+
+Here is a simple example:
+
+```python
+from hgraph import graph, run_graph
+from hgraph.nodes import const, debug_print
+
+@graph
+def main():
+    a = const(1)
+    c = a + 2
+    debug_print("a + 2", c)
+
+run_graph(main)
+```
+Results in:
+```
+[1970-01-01 00:00:00.000385][1970-01-01 00:00:00.000001] a + 2: 3
+```
+
+See [this](docs/index.md) for more information.
 
 ## Development
 
