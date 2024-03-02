@@ -1,6 +1,8 @@
 import typing
 from collections import defaultdict
 
+from ordered_set import OrderedSet
+
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if typing.TYPE_CHECKING:
@@ -55,9 +57,9 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
         raise RuntimeError("No sink nodes found in graph")
 
     max_rank = max(node.rank for node in sink_nodes)
-    ranked_nodes: dict[int, set[WiringNodeInstance]] = defaultdict(set)
+    ranked_nodes: dict[int, OrderedSet[WiringNodeInstance]] = defaultdict(OrderedSet)
 
-    processed_nodes = set(sink_nodes)
+    processed_nodes = OrderedSet(sink_nodes)
     pending_nodes = list(processed_nodes)
     while pending_nodes:
         node = pending_nodes.pop()
@@ -84,8 +86,7 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
     edges: set[Edge] = set[Edge]()
     for i in range(max_rank + 1):
         wiring_node_set = ranked_nodes.get(i, set())
-        # Sorted nodes to try and ensure a stable flattening of nodes.
-        for wiring_node in sorted(wiring_node_set):
+        for wiring_node in wiring_node_set:
             if wiring_node.is_stub:
                 continue
             ndx = len(node_builders)
