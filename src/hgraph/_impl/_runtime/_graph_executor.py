@@ -46,6 +46,8 @@ class PythonGraphExecutor(GraphExecutor):
                 clock: EngineEvaluationClock = RealTimeEvaluationClock(start_time)
             case EvaluationMode.SIMULATION:
                 clock: EngineEvaluationClock  = SimulationEvaluationClock(start_time)
+            case EvaluationMode.REPLAY | EvaluationMode.RECORDING:
+                clock: EngineEvaluationClock = RealTimeEvaluationClock(start_time)
             case _:
                 raise RuntimeError("Unknown run mode")
 
