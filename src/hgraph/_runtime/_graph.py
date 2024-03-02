@@ -50,7 +50,6 @@ class Graph(ComponentLifeCycle):
     def evaluation_engine_api(self) -> "EvaluationEngineApi":
         """ The evaluation engine api """
 
-
     @property
     @abstractmethod
     def evaluation_engine(self) -> "EvaluationEngine":
