@@ -21,9 +21,53 @@ engine items.
 class EvaluationMode(Enum):
     """
     The mode to use when executing the graph.
+
+    The MODES are as follows:
+
+    REAL_TIME
+        The graph will run from start time until the graph is either requested to stop or is killed.
+        If start time is in the past the graph will potentially replay historical PULL source nodes
+        until it has caught up and will then continue from that point on once it catches up to the
+        wall clock time it started. PUSH source nodes are only evaluated in REAL_TIME mode, these
+        will only be started and evaluated in REAL_TIME mode. Events from PULL source nodes are only
+        PULLED into the graph once we are caught up and are processed in a first come - first served basis.
+        I.e. there is no cross node arrival time ordering of PUSH source nodes. Time ordering is managed
+        within a PUSH source nodes output when the node is queueing, but the ordering is limited to
+        when the received value is placed into the graph, not the time-delta between the events.
+
+    SIMULATION
+        The graph will run from start time to end time, all events to be processed are introduced
+        from PULL source nodes and when there are no new events to process the graph is considered complete.
+        In this mode the wall clock time (clock.now) is simulated and updated to be the next events time at the
+        end of an evaluation cycle. PUSH source nodes are not supported in this mode of operation.
+
+    RECORDING
+        This is a form of replay, where the graph will record the incoming events / ticks and will snap the state of
+        the graph if the graph is requested to stop, or snap is requested from the graph. NOTE, only PUSH source nodes
+        and PULL source nodes that are opted into recording are recorded. PUSH source nodes (not opted into recording)
+        are expected to be able to replay their own state. For example a database backed source node can reload
+        it's state from the database. This state is closely related to the REPLAY state, and is a form of the
+        REAL_TIME state.
+
+    REPLAY
+        This is a special mode that will initially re-load the last snapped state of the graph, and then will
+        evaluate the graph in "SIMULATION" mode, replacing PUSH nodes with REPLAY (PULL) nodes until all recorded
+        events have been replayed. Events are recorded on PUSH nodes (and optionally PULL nodes) only. The snap
+        records the last known state of the graph (recording STATE, pending scheduled events, and _output values).
+        When a graph makes use of the REPLAY mode, it is required that all COMPUTE nodes are idempotent and have
+        no side effects. If a COMPUTE node does have side effects, it should be aware of the REPLAY state and, during
+        replay, not produce the side effects. Once all the pending recorded events have been replayed, the state will
+        change to RECORDING and continue from this point in that mode. NOTE: On recovery from the snapshot, all nodes
+        will be evaluated (other than SINK nodes). This is intended to restore any computed results that were not
+        previously evaluated. During the state replay the evaluation time will be set to the most recent update
+        time of the inputs. Note, ANY node that has state or relies on _output will have it's output recorded and
+        restored, these nodes will not be evaluated in the snap restore process.
+        Any nodes supporting SCHEDULED inputs will have their next evaluation time updated to the next scheduled time.
     """
     REAL_TIME = 0
     SIMULATION = 1
+    RECORDING = 2
+    REPLAY = 3
 
 
 class EvaluationLifeCycleObserver:
