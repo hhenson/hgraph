@@ -16,7 +16,7 @@ from hgraph._runtime._node import Node, NodeTypeEnum
 
 __all__ = ("PythonGraphExecutor",)
 
-from hgraph._runtime.graph_recorder import GraphRecorder
+from hgraph._runtime._graph_recorder import GraphRecorder
 
 
 @dataclass

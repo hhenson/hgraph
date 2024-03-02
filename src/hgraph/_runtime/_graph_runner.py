@@ -10,7 +10,7 @@ from hgraph._runtime._graph_executor import GraphEngineFactory
 
 __all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
-from hgraph._runtime.graph_recorder import GraphRecorder
+from hgraph._runtime._graph_recorder import GraphRecorder
 
 
 def _default_logger() -> Logger:
