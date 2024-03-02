@@ -3,12 +3,13 @@ from typing import List
 
 from hgraph._runtime._constants import MIN_TD
 from hgraph._runtime._evaluation_clock import EvaluationClock, EngineEvaluationClock
-from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngineApi, EvaluationLifeCycleObserver
+from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationLifeCycleObserver, \
+    EvaluationMode
 
 
 class PythonEvaluationEngine(EvaluationEngine):
 
-    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, start_time: datetime, end_time: datetime):
+    def __init__(self, engine_evaluation_clock: EngineEvaluationClock, start_time: datetime, end_time: datetime, mode: EvaluationMode):
         super().__init__()
         self._engine_evaluation_clock: EngineEvaluationClock = engine_evaluation_clock
         self._start_time: datetime = start_time
@@ -17,6 +18,11 @@ class PythonEvaluationEngine(EvaluationEngine):
         self._life_cycle_observers: List[EvaluationLifeCycleObserver] = []
         self._before_evaluation_notification: List[callable] = []
         self._after_evaluation_notification: List[callable] = []
+        self._mode: EvaluationMode = mode
+
+    @property
+    def evaluation_mode(self) -> EvaluationMode:
+        return self._mode
 
     @property
     def evaluation_clock(self) -> EvaluationClock:

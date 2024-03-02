@@ -51,7 +51,7 @@ class PythonGraphExecutor(GraphExecutor):
             case _:
                 raise RuntimeError("Unknown run mode")
 
-        evaluation_engine = PythonEvaluationEngine(clock, start_time, end_time)
+        evaluation_engine = PythonEvaluationEngine(clock, start_time, end_time, self.run_mode)
         graph = self.graph
         graph.evaluation_engine = evaluation_engine
         for observer in self.observers:
