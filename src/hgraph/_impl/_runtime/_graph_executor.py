@@ -20,9 +20,11 @@ class PythonGraphExecutor(GraphExecutor):
     A graph engine that runs the graph in python.
     """
 
-    def __init__(self, graph: Graph, run_mode: EvaluationMode):
+    def __init__(self, graph: Graph, run_mode: EvaluationMode,
+                 observers: Iterable[EvaluationLifeCycleObserver] = None):
         self._graph = graph
         self._run_mode = run_mode
+        self.observers = observers or []
 
     @property
     def run_mode(self) -> EvaluationMode:
@@ -32,7 +34,7 @@ class PythonGraphExecutor(GraphExecutor):
     def graph(self) -> Graph:
         return self._graph
 
-    def run(self, start_time: datetime, end_time: datetime, observers: Iterable[EvaluationLifeCycleObserver] = None):
+    def run(self, start_time: datetime, end_time: datetime):
         if end_time <= start_time:
             if end_time < start_time:
                 raise ValueError("End time cannot be before the start time")
@@ -50,7 +52,7 @@ class PythonGraphExecutor(GraphExecutor):
         evaluation_engine = PythonEvaluationEngine(clock, start_time, end_time)
         graph = self.graph
         graph.evaluation_engine = evaluation_engine
-        for observer in observers if observers is not None else []:
+        for observer in self.observers:
             evaluation_engine.add_life_cycle_observer(observer)
         with initialise_dispose_context(self.graph), start_stop_context(self.graph):
             while clock.evaluation_time < end_time:
