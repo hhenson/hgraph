@@ -199,8 +199,8 @@ Version 0.1.16 (21-02-2024)
 
 * Fix accidental issue added during fixing of nested graph issue.
 
-Version 0.1.17 (TBD)
---------------------
+Version 0.1.17 (02-03-2024)
+---------------------------
 
 * Attempt to ensure we get a stable flattening of the topologically sorted graph.
 * Clean up const to use start_time as an anchor
