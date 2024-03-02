@@ -1,17 +1,88 @@
+from dataclasses import dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable
+from logging import Logger, getLogger, DEBUG, StreamHandler, Formatter
+from typing import Callable, Any
 
-from hgraph._runtime._constants import MIN_ST, MAX_ET
-from hgraph._runtime._graph_executor import GraphEngineFactory
+from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
-
+from hgraph._runtime._graph_executor import GraphEngineFactory
 
 __all__ = ("run_graph",)
 
 
-def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.SIMULATION,
+def _default_logger() -> Logger:
+    logger = getLogger("hgraph")
+    if not logger.handlers:
+        # If no handler exists, assume we need to create one.
+        logger.setLevel(DEBUG)
+        # create console handler and set level to debug
+        ch = StreamHandler()
+        ch.setLevel(DEBUG)
+        # create formatter
+        formatter = Formatter('%(asctime)s [%(name)s][%(levelname)s] %(message)s')
+        # add formatter to ch
+        ch.setFormatter(formatter)
+        # add ch to logger
+        logger.addHandler(ch)
+    return logger
+
+
+@dataclass
+class GraphConfiguration:
+    run_mode: EvaluationMode = EvaluationMode.SIMULATION
+    start_time: datetime = MIN_DT
+    end_time: datetime = MAX_ET
+    trace: bool = False
+    life_cycle_observers: tuple[EvaluationLifeCycleObserver] = tuple()
+    graph_logger: Logger = field(default_factory=_default_logger)
+
+    def __post_init__(self):
+        if self.start_time is MIN_DT:
+            self.start_time = MIN_ST if self.run_mode is EvaluationMode.SIMULATION else datetime.utcnow()
+
+        if self.start_time < MIN_ST:
+            raise RuntimeError(f"Start time '{self.start_time}' is less than minimum time '{MIN_ST}'")
+
+        if self.end_time > MAX_ET:
+            raise RuntimeError(f"End time '{self.end_time}' is greater than maximum time '{MAX_ET}'")
+
+        if self.trace:
+            from hgraph.test import EvaluationTrace
+            self.life_cycle_observers = self.life_cycle_observers + (EvaluationTrace(),)
+
+
+def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs) -> list[tuple[datetime, Any]] | None:
+    from hgraph._builder._graph_builder import GraphBuilder
+    from hgraph._wiring._graph_builder import wire_graph
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+
+    if not isinstance(graph, GraphBuilder):
+        config.graph_logger.debug("Wiring graph: %s", graph.signature.signature)
+        with WiringNodeInstanceContext():
+            graph_builder: GraphBuilder = wire_graph(graph, *args, **kwargs)
+    else:
+        graph_builder = graph
+
+    config.graph_logger.debug("Creating graph engine: %s", config.run_mode)
+    engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=config.run_mode,
+                                     observers=config.life_cycle_observers)
+    config.graph_logger.debug("Starting to run graph from: %s to %s", config.start_time,
+                              config.end_time)
+    try:
+        engine.run(config.start_time, config.end_time)
+    except Exception as e:
+        config.graph_logger.exception("Graph failed", exc_info=True)
+        raise e
+    finally:
+        config.graph_logger.debug("Finished running graph")
+
+
+def run_graph(graph: Callable, *args,
+              run_mode: EvaluationMode = EvaluationMode.SIMULATION,
               start_time: datetime = None,
-              end_time: datetime = None, print_progress: bool = True,
+              end_time: datetime = None,
+              print_progress: bool = True,
               life_cycle_observers: [EvaluationLifeCycleObserver] = None,
               __trace__: bool = False, **kwargs):
     """
@@ -31,46 +102,12 @@ def run_graph(graph: Callable, *args, run_mode: EvaluationMode = EvaluationMode.
     :param life_cycle_observers: A list of observers to register with the runtime engine prior to evaluation.
     :param kwargs: Any additional kwargs to pass to the graph.
     """
-    from hgraph._builder._graph_builder import GraphBuilder
-    from hgraph._wiring._graph_builder import wire_graph
-    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-
-    if start_time is None:
-        start_time = MIN_ST if run_mode is EvaluationMode.SIMULATION else datetime.utcnow()
-    if end_time is None:
-        end_time = MAX_ET
-
-    if start_time < MIN_ST:
-        raise RuntimeError(f"Start time '{start_time}' is less than minimum time '{MIN_ST}'")
-
-    if end_time > MAX_ET:
-        raise RuntimeError(f"End time '{end_time}' is greater than maximum time '{MAX_ET}'")
-
-    if __trace__:
-        if life_cycle_observers is None:
-            life_cycle_observers = []
-        from hgraph.test import EvaluationTrace
-        life_cycle_observers.append(EvaluationTrace())
-
-    if print_progress:
-        print()
-        print("Wiring Graph")
-    if not isinstance(graph, GraphBuilder):
-        with WiringNodeInstanceContext():
-            graph_builder = wire_graph(graph, *args, **kwargs)
-    else:
-        graph_builder = graph
-    if print_progress:
-        print("Initialising Graph Engine")
-    engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=run_mode)
-
-    if print_progress:
-        print(f"Running Graph from: {start_time} to {end_time}")
-
-    engine.run(start_time, end_time, life_cycle_observers)
-
-    if print_progress:
-        print("Graph Complete")
-
-    if print_progress:
-        print("Done")
+    kwargs_ = {"run_mode": run_mode, "trace": __trace__}
+    if start_time is not None:
+        kwargs_["start_time"] = start_time
+    if end_time is not None:
+        kwargs_["end_time"] = end_time
+    if life_cycle_observers is not None:
+        kwargs_["life_cycle_observers"] = life_cycle_observers
+    config = GraphConfiguration(**kwargs_)
+    evaluate_graph(graph, config, *args, **kwargs)

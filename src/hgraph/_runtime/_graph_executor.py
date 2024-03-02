@@ -20,7 +20,7 @@ class GraphExecutor:
     Note that the engine by default is a single threaded process. It is intended to be thread safe, that is multiple
     engines could be operated in parallel. That said with the current limitations of the python GIL, it is not going
     to be helpful on process bound processes. The intention is to provide a C++ implementation of the engine that
-    would be GIL free, additionally with newer versions of Python promising for GIL free execution, this may become
+    would be GIL free, additionally, with newer versions of Python promising for GIL free execution, this may become
     more useful in the future.
     """
 
@@ -39,7 +39,7 @@ class GraphExecutor:
         """
 
     @abstractmethod
-    def run(self, start_time: datetime, end_time: datetime, observers: Iterable[EvaluationLifeCycleObserver] = None):
+    def run(self, start_time: datetime, end_time: datetime):
         """
         Tell the engine to begin and operate it's run loop.
         :param start_time: The time to start the run loop at
@@ -54,7 +54,7 @@ class GraphEngineFactory:
 
     @staticmethod
     def default():
-        from hgraph._impl._runtime._graph_executor import  PythonGraphExecutor
+        from hgraph._impl._runtime._graph_executor import PythonGraphExecutor
         return PythonGraphExecutor
 
     @staticmethod
@@ -78,14 +78,16 @@ class GraphEngineFactory:
         GraphEngineFactory._graph_engine_class = None
 
     @staticmethod
-    def make(graph: Graph, run_mode: EvaluationMode) -> GraphExecutor:
+    def make(graph: Graph, run_mode: EvaluationMode,
+             observers: Iterable[EvaluationLifeCycleObserver] = None) -> GraphExecutor:
         """
         Make a new graph engine. If no engine is declared, the default engine will be used.
         :param graph: The graph to make the engine for
         :param run_mode: The run mode of the engine
+        :param observers: The observers to associate with this graph as default observers.
         :return: A new graph engine
         """
         if GraphEngineFactory.is_declared():
-            return GraphEngineFactory.declared()(graph=graph, run_mode=run_mode)
+            return GraphEngineFactory.declared()(graph=graph, run_mode=run_mode, observers=observers)
         else:
-            return GraphEngineFactory.default()(graph=graph, run_mode=run_mode)
+            return GraphEngineFactory.default()(graph=graph, run_mode=run_mode, observers=observers)
