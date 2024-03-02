@@ -29,6 +29,7 @@ class InjectableTypes(IntFlag):
     OUTPUT = auto()
     CLOCK = auto()
     ENGINE_API = auto()
+    REPLAY_STATE = auto()
 
 
 @dataclass
@@ -73,6 +74,10 @@ class NodeSignature:
     @property
     def uses_output_feedback(self) -> bool:
         return InjectableTypes.OUTPUT in self.injectable_inputs
+
+    @property
+    def uses_replay_state(self) -> bool:
+        return InjectableTypes.REPLAY_STATE in self.injectable_inputs
 
     @property
     def signature(self) -> str:
