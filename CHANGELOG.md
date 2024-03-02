@@ -206,3 +206,6 @@ Version 0.1.17 (TBD)
 * Clean up const to use start_time as an anchor
 * Fix nested graph to use the evaluation time as start time, this fixes using const in a nested graph.
 * Update eval_node to support life-cycle observers to be added
+* Update README.md
+* Update to start making using of Python logging for the engine.
+* Extract runtime configuration into a standalone object.
