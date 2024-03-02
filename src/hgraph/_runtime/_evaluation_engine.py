@@ -291,6 +291,10 @@ class EvaluationEngineDelegate(EvaluationEngine):
         return self._engine.end_time
 
     @property
+    def evaluation_mode(self) -> EvaluationMode:
+        return self._engine.evaluation_mode
+
+    @property
     def evaluation_clock(self) -> "EvaluationClock":
         return self._engine.evaluation_clock
 
