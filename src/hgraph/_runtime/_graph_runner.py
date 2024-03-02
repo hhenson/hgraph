@@ -8,7 +8,7 @@ from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph_executor import GraphEngineFactory
 
-__all__ = ("run_graph",)
+__all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
 
 def _default_logger() -> Logger:
@@ -56,9 +56,19 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
     from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._wiring._graph_builder import wire_graph
     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+    from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+    from hgraph.nodes import get_recorded_value, record
 
+    signature: WiringNodeSignature = None
     if not isinstance(graph, GraphBuilder):
         config.graph_logger.debug("Wiring graph: %s", graph.signature.signature)
+        signature = graph.signature
+        if signature.output_type:
+            graph_ = graph
+            def _record(*args, **kwargs):
+                out = graph_(*args, **kwargs)
+                record(out, "__out__")
+            graph = _record
         with WiringNodeInstanceContext():
             graph_builder: GraphBuilder = wire_graph(graph, *args, **kwargs)
     else:
@@ -71,6 +81,8 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
                               config.end_time)
     try:
         engine.run(config.start_time, config.end_time)
+        if signature is not None and signature.output_type:
+            return get_recorded_value("__out__")
     except Exception as e:
         config.graph_logger.exception("Graph failed", exc_info=True)
         raise e
