@@ -10,6 +10,8 @@ from hgraph._runtime._graph_executor import GraphEngineFactory
 
 __all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
+from hgraph._runtime.graph_recorder import GraphRecorder
+
 
 def _default_logger() -> Logger:
     logger = getLogger("hgraph")
@@ -36,6 +38,7 @@ class GraphConfiguration:
     trace: bool = False
     life_cycle_observers: tuple[EvaluationLifeCycleObserver] = tuple()
     graph_logger: Logger = field(default_factory=_default_logger)
+    recorder: GraphRecorder | None = None
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
