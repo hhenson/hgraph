@@ -8,7 +8,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import Size, STATE
+from hgraph._types._scalar_types import Size, STATE, REPLAY_STATE
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -231,9 +231,9 @@ class HgInjectableType(HgScalarTypeMetaData):
             EvaluationClockInjector: lambda: HgEvaluationClockType(),
             EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
             EvaluationEngineApiInjector: lambda: HgEvaluationEngineApiType(),
-            StateInjector: lambda: HgStateType(),
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
+            REPLAY_STATE: lambda: HgReplayType()
         }.get(value_tp, lambda: None)()
 
 
@@ -274,6 +274,25 @@ class HgEvaluationEngineApiType(HgInjectableType):
     @property
     def injector(self):
         return EvaluationEngineApiInjector()
+
+
+class ReplayInjector(Injector):
+
+    def __call__(self, node):
+        return REPLAY_STATE(node.graph.evaluation_engine_api)
+
+
+class HgReplayType(HgInjectableType):
+    """
+    Injectable for replay state.
+    """
+
+    def __init__(self):
+        super().__init__(REPLAY_STATE)
+
+    @property
+    def injector(self):
+        return ReplayInjector()
 
 
 class StateInjector(Injector):
