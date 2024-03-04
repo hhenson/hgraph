@@ -1,3 +1,4 @@
+import inspect
 from typing import Callable, cast
 
 from hgraph._types._scalar_types import SIZE
@@ -42,11 +43,13 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         >> tsl <- ([1], [2], [3], [4], [5])
         >> out -> 15
     """
-    if not isinstance(func, WiringNodeClass):
-        raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
-    if not isinstance(ts, WiringPort):
+    if isinstance(func, WiringNodeClass):
+        signature = func.signature.signature
+    elif isinstance(func, Callable) and func.__name__ == "<lambda>":
+        signature = inspect.signature(func).__str__()
+    else:
         raise RuntimeError(f"The supplied time-series is not a valid input: '{ts}'")
-    with WiringContext(current_signature=STATE(signature=f"reduce('{func.signature.signature}', {ts.output_type}, {zero})")):
+    with WiringContext(current_signature=STATE(signature=f"reduce('{signature}', {ts.output_type}, {zero})")):
         if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
             return _reduce_tsl(func, ts, zero, is_associated)
         elif type(tp_) is HgTSDTypeMetaData:
