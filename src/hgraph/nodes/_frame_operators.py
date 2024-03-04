@@ -1,0 +1,21 @@
+from typing import Type
+
+from hgraph import compute_node, Frame, TS, SCHEMA, SCALAR, Array, AUTO_RESOLVE, Series
+from hgraph._runtime._operators import getitem_
+
+__all__ = ("get_frame_col", "get_frame_item_", "get_frame_item_ts_",)
+
+
+@compute_node(overloads=getitem_, resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars['key']].py_type]})
+def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
+    return ts.value[key]
+
+
+@compute_node(overloads=getitem_)
+def get_frame_item_(ts: TS[Frame[SCHEMA]], key: int, _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
+    return _tp(**ts.value[key].to_dicts()[0])
+
+
+@compute_node(overloads=getitem_)
+def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
+    return _tp(**ts.value[key].to_dicts()[0])

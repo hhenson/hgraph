@@ -133,3 +133,6 @@ class AbstractSchema:
 
         v: HgTypeMetaData
         return cls._create_resolved_class({k: v.resolve(resolution_dict) for k, v in cls.__meta_data_schema__.items()})
+
+
+AbstractSchema.__annotations__ = {}

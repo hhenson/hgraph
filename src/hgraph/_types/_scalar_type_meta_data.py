@@ -20,24 +20,34 @@ __all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgS
            "HgArrayScalarTypeMetaData")
 
 
+
 class HgScalarTypeMetaData(HgTypeMetaData):
     is_scalar = True
 
     @classmethod
     def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
-        parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgObjectType]
-        for parser in parses:
+        for parser in cls._parsers():
             if meta_data := parser.parse_type(value_tp):
                 return meta_data
 
     @classmethod
     def parse_value(cls, value) -> "HgScalarTypeMetaData":
-        parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgObjectType]
-        for parser in parses:
+        for parser in cls._parsers():
             if meta_data := parser.parse_value(value):
                 return meta_data
+
+    @classmethod
+    def _parsers(cls) -> List[type]:
+        if p := getattr(cls, "_parsers_list", None):
+            return p
+
+        cls._parsers_list = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
+                HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgObjectType]
+        return cls._parsers_list
+
+    @classmethod
+    def register_parser(cls, new_parser: type):
+        cls._parsers().insert(-1, new_parser)  # Insert before the HgObjectType which is catch-all
 
 
 class HgScalarTypeVar(HgScalarTypeMetaData):
