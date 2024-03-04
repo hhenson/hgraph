@@ -103,7 +103,8 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                  **kwargs) -> "WiringPort":
 
-        if (r := self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
+        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
+        if found_overload:
             return r
 
         # We don't want graph and node signatures to operate under different rules as this would make

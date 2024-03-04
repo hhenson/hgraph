@@ -810,6 +810,10 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
     def py_type(self) -> Type:
         return type[self.value_tp.py_type]
 
+    @property
+    def operator_rank(self) -> float:
+        return self.value_tp.operator_rank
+
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self

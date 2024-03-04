@@ -58,6 +58,13 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             out.__init__ = lambda *args, **kwargs: _init(out.__key_tp__, out.__value_tp__, *args, **kwargs)
         return out
 
+    def __len__(self):
+        """
+        Returns the number of time-series values
+        :return:
+        """
+        return len(self._ts_values)
+
     def __getitem__(self, item: K) -> V:
         """
         Returns the time series at this index position
