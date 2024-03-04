@@ -228,3 +228,11 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
 def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """logic not"""
     return not ts.value
+
+
+@graph
+def getitem_(ts: TIME_SERIES_TYPE, key: TS[SCALAR]) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator getitem_ is not implemented for {ts.output_type} and {key.output_type}")
+
+
+WiringPort.__getitem__ = lambda x, y: getitem_(x, y)
