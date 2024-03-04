@@ -235,6 +235,23 @@ def test_tsl_reduce(inputs, size, expected):
 
 
 @pytest.mark.parametrize(
+    ["inputs", 'size', "expected"],
+    [
+        [[None, {0: 1}, None, {1: 2}], Size[2], [0, 1, None, 3]],
+        [[None, {0: 1, 3: 4}, {1: 2, 2: 3}], Size[4], [0, 5, 10]],
+        [[None, {0: 1, 3: 4}, {1: 2, 2: 3}, {4: 8}], Size[5], [0, 5, 10, 18]],
+        [[None, {0: 1, 3: 4}, {1: 2, 2: 3}, {4: 8, 5: 9}], Size[6], [0, 5, 10, 27]],
+    ]
+)
+def test_tsl_reduce_lambda(inputs, size, expected):
+    @graph
+    def reduce_test(tsl: TSL[TS[int], SIZE]) -> TS[int]:
+        return reduce(lambda x, y: x + y, tsl, 0)
+
+    assert eval_node(reduce_test, inputs, resolution_dict={'tsl': TSL[TS[int], size]}) == expected
+
+
+@pytest.mark.parametrize(
     ["inputs", "expected"],
     [
         [[{0: 1, 1: 2}, {1: REMOVE_IF_EXISTS}, {1: 3}],
