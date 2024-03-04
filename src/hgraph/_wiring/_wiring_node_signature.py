@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
 from inspect import isfunction, signature
-from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable
+from types import GenericAlias
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable, _GenericAlias
 
 from frozendict import frozendict
 
@@ -140,7 +141,7 @@ class WiringNodeSignature:
             for k, v in pre_resolved_types.items():
                 if isfunction(v) and k not in out_dict:
                     resolved = v(resolution_dict, scalars)
-                    if isinstance(resolved, type):
+                    if isinstance(resolved, (type, GenericAlias, _GenericAlias, TypeVar)):
                         resolved = HgTypeMetaData.parse_type(resolved)
                     out_dict[k] = resolved
 

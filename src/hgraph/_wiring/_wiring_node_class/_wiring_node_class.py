@@ -278,18 +278,21 @@ class BaseWiringNodeClass(WiringNodeClass):
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
             raise WiringError(f"Failure resolving signature, graph call stack:\n{path}") from e
 
-    def _check_overloads(self, *args, **kwargs) -> "WiringPort":
+    def _check_overloads(self, *args, **kwargs) -> Tuple[bool, "WiringPort"]:
         if (overload_helper := getattr(self, "overload_list", None)) is not None:
             overload_helper: OverloadedWiringNodeHelper
             best_overload = overload_helper.get_best_overload(*args, **kwargs)
             best_overload: WiringNodeClass
             if best_overload is not self:
-                return best_overload(*args, **kwargs)
+                return True, best_overload(*args, **kwargs)
+
+        return False, None
 
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
 
-        if (r := self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)) is not None:
+        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
+        if found_overload:
             return r
 
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
@@ -435,7 +438,9 @@ class OverloadedWiringNodeHelper:
 
     @staticmethod
     def _calc_rank(signature: WiringNodeSignature) -> float:
-        return sum(t.operator_rank * (0.001 if t.is_scalar else 1) for t in signature.input_types.values())
+        return sum(t.operator_rank * (0.001 if t.is_scalar else 1)
+                   for k, t in signature.input_types.items()
+                   if signature.defaults.get(k) != AUTO_RESOLVE)
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []
@@ -444,7 +449,7 @@ class OverloadedWiringNodeHelper:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
                 c.resolve_signature(*args, **kwargs)
                 candidates.append((c, r))
-            except Exception:
+            except Exception as e:
                 pass
         if not candidates:
             args = [str(a.output_type) if isinstance(a, WiringPort) else str(type(a)) for a in args]
