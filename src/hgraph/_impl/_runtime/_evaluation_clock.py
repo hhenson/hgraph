@@ -135,7 +135,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
                 self._ready_to_push = True
             # It could be that a push node has triggered
         #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
-        self.evaluation_time = min(next_scheduled_time, datetime.utcnow())
+        self.evaluation_time = min(next_scheduled_time, max(self.next_cycle_evaluation_time, datetime.utcnow()))
 
     def reset_push_node_requires_scheduling(self):
         """
