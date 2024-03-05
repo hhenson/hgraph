@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 
 from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER
@@ -9,9 +10,18 @@ class NpRollingWindowResult(TimeSeriesSchema):
     index: TS[Array[datetime, SIZE]]
 
 
+@dataclass
+class NpRollingWindowState:
+    capacity: int = None
+    buffer: Array[SCALAR] = None
+    index: Array[datetime] = None
+    start: int = 0
+    length: int = 0
+
+
 @compute_node
 def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = None, _sz: type[SIZE] = AUTO_RESOLVE,
-                      _scalar: type[SCALAR] = AUTO_RESOLVE, _state: STATE = None) \
+                      _scalar: type[SCALAR] = AUTO_RESOLVE, _state: STATE[NpRollingWindowState] = None) \
         -> TSB[NpRollingWindowResult]:
     buffer: Array[SCALAR] = _state.buffer
     index: Array[datetime] = _state.index
@@ -38,14 +48,12 @@ def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = Non
 
 
 @np_rolling_window.start
-def np_rolling_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: STATE):
+def np_rolling_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: STATE[NpRollingWindowState]):
     _state.capacity = _sz.SIZE
     if _state.capacity < 1:
         raise RuntimeError('Period must be at least 1')
     _state.buffer = np.array([_scalar()] * _sz.SIZE)
     _state.index = np.array([MIN_DT] * _sz.SIZE)
-    _state.start = 0
-    _state.length = 0
 
 
 @compute_node

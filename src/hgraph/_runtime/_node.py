@@ -1,7 +1,7 @@
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import Enum, IntFlag, auto
 from typing import Optional, Mapping, TYPE_CHECKING, Any
 
 from hgraph._runtime._lifecycle import ComponentLifeCycle
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from hgraph._runtime._graph import Graph
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
-__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler")
+__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes")
 
 
 class NodeTypeEnum(Enum):
@@ -21,6 +21,14 @@ class NodeTypeEnum(Enum):
     PULL_SOURCE_NODE = 1
     COMPUTE_NODE = 2
     SINK_NODE = 3
+
+
+class InjectableTypes(IntFlag):
+    STATE = auto()
+    SCHEDULER = auto()
+    OUTPUT = auto()
+    CLOCK = auto()
+    ENGINE_API = auto()
 
 
 @dataclass
@@ -39,10 +47,30 @@ class NodeSignature:
     active_inputs: frozenset[str] | None = None
     valid_inputs: frozenset[str] | None = None
     all_valid_inputs: frozenset[str] | None = None
-    uses_scheduler: bool = False
+    injectable_inputs: InjectableTypes = InjectableTypes(0)
     capture_exception: bool = False
     trace_back_depth: int = 1
     capture_values: bool = False
+
+    @property
+    def uses_scheduler(self) -> bool:
+        return InjectableTypes.SCHEDULER in self.injectable_inputs
+
+    @property
+    def uses_clock(self) -> bool:
+        return InjectableTypes.CLOCK in self.injectable_inputs
+
+    @property
+    def uses_engine(self) -> bool:
+        return InjectableTypes.ENGINE_API in self.injectable_inputs
+
+    @property
+    def uses_state(self) -> bool:
+        return InjectableTypes.STATE in self.injectable_inputs
+
+    @property
+    def uses_output_feedback(self) -> bool:
+        return InjectableTypes.OUTPUT in self.injectable_inputs
 
     @property
     def signature(self) -> str:
@@ -64,7 +92,7 @@ class NodeSignature:
             active_inputs=self.active_inputs,
             valid_inputs=self.valid_inputs,
             all_valid_inputs=self.all_valid_inputs,
-            uses_scheduler=self.uses_scheduler,
+            injectable_inputs=self.injectable_inputs,
             capture_exception=self.capture_exception,
             trace_back_depth=self.trace_back_depth,
             capture_values=self.capture_values

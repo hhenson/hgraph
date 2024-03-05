@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import _SpecialGenericAlias, _tp_cache, _LiteralGenericAlias, TypeVar
-from hgraph._types._scalar_types import Size
+from typing import _SpecialGenericAlias, _tp_cache, TypeVar
 
 import numpy as np
+
+from hgraph._types._scalar_types import Size
 
 __all__ = ("ScalarValue", "KeyableScalarValue", "Array",)
 

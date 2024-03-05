@@ -263,7 +263,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     all_valid_inputs=all_valid_inputs,
                     unresolved_args=frozenset(),
                     time_series_args=self.signature.time_series_args,
-                    uses_scheduler=self.signature.uses_scheduler,  # This should not differ based on resolution
+                    injectable_inputs=self.signature.injectable_inputs,  # This should not differ based on resolution
                     label=self.signature.label)
                 if resolve_signature.is_resolved:
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)

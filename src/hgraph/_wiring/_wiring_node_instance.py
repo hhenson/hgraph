@@ -122,7 +122,7 @@ class WiringNodeInstance:
             active_inputs=self.resolved_signature.active_inputs,
             valid_inputs=self.resolved_signature.valid_inputs,
             all_valid_inputs=self.resolved_signature.all_valid_inputs,
-            uses_scheduler=self.resolved_signature.uses_scheduler,
+            injectable_inputs=self.resolved_signature.injectable_inputs,
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,
             capture_values=self.capture_values

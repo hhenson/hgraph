@@ -1,9 +1,10 @@
 from collections import deque
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TypeVar
 
 from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_, TSD, \
-    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER
+    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar
 from hgraph.nodes._operators import cast_, len_
 
 __all__ = (
@@ -13,8 +14,14 @@ __all__ = (
 INT_OR_TIME_DELTA = TypeVar("INT_OR_TIME_DELTA", int, timedelta)
 
 
+@dataclass
+class EwmaState(CompoundScalar):
+    s_prev: float = None
+    count: int = 0
+
+
 @compute_node
-def ewma(ts: TS[float], alpha: float, min_periods: int = 0, _state: STATE = None) -> TS[float]:
+def ewma(ts: TS[float], alpha: float, min_periods: int = 0, _state: STATE[EwmaState] = None) -> TS[float]:
     """Exponential Weighted Moving Average"""
     x_t = ts.value
     s_prev = _state.s_prev
@@ -32,11 +39,8 @@ def ewma(ts: TS[float], alpha: float, min_periods: int = 0, _state: STATE = None
 
 
 @ewma.start
-def ewma_start(alpha: float, _state: STATE):
-    if 0.0 <= alpha <= 1.0:
-        _state.s_prev = None
-        _state.count = 0
-    else:
+def ewma_start(alpha: float):
+    if not (0.0 <= alpha <= 1.0):
         raise ValueError("alpha must be between 0 and 1")
 
 
@@ -148,8 +152,13 @@ def tsl_lag(ts: TSL[TIME_SERIES_TYPE, SIZE], period: INT_OR_TIME_DELTA) -> TSL[T
     return TSL.from_ts(lag(ts_, period) for ts_ in ts.values())
 
 
+@dataclass
+class LagState:
+    buffer: deque = None
+
+
 @compute_node(overloads=lag)
-def tick_lag(ts: TS[SCALAR], period: int, _state: STATE = None) -> TS[SCALAR]:
+def tick_lag(ts: TS[SCALAR], period: int, _state: STATE[LagState] = None) -> TS[SCALAR]:
     buffer: deque[SCALAR] = _state.buffer
     try:
         if len(buffer) == period:
@@ -159,13 +168,13 @@ def tick_lag(ts: TS[SCALAR], period: int, _state: STATE = None) -> TS[SCALAR]:
 
 
 @tick_lag.start
-def tick_lag_start(period: int, _state: STATE):
-    from collections import deque
+def tick_lag_start(period: int, _state: STATE[LagState]):
     _state.buffer = deque[SCALAR](maxlen=period)
 
 
 @compute_node(overloads=lag)
-def time_delta_lag(ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None, _state: STATE = None) -> TS[SCALAR]:
+def time_delta_lag(ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None,
+                   _state: STATE[LagState] = None) -> TS[SCALAR]:
     # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
     buffer: deque[SCALAR] = _state.buffer
     if ts.modified:
@@ -177,7 +186,7 @@ def time_delta_lag(ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = No
 
 
 @time_delta_lag.start
-def time_delta_lag_start(_state: STATE):
+def time_delta_lag_start(_state: STATE[LagState]):
     _state.buffer = deque[SCALAR]()
 
 

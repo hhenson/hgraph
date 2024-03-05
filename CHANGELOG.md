@@ -187,3 +187,25 @@ Version 0.1.14 (19-02-2024)
 
 * Fix switch use of key
 * Fix switch stop when the switch itself goes away
+
+Version 0.1.15 (21-02-2024)
+---------------------------
+
+* Fix issue with nested graphs not ticking correctly.
+
+
+Version 0.1.16 (21-02-2024)
+---------------------------
+
+* Fix accidental issue added during fixing of nested graph issue.
+
+Version 0.1.17 (02-03-2024)
+---------------------------
+
+* Attempt to ensure we get a stable flattening of the topologically sorted graph.
+* Clean up const to use start_time as an anchor
+* Fix nested graph to use the evaluation time as start time, this fixes using const in a nested graph.
+* Update eval_node to support life-cycle observers to be added
+* Update README.md
+* Update to start making using of Python logging for the engine.
+* Extract runtime configuration into a standalone object.

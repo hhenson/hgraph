@@ -1,11 +1,15 @@
 from dataclasses import dataclass
 from enum import Enum
 from inspect import isfunction, signature
-from types import GenericAlias
-from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable, _GenericAlias
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable, GenericAlias, _GenericAlias
+from functools import reduce
+from operator import or_
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 
 from frozendict import frozendict
 
+from hgraph._types._scalar_type_meta_data import HgEvaluationClockType, HgEvaluationEngineApiType, HgStateType
+from hgraph._runtime._node import InjectableTypes
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
     HgTypeOfTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -17,7 +21,7 @@ from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import IncorrectTypeBinding
 
 __all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
-           "extract_hg_time_series_type", "extract_scalar_type")
+           "extract_hg_time_series_type", "extract_scalar_type", "extract_injectable_inputs")
 
 
 class WiringNodeType(Enum):
@@ -77,10 +81,30 @@ class WiringNodeSignature:
     all_valid_inputs: frozenset[str] | None
     unresolved_args: frozenset[str]
     time_series_args: frozenset[str]
-    uses_scheduler: bool
+    injectable_inputs: InjectableTypes = InjectableTypes(0)
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
     # supplied via inputs
     label: str | None = None  # A label if provided, this can help to disambiguate the node
+
+    @property
+    def uses_scheduler(self) -> bool:
+        return InjectableTypes.SCHEDULER in self.injectable_inputs
+
+    @property
+    def uses_clock(self) -> bool:
+        return InjectableTypes.CLOCK in self.injectable_inputs
+
+    @property
+    def uses_engine(self) -> bool:
+        return InjectableTypes.ENGINE_API in self.injectable_inputs
+
+    @property
+    def uses_state(self) -> bool:
+        return InjectableTypes.STATE in self.injectable_inputs
+
+    @property
+    def uses_output_feedback(self) -> bool:
+        return InjectableTypes.OUTPUT in self.injectable_inputs
 
     def as_dict(self) -> dict:
         return dict(node_type=self.node_type, name=self.name, args=self.args, defaults=self.defaults,
@@ -88,7 +112,7 @@ class WiringNodeSignature:
                     active_inputs=self.active_inputs, valid_inputs=self.valid_inputs,
                     all_valid_inputs=self.all_valid_inputs,
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
-                    uses_scheduler=self.uses_scheduler, label=self.label)
+                    injectable_inputs=self.injectable_inputs, label=self.label)
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
         kwargs_ = self.as_dict() | kwargs
@@ -284,6 +308,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
 
+    injectable_inputs = extract_injectable_inputs(**input_types)
+
     return WiringNodeSignature(
         node_type=wiring_node_type,
         name=name,
@@ -297,6 +323,19 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         src_location=SourceCodeDetails(file=filename, start_line=first_line),
         unresolved_args=unresolved_inputs,
         time_series_args=time_series_inputs,
-        uses_scheduler=any(type(v) is HgSchedulerType for v in input_types.values()),
+        injectable_inputs=injectable_inputs,
         label=None
     )
+
+
+def extract_injectable_inputs(**kwargs) -> InjectableTypes:
+    return reduce(or_,
+                  ({
+                       HgSchedulerType: InjectableTypes.SCHEDULER,
+                       HgEvaluationClockType: InjectableTypes.CLOCK,
+                       HgEvaluationEngineApiType: InjectableTypes.ENGINE_API,
+                       HgStateType: InjectableTypes.STATE,
+                       HgOutputType: InjectableTypes.OUTPUT,
+                   }.get(type(v), InjectableTypes(0)) for v in kwargs.values()),
+                  InjectableTypes(0)
+                  )

@@ -99,6 +99,13 @@ class EvaluationEngineApi(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
+    def evaluation_mode(self) -> EvaluationMode:
+        """
+        The current mode of evaluation
+        """
+
+    @property
+    @abstractmethod
     def start_time(self) -> datetime:
         """
         The start time of the evaluation engine.
@@ -266,6 +273,10 @@ class EvaluationEngineDelegate(EvaluationEngine):
     @property
     def end_time(self) -> datetime:
         return self._engine.end_time
+
+    @property
+    def evaluation_mode(self) -> EvaluationMode:
+        return self._engine.evaluation_mode
 
     @property
     def evaluation_clock(self) -> "EvaluationClock":

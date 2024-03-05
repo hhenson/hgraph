@@ -1,14 +1,15 @@
 from datetime import timedelta
 from typing import Type
 
-from hgraph import generator, SCALAR, TIME_SERIES_TYPE, EvaluationClock, TS, compute_node, graph, REF, AUTO_RESOLVE
+from hgraph import generator, SCALAR, TIME_SERIES_TYPE, EvaluationClock, TS, compute_node, graph, REF, AUTO_RESOLVE, \
+    EvaluationEngineApi
 
 __all__ = ("const", "default", "nothing")
 
 
 @generator
 def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedelta = timedelta(),
-          _clock: EvaluationClock = None) -> TIME_SERIES_TYPE:
+          _api: EvaluationEngineApi = None) -> TIME_SERIES_TYPE:
     """
     Produces a single tick at the start of the graph evaluation after which this node does nothing.
 
@@ -19,7 +20,7 @@ def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedel
     :param _clock: The evaluation clock. (To be injected)
     :return: A single tick of the value supplied.
     """
-    yield _clock.evaluation_time + delay, value
+    yield _api.start_time + delay, value
 
 
 @graph

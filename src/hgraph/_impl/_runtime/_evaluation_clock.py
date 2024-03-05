@@ -97,6 +97,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         super().__init__(start_time)
         self._push_node_requires_scheduling = False
         self._push_node_requires_scheduling_condition = Condition()
+        self._ready_to_push: bool = False
 
     @property
     def now(self) -> datetime:
@@ -117,17 +118,21 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
             self._push_node_requires_scheduling_condition.notify_all()
 
     def push_node_requires_scheduling(self) -> bool:
+        if not self._ready_to_push:
+            return False
         with self._push_node_requires_scheduling_condition:
             return self._push_node_requires_scheduling
 
     def advance_to_next_scheduled_time(self):
         next_scheduled_time = self.next_scheduled_evaluation_time
+        self._ready_to_push = False  # We only let push values to be introduced when there are no PULL entries left
         #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: {next_scheduled_time}", file=sys.stderr)
         with self._push_node_requires_scheduling_condition:
             while datetime.utcnow() < next_scheduled_time and not self._push_node_requires_scheduling:
                 sleep_time = (next_scheduled_time - datetime.utcnow()).total_seconds()
                 #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: sleeping for {sleep_time}", file=sys.stderr)
                 self._push_node_requires_scheduling_condition.wait(sleep_time)
+                self._ready_to_push = True
             # It could be that a push node has triggered
         #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
         self.evaluation_time = min(next_scheduled_time, datetime.utcnow())

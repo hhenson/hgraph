@@ -7,7 +7,7 @@ from hgraph._types._scalar_types import CompoundScalar
 if TYPE_CHECKING:
     from hgraph._runtime._node import Node
 
-__all__ = ("NodeError",)
+__all__ = ("NodeError", "raise_error")
 
 
 @dataclass(frozen=True)
@@ -93,3 +93,7 @@ class NodeError(CompoundScalar):
             activation_back_trace=str(back_trace),
         )
         return error
+
+
+def raise_error(msg: str):
+    raise RuntimeError(msg)
