@@ -340,16 +340,20 @@ class HgStateType(HgInjectableType):
         return StateInjector(self.state_type.py_type if self.state_type.is_resolved else None)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_types import STATE
-        if isinstance(value, _GenericAlias) and value.__origin__ is STATE:
-            bundle_tp = HgScalarTypeMetaData.parse(value.__args__[0])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is STATE:
+            bundle_tp = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if bundle_tp is None:
-                raise ParseError(f"'{value.__args__[0]}' is not a valid input to STATE")
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to STATE")
             return HgStateType(bundle_tp)
-        if value is STATE:
+        if value_tp is STATE:
             from hgraph._types._scalar_types import COMPOUND_SCALAR
-            return HgStateType(HgScalarTypeMetaData.parse(COMPOUND_SCALAR))
+            return HgStateType(HgScalarTypeMetaData.parse_type(COMPOUND_SCALAR))
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return cls.parse_type(type(value))
 
 
 class OutputInjector(Injector):
