@@ -11,7 +11,7 @@ from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTy
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOLVE
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, \
-    CustomMessageWiringError
+    CustomMessageWiringError, WiringFailureError
 from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
@@ -224,7 +224,10 @@ class BaseWiringNodeClass(WiringNodeClass):
                                                                      **kwargs)
         return resolved_signature
 
-    def _validate_and_resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable], **kwargs) \
+    def _validate_and_resolve_signature(self, *args,
+                                        __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable],
+                                        __enforce_output_type__: bool = True,
+                                        **kwargs) \
             -> tuple[dict[str, Any], WiringNodeSignature]:
         """
         Insure the inputs wired in match the signature of this node and resolve any missing types.
@@ -238,7 +241,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             # Do the resolve to ensure types match as well as actually resolve the types.
             resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
-            resolved_output = self.signature.resolve_output(resolution_dict)
+            resolved_output = self.signature.resolve_output(resolution_dict, weak=not __enforce_output_type__)
             valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
             all_valid_inputs = self.signature.resolve_all_valid_inputs(**kwargs)
             resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
@@ -265,7 +268,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     time_series_args=self.signature.time_series_args,
                     injectable_inputs=self.signature.injectable_inputs,  # This should not differ based on resolution
                     label=self.signature.label)
-                if resolve_signature.is_resolved:
+                if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     self.signature.validate_resolved_types(kwarg_types, kwargs)
                     return kwargs, resolve_signature
@@ -276,7 +279,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 raise e
             from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
-            raise WiringError(f"Failure resolving signature, graph call stack:\n{path}") from e
+            raise WiringFailureError(f"Failure resolving signature for {self.signature.signature}, graph call stack:\n{path}") from e
 
     def _check_overloads(self, *args, **kwargs) -> Tuple[bool, "WiringPort"]:
         if (overload_helper := getattr(self, "overload_list", None)) is not None:
@@ -444,13 +447,24 @@ class OverloadedWiringNodeHelper:
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []
+        rejected_candidates = []
         for c, r in self.overloads:
             try:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
-                c.resolve_signature(*args, **kwargs)
+                c.resolve_signature(*args, **kwargs, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH)
                 candidates.append((c, r))
-            except Exception as e:
+            except (WiringError, SyntaxError) as e:
+                if True:
+                    if isinstance(e, WiringFailureError):
+                        e = e.__cause__
+
+                    p = lambda x: str(x.output_type.py_type) if isinstance(x, WiringPort) else str(x)
+                    print(f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
+                          f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
                 pass
+            except Exception as e:
+                raise
+
         if not candidates:
             args = [str(a.output_type) if isinstance(a, WiringPort) else str(type(a)) for a in args]
             kwargs = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(type(v))) for k, v in
@@ -461,8 +475,10 @@ class OverloadedWiringNodeHelper:
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
         if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
+            p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
             raise WiringError(
                 f"{self.overloads[0][0].signature.name} overloads are ambiguous with given parameters - more than one top candidate: "
-                f"{','.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}")
+                f"{','.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
+                f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
 
         return best_candidates[0][0]

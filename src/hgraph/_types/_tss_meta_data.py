@@ -50,6 +50,9 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgSetScalarType(self.value_scalar_tp)
+
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tss_type import TimeSeriesSetInput

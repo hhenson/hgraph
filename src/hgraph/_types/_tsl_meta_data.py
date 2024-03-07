@@ -59,6 +59,9 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgTupleCollectionScalarType(self.value_tp.scalar_type())
+
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsl_type import TimeSeriesListInput

@@ -3,7 +3,7 @@ from typing import Type, TypeVar, Optional, _GenericAlias
 
 __all__ = ("HgREFTypeMetaData", "HgREFOutTypeMetaData",)
 
-from hgraph._types._type_meta_data import ParseError
+from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 
@@ -44,6 +44,10 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
                                           wired_type: "HgTypeMetaData", value: object):
         self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        from hgraph._types._ref_type import TimeSeriesReference
+        return HgTypeMetaData.parse_type(TimeSeriesReference)
+
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ref_type import TimeSeriesReferenceInput
@@ -58,11 +62,14 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         return True
 
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
-        return self.value_tp
+        return self.value_tp.dereference()
 
     @property
     def operator_rank(self) -> float:
         return self.value_tp.operator_rank
+
+    def __getitem__(self, item):
+        return self.value_tp[item]
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgREFTypeMetaData and self.value_tp == o.value_tp

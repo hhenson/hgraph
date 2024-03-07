@@ -79,7 +79,6 @@ def map_(func: Callable, *args, **kwargs):
 
 
 
-
 class _MappingMarker:
 
     def __init__(self, value: TSD[K, TIME_SERIES_TYPE]):
@@ -117,11 +116,11 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
         key_set = __keys__
     else:
         key_set = next((i.key_set for i in chain(args, kwargs.values()) if
-                             isinstance(i.output_type, HgTSDTypeMetaData)), None)
+                             isinstance(i.output_type.dereference(), HgTSDTypeMetaData)), None)
         if key_set is None:
             raise CustomMessageWiringError("No multiplexed inputs found")
 
-    key_type = key_set.output_type.value_scalar_tp
+    key_type = key_set.output_type.dereference().value_scalar_tp
 
     # 2. Put together annotations for the lambda from the parameter types
     annotations = {}
@@ -143,7 +142,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
 
         if i < len(args):  # provided as positional and not key
             if isinstance(args[i], WiringPort):
-                tp = args[i].output_type
+                tp = args[i].output_type.dereference()
                 if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
                     annotations[n] = tp.value_tp
                 else:
@@ -231,7 +230,7 @@ def _build_map_wiring_node_and_inputs(
     # 5. Extract provided key signature
     #    We use the output_type of wiring ports, but for scalar values, they must take the form of the underlying
     #    function signature, so we just use from that signature.
-    input_types = {k: v.output_type if isinstance(v, (WiringPort, _MappingMarker)) else signature.input_types[k] for
+    input_types = {k: v.output_type.dereference() if isinstance(v, (WiringPort, _MappingMarker)) else signature.input_types[k] for
                    k, v in kwargs_.items()}
 
     # 6. Create the wiring nodes for the map function.
@@ -290,7 +289,7 @@ def _extract_map_fn_key_arg_and_type(signature: WiringNodeSignature, __key_arg__
             case 'ndx':
                 input_key_name = 'ndx'
                 match_tp = HgTimeSeriesTypeMetaData.parse_type(TS[int])
-        if not (input_has_key_arg := (match_tp and signature.input_types[signature.args[0]].matches(match_tp))):
+        if not (input_has_key_arg := (match_tp and match_tp.matches(signature.input_types[signature.args[0]]))):
             if match_tp:
                 raise CustomMessageWiringError(
                     f"The key argument '{signature.args[0]}: {signature.input_types[signature.args[0]]}' "
@@ -325,7 +324,7 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
 
     _validate_pass_through(signature, kwargs_, pass_through_args)  # Ensure the pass through args are correctly typed.
 
-    input_types = {k: v.output_type for k, v in kwargs_.items() if k not in non_ts_inputs}
+    input_types = {k: v.output_type.dereference() for k, v in kwargs_.items() if k not in non_ts_inputs}
 
     # Figure out if the map is done over a TSD or TSL by finding the first miltiplexing input
     map_type = None
@@ -391,8 +390,8 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
 
     direct_args = frozenset(
         k for k, v in input_types.items() if k not in marker_args and signature.input_types[k].matches(v) if
-        (type(signature.input_types[k]) is not HgTsTypeVarTypeMetaData and  # All time-series value match this!
-         type(v) is not multiplex_type))  # So if it is possibly not direct, don't mark it direct
+        #(type(signature.input_types[k]) is not HgTsTypeVarTypeMetaData and  # All time-series value match this!
+        (type(v) is not multiplex_type))  # So if it is possibly not direct, don't mark it direct
 
     multiplex_args = frozenset(
         k for k, v in input_types.items() \
@@ -538,7 +537,7 @@ def _validate_tsd_keys(kwargs_, multiplex_args, no_key_args, tsd_keys):
     """
     Ensure all the multiplexed inputs use the same input key.
     """
-    types = set(kwargs_[arg].output_type.key_tp for arg in chain(multiplex_args, no_key_args))
+    types = set(kwargs_[arg].output_type.dereference().key_tp for arg in chain(multiplex_args, no_key_args))
     if tsd_keys:
         types.add(tsd_keys.output_type.value_scalar_tp)
     if len(types) > 1:
@@ -582,7 +581,7 @@ def _validate_multiplex_types(signature: WiringNodeSignature, kwargs_, multiplex
     Validates that the multiplexed inputs are valid.
     """
     for arg in chain(multiplex_args, no_key_args):
-        if not (in_type := signature.input_types[arg]).matches((m_type := kwargs_[arg].output_type).value_tp):
+        if not (in_type := signature.input_types[arg]).matches((m_type := kwargs_[arg].output_type.dereference()).value_tp):
             raise CustomMessageWiringError(
                 f"The input '{arg}: {m_type}' is a multiplexed type, "
                 f"but its '{m_type.value_tp}' is not compatible with the input type: {in_type}")

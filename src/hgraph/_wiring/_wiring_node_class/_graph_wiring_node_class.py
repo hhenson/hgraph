@@ -1,3 +1,4 @@
+from copy import copy
 from typing import Optional, TypeVar, Callable
 
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
@@ -48,7 +49,8 @@ class WiringGraphContext:
         """Return a graph call stack"""
         # TODO: Look into how this could be improved to include call site information.
         # The first entry is the root node of the graph stack
-        return [graph.wiring_node_signature.src_location for graph in reversed(cls.__stack__[1:])]
+        return [graph.wiring_node_signature.src_location for graph in reversed(copy(cls.__stack__[1:]))
+                if graph.wiring_node_signature]
 
     @classmethod
     def instance(cls) -> "WiringGraphContext":
@@ -113,6 +115,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
                                                                                __pre_resolved_types__=__pre_resolved_types__,
+                                                                               __enforce_output_type__=False,
                                                                                **kwargs)
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!

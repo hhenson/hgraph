@@ -31,6 +31,13 @@ class WiringError(RuntimeError, ABC):
         """Print the error with the argument information included"""
 
 
+class WiringFailureError(WiringError):
+    """
+    Indicates that the wiring process failed with non-wiring specific exception which can be found in __cause__
+    """
+    pass
+
+
 class ArgumentBindingErrors(WiringError, ABC):
     """
     A binding error related to an argument, these errors are often initiated in a lower level of the
@@ -53,9 +60,9 @@ class ArgumentBindingErrors(WiringError, ABC):
 
     @property
     def input_value(self):
-        inp_value = self.kwargs[self.arg]
+        inp_value = self.kwargs.get(self.arg)
         from hgraph import WiringPort
-        if isinstance(inp_value, WiringPort):
+        if isinstance(inp_value, WiringPort) and inp_value.node_instance:
             inp_value = inp_value.node_instance.resolved_signature.signature
         else:
             inp_value = str(inp_value)

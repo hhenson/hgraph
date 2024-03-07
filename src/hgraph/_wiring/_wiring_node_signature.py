@@ -106,6 +106,10 @@ class WiringNodeSignature:
         return not self.unresolved_args and (not self.output_type or self.output_type.is_resolved)
 
     @property
+    def is_weakly_resolved(self) -> bool:
+        return not self.unresolved_args
+
+    @property
     def scalar_inputs(self) -> Mapping[str, HgScalarTypeMetaData]:
         """Split out scalar inputs from time-series inputs """
         return frozendict({k: v for k, v in self.input_types.items() if v.is_scalar})
