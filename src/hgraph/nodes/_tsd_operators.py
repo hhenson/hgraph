@@ -189,7 +189,7 @@ def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]) -> TSD[K,
 
 
 @compute_node
-def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, K_1]) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
+def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]]) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
     Rekey a TSD to the new keys.
     """
