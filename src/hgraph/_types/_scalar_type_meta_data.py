@@ -74,7 +74,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         if isinstance(tp, HgScalarTypeVar):
             if self.py_type == tp.py_type:
                 return True
-            for s_i, tp_i in itertools.product(self.constraints, tp.constraints):
+            for s_i, tp_i in itertools.product(self.constraints(), tp.constraints()):
                 s_t = isinstance(s_i, HgScalarTypeMetaData)
                 tp_t = isinstance(tp_i, HgScalarTypeMetaData)
                 if s_t and tp_t:
