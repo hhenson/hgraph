@@ -1,3 +1,4 @@
+import itertools
 from abc import abstractmethod
 from collections.abc import Mapping, Set
 from dataclasses import dataclass, is_dataclass
@@ -70,7 +71,23 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return tp.is_scalar and (isinstance(tp, HgScalarTypeMetaData) or isinstance(tp.py_type, self.constraints()))
+        if isinstance(tp, HgScalarTypeVar):
+            if self.py_type == tp.py_type:
+                return True
+            for s_i, tp_i in itertools.product(self.constraints, tp.constraints):
+                s_t = isinstance(s_i, HgScalarTypeMetaData)
+                tp_t = isinstance(tp_i, HgScalarTypeMetaData)
+                if s_t and tp_t:
+                    if s_i.matches(tp_i):
+                        return True
+                if not s_t and tp_t:
+                    if issubclass(getattr(tp.py_type, '__origin__', tp.py_type), s_i):
+                        return True
+                if not s_t and not tp_t:
+                    if issubclass(tp_i, s_i):
+                        return True
+
+        return tp.is_scalar and any(issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c) for c in self.constraints())
 
     @property
     def type_var(self) -> TypeVar:
@@ -150,7 +167,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return type(o) is HgAtomicType and self.py_type is o.py_type
 
     def __str__(self) -> str:
-        return f'{self.py_type.__name__}'
+        return f'{self.py_type}'
 
     def __repr__(self) -> str:
         return f'HgAtomicType({repr(self.py_type)})'

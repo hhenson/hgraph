@@ -1,4 +1,5 @@
-from typing import Type, TypeVar, Optional
+import itertools
+from typing import Type, TypeVar, Optional, Sequence
 
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
@@ -16,11 +17,31 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
     is_generic: bool = True
     is_resolved: bool = False
 
-    def __init__(self, py_type):
+    def __init__(self, py_type, constraints: Sequence[HgTimeSeriesTypeMetaData] = ()):
         self.py_type = py_type
+        self.constraints = constraints
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return not tp.is_scalar
+        if isinstance(tp, HgTsTypeVarTypeMetaData):
+            if self.py_type == tp.py_type:
+                return True
+            for s_i, tp_i in itertools.product(self.constraints, tp.constraints):
+                s_t = isinstance(s_i, HgTimeSeriesTypeMetaData)
+                tp_t = isinstance(tp_i, HgTimeSeriesTypeMetaData)
+                if s_t and tp_t:
+                    if s_i.matches(tp_i):
+                        return True
+                if not s_t and tp_t:
+                    if issubclass(getattr(tp.py_type, '__origin__', tp.py_type), s_i):
+                        return True
+                if not s_t and not tp_t:
+                    if issubclass(tp_i, s_i):
+                        return True
+        else:
+            return not tp.is_scalar and any(
+                c.matches(tp) if isinstance(c, HgTimeSeriesTypeMetaData)
+                else issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c)
+                for c in self.constraints)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
@@ -54,17 +75,23 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         if self.py_type in resolution_dict:
             if resolution_dict[self.py_type] != resolved_type:
                 raise ParseError(f"TypeVar '{str(self)}' has already been resolved to"
-                                 f" '{str(resolution_dict[self])}' which does not match the type "
+                                 f" '{str(resolution_dict[self.py_type])}' which does not match the type "
                                  f"'{str(wired_type)}'")
         elif wired_type.is_resolved:
             resolution_dict[self.py_type] = resolved_type
+
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        raise ValueError(f'Time series TypeVars do not have a scalar type equivalent: {str(self)}')
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._time_series_types import TimeSeries
         from hgraph._types._tsb_type import TimeSeriesSchema
-        if isinstance(value_tp, TypeVar) and value_tp.__bound__ and issubclass(value_tp.__bound__, (TimeSeries, TimeSeriesSchema)):
-            return HgTsTypeVarTypeMetaData(value_tp)
+        if isinstance(value_tp, TypeVar):
+            if value_tp.__bound__ and issubclass(value_tp.__bound__, (TimeSeries, TimeSeriesSchema)):
+                return HgTsTypeVarTypeMetaData(value_tp, (HgTimeSeriesTypeMetaData.parse_type(value_tp.__bound__) or value_tp.__bound__,))
+            elif value_tp.__constraints__ and all(not HgTypeMetaData.parse_type(c).is_scalar for c in value_tp.__constraints__):
+                return HgTsTypeVarTypeMetaData(value_tp, tuple(HgTimeSeriesTypeMetaData.parse_type(t) or t for t in value_tp.__constraints__))
         return None
 
     def __eq__(self, o: object) -> bool:

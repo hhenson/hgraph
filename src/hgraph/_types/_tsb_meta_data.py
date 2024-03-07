@@ -3,7 +3,7 @@ from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
 from hgraph._types._typing_utils import nth
 
-from hgraph._types._scalar_type_meta_data import HgDictScalarType
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
@@ -73,6 +73,9 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
 
         # not sure if there are other scalar types applicable
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgTypeMetaData.parse_type(Dict[str, object])
+
     @property
     def has_references(self) -> bool:
         return any(tp.has_references for tp in self.meta_data_schema.values())
@@ -88,7 +91,7 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsb_type import TimeSeriesSchema
-        if isinstance(value_tp, type) and issubclass(value_tp, TimeSeriesSchema):
+        if isinstance(value_tp, type) and issubclass(value_tp, TimeSeriesSchema) and not value_tp is TimeSeriesSchema:
             return HgTimeSeriesSchemaTypeMetaData(value_tp)
         return None
 
@@ -135,6 +138,9 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
                                           wired_type: "HgTypeMetaData", value: object):
         self.bundle_schema_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
+
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return self.bundle_schema_tp.scalar_type()
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

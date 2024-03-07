@@ -2,7 +2,8 @@ from typing import Type, TypeVar, Optional
 
 __all__ = ("HgSignalMetaData",)
 
-from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
 
 class HgSignalMetaData(HgTimeSeriesTypeMetaData):
@@ -29,6 +30,9 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
     def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
                                           wired_type: "HgTypeMetaData", value: object):
         """A signal has no meaningful scalar resolution"""
+
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgScalarTypeMetaData.parse_type(bool)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

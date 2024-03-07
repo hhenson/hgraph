@@ -1,6 +1,9 @@
+from abc import abstractmethod
 from typing import Optional, TYPE_CHECKING, TypeVar
 
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
 if TYPE_CHECKING:
     from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesPushQueue, TimeSeriesPullQueue, TimeSeriesOutput
 
@@ -50,6 +53,12 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
             if meta_data := parser.parse_type(value_tp):
                 return meta_data
 
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._wiring._wiring_port import WiringPort
+        if isinstance(value, WiringPort):
+            return value.output_type
+
     @property
     def has_references(self) -> bool:
         return False
@@ -64,3 +73,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         """
         from hgraph._wiring._wiring_errors import IncorrectTypeBinding
         raise IncorrectTypeBinding(self, wired_type)
+
+    @abstractmethod
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        ...

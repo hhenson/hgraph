@@ -147,12 +147,12 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         inputs = iter(args)
         if tp_ is TIME_SERIES_TYPE:  # Check the types all match, if they do we have a resolved type!
             # Try resolve the input types
-            tp_ = next(inputs).output_type
+            tp_ = next(inputs).output_type.dereference()
         else:
             from hgraph import HgTimeSeriesTypeMetaData
             tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
         for v in inputs:
-            if v.output_type != tp_:
+            if v.output_type.dereference() != tp_:
                 with _from_ts_wiring_context(tp_, size_):
                     from hgraph._wiring._wiring_errors import CustomMessageWiringError
                     raise CustomMessageWiringError(

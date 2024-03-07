@@ -109,6 +109,10 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         from hgraph.nodes import tsd_get_item
         return tsd_get_item(self, key)
 
+    def reduce(self, fn, zero=None):
+        from hgraph import reduce
+        return reduce(fn, self, zero)
+
 
 @dataclass(frozen=True)
 class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):

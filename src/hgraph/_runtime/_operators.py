@@ -236,3 +236,11 @@ def getitem_(ts: TIME_SERIES_TYPE, key: TS[SCALAR]) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__getitem__ = lambda x, y: getitem_(x, y)
+
+
+@graph
+def getattr_(ts: TIME_SERIES_TYPE, attr: str) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator getattr_ is not implemented for {ts.output_type} and {attr}")
+
+
+WiringPort.__getattr__ = lambda x, y: getattr_(x, y)

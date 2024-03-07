@@ -33,8 +33,9 @@ class HgTypeMetaData:
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
-        parse_order = (HgScalarTypeMetaData,)
+        parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
         if isinstance(value, HgTypeMetaData):
             raise ParseError(f"Parse value was passed a type meta instead '{value}'")
         for parser in parse_order:

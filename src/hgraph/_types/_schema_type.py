@@ -1,5 +1,6 @@
 from hashlib import shake_256
-from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView
+from inspect import get_annotations
+from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar
 
 from frozendict import frozendict
 
@@ -57,7 +58,9 @@ class AbstractSchema:
         from hgraph._types._type_meta_data import ParseError
 
         schema = dict(cls.__meta_data_schema__)
-        for k, v in cls.__annotations__.items():
+        for k, v in get_annotations(cls, eval_str=True).items():
+            if getattr(v, "__origin__", None) == ClassVar:
+                continue
             s = cls._parse_type(v)
             if s is None:
                 raise ParseError(f"When parsing '{cls}', unable to parse item {k} with value {v}")
@@ -82,6 +85,7 @@ class AbstractSchema:
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             r_cls = type(cls_name, (root_cls,), {})
             r_cls.__meta_data_schema__ = frozendict(schema)
+            r_cls.__name__ = f"{root_cls.__name__}[{suffix}]"
             cls.__resolved__[cls_name] = r_cls
         return r_cls
 
@@ -122,8 +126,8 @@ class AbstractSchema:
             if k in resolution_dict:
                 raise ParseError(f"'{cls}' has already defined '{k}'")
             if parsed_v := cls._parse_type(v):
-                if not parsed_v.is_resolved:
-                    raise ParseError(f"'{cls}' type '{k}': '{v}' is an unresolved type, not support")
+                # if not parsed_v.is_resolved:
+                #     raise ParseError(f"'{cls}' type '{k}': '{v}' is an unresolved type, not support")
                 resolution_dict[k] = parsed_v
             else:
                 raise ParseError(f"In '{cls}' type '{k}': '{v}' was unable to parse as a valid type")

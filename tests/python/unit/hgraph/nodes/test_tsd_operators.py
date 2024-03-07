@@ -1,7 +1,7 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR, K
+from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item
 from hgraph.test import eval_node
 
@@ -54,3 +54,15 @@ def test_tsd_get_item():
     assert (eval_node(tsd_get_item[K: int, TIME_SERIES_TYPE: TS[int]],
                      [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}], [None, 1, None, None, 2])
             == [None, 3, 4, None, -2])
+
+
+def test_tsd_get_bundle_item():
+    class TestBundle(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @graph
+    def g(ts: TSD[int, TSB[TestBundle]]) -> TSD[int, TS[int]]:
+        return ts.a
+
+    assert eval_node(g, [{1: dict(a=1, b=2), 2: dict(a=3, b=4)}]) == [{1: 1, 2: 3}]
