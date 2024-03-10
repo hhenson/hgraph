@@ -1,3 +1,5 @@
+from typing import Type
+
 from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError
 from hgraph._wiring._wiring_port import WiringPort
@@ -11,7 +13,8 @@ provide an actual implementation for performance reasons.
 
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
-    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_")
+    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
+    "getattr_")
 
 
 @graph
