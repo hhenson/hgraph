@@ -1,5 +1,7 @@
+from typing import Type
+
 import hgraph
-from hgraph import compute_node, TS, NUMBER, lt_
+from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass
 
 __all__ = ("add_", "sub_", "mult_", "div_")
 
@@ -31,7 +33,24 @@ def div_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[float]:
     return lhs.value / rhs.value
 
 
-@compute_node(overloads=lt_)
+@compute_node(overloads=hgraph.lt_)
 def lt_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
     return bool(lhs.value < rhs.value)
 
+
+@graph(overloads=hgraph.zero)
+def zero_int(tp: Type[TS[int]], op: WiringNodeClass) -> TS[int]:
+    mapping = {
+        'add_': 0,
+        'mul_': 1
+    }
+    return mapping[op.signature.name]
+
+
+@graph(overloads=hgraph.zero)
+def zero_float(tp: Type[TS[float]], op: WiringNodeClass) -> TS[float]:
+    mapping = {
+        'add_': 0.,
+        'mul_': 1.
+    }
+    return mapping[op.signature.name]
