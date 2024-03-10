@@ -1,27 +1,28 @@
 import inspect
-from typing import Callable, cast
+from typing import Callable, cast, Type
 
 from hgraph._types._scalar_types import SIZE
 from hgraph._types._scalar_types import STATE
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, K
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2, K
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tsl_type import TSL
 from hgraph._types._typing_utils import with_signature
-from hgraph._wiring._decorators import compute_node, _create_node, graph
+from hgraph._wiring._decorators import compute_node, graph
+from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_node_class._reduce_wiring_node import TsdReduceWiringNodeClass
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ("reduce",)
+__all__ = ("reduce", "zero")
 
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
            ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-           zero: TIME_SERIES_TYPE, is_associated: bool = True) -> TIME_SERIES_TYPE:
+           zero: TIME_SERIES_TYPE = None, is_associated: bool = True) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
     The zero must be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
@@ -107,8 +108,8 @@ def _reduce_tsd(func, ts, zero):
 
     if not isinstance(zero, WiringPort):
         if zero is None:
-            from hgraph.nodes import nothing
-            zero = nothing(item_tp)
+            import hgraph
+            zero = hgraph.zero(item_tp, func)
         else:
             from hgraph.nodes import const
             zero = const(zero, item_tp)
@@ -136,3 +137,13 @@ def _reduce_tsd(func, ts, zero):
                                     return_annotation=TIME_SERIES_TYPE))
     wiring_node = TsdReduceWiringNodeClass(resolved_signature, func)
     return wiring_node(ts, zero)
+
+
+@graph
+def zero(ts: Type[TIME_SERIES_TYPE], op: WiringNodeClass) -> TIME_SERIES_TYPE_2:
+    """
+    This is a helper graph to create a zero time-series for the reduce function. The zero values are
+    type nad operation dependent so both are provided. The datatype designers should overload this graph for their
+    respective data types and return correct zero values for the operation.
+    """
+    raise WiringError(f"operator zero is not implemented for {ts} and operation {op.signature.name}")

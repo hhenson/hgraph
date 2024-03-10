@@ -60,9 +60,12 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
     @start_guard
     def start(self):
         super().start()
-        keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
-        if len(keys) > 0:
-            self._add_nodes(keys)  # If there are already inputs, then add the keys.
+        if self._tsd.valid:
+            keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
+            if len(keys) > 0:
+                self._add_nodes(keys)  # If there are already inputs, then add the keys.
+            else:
+                self._grow_tree()
         else:
             self._grow_tree()
         self._nested_graph.start()
