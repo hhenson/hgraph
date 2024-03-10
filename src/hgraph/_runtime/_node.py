@@ -50,6 +50,7 @@ class NodeSignature:
     injectable_inputs: InjectableTypes = InjectableTypes(0)
     capture_exception: bool = False
     trace_back_depth: int = 1
+    wiring_path_name: str = ""
     capture_values: bool = False
 
     @property

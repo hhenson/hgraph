@@ -239,10 +239,13 @@ def _build_map_wiring_node_and_inputs(
             if __keys__ is not None:
                 kwargs_[KEYS_ARG] = __keys__
             else:
-                from hgraph.nodes import union_
-                __keys__ = union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args))
+                if len(multiplex_args) > 1:
+                    from hgraph.nodes import union_
+                    __keys__ = union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args))
+                else:
+                    __keys__ = kwargs_[next(iter(multiplex_args))].key_set
                 kwargs_[KEYS_ARG] = __keys__
-            input_types = input_types | {KEYS_ARG: __keys__.output_type}
+            input_types = input_types | {KEYS_ARG: __keys__.output_type.dereference()}
             map_wiring_node = _create_tsd_map_wiring_node(fn, kwargs_, input_types, multiplex_args, no_key_args,
                                                           input_key_tp, input_key_name if input_has_key_arg else None)
         case "TSL":

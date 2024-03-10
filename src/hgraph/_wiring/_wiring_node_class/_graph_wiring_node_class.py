@@ -49,12 +49,18 @@ class WiringGraphContext:
         """Return a graph call stack"""
         # TODO: Look into how this could be improved to include call site information.
         # The first entry is the root node of the graph stack
-        return [graph.wiring_node_signature.src_location for graph in reversed(copy(cls.__stack__[1:]))
+        return [graph.wiring_node_signature.src_location for graph in reversed(cls.__stack__[1:])
                 if graph.wiring_node_signature]
 
     @classmethod
+    def wiring_path_name(cls) -> str:
+        """Return a graph call stack in names of graphs"""
+        return '.'.join(graph.wiring_node_signature.name for graph in cls.__stack__[1:]
+                if graph.wiring_node_signature)
+
+    @classmethod
     def instance(cls) -> "WiringGraphContext":
-        return WiringGraphContext.__stack__[-1]
+        return WiringGraphContext.__stack__[-1] if WiringGraphContext.__stack__ else None
 
     def __init__(self, node_signature: Optional[WiringNodeSignature]):
         """
@@ -126,13 +132,15 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                     if not isinstance(out, WiringPort):
                         if isinstance(out, dict) and isinstance(output_type, HgTSBTypeMetaData):
                             out = output_type.py_type.from_ts(**out)
-                        try:
-                            # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
-                            output_type.build_resolution_dict_from_scalar({}, HgTypeMetaData.parse_value(out), out)
-                            from hgraph.nodes import const
-                            out = const(out, tp=output_type.py_type)
-                        except:
-                            pass
+                        else:
+                            try:
+                                # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
+                                output_type.build_resolution_dict_from_scalar({}, HgTypeMetaData.parse_value(out), out)
+                                from hgraph.nodes import const
+                                out = const(out, tp=output_type.py_type)
+                            except Exception as e:
+                                raise WiringError(f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'") from e
+
                     if not output_type.dereference().matches(out.output_type.dereference()):
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
                                           f"'{str(out.output_type)}' was returned from the graph")

@@ -454,7 +454,7 @@ class OverloadedWiringNodeHelper:
                 c.resolve_signature(*args, **kwargs, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH)
                 candidates.append((c, r))
             except (WiringError, SyntaxError) as e:
-                if True:
+                if False:
                     if isinstance(e, WiringFailureError):
                         e = e.__cause__
 
@@ -466,12 +466,12 @@ class OverloadedWiringNodeHelper:
                 raise
 
         if not candidates:
-            args = [str(a.output_type) if isinstance(a, WiringPort) else str(type(a)) for a in args]
-            kwargs = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(type(v))) for k, v in
+            args_tp = [str(a.output_type) if isinstance(a, WiringPort) else str(a) for a in args]
+            kwargs_tp = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(v)) for k, v in
                       kwargs.items() if not k.startswith("_")]
             raise WiringError(
                 f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
-                f"{args}, {kwargs}")
+                f"{args_tp}, {kwargs_tp}")
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
         if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
