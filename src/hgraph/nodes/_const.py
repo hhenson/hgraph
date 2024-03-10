@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Type
 
-from hgraph import generator, SCALAR, TIME_SERIES_TYPE, EvaluationClock, TS, compute_node, graph, REF, AUTO_RESOLVE, \
+from hgraph import generator, SCALAR, TIME_SERIES_TYPE, TS, compute_node, graph, REF, AUTO_RESOLVE, \
     EvaluationEngineApi
 
 __all__ = ("const", "default", "nothing")
@@ -69,4 +69,4 @@ def nothing(tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
                of the value.
     :return: A time series that will never tick
     """
-    pass
+    yield from ()

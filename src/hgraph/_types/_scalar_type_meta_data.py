@@ -226,7 +226,7 @@ class HgObjectType(HgAtomicType):
         return super().__hash__()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((tp_ := type(tp)) is HgObjectType and self.py_type == tp.py_type) or (
+        return ((tp_ := type(tp)) is HgObjectType and issubclass(getattr(tp.py_type, '__origin__', tp.py_type), self.py_type)) or (
                     tp_ is HgScalarTypeVar and tp_.matches(self))
 
     @classmethod

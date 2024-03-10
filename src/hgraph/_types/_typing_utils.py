@@ -96,7 +96,7 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, return_
                 new_params.append(parameter)
                 new_annotations[n] = parameter.annotation
         if parameter.kind == Parameter.VAR_POSITIONAL:
-            for n, a in args:
+            for n, a in args.items():
                 new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD, annotation=a))
                 new_annotations[n] = a
             args = None

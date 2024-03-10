@@ -2,6 +2,7 @@ from typing import Type
 
 from hgraph import compute_node, REF, TSB, TS_SCHEMA, TIME_SERIES_TYPE, PythonTimeSeriesReference, AUTO_RESOLVE, SCALAR, \
     WiringError
+from hgraph._types._ref_type import TimeSeriesReference
 
 
 @compute_node()
@@ -18,7 +19,8 @@ def tsb_get_item_by_name(tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SC
         if tsb.value.has_peer:
             return PythonTimeSeriesReference(tsb.value.output[key])
         else:
-            return PythonTimeSeriesReference(tsb.value[_schema.index_of(key)])
+            item = tsb.value.items[_schema.index_of(key)]
+            return item if isinstance(item, TimeSeriesReference) else PythonTimeSeriesReference(item)
     else:
         return PythonTimeSeriesReference()
 

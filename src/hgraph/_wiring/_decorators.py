@@ -94,7 +94,7 @@ def graph(fn: GRAPH_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNA
     return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads)
 
 
-def generator(fn: SOURCE_NODE_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
+def generator(fn: SOURCE_NODE_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
     """
     Creates a pull source node that supports generating a sequence of ticks that will be fed into the
     graph. The generator wraps a function that is implemented as a python generator which returns a tuple of
@@ -118,7 +118,7 @@ def generator(fn: SOURCE_NODE_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
     """
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_class=PythonGeneratorWiringNodeClass)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, overloads=overloads, node_class=PythonGeneratorWiringNodeClass)
 
 
 def push_queue(tp: type[TIME_SERIES_TYPE], overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None):

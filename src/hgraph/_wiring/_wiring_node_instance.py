@@ -41,9 +41,12 @@ class WiringNodeInstanceContext:
                                     inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
         key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
-            self._node_instances[key] = node_instance = WiringNodeInstance(node=node,
-                                                                           resolved_signature=resolved_signature,
-                                                                           inputs=inputs, rank=rank)
+            from hgraph import WiringGraphContext
+            self._node_instances[key] = node_instance = WiringNodeInstance(
+                node=node,
+                resolved_signature=resolved_signature,
+                inputs=inputs, rank=rank,
+                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name())
         return node_instance
 
     @classmethod
@@ -68,6 +71,7 @@ class WiringNodeInstance:
     resolved_signature: "WiringNodeSignature"
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
+    wiring_path_name: str
     error_handler_registered: bool = False
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
@@ -125,6 +129,7 @@ class WiringNodeInstance:
             injectable_inputs=self.resolved_signature.injectable_inputs,
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,
+            wiring_path_name=self.wiring_path_name,
             capture_values=self.capture_values
         )
 

@@ -1,10 +1,10 @@
 from collections import defaultdict
 from dataclasses import field, dataclass
-from typing import Type, Mapping, cast, Tuple
+from typing import Type, Mapping, cast, Tuple, Dict
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_
+    AUTO_RESOLVE, map_, TS_OUT, TSD_OUT
 from hgraph._runtime._operators import getattr_, mul_
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
 from hgraph.nodes import sum_, const
@@ -164,7 +164,7 @@ def tsd_collapse_keys(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
     """
     out = {}
     for k, v in ts.modified_items():
-        out.update({(k, k1): v1 for k1, v1 in v.modified_items()})
+        out.update({(k, k1): v1.value for k1, v1 in v.modified_items()})
         out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
 
     for k in ts.removed_keys():
@@ -180,7 +180,7 @@ def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]) -> TSD[K,
     """
     out = defaultdict(defaultdict)
     for k, v in ts.modified_items():
-        out[k[0]][k[1]] = v
+        out[k[0]][k[1]] = v.delta_value
 
     for k in ts.removed_keys():
         out[k[0]][k[1]] = REMOVE_IF_EXISTS
@@ -188,26 +188,30 @@ def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]) -> TSD[K,
     return out
 
 
+class TsdRekeyState(CompoundScalar):
+    known_keys: Dict = {}
+
+
 @compute_node
-def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]]) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
+def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], state: STATE[TsdRekeyState] = None) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
     Rekey a TSD to the new keys.
     """
     out = {}
     for k, v in ts.modified_items():
         if k in new_keys:
-            out[new_keys[k].value] = v
+            out[new_keys[k].value] = v.value
 
     for k in ts.removed_keys():
         out[new_keys[k].value] = REMOVE_IF_EXISTS
 
     for k, k1 in new_keys.modified_items():
-        if k in ts:
-            out[k1.value] = ts[k]
+        if k0 := state.known_keys.get(k):
+            out[state.keys[k0]] = REMOVE_IF_EXISTS
+        out[k1.value] = ts[k].value
 
-    for k in new_keys.removed_keys():
-        if k in ts:
-            out[new_keys[k].value] = REMOVE_IF_EXISTS
+    for k, k1 in new_keys.removed_items():
+        out[k1.value] = REMOVE_IF_EXISTS
 
     return out
 

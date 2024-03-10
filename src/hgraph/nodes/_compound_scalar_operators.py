@@ -1,8 +1,12 @@
 from typing import Type
 
 from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, HgTypeMetaData, IncorrectTypeBinding, MissingInputsError, \
-    WiringContext, with_signature, TimeSeries
-from hgraph._runtime._operators import getattr_
+    WiringContext, with_signature, TimeSeries, graph
+from hgraph._runtime._operators import getattr_, or_
+
+__all__ = ("getattr_cs", "cs_from_ts")
+
+from hgraph.nodes import default
 
 
 @compute_node(overloads=getattr_, resolvers={SCALAR: lambda mapping, scalars: mapping[COMPOUND_SCALAR].meta_data_schema[scalars['attr']].py_type})
@@ -10,7 +14,7 @@ def getattr_cs(ts: TS[COMPOUND_SCALAR], attr: str) -> TS[SCALAR]:
     return getattr(ts.value, attr, None)
 
 
-def from_ts(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
+def cs_from_ts(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
     scalar_schema = cls.__meta_data_schema__
     kwargs_schema = {k: HgTypeMetaData.parse_value(v) for k, v in kwargs.items()}
 
