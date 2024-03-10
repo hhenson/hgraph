@@ -260,6 +260,13 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._removed_items = {}
 
     @property
+    def modified(self) -> bool:
+        if self.has_peer:
+            return super().modified
+        else:
+            return self.key_set.modified or any(v.modified for v in self._ts_values.values())
+
+    @property
     def value(self):
         return frozendict((k, v.value) for k, v in self.items())
 
