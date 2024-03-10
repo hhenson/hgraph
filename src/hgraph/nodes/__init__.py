@@ -25,3 +25,4 @@ from hgraph.nodes.null_sink import *
 from hgraph.nodes._frame_operators import *
 from hgraph.nodes._compound_scalar_operators import *
 from hgraph.nodes._datetime_operators import *
+from hgraph.nodes._tuple_operators import *
