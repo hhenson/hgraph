@@ -87,7 +87,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
 
     def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""
-        graph: Graph = self.nested_graph_builder.make_instance(self.graph.graph_id + (self._count,), self)
+        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self)
         self._count += 1
         self._active_graphs[key] = graph
         graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, MapNestedEngineEvaluationClock(
