@@ -1,5 +1,6 @@
+import sys
 from copy import copy
-from typing import Optional, TypeVar, Callable
+from typing import Optional, TypeVar, Callable, Tuple
 
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -69,6 +70,8 @@ class WiringGraphContext:
         """
         self._wiring_node_signature: WiringNodeSignature = node_signature
         self._sink_nodes: ["WiringNodeInstance"] = []
+        self._other_nodes: [Tuple["WiringPort", dict]] = []
+        self._current_frame = sys._getframe(1)
 
     @property
     def sink_nodes(self) -> tuple["WiringNodeInstance", ...]:
@@ -83,6 +86,25 @@ class WiringGraphContext:
 
     def add_sink_node(self, node: "WiringNodeInstance"):
         self._sink_nodes.append(node)
+
+    def add_node(self, node: "WiringPort"):
+        i = 1
+        prev_f = None
+        while self._current_frame != (f := sys._getframe(i)):
+            if i > 20: return
+            prev_f = f
+            i += 1
+
+        self._other_nodes.append((node, prev_f.f_locals))
+
+    def label_nodes(self):
+        """
+        Label the nodes in the graph with the graph name
+        """
+        for port, locals in self._other_nodes:
+            varname = next((k for k, v in locals.items() if v is port), None)
+            if varname and port.path == ():
+                port.node_instance.set_label(varname)
 
     def pop_sink_nodes(self) -> ["WiringNodeInstance"]:
         """
@@ -127,6 +149,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
                 out: WiringPort = self.fn(**kwargs_)
+                WiringGraphContext.instance().label_nodes()
                 if output_type := resolved_signature.output_type:
                     from hgraph import HgTSBTypeMetaData
                     if not isinstance(out, WiringPort):
