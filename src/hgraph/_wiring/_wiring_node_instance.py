@@ -72,6 +72,7 @@ class WiringNodeInstance:
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
     wiring_path_name: str
+    label: str = ""
     error_handler_registered: bool = False
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
@@ -94,6 +95,9 @@ class WiringNodeInstance:
     def is_stub(self) -> bool:
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import StubWiringNodeClass
         return isinstance(self.node, StubWiringNodeClass)
+
+    def set_label(self, label: str):
+        super().__setattr__("label", label)
 
     @property
     def output_type(self) -> "HgTimeSeriesTypeMetaData":
@@ -130,6 +134,7 @@ class WiringNodeInstance:
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,
             wiring_path_name=self.wiring_path_name,
+            label=self.label,
             capture_values=self.capture_values
         )
 

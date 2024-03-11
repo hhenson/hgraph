@@ -1,4 +1,5 @@
 import inspect
+import sys
 from dataclasses import replace
 from types import GenericAlias
 from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple, List
@@ -329,7 +330,10 @@ class BaseWiringNodeClass(WiringNodeClass):
                 # Whilst a graph could represent a sink signature, it is not a node, we return the wiring port
                 # as it is used by the GraphWiringNodeClass to validate the resolved signature with that of the returned
                 # output
-                return _wiring_port_for(resolved_signature.output_type, wiring_node_instance, tuple())
+                port = _wiring_port_for(resolved_signature.output_type, wiring_node_instance, tuple())
+                from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
+                WiringGraphContext.instance().add_node(port)
+                return port
 
     def _validate_signature(self, fn):
         sig = inspect.signature(fn)
@@ -454,14 +458,14 @@ class OverloadedWiringNodeHelper:
                 c.resolve_signature(*args, **kwargs, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH)
                 candidates.append((c, r))
             except (WiringError, SyntaxError) as e:
-                if False:
-                    if isinstance(e, WiringFailureError):
-                        e = e.__cause__
+                if isinstance(e, WiringFailureError):
+                    e = e.__cause__
 
-                    p = lambda x: str(x.output_type.py_type) if isinstance(x, WiringPort) else str(x)
-                    print(f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
-                          f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
-                pass
+                p = lambda x: str(x.output_type.py_type) if isinstance(x, WiringPort) else str(x)
+                reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
+                      f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
+
+                rejected_candidates.append((c, reject_reason))
             except Exception as e:
                 raise
 
@@ -471,7 +475,9 @@ class OverloadedWiringNodeHelper:
                       kwargs.items() if not k.startswith("_")]
             raise WiringError(
                 f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
-                f"{args_tp}, {kwargs_tp}")
+                f"{args_tp}, {kwargs_tp}"
+                f"\nRejected candidates: {'\n'.join(rejected_candidates)}"
+            )
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
         if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
