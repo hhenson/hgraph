@@ -8,7 +8,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hgraph._impl._types._tss import PythonSetDelta
+from hgraph._impl._types._tss import PythonSetDelta, Removed
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
@@ -33,8 +33,7 @@ class BaseNodeImpl(Node, ABC):
 
     def __init__(self,
                  node_ndx: int,
-                 owning_graph_id:
-                 tuple[int, ...],
+                 owning_graph_id: tuple[int, ...],
                  signature: NodeSignature,
                  scalars: Mapping[str, Any]
                  ):
@@ -425,7 +424,7 @@ class PythonLastValuePullNodeImpl(NodeImpl):
             HgTSDTypeMetaData: PythonLastValuePullNodeImpl._combine_tsd_delta,
             HgTSBTypeMetaData: PythonLastValuePullNodeImpl._combine_tsb_delta,
             HgTSLTypeMetaData: PythonLastValuePullNodeImpl._combine_tsl_delta_value,
-        }.get(self.signature.time_series_output, lambda old_delta, new_delta: new_delta)
+        }.get(type(self.signature.time_series_output), lambda old_delta, new_delta: new_delta)
         if self.scalars:
             self._delta_value = self.scalars["default"]
             self.notify()
@@ -446,8 +445,21 @@ class PythonLastValuePullNodeImpl(NodeImpl):
             self._delta_value = None
 
     @staticmethod
-    def _combine_tss_delta(old_delta: PythonSetDelta, new_delta: PythonSetDelta) -> PythonSetDelta:
-        """We get TimeSeriesSetDelta from output"""
+    def _combine_tss_delta(old_delta: PythonSetDelta | set, new_delta: PythonSetDelta | set) -> PythonSetDelta:
+        """We get TimeSeriesSetDelta from output or set into apply_resul"""
+
+        if type(old_delta) is set and type(new_delta) is set:
+            return new_delta | old_delta
+
+        if isinstance(old_delta, set):
+            old_delta = PythonSetDelta(
+                added={i for i in old_delta if type(i) is not Removed},
+                removed={i for i in old_delta if type(i) is Removed})
+        if isinstance(new_delta, set):
+            new_delta = PythonSetDelta(
+                added={i for i in new_delta if type(i) is not Removed},
+                removed={i for i in new_delta if type(i) is Removed})
+
         # Only addd items that have not subsequently been removed plus the new added items less the "re-added elements"
         added = (old_delta.added - new_delta.removed) | (new_delta.added -  old_delta.removed)
         removed = (old_delta.removed - new_delta.added) | (new_delta.removed - old_delta.added)
