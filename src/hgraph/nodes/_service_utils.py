@@ -135,5 +135,5 @@ class SharedReferenceNodeClass(BaseWiringNodeClass):
 
 
 @pull_source_node(node_impl=SharedReferenceNodeClass)
-def get_shared_reference_output(path: str) -> TIME_SERIES_TYPE:
+def get_shared_reference_output(path: str) -> REF[TIME_SERIES_TYPE]:
     """Uses the special node to extract a node from the global state."""
