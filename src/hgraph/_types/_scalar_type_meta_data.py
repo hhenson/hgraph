@@ -335,10 +335,10 @@ class HgEvaluationEngineApiType(HgInjectableType):
 class StateInjector(Injector):
 
     def __init__(self, schema):
-        self._state = STATE(__schema__=schema)
+        self.schema = schema
 
     def __call__(self, node):
-        return self._state
+        return STATE(__schema__=self.schema)
 
 
 class HgStateType(HgInjectableType):
