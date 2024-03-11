@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast, Callable
+from dataclasses import dataclass, field
+from typing import Any, Mapping, TYPE_CHECKING, TypeVar, cast, Callable, Optional
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -13,6 +13,7 @@ from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_in
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
+    from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._runtime._node import NodeSignature
 
 __all__ = ("TsdMapWiringNodeClass", "TslMapWiringNodeClass", "TsdMapWiringSignature", "TslMapWiringSignature")
@@ -24,6 +25,7 @@ class TsdMapWiringSignature(WiringNodeSignature):
     key_tp: HgScalarTypeMetaData | None = None
     key_arg: str | None = None  # The arg name of the key in the map function is there is one
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
+    inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -32,16 +34,16 @@ class TslMapWiringSignature(WiringNodeSignature):
     size_tp: HgAtomicType | None = None
     key_arg: str | None = None
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
+    inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
 
 
 class TsdMapWiringNodeClass(BaseWiringNodeClass):
     signature: TsdMapWiringSignature
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
+    def create_node_builder_instance(self, node_signature: "TsdMapWiringSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
-        inner_graph = wire_nested_graph(self.fn, self.signature.map_fn_signature.input_types, scalars, self.signature,
-                                        self.signature.key_arg)
+        inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
             inner_graph,
             set(node_signature.time_series_inputs.keys()) | {self.signature.key_arg}

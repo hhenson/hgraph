@@ -73,6 +73,11 @@ def wire_nested_graph(fn: WiringNodeClass,
     uses.
     """
     from hgraph._wiring._graph_builder import create_graph_builder
+    from hgraph._builder._ts_builder import TimeSeriesBuilderFactory
+
+    if temp_factory := not TimeSeriesBuilderFactory.has_instance():
+        TimeSeriesBuilderFactory.declare_default_factory()
+
     inputs_ = {}
     for k, v in input_types.items():
         if v.is_scalar:
@@ -84,7 +89,12 @@ def wire_nested_graph(fn: WiringNodeClass,
         if out is not None:
             create_output_stub(cast(WiringPort, out))
         sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes, False)
+        builder = create_graph_builder(sink_nodes, False)
+
+    if temp_factory:
+        TimeSeriesBuilderFactory.un_declare()
+
+    return builder
 
 
 def extract_stub_node_indices(inner_graph, input_args: Set[str]) \
