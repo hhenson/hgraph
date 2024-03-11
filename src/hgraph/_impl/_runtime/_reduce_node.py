@@ -41,7 +41,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
                  output_node_id: int = None,
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
-        self._nested_graph: PythonGraph = PythonGraph(self.owning_graph_id + (self.node_ndx,), nodes=[],
+        self._nested_graph: PythonGraph = PythonGraph(self.node_id, nodes=[],
                                                       parent_node=self)
 
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
