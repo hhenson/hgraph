@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, \
-    subscription_service, TSS, map_
+    subscription_service, TSS, map_, TSL, SIZE
 from hgraph.nodes import const, pass_through
 from hgraph.test import eval_node
 
@@ -40,8 +40,16 @@ def test_subscription_service():
         return map_(pass_through, __keys__=subscription, __key_arg__="ts")
 
     @graph
-    def main(subscription_topic: TS[str]) -> TS[str]:
+    def main(subscription_topic1: TS[str], subscription_topic2: TS[str], subscription_topic3: TS[str]) -> TSL[TS[str], SIZE]:
         register_service(default_path, my_subs_service_impl)
-        return pass_through(my_subs_service(default_path, subscription_topic))  # To remove reference semantics
+        return TSL.from_ts(
+            pass_through(my_subs_service(default_path, subscription_topic1)),  # To remove reference semantics
+            pass_through(my_subs_service(default_path, subscription_topic2)),
+            pass_through(my_subs_service(default_path, subscription_topic3))
+        )
 
-    assert eval_node(main, ["subscription_topic",], __trace__=True) == [None, "subscription_topic"]
+    assert eval_node(main,
+                     ["subscription_topic1", None, None],
+                     ["subscription_topic2", None, None],
+                     [None, None, "subscription_topic1",],
+                     __trace__=True) == [None, {0: "subscription_topic1", 1: "subscription_topic2"}, {2: "subscription_topic1"}]
