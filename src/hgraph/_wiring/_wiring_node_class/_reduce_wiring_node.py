@@ -1,4 +1,5 @@
-from typing import Any, Mapping, TYPE_CHECKING, cast
+from dataclasses import dataclass, field
+from typing import Any, Mapping, TYPE_CHECKING, cast, Optional
 
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders, WiringNodeClass
@@ -7,13 +8,19 @@ from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_in
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
+    from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._runtime._node import NodeSignature
 
 __all__ = ("TsdReduceWiringNodeClass",)
 
 
+@dataclass(frozen=True)
+class ReduceWiringSignature(WiringNodeSignature):
+    inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
+
+
 class TsdReduceWiringNodeClass(BaseWiringNodeClass):
-    signature: WiringNodeSignature
+    signature: ReduceWiringSignature
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
@@ -25,7 +32,7 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             tp_ = cast(HgTSDTypeMetaData, self.signature.input_types['ts']).value_tp
             input_types = fn_signature.input_types | {k: tp_ for k in fn_signature.time_series_args}
 
-        inner_graph = wire_nested_graph(self.fn, input_types, scalars, self.signature, None)
+        inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
             inner_graph,
             set(fn_signature.time_series_inputs.keys())

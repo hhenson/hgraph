@@ -11,10 +11,11 @@ from hgraph._types._ts_type import TS
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_class._switch_wiring_node import SwitchWiringSignature
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_node_signature import WiringNodeType
-from hgraph._wiring._wiring_utils import as_reference
+from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 
 __all__ = ("switch_",)
 
@@ -105,11 +106,26 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             time_series_args=time_series_args,
             label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
         )
+
+        nested_graphs = {
+            k: wire_nested_graph(v,
+                                 resolved_signature_inner.input_types,
+                                 {k: kwargs_[k] for k, v in resolved_signature_inner.input_types.items()
+                                  if not isinstance(v, HgTimeSeriesTypeMetaData) and k != 'key'},
+                                 resolved_signature_outer, 'key')
+            for k, v in
+            switches.items()}
+
+        switch_signature = SwitchWiringSignature(
+            **resolved_signature_outer.as_dict(),
+            inner_graphs=frozendict(nested_graphs)
+        )
+
         # Create the outer wiring node, and call it with the inputs
         from hgraph._wiring._wiring_node_class._switch_wiring_node import SwitchWiringNodeClass
         # noinspection PyTypeChecker
         return SwitchWiringNodeClass(
-            resolved_signature_outer, switches, resolved_signature_inner, reload_on_ticked
+            switch_signature, switches, resolved_signature_inner, reload_on_ticked
         )(**(kwargs_ | ({} if input_has_key_arg else dict(key=key))))
 
 

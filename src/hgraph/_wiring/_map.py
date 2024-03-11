@@ -22,7 +22,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import extract_kwargs
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
-from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference
+from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference, wire_nested_graph
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgAtomicType
@@ -466,7 +466,9 @@ def _create_tsd_map_wiring_node(
 
     # NOTE: The wrapper node does not need to sets it valid and tick to that of the underlying node, it just
     #       needs to ensure that it gets notified when the key sets tick. Likewise with validity.
-    map_signature = TsdMapWiringSignature(
+
+    # Build provisional signature first so we can pass it in as context into inner graph wiring
+    provisional_signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
         name="map",
         # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
@@ -482,10 +484,20 @@ def _create_tsd_map_wiring_node(
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+    )
+
+    map_signature = TsdMapWiringSignature(
+        **provisional_signature.as_dict(),
         map_fn_signature=resolved_signature,
         key_tp=input_key_tp.value_scalar_tp,
         key_arg=input_key_name,
         multiplexed_args=multiplex_args,
+        inner_graph=wire_nested_graph(fn,
+                                      resolved_signature.input_types,
+                                      {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
+                                       if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
+                                      provisional_signature,
+                                      input_key_name)
     )
     wiring_node = TsdMapWiringNodeClass(map_signature, fn)
     return wiring_node
@@ -511,7 +523,8 @@ def _create_tsl_map_signature(
         {k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) else v for
          k, v in input_types.items()})
 
-    map_signature = TslMapWiringSignature(
+    # Build provisional signature first so we can pass it in as context into inner graph wiring
+    provisional_signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE if resolved_signature.output_type else WiringNodeType.SINK_NODE,
         name="map",
         # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
@@ -527,10 +540,20 @@ def _create_tsl_map_signature(
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+    )
+
+    map_signature = TslMapWiringSignature(
+        **provisional_signature.as_dict(),
         map_fn_signature=resolved_signature,
         size_tp=size_tp,
         key_arg=input_key_name,
         multiplexed_args=multiplex_args,
+        inner_graph=wire_nested_graph(fn,
+                                      resolved_signature.input_types,
+                                      {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
+                                       if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
+                                      provisional_signature,
+                                      input_key_name)
     )
     wiring_node = TslMapWiringNodeClass(map_signature, fn)
     return wiring_node

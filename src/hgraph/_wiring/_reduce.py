@@ -10,12 +10,13 @@ from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tsl_type import TSL
 from hgraph._types._typing_utils import with_signature
 from hgraph._wiring._decorators import compute_node, graph
-from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_node_class._reduce_wiring_node import TsdReduceWiringNodeClass
+from hgraph._wiring._wiring_errors import WiringError
+from hgraph._wiring._wiring_node_class._reduce_wiring_node import TsdReduceWiringNodeClass, ReduceWiringSignature
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
+from hgraph._wiring._wiring_utils import wire_nested_graph
 
 __all__ = ("reduce", "zero")
 
@@ -132,10 +133,20 @@ def _reduce_tsd(func, ts, zero):
         injectable_inputs=resolved_signature.injectable_inputs,
         label=resolved_signature.label,
     )
+
     if not isinstance(func, WiringNodeClass):
         func = graph(with_signature(func, annotations={k: item_tp for k in inspect.signature(func).parameters},
                                     return_annotation=TIME_SERIES_TYPE))
-    wiring_node = TsdReduceWiringNodeClass(resolved_signature, func)
+
+    reduce_signature = ReduceWiringSignature(
+        **resolved_signature.as_dict(),
+        inner_graph=wire_nested_graph(func,
+                                      {k: tp.value_tp for k in func.signature.input_types},
+                                      {},
+                                      resolved_signature,
+                                      None)
+    )
+    wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
     return wiring_node(ts, zero)
 
 
