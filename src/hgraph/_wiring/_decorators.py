@@ -1,5 +1,5 @@
 from inspect import signature
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, Union
 
 from frozendict import frozendict
 
@@ -226,6 +226,8 @@ def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
             ...
 
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(WiringNodeType.REQ_REP_SVC, fn)
 
 
 def service_impl(*, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None):
@@ -249,7 +251,10 @@ def register_service(path: str, implementation, **kwargs):
     from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
     if not isinstance(implementation, ServiceImplNodeClass):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
-    implementation(path=path, **kwargs)
+
+    from hgraph import WiringGraphContext
+    assert len(implementation.interfaces) == 1, 'mutliservices are not implemented yet'
+    WiringGraphContext.instance().register_service_impl(implementation.interfaces[0], path or '', implementation, kwargs)
 
 
 def service_adaptor(interface):
@@ -276,7 +281,7 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
                     overloads: "WiringNodeClass" = None, interfaces=None,
-                    resolvers: Mapping[TypeVar, Callable]=None):
+                    resolvers: Mapping[TypeVar, Callable]=None) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
@@ -310,6 +315,10 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                 SubscriptionServiceNodeClass
             kwargs['node_class'] = SubscriptionServiceNodeClass
             _assert_no_node_configs("Subscription Services", kwargs)
+        case WiringNodeType.REQ_REP_SVC:
+            from hgraph._wiring._wiring_node_class._req_repl_service_node_service import RequestReplyServiceNodeClass
+            kwargs['node_class'] = RequestReplyServiceNodeClass
+            _assert_no_node_configs("Request Reply Services", kwargs)
         case WiringNodeType.SVC_IMPL:
             from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
             kwargs['node_class'] = ServiceImplNodeClass

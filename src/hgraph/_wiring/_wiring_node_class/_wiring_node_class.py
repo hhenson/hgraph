@@ -314,7 +314,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     rank = 1
                 case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE | WiringNodeType.SUBS_SVC:
                     rank = max(v.rank for k, v in kwargs_.items() if
-                               v is not None and k in self.signature.time_series_args) + 1
+                               v is not None and k in self.signature.time_series_args) + 1024  # leave enough space of all services
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")

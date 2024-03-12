@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, \
-    subscription_service, TSS, map_, TSL, SIZE
+    subscription_service, TSS, map_, TSL, SIZE, request_reply_service
 from hgraph.nodes import const, pass_through
 from hgraph.test import eval_node
 
@@ -53,3 +53,42 @@ def test_subscription_service():
                      ["subscription_topic2", None, None],
                      [None, None, "subscription_topic1",],
                      __trace__=True) == [None, {0: "subscription_topic1", 1: "subscription_topic2"}, {2: "subscription_topic1"}]
+
+
+def test_request_reply_service():
+    @request_reply_service
+    def add_one_service(path: str, ts: TS[int]) -> TS[int]:
+        """The service description"""
+
+    @service_impl(interfaces=add_one_service)
+    def add_one_service_impl(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda x: x + 1, ts)
+
+    @graph
+    def main(x: TS[int]) -> TS[int]:
+        register_service(default_path, add_one_service_impl)
+        return add_one_service(default_path, x)
+
+    assert eval_node(main, [1]) == [None, 2]
+
+
+def test_two_services():
+    @request_reply_service
+    def add_one_service(path: str, ts: TS[int]) -> TS[int]:
+        """The service description"""
+
+    @service_impl(interfaces=add_one_service)
+    def add_one_service_impl(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda x: x + 1, ts)
+
+    @service_impl(interfaces=add_one_service)
+    def add_one_service_impl_2(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda x: add_one_service('one_path', x) + 1, ts)
+
+    @graph
+    def main(x: TS[int]) -> TS[int]:
+        register_service('another_path', add_one_service_impl_2)
+        register_service('one_path', add_one_service_impl)
+        return add_one_service('another_path', x)
+
+    assert eval_node(main, [1], __trace__=True) == [None, None, 3]

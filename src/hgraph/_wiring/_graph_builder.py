@@ -32,6 +32,8 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
             # Later we can consider default behaviour for graphs with outputs.
             assert out is None, "Currently only graph with no return values are supported"
 
+            context.build_services()
+
             # Build graph by walking from sink nodes to parent nodes.
             # Also eliminate duplicate nodes
             sink_nodes = context.sink_nodes
