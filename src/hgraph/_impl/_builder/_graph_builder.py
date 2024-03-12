@@ -60,6 +60,8 @@ class PythonGraphBuilder(GraphBuilder):
             node_builder.release_instance(node)
         item.dispose()
 
+    def __hash__(self):
+        return hash(id(self))
 
 
     
