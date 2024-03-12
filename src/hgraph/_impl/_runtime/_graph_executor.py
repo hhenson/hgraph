@@ -2,8 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from jinja2.nodes import NodeType
-
+from hgraph._impl._runtime._node import SkipEvalDelegate
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._lifecycle import initialise_dispose_context
 from hgraph._impl._runtime._evaluation_clock import RealTimeEvaluationClock, SimulationEvaluationClock
@@ -13,10 +12,10 @@ from hgraph._runtime._graph import Graph
 from hgraph._runtime._graph_executor import GraphExecutor
 from hgraph._runtime._lifecycle import start_stop_context
 from hgraph._runtime._node import Node, NodeTypeEnum
+from hgraph._runtime._graph_recorder import GraphRecorder
+
 
 __all__ = ("PythonGraphExecutor",)
-
-from hgraph._runtime._graph_recorder import GraphRecorder
 
 
 @dataclass
@@ -85,16 +84,21 @@ class PythonGraphExecutor(GraphExecutor):
     @staticmethod
     def replace_replay_nodes(recorder: GraphRecorder, graph: Graph):
         # We only record the push source nodes or pull source nodes that mare marked for recording.
-        def _match(node: Node) -> bool:
+        def _match_replay(node: Node) -> bool:
             return node.signature.node_type == NodeTypeEnum.PUSH_SOURCE_NODE
 
-        nodes = tuple(recorder.replay_node(node) if _match(node) else node for node in graph.nodes)
+        def _match_sink(node: Node) -> bool:
+            return node.signature.node_type == NodeTypeEnum.SINK_NODE
+
+        nodes = tuple(
+            recorder.replay_node(node) if _match_replay(node) else SkipEvalDelegate(node) if _match_sink(node) else node for
+            node in graph.nodes)
         return graph.copy_with(nodes)
 
     @staticmethod
     def replace_record_nodes(recorder: GraphRecorder, graph: Graph):
-        def _match(node: Node) -> bool:
+        def _match_record(node: Node) -> bool:
             return node.signature.node_type == NodeTypeEnum.PUSH_SOURCE_NODE
 
-        nodes = tuple(recorder.record_node(node) if _match(node) else node for node in graph.nodes)
+        nodes = tuple(recorder.record_node(node) if _match_record(node) else node for node in graph.nodes)
         return graph.copy_with(nodes)
