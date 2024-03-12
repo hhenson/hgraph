@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData
+from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext
 from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
 from hgraph._types._scalar_types import is_compound_scalar
 from hgraph._types._ts_type import TS
@@ -27,7 +27,7 @@ def test_simple_bundle():
     assert is_bundle(TSB[SimpleSchema])
     assert is_bundle(TSB[LessSimpleBundle])
     from hgraph.nodes import const
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         p1 = const(1)
         b1 = TSB[SimpleSchema].from_ts(p1=p1)
         assert b1.__schema__ == SimpleSchema
