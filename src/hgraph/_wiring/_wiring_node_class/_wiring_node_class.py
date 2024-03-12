@@ -465,7 +465,7 @@ class OverloadedWiringNodeHelper:
                 reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
                       f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
 
-                rejected_candidates.append((c, reject_reason))
+                rejected_candidates.append((c.signature.signature, reject_reason))
             except Exception as e:
                 raise
 
@@ -476,7 +476,7 @@ class OverloadedWiringNodeHelper:
             raise WiringError(
                 f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
                 f"{args_tp}, {kwargs_tp}"
-                f"\nRejected candidates: {'\n'.join(rejected_candidates)}"
+                f"\nRejected candidates: {'\n'.join(str(c) for c in rejected_candidates)}"
             )
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
