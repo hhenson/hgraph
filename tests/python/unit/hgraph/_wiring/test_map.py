@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData, SCALAR, Size, REF, REMOVE_IF_EXISTS, \
-    REMOVE, compute_node, SCHEDULER, CustomMessageWiringError
+    REMOVE, compute_node, SCHEDULER, CustomMessageWiringError, WiringGraphContext
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -19,7 +19,7 @@ def f_sum(key: TS[SCALAR], lhs: TS[int], rhs: TS[int]) -> TS[int]:
 
 
 def test_guess_arguments_f_sum_lhs():
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
         rhs = const(2)
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs)
@@ -36,7 +36,7 @@ def test_guess_arguments_f_sum_lhs():
 
 
 def test_guess_arguments_f_sum_keys():
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
         rhs = const(2)
         keys = const(frozenset({'a', 'b'}), TSS[str])
@@ -54,7 +54,7 @@ def test_guess_arguments_f_sum_keys():
 
 
 def test_guess_arguments_add_keys():
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
         rhs = const(2)
         keys = const(frozenset({'a', 'b'}), TSS[str])
@@ -72,7 +72,7 @@ def test_guess_arguments_add_keys():
 
 
 def test_guess_arguments_add_no_keys():
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
         rhs = const(2)
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs)
@@ -89,7 +89,7 @@ def test_guess_arguments_add_no_keys():
 
 
 def test_guess_arguments_f_sum_lhs_tsl():
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
         rhs = const(2)
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs, __key_arg__='key')
@@ -105,7 +105,7 @@ def test_guess_arguments_f_sum_lhs_tsl():
 
 
 def test_guess_arguments_add_no_keys_tsl():
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
         rhs = const(2)
         wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_, add_.signature, lhs, rhs)
