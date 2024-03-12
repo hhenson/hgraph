@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from hgraph._runtime._graph import Graph
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
-__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes")
+__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes", "NodeDelegate")
 
 
 class NodeTypeEnum(Enum):
@@ -222,14 +222,78 @@ class Node(ComponentLifeCycle, ABC):
         The scheduler for this node.
         """
 
+    @abstractmethod
     def eval(self):
         """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
 
+    @abstractmethod
     def notify(self):
         """Notify the node that it is need of scheduling"""
 
+    @abstractmethod
     def notify_next_cycle(self):
         """Notify the node to be evaluated in the next evaluation cycle"""
+
+
+class NodeDelegate(Node):
+    """Wraps a node delegating all node methods to the underlying implementation."""
+
+    def __init__(self, node: Node):
+        super().__init__()
+        self._node = node
+
+    @property
+    def node_ndx(self) -> int:
+        return self._node.node_ndx
+
+    @property
+    def owning_graph_id(self) -> tuple[int, ...]:
+        return self._node.owning_graph_id
+
+    @property
+    def node_id(self) -> tuple[int, ...]:
+        return self._node.node_id
+
+    @property
+    def signature(self) -> NodeSignature:
+        return self._node.signature
+
+    @property
+    def scalars(self) -> Mapping[str, Any]:
+        return self._node.scalars
+
+    @property
+    def graph(self) -> "Graph":
+        return self._node.graph
+
+    @property
+    def input(self) -> Optional["TimeSeriesBundleInput"]:
+        return self._node.input
+
+    @property
+    def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
+        return self._node.inputs
+
+    @property
+    def output(self) -> Optional["TimeSeriesOutput"]:
+        return self._node.output
+
+    @property
+    def error_output(self) -> Optional["TimeSeriesOutput"]:
+        return self._node.error_output
+
+    @property
+    def scheduler(self) -> "NodeScheduler":
+        return self._node.scheduler
+
+    def eval(self):
+        self._node.eval()
+
+    def notify(self):
+        self._node.notify()
+
+    def notify_next_cycle(self):
+        self._node.notify_next_cycle()
 
 
 class NodeScheduler(ABC):
