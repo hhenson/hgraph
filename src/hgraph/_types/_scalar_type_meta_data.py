@@ -508,7 +508,7 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
         wired_type: HgArrayScalarTypeMetaData
         self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
         for tp1, tp2 in zip(self.shape_types, wired_type.shape_types):
-            tp1.element_type.build_resolution_dict(resolution_dict, tp2)
+            tp1.build_resolution_dict(resolution_dict, tp2)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
