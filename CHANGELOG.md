@@ -214,3 +214,8 @@ Version 0.1.18 (13-03-2024)
 ---------------------------
 
 * Multiple small fixes.
+
+Version 0.1.19 (TBD)
+--------------------
+
+* Add support for REF[TSD[...]].key_set
