@@ -10,6 +10,8 @@ from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._ref_type import REF
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._tss_type import TSS
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tsb_type import TimeSeriesSchema
@@ -27,6 +29,9 @@ def _wiring_port_for(tp: HgTypeMetaData, node_instance: "WiringNodeInstance", pa
         HgTSDTypeMetaData: lambda: TSDWiringPort(node_instance, path),
         HgTSBTypeMetaData: lambda: TSBWiringPort(node_instance, path),
         HgTSLTypeMetaData: lambda: TSLWiringPort(node_instance, path),
+        HgREFTypeMetaData: lambda: {
+            HgTSDTypeMetaData: lambda: REFtsdWiringPort(node_instance, path),
+        }.get(type(tp.value_tp), lambda: WiringPort(node_instance, path))()
     }.get(type(tp), lambda: WiringPort(node_instance, path))()
 
 
@@ -96,12 +101,21 @@ class ErrorWiringPort(WiringPort):
 class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     @property
-    def key_set(self) -> TSS[str]:
+    def key_set(self) -> TSS[SCALAR]:
         return WiringPort(self.node_instance, self.path + (KEY_SET_ID,))
 
     def __getitem__(self, key):
         from hgraph.nodes import tsd_get_item
         return tsd_get_item(self, key)
+
+
+@dataclass(frozen=True)
+class REFtsdWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
+
+    @property
+    def key_set(self) -> REF[TSS[SCALAR]]:
+        from hgraph.nodes._tsd_operators import _tsd_ref_key_set
+        return _tsd_ref_key_set(self)
 
 
 @dataclass(frozen=True)

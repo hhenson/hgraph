@@ -1,8 +1,8 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR
-from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_
+from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR, compute_node, REF, TSS
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, const
 from hgraph.test import eval_node
 
 
@@ -48,3 +48,18 @@ def test_not():
 )
 def test_sum(inputs, expected):
     assert eval_node(sum_, inputs, resolution_dict={'ts': TSD[int, TS[type(inputs[0][0])]]}) == expected
+
+
+def test_ref_tsd_key_set():
+
+    @compute_node
+    def to_ref(tsd: REF[TSD[str, TS[int]]]) -> REF[TSD[str, TS[int]]]:
+        return tsd.value
+
+    @graph
+    def main() -> TSS[str]:
+        c = const(frozendict(a=1, b=2), TSD[str, TS[int]])
+        r = to_ref(c)
+        return r.key_set
+
+    assert eval_node(main) == [frozenset(['a', 'b'])]

@@ -2,7 +2,7 @@ from dataclasses import field, dataclass
 from typing import Type, Mapping
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
-    STATE, graph, contains_, not_, K, NUMBER, CompoundScalar
+    STATE, graph, contains_, not_, K, NUMBER, CompoundScalar, TSS, PythonTimeSeriesReference
 from hgraph._types._time_series_types import K_1
 from hgraph.nodes import sum_
 from hgraph.nodes._operators import len_
@@ -101,3 +101,9 @@ def tsd_len(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
 @compute_node(overloads=sum_)
 def sum_tsd(ts: TSD[K, TS[NUMBER]]) -> TS[NUMBER]:
     return sum(i.value for i in ts.valid_values())
+
+
+@compute_node
+def _tsd_ref_key_set(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
+    """Extracts the key-set from the TSD reference"""
+    return PythonTimeSeriesReference(tsd.value.output.key_set)
