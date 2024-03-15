@@ -473,10 +473,11 @@ class OverloadedWiringNodeHelper:
             args_tp = [str(a.output_type) if isinstance(a, WiringPort) else str(a) for a in args]
             kwargs_tp = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(v)) for k, v in
                       kwargs.items() if not k.startswith("_")]
+            _msg_part = '\n'.join(str(c) for c in rejected_candidates)
             raise WiringError(
                 f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
                 f"{args_tp}, {kwargs_tp}"
-                f"\nRejected candidates: {'\n'.join(str(c) for c in rejected_candidates)}"
+                f"\nRejected candidates: {_msg_part}"
             )
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
