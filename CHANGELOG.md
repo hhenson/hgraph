@@ -227,3 +227,8 @@ Version 0.1.19 (15-03-2024)
 * Add getitem_ and getattr_ operators
 * Support auto zero in reduce
 * Add support for lambda's in reduce and map_
+
+Version 0.2.0 (15-03-2024)
+--------------------------
+
+* No changes, just a release as we have reached the objectives of the roadmap for 0.2
