@@ -2,6 +2,7 @@ from hgraph import TIME_SERIES_TYPE, sink_node
 
 __all__ = ("null_sink",)
 
+
 @sink_node
 def null_sink(ts: TIME_SERIES_TYPE):
     """
