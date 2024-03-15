@@ -231,9 +231,3 @@ def tsd_flip(ts: TSD[K, TS[K_1]]) -> TSD[K_1, TS[K]]:
         out[v.value] = REMOVE_IF_EXISTS
 
     return out
-
-
-@compute_node
-def _tsd_ref_key_set(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
-    """Extracts the key-set from the TSD reference"""
-    return PythonTimeSeriesReference(tsd.value.output.key_set)
