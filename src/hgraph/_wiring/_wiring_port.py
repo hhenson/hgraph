@@ -134,15 +134,6 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
 
 @dataclass(frozen=True)
-class REFtsdWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
-
-    @property
-    def key_set(self) -> REF[TSS[SCALAR]]:
-        from hgraph.nodes._tsd_operators import _tsd_ref_key_set
-        return _tsd_ref_key_set(self)
-
-
-@dataclass(frozen=True)
 class TSBWiringPort(WiringPort):
 
     @cached_property
