@@ -215,7 +215,15 @@ Version 0.1.18 (13-03-2024)
 
 * Multiple small fixes.
 
-Version 0.1.19 (TBD)
---------------------
+Version 0.1.19 (15-03-2024)
+---------------------------
 
-* Add support for REF[TSD[...]].key_set
+* Many fixes to deal with REF data structures.
+* Implementation of Request Reply Services.
+* Many bug fixes.
+* Move where inner graphs wiring to appropriate locations to ensure they are processed during
+  wiring time.
+* Separate parsing into type and value parsing.
+* Add getitem_ and getattr_ operators
+* Support auto zero in reduce
+* Add support for lambda's in reduce and map_
