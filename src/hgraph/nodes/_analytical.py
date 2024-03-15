@@ -1,5 +1,5 @@
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TypeVar
 
@@ -8,8 +8,8 @@ from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, 
 from hgraph.nodes._operators import cast_, len_
 
 __all__ = (
-"ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "sum_", "accumulate", "lag", "diff",
-"INT_OR_TIME_DELTA", "average")
+    "ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "sum_", "accumulate", "lag", "diff",
+    "INT_OR_TIME_DELTA", "average")
 
 INT_OR_TIME_DELTA = TypeVar("INT_OR_TIME_DELTA", int, timedelta)
 
