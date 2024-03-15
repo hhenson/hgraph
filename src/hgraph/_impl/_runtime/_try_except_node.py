@@ -44,7 +44,7 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
             node.output = self.output.out
 
     def initialise(self):
-        self._active_graph = self.nested_graph_builder.make_instance(self.node_id + (self.node_ndx,), self)
+        self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self)
         self._active_graph.evaluation_engine = NestedEvaluationEngine(
             self.graph.evaluation_engine,
             NestedEngineEvaluationClock(
