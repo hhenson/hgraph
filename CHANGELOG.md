@@ -209,3 +209,13 @@ Version 0.1.17 (02-03-2024)
 * Update README.md
 * Update to start making using of Python logging for the engine.
 * Extract runtime configuration into a standalone object.
+
+Version 0.1.18 (13-03-2024)
+---------------------------
+
+* Multiple small fixes.
+
+Version 0.1.19 (TBD)
+--------------------
+
+* Add support for REF[TSD[...]].key_set

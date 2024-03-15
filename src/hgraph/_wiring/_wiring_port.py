@@ -11,6 +11,8 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._ref_type import REF
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._tss_type import TSS
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tsb_type import TimeSeriesSchema
@@ -129,6 +131,15 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
     def reduce(self, fn, zero=None):
         from hgraph import reduce
         return reduce(fn, self, zero)
+
+
+@dataclass(frozen=True)
+class REFtsdWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
+
+    @property
+    def key_set(self) -> REF[TSS[SCALAR]]:
+        from hgraph.nodes._tsd_operators import _tsd_ref_key_set
+        return _tsd_ref_key_set(self)
 
 
 @dataclass(frozen=True)

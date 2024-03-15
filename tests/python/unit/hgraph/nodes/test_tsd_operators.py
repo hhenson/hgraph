@@ -1,8 +1,8 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB
-from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item
+from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, compute_node, REF, TSS
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const
 from hgraph.test import eval_node
 
 
@@ -66,3 +66,18 @@ def test_tsd_get_bundle_item():
         return ts.a
 
     assert eval_node(g, [{1: dict(a=1, b=2), 2: dict(a=3, b=4)}]) == [{1: 1, 2: 3}]
+
+    
+def test_ref_tsd_key_set():
+
+    @compute_node
+    def to_ref(tsd: REF[TSD[str, TS[int]]]) -> REF[TSD[str, TS[int]]]:
+        return tsd.value
+
+    @graph
+    def main() -> TSS[str]:
+        c = const(frozendict(a=1, b=2), TSD[str, TS[int]])
+        r = to_ref(c)
+        return r.key_set
+
+    assert eval_node(main) == [frozenset(['a', 'b'])]

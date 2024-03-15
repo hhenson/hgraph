@@ -13,7 +13,8 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD, K
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
-from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, TslMapWiringSignature, \
+from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, \
+    TslMapWiringSignature, \
     TslMapWiringNodeClass
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
@@ -445,7 +446,8 @@ def _create_tsd_map_wiring_node(
         args=tuple(input_types.keys()),
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=reference_inputs,
-        output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type.dereference())) \
+        output_type=HgTSDTypeMetaData(input_key_tp.value_scalar_tp,
+                                      HgREFTypeMetaData(resolved_signature.output_type.dereference())) \
             if resolved_signature.output_type else None,
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=None,  # We will follow a copy approach to transfer the inputs to inner graphs
@@ -577,7 +579,8 @@ def _validate_multiplex_types(signature: WiringNodeSignature, kwargs_, multiplex
     Validates that the multiplexed inputs are valid.
     """
     for arg in chain(multiplex_args, no_key_args):
-        if not (in_type := signature.input_types[arg]).matches((m_type := kwargs_[arg].output_type.dereference()).value_tp):
+        if not (in_type := signature.input_types[arg].dereference()).matches(
+                (m_type := kwargs_[arg].output_type.dereference()).value_tp):
             raise CustomMessageWiringError(
                 f"The input '{arg}: {m_type}' is a multiplexed type, "
                 f"but its '{m_type.value_tp}' is not compatible with the input type: {in_type}")
