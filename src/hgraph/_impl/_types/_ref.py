@@ -75,9 +75,11 @@ class PythonTimeSeriesReference(TimeSeriesReference):
                 r.bind_input(item)
 
     def __str__(self) -> str:
-        if self.output:
+        if self.output is not None:
             return (f"REF[{self.output.owning_node.signature.name}"
                     f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]")
+        elif self.valid and not self.has_peer and self.items:
+            return f"REF[{', '.join(str(i) for i in self.items)}]"
         else:
             return "REF[<UnSet>]"
 

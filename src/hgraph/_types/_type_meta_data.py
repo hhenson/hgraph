@@ -20,20 +20,32 @@ class HgTypeMetaData:
     py_type: Type  # The python type that represents this type
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
         parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
-        if isinstance(value, parse_order):
-            return value
+        if isinstance(value_tp, parse_order):
+            return value_tp
         for parser in parse_order:
-            if meta_data := parser.parse(value):
+            if meta_data := parser.parse_type(value_tp):
+                return meta_data
+        raise ParseError(f"Unable to parse '{value_tp}'")
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+        from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+        parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
+        if isinstance(value, HgTypeMetaData):
+            raise ParseError(f"Parse value was passed a type meta instead '{value}'")
+        for parser in parse_order:
+            if meta_data := parser.parse_value(value):
                 return meta_data
         raise ParseError(f"Unable to parse '{value}'")
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         """
-        Can this instance of meta-date match the supplied type?
+        Can this instance of meta-data match the supplied type?
         This is used to determine if a type can be wired to another type.
         It does not provide a guarantee that the types are compatible, only that they could match.
         For example: add_(lhs: TS[NUMERIC], rhs: TS[NUMERIC]), in this case TS[int] and TS[float] could match,
@@ -95,7 +107,8 @@ class HgTypeMetaData:
         The outputs are fully reliant on types to be resolved using the wired_types on the inputs to resolve the output
         types.
         """
-        self.do_build_resolution_dict(resolution_dict, wired_type.dereference())
+        if self != wired_type:
+            self.do_build_resolution_dict(resolution_dict, wired_type.dereference())
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """

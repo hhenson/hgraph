@@ -3,7 +3,7 @@ from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
 from hgraph._types._typing_utils import nth
 
-from hgraph._types._scalar_type_meta_data import HgDictScalarType
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
@@ -69,9 +69,12 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             for k, v in self.meta_data_schema.items():
                 if k in value:
                     k_value = value[k]
-                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse(k_value), k_value)
+                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_type(k_value), k_value)
 
         # not sure if there are other scalar types applicable
+
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgTypeMetaData.parse_type(Dict[str, object])
 
     @property
     def has_references(self) -> bool:
@@ -86,10 +89,10 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsb_type import TimeSeriesSchema
-        if isinstance(value, type) and issubclass(value, TimeSeriesSchema):
-            return HgTimeSeriesSchemaTypeMetaData(value)
+        if isinstance(value_tp, type) and issubclass(value_tp, TimeSeriesSchema) and not value_tp is TimeSeriesSchema:
+            return HgTimeSeriesSchemaTypeMetaData(value_tp)
         return None
 
     def __eq__(self, o: object) -> bool:
@@ -136,14 +139,17 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
                                           wired_type: "HgTypeMetaData", value: object):
         self.bundle_schema_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return self.bundle_schema_tp.scalar_type()
+
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsb_type import TimeSeriesBundleInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesBundleInput:
-            bundle_tp = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesBundleInput:
+            bundle_tp = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
             if bundle_tp is None or not isinstance(bundle_tp,
                                                    (HgTimeSeriesSchemaTypeMetaData, HgTsTypeVarTypeMetaData)):
-                raise ParseError(f"'{value.__args__[0]}' is not a valid input to TSB")
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to TSB")
             return HgTSBTypeMetaData(bundle_tp)
 
     @property
@@ -158,7 +164,10 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def operator_rank(self) -> float:
-        return sum(t.operator_rank for t in self.bundle_schema_tp.meta_data_schema.values()) / 100.
+        if isinstance(self.bundle_schema_tp, HgTsTypeVarTypeMetaData):
+            return self.bundle_schema_tp.operator_rank
+        else:
+            return sum(t.operator_rank for t in self.bundle_schema_tp.meta_data_schema.values()) / 100.
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgTSBTypeMetaData and self.bundle_schema_tp.matches(tp.bundle_schema_tp)

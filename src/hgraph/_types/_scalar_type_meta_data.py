@@ -1,14 +1,16 @@
+import itertools
 from abc import abstractmethod
 from collections.abc import Mapping, Set
+from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List
 
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import Size, STATE
+from hgraph._types._scalar_types import Size, STATE, CompoundScalar
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -23,13 +25,30 @@ class HgScalarTypeMetaData(HgTypeMetaData):
     is_scalar = True
 
     @classmethod
-    def parse(cls, value) -> "HgScalarTypeMetaData":
-        parses = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
+    def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
+        for parser in cls._parsers():
+            if meta_data := parser.parse_type(value_tp):
+                return meta_data
+
+    @classmethod
+    def parse_value(cls, value) -> "HgScalarTypeMetaData":
+        for parser in cls._parsers():
+            if meta_data := parser.parse_value(value):
+                return meta_data
+
+    @classmethod
+    def _parsers(cls) -> List[type]:
+        if p := getattr(cls, "_parsers_list", None):
+            return p
+
+        cls._parsers_list = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
                   HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgStateType,
                   HgObjectType]
-        for parser in parses:
-            if meta_data := parser.parse(value):
-                return meta_data
+        return cls._parsers_list
+
+    @classmethod
+    def register_parser(cls, new_parser: type):
+        cls._parsers().insert(-1, new_parser)  # Insert before the HgObjectType which is catch-all
 
 
 class HgScalarTypeVar(HgScalarTypeMetaData):
@@ -52,7 +71,23 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return tp.is_scalar and (isinstance(tp, HgScalarTypeMetaData) or isinstance(tp.py_type, self.contraints()))
+        if isinstance(tp, HgScalarTypeVar):
+            if self.py_type == tp.py_type:
+                return True
+            for s_i, tp_i in itertools.product(self.constraints(), tp.constraints()):
+                s_t = isinstance(s_i, HgScalarTypeMetaData)
+                tp_t = isinstance(tp_i, HgScalarTypeMetaData)
+                if s_t and tp_t:
+                    if s_i.matches(tp_i):
+                        return True
+                if not s_t and tp_t:
+                    if issubclass(getattr(tp.py_type, '__origin__', tp.py_type), s_i):
+                        return True
+                if not s_t and not tp_t:
+                    if issubclass(tp_i, s_i):
+                        return True
+
+        return tp.is_scalar and any(issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c) for c in self.constraints())
 
     @property
     def type_var(self) -> TypeVar:
@@ -73,7 +108,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         if self.py_type.__constraints__:
             return self.py_type.__constraints__
         elif self.py_type.__bound__:
-            return [self.py_type.__bound__]
+            return (self.py_type.__bound__,)
         raise RuntimeError("Unexpected item in the bagging areas")
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
@@ -98,13 +133,13 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             resolution_dict[type_var] = wired_type
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         # This is a more expensive check, we should probably cache results at some point in time.
-        if isinstance(value, TypeVar):
-            if value.__constraints__:
-                constraints = value.__constraints__
-            elif value.__bound__:
-                constraints = [value.__bound__]
+        if isinstance(value_tp, TypeVar):
+            if value_tp.__constraints__:
+                constraints = value_tp.__constraints__
+            elif value_tp.__bound__:
+                constraints = (value_tp.__bound__,)
             else:
                 return None
 
@@ -113,7 +148,11 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
                 if isinstance(constraint, TimeSeries):
                     return None
 
-            return HgScalarTypeVar(value)
+            return HgScalarTypeVar(value_tp)
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return None  # TypeVars have no values
 
 
 class HgAtomicType(HgScalarTypeMetaData):
@@ -128,7 +167,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return type(o) is HgAtomicType and self.py_type is o.py_type
 
     def __str__(self) -> str:
-        return f'{self.py_type.__name__}'
+        return f'{self.py_type}'
 
     def __repr__(self) -> str:
         return f'HgAtomicType({repr(self.py_type)})'
@@ -152,37 +191,51 @@ class HgAtomicType(HgScalarTypeMetaData):
             raise IncorrectTypeBinding(self, wired_type)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        value_tp = value if isinstance(value, type) else type(value)
-        if issubclass(value_tp, Size):
-            return HgAtomicType(value_tp, tuple())
-        if issubclass(value_tp, Enum):
-            return HgAtomicType(value_tp, (str, int))
-        return {
-            bool: lambda: HgAtomicType(bool, (int, float, str)),
-            int: lambda: HgAtomicType(int, (bool, float, str)),
-            float: lambda: HgAtomicType(float, (bool, int, str, datetime, timedelta)),
-            date: lambda: HgAtomicType(date, (str,)),
-            datetime: lambda: HgAtomicType(datetime, (float, str)),
-            time: lambda: HgAtomicType(time, (str,)),
-            timedelta: lambda: HgAtomicType(timedelta, (float, str,)),
-            str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
-            ScalarValue: lambda: HgAtomicType(ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)),
-        }.get(value_tp, lambda: None)()
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        if isinstance(value_tp, type):
+            if issubclass(value_tp, Size):
+                return HgAtomicType(value_tp, tuple())
+            if issubclass(value_tp, Enum):
+                return HgAtomicType(value_tp, (str, int))
+            return {
+                bool: lambda: HgAtomicType(bool, (int, float, str)),
+                int: lambda: HgAtomicType(int, (bool, float, str)),
+                float: lambda: HgAtomicType(float, (bool, int, str, datetime, timedelta)),
+                date: lambda: HgAtomicType(date, (str,)),
+                datetime: lambda: HgAtomicType(datetime, (float, str)),
+                time: lambda: HgAtomicType(time, (str,)),
+                timedelta: lambda: HgAtomicType(timedelta, (float, str,)),
+                str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
+                ScalarValue: lambda: HgAtomicType(ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)),
+            }.get(value_tp, lambda: None)()
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        if isinstance(value, type) and issubclass(value, Size):
+            return HgAtomicType(value, tuple())
+        return HgAtomicType.parse_type(type(value))
 
 
 class HgObjectType(HgAtomicType):
     """A catch-all type that will allow any valid pythong type to be a scalar value"""
 
+    def __eq__(self, o: object) -> bool:
+        return type(o) is HgObjectType and self.py_type is o.py_type
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((tp_ := type(tp)) is HgObjectType and self.py_type == tp.py_type) or (
+        return ((tp_ := type(tp)) is HgObjectType and issubclass(getattr(tp.py_type, '__origin__', tp.py_type), self.py_type)) or (
                     tp_ is HgScalarTypeVar and tp_.matches(self))
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        if not isinstance(value, type):
-            value = type(value)
-        return HgObjectType(value, tuple())
+    def parse_type(cls, tp) -> Optional["HgTypeMetaData"]:
+        return HgObjectType(tp, tuple())
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return HgObjectType.parse_type(type(value))
 
     def __repr__(self) -> str:
         return f'HgObjectType({repr(self.py_type)})'
@@ -221,8 +274,7 @@ class HgInjectableType(HgScalarTypeMetaData):
             raise IncorrectTypeBinding(self, wired_type)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        value_tp = value if isinstance(value, type) else type(value)
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._runtime._evaluation_clock import EvaluationClock
         from hgraph._runtime._evaluation_engine import EvaluationEngineApi
         from hgraph._runtime._node import SCHEDULER
@@ -235,6 +287,10 @@ class HgInjectableType(HgScalarTypeMetaData):
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
         }.get(value_tp, lambda: None)()
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return HgInjectableType.parse_type(type(value))
 
 
 class Injector:
@@ -279,10 +335,10 @@ class HgEvaluationEngineApiType(HgInjectableType):
 class StateInjector(Injector):
 
     def __init__(self, schema):
-        self._state = STATE(__schema__=schema)
+        self.schema = schema
 
     def __call__(self, node):
-        return self._state
+        return STATE(__schema__=self.schema)
 
 
 class HgStateType(HgInjectableType):
@@ -301,16 +357,20 @@ class HgStateType(HgInjectableType):
         return StateInjector(self.state_type.py_type if self.state_type.is_resolved else None)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_types import STATE
-        if isinstance(value, _GenericAlias) and value.__origin__ is STATE:
-            bundle_tp = HgScalarTypeMetaData.parse(value.__args__[0])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is STATE:
+            bundle_tp = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if bundle_tp is None:
-                raise ParseError(f"'{value.__args__[0]}' is not a valid input to STATE")
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to STATE")
             return HgStateType(bundle_tp)
-        if value is STATE:
+        if value_tp is STATE:
             from hgraph._types._scalar_types import COMPOUND_SCALAR
-            return HgStateType(HgScalarTypeMetaData.parse(COMPOUND_SCALAR))
+            return HgStateType(HgScalarTypeMetaData.parse_type(COMPOUND_SCALAR))
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return cls.parse_type(type(value))
 
 
 class OutputInjector(Injector):
@@ -359,27 +419,30 @@ class HgTupleScalarType(HgCollectionType):
     py_collection_type = tuple  # This is an immutable list
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ == tuple:
-            if len(value.__args__) == 2 and value.__args__[1] is Ellipsis:
-                if tp := HgScalarTypeMetaData.parse(value.__args__[0]):
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        if isinstance(value_tp, (GenericAlias, _GenericAlias)) and value_tp.__origin__ == tuple:
+            if len(value_tp.__args__) == 2 and value_tp.__args__[1] is Ellipsis:
+                if tp := HgScalarTypeMetaData.parse_type(value_tp.__args__[0]):
                     return HgTupleCollectionScalarType(tp)
                 else:
-                    raise ParseError(f'Unable to parse tuple as {repr(value.__args__[0])} is not parsable')
+                    raise ParseError(f'Unable to parse tuple as {repr(value_tp.__args__[0])} is not parsable')
             else:
                 tp_s = []
-                for arg in value.__args__:
-                    if tp := HgScalarTypeMetaData.parse(arg):
+                for arg in value_tp.__args__:
+                    if tp := HgScalarTypeMetaData.parse_type(arg):
                         tp_s.append(tp)
                     else:
-                        raise ParseError(f"While parsing '{repr(value)}' was unable to parse '{repr(arg)}")
+                        raise ParseError(f"While parsing '{repr(value_tp)}' was unable to parse '{repr(arg)}")
                 return HgTupleFixedScalarType(tp_s)
-        elif isinstance(value, tuple) and len(value) > 0:
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        if isinstance(value, tuple) and len(value) > 0:
             tp = type(value[0])
             if all(type(v) is tp for v in value):
-                return HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(tp))
+                return HgTupleCollectionScalarType(HgScalarTypeMetaData.parse_value(value[0]))
             else:
-                return HgTupleFixedScalarType(HgScalarTypeMetaData.parse(type(v)) for v in value)
+                return HgTupleFixedScalarType(HgScalarTypeMetaData.parse_value(v) for v in value)
 
 
 class HgTupleCollectionScalarType(HgTupleScalarType):
@@ -471,15 +534,19 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
             tp1.build_resolution_dict(resolution_dict, tp2)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ == np.ndarray:
-            tp = HgScalarTypeMetaData.parse(value.__args__[0])
-            shape_types = tuple(HgScalarTypeMetaData.parse(v) for v in value.__args__[1:])
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        if isinstance(value_tp, (GenericAlias, _GenericAlias)) and value_tp.__origin__ == np.ndarray:
+            tp = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
+            shape_types = tuple(HgScalarTypeMetaData.parse_type(v) for v in value_tp.__args__[1:])
             if tp is None:
-                raise ParseError(f"Could not parse {value.__args__[0]} as type from {value}")
+                raise ParseError(f"Could not parse {value_tp.__args__[0]} as type from {value_tp}")
             if any(tp is None for tp in shape_types):
-                raise ParseError(f"Could not parse shape from {value}")
+                raise ParseError(f"Could not parse shape from {value_tp}")
             return HgArrayScalarTypeMetaData(tp, shape_types)
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return None  # have not learned to parse ndarrays yet
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgArrayScalarTypeMetaData and self.element_type == o.element_type and \
@@ -577,12 +644,15 @@ class HgSetScalarType(HgCollectionType):
         return self.element_type.operator_rank / 100.
 
     @classmethod
-    def parse(cls, value) -> "HgScalarTypeMetaData":
-        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [set, frozenset, Set]:
-            if scalar_type := HgScalarTypeMetaData.parse(value.__args__[0]):
+    def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
+        if isinstance(value_tp, (GenericAlias, _GenericAlias)) and value_tp.__origin__ in [set, frozenset, Set]:
+            if scalar_type := HgScalarTypeMetaData.parse_type(value_tp.__args__[0]):
                 return HgSetScalarType(scalar_type)
-        elif isinstance(value, (set, frozenset)) and len(value) > 0:
-            scalar_type = HgScalarTypeMetaData.parse(type(next(iter(value))))
+
+    @classmethod
+    def parse_value(cls, value) -> "HgScalarTypeMetaData":
+        if isinstance(value, (set, frozenset)) and len(value) > 0:
+            scalar_type = HgScalarTypeMetaData.parse_value(next(iter(value)))
             if scalar_type:
                 return HgSetScalarType(scalar_type)
 
@@ -635,15 +705,18 @@ class HgDictScalarType(HgCollectionType):
         return (self.key_type.operator_rank + self.value_type.operator_rank) / 100.
 
     @classmethod
-    def parse(cls, value) -> "HgScalarTypeMetaData":
-        if isinstance(value, (GenericAlias, _GenericAlias)) and value.__origin__ in [frozendict, dict, Mapping]:
-            if (key_tp := HgScalarTypeMetaData.parse(value.__args__[0])) and (
-                    value_tp := HgScalarTypeMetaData.parse(value.__args__[1])):
+    def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
+        if isinstance(value_tp, (GenericAlias, _GenericAlias)) and value_tp.__origin__ in [frozendict, dict, Mapping]:
+            if (key_tp := HgScalarTypeMetaData.parse_type(value_tp.__args__[0])) and (
+                    value_tp := HgScalarTypeMetaData.parse_type(value_tp.__args__[1])):
                 return HgDictScalarType(key_tp, value_tp)
-        elif isinstance(value, (dict, frozendict)) and len(value) > 0:
+
+    @classmethod
+    def parse_value(cls, value) -> "HgScalarTypeMetaData":
+        if isinstance(value, (dict, frozendict)) and len(value) > 0:
             key, value = next(iter(value.items()))
-            key_tp = HgScalarTypeMetaData.parse(type(key))
-            value_tp = HgScalarTypeMetaData.parse(value)
+            key_tp = HgScalarTypeMetaData.parse_value(key)
+            value_tp = HgScalarTypeMetaData.parse_value(value)
             if key_tp and value_tp:
                 return HgDictScalarType(key_tp, value_tp)
 
@@ -695,10 +768,12 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def __hash__(self) -> int:
         return hash(self.py_type)
 
+    @property
+    def operator_rank(self) -> float:
+        return super().operator_rank / self.py_type.__mro__.index(CompoundScalar)
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgCompoundScalarType and all(v.matches(v_tp) for v, v_tp in
-                                                        zip(self.meta_data_schema.values(),
-                                                            tp.meta_data_schema.values()))
+        return type(tp) is HgCompoundScalarType and issubclass(tp.py_type, self.py_type)
 
     @property
     def is_resolved(self) -> bool:
@@ -712,10 +787,14 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return self.is_sub_class(tp)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_types import CompoundScalar
-        if isinstance(value, type) and issubclass(value, CompoundScalar):
-            return HgCompoundScalarType(value)
+        if type(value_tp) is type and issubclass(value_tp, CompoundScalar):
+            return HgCompoundScalarType(value_tp)
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._scalar_types import CompoundScalar
         if isinstance(value, CompoundScalar):
             return HgCompoundScalarType(type(value))
 
@@ -781,6 +860,10 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
     def py_type(self) -> Type:
         return type[self.value_tp.py_type]
 
+    @property
+    def operator_rank(self) -> float:
+        return self.value_tp.operator_rank
+
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
@@ -797,11 +880,15 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
-        if isinstance(value, (_GenericAlias, GenericAlias)) and value.__origin__ in (type, Type):
-            value_tp = HgTypeMetaData.parse(value.__args__[0])
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        if isinstance(value_tp, (_GenericAlias, GenericAlias)) and value_tp.__origin__ in (type, Type):
+            value_tp = HgTypeMetaData.parse_type(value_tp.__args__[0])
             return HgTypeOfTypeMetaData(value_tp)
-        return None
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        if isinstance(value, type):
+            return HgTypeOfTypeMetaData(HgTypeMetaData.parse_type(value))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTypeOfTypeMetaData and self.value_tp == o.value_tp

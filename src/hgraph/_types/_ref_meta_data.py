@@ -3,7 +3,7 @@ from typing import Type, TypeVar, Optional, _GenericAlias
 
 __all__ = ("HgREFTypeMetaData", "HgREFOutTypeMetaData",)
 
-from hgraph._types._type_meta_data import ParseError
+from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 
@@ -31,6 +31,9 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             return type(self)(self.value_tp.resolve(resolution_dict, weak))
 
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return self.value_tp.matches(tp.dereference())
+
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if isinstance(wired_type, HgREFTypeMetaData):
             self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
@@ -41,25 +44,32 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
                                           wired_type: "HgTypeMetaData", value: object):
         self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        from hgraph._types._ref_type import TimeSeriesReference
+        return HgTypeMetaData.parse_type(TimeSeriesReference)
+
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ref_type import TimeSeriesReferenceInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesReferenceInput:
-            value = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
-            if value is None:
-                raise ParseError(f"While parsing 'REF[{str(value.__args__[0])}]' unable to parse time series type from '{str(value.__args__[0])}'")
-            return HgREFTypeMetaData(value)
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesReferenceInput:
+            value_tp = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
+            if value_tp is None:
+                raise ParseError(f"While parsing 'REF[{str(value_tp.__args__[0])}]' unable to parse time series type from '{str(value_tp.__args__[0])}'")
+            return HgREFTypeMetaData(value_tp)
 
     @property
     def has_references(self) -> bool:
         return True
 
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
-        return self.value_tp
+        return self.value_tp.dereference()
 
     @property
     def operator_rank(self) -> float:
         return self.value_tp.operator_rank
+
+    def __getitem__(self, item):
+        return self.value_tp[item]
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgREFTypeMetaData and self.value_tp == o.value_tp
@@ -82,10 +92,10 @@ class HgREFOutTypeMetaData(HgREFTypeMetaData):
         return self.value_tp
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ref_type import TimeSeriesReferenceOutput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesReferenceOutput:
-            return HgREFOutTypeMetaData(HgTimeSeriesTypeMetaData.parse(value.__args__[0]))
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesReferenceOutput:
+            return HgREFOutTypeMetaData(HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0]))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgREFOutTypeMetaData and self.value_tp == o.value_tp

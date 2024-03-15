@@ -19,3 +19,4 @@ from hgraph._types._ref_meta_data import *
 from hgraph._types._ref_type import *
 from hgraph._types._type_meta_data import *
 from hgraph._types._typing_utils import *
+from hgraph._types._frame_scalar_type_meta_data import *

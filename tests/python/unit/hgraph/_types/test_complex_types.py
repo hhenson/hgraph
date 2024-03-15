@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData
+from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext
 from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
 from hgraph._types._scalar_types import is_compound_scalar
 from hgraph._types._ts_type import TS
@@ -19,7 +19,7 @@ class LessSimpleBundle(SimpleSchema):
 
 
 def test_matches_bundle():
-    tp = HgTimeSeriesTypeMetaData.parse(LessSimpleBundle)
+    tp = HgTimeSeriesTypeMetaData.parse_type(LessSimpleBundle)
     assert tp.matches(tp)
 
 
@@ -27,7 +27,7 @@ def test_simple_bundle():
     assert is_bundle(TSB[SimpleSchema])
     assert is_bundle(TSB[LessSimpleBundle])
     from hgraph.nodes import const
-    with WiringNodeInstanceContext():
+    with WiringNodeInstanceContext(), WiringGraphContext(None):
         p1 = const(1)
         b1 = TSB[SimpleSchema].from_ts(p1=p1)
         assert b1.__schema__ == SimpleSchema
@@ -47,7 +47,7 @@ class LessSimpleCompoundScalar(SimpleCompoundScalar):
 
 
 def test_matches_compound_scalar():
-    tp = HgScalarTypeMetaData.parse(LessSimpleCompoundScalar)
+    tp = HgScalarTypeMetaData.parse_type(LessSimpleCompoundScalar)
     assert tp.matches(tp)
 
 
@@ -55,13 +55,13 @@ def test_simple_compound_scalar():
     assert is_compound_scalar(SimpleCompoundScalar)
     meta_data = SimpleCompoundScalar.__meta_data_schema__
     assert len(meta_data) == 1
-    assert meta_data["p1"] == HgScalarTypeMetaData.parse(int)
+    assert meta_data["p1"] == HgScalarTypeMetaData.parse_type(int)
 
     meta_data = LessSimpleCompoundScalar.__meta_data_schema__
     assert len(meta_data) == 3
     assert meta_data["p3"] == HgCompoundScalarType(SimpleCompoundScalar)
 
-    hg_meta = HgCompoundScalarType.parse(LessSimpleCompoundScalar)
+    hg_meta = HgCompoundScalarType.parse_type(LessSimpleCompoundScalar)
     assert hg_meta.is_resolved
     assert not hg_meta.is_atomic
 
@@ -73,5 +73,5 @@ class UnResolvedCompoundScalar(CompoundScalar):
 
 
 def test_unresolved_compound_scalar():
-    hg_meta = HgCompoundScalarType.parse(UnResolvedCompoundScalar)
+    hg_meta = HgCompoundScalarType.parse_type(UnResolvedCompoundScalar)
     assert not hg_meta.is_resolved

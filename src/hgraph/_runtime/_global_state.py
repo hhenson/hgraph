@@ -31,6 +31,9 @@ class GlobalState(object):
     def __setitem__(self, key: str, value: Any):
         self._state[key] = value
 
+    def setdefault(self, key: str, default: Any) -> Any:
+        return self._state.setdefault(key, default)
+
     def __delitem__(self, key: str):
         del self._state[key]
 

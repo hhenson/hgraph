@@ -70,9 +70,9 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
         kwargs_ = extract_kwargs(signature, *args, **kwargs)
         resolved_signature = func.resolve_signature(**kwargs_)
         inner_output = as_reference(resolved_signature.output_type) if resolved_signature.output_type else None
-        output_type = HgTimeSeriesTypeMetaData.parse(
+        output_type = HgTimeSeriesTypeMetaData.parse_type(
             TSB[TryExceptResult[inner_output.py_type]]) if inner_output else \
-            HgTimeSeriesTypeMetaData.parse(TS[NodeError])
+            HgTimeSeriesTypeMetaData.parse_type(TS[NodeError])
         input_types = {k: as_reference(v) if isinstance(v, HgTimeSeriesTypeMetaData) else v for k, v in
                        resolved_signature.input_types.items()}
         time_series_args = resolved_signature.time_series_args

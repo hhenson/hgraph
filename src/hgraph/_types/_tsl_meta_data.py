@@ -54,22 +54,25 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
                                           wired_type: "HgTypeMetaData", value: object):
         if isinstance(wired_type, HgTupleCollectionScalarType):
             self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type.element_type, value[0])
-        elif isinstance(wired_type, HgDictScalarType) and wired_type.key_type == HgTypeMetaData.parse(int):
+        elif isinstance(wired_type, HgDictScalarType) and wired_type.key_type == HgTypeMetaData.parse_type(int):
             self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type.value_type, next(iter(value.values())))
         else:
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgTupleCollectionScalarType(self.value_tp.scalar_type())
+
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsl_type import TimeSeriesListInput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesListInput:
-            v_meta_data = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
-            sz_meta_data = HgScalarTypeMetaData.parse(value.__args__[1])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesListInput:
+            v_meta_data = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
+            sz_meta_data = HgScalarTypeMetaData.parse_type(value_tp.__args__[1])
             if v_meta_data is None:
-                raise ParseError(f"'{value.__args__[0]}' is not a valid time-series type")
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid time-series type")
             from hgraph._types._scalar_types import Size
             if sz_meta_data is None or (sz_meta_data.is_resolved and not issubclass(sz_meta_data.py_type, Size)):
-                raise ParseError(f"'{value.__args__[1]}' is not a valid Size type")
+                raise ParseError(f"'{value_tp.__args__[1]}' is not a valid Size type")
             return HgTSLTypeMetaData(v_meta_data, sz_meta_data)
 
     @property
@@ -110,16 +113,16 @@ class HgTSLOutTypeMetaData(HgTSLTypeMetaData):
     """Parses TSLOut[..., Size[...]]"""
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsl_type import TimeSeriesListOutput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesListOutput:
-            v_meta_data = HgTimeSeriesTypeMetaData.parse(value.__args__[0])
-            sz_meta_data = HgScalarTypeMetaData.parse(value.__args__[1])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesListOutput:
+            v_meta_data = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
+            sz_meta_data = HgScalarTypeMetaData.parse_type(value_tp.__args__[1])
             if v_meta_data is None:
-                raise ParseError(f"'{value.__args__[0]}' is not a valid time-series type")
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid time-series type")
             from hgraph import Size
             if sz_meta_data is None or (sz_meta_data.is_resolved and not issubclass(sz_meta_data.py_type, Size)):
-                raise ParseError(f"'{value.__args__[1]}' is not a valid Size type")
+                raise ParseError(f"'{value_tp.__args__[1]}' is not a valid Size type")
             return HgTSLOutTypeMetaData(v_meta_data, sz_meta_data)
 
     def __eq__(self, o: object) -> bool:

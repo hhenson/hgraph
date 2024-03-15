@@ -1,25 +1,29 @@
-from typing import Callable, cast
+import inspect
+from typing import Callable, cast, Type
 
 from hgraph._types._scalar_types import SIZE
 from hgraph._types._scalar_types import STATE
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, K
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2, K
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._decorators import compute_node
+from hgraph._types._typing_utils import with_signature
+from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_node_class._reduce_wiring_node import TsdReduceWiringNodeClass
+from hgraph._wiring._wiring_errors import WiringError
+from hgraph._wiring._wiring_node_class._reduce_wiring_node import TsdReduceWiringNodeClass, ReduceWiringSignature
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
+from hgraph._wiring._wiring_utils import wire_nested_graph
 
-__all__ = ("reduce",)
+__all__ = ("reduce", "zero")
 
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
            ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-           zero: TIME_SERIES_TYPE, is_associated: bool = True) -> TIME_SERIES_TYPE:
+           zero: TIME_SERIES_TYPE = None, is_associated: bool = True) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
     The zero must be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
@@ -42,14 +46,18 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
         >> tsl <- ([1], [2], [3], [4], [5])
         >> out -> 15
     """
-    if not isinstance(func, WiringNodeClass):
-        raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
-    if not isinstance(ts, WiringPort):
+    if isinstance(func, WiringNodeClass):
+        signature = func.signature.signature
+    elif isinstance(func, Callable) and func.__name__ == "<lambda>":
+        signature = inspect.signature(func).__str__()
+    else:
         raise RuntimeError(f"The supplied time-series is not a valid input: '{ts}'")
-    with WiringContext(current_signature=STATE(signature=f"reduce('{func.signature.signature}', {ts.output_type}, {zero})")):
-        if type(tp_:=ts.output_type) is HgTSLTypeMetaData:
+
+    _tp = ts.output_type.dereference()
+    with WiringContext(current_signature=STATE(signature=f"reduce('{signature}', {_tp}, {zero})")):
+        if type(_tp) is HgTSLTypeMetaData:
             return _reduce_tsl(func, ts, zero, is_associated)
-        elif type(tp_) is HgTSDTypeMetaData:
+        elif type(_tp) is HgTSDTypeMetaData:
             return _reduce_tsd(func, ts, zero)
         else:
             raise RuntimeError(f"Unexpected time-series type: {ts.output_type}")
@@ -96,6 +104,17 @@ def _reduce_tsd(func, ts, zero):
         ...
         # Used to create a WiringNodeClass template
 
+    tp = ts.output_type.dereference()
+    item_tp = tp.value_tp.py_type
+
+    if not isinstance(zero, WiringPort):
+        if zero is None:
+            import hgraph
+            zero = hgraph.zero(item_tp, func)
+        else:
+            from hgraph.nodes import const
+            zero = const(zero, item_tp)
+
     wp = _reduce_tsd_signature(ts, zero)
     resolved_signature = cast(WiringPort, wp).node_instance.resolved_signature
     resolved_signature = WiringNodeSignature(
@@ -114,5 +133,28 @@ def _reduce_tsd(func, ts, zero):
         injectable_inputs=resolved_signature.injectable_inputs,
         label=resolved_signature.label,
     )
-    wiring_node = TsdReduceWiringNodeClass(resolved_signature, func)
+
+    if not isinstance(func, WiringNodeClass):
+        func = graph(with_signature(func, annotations={k: item_tp for k in inspect.signature(func).parameters},
+                                    return_annotation=TIME_SERIES_TYPE))
+
+    reduce_signature = ReduceWiringSignature(
+        **resolved_signature.as_dict(),
+        inner_graph=wire_nested_graph(func,
+                                      {k: tp.value_tp for k in func.signature.input_types},
+                                      {},
+                                      resolved_signature,
+                                      None)
+    )
+    wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
     return wiring_node(ts, zero)
+
+
+@graph
+def zero(ts: Type[TIME_SERIES_TYPE], op: WiringNodeClass) -> TIME_SERIES_TYPE_2:
+    """
+    This is a helper graph to create a zero time-series for the reduce function. The zero values are
+    type nad operation dependent so both are provided. The datatype designers should overload this graph for their
+    respective data types and return correct zero values for the operation.
+    """
+    raise WiringError(f"operator zero is not implemented for {ts} and operation {op.signature.name}")

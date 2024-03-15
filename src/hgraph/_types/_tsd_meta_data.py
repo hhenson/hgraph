@@ -47,22 +47,25 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         if isinstance(wired_type, HgDictScalarType):
             value: Dict
             k, v = next(iter(value.items()))
-            self.key_tp.do_build_resolution_dict(resolution_dict, HgTypeMetaData.parse(k))
-            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse(v), v)
+            self.key_tp.do_build_resolution_dict(resolution_dict, HgTypeMetaData.parse_value(k))
+            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_value(v), v)
         else:
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        return HgDictScalarType(self.key_tp, self.value_tp.scalar_type())
+
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsd_type import TimeSeriesDictInput
         from hgraph._types._type_meta_data import ParseError
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesDictInput:
-            key_tp = HgScalarTypeMetaData.parse(value.__args__[0])
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesDictInput:
+            key_tp = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if key_tp is None:
-                raise ParseError(f"Could not parse key type {value.__args__[0]} when parsing {value}")
-            value_tp = HgTimeSeriesTypeMetaData.parse(value.__args__[1])
+                raise ParseError(f"Could not parse key type {value_tp.__args__[0]} when parsing {value_tp}")
+            value_tp = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[1])
             if value_tp is None:
-                raise ParseError(f"Could not parse value type {value.__args__[1]} when parsing {value}")
+                raise ParseError(f"Could not parse value type {value_tp.__args__[1]} when parsing {value_tp}")
             return HgTSDTypeMetaData(key_tp, value_tp)
 
     @property
@@ -102,11 +105,11 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
 class HgTSDOutTypeMetaData(HgTSDTypeMetaData):
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsd_type import TimeSeriesDictOutput
-        if isinstance(value, _GenericAlias) and value.__origin__ is TimeSeriesDictOutput:
-            return HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(value.__args__[0]),
-                                        HgTimeSeriesTypeMetaData.parse(value.__args__[1]))
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesDictOutput:
+            return HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse_type(value_tp.__args__[0]),
+                                        HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[1]))
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSDOutTypeMetaData and self.key_tp == o.key_tp and self.value_tp == o.value_tp

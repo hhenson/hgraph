@@ -1,6 +1,9 @@
+from abc import abstractmethod
 from typing import Optional, TYPE_CHECKING, TypeVar
 
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
 if TYPE_CHECKING:
     from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesPushQueue, TimeSeriesPullQueue, TimeSeriesOutput
 
@@ -29,7 +32,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     # End of Node constructor helper methods
 
     @classmethod
-    def parse(cls, value) -> Optional["HgTimeSeriesTypeMetaData"]:
+    def parse_type(cls, value_tp) -> Optional["HgTimeSeriesTypeMetaData"]:
         from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
         from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
         from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
@@ -43,12 +46,18 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
                   HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
                   HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData, HgSignalMetaData)
 
-        if isinstance(value, parsers):
-            return value
+        if isinstance(value_tp, parsers):
+            return value_tp
 
         for parser in parsers:
-            if meta_data := parser.parse(value):
+            if meta_data := parser.parse_type(value_tp):
                 return meta_data
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._wiring._wiring_port import WiringPort
+        if isinstance(value, WiringPort):
+            return value.output_type
 
     @property
     def has_references(self) -> bool:
@@ -64,3 +73,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         """
         from hgraph._wiring._wiring_errors import IncorrectTypeBinding
         raise IncorrectTypeBinding(self, wired_type)
+
+    @abstractmethod
+    def scalar_type(self) -> "HgScalarTypeMetaData":
+        ...

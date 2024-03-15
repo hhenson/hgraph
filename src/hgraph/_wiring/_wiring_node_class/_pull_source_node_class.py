@@ -27,7 +27,7 @@ def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALA
     changes = {"name": name}
     inputs = {}
     if default is not None:
-        default_type = HgScalarTypeMetaData.parse(default)
+        default_type = HgScalarTypeMetaData.parse_value(default)
         changes["args"] = tuple(["default"])
         changes["input_types"] = frozendict({"default": default_type})
         inputs["default"] = default

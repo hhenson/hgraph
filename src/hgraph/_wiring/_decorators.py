@@ -1,4 +1,5 @@
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING
+from inspect import signature
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, Union
 
 from frozendict import frozendict
 
@@ -26,7 +27,8 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                  active: Sequence[str] = None,
                  valid: Sequence[str] = None,
                  all_valid: Sequence[str] = None,
-                 overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None) -> COMPUTE_NODE_SIGNATURE:
+                 overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
+                 resolvers: Mapping[TypeVar, Callable] = None) -> COMPUTE_NODE_SIGNATURE:
     """
     Used to define a python function to be a compute-node. A compute-node is the worker unit in the graph and
     will be called each time of the inputs to the compute node ticks.
@@ -40,7 +42,8 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads)
+    return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
+                           resolvers=resolvers)
 
 
 def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None) -> SOURCE_NODE_SIGNATURE:
@@ -91,7 +94,7 @@ def graph(fn: GRAPH_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNA
     return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads)
 
 
-def generator(fn: SOURCE_NODE_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
+def generator(fn: SOURCE_NODE_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
     """
     Creates a pull source node that supports generating a sequence of ticks that will be fed into the
     graph. The generator wraps a function that is implemented as a python generator which returns a tuple of
@@ -115,10 +118,10 @@ def generator(fn: SOURCE_NODE_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
     """
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_class=PythonGeneratorWiringNodeClass)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, overloads=overloads, node_class=PythonGeneratorWiringNodeClass)
 
 
-def push_queue(tp: type[TIME_SERIES_TYPE]):
+def push_queue(tp: type[TIME_SERIES_TYPE], overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None):
     """
     Creates a push source node that supports injecting values into the graph asynchronously.
     The function that is wrapped by this decorator will be called as a start lifecycle method.
@@ -136,11 +139,24 @@ def push_queue(tp: type[TIME_SERIES_TYPE]):
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonPushQueueWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
-    return lambda fn: _create_node(_create_node_signature(
-        fn.__name__,
-        {k: v for k, v in fn.__annotations__.items() if k != fn.__code__.co_varnames[0]}, tp,
-        WiringNodeType.PUSH_SOURCE_NODE), impl_fn=fn,
-        node_type=WiringNodeType.PUSH_SOURCE_NODE, node_class=PythonPushQueueWiringNodeClass)
+    def _(fn):
+        sig = signature(fn)
+        sender_arg = next(iter(sig.parameters.keys()))
+        annotations = {k: v.annotation for k, v in sig.parameters.items() if k != sender_arg}
+        defaults = {k: v.default for k, v in sig.parameters.items() if k != sender_arg}
+
+        node = _create_node(_create_node_signature(fn.__name__,
+                                                   annotations, tp, defaults=defaults,
+                                                   node_type=WiringNodeType.PUSH_SOURCE_NODE),
+            impl_fn=fn, node_type=WiringNodeType.PUSH_SOURCE_NODE, node_class=PythonPushQueueWiringNodeClass)
+
+        if overloads is not None:
+            overloads.overload(node)
+            return node
+        else:
+            return node
+
+    return _
 
 
 SERVICE_DEFINITION = TypeVar('SERVICE_DEFINITION', bound=Callable)
@@ -210,6 +226,8 @@ def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
             ...
 
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(WiringNodeType.REQ_REP_SVC, fn)
 
 
 def service_impl(*, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None):
@@ -233,7 +251,10 @@ def register_service(path: str, implementation, **kwargs):
     from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
     if not isinstance(implementation, ServiceImplNodeClass):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
-    implementation(path=path, **kwargs)
+
+    from hgraph import WiringGraphContext
+    assert len(implementation.interfaces) == 1, 'mutliservices are not implemented yet'
+    WiringGraphContext.instance().register_service_impl(implementation.interfaces[0], path or '', implementation, kwargs)
 
 
 def service_adaptor(interface):
@@ -259,7 +280,8 @@ def service_adaptor(interface):
 def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active: Sequence[str] = None,
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
-                    overloads: "WiringNodeClass" = None, interfaces=None):
+                    overloads: "WiringNodeClass" = None, interfaces=None,
+                    resolvers: Mapping[TypeVar, Callable]=None) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
@@ -293,6 +315,10 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                 SubscriptionServiceNodeClass
             kwargs['node_class'] = SubscriptionServiceNodeClass
             _assert_no_node_configs("Subscription Services", kwargs)
+        case WiringNodeType.REQ_REP_SVC:
+            from hgraph._wiring._wiring_node_class._req_repl_service_node_service import RequestReplyServiceNodeClass
+            kwargs['node_class'] = RequestReplyServiceNodeClass
+            _assert_no_node_configs("Request Reply Services", kwargs)
         case WiringNodeType.SVC_IMPL:
             from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
             kwargs['node_class'] = ServiceImplNodeClass
@@ -306,13 +332,19 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         if "impl_fn" in kwargs:
             return lambda fn: _create_node(fn, **kwargs)
         else:
-            return lambda fn: _node_decorator(impl_fn=fn, **kwargs)
+            return lambda fn: _node_decorator(impl_fn=fn, **kwargs, resolvers=resolvers)
     elif overloads is not None:
         overload = _create_node(impl_fn, **kwargs)
+        if resolvers is not None:
+            overload = overload[tuple(slice(k, v) for k, v in resolvers.items())]
         overloads.overload(overload)
         return overload
     else:
-        return _create_node(impl_fn, **kwargs)
+        node = _create_node(impl_fn, **kwargs)
+        if resolvers is not None:
+            node = node[tuple(slice(k, v) for k, v in resolvers.items())]
+        return node
+
 
 
 def _assert_no_node_configs(label: str, kwargs):
@@ -326,7 +358,7 @@ def _assert_no_node_configs(label: str, kwargs):
 
 def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
                  node_class: Type["WiringNodeClass"] = None, active: Sequence[str] = None, valid: Sequence[str] = None,
-                 all_valid: Sequence[str] = None, interfaces=None) -> "WiringNodeClass":
+                 all_valid: Sequence[str] = None, interfaces=None, resolver=None) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
@@ -349,7 +381,7 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
 
 def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType",
                            active_inputs: frozenset[str] = None, valid_inputs: frozenset[str] = None,
-                           all_valid_inputs: frozenset[str] = None) -> Callable:
+                           all_valid_inputs: frozenset[str] = None, defaults: dict[str, Any] = None) -> Callable:
     """
     Create a function that takes the kwargs and returns the kwargs. This is used to create a function that
     can be used to create a signature.
@@ -363,9 +395,9 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         node_type=node_type,
         name=name,
         args=tuple(kwargs.keys()),
-        defaults=frozendict(),
-        input_types=frozendict({k: HgScalarTypeMetaData.parse(v) for k, v in kwargs.items()}),
-        output_type=HgTimeSeriesTypeMetaData.parse(ret_type) if ret_type is not None else None,
+        defaults=frozendict() if defaults is None else frozendict(defaults),
+        input_types=frozendict({k: HgScalarTypeMetaData.parse_type(v) for k, v in kwargs.items()}),
+        output_type=HgTimeSeriesTypeMetaData.parse_type(ret_type) if ret_type is not None else None,
         src_location=SourceCodeDetails(Path(), 0),  # TODO: make this point to a real place in code.
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,

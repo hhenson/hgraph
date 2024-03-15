@@ -1,11 +1,10 @@
-from typing import Callable, Mapping, Any, TYPE_CHECKING
+from typing import Mapping, Any, TYPE_CHECKING, TypeVar
 
 from frozendict import frozendict
 
-from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders
+from hgraph._types._ref_meta_data import HgREFTypeMetaData, HgTypeMetaData
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
-from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders
 
 if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
@@ -62,3 +61,12 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
             error_builder=error_builder,
             node_impl=_PythonReferenceServiceStubSourceNode
         )
+
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+                 **kwargs) -> "WiringPort":
+        port = super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+
+        from hgraph import WiringGraphContext
+        WiringGraphContext.instance().register_service_client(self, kwargs.get("path") or '')
+
+        return port

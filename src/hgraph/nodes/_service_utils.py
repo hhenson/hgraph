@@ -1,11 +1,11 @@
 from collections import defaultdict
-from typing import Mapping, Any
+from typing import Mapping, Any, Type
 
 from frozendict import frozendict
 
 from hgraph import sink_node, REF, TIME_SERIES_TYPE, GlobalState, compute_node, SCALAR, TS, STATE, Removed, \
     pull_source_node, ReferenceServiceNodeClass, BaseWiringNodeClass, HgREFTypeMetaData, create_input_output_builders, \
-    graph, AUTO_RESOLVE, TSD
+    graph, AUTO_RESOLVE, TSD, TS_OUT, REMOVE_IF_EXISTS, TIME_SERIES_TYPE_1
 
 __all__ = ("capture_output_to_global_state", "capture_output_node_to_global_state")
 
@@ -92,6 +92,37 @@ def _subscribe(path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE,
     return out[key]
 
 
+@compute_node
+def write_service_request(path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None) -> TS[int]:
+    """
+    Updates a TSD attached to the path with the data provided.
+    """
+    svc_node_in = GlobalState.instance().get(f"{path}_requests")
+    svc_node_in.apply_value({id(_state.requestor_id): request.delta_value})
+
+    if not _output.valid:
+        return id(_state.requestor_id)
+
+
+@write_service_request.start
+def write_service_request_start(path: str, _state: STATE):
+    _state.requestor_id = object()
+
+
+@write_service_request.stop
+def write_service_request_stop(request: TIME_SERIES_TYPE, path: str, _state: STATE):
+    if request.valid:
+        if svc_node_in := GlobalState.instance().get(f"{path}_requests"):
+            svc_node_in.apply_value({id(_state.requestor_id): REMOVE_IF_EXISTS})
+
+
+@graph
+def _request_service(path: str, request: TIME_SERIES_TYPE, tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE) -> TIME_SERIES_TYPE_1:
+    requestor_id = write_service_request(path, request)
+    out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[int, tp_out]](f"{path}_replies")
+    return out[requestor_id]
+
+
 class SharedReferenceNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_signature: "NodeSignature",
@@ -135,5 +166,5 @@ class SharedReferenceNodeClass(BaseWiringNodeClass):
 
 
 @pull_source_node(node_impl=SharedReferenceNodeClass)
-def get_shared_reference_output(path: str) -> TIME_SERIES_TYPE:
+def get_shared_reference_output(path: str) -> REF[TIME_SERIES_TYPE]:
     """Uses the special node to extract a node from the global state."""

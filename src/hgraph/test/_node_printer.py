@@ -24,6 +24,7 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         while graph:
             if graph.parent_node:
                 graph_str.append(
+                    f"{(graph.parent_node.signature.label + ':') if graph.parent_node.signature.label else ''}" +
                     f"{graph.parent_node.signature.name}<{', '.join(str(i) for i in graph.graph_id)}>")
                 graph = graph.parent_node.graph
             else:
@@ -41,7 +42,9 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
 
     def _print_node(self, node: "Node", msg: str, add_input: bool = False, add_output: bool = False,
                     add_scheduled_time: bool = False) -> None:
-        node_signature = f"[{node.signature.name}<{', '.join(str(i) for i in node.node_id)}>("
+        node_signature = (f"[{node.signature.wiring_path_name}."
+                          f"{(node.signature.label + ':') if node.signature.label else ''}"
+                          f"{node.signature.name}<{', '.join(str(i) for i in node.node_id)}>(")
         if node.signature.time_series_inputs:
             if add_input:
                 inputs = node.inputs

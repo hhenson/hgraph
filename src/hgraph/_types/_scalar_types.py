@@ -61,7 +61,7 @@ class CompoundScalar(AbstractSchema):
     @classmethod
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
-        return HgScalarTypeMetaData.parse(tp)
+        return HgScalarTypeMetaData.parse_type(tp)
 
 
 @runtime_checkable
@@ -100,7 +100,7 @@ class STATE(Generic[COMPOUND_SCALAR]):
         out = super(STATE, cls).__class_getitem__(item)
         if item is not COMPOUND_SCALAR:
             from hgraph._types._type_meta_data import HgTypeMetaData
-            if not (tp := HgTypeMetaData.parse(item)).is_scalar:
+            if not (tp := HgTypeMetaData.parse_type(item)).is_scalar:
                 raise ParseError(
                     f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to to CompoundScalar)")
             # if tp.is_resolved:

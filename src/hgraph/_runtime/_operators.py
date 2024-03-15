@@ -1,3 +1,5 @@
+from typing import Type
+
 from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError
 from hgraph._wiring._wiring_port import WiringPort
@@ -11,7 +13,8 @@ provide an actual implementation for performance reasons.
 
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
-    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_")
+    "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
+    "getattr_")
 
 
 @graph
@@ -228,3 +231,19 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
 def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """logic not"""
     return not ts.value
+
+
+@graph
+def getitem_(ts: TIME_SERIES_TYPE, key: TS[SCALAR]) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator getitem_ is not implemented for {ts.output_type} and {key.output_type}")
+
+
+WiringPort.__getitem__ = lambda x, y: getitem_(x, y)
+
+
+@graph
+def getattr_(ts: TIME_SERIES_TYPE, attr: str) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator getattr_ is not implemented for {ts.output_type} and {attr}")
+
+
+WiringPort.__getattr__ = lambda x, y: getattr_(x, y)

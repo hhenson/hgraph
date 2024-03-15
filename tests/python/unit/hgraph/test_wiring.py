@@ -59,4 +59,4 @@ def test_un_resolved_wiring():
         sink_nodes = context.sink_nodes
         assert len(sink_nodes) == 1
         sn: WiringNodeInstance = sink_nodes[0]
-        assert sn.resolved_signature.input_types["ts"] == HgTypeMetaData.parse(TS[str])
+        assert sn.resolved_signature.input_types["ts"] == HgTypeMetaData.parse_type(TS[str])

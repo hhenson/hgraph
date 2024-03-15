@@ -1,10 +1,10 @@
 from datetime import timedelta
 from typing import Type
 
-from hgraph import generator, SCALAR, TIME_SERIES_TYPE, EvaluationClock, TS, compute_node, graph, REF, \
+from hgraph import generator, SCALAR, TIME_SERIES_TYPE, TS, compute_node, graph, REF, AUTO_RESOLVE, \
     EvaluationEngineApi
 
-__all__ = ("const", "default")
+__all__ = ("const", "default", "nothing")
 
 
 @generator
@@ -58,3 +58,15 @@ def _default(ts_ref: REF[TIME_SERIES_TYPE], ts: TIME_SERIES_TYPE, default_value:
     else:
         ts.make_passive()
         return ts_ref.value
+
+
+@generator
+def nothing(tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+    """
+    Produces no ticks ever
+
+    :param tp: Used to resolve the correct type for the output, by default this is TS[SCALAR] where SCALAR is the type
+               of the value.
+    :return: A time series that will never tick
+    """
+    yield from ()

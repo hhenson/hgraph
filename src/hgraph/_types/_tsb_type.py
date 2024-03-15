@@ -40,7 +40,7 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
     def create(cls, **kwargs) -> Type["UnNamedTimeSeriesSchema"]:
         """Creates a type instance with root class UnNamedTimeSeriesSchema using the kwargs provided"""
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-        schema = {k: HgTimeSeriesTypeMetaData.parse(v) for k, v in kwargs.items()}
+        schema = {k: HgTimeSeriesTypeMetaData.parse_type(v) for k, v in kwargs.items()}
         if any(v is None for v in schema.values()):
             bad_inputs = {k: v for k, v in kwargs if schema[k] is None}
             raise CustomMessageWiringError(f"The following inputs are not valid time-series types: {bad_inputs}")
@@ -78,7 +78,7 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
         out = super(TimeSeriesBundle, cls).__class_getitem__(item)
         if item is not TS_SCHEMA:
             from hgraph._types._type_meta_data import HgTypeMetaData
-            if HgTypeMetaData.parse(item).is_scalar:
+            if HgTypeMetaData.parse_type(item).is_scalar:
                 raise ParseError(
                     f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
             if hasattr(out, "from_ts"):
@@ -156,7 +156,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         for k, v in kwargs.items():
             # If v is a wiring port then we perform a validation of the output type to the expected input type.
             if isinstance(v, WiringPort):
-                if cast(WiringPort, v).output_type != meta_data_schema[k]:
+                if not meta_data_schema[k].matches(cast(WiringPort, v).output_type.dereference()):
                     from hgraph import IncorrectTypeBinding
                     from hgraph import WiringContext
                     from hgraph import STATE
@@ -193,13 +193,13 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         )
         TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
-        from hgraph._wiring._wiring_port import TSBWiringPort
+        from hgraph._wiring._wiring_port import TSBWiringPort, WiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict(kwargs),
-            rank=max(v.rank for k, v in kwargs.items())
+            rank=max(v.rank for k, v in kwargs.items() if isinstance(v, WiringPort))
         )
         return TSBWiringPort(wiring_node_instance, tuple())
 

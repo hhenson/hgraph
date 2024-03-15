@@ -34,30 +34,44 @@ class MyEnum(Enum):
     ["value", "expected"],
     [
         [bool, bool],
-        [True, bool],
-        [False, bool],
         [int, int],
-        [0, int],
-        [1, int],
         [float, float],
-        [0.0, float],
-        [1.0, float],
         [date, date],
-        [date(2022, 6, 13), date],
         [datetime, datetime],
-        [datetime(2022, 6, 13, 10, 13, 0), datetime],
         [time, time],
-        [time(10, 13, 0), time],
         [timedelta, timedelta],
-        [timedelta(days=1), timedelta],
         [str, str],
-        ["Test", str],
         [MyEnum, MyEnum],
-        [MyEnum.A, MyEnum]
+        [Size, Size]
     ]
 )
-def test_atomic_scalars(value, expected: Type):
-    meta_type = HgTypeMetaData.parse(value)
+def test_atomic_scalars_type(value, expected: Type):
+    meta_type = HgTypeMetaData.parse_type(value)
+    assert meta_type is not None
+    assert isinstance(meta_type, HgAtomicType)
+    assert meta_type.py_type == expected
+
+
+@pytest.mark.parametrize(
+    ["value", "expected"],
+    [
+        [True, bool],
+        [False, bool],
+        [0, int],
+        [1, int],
+        [0.0, float],
+        [1.0, float],
+        [date(2022, 6, 13), date],
+        [datetime(2022, 6, 13, 10, 13, 0), datetime],
+        [time(10, 13, 0), time],
+        [timedelta(days=1), timedelta],
+        ["Test", str],
+        [MyEnum.A, MyEnum],
+        [Size[3], Size[3]]
+    ]
+)
+def test_atomic_scalars_value(value, expected: Type):
+    meta_type = HgTypeMetaData.parse_value(value)
     assert meta_type is not None
     assert isinstance(meta_type, HgAtomicType)
     assert meta_type.py_type == expected
@@ -70,7 +84,7 @@ def test_atomic_scalars(value, expected: Type):
     ]
 )
 def test_special_atomic_scalars(value, expected: Type):
-    meta_type = HgTypeMetaData.parse(value)
+    meta_type = HgTypeMetaData.parse_type(value)
     assert meta_type is not None
     assert isinstance(meta_type, HgInjectableType)
     assert meta_type.py_type == expected
@@ -79,44 +93,44 @@ def test_special_atomic_scalars(value, expected: Type):
 @pytest.mark.parametrize(
     ["value", "expected"],
     [
-        [Tuple[bool, ...], HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(bool))],
-        [tuple[bool, ...], HgTupleCollectionScalarType(HgScalarTypeMetaData.parse(bool))],
-        [Tuple[bool, int], HgTupleFixedScalarType([HgScalarTypeMetaData.parse(bool), HgScalarTypeMetaData.parse(int)])],
-        [tuple[bool, int], HgTupleFixedScalarType([HgScalarTypeMetaData.parse(bool), HgScalarTypeMetaData.parse(int)])],
-        [FrozenSet[bool], HgSetScalarType(HgScalarTypeMetaData.parse(bool))],
-        [frozenset[bool], HgSetScalarType(HgScalarTypeMetaData.parse(bool))],
-        [Set[bool], HgSetScalarType(HgScalarTypeMetaData.parse(bool))],
-        [set[bool], HgSetScalarType(HgScalarTypeMetaData.parse(bool))],
-        [Mapping[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
-        [Dict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
-        [dict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
-        [frozendict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse(int), HgScalarTypeMetaData.parse(str))],
-        [TS[bool], HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [TS_OUT[bool], HgTSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
+        [Tuple[bool, ...], HgTupleCollectionScalarType(HgScalarTypeMetaData.parse_type(bool))],
+        [tuple[bool, ...], HgTupleCollectionScalarType(HgScalarTypeMetaData.parse_type(bool))],
+        [Tuple[bool, int], HgTupleFixedScalarType([HgScalarTypeMetaData.parse_type(bool), HgScalarTypeMetaData.parse_type(int)])],
+        [tuple[bool, int], HgTupleFixedScalarType([HgScalarTypeMetaData.parse_type(bool), HgScalarTypeMetaData.parse_type(int)])],
+        [FrozenSet[bool], HgSetScalarType(HgScalarTypeMetaData.parse_type(bool))],
+        [frozenset[bool], HgSetScalarType(HgScalarTypeMetaData.parse_type(bool))],
+        [Set[bool], HgSetScalarType(HgScalarTypeMetaData.parse_type(bool))],
+        [set[bool], HgSetScalarType(HgScalarTypeMetaData.parse_type(bool))],
+        [Mapping[int, str], HgDictScalarType(HgScalarTypeMetaData.parse_type(int), HgScalarTypeMetaData.parse_type(str))],
+        [Dict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse_type(int), HgScalarTypeMetaData.parse_type(str))],
+        [dict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse_type(int), HgScalarTypeMetaData.parse_type(str))],
+        [frozendict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse_type(int), HgScalarTypeMetaData.parse_type(str))],
+        [TS[bool], HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
+        [TS_OUT[bool], HgTSOutTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
         [TSL[TS[bool], SIZE],
-         HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
+         HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(bool)), HgScalarTypeMetaData.parse_type(SIZE))],
         [TSL_OUT[TS[bool], SIZE],
-         HgTSLOutTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)), HgScalarTypeMetaData.parse(SIZE))],
-        [TSS[bool], HgTSSTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [TSS_OUT[bool], HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse(bool))],
+         HgTSLOutTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(bool)), HgScalarTypeMetaData.parse_type(SIZE))],
+        [TSS[bool], HgTSSTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
+        [TSS_OUT[bool], HgTSSOutTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
         [TSD[int, TS[str]],
-         HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
+         HgTSDTypeMetaData(HgScalarTypeMetaData.parse_type(int), HgTimeSeriesTypeMetaData.parse_type(TS[str]))],
         [TSD[int, TSL[TS[int], Size[2]]],
-         HgTSDTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TSL[TS[int], Size[2]]))],
+         HgTSDTypeMetaData(HgScalarTypeMetaData.parse_type(int), HgTimeSeriesTypeMetaData.parse_type(TSL[TS[int], Size[2]]))],
         [TSD_OUT[int, TS[str]],
-         HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse(int), HgTimeSeriesTypeMetaData.parse(TS[str]))],
-        [REF[TS[bool]], HgREFTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse(bool)))],
-        [Type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse(bool))],
-        [Array[int], HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse(int), tuple())],
+         HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse_type(int), HgTimeSeriesTypeMetaData.parse_type(TS[str]))],
+        [REF[TS[bool]], HgREFTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(bool)))],
+        [Type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
+        [type[bool], HgTypeOfTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
+        [Array[int], HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse_type(int), tuple())],
         [Array[int, Size[1]],
-         HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse(int), (HgScalarTypeMetaData.parse(Size[1]),))],
-        [Array[int, Size[1], SIZE], HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse(int), (
-        HgScalarTypeMetaData.parse(Size[1]), HgScalarTypeMetaData.parse(SIZE)))],
+         HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse_type(int), (HgScalarTypeMetaData.parse_type(Size[1]),))],
+        [Array[int, Size[1], SIZE], HgArrayScalarTypeMetaData(HgScalarTypeMetaData.parse_type(int), (
+                HgScalarTypeMetaData.parse_type(Size[1]), HgScalarTypeMetaData.parse_type(SIZE)))],
     ]
 )
 def test_collection_scalars(value, expected: HgScalarTypeMetaData):
-    meta_type = HgTypeMetaData.parse(value)
+    meta_type = HgTypeMetaData.parse_type(value)
     assert meta_type is not None
     assert meta_type == expected
     assert meta_type.matches(expected)
@@ -144,7 +158,7 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
     ]
 )
 def test_py_type(tp):
-    tp_meta = HgTypeMetaData.parse(tp)
+    tp_meta = HgTypeMetaData.parse_type(tp)
     parsed = tp_meta.py_type
     assert parsed == tp
 
@@ -162,7 +176,7 @@ def test_py_type(tp):
     ]
 )
 def test_py_type_collections(tp, py_tp):
-    assert py_tp == HgTypeMetaData.parse(tp).py_type
+    assert py_tp == HgTypeMetaData.parse_type(tp).py_type
 
 
 def test_size():

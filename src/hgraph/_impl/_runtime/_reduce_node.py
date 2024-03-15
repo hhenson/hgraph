@@ -41,7 +41,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
                  output_node_id: int = None,
                  ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
-        self._nested_graph: PythonGraph = PythonGraph(self.owning_graph_id + (self.node_ndx,), nodes=[],
+        self._nested_graph: PythonGraph = PythonGraph(self.node_id, nodes=[],
                                                       parent_node=self)
 
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
@@ -60,9 +60,12 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
     @start_guard
     def start(self):
         super().start()
-        keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
-        if len(keys) > 0:
-            self._add_nodes(keys)  # If there are already inputs, then add the keys.
+        if self._tsd.valid:
+            keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
+            if len(keys) > 0:
+                self._add_nodes(keys)  # If there are already inputs, then add the keys.
+            else:
+                self._grow_tree()
         else:
             self._grow_tree()
         self._nested_graph.start()

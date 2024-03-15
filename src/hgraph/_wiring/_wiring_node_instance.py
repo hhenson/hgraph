@@ -41,9 +41,12 @@ class WiringNodeInstanceContext:
                                     inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
         key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
-            self._node_instances[key] = node_instance = WiringNodeInstance(node=node,
-                                                                           resolved_signature=resolved_signature,
-                                                                           inputs=inputs, rank=rank)
+            from hgraph import WiringGraphContext
+            self._node_instances[key] = node_instance = WiringNodeInstance(
+                node=node,
+                resolved_signature=resolved_signature,
+                inputs=inputs, rank=rank,
+                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name())
         return node_instance
 
     @classmethod
@@ -68,6 +71,8 @@ class WiringNodeInstance:
     resolved_signature: "WiringNodeSignature"
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
     rank: int
+    wiring_path_name: str
+    label: str = ""
     error_handler_registered: bool = False
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
@@ -90,6 +95,9 @@ class WiringNodeInstance:
     def is_stub(self) -> bool:
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import StubWiringNodeClass
         return isinstance(self.node, StubWiringNodeClass)
+
+    def set_label(self, label: str):
+        super().__setattr__("label", label)
 
     @property
     def output_type(self) -> "HgTimeSeriesTypeMetaData":
@@ -125,6 +133,8 @@ class WiringNodeInstance:
             injectable_inputs=self.resolved_signature.injectable_inputs,
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,
+            wiring_path_name=self.wiring_path_name,
+            label=self.label,
             capture_values=self.capture_values
         )
 

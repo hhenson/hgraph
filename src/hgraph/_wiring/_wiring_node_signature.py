@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
+from inspect import isfunction, signature
+from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable, GenericAlias, _GenericAlias
 from functools import reduce
 from operator import or_
 from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
@@ -36,7 +38,7 @@ class WiringNodeType(Enum):
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
-    tp_ = HgTypeMetaData.parse(tp)
+    tp_ = HgTypeMetaData.parse_type(tp)
     if tp_ is None:
         raise ParseError(f"'{tp}' is not a valid HgType")
     return tp_
@@ -46,7 +48,7 @@ def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData | None:
     if tp is None or tp is type(None):
         return
 
-    tp_ = HgTimeSeriesTypeMetaData.parse(tp)
+    tp_ = HgTimeSeriesTypeMetaData.parse_type(tp)
     if tp_ is None:
         raise ParseError(f"'{tp}' is not a valid HgTimeSeriesType")
 
@@ -54,7 +56,7 @@ def extract_hg_time_series_type(tp) -> HgTimeSeriesTypeMetaData | None:
 
 
 def extract_scalar_type(tp: Type) -> HgScalarTypeMetaData:
-    tp_ = HgScalarTypeMetaData.parse(tp)
+    tp_ = HgScalarTypeMetaData.parse_type(tp)
     if tp_ is None:
         raise ParseError(f"'{tp}' is not a valid HgScalarType")
     return tp_
@@ -128,6 +130,10 @@ class WiringNodeSignature:
         return not self.unresolved_args and (not self.output_type or self.output_type.is_resolved)
 
     @property
+    def is_weakly_resolved(self) -> bool:
+        return not self.unresolved_args
+
+    @property
     def scalar_inputs(self) -> Mapping[str, HgScalarTypeMetaData]:
         """Split out scalar inputs from time-series inputs """
         return frozendict({k: v for k, v in self.input_types.items() if v.is_scalar})
@@ -136,10 +142,13 @@ class WiringNodeSignature:
     def time_series_inputs(self) -> Mapping[str, HgTimeSeriesTypeMetaData]:
         return frozendict({k: v for k, v in self.input_types.items() if not v.is_scalar})
 
-    def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData],
+    def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable],
                               kwarg_types, kwargs) -> dict[TypeVar, HgTypeMetaData]:
         """Expect kwargs to be a dict of arg to type mapping / value mapping"""
-        resolution_dict: dict[TypeVar, HgTypeMetaData] = dict(pre_resolved_types) if pre_resolved_types else {}
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in pre_resolved_types.items() if
+                                                          isinstance(v, HgTypeMetaData)} if pre_resolved_types else {}
+        resolvers_dict: dict[TypeVar, Callable] = {k: v for k, v in pre_resolved_types.items() if
+                                                          isfunction(v)} if pre_resolved_types else {}
         for arg, meta_data in self.input_types.items():
             # This will validate the input type against the signature's type so don't short-cut this logic!
             with WiringContext(current_arg=arg):
@@ -154,6 +163,15 @@ class WiringNodeSignature:
         for k, v in resolution_dict.items():
             out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
             all_resolved &= out_dict[k].is_resolved
+
+        if resolvers_dict:
+            scalars = {k: v for k, v in kwargs.items() if (kwt := kwarg_types.get(k)) and kwt.is_scalar}
+            for k, v in pre_resolved_types.items():
+                if isfunction(v) and k not in out_dict:
+                    resolved = v(resolution_dict, scalars)
+                    if isinstance(resolved, (type, GenericAlias, _GenericAlias, TypeVar)):
+                        resolved = HgTypeMetaData.parse_type(resolved)
+                    out_dict[k] = resolved
 
         if not all_resolved:
             raise ParseError(f"Unable to build a resolved resolution dictionary, due to:"
@@ -224,6 +242,15 @@ class WiringNodeSignature:
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
+    def validate_resolved_types(self, kwarg_types, kwargs):
+        for k, v in self.input_types.items():
+            from hgraph._wiring._wiring_port import WiringPort
+            if isinstance(kwargs[k], WiringPort):
+                if not v.dereference().matches(kwargs[k].output_type.dereference()):
+                    raise IncorrectTypeBinding(v, kwarg_types[k])
+            else:
+                if not v.dereference().matches(kwarg_types[k].dereference()):
+                    raise IncorrectTypeBinding(v, kwarg_types[k])
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,
                       active_inputs: frozenset[str] | None = None,
@@ -237,7 +264,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     name = fn.__name__
     annotations = get_type_hints(fn)
     code = fn.__code__
-    args: tuple[str, ...] = code.co_varnames[:code.co_argcount]
+    args: tuple[str, ...] = tuple(signature(fn).parameters.keys())
     filename = code.co_filename
     first_line = code.co_firstlineno
     if fn_defaults := fn.__defaults__:
