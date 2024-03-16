@@ -232,3 +232,8 @@ Version 0.2.0 (15-03-2024)
 --------------------------
 
 * No changes, just a release as we have reached the objectives of the roadmap for 0.2
+
+Version 0.2.1 (TBD)
+-------------------
+
+* Fix tsd_rekey
