@@ -164,12 +164,13 @@ def tsd_collapse_keys(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
     Collapse the nested TSDs to a TSD with a tuple key.
     """
     out = {}
+
+    for k, v in ts.removed_items():
+        out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.keys()})
+
     for k, v in ts.modified_items():
         out.update({(k, k1): v1.value for k1, v1 in v.modified_items()})
         out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
-
-    for k in ts.removed_keys():
-        out.update({(k, k1): REMOVE_IF_EXISTS for k1 in ts[k].keys()})
 
     return out
 

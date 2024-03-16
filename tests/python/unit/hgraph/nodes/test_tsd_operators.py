@@ -4,7 +4,7 @@ from frozendict import frozendict
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
     compute_node, REF, TSS
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey, tsd_flip
-from hgraph.nodes._tsd_operators import tsd_flip_tsd
+from hgraph.nodes._tsd_operators import tsd_flip_tsd, tsd_collapse_keys
 from hgraph.test import eval_node
 
 
@@ -126,4 +126,21 @@ def test_tsd_flip_tsd():
                fd({"a": fd({1: 5}), "b": fd({2: 6})}),
                fd({"c": fd({1: 5}), "a": REMOVE}),
                fd({"b": REMOVE})
+           ]
+
+
+def test_tsd_collapse_keys():
+    fd = frozendict
+    assert eval_node(
+        tsd_collapse_keys,
+        [
+            {1: {"a": 5}, 2: {"b": 6}},
+            {1: {"c": 5, "a": REMOVE}},
+            {2: REMOVE}
+        ],
+        resolution_dict={"ts": TSD[int, TSD[str, TS[int]]]}
+    ) == [
+               fd({(1, "a"): 5, (2, "b"): 6}),
+               fd({(1, "c"): 5, (1, "a"): REMOVE}),
+               fd({(2, "b"): REMOVE})
            ]
