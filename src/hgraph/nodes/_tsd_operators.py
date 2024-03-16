@@ -1,10 +1,10 @@
 from collections import defaultdict
 from dataclasses import field, dataclass
-from typing import Type, Mapping, cast, Tuple, Dict
+from typing import Type, Mapping, cast, Tuple
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_, TS_OUT, TSD_OUT
+    AUTO_RESOLVE, map_
 from hgraph._runtime._operators import getattr_, mul_
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
 from hgraph.nodes import sum_, const
@@ -36,7 +36,7 @@ def make_tsd(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
 
 @graph(overloads=make_tsd)
 def make_tsd_scalar(key: K_1, value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
-             ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+                    ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
     return make_tsd(const(key), value, remove_key, ts_type)
 
 
@@ -135,7 +135,8 @@ def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]
     return schema[key].py_type
 
 
-@compute_node(overloads=getattr_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars['key'])})
+@compute_node(overloads=getattr_, resolvers={
+    TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars['key'])})
 def tsd_get_bundle_item(tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE) \
         -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
@@ -189,29 +190,44 @@ def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]) -> TSD[K,
 
 
 class TsdRekeyState(CompoundScalar):
-    known_keys: Dict = {}
+    prev: dict = {}  # Copy of previous ticks
 
 
 @compute_node
-def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], state: STATE[TsdRekeyState] = None) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
+def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) \
+        -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
     Rekey a TSD to the new keys.
+
+    The expectation is that the set of new keys are distinct producing a 1-1 mapping.
     """
     out = {}
-    for k, v in ts.modified_items():
-        if k in new_keys:
-            out[new_keys[k].value] = v.value
+    prev = _state.prev
 
+    # Clear up existing mapping before we track new key mappings
     for k in ts.removed_keys():
-        out[new_keys[k].value] = REMOVE_IF_EXISTS
+        k_new = prev.get(k)
+        if k_new is not None:
+            out[k_new] = REMOVE_IF_EXISTS
 
-    for k, k1 in new_keys.modified_items():
-        if k0 := state.known_keys.get(k):
-            out[state.keys[k0]] = REMOVE_IF_EXISTS
-        out[k1.value] = ts[k].value
+    # Track changes in new keys
+    for ts_key in new_keys.removed_keys():
+        prev_key = prev.pop(ts_key)
+        out[prev_key] = REMOVE_IF_EXISTS
+    for ts_key, new_key in new_keys.modified_items():
+        new_key = new_key.value # Get the value from the ts
+        prev_key = prev.get(ts_key, None)
+        if prev_key is not None and new_key != prev_key:
+            out[prev_key] = REMOVE_IF_EXISTS
+        prev[ts_key] = new_key
+        v = ts.get(ts_key)
+        if v is not None:
+            out[new_key] = v.value
 
-    for k, k1 in new_keys.removed_items():
-        out[k1.value] = REMOVE_IF_EXISTS
+    for k, v in ts.modified_items():
+        k_new = prev.get(k, None)
+        if k_new is not None:
+            out[k_new] = v.value
 
     return out
 

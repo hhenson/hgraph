@@ -1,8 +1,9 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import TS, graph, TIME_SERIES_TYPE, SCALAR_2, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, compute_node, REF, TSS
-from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const
+from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
+    compute_node, REF, TSS
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey
 from hgraph.test import eval_node
 
 
@@ -52,7 +53,7 @@ def test_sum(inputs, expected):
 
 def test_tsd_get_item():
     assert (eval_node(tsd_get_item[K: int, TIME_SERIES_TYPE: TS[int]],
-                     [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}], [None, 1, None, None, 2])
+                      [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}], [None, 1, None, None, 2])
             == [None, 3, 4, None, -2])
 
 
@@ -67,9 +68,8 @@ def test_tsd_get_bundle_item():
 
     assert eval_node(g, [{1: dict(a=1, b=2), 2: dict(a=3, b=4)}]) == [{1: 1, 2: 3}]
 
-    
-def test_ref_tsd_key_set():
 
+def test_ref_tsd_key_set():
     @compute_node
     def to_ref(tsd: REF[TSD[str, TS[int]]]) -> REF[TSD[str, TS[int]]]:
         return tsd.value
@@ -81,3 +81,17 @@ def test_ref_tsd_key_set():
         return r.key_set
 
     assert eval_node(main) == [frozenset(['a', 'b'])]
+
+
+def test_tsd_rekey():
+    fd = frozendict
+    assert eval_node(tsd_rekey,
+              [{1: 1}, {2: 2}, None, {2: REMOVE}],
+              [{1: "a", 2: "b"}, None, {1: "c"}],
+              resolution_dict={"ts": TSD[int, TS[int]], "new_keys": TSD[int, TS[str]]}
+              ) == [
+        fd({"a": 1}),
+        fd({"b": 2}),
+        fd({"c": 1, "a": REMOVE}),
+        fd({"b": REMOVE})
+    ]
