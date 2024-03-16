@@ -215,7 +215,7 @@ def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _sta
         prev_key = prev.pop(ts_key)
         out[prev_key] = REMOVE_IF_EXISTS
     for ts_key, new_key in new_keys.modified_items():
-        new_key = new_key.value # Get the value from the ts
+        new_key = new_key.value  # Get the value from the ts
         prev_key = prev.get(ts_key, None)
         if prev_key is not None and new_key != prev_key:
             out[prev_key] = REMOVE_IF_EXISTS
@@ -233,17 +233,26 @@ def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _sta
 
 
 @compute_node
-def tsd_flip(ts: TSD[K, TS[K_1]]) -> TSD[K_1, TS[K]]:
+def tsd_flip(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TS[K]]:
     """
     Flip the TSD to have the time-series as the key and the key as the time-series.
     """
 
-    # TODO: Introduce state to track changed values
     out = {}
-    for k, v in ts.modified_items():
-        out[v.value] = k
+    prev = _state.prev
 
-    for k, v in ts.removed_items():
-        out[v.value] = REMOVE_IF_EXISTS
+    # Clear up existing mapping before we track new key mappings
+    for k in ts.removed_keys():
+        k_new = prev.pop(k)
+        if k_new is not None:
+            out[k_new] = REMOVE_IF_EXISTS
+
+    for k, v in ts.modified_items():
+        v = v.value
+        k_new = prev.pop(k, None)
+        if k_new is not None:
+            out[k_new] = REMOVE_IF_EXISTS
+        out[v] = k
+        prev[k] = v
 
     return out

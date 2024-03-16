@@ -3,7 +3,7 @@ from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
     compute_node, REF, TSS
-from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey, tsd_flip
 from hgraph.test import eval_node
 
 
@@ -85,13 +85,27 @@ def test_ref_tsd_key_set():
 
 def test_tsd_rekey():
     fd = frozendict
-    assert eval_node(tsd_rekey,
-              [{1: 1}, {2: 2}, None, {2: REMOVE}],
-              [{1: "a", 2: "b"}, None, {1: "c"}],
-              resolution_dict={"ts": TSD[int, TS[int]], "new_keys": TSD[int, TS[str]]}
-              ) == [
-        fd({"a": 1}),
-        fd({"b": 2}),
-        fd({"c": 1, "a": REMOVE}),
-        fd({"b": REMOVE})
-    ]
+    assert eval_node(
+        tsd_rekey,
+        [{1: 1}, {2: 2}, None, {2: REMOVE}],
+        [{1: "a", 2: "b"}, None, {1: "c"}],
+        resolution_dict={"ts": TSD[int, TS[int]], "new_keys": TSD[int, TS[str]]}
+    ) == [
+               fd({"a": 1}),
+               fd({"b": 2}),
+               fd({"c": 1, "a": REMOVE}),
+               fd({"b": REMOVE})
+           ]
+
+
+def test_tsd_flip():
+    fd = frozendict
+    assert eval_node(
+        tsd_flip,
+        [{1: "a", 2: "b"}, {1: "c"}, {2: REMOVE}],
+        resolution_dict={"ts": TSD[int, TS[str]]}
+    ) == [
+               fd({"a": 1, "b": 2}),
+               fd({"c": 1, "a": REMOVE}),
+               fd({"b": REMOVE})
+           ]
