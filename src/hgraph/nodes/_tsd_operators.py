@@ -256,3 +256,37 @@ def tsd_flip(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
         prev[k] = v
 
     return out
+
+
+@compute_node
+def tsd_flip_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None) \
+        -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
+    """
+    Switch the keys on a TSD of TSD's. This can be considered as a pivot.
+    """
+    ts = ts.value
+    prev = _output.value
+
+    # Create the target dictionary
+    new = defaultdict(dict)
+    for k, v in ts.items():
+        for k1, v1 in v.items():
+            new[k1][k] = v1
+
+    # Now work out the delta
+    out = defaultdict(dict)
+    for k_n, inner_n in new.items():
+        if inner_prev := prev.get(k_n):
+            for k1_n, ref_n in inner_n.items():
+                if (ref_prev := inner_prev.get(k1_n)) is None or ref_n != ref_prev:
+                    out[k_n][k1_n] = ref_n
+            for k1_p in inner_prev.keys():
+                if k1_p not in inner_n:
+                    out[k_n][k1_p] = REMOVE_IF_EXISTS
+        else:
+            out[k_n] = inner_n
+    for k_p in prev.keys():
+        if k_p not in new:
+            out[k_p] = REMOVE_IF_EXISTS
+
+    return out

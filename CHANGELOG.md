@@ -238,3 +238,4 @@ Version 0.2.1 (TBD)
 
 * Fix tsd_rekey
 * Fix tsd_flip
+* Add tsd_flip_tsd
