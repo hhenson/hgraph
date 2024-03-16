@@ -91,4 +91,4 @@ def test_two_services():
         register_service('one_path', add_one_service_impl)
         return add_one_service('another_path', x)
 
-    assert eval_node(main, [1], __trace__=True) == [None, None, 3]
+    assert eval_node(main, [1]) == [None, None, 3]
