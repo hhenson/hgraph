@@ -32,7 +32,7 @@ classifiers = [
 
 [project.optional-dependencies]
 polars = [
-    "polars>=0.20.2",
+    "polars>=0.20.15",
 ]
 all = ["hgraph[polars]"]
 
