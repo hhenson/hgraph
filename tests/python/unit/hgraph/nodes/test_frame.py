@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
+
 try:
     import polars as pl
 
@@ -16,7 +17,8 @@ try:
 
 
     def test_data_frame():
-        assert HgTypeMetaData.parse_type(Frame[TestSchema]) == HgDataFrameScalarTypeMetaData(HgCompoundScalarType.parse_type(TestSchema))
+        assert HgTypeMetaData.parse_type(Frame[TestSchema]) == HgDataFrameScalarTypeMetaData(
+            HgCompoundScalarType.parse_type(TestSchema))
 
 
     def test_data_frame1():
@@ -42,5 +44,6 @@ try:
             return ts['a']
 
         assert eval_node(g[TIME_SERIES_TYPE: TS[Frame[TestSchema]]], [frame])[0][0] == date(2021, 1, 1)
+
 except ImportError:
     ...
