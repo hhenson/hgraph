@@ -176,16 +176,30 @@ def tsd_collapse_keys(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
 
 
 @compute_node
-def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]],
+                        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
     Un-Collapse the nested TSDs to a TSD with a tuple key.
     """
-    out = defaultdict(defaultdict)
-    for k, v in ts.modified_items():
-        out[k[0]][k[1]] = v.delta_value
+    out = defaultdict(dict)
 
+    removed_keys = defaultdict(set)
     for k in ts.removed_keys():
+        removed_keys[k[0]].add(k[1])
         out[k[0]][k[1]] = REMOVE_IF_EXISTS
+
+    removed = set()
+    for k, v in removed_keys.items():
+        if v == _output[k].key_set.value:
+            removed.add(k)
+
+    for k, v in ts.modified_items():
+        if k[0] in removed:
+            removed.remove(k[0])
+        out[k[0]][k[1]] = v.value
+
+    for k in removed:
+        out[k] = REMOVE_IF_EXISTS
 
     return out
 
