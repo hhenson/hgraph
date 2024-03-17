@@ -24,6 +24,10 @@ class PythonEvaluationEngine(EvaluationEngine):
     def evaluation_mode(self) -> EvaluationMode:
         return self._mode
 
+    @evaluation_mode.setter
+    def evaluation_mode(self, value: EvaluationMode):
+        self._mode = value
+
     @property
     def evaluation_clock(self) -> EvaluationClock:
         return self._engine_evaluation_clock

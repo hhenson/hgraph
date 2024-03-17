@@ -11,9 +11,11 @@ if TYPE_CHECKING:
     from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
     from hgraph._runtime._graph import Graph
+    from hgraph._runtime._data_writer import DataWriter, DataReader
+    from hgraph._runtime._graph_recorder import GraphRecorder
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
-__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes")
+__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes", "NodeDelegate")
 
 
 class NodeTypeEnum(Enum):
@@ -29,6 +31,7 @@ class InjectableTypes(IntFlag):
     OUTPUT = auto()
     CLOCK = auto()
     ENGINE_API = auto()
+    REPLAY_STATE = auto()
 
 
 @dataclass
@@ -53,6 +56,7 @@ class NodeSignature:
     wiring_path_name: str = ""
     label: str = ""
     capture_values: bool = False
+    record_replay_id: str = ""
 
     @property
     def uses_scheduler(self) -> bool:
@@ -73,6 +77,34 @@ class NodeSignature:
     @property
     def uses_output_feedback(self) -> bool:
         return InjectableTypes.OUTPUT in self.injectable_inputs
+
+    @property
+    def uses_replay_state(self) -> bool:
+        return InjectableTypes.REPLAY_STATE in self.injectable_inputs
+
+    @property
+    def is_source_node(self) -> bool:
+        return self.node_type in (NodeTypeEnum.PUSH_SOURCE_NODE, NodeTypeEnum.PULL_SOURCE_NODE)
+
+    @property
+    def is_pull_source_node(self) -> bool:
+        return self.node_type is NodeTypeEnum.PULL_SOURCE_NODE
+
+    @property
+    def is_push_source_node(self) -> bool:
+        return self.node_type is NodeTypeEnum.PUSH_SOURCE_NODE
+
+    @property
+    def is_compute_node(self) -> bool:
+        return self.node_type is NodeTypeEnum.COMPUTE_NODE
+
+    @property
+    def is_sink_node(self) -> bool:
+        return self.node_type is NodeTypeEnum.SINK_NODE
+
+    @property
+    def is_recordable(self) -> bool:
+        return bool(self.record_replay_id)
 
     @property
     def signature(self) -> str:
@@ -97,7 +129,10 @@ class NodeSignature:
             injectable_inputs=self.injectable_inputs,
             capture_exception=self.capture_exception,
             trace_back_depth=self.trace_back_depth,
-            capture_values=self.capture_values
+            wiring_path_name=self.wiring_path_name,
+            label=self.label,
+            capture_values=self.capture_values,
+            record_replay_id=self.record_replay_id,
         )
 
     def copy_with(self, **kwargs) -> "NodeSignature":
@@ -219,14 +254,106 @@ class Node(ComponentLifeCycle, ABC):
         The scheduler for this node.
         """
 
+    @abstractmethod
     def eval(self):
         """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
 
+    @abstractmethod
     def notify(self):
         """Notify the node that it is need of scheduling"""
 
+    @abstractmethod
     def notify_next_cycle(self):
         """Notify the node to be evaluated in the next evaluation cycle"""
+
+    @abstractmethod
+    def prepare_to_replay(self, graph_recorder: "GraphRecorder"):
+        """Called before the graph will start to evaluate in replay mode"""
+
+    @abstractmethod
+    def prepare_to_record(self, graph_recorder: "GraphRecorder"):
+        """Called after replay (if appropriate) and is about to run in record mode."""
+
+    @abstractmethod
+    def suspend(self, data_writer: "DataWriter"):
+        """Suspend the node to the data_writer"""
+
+    @abstractmethod
+    def resume(self, data_reader: "DataReader"):
+        """Resume the node"""
+
+
+class NodeDelegate(Node):
+    """Wraps a node delegating all node methods to the underlying implementation."""
+
+    def __init__(self, node: Node):
+        super().__init__()
+        self._node = node
+
+    @property
+    def node_ndx(self) -> int:
+        return self._node.node_ndx
+
+    @property
+    def owning_graph_id(self) -> tuple[int, ...]:
+        return self._node.owning_graph_id
+
+    @property
+    def node_id(self) -> tuple[int, ...]:
+        return self._node.node_id
+
+    @property
+    def signature(self) -> NodeSignature:
+        return self._node.signature
+
+    @property
+    def scalars(self) -> Mapping[str, Any]:
+        return self._node.scalars
+
+    @property
+    def graph(self) -> "Graph":
+        return self._node.graph
+
+    @property
+    def input(self) -> Optional["TimeSeriesBundleInput"]:
+        return self._node.input
+
+    @property
+    def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
+        return self._node.inputs
+
+    @property
+    def output(self) -> Optional["TimeSeriesOutput"]:
+        return self._node.output
+
+    @property
+    def error_output(self) -> Optional["TimeSeriesOutput"]:
+        return self._node.error_output
+
+    @property
+    def scheduler(self) -> "NodeScheduler":
+        return self._node.scheduler
+
+    def eval(self):
+        self._node.eval()
+
+    def notify(self):
+        self._node.notify()
+
+    def notify_next_cycle(self):
+        self._node.notify_next_cycle()
+
+    def prepare_to_replay(self, graph_recorder: "GraphRecorder"):
+        self._node.prepare_to_replay(graph_recorder)
+
+    def prepare_to_record(self, graph_recorder: "GraphRecorder"):
+        self._node.prepare_to_record(graph_recorder)
+
+    def suspend(self, data_writer: "DataWriter"):
+        self._node.suspend(data_writer)
+
+    def resume(self, data_reader: "DataReader"):
+        self._node.resume(data_reader)
 
 
 class NodeScheduler(ABC):
