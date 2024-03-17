@@ -50,7 +50,6 @@ class Graph(ComponentLifeCycle):
     def evaluation_engine_api(self) -> "EvaluationEngineApi":
         """ The evaluation engine api """
 
-
     @property
     @abstractmethod
     def evaluation_engine(self) -> "EvaluationEngine":
@@ -84,3 +83,7 @@ class Graph(ComponentLifeCycle):
         Perform a single cycle of evaluation of this graph.
         This will evaluate all nodes that are scheduled to evaluate at the current evaluation time.
         """
+
+    @abstractmethod
+    def copy_with(self, nodes: tuple["Node", ...]) -> "Graph":
+        """Create a new instance of the graph with an adjust node set"""

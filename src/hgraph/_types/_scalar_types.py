@@ -5,6 +5,7 @@ from typing import TypeVar, Type
 
 from frozendict import frozendict
 
+from hgraph._runtime._evaluation_engine import EvaluationEngineApi, EvaluationMode
 from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._typing_utils import clone_typevar
 
@@ -95,6 +96,24 @@ class STATE(dict):
 
     def __setattr__(self, key, value):
         self[key] = value
+
+
+class REPLAY_STATE:
+    """
+    Used to indicate if the graph is currently been replayed. This serves two purposes, one to know if the graph
+    is currently replaying and another to indicate that the node is replay aware. If this is a sink-node it will
+    be evaluated during replay, if not it will be excluded.
+    """
+
+    def __init__(self, api: EvaluationEngineApi):
+        self._api: EvaluationEngineApi = api
+
+    @property
+    def is_replaying(self) -> bool:
+        return self._api.evaluation_mode == EvaluationMode.REPLAY
+
+    def __repr__(self) -> str:
+        return "REPLAY_STATE"
 
 
 def is_keyable_scalar(value) -> bool:

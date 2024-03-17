@@ -30,6 +30,12 @@ class PythonGraph(Graph):
         self._evaluation_engine: EvaluationEngine | None = None
         self._parent_node: Node = parent_node
 
+    def copy_with(self, nodes: tuple[Node, ...]) -> "Graph":
+        graph = PythonGraph(self._graph_id, nodes, self._parent_node)
+        graph._schedule = self._schedule
+        graph._evaluation_engine = self._evaluation_engine
+        return graph
+
     @property
     def parent_node(self) -> Node:
         return self._parent_node

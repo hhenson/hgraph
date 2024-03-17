@@ -13,7 +13,7 @@ from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
-from hgraph._runtime._node import NodeSignature, Node, NodeScheduler
+from hgraph._runtime._node import NodeSignature, Node, NodeScheduler, NodeDelegate
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
@@ -212,6 +212,22 @@ class BaseNodeImpl(Node, ABC):
             self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.next_cycle_evaluation_time)
         else:
             self.notify()
+
+    def prepare_to_replay(self, graph_recorder: "GraphRecorder"):
+        # By default, do nothing
+        ...
+
+    def prepare_to_record(self, graph_recorder: "GraphRecorder"):
+        # By default, do nothing
+        ...
+
+    def suspend(self, data_writer: "DataWriter"):
+        # By default, do nothing
+        ...
+
+    def resume(self, data_reader: "DataReader"):
+        # By default, do nothing
+        ...
 
 
 class NodeImpl(BaseNodeImpl):
@@ -480,3 +496,10 @@ class PythonLastValuePullNodeImpl(NodeImpl):
     @staticmethod
     def _combine_tsl_delta_value(old_delta: Mapping, new_delta: Mapping) -> Mapping:
         return old_delta | new_delta
+
+
+class SkipEvalDelegate(NodeDelegate):
+
+    def eval(self):
+        """Don't evaluate"""
+        ...
