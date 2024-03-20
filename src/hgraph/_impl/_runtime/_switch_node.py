@@ -47,7 +47,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                     self._active_graph.dispose()
                 self._active_key = key.value
                 self._active_graph = self.nested_graph_builders[self._active_key].make_instance(
-                    self.node_id + (self._count,), self)
+                    self.node_id + (self._count,), self, str(self._active_key))
                 self._count += 1
                 self._active_graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine,
                                                                               NestedEngineEvaluationClock(

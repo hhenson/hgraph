@@ -78,6 +78,7 @@ class Hashable(Protocol):
 UnSet = _UnSet()  # The marker instance to indicate the value is not set.
 SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
+COMPOUND_SCALAR_1 = clone_typevar(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
 SCALAR = TypeVar("SCALAR", bound=object)
 KEYABLE_SCALAR = TypeVar("KEYABLE_SCALAR", bound=Hashable)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")

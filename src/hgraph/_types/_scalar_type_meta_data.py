@@ -1,11 +1,10 @@
 import itertools
 from abc import abstractmethod
 from collections.abc import Mapping, Set
-from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
 
 import numpy as np
 from frozendict import frozendict
@@ -42,8 +41,9 @@ class HgScalarTypeMetaData(HgTypeMetaData):
             return p
 
         cls._parsers_list = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                  HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgStateType,
-                  HgObjectType]
+                             HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType,
+                             HgStateType,
+                             HgObjectType]
         return cls._parsers_list
 
     @classmethod
@@ -86,8 +86,15 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
                 if not s_t and not tp_t:
                     if issubclass(tp_i, s_i):
                         return True
+            return False
 
-        return tp.is_scalar and any(issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c) for c in self.constraints())
+        if tp.is_scalar:
+            for c in self.constraints():
+                if isinstance(c, HgScalarTypeMetaData) and c.matches(tp):
+                    return True
+                else:
+                    if issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c):
+                        return True
 
     @property
     def type_var(self) -> TypeVar:
@@ -106,7 +113,8 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
 
     def constraints(self) -> Sequence[type]:
         if self.py_type.__constraints__:
-            return self.py_type.__constraints__
+            return tuple(
+                c if type(c) is type else HgScalarTypeMetaData.parse_type(c) for c in self.py_type.__constraints__)
         elif self.py_type.__bound__:
             return (self.py_type.__bound__,)
         raise RuntimeError("Unexpected item in the bagging areas")
@@ -206,7 +214,8 @@ class HgAtomicType(HgScalarTypeMetaData):
                 time: lambda: HgAtomicType(time, (str,)),
                 timedelta: lambda: HgAtomicType(timedelta, (float, str,)),
                 str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
-                ScalarValue: lambda: HgAtomicType(ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)),
+                ScalarValue: lambda: HgAtomicType(ScalarValue,
+                                                  (bool, int, float, str, date, datetime, time, timedelta)),
             }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -226,8 +235,8 @@ class HgObjectType(HgAtomicType):
         return super().__hash__()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((tp_ := type(tp)) is HgObjectType and issubclass(getattr(tp.py_type, '__origin__', tp.py_type), self.py_type)) or (
-                    tp_ is HgScalarTypeVar and tp_.matches(self))
+        return (((tp_ := type(tp)) is HgObjectType and issubclass(getattr(tp.py_type, '__origin__', tp.py_type), self.py_type))
+                or (tp_ is HgScalarTypeVar and tp_.matches(self)))
 
     @classmethod
     def parse_type(cls, tp) -> Optional["HgTypeMetaData"]:
@@ -827,11 +836,9 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgCompoundScalarType
-        if len(self.meta_data_schema) != len(wired_type.meta_data_schema):
-            raise ParseError(f"'{self.py_type}' schema does not match '{wired_type.py_type}'")
         if any(k not in wired_type.meta_data_schema for k in self.meta_data_schema.keys()):
             raise ParseError("Keys of schema do not match")
-        for v, w_v in zip(self.meta_data_schema.values(), wired_type.meta_data_schema.values()):
+        for v, w_v in ((v, wired_type.meta_data_schema[k]) for k, v in self.meta_data_schema.items()):
             v.build_resolution_dict(resolution_dict, w_v)
 
 

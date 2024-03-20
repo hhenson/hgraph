@@ -2,9 +2,9 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
-    compute_node, REF, TSS
-from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey, tsd_flip
-from hgraph.nodes._tsd_operators import tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys
+    compute_node, REF, TSS, Size, SIZE, K_1
+from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey, tsd_flip,
+                          merge_tsds, tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys)
 from hgraph.test import eval_node
 
 
@@ -160,4 +160,22 @@ def test_tsd_uncollapse_keys():
                fd({1: fd({"a": 5}), 2: fd({"b": 6})}, ),
                fd({1: fd({"c": 5, "a": REMOVE})}),
                fd({2: REMOVE})
+           ]
+
+
+def test_merge_tsd():
+    assert eval_node(merge_tsds[K: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
+                     [({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})]) == [
+        {1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
+
+
+def test_tsd_partition():
+    assert eval_node(tsd_partition[K: int, K_1: str, TIME_SERIES_TYPE: TS[int]],
+                     [{1: 1, 2: 2, 3: 3}, {1: 4, 2: 5, 3: 6}, {1: REMOVE}],
+                     [{1: 'odd'}, {2: 'even', 3: 'odd'}, None, {2: REMOVE}, {3: 'prime'}]) == [
+               {'odd': {1: 1}},
+               {'odd': {1: 4, 3: 6}, 'even': {2: 5}},
+               {'odd': {1: REMOVE}},
+               {'even': {2: REMOVE}},
+               {'prime': {3: 6}, 'odd': {3: REMOVE}}
            ]

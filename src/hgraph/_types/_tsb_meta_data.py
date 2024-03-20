@@ -69,7 +69,7 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             for k, v in self.meta_data_schema.items():
                 if k in value:
                     k_value = value[k]
-                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_type(k_value), k_value)
+                    v.build_resolution_dict_from_scalar(resolution_dict, HgTypeMetaData.parse_value(k_value), k_value)
 
         # not sure if there are other scalar types applicable
 

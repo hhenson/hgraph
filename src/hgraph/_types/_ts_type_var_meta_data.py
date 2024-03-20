@@ -53,8 +53,10 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def operator_rank(self) -> float:
-        # This is a complete wild card, so this is the weakest match (which strangely is 1.0)
-        return 1.
+        # A complete wild card, will have a rank of 1. however one with constraints will have a lower rank so we can
+        # discriminate between typevar with different constraints
+        constraints_rank = sum(c.operator_rank if isinstance(c, HgTimeSeriesTypeMetaData) else 1. for c in self.constraints) / len(self.constraints)
+        return 0.9 + constraints_rank / 10
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if wired_type.is_scalar:

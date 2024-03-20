@@ -4,15 +4,18 @@ from typing import Type, Mapping, cast, Tuple
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_
+    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput
 from hgraph._runtime._operators import getattr_, mul_
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
-from hgraph.nodes import sum_, const
+from hgraph.nodes._analytical import sum_
+from hgraph.nodes._const import const
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
+from hgraph.nodes._tsl_operators import merge
 
 __all__ = ("make_tsd", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains", "tsd_not",
-           "tsd_is_empty", "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_get_bundle_item", "tsd_rekey", "tsd_flip")
+           "tsd_is_empty", "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_get_bundle_item", "tsd_rekey", "tsd_flip",
+           "merge_tsds", "tsd_flip_tsd", "tsd_partition", "sum_tsd", "mul_tsd", "tsd_rekey", "tsd_flip")
 
 
 @compute_node(valid=("key",))
@@ -64,7 +67,10 @@ class KeyValueRefState:
 
 
 @compute_node
-def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K], _ref: REF[TIME_SERIES_TYPE] = None,
+def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
+                 _ref: REF[TIME_SERIES_TYPE] = None,
+                 _ref_ref: REF[TIME_SERIES_TYPE] = None,
+                 _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
                  _state: STATE[KeyValueRefState] = None) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
@@ -84,7 +90,15 @@ def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K], _ref: REF[TIME_
         output = _state.tsd.get_ref(_state.key, _state.reference)
         _ref.bind_output(output)
         _ref.make_active()
-    return _ref.value
+
+    # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
+    # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
+    # and the below 'if' deals with that by subscribing to the inner reference too
+    if _ref.modified and _ref.value.has_peer and isinstance(_ref.value.output, TimeSeriesReferenceOutput):
+        _ref_ref.bind_output(_ref.value.output)
+        _ref_ref.make_active()
+
+    return _ref_ref.value if _ref_ref.bound else _ref.value
 
 
 @compute_node
@@ -303,5 +317,61 @@ def tsd_flip_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, 
     for k_p in prev.keys():
         if k_p not in new:
             out[k_p] = REMOVE_IF_EXISTS
+
+    return out
+
+
+@compute_node(overloads=merge)
+def merge_tsds(tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    out = {}
+    removals = set()
+
+    for v in reversed(list(tsl.modified_values())):
+        out.update({k: v.value for k, v in v.modified_items()})
+        removals.update(v.removed_keys())
+
+    for k in removals:
+        for v in tsl.values():
+            if k in v:
+                out[k] = v[k].value
+                break
+        else:
+            out[k] = REMOVE_IF_EXISTS
+
+    return out
+
+
+@compute_node
+def tsd_partition(ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
+    """
+    Partition a TSD into partitions by the given mapping.
+    """
+    out = defaultdict(dict)
+    prev = _state.prev
+
+    # Clear up existing mapping before we track new key mappings
+    for k in ts.removed_keys():
+        partition = prev.get(k)
+        if partition is not None:
+            out[partition][k] = REMOVE_IF_EXISTS
+
+    # Track changes in partitions
+    for k, partition in partitions.removed_items():
+        out[partition.value][k] = REMOVE_IF_EXISTS
+
+    for k, partition in partitions.modified_items():
+        partition = partition.value
+        prev_partition = prev.get(k, None)
+        if prev_partition is not None and partition != prev_partition:
+            out[prev_partition][k] = REMOVE_IF_EXISTS
+        prev[k] = partition
+        v = ts.get(k)
+        if v is not None:
+            out[partition][k] = v.value
+
+    for k, v in ts.modified_items():
+        partition = prev.get(k, None)
+        if partition is not None:
+            out[partition][k] = v.value
 
     return out
