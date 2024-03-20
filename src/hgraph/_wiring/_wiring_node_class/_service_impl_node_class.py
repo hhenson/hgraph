@@ -16,7 +16,7 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError, WiringError
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, \
     BaseWiringNodeClass
-from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
+from hgraph._wiring._wiring_node_instance import create_wiring_node_instance, WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
 __all__ = ("ServiceImplNodeClass",)
@@ -199,7 +199,7 @@ def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callabl
         out = fn(**{sn_arg: subscriptions} | scalars)
         capture_output_to_global_state(f"{path}_out", out)
 
-    with WiringGraphContext(wiring_signature) as context:
+    with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         subscription_service()
         sink_nodes = context.pop_sink_nodes()
         return create_graph_builder(sink_nodes, False)
@@ -224,7 +224,7 @@ def wire_request_reply_service(wiring_signature: WiringNodeSignature, fn: Callab
         out = fn(**{req_arg: requests} | scalars)
         capture_output_to_global_state(f"{path}_replies", out)
 
-    with WiringGraphContext(wiring_signature) as context:
+    with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         request_reply_service()
         sink_nodes = context.pop_sink_nodes()
         return create_graph_builder(sink_nodes, False)
@@ -249,7 +249,7 @@ def wire_reference_data_service(
         out = fn(**scalars)
         capture_output_to_global_state(path, out)
 
-    with WiringGraphContext(wiring_signature) as context:
+    with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         ref_svc_inner_graph()
         sink_nodes = context.pop_sink_nodes()
         return create_graph_builder(sink_nodes, False)

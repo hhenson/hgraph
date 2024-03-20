@@ -28,7 +28,7 @@ class GraphBuilder(Builder["Graph"]):
     edges: tuple[Edge, ...]
 
     @abstractmethod
-    def make_instance(self, graph_id: tuple[int, ...], parent_node: "Node" = None) -> "Graph":
+    def make_instance(self, graph_id: tuple[int, ...], parent_node: "Node" = None, label: str = None) -> "Graph":
         """
         Construct an instance of a graph. The id provided is the id for the graph instance to be constructed.
         """

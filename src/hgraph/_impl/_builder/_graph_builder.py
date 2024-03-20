@@ -33,10 +33,10 @@ class PythonGraphBuilder(GraphBuilder):
             input_ = input_[item]
         return input_
 
-    def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None) -> Graph:
+    def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None, label: str = None) -> Graph:
         nodes = self.make_and_connect_nodes(graph_id, 0)
         # The nodes are initialised within the context of the graph
-        return PythonGraph(graph_id=graph_id, nodes=nodes, parent_node=parent_node)
+        return PythonGraph(graph_id=graph_id, nodes=nodes, parent_node=parent_node, label=label)
 
     def make_and_connect_nodes(self, graph_id: tuple[int, ...], first_node_ndx: int) -> Iterable[Node]:
         nodes = [nb.make_instance(graph_id, ndx + first_node_ndx) for ndx, nb in enumerate(self.node_builders)]

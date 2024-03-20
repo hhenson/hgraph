@@ -27,6 +27,7 @@ class PythonTimeSeriesReference(TimeSeriesReference):
 
         if ts is None:  # We have already validated that from_items is None, so now if ts is None as well, ...
             self.valid = False
+            self.has_peer = False
             return
 
         if isinstance(ts, TimeSeriesOutput):  # constructing from sn output
@@ -61,7 +62,7 @@ class PythonTimeSeriesReference(TimeSeriesReference):
 
     def bind_input(self, ts_input: TimeSeriesInput):
         if not self.valid:
-            ts_input.bind_output(None)
+            ts_input.un_bind_output()
             return
 
         # NOTE: The ctor remembers the type, this checks the target is the same type unless was constructed from an output
@@ -185,13 +186,15 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     @property
     def value(self):
-        if self._value:
+        if self._output is not None:
+            return super().value
+        elif self._value:
             return self._value
         elif self._items:
             self._value = PythonTimeSeriesReference(from_items=[i.value for i in self._items])
             return self._value
         else:
-            return super().value
+            return None
 
     @property
     def delta_value(self):

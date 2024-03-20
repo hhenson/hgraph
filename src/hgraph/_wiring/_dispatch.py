@@ -1,6 +1,6 @@
 from typing import Tuple, Type, Callable
 
-from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType
+from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType, COMPOUND_SCALAR
 from hgraph._wiring._wiring_node_class import WiringNodeClass, BaseWiringNodeClass, WiringNodeSignature
 
 __all__ = ('dispatch', 'dispatch_')
@@ -21,15 +21,15 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
         fn: WiringNodeClass = graph(fn)
 
     @with_signature(kwargs=fn.signature.input_types, return_annotation=fn.signature.output_type)
-    def dispatch(**kwargs):
+    def dispatch_(**kwargs):
         if overloads := getattr(dispatch_graph, 'overload_list', None):
             overload_list = overloads.overloads + [(fn, OverloadedWiringNodeHelper._calc_rank(fn.signature))]
-            return _dispatch_impl(fn.signature, overload_list, **kwargs)
+            return _dispatch_impl(fn.signature, overload_list, __on__=on, **kwargs)
         else:
             from hgraph import CustomMessageWiringError
             raise CustomMessageWiringError(f'{fn.signature} has no overloads to dispatch to')
 
-    dispatch_graph = graph(dispatch)
+    dispatch_graph = graph(dispatch_)
     return dispatch_graph
 
 
@@ -110,7 +110,7 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
     kwargs = extract_kwargs(signature, *args, **kwargs)  # process args and kwargs in kwargs so we can build a key
 
     @compute_node
-    def get_type(key: TS[CompoundScalar]) -> TS[Type[CompoundScalar]]:
+    def get_type(key: TS[COMPOUND_SCALAR]) -> TS[Type[CompoundScalar]]:
         return type(key.value)
 
 

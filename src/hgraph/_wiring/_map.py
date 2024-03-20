@@ -141,29 +141,29 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             i -= 1
 
         if i < len(args):  # provided as positional and not key
-            if isinstance(args[i], WiringPort):
+            if isinstance(args[i], (WiringPort, _MappingMarker)):
                 tp = args[i].output_type.dereference()
                 if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
                     annotations[n] = tp.value_tp
                 else:
                     annotations[n] = tp
             else:
-                annotations[n] = SCALAR
+                annotations[n] = HgTypeMetaData.parse_type(SCALAR)
 
-            values[n] = args[i]
+            values[n] = args[i] if not isinstance(args[i], _MappingMarker) else args[i].value
             continue
 
         if n in kwargs: # provided as keyword
-            if isinstance(kwargs[n], WiringPort):
+            if isinstance(kwargs[n], (WiringPort, _MappingMarker)):
                 tp = kwargs[n].output_type
                 if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
                     annotations[n] = tp.value_tp
                 else:
                     annotations[n] = tp
             else:
-                annotations[n] = SCALAR
+                annotations[n] = HgTypeMetaData.parse_type(SCALAR)
 
-            values[n] = kwargs[n]
+            values[n] = kwargs[n] if not isinstance(kwargs[n], _MappingMarker) else kwargs[n].value
             continue
 
         raise CustomMessageWiringError(f"no input for the parameter {n} of the lambda passed into map_")
@@ -332,7 +332,10 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
     # Figure out if the map is done over a TSD or TSL by finding the first miltiplexing input
     map_type = None
     multiplex_type = None
-    if input_types:
+    if tsd_keys is not None:  # corner case where there are no other inputs but explicitly provided keys
+        map_type = 'TSD'
+        multiplex_type = HgTSDTypeMetaData
+    elif input_types:
         for k, v in input_types.items():
             if k not in marker_args and type(v_tp := v.dereference()) in (HgTSDTypeMetaData, HgTSLTypeMetaData):
                 sig_tp = signature.input_types[k]
@@ -351,9 +354,6 @@ def _split_inputs(signature: WiringNodeSignature, kwargs_, tsd_keys) \
                         f"parameter {k}:{sig_tp} of the mapped graph does not match the input type {v_tp.py_type}"
                         "for either direct match or multiplexing"
                     )
-    elif tsd_keys is not None:  # corner case where there are no other inputs but explicitly provided keys
-        map_type = 'TSD'
-        multiplex_type = HgTSDTypeMetaData
 
     if map_type is None:
         raise CustomMessageWiringError(
@@ -548,7 +548,7 @@ def _validate_pass_through(signature: WiringNodeSignature, kwargs_, pass_through
     """
     for arg in pass_through_args:
         if isinstance(pt_type := kwargs_[arg], _PassthroughMarker):
-            if not (in_type := signature.input_types[arg]).matches(pt_type.output_type):
+            if not (in_type := signature.input_types[arg]).matches(pt_type.output_type.dereference()):
                 raise CustomMessageWiringError(
                     f"The input '{arg}: {pt_type.output_type}' is marked as pass_through,"
                     f"but is not compatible with the input type: {in_type}")

@@ -8,6 +8,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
 from hgraph._wiring._stub_wiring_node import create_input_stub, create_output_stub
+from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -78,13 +79,14 @@ def wire_nested_graph(fn: WiringNodeClass,
     if temp_factory := not TimeSeriesBuilderFactory.has_instance():
         TimeSeriesBuilderFactory.declare_default_factory()
 
-    inputs_ = {}
-    for k, v in input_types.items():
-        if v.is_scalar:
-            inputs_[k] = scalars[k]
-        else:
-            inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == key_arg)
-    with WiringGraphContext(outer_wiring_node_signature) as context:
+    with WiringNodeInstanceContext(), WiringGraphContext(outer_wiring_node_signature) as context:
+        inputs_ = {}
+        for k, v in input_types.items():
+            if v.is_scalar:
+                inputs_[k] = scalars[k]
+            else:
+                inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == key_arg)
+
         out = fn(**inputs_)
         if out is not None:
             create_output_stub(cast(WiringPort, out))

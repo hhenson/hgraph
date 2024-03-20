@@ -32,6 +32,11 @@ class Graph(ComponentLifeCycle):
 
     @property
     @abstractmethod
+    def label(self) -> str:
+        """ The graph label/name """
+
+    @property
+    @abstractmethod
     def nodes(self) -> tuple["Node", ...]:
         """ The nodes of the graph """
 
