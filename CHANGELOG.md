@@ -247,3 +247,8 @@ Version 0.2.2 (21-03-2024)
 * Many bug fixes around REF type.
 * New nodes around TSD and Frame manipulation
 * Some changes in preparation for graph recording.
+
+Version 0.2.3 (TBD)
+-------------------
+
+* Extend resolvers to all node decorators
