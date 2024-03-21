@@ -199,7 +199,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict(kwargs),
-            rank=max(v.rank for k, v in kwargs.items() if isinstance(v, WiringPort))
+            rank=max((v.rank for k, v in kwargs.items() if isinstance(v, WiringPort)), default=1)
         )
         return TSBWiringPort(wiring_node_instance, tuple())
 

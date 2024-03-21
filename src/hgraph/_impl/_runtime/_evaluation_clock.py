@@ -131,7 +131,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
             while datetime.utcnow() < next_scheduled_time and not self._push_node_requires_scheduling:
                 sleep_time = (next_scheduled_time - datetime.utcnow()).total_seconds()
                 #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: sleeping for {sleep_time}", file=sys.stderr)
-                self._push_node_requires_scheduling_condition.wait(sleep_time)
+                self._push_node_requires_scheduling_condition.wait(min(sleep_time, 10)) # wake up regularly so sleep_time is not 100 years
                 self._ready_to_push = True
             # It could be that a push node has triggered
         #print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)

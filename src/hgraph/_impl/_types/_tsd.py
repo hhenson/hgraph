@@ -288,6 +288,15 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def added_items(self) -> Iterable[Tuple[K, V]]:
         return ((k, self[k]) for k in self.added_keys())
 
+    def modified_keys(self) -> Iterable[K]:
+        return (k for k, v in self.items() if v.modified)
+
+    def modified_values(self) -> Iterable[V]:
+        return (v for k, v in self.items() if v.modified)
+
+    def modified_items(self) -> Iterable[Tuple[K, V]]:
+        return ((k, v) for k, v in self.items() if v.modified)
+
     def removed_keys(self) -> Iterable[K]:
         return self.key_set.removed()
 

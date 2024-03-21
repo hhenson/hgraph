@@ -2,8 +2,9 @@ from types import GenericAlias
 from typing import Type, TypeVar, Generic, Optional, _GenericAlias, _SpecialGenericAlias
 
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._scalar_types import CompoundScalar
-from hgraph._types._scalar_type_meta_data import HgCollectionType, HgCompoundScalarType, HgScalarTypeMetaData
+from hgraph._types._scalar_types import CompoundScalar, COMPOUND_SCALAR
+from hgraph._types._scalar_type_meta_data import HgCollectionType, HgCompoundScalarType, HgScalarTypeMetaData, \
+    HgScalarTypeVar
 
 try:
     import polars as pl
@@ -21,7 +22,7 @@ try:
 
 
     class HgDataFrameScalarTypeMetaData(HgCollectionType):
-        schema: HgCompoundScalarType  # The schema of hte frame
+        schema: HgCompoundScalarType  # The schema of the frame
 
         def __init__(self, schema: HgCompoundScalarType):
             self.schema = schema
@@ -63,7 +64,8 @@ try:
 
         @classmethod
         def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
-            return None  # have not learned to parse dataframes yet
+            if isinstance(value, pl.DataFrame):
+                return HgDataFrameScalarTypeMetaData(HgScalarTypeVar.parse_type(COMPOUND_SCALAR))
 
         def __eq__(self, o: object) -> bool:
             return type(o) is HgDataFrameScalarTypeMetaData and self.schema == o.schema

@@ -22,13 +22,14 @@ class PythonGraph(Graph):
     Provide a reference implementation of the Graph.
     """
 
-    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None):
+    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None, label: str = None):
         super().__init__()
         self._graph_id: tuple[int, ...] = graph_id
         self._nodes: list[Node] = nodes if type(nodes) is list else list(nodes)
         self._schedule: list[datetime, ...] = [MIN_DT] * len(nodes)
         self._evaluation_engine: EvaluationEngine | None = None
         self._parent_node: Node = parent_node
+        self._label: str = label
 
     def copy_with(self, nodes: tuple[Node, ...]) -> "Graph":
         graph = PythonGraph(self._graph_id, nodes, self._parent_node)
@@ -43,6 +44,10 @@ class PythonGraph(Graph):
     @property
     def graph_id(self) -> tuple[int, ...]:
         return self._graph_id
+
+    @property
+    def label(self) -> str:
+        return self._label
 
     @property
     def nodes(self) -> Sequence[Node]:

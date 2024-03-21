@@ -6,6 +6,7 @@ from itertools import chain
 from typing import Optional, TypeVar, Callable, Tuple, Dict
 
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
@@ -216,6 +217,15 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                     if not isinstance(out, WiringPort):
                         if isinstance(out, dict) and isinstance(output_type, HgTSBTypeMetaData):
                             out = output_type.py_type.from_ts(**out)
+                        elif isinstance(out, dict) and isinstance(output_type, HgTsTypeVarTypeMetaData):
+                            for c in output_type.constraints:
+                                if isinstance(c, HgTSBTypeMetaData) and \
+                                        all((t:= c.bundle_schema_tp.meta_data_schema.get(k)) and t.matches(v.output_type.dereference()) for k, v in out.items()):
+                                    out = c.py_type.from_ts(**out)
+                                    break
+                            else:
+                                raise WiringError(f"Expected a time series of type '{str(output_type)}' but got a dict of "
+                                                  f"{{{', '.join(f'{k}:{str(v.output_type)}' for k, v in out.items())}}}")
                         else:
                             try:
                                 # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"

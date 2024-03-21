@@ -87,7 +87,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
 
     def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""
-        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self)
+        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self, str(key))
         self._count += 1
         self._active_graphs[key] = graph
         graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, MapNestedEngineEvaluationClock(
@@ -140,11 +140,16 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 if arg in self.multiplexed_args:  # Is this a multiplexed input?
                     # This should create a phantom input if one does not exist.
                     ts = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg]).get_or_create(key)
+                    node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+                    # Now we need to re-parent the pruned ts input.
+                    ts.re_parent(node.input)
                 else:
-                    ts = self.input[arg]
-                node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
-                # Now we need to re-parent the pruned ts input.
-                ts.re_parent(node.input)
+                    from hgraph import TimeSeriesReferenceInput
+                    ts: TimeSeriesReferenceInput = self.input[arg]
+                    if ts.output:
+                        node.input['ts'].bind_output(ts.output)
+                    else:
+                        ts.value.bind_input(node.input['ts'])
 
         if self.output_node_id:
             node: Node = graph.nodes[self.output_node_id]

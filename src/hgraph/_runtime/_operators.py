@@ -14,7 +14,7 @@ provide an actual implementation for performance reasons.
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
     "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
-    "getattr_")
+    "getattr_", "min_")
 
 
 @graph
@@ -247,3 +247,8 @@ def getattr_(ts: TIME_SERIES_TYPE, attr: str) -> TIME_SERIES_TYPE:
 
 
 WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
+
+
+@graph
+def min_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator min_ is not implemented for {ts.output_type}")

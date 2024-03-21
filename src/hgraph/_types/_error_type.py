@@ -7,7 +7,7 @@ from hgraph._types._scalar_types import CompoundScalar
 if TYPE_CHECKING:
     from hgraph._runtime._node import Node
 
-__all__ = ("NodeError", "raise_error")
+__all__ = ("NodeError", "NodeException", "raise_error")
 
 
 @dataclass(frozen=True)
@@ -51,13 +51,7 @@ class BackTrace:
             active_inputs = {}
             input_values = {}
             for input_name, input in node.inputs.items() if node else tuple():
-                if input.modified:
-                    node = None
-                    if input.bound:
-                        node = input.output.owning_node
-                    elif isinstance(input.value, TimeSeriesReference) and input.value.output:
-                        node = input.value.output.owning_node
-                    active_inputs[input_name] = BackTrace.capture_back_trace(node, capture_values, depth - 1)
+                BackTrace.capture_input(active_inputs, input, input_name, capture_values, depth)
                 if capture_values:
                     input_values[input_name] = (v := str(input.value))[0:256] + ("..." if len(v) > 255 else "")
             return BackTrace(signature=signature, active_inputs=active_inputs,
@@ -65,34 +59,63 @@ class BackTrace:
         else:
             return BackTrace(signature=signature, active_inputs=None, input_values=None)
 
+    @staticmethod
+    def capture_input(active_inputs, input, input_name, capture_values, depth):
+        if input.modified:
+            node = None
+            if input.bound:
+                if input.has_peer:
+                    active_inputs[input_name] = BackTrace.capture_back_trace(input.output.owning_node,
+                                                                             capture_values, depth - 1)
+                else:
+                    for n, i in input.items():
+                        BackTrace.capture_input(active_inputs, i, f"{input_name}[{n}]", capture_values, depth - 1)
+            elif isinstance(input.value, TimeSeriesReference) and input.value.output:
+                active_inputs[input_name] = BackTrace.capture_back_trace(input.value.output.owning_node, capture_values,
+                                                                         depth - 1)
+
 
 @dataclass(frozen=True)
 class NodeError(CompoundScalar):
     signature_name: str
+    label: str
+    wiring_path: str
     error_msg: str
     stack_trace: str
     activation_back_trace: str
     additional_context: str = None
 
     def __str__(self):
-        s = (f"{self.signature_name}"
+        s = (f"{self.signature_name}" +
+             (f"labelled {self.label}" if self.label else "") +
+             (f" at {self.wiring_path}" if self.wiring_path else "") +
              f"{' :: ' + self.additional_context if self.additional_context else ''}\n"
              f"NodeError: {self.error_msg}\nStack trace:\n{self.stack_trace}"
              f"\nActivation Back Trace:\n{self.activation_back_trace}")
         return s
 
-    @staticmethod
-    def capture_error(exception: Exception, node: "Node", message: str = None):
+    @classmethod
+    def capture_error(cls, exception: Exception, node: "Node", message: str = None):
+        if isinstance(exception, NodeError):
+            return exception
+
         import traceback
         back_trace = BackTrace.capture_back_trace(node, capture_values=node.signature.capture_values,
                                                   depth=node.signature.trace_back_depth)
-        error = NodeError(
+        error = cls(
             signature_name=node.signature.signature,
+            label=node.signature.label,
+            wiring_path=node.signature.wiring_path_name,
             error_msg=str(exception),
             stack_trace="\n".join(traceback.format_exc().splitlines()),
             activation_back_trace=str(back_trace),
+            additional_context=message
         )
         return error
+
+
+class NodeException(NodeError, Exception):
+    ...
 
 
 def raise_error(msg: str):

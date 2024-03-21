@@ -38,8 +38,7 @@ def test_merge_ref():
 
 @graph
 def merge_ref_non_peer(index: TS[int], ts1: TIME_SERIES_TYPE, ts2: TIME_SERIES_TYPE) -> REF[TIME_SERIES_TYPE]:
-    return merge_ref(index, TSL.from_ts(ts1,
-                                        ts2))  # TODO: This TSL building syntax is quite a mouthful, TSL(ts1, ts2) would be preferrable, ideally wiring should accept just (ts1, ts2) here
+    return merge_ref(index, TSL.from_ts(ts1, ts2))
 
 
 def test_merge_ref_non_peer():

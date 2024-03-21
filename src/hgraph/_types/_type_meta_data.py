@@ -107,6 +107,9 @@ class HgTypeMetaData:
         The outputs are fully reliant on types to be resolved using the wired_types on the inputs to resolve the output
         types.
         """
+        if self.is_resolved:
+            return
+
         if self != wired_type:
             self.do_build_resolution_dict(resolution_dict, wired_type.dereference())
 
