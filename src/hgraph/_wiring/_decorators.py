@@ -1,6 +1,6 @@
 import functools
 from inspect import signature
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, Union
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
 
 from frozendict import frozendict
 
@@ -47,21 +47,23 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                            resolvers=resolvers)
 
 
-def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None) -> SOURCE_NODE_SIGNATURE:
+def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None,
+                     resolvers: Mapping[TypeVar, Callable] = None) -> SOURCE_NODE_SIGNATURE:
     """
     Used to indicate the signature for a source node. For Python source nodes use either the
     generator or source_adapter annotations.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_impl)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_impl, resolvers=resolvers)
 
 
-def push_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None) -> SOURCE_NODE_SIGNATURE:
+def push_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None,
+                     resolvers: Mapping[TypeVar, Callable] = None) -> SOURCE_NODE_SIGNATURE:
     """
     Used to indicate the signature for a push source node.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl)
+    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl, resolvers=resolvers)
 
 
 def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
@@ -69,7 +71,8 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
               active: Sequence[str] = None,
               valid: Sequence[str] = None,
               all_valid: Sequence[str] = None,
-              overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None) -> SINK_NODE_SIGNATURE:
+              overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None,
+              resolvers: Mapping[TypeVar, Callable] = None) -> SINK_NODE_SIGNATURE:
     """
     Indicates the function definition represents a sink node. This type of node has no return type.
     Other than that it behaves in much the same way as compute node.
@@ -82,7 +85,8 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SINK_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads)
+    return _node_decorator(WiringNodeType.SINK_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
+                           resolvers=resolvers)
 
 
 def graph(fn: GRAPH_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None) -> GRAPH_SIGNATURE:
@@ -95,7 +99,9 @@ def graph(fn: GRAPH_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNA
     return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads)
 
 
-def generator(fn: SOURCE_NODE_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None) -> SOURCE_NODE_SIGNATURE:
+def generator(fn: SOURCE_NODE_SIGNATURE = None,
+              overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
+              resolvers: Mapping[TypeVar, Callable] = None) -> SOURCE_NODE_SIGNATURE:
     """
     Creates a pull source node that supports generating a sequence of ticks that will be fed into the
     graph. The generator wraps a function that is implemented as a python generator which returns a tuple of
@@ -119,10 +125,14 @@ def generator(fn: SOURCE_NODE_SIGNATURE = None, overloads: "WiringNodeClass" | G
     """
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, overloads=overloads, node_class=PythonGeneratorWiringNodeClass)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, overloads=overloads,
+                           node_class=PythonGeneratorWiringNodeClass, resolvers=resolvers)
 
 
-def push_queue(tp: type[TIME_SERIES_TYPE], overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None):
+def push_queue(tp: type[TIME_SERIES_TYPE],
+               overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None,
+               resolvers: Mapping[TypeVar, Callable] = None
+               ):
     """
     Creates a push source node that supports injecting values into the graph asynchronously.
     The function that is wrapped by this decorator will be called as a start lifecycle method.
@@ -149,7 +159,11 @@ def push_queue(tp: type[TIME_SERIES_TYPE], overloads: "WiringNodeClass" | SOURCE
         node = _create_node(_create_node_signature(fn.__name__,
                                                    annotations, tp, defaults=defaults,
                                                    node_type=WiringNodeType.PUSH_SOURCE_NODE),
-            impl_fn=fn, node_type=WiringNodeType.PUSH_SOURCE_NODE, node_class=PythonPushQueueWiringNodeClass)
+                            impl_fn=fn, node_type=WiringNodeType.PUSH_SOURCE_NODE,
+                            node_class=PythonPushQueueWiringNodeClass)
+
+        if resolvers is not None:
+            node = node[tuple(slice(k, v) for k, v in resolvers.items())]
 
         if overloads is not None:
             overloads.overload(node)
@@ -255,7 +269,8 @@ def register_service(path: str, implementation, **kwargs):
 
     from hgraph import WiringGraphContext
     assert len(implementation.interfaces) == 1, 'mutliservices are not implemented yet'
-    WiringGraphContext.instance().register_service_impl(implementation.interfaces[0], path or '', implementation, kwargs)
+    WiringGraphContext.instance().register_service_impl(implementation.interfaces[0], path or '', implementation,
+                                                        kwargs)
 
 
 def service_adaptor(interface):
@@ -282,7 +297,7 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
                     overloads: "WiringNodeClass" = None, interfaces=None,
-                    resolvers: Mapping[TypeVar, Callable]=None) -> Callable:
+                    resolvers: Mapping[TypeVar, Callable] = None) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
@@ -342,7 +357,6 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         if resolvers is not None:
             node = node[tuple(slice(k, v) for k, v in resolvers.items())]
         return node
-
 
 
 def _assert_no_node_configs(label: str, kwargs):
