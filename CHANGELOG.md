@@ -240,3 +240,10 @@ Version 0.2.1 (16-03-2024)
 * Fix tsd_flip
 * Add tsd_flip_tsd
 * Fixes to tsd_collapse_keys and tsd_uncollapse_keys
+
+Version 0.2.2 (21-03-2024)
+--------------------------
+
+* Many bug fixes around REF type.
+* New nodes around TSD and Frame manipulation
+* Some changes in preparation for graph recording.
