@@ -37,4 +37,4 @@ def test_np_rolling_window(values, sz, expected):
 
 
 def test_np_quantile():
-    assert eval_node(np_quantile, [np.array([1, 2])], 0.8, resolution_dict={'ts': TS[Array[int]]}) == [1.8]
+    assert eval_node(np_quantile, [np.array([1, 2])], 0.8, resolution_dict={'ts': TS[Array[int, Size[2]]]}) == [1.8]

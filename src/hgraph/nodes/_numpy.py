@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER
+from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER, \
+    COMPOUND_SCALAR, Frame, Size
 import numpy as np
 
 
@@ -57,6 +58,30 @@ def np_rolling_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: STAT
 
 
 @compute_node
-def np_quantile(ts: TS[Array[NUMBER]], q: float, method: str = 'linear') -> TS[float]:
+def np_quantile(ts: TS[Array[NUMBER, SIZE]], q: float, method: str = 'linear') -> TS[float]:
     """The np.quantile function, limited to a single axis"""
     return np.quantile(ts.value, q, method=method)
+
+
+def _compute_size(compound_type: COMPOUND_SCALAR) -> type:
+    schema = compound_type.__meta_data_schema__
+    values = iter(schema.values())
+    v = next(values)
+    if not all(v != v_ for v_ in values):
+        raise ValueError('Not all values of the frame are the same')
+    return Size[len(schema.values())]
+
+
+def _compute_data_tp(compound_type: COMPOUND_SCALAR) -> type:
+    schema = compound_type.__meta_data_schema__
+    values = iter(schema.values())
+    v = next(values)
+    return v.py_type
+
+
+@compute_node(resolvers={SIZE: lambda mapping, scalars: _compute_size(mapping[COMPOUND_SCALAR]),
+                         NUMBER: lambda mapping, scalars: _compute_data_tp(mapping[COMPOUND_SCALAR])})
+def frame_to_1d_array(frame: TS[Frame[COMPOUND_SCALAR]], _sz: type[SIZE] = Size, _tp: SCALAR = float) \
+        -> TS[Array[SCALAR, SIZE]]:
+    ...
+
