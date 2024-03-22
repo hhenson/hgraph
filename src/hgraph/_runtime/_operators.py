@@ -107,9 +107,9 @@ WiringPort.__rshift__ = lambda x, y: rshift_(x, y)
 WiringPort.__rrshift__ = lambda x, y: rshift_(y, x)
 
 
-@graph
-def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator and_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+@compute_node
+def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
+    return bool(lhs.value and rhs.value)
 
 
 WiringPort.__and__ = lambda x, y: and_(x, y)
@@ -117,17 +117,17 @@ WiringPort.__rand__ = lambda x, y: and_(y, x)
 
 
 @compute_node
-def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    return lhs.value or rhs.value
+def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
+    return bool(lhs.value or rhs.value)
 
 
 WiringPort.__or__ = lambda x, y: or_(x, y)
 WiringPort.__ror__ = lambda x, y: or_(y, x)
 
 
-@graph
+@compute_node
 def xor_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator xor_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+    return lhs.value ^ rhs.value
 
 
 WiringPort.__xor__ = lambda x, y: xor_(x, y)
@@ -172,7 +172,7 @@ WiringPort.__le__ = lambda x, y: le_(x, y)
 
 @graph
 def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    raise not_(le_(lhs, rhs))
+    return not_(le_(lhs, rhs))
 
 
 WiringPort.__gt__ = lambda x, y: gt_(x, y)

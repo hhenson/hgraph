@@ -252,3 +252,5 @@ Version 0.2.3 (TBD)
 -------------------
 
 * Extend resolvers to all node decorators
+* Fix np_percentile signature
+* Cleanup operators
