@@ -9,7 +9,8 @@ dependencies = [
     "frozendict>=2.3.10",
     "sortedcontainers>=2.4.0",
     "ordered-set>=4.1.0",
-    "numpy>=1.23"
+    "numpy>=1.23",
+    "polars>=0.20.15",
 ]
 requires-python = ">=3.11"
 authors = [
@@ -29,12 +30,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-
-[project.optional-dependencies]
-polars = [
-    "polars>=0.20.15",
-]
-all = ["hgraph[polars]"]
 
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
