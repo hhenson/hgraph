@@ -136,7 +136,7 @@ WiringPort.__rxor__ = lambda x, y: xor_(y, x)
 
 @compute_node
 def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    return lhs.value == rhs.value
+    return bool(lhs.value == rhs.value)
 
 
 # This is currently safe to do as the wiring port needs to be immutable, but is never used as a key in a dict or
@@ -220,7 +220,7 @@ WiringPort.__invert__ = lambda x: invert_(x)
 
 @compute_node
 def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
-    return item.value in ts.value
+    return bool(item.value in ts.value)
 
 
 # Can't override __contains__ as it seems to always returns a bool value.
@@ -230,7 +230,7 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
 @compute_node
 def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """logic not"""
-    return not ts.value
+    return bool(not ts.value)
 
 
 @graph
