@@ -254,3 +254,9 @@ Version 0.2.3 (22-03-2024)
 * Extend resolvers to all node decorators
 * Fix np_percentile signature
 * Cleanup operators
+
+Version 0.2.4 (TBD)
+-------------------
+
+* add pct_change
+* add np_std 
