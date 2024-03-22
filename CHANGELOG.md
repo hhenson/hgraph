@@ -248,8 +248,8 @@ Version 0.2.2 (21-03-2024)
 * New nodes around TSD and Frame manipulation
 * Some changes in preparation for graph recording.
 
-Version 0.2.3 (TBD)
--------------------
+Version 0.2.3 (22-03-2024)
+--------------------------
 
 * Extend resolvers to all node decorators
 * Fix np_percentile signature
