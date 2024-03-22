@@ -63,6 +63,12 @@ def np_quantile(ts: TS[Array[NUMBER, SIZE]], q: float, method: str = 'linear') -
     return np.quantile(ts.value, q, method=method)
 
 
+@compute_node
+def np_std(ts: TS[Array[NUMBER, SIZE]]) -> TS[float]:
+    """Return the standard deviation of the values of the ts"""
+    return np.std(ts.value)
+
+
 def _compute_size(compound_type: COMPOUND_SCALAR) -> type:
     schema = compound_type.__meta_data_schema__
     values = iter(schema.values())
