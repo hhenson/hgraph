@@ -92,8 +92,8 @@ class STATE(Generic[COMPOUND_SCALAR]):
     Add the ability to access the state as attributes.
     """
 
-    def __init__(self, __schema__: COMPOUND_SCALAR = None, **kwargs):
-        self.__schema__: COMPOUND_SCALAR = __schema__
+    def __init__(self, __schema__: type[COMPOUND_SCALAR] = None, **kwargs):
+        self.__schema__: type[COMPOUND_SCALAR] = __schema__
         self._updated: bool = False # Dirty flag, useful for tracking updates when persisting.
         self._value: COMPOUND_SCALAR = dict(**kwargs) if __schema__ is None else __schema__(**kwargs)
 
