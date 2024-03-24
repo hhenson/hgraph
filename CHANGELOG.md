@@ -255,8 +255,10 @@ Version 0.2.3 (22-03-2024)
 * Fix np_percentile signature
 * Cleanup operators
 
-Version 0.2.4 (TBD)
--------------------
+Version 0.2.4 (24-03-2024)
+--------------------------
 
 * add pct_change
-* add np_std 
+* add np_std
+* A few more preparatory changes for graph recording
+
