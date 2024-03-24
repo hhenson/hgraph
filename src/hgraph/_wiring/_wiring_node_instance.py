@@ -4,12 +4,12 @@ from typing import Any, MutableMapping
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 if typing.TYPE_CHECKING:
     from hgraph import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, NodeSignature, NodeBuilder, Edge, \
-    WiringPort
+        WiringPort
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
 
@@ -21,7 +21,7 @@ class InputsKey:
 
     def __eq__(self, other: Any) -> bool:
         return all(v.__orig_eq__(other._inputs[k]) if hasattr(v, '__orig_eq__') else v == other._inputs[k]
-                for k, v in self._inputs.items())
+                   for k, v in self._inputs.items())
 
     def __hash__(self) -> int:
         return hash(self._inputs)
@@ -61,7 +61,7 @@ class WiringNodeInstanceContext:
 
 
 def create_wiring_node_instance(node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                    inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
+                                inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
     return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
 
 
@@ -135,7 +135,8 @@ class WiringNodeInstance:
             trace_back_depth=self.trace_back_depth,
             wiring_path_name=self.wiring_path_name,
             label=self.label,
-            capture_values=self.capture_values
+            capture_values=self.capture_values,
+            record_replay_id=self.resolved_signature.record_and_replay_id
         )
 
     @property
@@ -163,4 +164,3 @@ class WiringNodeInstance:
                 edges.update(input_.edges_for(node_map, node_index, (ndx,)))
 
         return node_builder, edges
-

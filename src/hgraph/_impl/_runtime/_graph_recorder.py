@@ -1,28 +1,50 @@
 from datetime import datetime
-from pathlib import Path
 
+from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._constants import MIN_DT
 from hgraph._runtime._data_writer import DataWriter, DataReader
-from hgraph._impl._runtime._node import NodeImpl
-from hgraph._runtime._node import Node, NodeDelegate
 from hgraph._runtime._graph_recorder import GraphRecorder
+from hgraph._runtime._node import Node, NodeDelegate
+
 
 # TODO: This needs a proper implementation
 
+
 class DataWriterGraphRecorder(GraphRecorder):
 
-    def __init__(self, path: Path, prefix: str):
-        self._path = path
-        self._prefix = prefix
+    def __init__(self, writer: DataWriter = None, reader: DataReader = None):
+        self._writer: DataWriter | None = writer
+        self._reader: DataReader | None = reader
+        # if we have a reader extract the time from the reader
+        self._first_recorded_time: datetime = MIN_DT if self._reader is None else self._reader.read_datetime()
+        self._last_recorded_time: datetime = MIN_DT if self._reader is None else self._reader.read_datetime()
 
     def record_node(self, node: Node) -> Node:
-        return node
+        if self._writer is None:
+            return node
+        else:
+            return RecorderNode(node, self._writer)
 
     def replay_node(self, node: Node) -> Node:
-        return node
+        return ReplayNode(node, self._reader) if self._reader is not None else node
 
     def last_recorded_time(self) -> datetime:
-        return MIN_DT
+        return self._last_recorded_time
+
+    def begin_cycle(self, dt: datetime):
+        pass
+
+    def end_cycle(self, dt: datetime):
+        pass
+
+    def first_recorded_time(self) -> datetime:
+        pass
+
+    def begin_replay(self):
+        pass
+
+    def next_cycle(self) -> datetime | None:
+        pass
 
 
 class RecorderNode(NodeDelegate):
@@ -46,4 +68,3 @@ class ReplayNode(NodeImpl):
 
     def eval(self):
         self.data_writer.read(self.node)
-
