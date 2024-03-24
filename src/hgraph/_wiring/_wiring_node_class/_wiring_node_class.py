@@ -1,5 +1,4 @@
 import inspect
-import sys
 from dataclasses import replace
 from types import GenericAlias
 from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple, List
@@ -50,7 +49,7 @@ class WiringNodeClass:
             assert s.stop is not None, "signature of type resolution is incorrect, None is not a valid type"
             assert isinstance(s.start,
                               TypeVar), f"Signature of type resolution is incorrect first item must be of type TypeVar, got {s.start}"
-            if isinstance(s.stop, (type,  _GenericAlias, HgTypeMetaData)):
+            if isinstance(s.stop, (type, _GenericAlias, HgTypeMetaData)):
                 parsed = HgTypeMetaData.parse_type(s.stop)
                 out[s.start] = parsed
                 assert parsed is not None, f"Can not resolve {s.stop} into a valid scalar or time-series type"
@@ -234,6 +233,7 @@ class BaseWiringNodeClass(WiringNodeClass):
         Insure the inputs wired in match the signature of this node and resolve any missing types.
         """
         # Validate that all inputs have been received and apply the defaults.
+        record_replay_id = kwargs.pop("__record_id__", None)
         kwargs = self._prepare_kwargs(*args, **kwargs)
         WiringContext.current_kwargs = kwargs
         try:
@@ -251,7 +251,8 @@ class BaseWiringNodeClass(WiringNodeClass):
             if self.signature.is_resolved:
                 self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                 self.signature.validate_resolved_types(kwarg_types, kwargs)
-                return kwargs, self.signature
+                return kwargs, self.signature if record_replay_id is None else self.signature.copy_with(
+                    record_and_replay_id=record_replay_id)
             else:
                 # Only need to re-create if we actually resolved the signature.
                 resolve_signature = WiringNodeSignature(
@@ -268,7 +269,9 @@ class BaseWiringNodeClass(WiringNodeClass):
                     unresolved_args=frozenset(),
                     time_series_args=self.signature.time_series_args,
                     injectable_inputs=self.signature.injectable_inputs,  # This should not differ based on resolution
-                    label=self.signature.label)
+                    label=self.signature.label,
+                    record_and_replay_id=record_replay_id
+                )
                 if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     self.signature.validate_resolved_types(kwarg_types, kwargs)
@@ -280,7 +283,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                 raise e
             from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
             path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
-            raise WiringFailureError(f"Failure resolving signature for {self.signature.signature}, graph call stack:\n{path}") from e
+            raise WiringFailureError(
+                f"Failure resolving signature for {self.signature.signature}, graph call stack:\n{path}") from e
 
     def _check_overloads(self, *args, **kwargs) -> Tuple[bool, "WiringPort"]:
         if (overload_helper := getattr(self, "overload_list", None)) is not None:
@@ -394,7 +398,8 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
     def resolve_signature(self, *args, __pre_resolved_types__=None, **kwargs) -> "WiringNodeSignature":
         more_resolved_types = __pre_resolved_types__ or {}
         return self.underlying_node.resolve_signature(*args,
-                                                      __pre_resolved_types__={**self.resolved_types, **more_resolved_types},
+                                                      __pre_resolved_types__={**self.resolved_types,
+                                                                              **more_resolved_types},
                                                       **kwargs)
 
     def __call__(self, *args, **kwargs) -> "WiringPort":
@@ -455,7 +460,8 @@ class OverloadedWiringNodeHelper:
         for c, r in self.overloads:
             try:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
-                c.resolve_signature(*args, **kwargs, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH)
+                c.resolve_signature(*args, **kwargs,
+                                    __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH)
                 candidates.append((c, r))
             except (WiringError, SyntaxError) as e:
                 if isinstance(e, WiringFailureError):
@@ -463,7 +469,7 @@ class OverloadedWiringNodeHelper:
 
                 p = lambda x: str(x.output_type.py_type) if isinstance(x, WiringPort) else str(x)
                 reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
-                      f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
+                                 f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
 
                 rejected_candidates.append((c.signature.signature, reject_reason))
             except Exception as e:
@@ -472,7 +478,7 @@ class OverloadedWiringNodeHelper:
         if not candidates:
             args_tp = [str(a.output_type) if isinstance(a, WiringPort) else str(a) for a in args]
             kwargs_tp = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(v)) for k, v in
-                      kwargs.items() if not k.startswith("_")]
+                         kwargs.items() if not k.startswith("_")]
             _msg_part = '\n'.join(str(c) for c in rejected_candidates)
             raise WiringError(
                 f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
