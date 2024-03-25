@@ -262,3 +262,8 @@ Version 0.2.4 (24-03-2024)
 * add np_std
 * A few more preparatory changes for graph recording
 
+Version 0.2.5 (25-03-2024)
+--------------------------
+
+* Fix min_of_two (from graph to compute_node)
+* 
