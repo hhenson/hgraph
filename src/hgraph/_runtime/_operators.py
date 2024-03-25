@@ -250,5 +250,13 @@ WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
 
 
 @graph
-def min_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator min_ is not implemented for {ts.output_type}")
+def min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+    if rhs is None:
+        return lhs
+    else:
+        return min_op(lhs, rhs)
+
+
+@graph
+def min_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator min_ is not implemented for {lhs.output_type}")
