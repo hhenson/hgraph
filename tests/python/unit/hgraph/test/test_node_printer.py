@@ -1,6 +1,6 @@
 import re
 
-from hgraph.nodes import not_
+from hgraph import not_
 from hgraph.test import eval_node
 
 
