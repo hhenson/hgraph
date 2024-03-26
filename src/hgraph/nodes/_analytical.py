@@ -9,7 +9,8 @@ from hgraph.nodes._operators import cast_, len_
 
 __all__ = (
     "ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "sum_", "accumulate", "lag", "diff",
-    "INT_OR_TIME_DELTA", "average")
+    "INT_OR_TIME_DELTA", "average", "sum_collection", "pct_change")
+
 
 INT_OR_TIME_DELTA = TypeVar("INT_OR_TIME_DELTA", int, timedelta)
 

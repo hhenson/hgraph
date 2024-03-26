@@ -1,11 +1,16 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER, \
-    COMPOUND_SCALAR, Frame, Size
 import numpy as np
 
+from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER, \
+    COMPOUND_SCALAR, Frame, Size
 
+
+__all__ = ("NpRollingWindowResult", "NpRollingWindowState", "np_rolling_window", "np_quantile", "np_std")
+
+
+@dataclass
 class NpRollingWindowResult(TimeSeriesSchema):
     buffer: TS[Array[SCALAR, SIZE]]
     index: TS[Array[datetime, SIZE]]
@@ -36,7 +41,7 @@ def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = Non
         _state.start = start
         length = capacity
     _state.length = length
-    pos = (start+length-1) % capacity
+    pos = (start + length - 1) % capacity
     buffer[pos] = ts.value
     index[pos] = ts.last_modified_time
     if length == capacity or (min_window_period is not None and length >= min_window_period):
@@ -90,4 +95,3 @@ def _compute_data_tp(compound_type: COMPOUND_SCALAR) -> type:
 def frame_to_1d_array(frame: TS[Frame[COMPOUND_SCALAR]], _sz: type[SIZE] = Size, _tp: SCALAR = float) \
         -> TS[Array[SCALAR, SIZE]]:
     ...
-

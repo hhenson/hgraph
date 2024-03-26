@@ -13,9 +13,10 @@ from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 from hgraph.nodes._tsl_operators import merge
 
-__all__ = ("make_tsd", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains", "tsd_not",
-           "tsd_is_empty", "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_get_bundle_item", "tsd_rekey", "tsd_flip",
-           "merge_tsds", "tsd_flip_tsd", "tsd_partition", "sum_tsd", "mul_tsd", "tsd_rekey", "tsd_flip")
+__all__ = (
+    "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains",
+    "tsd_not", "tsd_is_empty", "tsd_len", "sum_tsd", "mul_tsd", "get_schema_type", "tsd_get_bundle_item",
+    "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_rekey", "tsd_flip", "tsd_flip_tsd", "merge_tsds", "tsd_partition")
 
 
 @compute_node(valid=("key",))
@@ -191,7 +192,8 @@ def tsd_collapse_keys(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
 
 @compute_node
 def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]],
-                        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+                        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None) -> TSD[
+    K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
     Un-Collapse the nested TSDs to a TSD with a tuple key.
     """
@@ -222,7 +224,7 @@ class TsdRekeyState(CompoundScalar):
     prev: dict = {}  # Copy of previous ticks
 
 
-@compute_node
+@compute_node(valid=("new_keys",))
 def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) \
         -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
@@ -253,7 +255,7 @@ def tsd_rekey(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _sta
         if v is not None:
             out[new_key] = v.value
 
-    for k, v in ts.modified_items():
+    for k, v in ts.modified_items() if ts.valid else ():
         k_new = prev.get(k, None)
         if k_new is not None:
             out[k_new] = v.value
@@ -342,7 +344,8 @@ def merge_tsds(tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME
 
 
 @compute_node
-def tsd_partition(ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
+def tsd_partition(ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]],
+                  _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Partition a TSD into partitions by the given mapping.
     """

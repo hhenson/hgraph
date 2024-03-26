@@ -5,6 +5,9 @@ from hgraph import compute_node, REF, TSB, TS_SCHEMA, TIME_SERIES_TYPE, PythonTi
 from hgraph._types._ref_type import TimeSeriesReference
 
 
+__all__ = ("tsb_get_item", "tsb_get_item_by_name", "tsb_get_item_by_index")
+
+
 @compute_node()
 def tsb_get_item(tsb: REF[TSB[TS_SCHEMA]], key: SCALAR, key_type: Type[SCALAR] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
     raise WiringError(f"tsb_get_item can only pick items using string name or integer index, received {key_type}")

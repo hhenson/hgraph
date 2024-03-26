@@ -1,5 +1,4 @@
-from hgraph import sink_node, SIGNAL, EvaluationEngineApi, Graph
-
+from hgraph import sink_node, SIGNAL, EvaluationEngineApi
 
 __all__ = ("stop_engine",)
 

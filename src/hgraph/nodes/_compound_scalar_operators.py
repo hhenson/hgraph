@@ -1,12 +1,10 @@
 from typing import Type
 
-from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, HgTypeMetaData, IncorrectTypeBinding, MissingInputsError, \
-    WiringContext, with_signature, TimeSeries, graph, CustomMessageWiringError, STATE
-from hgraph._runtime._operators import getattr_, or_
+from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, HgTypeMetaData, IncorrectTypeBinding, with_signature, \
+    TimeSeries, CustomMessageWiringError
+from hgraph._runtime._operators import getattr_
 
 __all__ = ("getattr_cs", "cs_from_ts")
-
-from hgraph.nodes import default
 
 
 @compute_node(overloads=getattr_, resolvers={SCALAR: lambda mapping, scalars: mapping[COMPOUND_SCALAR].meta_data_schema[scalars['attr']].py_type})

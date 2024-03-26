@@ -1,15 +1,15 @@
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
     PythonTimeSeriesReference
-
-__all__ = ("flatten_tsl_values", "merge")
-
-from hgraph.nodes._const import const
 from hgraph.nodes._analytical import sum_
+from hgraph.nodes._const import const
 from hgraph.nodes._operators import len_
 
 
+__all__ = ("flatten_tsl_values", "merge", "tsl_len", "sum_tsl", "tsl_to_tsd", "tsl_get_item")
+
+
 @compute_node
-def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool=False) -> TS[tuple[SCALAR, ...]]:
+def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool = False) -> TS[tuple[SCALAR, ...]]:
     """
     This will convert the TSL into a time-series of tuples. The value will be the value type of the time-series
     provided to the TSL. If the value has not ticked yet, the value will be None.

@@ -88,10 +88,11 @@ def test_tsd_rekey():
     fd = frozendict
     assert eval_node(
         tsd_rekey,
-        [{1: 1}, {2: 2}, None, {2: REMOVE}],
-        [{1: "a", 2: "b"}, None, {1: "c"}],
+        [None, {1: 1}, {2: 2}, None, {2: REMOVE}],
+        [{1: "a", 2: "b"}, None, None, {1: "c"}],
         resolution_dict={"ts": TSD[int, TS[int]], "new_keys": TSD[int, TS[str]]}
     ) == [
+               None,
                fd({"a": 1}),
                fd({"b": 2}),
                fd({"c": 1, "a": REMOVE}),
@@ -166,7 +167,7 @@ def test_tsd_uncollapse_keys():
 def test_merge_tsd():
     assert eval_node(merge_tsds[K: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
                      [({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})]) == [
-        {1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
+               {1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
 
 
 def test_tsd_partition():

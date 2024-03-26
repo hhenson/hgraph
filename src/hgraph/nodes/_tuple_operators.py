@@ -3,11 +3,11 @@ from typing import Type, TypeVar
 from hgraph import SCALAR, TS, HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, compute_node, \
     with_signature, TimeSeries, HgTupleFixedScalarType, HgTupleCollectionScalarType, TSL
 from hgraph._runtime._operators import getitem_
-
-
-__all__ = ("TUPLE", "tuple_from_ts")
-
 from hgraph.nodes import flatten_tsl_values
+
+
+__all__ = ("TUPLE", "getitem_tuple", "tuple_from_ts")
+
 
 TUPLE = TypeVar("TUPLE", bound=tuple)
 

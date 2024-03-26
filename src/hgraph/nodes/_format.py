@@ -1,10 +1,9 @@
 import re
 
 from hgraph import TS, TS_SCHEMA, TSB, AUTO_RESOLVE, compute_node, STATE, ts_schema, WiringPort, HgTypeMetaData
+from hgraph.nodes import const
 
 __all__ = ("format_", "format_tsb")
-
-from hgraph.nodes import const
 
 
 def format_(format_str: TS[str] | str, *args, **kwargs) -> TS[str]:
