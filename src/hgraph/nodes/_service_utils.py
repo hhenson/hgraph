@@ -1,13 +1,12 @@
 from collections import defaultdict
 from typing import Mapping, Any, Type
 
-from frozendict import frozendict
-
 from hgraph import sink_node, REF, TIME_SERIES_TYPE, GlobalState, compute_node, SCALAR, TS, STATE, Removed, \
-    pull_source_node, ReferenceServiceNodeClass, BaseWiringNodeClass, HgREFTypeMetaData, create_input_output_builders, \
+    pull_source_node, BaseWiringNodeClass, HgREFTypeMetaData, create_input_output_builders, \
     graph, AUTO_RESOLVE, TSD, TS_OUT, REMOVE_IF_EXISTS, TIME_SERIES_TYPE_1
 
-__all__ = ("capture_output_to_global_state", "capture_output_node_to_global_state")
+__all__ = ("capture_output_to_global_state", "capture_output_node_to_global_state", "write_subscription_key",
+           "write_service_request", "get_shared_reference_output")
 
 
 @sink_node(active=tuple(), valid=tuple())
@@ -93,7 +92,8 @@ def _subscribe(path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE,
 
 
 @compute_node
-def write_service_request(path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None) -> TS[int]:
+def write_service_request(path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None) -> \
+TS[int]:
     """
     Updates a TSD attached to the path with the data provided.
     """
@@ -117,7 +117,8 @@ def write_service_request_stop(request: TIME_SERIES_TYPE, path: str, _state: STA
 
 
 @graph
-def _request_service(path: str, request: TIME_SERIES_TYPE, tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE) -> TIME_SERIES_TYPE_1:
+def _request_service(path: str, request: TIME_SERIES_TYPE,
+                     tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE) -> TIME_SERIES_TYPE_1:
     requestor_id = write_service_request(path, request)
     out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[int, tp_out]](f"{path}_replies")
     return out[requestor_id]

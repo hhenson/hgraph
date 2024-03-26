@@ -4,7 +4,7 @@ import hgraph
 from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass, SCALAR, REF
 from hgraph._runtime._operators import min_, min_op
 
-__all__ = ("add_", "sub_", "mult_", "div_")
+__all__ = ("add_", "sub_", "mult_", "div_", "lt_", "zero_int", "zero_float", "min_op_number")
 
 
 @compute_node(overloads=hgraph.add_)

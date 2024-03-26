@@ -266,4 +266,9 @@ Version 0.2.5 (25-03-2024)
 --------------------------
 
 * Fix min_of_two (from graph to compute_node)
-* 
+
+Version 0.2.6 (26-03-2024)
+--------------------------
+
+* Fix timing issue with tsd_rekey
+* Clean up imports and __all__ in nodes
