@@ -70,16 +70,6 @@ class EvaluationMode(Enum):
     REPLAY = 3
 
 
-class StatefulElements(Enum):
-    """
-    The elements of the graph that can be recorded / persisted.
-    """
-    NONE = 0
-    SOURCE_NODES = 1 << 0
-    STATEFUL_NODES = 1 << 1
-    SINK_NODES = 1 << 2
-
-
 class EvaluationLifeCycleObserver:
     """
     Provide the callbacks that can be received during the evaluation of the graph.
@@ -185,12 +175,6 @@ class EvaluationEngineApi(ComponentLifeCycle, ABC):
         Request the evaluation engine to stop processing events and exit.
         This will not stop the graph immediately, and will only be processed
         after the current evaluation cycle has completed.
-        """
-
-    @abstractmethod
-    def request_engine_suspend(self):
-        """
-        Request the evaluation engine to suspend the graph and exist.
         """
 
     @property
