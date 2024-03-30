@@ -11,6 +11,8 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._ref_type import REF
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._tss_type import TSS
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tsb_type import TimeSeriesSchema

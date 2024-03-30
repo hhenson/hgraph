@@ -1,12 +1,11 @@
-import functools
 from inspect import signature
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._types._scalar_type_meta_data import HgSchedulerType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_signature import extract_injectable_inputs
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -345,7 +344,10 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
         kwargs['overloads'] = overloads
 
     if impl_fn is None:
-        return lambda fn: _node_decorator(impl_fn=fn, **kwargs, resolvers=resolvers)
+        if "impl_fn" in kwargs:
+            return lambda fn: _create_node(fn, **kwargs)
+        else:
+            return lambda fn: _node_decorator(impl_fn=fn, **kwargs, resolvers=resolvers)
     elif overloads is not None:
         overload = _create_node(impl_fn, **kwargs)
         if resolvers is not None:
@@ -416,6 +418,6 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         all_valid_inputs=all_valid_inputs,
         unresolved_args=frozenset(),
         time_series_args=frozenset(),
-        uses_scheduler=any(type(v) is HgSchedulerType for v in kwargs.values())
+        injectable_inputs=extract_injectable_inputs(**kwargs)
     )
     return signature

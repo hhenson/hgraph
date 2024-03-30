@@ -1,20 +1,20 @@
+from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, runtime_checkable, Protocol
+from typing import TYPE_CHECKING, runtime_checkable, Protocol, Generic, Any, KeysView, ItemsView, ValuesView, Union
 from typing import TypeVar, Type
 
 from frozendict import frozendict
 
 from hgraph._runtime._evaluation_engine import EvaluationEngineApi, EvaluationMode
 from hgraph._types._schema_type import AbstractSchema
-from hgraph._types._typing_utils import clone_typevar
+from hgraph._types._typing_utils import clone_typevar, nth
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
-    from hgraph._types._type_meta_data import HgTypeMetaData
+    from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
-
-__all__ = ("SCALAR", "UnSet", "Size", "SIZE",  "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
+__all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
            "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR")
 
 
@@ -59,10 +59,10 @@ class Size:
 
 class CompoundScalar(AbstractSchema):
 
-        @classmethod
-        def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
-            from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
-            return HgScalarTypeMetaData.parse_type(tp)
+    @classmethod
+    def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
+        from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+        return HgScalarTypeMetaData.parse_type(tp)
 
 
 @runtime_checkable
@@ -86,17 +86,110 @@ SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
 NUMBER = TypeVar("NUMBER", int, float)
 
 
-class STATE(dict):
+class STATE(Generic[COMPOUND_SCALAR]):
     """
     State is basically just a dictionary.
     Add the ability to access the state as attributes.
     """
 
+    def __init__(self, __schema__: type[COMPOUND_SCALAR] = None, **kwargs):
+        self.__schema__: type[COMPOUND_SCALAR] = __schema__
+        self._updated: bool = False # Dirty flag, useful for tracking updates when persisting.
+        self._value: COMPOUND_SCALAR = dict(**kwargs) if __schema__ is None else __schema__(**kwargs)
+
+    def __class_getitem__(cls, item) -> Any:
+        # For now limit to validation of item
+        out = super(STATE, cls).__class_getitem__(item)
+        if item is not COMPOUND_SCALAR:
+            from hgraph._types._type_meta_data import HgTypeMetaData
+            if not (tp := HgTypeMetaData.parse_type(item)).is_scalar:
+                raise ParseError(
+                    f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to to CompoundScalar)")
+            # if tp.is_resolved:
+            #
+            #     out = functools.partial(out, __schema__=item)
+        return out
+
+    @property
+    def as_schema(self) -> COMPOUND_SCALAR:
+        """
+        Exposes the TSB as the schema type. This is useful for type completion in tools such as PyCharm / VSCode.
+        It is a convenience method, it is possible to access the properties of the schema directly from the TSB
+        instances as well.
+        """
+        return self.__dict__["_value"]
+
     def __getattr__(self, item):
-        return self[item]
+        """
+        The time-series value for the property associated to item in the schema
+        :param item:
+        :return:
+        """
+        values = self.__dict__.get("_value")
+        schema: COMPOUND_SCALAR = self.__dict__.get("__schema__")
+        if item == "_value":
+            if values is None:
+                raise AttributeError(item)
+            return values
+        if item == "__schema__":
+            if schema is None:
+                raise AttributeError(item)
+            return schema
+        if schema is None:
+            if values and item in values:
+                return values[item]
+            else:
+                raise AttributeError(item)
+        else:
+            if not hasattr(schema, "__meta_data_schema__") or item in schema.__meta_data_schema__:
+                return getattr(values, item)
+            else:
+                raise AttributeError(item)
+
+    def __getitem__(self, item: Union[int, str]) -> SCALAR:
+        """
+        If item is of type int, will return the item defined by the sequence of the schema. If it is a str, then
+        the item as named.
+        """
+        if type(item) is int:
+            return self.__dict__["_value"][nth(iter(self.__schema__.__meta_data_schema__), item)]
+        else:
+            return getattr(self, item)
+
+    def keys(self) -> KeysView[str]:
+        """The keys of the schema defining the bundle"""
+        return self.__dict__["_value"].keys()
+
+    def items(self) -> ItemsView[str, SCALAR]:
+        """The items of the bundle"""
+        return self.__dict__["_value"].items()
+
+    def values(self) -> ValuesView[SCALAR]:
+        """The values of the bundle"""
+        return self.__dict__["_value"].values()
 
     def __setattr__(self, key, value):
-        self[key] = value
+        if key in ["_value", "__schema__", "_updated"]:
+            self.__dict__[key] = value
+        else:
+            value_ = self.__dict__["_value"]
+            schema = self.__dict__["__schema__"]
+            self.__dict__["_updated"] = True
+            if schema is None:
+                value_[key] = value
+            else:
+                setattr(value_, key, value)
+
+    def reset_updated(self) -> None:
+        """Resets the updated state back to false"""
+        self.__dict__["_updated"] = False
+
+    def is_updated(self) -> bool:
+        """Has the state been updated since last reset / created"""
+        return self.__dict__["_updated"]
+
+    def __repr__(self) -> str:
+        return f"SCALAR[{self.__schema__.__name__}]({', '.join(k + '=' + repr(v) for k, v in asdict(self._value).items())})"
 
 
 class REPLAY_STATE:
@@ -125,12 +218,11 @@ def is_keyable_scalar(value) -> bool:
     """
     return isinstance(value, (bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict,
                               CompoundScalar, Size, Enum)) or (
-        isinstance(value, type) and ( value in (bool, int, float, date, datetime, time, timedelta, str) or
-                                      issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum)) )
+            isinstance(value, type) and (value in (bool, int, float, date, datetime, time, timedelta, str) or
+                                         issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum)))
     )
 
 
 def is_compound_scalar(value) -> bool:
     """Is the value an instance of CompoundScalar or is a type which is a subclass of CompoundScalar"""
     return isinstance(value, CompoundScalar) or (isinstance(value, type) and issubclass(value, CompoundScalar))
-

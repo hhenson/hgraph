@@ -1,16 +1,15 @@
 import itertools
 from abc import abstractmethod
 from collections.abc import Mapping, Set
-from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, Callable, cast, List
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
 
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import Size, STATE, CompoundScalar
+from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -19,7 +18,6 @@ __all__ = ("HgScalarTypeMetaData", "HgTupleScalarType", "HgDictScalarType", "HgS
            "HgTupleCollectionScalarType", "HgInjectableType", "HgTypeOfTypeMetaData", "HgEvaluationClockType",
            "HgEvaluationEngineApiType", "HgStateType", "HgOutputType", "HgSchedulerType", "Injector",
            "HgArrayScalarTypeMetaData")
-
 
 
 class HgScalarTypeMetaData(HgTypeMetaData):
@@ -43,7 +41,9 @@ class HgScalarTypeMetaData(HgTypeMetaData):
             return p
 
         cls._parsers_list = [HgAtomicType, HgTupleScalarType, HgDictScalarType, HgSetScalarType, HgCompoundScalarType,
-                HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType, HgObjectType]
+                             HgScalarTypeVar, HgTypeOfTypeMetaData, HgArrayScalarTypeMetaData, HgInjectableType,
+                             HgStateType,
+                             HgObjectType]
         return cls._parsers_list
 
     @classmethod
@@ -86,8 +86,15 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
                 if not s_t and not tp_t:
                     if issubclass(tp_i, s_i):
                         return True
+            return False
 
-        return tp.is_scalar and any(issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c) for c in self.constraints())
+        if tp.is_scalar:
+            for c in self.constraints():
+                if isinstance(c, HgScalarTypeMetaData) and c.matches(tp):
+                    return True
+                else:
+                    if issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c):
+                        return True
 
     @property
     def type_var(self) -> TypeVar:
@@ -106,7 +113,8 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
 
     def constraints(self) -> Sequence[type]:
         if self.py_type.__constraints__:
-            return self.py_type.__constraints__
+            return tuple(
+                c if type(c) is type else HgScalarTypeMetaData.parse_type(c) for c in self.py_type.__constraints__)
         elif self.py_type.__bound__:
             return (self.py_type.__bound__,)
         raise RuntimeError("Unexpected item in the bagging areas")
@@ -186,7 +194,7 @@ class HgAtomicType(HgScalarTypeMetaData):
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
-        if self.py_type != wired_type.py_type:
+        if not issubclass(wired_type.py_type, self.py_type):
             from hgraph._wiring._wiring_errors import IncorrectTypeBinding
             raise IncorrectTypeBinding(self, wired_type)
 
@@ -206,7 +214,8 @@ class HgAtomicType(HgScalarTypeMetaData):
                 time: lambda: HgAtomicType(time, (str,)),
                 timedelta: lambda: HgAtomicType(timedelta, (float, str,)),
                 str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
-                ScalarValue: lambda: HgAtomicType(ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)),
+                ScalarValue: lambda: HgAtomicType(ScalarValue,
+                                                  (bool, int, float, str, date, datetime, time, timedelta)),
             }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -226,7 +235,8 @@ class HgObjectType(HgAtomicType):
         return super().__hash__()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((tp_ := type(tp)) is HgObjectType and self.py_type == tp.py_type) or (tp_ is HgScalarTypeVar and tp_.matches(self))
+        return (((tp_ := type(tp)) is HgObjectType and issubclass(getattr(tp.py_type, '__origin__', tp.py_type), self.py_type))
+                or (tp_ is HgScalarTypeVar and tp_.matches(self)))
 
     @classmethod
     def parse_type(cls, tp) -> Optional["HgTypeMetaData"]:
@@ -282,10 +292,9 @@ class HgInjectableType(HgScalarTypeMetaData):
             EvaluationClockInjector: lambda: HgEvaluationClockType(),
             EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
             EvaluationEngineApiInjector: lambda: HgEvaluationEngineApiType(),
-            STATE: lambda: HgStateType(),
-            StateInjector: lambda: HgStateType(),
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
+            REPLAY_STATE: lambda: HgReplayType()
         }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -332,22 +341,64 @@ class HgEvaluationEngineApiType(HgInjectableType):
         return EvaluationEngineApiInjector()
 
 
-class StateInjector(Injector):
-
-    def __init__(self):
-        self._state = STATE()
+class ReplayInjector(Injector):
 
     def __call__(self, node):
-        return self._state
+        return REPLAY_STATE(node.graph.evaluation_engine_api)
 
 
-class HgStateType(HgInjectableType):
+class HgReplayType(HgInjectableType):
+    """
+    Injectable for replay state.
+    """
+
     def __init__(self):
-        super().__init__(object)
+        super().__init__(REPLAY_STATE)
 
     @property
     def injector(self):
-        return StateInjector()
+        return ReplayInjector()
+
+
+class StateInjector(Injector):
+
+    def __init__(self, schema):
+        self.schema = schema
+
+    def __call__(self, node):
+        return STATE(__schema__=self.schema)
+
+
+class HgStateType(HgInjectableType):
+    """
+    State can contain any valid scalar as its value. If no value is provided, then the injected
+    scalar will be a dictionary.
+    """
+    state_type: HgScalarTypeMetaData
+
+    def __init__(self, state_type: HgScalarTypeMetaData):
+        super().__init__(STATE)
+        self.state_type = state_type
+
+    @property
+    def injector(self):
+        return StateInjector(self.state_type.py_type if self.state_type.is_resolved else None)
+
+    @classmethod
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._scalar_types import STATE
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is STATE:
+            bundle_tp = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
+            if bundle_tp is None:
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to STATE")
+            return HgStateType(bundle_tp)
+        if value_tp is STATE:
+            from hgraph._types._scalar_types import COMPOUND_SCALAR
+            return HgStateType(HgScalarTypeMetaData.parse_type(COMPOUND_SCALAR))
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return cls.parse_type(type(value))
 
 
 class OutputInjector(Injector):
@@ -785,11 +836,9 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         wired_type: HgCompoundScalarType
-        if len(self.meta_data_schema) != len(wired_type.meta_data_schema):
-            raise ParseError(f"'{self.py_type}' schema does not match '{wired_type.py_type}'")
         if any(k not in wired_type.meta_data_schema for k in self.meta_data_schema.keys()):
             raise ParseError("Keys of schema do not match")
-        for v, w_v in zip(self.meta_data_schema.values(), wired_type.meta_data_schema.values()):
+        for v, w_v in ((v, wired_type.meta_data_schema[k]) for k, v in self.meta_data_schema.items()):
             v.build_resolution_dict(resolution_dict, w_v)
 
 
