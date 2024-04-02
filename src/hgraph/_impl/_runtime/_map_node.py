@@ -70,6 +70,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 self._create_new_graph(k)
             for k in keys.removed():
                 self._remove_graph(k)
+                self._scheduled_keys.pop(k, None)
         # 2. or one of the nested graphs has been scheduled for evaluation.
         scheduled_keys = self._scheduled_keys
         self._scheduled_keys = {}

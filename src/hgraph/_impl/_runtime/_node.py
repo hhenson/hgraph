@@ -164,13 +164,7 @@ class BaseNodeImpl(Node, ABC):
                 from hgraph._types._error_type import NodeError
                 self.error_output.apply_result(NodeError.capture_error(e, self))
         else:
-            from hgraph._types._error_type import NodeException
-            try:
-                self.do_eval()
-            except NodeException as e:
-                raise e
-            except Exception as e:
-                raise NodeException.capture_error(e, self, 'During evaluation') from e
+            self.do_eval()
         if scheduled:
             self._scheduler.advance()
         elif self.scheduler.is_scheduled:

@@ -4,7 +4,8 @@ from frozendict import frozendict
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
     compute_node, REF, TSS, Size, SIZE, K_1
 from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey, tsd_flip,
-                          merge_tsds, tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys)
+                          merge_tsds, tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys,
+                          merge_nested_tsds)
 from hgraph.test import eval_node
 
 
@@ -167,6 +168,12 @@ def test_merge_tsd():
     assert eval_node(merge_tsds[K: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
                      [({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})]) == [
         {1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
+
+
+def test_merge_nested_tsd():
+    assert eval_node(merge_nested_tsds[K: int, K_1: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
+                     [({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}), ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})]) == [
+        {1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
 
 
 def test_tsd_partition():
