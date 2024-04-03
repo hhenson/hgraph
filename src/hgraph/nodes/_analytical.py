@@ -9,7 +9,8 @@ from hgraph.nodes._operators import cast_, len_
 
 __all__ = (
     "ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "sum_", "accumulate", "lag", "diff",
-    "INT_OR_TIME_DELTA", "average")
+    "INT_OR_TIME_DELTA", "average", "sum_collection", "pct_change")
+
 
 INT_OR_TIME_DELTA = TypeVar("INT_OR_TIME_DELTA", int, timedelta)
 
@@ -201,3 +202,15 @@ def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
 @compute_node(overloads=sum_)
 def sum_collection(ts: TS[tuple[NUMBER, ...]]) -> TS[NUMBER]:
     return sum(ts.value)
+
+
+@graph
+def pct_change(ts: TS[NUMBER]) -> TS[NUMBER]:
+    """
+    pct_change = (ts.value - ts_1.value) / ts_1.value
+    The result is in fractional percentage values
+    """
+    l = lag(ts, period=1)
+    return (ts - l) / l
+
+

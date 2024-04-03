@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import WiringError
+from hgraph import WiringError, min_
 from hgraph.nodes import add_, sub_, mult_, div_
 from hgraph.test import eval_node
 
@@ -45,3 +45,8 @@ def test_mult(lhs, rhs, expected):
 ])
 def test_div(lhs, rhs, expected):
     assert eval_node(div_, lhs, rhs) == expected
+
+
+def test_min():
+    assert eval_node(min_, [1, 2, 3]) == [1, 2, 3]
+    assert eval_node(min_, [1, 2, 3], [3, 2, 1]) == [1, 2, 1]

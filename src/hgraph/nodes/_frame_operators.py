@@ -7,19 +7,21 @@ from frozendict import frozendict
 
 from hgraph import compute_node, Frame, TS, SCHEMA, SCALAR, AUTO_RESOLVE, Series, COMPOUND_SCALAR, K, TSD, \
     HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, with_signature, TimeSeries
-from hgraph._runtime._operators import getitem_, getattr_, min_
-
-__all__ = ("get_frame_col", "get_frame_item_", "get_frame_item_ts_", "frame_from_tsd_items")
-
+from hgraph._runtime._operators import getitem_, getattr_, min_op
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 
+__all__ = (
+"get_frame_col", "get_frame_item_", "get_frame_item_ts_", "frame_from_tsd_items", "frame_from_columns", "min_of_series")
 
-@compute_node(overloads=getitem_, resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars['key']].py_type]})
+
+@compute_node(overloads=getitem_, resolvers={
+    SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars['key']].py_type]})
 def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     return ts.value[key]
 
 
-@compute_node(overloads=getattr_, resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars['key']].py_type]})
+@compute_node(overloads=getattr_, resolvers={
+    SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars['key']].py_type]})
 def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     if not ts.value.is_empty():
         return ts.value[key]
@@ -36,10 +38,13 @@ def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = 
 
 
 @compute_node
-def frame_from_tsd_items(tsd: TSD[K, TS[COMPOUND_SCALAR]], mapping: Dict[str, str] = frozendict()) -> TS[Frame[COMPOUND_SCALAR_1]]:
+def frame_from_tsd_items(tsd: TSD[K, TS[COMPOUND_SCALAR]], mapping: Dict[str, str] = frozendict()) -> TS[
+    Frame[COMPOUND_SCALAR_1]]:
     data = []
     for k, v in tsd.valid_items():
-        data.append(({mapping['key']: k} if 'key' in mapping else {}) | {mapping.get(k, k): v if isinstance(v, (bool, int,  str, float, date, datetime)) else str(v) for k, v in asdict(v.value).items()})
+        data.append(({mapping['key']: k} if 'key' in mapping else {}) | {
+            mapping.get(k, k): v if isinstance(v, (bool, int, str, float, date, datetime)) else str(v) for k, v in
+            asdict(v.value).items()})
 
     return pl.DataFrame(data)
 
@@ -64,6 +69,6 @@ def frame_from_columns(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
         return from_ts_node(**kwargs)
 
 
-@compute_node(overloads=min_)
+@compute_node(overloads=min_op)
 def min_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
     return series.value.min()

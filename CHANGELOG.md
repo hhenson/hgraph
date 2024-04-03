@@ -240,3 +240,35 @@ Version 0.2.1 (16-03-2024)
 * Fix tsd_flip
 * Add tsd_flip_tsd
 * Fixes to tsd_collapse_keys and tsd_uncollapse_keys
+
+Version 0.2.2 (21-03-2024)
+--------------------------
+
+* Many bug fixes around REF type.
+* New nodes around TSD and Frame manipulation
+* Some changes in preparation for graph recording.
+
+Version 0.2.3 (22-03-2024)
+--------------------------
+
+* Extend resolvers to all node decorators
+* Fix np_percentile signature
+* Cleanup operators
+
+Version 0.2.4 (24-03-2024)
+--------------------------
+
+* add pct_change
+* add np_std
+* A few more preparatory changes for graph recording
+
+Version 0.2.5 (25-03-2024)
+--------------------------
+
+* Fix min_of_two (from graph to compute_node)
+
+Version 0.2.6 (26-03-2024)
+--------------------------
+
+* Fix timing issue with tsd_rekey
+* Clean up imports and __all__ in nodes

@@ -86,6 +86,7 @@ class WiringNodeSignature:
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
     # supplied via inputs
     label: str | None = None  # A label if provided, this can help to disambiguate the node
+    record_and_replay_id: str | None = None
 
     @property
     def uses_scheduler(self) -> bool:
@@ -113,7 +114,8 @@ class WiringNodeSignature:
                     active_inputs=self.active_inputs, valid_inputs=self.valid_inputs,
                     all_valid_inputs=self.all_valid_inputs,
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
-                    injectable_inputs=self.injectable_inputs, label=self.label)
+                    injectable_inputs=self.injectable_inputs, label=self.label,
+                    record_and_replay_id=self.record_and_replay_id)
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
         kwargs_ = self.as_dict() | kwargs
@@ -329,7 +331,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         unresolved_args=unresolved_inputs,
         time_series_args=time_series_inputs,
         injectable_inputs=injectable_inputs,
-        label=None
+        label=None,
+        record_and_replay_id=None
     )
 
 

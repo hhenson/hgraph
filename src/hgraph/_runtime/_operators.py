@@ -107,9 +107,9 @@ WiringPort.__rshift__ = lambda x, y: rshift_(x, y)
 WiringPort.__rrshift__ = lambda x, y: rshift_(y, x)
 
 
-@graph
-def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator and_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+@compute_node
+def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
+    return bool(lhs.value and rhs.value)
 
 
 WiringPort.__and__ = lambda x, y: and_(x, y)
@@ -117,17 +117,17 @@ WiringPort.__rand__ = lambda x, y: and_(y, x)
 
 
 @compute_node
-def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    return lhs.value or rhs.value
+def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
+    return bool(lhs.value or rhs.value)
 
 
 WiringPort.__or__ = lambda x, y: or_(x, y)
 WiringPort.__ror__ = lambda x, y: or_(y, x)
 
 
-@graph
+@compute_node
 def xor_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator xor_ is not implemented for {lhs.output_type} and {rhs.output_type}")
+    return lhs.value ^ rhs.value
 
 
 WiringPort.__xor__ = lambda x, y: xor_(x, y)
@@ -136,7 +136,7 @@ WiringPort.__rxor__ = lambda x, y: xor_(y, x)
 
 @compute_node
 def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    return lhs.value == rhs.value
+    return bool(lhs.value == rhs.value)
 
 
 # This is currently safe to do as the wiring port needs to be immutable, but is never used as a key in a dict or
@@ -172,7 +172,7 @@ WiringPort.__le__ = lambda x, y: le_(x, y)
 
 @graph
 def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    raise not_(le_(lhs, rhs))
+    return not_(le_(lhs, rhs))
 
 
 WiringPort.__gt__ = lambda x, y: gt_(x, y)
@@ -220,7 +220,7 @@ WiringPort.__invert__ = lambda x: invert_(x)
 
 @compute_node
 def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
-    return item.value in ts.value
+    return bool(item.value in ts.value)
 
 
 # Can't override __contains__ as it seems to always returns a bool value.
@@ -230,7 +230,7 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
 @compute_node
 def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """logic not"""
-    return not ts.value
+    return bool(not ts.value)
 
 
 @graph
@@ -250,5 +250,13 @@ WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
 
 
 @graph
-def min_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    raise WiringError(f"operator min_ is not implemented for {ts.output_type}")
+def min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+    if rhs is None:
+        return lhs
+    else:
+        return min_op(lhs, rhs)
+
+
+@graph
+def min_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    raise WiringError(f"operator min_ is not implemented for {lhs.output_type}")

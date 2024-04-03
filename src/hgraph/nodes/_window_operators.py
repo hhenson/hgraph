@@ -9,7 +9,8 @@ from hgraph.nodes._const import default, const
 from hgraph.nodes._operators import cast_, take, drop
 from hgraph.nodes._stream_operators import sample
 
-__all__ = ("rolling_window", "RollingWindowResult", "rolling_average")
+
+__all__ = ("RollingWindowResult", "rolling_window", "rolling_average")
 
 
 class RollingWindowResult(TimeSeriesSchema):

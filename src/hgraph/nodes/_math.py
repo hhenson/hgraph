@@ -2,9 +2,9 @@ from typing import Type
 
 import hgraph
 from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass, SCALAR, REF
-from hgraph._runtime._operators import min_
+from hgraph._runtime._operators import min_, min_op
 
-__all__ = ("add_", "sub_", "mult_", "div_")
+__all__ = ("add_", "sub_", "mult_", "div_", "lt_", "zero_int", "zero_float", "min_op_number")
 
 
 @compute_node(overloads=hgraph.add_)
@@ -57,12 +57,7 @@ def zero_float(tp: Type[TS[float]], op: WiringNodeClass) -> TS[float]:
     return mapping[op.signature.name]
 
 
-@graph(overloads=min_)
-def min_of_one(ts: TS[SCALAR]) -> TS[SCALAR]:
-    return ts
-
-
-@graph(overloads=min_)
-def min_of_two(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
+@compute_node(overloads=min_op)
+def min_op_number(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
     return min(lhs.value, rhs.value)
 

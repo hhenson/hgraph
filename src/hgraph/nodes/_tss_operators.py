@@ -1,7 +1,10 @@
-from hgraph import compute_node, contains_, REF, TSS, SCALAR, TS, STATE, PythonTimeSeriesReference, not_, graph, \
+from hgraph import compute_node, contains_, REF, TSS, TS, STATE, PythonTimeSeriesReference, not_, graph, \
     KEYABLE_SCALAR
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
+
+
+__all__ = ("tss_contains", "tss_is_empty", "tss_not_")
 
 
 @compute_node(overloads=contains_)
