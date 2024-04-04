@@ -65,7 +65,7 @@ try:
         @classmethod
         def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
             if isinstance(value, pl.DataFrame):
-                return HgDataFrameScalarTypeMetaData(HgScalarTypeVar.parse_type(COMPOUND_SCALAR))
+                return HgDataFrameScalarTypeMetaData(HgScalarTypeMetaData.parse_type(CompoundScalar))
 
         def __eq__(self, o: object) -> bool:
             return type(o) is HgDataFrameScalarTypeMetaData and self.schema == o.schema
