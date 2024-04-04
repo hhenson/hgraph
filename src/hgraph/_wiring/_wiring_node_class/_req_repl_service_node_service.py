@@ -2,7 +2,7 @@ from typing import Callable, TypeVar
 
 from frozendict import frozendict
 
-from hgraph import HgTypeMetaData, WiringContext, WiringGraphContext
+from hgraph import HgTypeMetaData, WiringContext, WiringGraphContext, TSB, ts_schema
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
@@ -11,13 +11,10 @@ __all__ = ("RequestReplyServiceNodeClass",)
 
 
 class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
-
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         if not signature.defaults.get("path"):
             signature = signature.copy_with(defaults=frozendict(signature.defaults | {"path": None}))
         super().__init__(signature, fn)
-        if (l := len(signature.time_series_args)) != 1:
-            raise CustomMessageWiringError(f"Expected 1 time-series argument, got {l}")
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
@@ -37,5 +34,6 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
 
                 from hgraph.nodes._service_utils import _request_service
                 from hgraph import TIME_SERIES_TYPE_1
+                ts_kwargs = {k: v for k, v in kwargs_.items() if k in resolved_signature.time_series_args}
                 return _request_service[TIME_SERIES_TYPE_1: resolved_signature.output_type](path=self.full_path(kwargs_["path"]),
-                                  request=kwargs_[next(iter(resolved_signature.time_series_args))])
+                                  request=TSB[ts_schema(**resolved_signature.time_series_inputs)].from_ts(**ts_kwargs))

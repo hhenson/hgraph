@@ -93,12 +93,14 @@ def _subscribe(path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE,
 
 @compute_node
 def write_service_request(path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None) -> \
-TS[int]:
+        TS[int]:
     """
-    Updates a TSD attached to the path with the data provided.
+    Updates TSDs attached to the path with the data provided.
     """
-    svc_node_in = GlobalState.instance().get(f"{path}_requests")
-    svc_node_in.apply_value({id(_state.requestor_id): request.delta_value})
+    for arg, ts in request.items():
+        if ts.modified:
+            svc_node_in = GlobalState.instance().get(f"{path}_request_{arg}")
+            svc_node_in.apply_value({id(_state.requestor_id): ts.delta_value})
 
     if not _output.valid:
         return id(_state.requestor_id)
@@ -112,8 +114,10 @@ def write_service_request_start(path: str, _state: STATE):
 @write_service_request.stop
 def write_service_request_stop(request: TIME_SERIES_TYPE, path: str, _state: STATE):
     if request.valid:
-        if svc_node_in := GlobalState.instance().get(f"{path}_requests"):
-            svc_node_in.apply_value({id(_state.requestor_id): REMOVE_IF_EXISTS})
+        for arg, i in request.items():
+            if i.valid:
+                if svc_node_in := GlobalState.instance().get(f"{path}_request_{arg}"):
+                    svc_node_in.apply_value({id(_state.requestor_id): REMOVE_IF_EXISTS})
 
 
 @graph

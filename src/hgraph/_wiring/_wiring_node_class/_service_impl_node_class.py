@@ -149,13 +149,10 @@ def validate_signature_vs_interfaces(signature: WiringNodeSignature, fn: Callabl
                     raise CustomMessageWiringError(
                         "The output type does not match that of the subscription service signature")
             case WiringNodeType.REQ_REP_SVC:
-                if len(signature.time_series_args) != 1:
-                    raise CustomMessageWiringError("The signature can only have one time-series input")
-                ts_type: HgTSDTypeMetaData = signature.input_types.get(arg := next(iter(signature.time_series_args)))
-                if not ts_type.value_tp.matches(
-                        (ts_int_type := next(iter(interface_sig.time_series_inputs.values())))):
-                    raise CustomMessageWiringError(
-                        f"The implementation input {ts_type} type value does not match: {ts_int_type}")
+                for arg, ts_type in signature.input_types.items():
+                    if not ts_type.value_tp.matches((ts_int_type := interface_sig.time_series_inputs.get(arg))):
+                        raise CustomMessageWiringError(
+                            f"The implementation input {ts_type} type value does not match: {ts_int_type}")
                 if not signature.output_type.dereference().value_tp.matches(interface_sig.output_type.dereference()):
                     raise CustomMessageWiringError(
                         "The output type does not match that of the subscription service signature")
@@ -216,12 +213,13 @@ def wire_request_reply_service(wiring_signature: WiringNodeSignature, fn: Callab
     @graph
     def request_reply_service():
         # Call the implementation graph with the scalars provided
-        req_arg = next(iter(wiring_signature.time_series_args))
-        requests = last_value_source_node(f"{wiring_signature.name}_{req_arg}",
-                                               (tp_ := wiring_signature.input_types[req_arg]))
-        requests = _wiring_port_for(tp_, requests, tuple())
-        capture_output_node_to_global_state(f"{path}_requests", requests)
-        out = fn(**{req_arg: requests} | scalars)
+        requests = {}
+        for arg in wiring_signature.time_series_args:
+            tp = wiring_signature.input_types[arg]
+            request = last_value_source_node(f"{wiring_signature.name}_{arg}", tp)
+            requests[arg] = _wiring_port_for(tp, request, tuple())
+            capture_output_node_to_global_state(f"{path}_request_{arg}", requests[arg])
+        out = fn(**(requests | scalars))
         capture_output_to_global_state(f"{path}_replies", out)
 
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:

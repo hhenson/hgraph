@@ -72,6 +72,23 @@ def test_request_reply_service():
     assert eval_node(main, [1]) == [None, 2]
 
 
+def test_request_reply_service2():
+    @request_reply_service
+    def add_service(path: str, ts: TS[int], ts1: TS[int]) -> TS[int]:
+        """The service description"""
+
+    @service_impl(interfaces=add_service)
+    def add_service_impl(ts: TSD[int, TS[int]], ts1: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda x, y: x + y, ts, ts1)
+
+    @graph
+    def main(x: TS[int], y: TS[int]) -> TS[int]:
+        register_service(default_path, add_service_impl)
+        return add_service(default_path, x, y)
+
+    assert eval_node(main, [1], [2]) == [None, 3]
+
+
 def test_two_services():
     @request_reply_service
     def add_one_service(path: str, ts: TS[int]) -> TS[int]:
