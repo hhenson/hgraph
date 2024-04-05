@@ -267,9 +267,8 @@ def register_service(path: str, implementation, **kwargs):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
 
     from hgraph import WiringGraphContext
-    assert len(implementation.interfaces) == 1, 'mutliservices are not implemented yet'
-    WiringGraphContext.instance().register_service_impl(implementation.interfaces[0], path or '', implementation,
-                                                        kwargs)
+    for i in implementation.interfaces:
+        WiringGraphContext.instance().register_service_impl(i, i.full_path(path), implementation, kwargs)
 
 
 def service_adaptor(interface):

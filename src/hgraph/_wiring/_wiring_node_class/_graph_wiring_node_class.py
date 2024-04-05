@@ -76,7 +76,7 @@ class WiringGraphContext:
         self._sink_nodes: ["WiringNodeInstance"] = []
         self._other_nodes: [Tuple["WiringPort", dict]] = []
         self._service_clients: [Tuple["WiringNodeClass", str]] = []
-        self._service_implementations: Dict[Tuple["WiringNodeClass", str], Tuple["ServiceImplNodeClass", dict]] = {}
+        self._service_implementations: Dict[str, Tuple["WiringNodeClass", "ServiceImplNodeClass", dict]] = {}
         self._built_services = {}
 
         self._current_frame = sys._getframe(1)
@@ -116,7 +116,7 @@ class WiringGraphContext:
 
     def label_nodes(self):
         """
-        Label the nodes in the graph with the graph name
+        Label the nodes in the graph with the variable name if the output was assigned to a local variable
         """
         for port, locals in self._other_nodes:
             varname = next((k for k, v in locals.items() if v is port), None)
@@ -133,11 +133,27 @@ class WiringGraphContext:
         """
         Register a service client with the graph context
         """
-        self._service_implementations[(service, path)] = (impl, kwargs)
+        if prev_impl := self._service_implementations.get(path):
+            CustomMessageWiringError(f"Service implementation already registered for service at path: {path}: "
+                                     f"{prev_impl[0].signature.signature} with {prev_impl[1]}")
+
+        self._service_implementations[path] = (service, impl, kwargs)
+
+    def find_service_impl(self, path):
+        for c in WiringGraphContext.__stack__:
+            if item := c._service_implementations.get(path):
+                return item
+
+        raise CustomMessageWiringError(f"No service implementation found for path: {path}")
 
     def add_built_service_impl(self, path, node):
-        self.add_sink_node(node)
+        if node:
+            self.add_sink_node(node)
+
         self._built_services[path] = node
+
+    def built_services(self):
+        return self._built_services
 
     def build_services(self):
         """
@@ -146,23 +162,27 @@ class WiringGraphContext:
         service_clients = copy(self._service_clients)
         dependencies = {}
         while True:
-            services_to_build_by_path = {}
+            services_to_build = set()
             for service, path in set(service_clients):
-                if item := self._service_implementations.get((service, path)):
-                    impl, kwargs = item
-                    services_to_build_by_path[path] = (service, impl, kwargs)
+                if item := self._service_implementations.get(path):
+                    interface, impl, kwargs = item
+                    if interface != service:
+                        raise CustomMessageWiringError(f"service implementation for path {path} implements "
+                                                       f"{interface.signature.signature} which does not match the client "
+                                                       f"expecting {service.signature.signature}")
+                    services_to_build.add(path)
                 else:
-                    CustomMessageWiringError(f'No implementation found for service: {service.signature.name} at path: {path}')
+                    raise CustomMessageWiringError(f'No implementation found for service: {service.signature.name} at path: {path}')
 
-            for path, (service, impl, kwargs) in services_to_build_by_path.items():
+            for path in services_to_build:
                 if path not in self._built_services:
                     clients_before = len(self._service_clients)
 
-                    impl, kwargs = self._service_implementations[(service, path)]
-                    impl(path=path, **kwargs)
+                    service, impl, kwargs = self._service_implementations[path]
+                    impl(path=path, __interface__=service, **kwargs)
 
                     new_clients = self._service_clients[clients_before:]
-                    dependencies.update({path: set(p for _, p in new_clients)})
+                    dependencies.update({path: set(p for _, p in new_clients if p != path)})
 
             if self._service_clients == service_clients:
                 break
@@ -171,7 +191,7 @@ class WiringGraphContext:
 
         ordered = list(TopologicalSorter(dependencies).static_order())
         for i, path in enumerate(ordered):
-            object.__setattr__(self._built_services[path], 'rank', i + 1)
+            object.__setattr__(self._built_services[path], 'rank', i + 2)
 
 
     def __enter__(self):

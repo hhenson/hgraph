@@ -173,6 +173,9 @@ class TSBWiringPort(WiringPort):
     def __getitem__(self, item):
         return self._wiring_port_for(item)
 
+    def as_dict(self):
+        return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}
+
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
                   dst_path: tuple[SCALAR, ...]) -> \
             set["Edge"]:
