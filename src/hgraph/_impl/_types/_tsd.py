@@ -120,7 +120,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def _create(self, key: K):
         cast(TimeSeriesSetOutput, self.key_set).add(key)
-        self._ts_values[key] = output = self._ts_builder.make_instance(owning_output=self)
+        self._ts_values[key] = self._ts_builder.make_instance(owning_output=self)
         self._ref_ts_feature.update(key)
         for observer in self._key_observers:
             observer.on_key_added(key)

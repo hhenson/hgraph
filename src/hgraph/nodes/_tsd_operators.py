@@ -15,8 +15,9 @@ from hgraph.nodes._tsl_operators import merge
 
 __all__ = (
     "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains",
-    "tsd_not", "tsd_is_empty", "tsd_len", "sum_tsd", "mul_tsd", "get_schema_type", "tsd_get_bundle_item",
-    "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_rekey", "tsd_flip", "tsd_flip_tsd", "merge_tsds", "tsd_partition")
+    "tsd_not", "tsd_is_empty", "tsd_len", "sum_tsd", "mul_tsd", "tsd_get_bundle_item",
+    "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_rekey", "tsd_flip", "tsd_flip_tsd", "merge_tsds",
+    "merge_nested_tsds", "tsd_partition", "get_schema_type")
 
 
 @compute_node(valid=("key",))
@@ -192,8 +193,8 @@ def tsd_collapse_keys(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
 
 @compute_node
 def tsd_uncollapse_keys(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]],
-                        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None) -> TSD[
-    K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+                        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None) \
+        -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
     Un-Collapse the nested TSDs to a TSD with a tuple key.
     """
@@ -339,6 +340,39 @@ def merge_tsds(tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME
                 break
         else:
             out[k] = REMOVE_IF_EXISTS
+
+    return out
+
+
+@compute_node(overloads=merge)
+def merge_nested_tsds(tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+    out = defaultdict(dict)
+    removals = set()
+    nested_removals = defaultdict(set)
+
+    for tsd in reversed(list(tsl.modified_values())):
+        for k, v in tsd.modified_items():
+            for k1, v1 in v.modified_items():
+                out[k].update({k1: v1.value})
+            nested_removals[k].update(v.removed_keys())
+            out[k].update({k1: REMOVE_IF_EXISTS for k1 in v.removed_keys()})
+        removals.update(tsd.removed_keys())
+        for k, v1 in tsd.removed_items():
+            nested_removals[k].update(v1.keys())
+
+    for k in removals:
+        for v in reversed(tsl.values()):
+            if k in v:
+                break
+        else:
+            out[k] = REMOVE_IF_EXISTS
+
+    for k, v in nested_removals.items():
+        for v1 in reversed(tsl.values()):
+            if k in v1:
+                for k1 in v:
+                    if k1 in v1[k] and out[k].get(k1, REMOVE_IF_EXISTS) is REMOVE_IF_EXISTS:
+                        out[k][k1] = v1[k][k1].value
 
     return out
 

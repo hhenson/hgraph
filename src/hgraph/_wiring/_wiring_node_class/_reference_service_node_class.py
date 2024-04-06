@@ -73,6 +73,15 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
             port = super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
 
             from hgraph import WiringGraphContext
-            WiringGraphContext.instance().register_service_client(self, kwargs_.get("path") or '')
+            WiringGraphContext.instance().register_service_client(self, self.full_path(kwargs_.get("path")))
 
             return port
+
+    def wire_impl_out_stub(self, path, out):
+        from hgraph.nodes import capture_output_to_global_state
+        from hgraph import WiringGraphContext
+
+        full_path = self.full_path(path)
+        capture_output_to_global_state(full_path, out)
+
+        WiringGraphContext.instance().add_built_service_impl(full_path, None)

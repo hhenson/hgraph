@@ -1,5 +1,6 @@
-from hgraph import TS, compute_node, TIME_SERIES_TYPE, REF
+from typing import cast
 
+from hgraph import TS, compute_node, TIME_SERIES_TYPE, REF, TSL, PythonTimeSeriesReference, Size
 
 __all__ = ("if_then_else", "if_true")
 
@@ -38,3 +39,9 @@ def if_true(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
         if tick_once_only:
             condition.make_passive()
         return True
+
+
+@compute_node
+def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], Size[2]]:
+    return cast(TSL,
+                (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))

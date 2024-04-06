@@ -199,7 +199,13 @@ class PythonGraph(Graph):
             scheduled_time, node = schedule[i], nodes[i]
             if scheduled_time == now:
                 self._evaluation_engine.notify_before_node_evaluation(node)
-                node.eval()
+                from hgraph._types._error_type import NodeException
+                try:
+                    node.eval()
+                except NodeException as e:
+                    raise e
+                except Exception as e:
+                    raise NodeException.capture_error(e, node, 'During evaluation') from e
                 self._evaluation_engine.notify_after_node_evaluation(node)
             elif scheduled_time > now:
                 # If the node has a scheduled time in the future, we need to let the execution context know.

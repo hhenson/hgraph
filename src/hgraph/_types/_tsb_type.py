@@ -42,7 +42,7 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
         schema = {k: HgTimeSeriesTypeMetaData.parse_type(v) for k, v in kwargs.items()}
         if any(v is None for v in schema.values()):
-            bad_inputs = {k: v for k, v in kwargs if schema[k] is None}
+            bad_inputs = {k: v for k, v in kwargs.items() if schema[k] is None}
             raise CustomMessageWiringError(f"The following inputs are not valid time-series types: {bad_inputs}")
         return cls.create_resolved_schema(schema)
 
