@@ -155,5 +155,6 @@ class CustomMessageWiringError(WiringError):
         super().__init__(self.message)
 
     def print_error(self):
-        msg = f"When resolving '{self.signature.signature if self.signature else "unnamed graph"}' \n{self.message}"
+        signature = self.signature.signature if self.signature else "unnamed graph"
+        msg = f"When resolving '{signature}' \n{self.message}"
         self._print_error(msg)
