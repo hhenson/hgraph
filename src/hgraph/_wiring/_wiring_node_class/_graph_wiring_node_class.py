@@ -1,22 +1,19 @@
 import sys
-from collections import defaultdict
 from copy import copy
 from graphlib import TopologicalSorter
-from itertools import chain
 from typing import Optional, TypeVar, Callable, Tuple, Dict
 
 from frozendict import frozendict
-from jinja2.nodes import NodeType
 
-from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
-from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, PreResolvedWiringNodeWrapper
-from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_errors import WiringError, CustomMessageWiringError
+from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, PreResolvedWiringNodeWrapper
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = ('WiringGraphContext', "GraphWiringNodeClass")
 
@@ -65,7 +62,7 @@ class WiringGraphContext:
     def wiring_path_name(cls) -> str:
         """Return a graph call stack in names of graphs"""
         return '.'.join(graph.wiring_node_signature.name for graph in cls.__stack__[1:]
-                if graph.wiring_node_signature)
+                        if graph.wiring_node_signature)
 
     @classmethod
     def instance(cls) -> "WiringGraphContext":
@@ -203,7 +200,8 @@ class WiringGraphContext:
                 if item := self.find_service_impl(path, type_map):
                     interface, impl, kwargs = item
                 else:
-                    raise CustomMessageWiringError(f'No implementation found for service: {service.signature.name} at path: {path}')
+                    raise CustomMessageWiringError(
+                        f'No implementation found for service: {service.signature.name} at path: {path}')
 
                 if isinstance(interface, PreResolvedWiringNodeWrapper):
                     interface = interface.underlying_node
@@ -235,7 +233,6 @@ class WiringGraphContext:
         for i, path in enumerate(ordered):
             object.__setattr__(self._built_services[path], 'rank', i + 2)
 
-
     def __enter__(self):
         WiringGraphContext.__stack__.append(self)
         return self
@@ -266,9 +263,9 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         # hold
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, _ = self._validate_and_resolve_signature(*args,
-                                                                               __pre_resolved_types__=__pre_resolved_types__,
-                                                                               __enforce_output_type__=False,
-                                                                               **kwargs)
+                                                                                  __pre_resolved_types__=__pre_resolved_types__,
+                                                                                  __enforce_output_type__=False,
+                                                                                  **kwargs)
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
@@ -282,12 +279,14 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                         elif isinstance(out, dict) and isinstance(output_type, HgTsTypeVarTypeMetaData):
                             for c in output_type.constraints:
                                 if isinstance(c, HgTSBTypeMetaData) and \
-                                        all((t:= c.bundle_schema_tp.meta_data_schema.get(k)) and t.matches(v.output_type.dereference()) for k, v in out.items()):
+                                        all((t := c.bundle_schema_tp.meta_data_schema.get(k)) and t.matches(
+                                            v.output_type.dereference()) for k, v in out.items()):
                                     out = c.py_type.from_ts(**out)
                                     break
                             else:
-                                raise WiringError(f"Expected a time series of type '{str(output_type)}' but got a dict of "
-                                                  f"{{{', '.join(f'{k}:{str(v.output_type)}' for k, v in out.items())}}}")
+                                raise WiringError(
+                                    f"Expected a time series of type '{str(output_type)}' but got a dict of "
+                                    f"{{{', '.join(f'{k}:{str(v.output_type)}' for k, v in out.items())}}}")
                         else:
                             try:
                                 # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
@@ -295,7 +294,8 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                                 from hgraph.nodes import const
                                 out = const(out, tp=output_type.py_type)
                             except Exception as e:
-                                raise WiringError(f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'") from e
+                                raise WiringError(
+                                    f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'") from e
 
                     if not output_type.dereference().matches(out.output_type.dereference()):
                         raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
