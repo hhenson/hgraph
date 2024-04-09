@@ -272,3 +272,12 @@ Version 0.2.6 (26-03-2024)
 
 * Fix timing issue with tsd_rekey
 * Clean up imports and __all__ in nodes
+
+Version 0.2.7 (06-04-2024)
+--------------------------
+
+* Add support for multi-service implementations
+* Support multiple inputs in a request-reply service
+* nested tsd merge
+* constraint type wiring improvements
+
