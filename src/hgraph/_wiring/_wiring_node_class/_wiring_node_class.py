@@ -39,7 +39,10 @@ class WiringNodeClass:
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         raise NotImplementedError()
 
-    def _convert_item(self, item) -> dict[TypeVar, HgTypeMetaData | Callable]:
+    @staticmethod
+    def _convert_item(item) -> dict[TypeVar, HgTypeMetaData | Callable]:
+        if isinstance(item, dict):
+            item = tuple(slice(k, v) for k, v in item.items())
         if isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
         out = {}
@@ -122,7 +125,7 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
                           f"expected: {[arg for arg in signature.args if arg not in kwargs_]}")
     # Filter kwargs to ensure only valid keys are present, this will also align the order of kwargs with args.
     kwargs_ = {k: kwargs_[k] for k in signature.args if k in kwargs_}
-    if len(kwargs_) < len(signature.args) - _args_offset:
+    if _ensure_match and len(kwargs_) < len(signature.args) - _args_offset:
         raise MissingInputsError(kwargs_)
     return kwargs_
 
@@ -153,8 +156,11 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.overload_list.overload(other)
 
     def __getitem__(self, item) -> WiringNodeClass:
-        return PreResolvedWiringNodeWrapper(signature=self.signature, fn=self.fn,
-                                            underlying_node=self, resolved_types=self._convert_item(item))
+        if item:
+            return PreResolvedWiringNodeWrapper(signature=self.signature, fn=self.fn,
+                                                underlying_node=self, resolved_types=self._convert_item(item))
+        else:
+            return self
 
     def _prepare_kwargs(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -164,62 +170,9 @@ class BaseWiringNodeClass(WiringNodeClass):
         kwargs_ = prepare_kwargs(self.signature, *args, **kwargs)
         return kwargs_
 
-    def _convert_kwargs_to_types(self, **kwargs) -> dict[str, HgTypeMetaData]:
-        """Attempt to convert input types to better support type resolution"""
-        # We only need to extract un-resolved values
-        kwarg_types = {}
-        for k, v in self.signature.input_types.items():
-            with WiringContext(current_arg=k):
-                arg = kwargs.get(k, self.signature.defaults.get(k))
-                if arg is None:
-                    if v.is_injectable:
-                        # For injectables we expect the value to be None, and the type must already be resolved.
-                        kwarg_types[k] = v
-                    else:
-                        # We should wire in a null source
-                        if k in self.signature.defaults:
-                            kwarg_types[k] = v
-                        else:
-                            raise CustomMessageWiringError(
-                                f"Argument '{k}' is not marked as optional, but no value was supplied")
-                if k in filter(lambda k_: k_ in self.signature.time_series_args, self.signature.args):
-                    # This should then get a wiring node, and we would like to extract the output type,
-                    # But this is optional, so we should ensure that the type is present
-                    if arg is None:
-                        continue  # We will wire in a null source later
-                    if not isinstance(arg, WiringPort):
-                        tp = HgScalarTypeMetaData.parse_value(arg)
-                        kwarg_types[k] = tp
-                    elif arg.output_type:
-                        kwarg_types[k] = arg.output_type
-                    else:
-                        raise ParseError(
-                            f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
-                elif type(v) is HgTypeOfTypeMetaData:
-                    if not isinstance(arg, (type, GenericAlias, _GenericAlias, TypeVar)) and arg is not AUTO_RESOLVE:
-                        # This is not a type of something (Have seen this as being an instance of HgTypeMetaData)
-                        raise IncorrectTypeBinding(v, arg)
-                    v = HgTypeMetaData.parse_type(arg) if arg is not AUTO_RESOLVE else v.value_tp
-                    kwarg_types[k] = HgTypeOfTypeMetaData(v)
-                else:
-                    if arg is None:
-                        kwarg_types[k] = v
-                    else:
-                        tp = HgScalarTypeMetaData.parse_value(arg)
-                        kwarg_types[k] = tp
-                        if tp is None:
-                            if k in self.signature.unresolved_args:
-                                raise ParseError(f"In {self.signature.name}, {k}: {v} = {arg}; arg is not parsable, "
-                                                 f"but we require type resolution")
-                            else:
-                                # If the signature was not unresolved, then we can use the signature, but the input value
-                                # May yet be incorrectly typed.
-                                kwarg_types[k] = v
-        return kwarg_types
-
     def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                           **kwargs) -> "WiringNodeSignature":
-        _, resolved_signature = self._validate_and_resolve_signature(*args,
+        _, resolved_signature, _ = self._validate_and_resolve_signature(*args,
                                                                      __pre_resolved_types__=__pre_resolved_types__,
                                                                      **kwargs)
         return resolved_signature
@@ -228,7 +181,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                                         __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable],
                                         __enforce_output_type__: bool = True,
                                         **kwargs) \
-            -> tuple[dict[str, Any], WiringNodeSignature]:
+            -> tuple[dict[str, Any], WiringNodeSignature, dict[TypeVar, HgTypeMetaData]]:
         """
         Insure the inputs wired in match the signature of this node and resolve any missing types.
         """
@@ -238,7 +191,7 @@ class BaseWiringNodeClass(WiringNodeClass):
         WiringContext.current_kwargs = kwargs
         try:
             # Extract any additional required type resolution information from inputs
-            kwarg_types = self._convert_kwargs_to_types(**kwargs)
+            kwarg_types = self.signature.convert_kwargs_to_types(**kwargs)
             # Do the resolve to ensure types match as well as actually resolve the types.
             resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
@@ -252,7 +205,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                 self.signature.validate_resolved_types(kwarg_types, kwargs)
                 return kwargs, self.signature if record_replay_id is None else self.signature.copy_with(
-                    record_and_replay_id=record_replay_id)
+                    record_and_replay_id=record_replay_id), resolution_dict
             else:
                 # Only need to re-create if we actually resolved the signature.
                 resolve_signature = WiringNodeSignature(
@@ -275,7 +228,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     self.signature.validate_resolved_types(kwarg_types, kwargs)
-                    return kwargs, resolve_signature
+                    return kwargs, resolve_signature, resolution_dict
                 else:
                     raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
         except Exception as e:
@@ -306,7 +259,7 @@ class BaseWiringNodeClass(WiringNodeClass):
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             # Now validate types and resolve any un-resolved types and provide an updated signature.
-            kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
+            kwargs_, resolved_signature, _ = self._validate_and_resolve_signature(*args,
                                                                                __pre_resolved_types__=__pre_resolved_types__,
                                                                                **kwargs)
 
@@ -409,9 +362,21 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
                                     **kwargs)
 
     def __getitem__(self, item):
-        return PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
-                                            underlying_node=self.underlying_node,
-                                            resolved_types={**self.resolved_types, **self._convert_item(item)})
+        if item:
+            return PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
+                                                underlying_node=self.underlying_node,
+                                                resolved_types={**self.resolved_types, **self._convert_item(item)})
+        else:
+            return self
+
+    def __getattr__(self, item):
+        if (fn := getattr(self.underlying_node, item)) is not None and inspect.ismethod(fn):
+            if '__pre_resolved_types__' in inspect.signature(fn).parameters:
+                return lambda *args, **kwargs: fn(*args, **kwargs, __pre_resolved_types__=self.resolved_types)
+            else:
+                return lambda *args, **kwargs: fn(*args, **kwargs)
+
+        raise AttributeError(f"Attribute {item} not found on {self.underlying_node}")
 
 
 class OverloadedWiringNodeHelper:
