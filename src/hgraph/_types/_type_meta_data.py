@@ -111,7 +111,7 @@ class HgTypeMetaData:
             return
 
         if self != wired_type:
-            self.do_build_resolution_dict(resolution_dict, wired_type.dereference())
+            self.do_build_resolution_dict(resolution_dict, wired_type.dereference() if wired_type else None)
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """

@@ -43,3 +43,5 @@ __pycache__/
 *.out
 *.app
 .idea/*
+
+examples/web_ui/layouts/

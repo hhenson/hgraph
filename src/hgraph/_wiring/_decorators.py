@@ -88,14 +88,16 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
                            resolvers=resolvers)
 
 
-def graph(fn: GRAPH_SIGNATURE = None, overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None) -> GRAPH_SIGNATURE:
+def graph(fn: GRAPH_SIGNATURE = None,
+          overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
+          resolvers: Mapping[TypeVar, Callable] = None) -> GRAPH_SIGNATURE:
     """
     Wraps a wiring function. The function can take the form of a function that looks like a compute_node,
     sink_node, souce_node, or a graph with no inputs or outputs. There is generally at least one graph in
     any application. The main graph.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads)
+    return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers)
 
 
 def generator(fn: SOURCE_NODE_SIGNATURE = None,
@@ -178,7 +180,8 @@ SERVICE_DEFINITION = TypeVar('SERVICE_DEFINITION', bound=Callable)
 default_path = None
 
 
-def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
+def subscription_service(fn: SERVICE_DEFINITION = None,
+                         resolvers: Mapping[TypeVar, Callable] = None) -> SERVICE_DEFINITION:
     """
     A subscription service is a service where the input receives a subscription key and then
     streams back results. This looks like:
@@ -200,10 +203,11 @@ def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
             out = my_subscription_svc(default, ts1="mkt_data.mcu_3m")
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SUBS_SVC, fn)
+    return _node_decorator(WiringNodeType.SUBS_SVC, fn, resolvers=resolvers)
 
 
-def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
+def reference_service(fn: SERVICE_DEFINITION = None,
+                      resolvers: Mapping[TypeVar, Callable] = None) -> SERVICE_DEFINITION:
     """
     A reference service is a service that only produces a value that does not vary by request.
     The pattern for a reference services is the same as a source node.
@@ -222,10 +226,11 @@ def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
     instance of the service to bind to.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.REF_SVC, fn)
+    return _node_decorator(WiringNodeType.REF_SVC, fn, resolvers=resolvers)
 
 
-def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
+def request_reply_service(fn: SERVICE_DEFINITION = None,
+                          resolvers: Mapping[TypeVar, Callable] = None) -> SERVICE_DEFINITION:
     """
     A request-reply service takes a request and returns a response, error or time-out.
     for example:
@@ -241,34 +246,47 @@ def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION:
 
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.REQ_REP_SVC, fn)
+    return _node_decorator(WiringNodeType.REQ_REP_SVC, fn, resolvers=resolvers)
 
 
-def service_impl(*, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None):
+def service_impl(*, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
+                 resolvers: Mapping[TypeVar, Callable] = None):
     """
     Wraps a service implementation. The service is defined to implement the declared interface.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SVC_IMPL, None, interfaces=interfaces)
+    return _node_decorator(WiringNodeType.SVC_IMPL, None, interfaces=interfaces, resolvers=resolvers)
 
 
-def register_service(path: str, implementation, **kwargs):
+def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     """
     Binds the implementation of the interface to the path provided. The additional kwargs
     are passed to the implementation. These should be defined on the implementation and are independent of the
     attributes defined in the service.
     :param path:
     :param implementation:
+    :param resolution_dict:
     :param kwargs:
     :return:
     """
+    from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper, WiringNodeClass
     from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
+
+    if isinstance(implementation, PreResolvedWiringNodeWrapper):
+        implementation = implementation.underlying_node
+        resolution_dict = implementation.resolved_types or {}
+    else:
+        resolution_dict = WiringNodeClass._convert_item(resolution_dict) if resolution_dict else {}
+
     if not isinstance(implementation, ServiceImplNodeClass):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
 
     from hgraph import WiringGraphContext
+
     for i in implementation.interfaces:
-        WiringGraphContext.instance().register_service_impl(i, i.full_path(path), implementation, kwargs)
+        WiringGraphContext.instance().register_service_impl(
+            i, i.full_path(path) if path else None, implementation, kwargs,
+            resolution_dict)
 
 
 def service_adaptor(interface):

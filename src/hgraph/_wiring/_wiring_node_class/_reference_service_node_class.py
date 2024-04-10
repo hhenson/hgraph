@@ -32,8 +32,6 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
                                                                                     self.error_output_type)
 
-        scalars = frozendict({"path": self.full_path(scalars.get("path"))})
-
         from hgraph._impl._runtime._node import BaseNodeImpl
 
         class _PythonReferenceServiceStubSourceNode(BaseNodeImpl):
@@ -66,22 +64,27 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
-            kwargs_, resolved_signature = self._validate_and_resolve_signature(*args,
+            kwargs_, resolved_signature, resolution_dict = self._validate_and_resolve_signature(*args,
                                                                                __pre_resolved_types__=__pre_resolved_types__,
                                                                                **kwargs)
 
-            port = super().__call__(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+            typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
+            port = super().__call__(__pre_resolved_types__=__pre_resolved_types__, **(kwargs_ | {'path': typed_full_path}))
 
             from hgraph import WiringGraphContext
-            WiringGraphContext.instance().register_service_client(self, self.full_path(kwargs_.get("path")))
+            WiringGraphContext.instance().register_service_client(self, self.full_path(kwargs_.get("path")), resolution_dict or None)
 
             return port
 
-    def wire_impl_out_stub(self, path, out):
+    def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None):
         from hgraph.nodes import capture_output_to_global_state
         from hgraph import WiringGraphContext
 
-        full_path = self.full_path(path)
-        capture_output_to_global_state(full_path, out)
+        typed_full_path = self.typed_full_path(path, self.signature.try_build_resolution_dict(__pre_resolved_types__))
+        capture_output_to_global_state(typed_full_path, out)
 
-        WiringGraphContext.instance().add_built_service_impl(full_path, None)
+        WiringGraphContext.instance().add_built_service_impl(typed_full_path, None)
+
+    def register_impl(self, path: str, impl: "NodeBuilder", __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None):
+        from hgraph import register_service
+        register_service(path, impl, self.signature.try_build_resolution_dict(__pre_resolved_types__))

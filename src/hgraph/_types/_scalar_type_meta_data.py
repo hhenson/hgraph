@@ -128,13 +128,13 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             return self
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        if not wired_type.is_scalar:
+        if wired_type and not wired_type.is_scalar:
             raise ParseError(f"Scalar TypeVar '{str(self)}' does not match non-scalar type: '{str(wired_type)}'")
         type_var: TypeVar = cast(TypeVar, self.py_type)
         if self == wired_type:
             return  # No additional information can be gleaned!
         if type_var in resolution_dict:
-            if resolution_dict[type_var] != wired_type:
+            if wired_type and resolution_dict[type_var] != wired_type:
                 from hgraph._wiring._wiring_errors import TemplateTypeIncompatibleResolution
                 raise TemplateTypeIncompatibleResolution(self, resolution_dict[type_var], wired_type)
         else:
@@ -175,7 +175,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return type(o) is HgAtomicType and self.py_type is o.py_type
 
     def __str__(self) -> str:
-        return f'{self.py_type}'
+        return f'{self.py_type.__name__}'
 
     def __repr__(self) -> str:
         return f'HgAtomicType({repr(self.py_type)})'
