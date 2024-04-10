@@ -15,4 +15,5 @@ from hgraph._wiring._wiring_node_class import *
 from hgraph._wiring._wiring_context import *
 from hgraph._wiring._wiring_errors import *
 from hgraph._wiring._wiring_node_signature import *
+from hgraph._wiring._wiring_port import *
 from hgraph._wiring._wiring_utils import *
