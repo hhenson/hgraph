@@ -216,10 +216,22 @@ def is_keyable_scalar(value) -> bool:
     This is a first pass estimate, and does not do a deep parse on container classes.
     This is not a substitute for HgScalarType.parse.
     """
-    return isinstance(value, (bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict,
-                              CompoundScalar, Size, Enum)) or (
-            isinstance(value, type) and (value in (bool, int, float, date, datetime, time, timedelta, str) or
-                                         issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum)))
+    return (
+            isinstance(value, (bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict,
+                              CompoundScalar, Size, Enum))
+            or
+            (isinstance(value, type) and (
+                    value in (bool, int, float, date, datetime, time, timedelta, str)
+                    or
+                    issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum))))
+            or
+            (isinstance(value, TypeVar) and (
+                        value.__bound__ in (Hashable, bool, int, float, date, datetime, time, timedelta, str)
+                        or
+                        issubclass(value.__bound__, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum))
+                        or
+                        all(is_keyable_scalar(v) for v in value.__constraints__)
+                        ))
     )
 
 

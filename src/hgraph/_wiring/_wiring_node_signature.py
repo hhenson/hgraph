@@ -19,7 +19,7 @@ from hgraph._types._type_meta_data import ParseError
 from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_errors import IncorrectTypeBinding
+from hgraph._wiring._wiring_errors import IncorrectTypeBinding, CustomMessageWiringError
 
 __all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
            "extract_hg_time_series_type", "extract_scalar_type", "extract_injectable_inputs")
@@ -145,6 +145,68 @@ class WiringNodeSignature:
     def time_series_inputs(self) -> Mapping[str, HgTimeSeriesTypeMetaData]:
         return frozendict({k: v for k, v in self.input_types.items() if not v.is_scalar})
 
+    def convert_kwargs_to_types(self, _ensure_match=True, **kwargs) -> dict[str, HgTypeMetaData]:
+        """Attempt to convert input types to better support type resolution"""
+        # We only need to extract un-resolved values
+        kwarg_types = {}
+        for k, v in self.input_types.items():
+            with WiringContext(current_arg=k):
+                arg = kwargs.get(k, self.defaults.get(k))
+                if arg is None:
+                    if v.is_injectable:
+                        # For injectables we expect the value to be None, and the type must already be resolved.
+                        kwarg_types[k] = v
+                    else:
+                        # We should wire in a null source
+                        if k in self.defaults:
+                            kwarg_types[k] = v
+                        elif _ensure_match:
+                            raise CustomMessageWiringError(
+                                f"Argument '{k}' is not marked as optional, but no value was supplied")
+                if k in filter(lambda k_: k_ in self.time_series_args, self.args):
+                    # This should then get a wiring node, and we would like to extract the output type,
+                    # But this is optional, so we should ensure that the type is present
+                    if arg is None:
+                        continue  # We will wire in a null source later
+                    from hgraph import WiringPort
+                    if not isinstance(arg, WiringPort):
+                        tp = HgScalarTypeMetaData.parse_value(arg)
+                        kwarg_types[k] = tp
+                    elif arg.output_type:
+                        kwarg_types[k] = arg.output_type
+                    elif _ensure_match:
+                        raise ParseError(
+                            f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
+                elif type(v) is HgTypeOfTypeMetaData:
+                    if not isinstance(arg, (type, GenericAlias, _GenericAlias, TypeVar)) and arg is not AUTO_RESOLVE:
+                        # This is not a type of something (Have seen this as being an instance of HgTypeMetaData)
+                        raise IncorrectTypeBinding(v, arg)
+                    v = HgTypeMetaData.parse_type(arg) if arg is not AUTO_RESOLVE else v.value_tp
+                    kwarg_types[k] = HgTypeOfTypeMetaData(v)
+                else:
+                    if arg is None:
+                        kwarg_types[k] = v
+                    else:
+                        tp = HgScalarTypeMetaData.parse_value(arg)
+                        kwarg_types[k] = tp
+                        if tp is None:
+                            if k in self.unresolved_args:
+                                if _ensure_match:
+                                    raise ParseError(f"In {self.name}, {k}: {v} = {arg}; arg is not parsable, "
+                                                     f"but we require type resolution")
+                            else:
+                                # If the signature was not unresolved, then we can use the signature, but the input value
+                                # May yet be incorrectly typed.
+                                kwarg_types[k] = v
+        return kwarg_types
+
+    def try_build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable]):
+        from hgraph._wiring._wiring_node_class import extract_kwargs
+        pre_resolved_types = pre_resolved_types or {}
+        kwargs = extract_kwargs(self, _ensure_match=False)
+        kwarg_types = self.convert_kwargs_to_types(**kwargs, _ensure_match=False)
+        return self.build_resolution_dict(pre_resolved_types, kwarg_types, kwargs)
+
     def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable],
                               kwarg_types, kwargs) -> dict[TypeVar, HgTypeMetaData]:
         """Expect kwargs to be a dict of arg to type mapping / value mapping"""
@@ -164,8 +226,9 @@ class WiringNodeSignature:
         out_dict = {}
         all_resolved = True
         for k, v in resolution_dict.items():
-            out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
-            all_resolved &= out_dict[k].is_resolved
+            if v is not None:
+                out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
+                all_resolved &= out_dict[k].is_resolved
 
         if resolvers_dict:
             scalars = {k: v for k, v in kwargs.items() if (kwt := kwarg_types.get(k)) and kwt.is_scalar}

@@ -50,7 +50,7 @@ def write_subscription_key(path: str, key: TS[SCALAR], _state: STATE = None):
     This will also ensure use the associated tracker to ensure that we don't update unless required and performs
     the appropriate reference counting.
     """
-    svc_node_in = GlobalState.instance().get(f"{path}_subs")
+    svc_node_in = GlobalState.instance().get(f"{path}/subs")
     (s := _state.tracker[(v := key.value)]).add(_state.subscription_id)
     set_delta = set()
     if _state.previous_key:
@@ -80,7 +80,7 @@ def write_subscription_key_stop(path: str, _state: STATE):
         (s := _state.tracker[key]).remove(_state.subscription_id)
         if not s:
             del _state.tracker[key]
-            if subs_in := GlobalState.instance().get(f"{path}_subs"):
+            if subs_in := GlobalState.instance().get(f"{path}/subs"):
                 subs_in.apply_value(Removed(key))
 
 
@@ -89,7 +89,7 @@ def _subscribe(path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE,
                _ts_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """Implement the stub for subscription"""
     write_subscription_key(path, key)
-    out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[_s_tp, _ts_tp]](f"{path}_out")
+    out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[_s_tp, _ts_tp]](f"{path}/out")
     return out[key]
 
 
@@ -101,7 +101,7 @@ def write_service_request(path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[
     """
     for arg, ts in request.items():
         if ts.modified:
-            svc_node_in = GlobalState.instance().get(f"{path}_request_{arg}")
+            svc_node_in = GlobalState.instance().get(f"{path}/request_{arg}")
             svc_node_in.apply_value({id(_state.requestor_id): ts.delta_value})
 
     if not _output.valid:
@@ -118,7 +118,7 @@ def write_service_request_stop(request: TIME_SERIES_TYPE, path: str, _state: STA
     if request.valid:
         for arg, i in request.items():
             if i.valid:
-                if svc_node_in := GlobalState.instance().get(f"{path}_request_{arg}"):
+                if svc_node_in := GlobalState.instance().get(f"{path}/request_{arg}"):
                     svc_node_in.apply_value({id(_state.requestor_id): REMOVE_IF_EXISTS})
 
 
@@ -127,7 +127,7 @@ def write_service_replies(path: str, response: TIME_SERIES_TYPE):
     """
     Updates TSDs attached to the path with the data provided.
     """
-    svc_node_in = GlobalState.instance().get(f"{path}_replies_fb")
+    svc_node_in = GlobalState.instance().get(f"{path}/replies_fb")
     svc_node_in.apply_value(response.delta_value)
 
 
@@ -141,7 +141,7 @@ def _request_reply_service(path: str, request: TIME_SERIES_TYPE,
                      tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE) -> TIME_SERIES_TYPE_1:
     requestor_id = write_service_request(path, request)
     if tp_out:
-        out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[int, tp_out]](f"{path}_replies")
+        out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[int, tp_out]](f"{path}/replies")
         return out[requestor_id]
 
 

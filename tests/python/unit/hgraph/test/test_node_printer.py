@@ -13,8 +13,8 @@ def test_node_printer(capsys):
         "not_.+Started node",
         "Started Graph",
         "Eval Start",
-        "not_.+True\[IN\]",
-        "not_.+False\[OUT\]",
+        "not_.+True\\[IN\\]",
+        "not_.+False\\[OUT\\]",
         "Eval Done",
         "Graph Stopping",
         "not_.+Stopped node"
