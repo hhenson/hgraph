@@ -281,3 +281,10 @@ Version 0.2.7 (06-04-2024)
 * nested tsd merge
 * constraint type wiring improvements
 
+Version 0.2.8 (10-04-2024)
+--------------------------
+
+* Add initial notebook support
+* Add perspective adaptor
+* Add support for generic services
+
