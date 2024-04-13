@@ -10,7 +10,10 @@ dependencies = [
     "sortedcontainers>=2.4.0",
     "ordered-set>=4.1.0",
     "numpy>=1.23",
-    "polars>=0.20.15",
+    "polars>=0.20.18",
+    "sqlalchemy>=2.0.29",
+    "duckdb>=0.10.1",
+    "pyarrow>=15.0.2"
 ]
 requires-python = ">=3.11"
 authors = [
