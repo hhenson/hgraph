@@ -288,17 +288,35 @@ def tsl_from_data_source(
 SIZE_1 = clone_typevar(SIZE, "SIZE_1")
 
 
-@generator
+@generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m, s: Size[-1]})
 def ts_of_matrix_from_data_source(
-        dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(),
-        sz_2: type[SIZE_1] = Size[-1]
-) -> TS[Array[SCALAR_1, SIZE, SIZE_1]]:
+        dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()
+) -> TS[Array[SCALAR, SIZE, SIZE_1]]:
     """
     Extract out a TS of a matrix Array. The size of the second value is the size of the matrix is the columns
     (other than the dt_col one). The size of the second index is the number of columns with the same date / datetime
     value.
     By default, the second size is set to be variable, the second size could be set if known.
     """
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    values: list[list[SCALAR]] = []
+    last_dt: datetime | None = None
+    for df in dfs_instance.iter_frames():
+        df_dt = df[dt_col]
+        df_value = df.select(*(k for k in df.schema.keys() if k != dt_col))
+        for dt, value in zip(df_dt, df_value.iter_rows(named=False)):
+            dt = dt_converter(dt)
+            if last_dt != dt:
+                if last_dt is not None:
+                    yield last_dt + offset, np.array(values)
+                last_dt = dt
+                values = [value]
+            else:
+                values.append(value)
+    if last_dt is not None:
+        yield last_dt + offset, np.array(values)
 
 
 def _convert_type(pl_type: pl.DataType) -> HgScalarTypeMetaData:

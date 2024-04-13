@@ -5,7 +5,8 @@ from frozendict import frozendict as fd
 from hgraph import MIN_ST, MIN_TD
 from hgraph.adaptors.data_frame.data_frame_source import PolarsDataFrameSource
 from hgraph.adaptors.data_frame.data_source_generators import tsb_from_data_source, tsd_k_v_from_data_source, \
-    tsd_k_tsd_from_data_source, tsd_k_b_from_data_source, ts_of_array_from_data_source, tsd_k_a_from_data_source
+    tsd_k_tsd_from_data_source, tsd_k_b_from_data_source, ts_of_array_from_data_source, tsd_k_a_from_data_source, \
+    ts_of_matrix_from_data_source
 from hgraph.test import eval_node
 
 _1 = MIN_ST
@@ -126,4 +127,25 @@ def test_tsd_k_of_array_from_data_source():
         fd({'a': [1, 4]}),
         fd({'b': [2, 5]}),
         fd({'c': [3, 6]}),
+    ]
+
+
+class TsdMatrixMockDataSource(PolarsDataFrameSource):
+
+    def __init__(self):
+        df = pl.DataFrame({
+            'dt': [_1, _1, _2, _2, _3, _3],
+            'p1': [1, 2, 3, 4, 5, 6],
+            'p2': [4, 5, 6, 7, 8, 9],
+        })
+        super().__init__(df)
+
+
+def test_ts_matrix_from_data_source():
+    results = eval_node(ts_of_matrix_from_data_source, TsdMatrixMockDataSource, 'dt')
+    results = [[list(i) for i in row] for row in results]
+    assert results == [
+        [[1, 4], [2, 5]],
+        [[3, 6], [4, 7]],
+        [[5, 8], [6, 9]],
     ]
