@@ -6,9 +6,12 @@ import polars as pl
 
 from hgraph import generator, TS_SCHEMA, TSB, TSD, SCALAR, SCALAR_1, TS, ts_schema, Array, \
     SIZE, TSL, clone_typevar, Size, SCALAR_2, HgScalarTypeMetaData, HgTSTypeMetaData
-from hgraph.adaptors.data_frame.data_frame_source import DATA_FRAME_SOURCE, DataStore
+from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, DataStore
 
-__all__ = ("tsb_from_data_source",)
+__all__ = (
+    "tsb_from_data_source", "tsd_k_a_from_data_source", "ts_of_matrix_from_data_source", "tsd_k_v_from_data_source",
+    "tsd_k_b_from_data_source", "tsd_k_tsd_from_data_source", "ts_of_array_from_data_source", 'tsl_from_data_source'
+)
 
 
 def _schema_and_dt_col(mapping, scalars) -> tuple[
@@ -206,7 +209,8 @@ def _extract_tsd_array_size(mapping, scalars) -> SIZE:
     return Size[len(schema)]
 
 
-@generator(resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_array_value, SIZE: _extract_tsd_array_size})
+@generator(
+    resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_array_value, SIZE: _extract_tsd_array_size})
 def tsd_k_a_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, offset: timedelta = timedelta()
 ) -> TSD[SCALAR, TS[Array[SCALAR_1, SIZE]]]:
