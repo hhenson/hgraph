@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hg_oap"
+dynamic = ["version"]
+dependencies = [
+    "hgraph>=0.2.8",
+]
+requires-python = ">=3.11"
+authors = [
+    { name = "Howard Henson", email = "howard@henson.me.uk" },
+]
+maintainers = [
+]
+description = "A library to faciliate building order and pricing strategies"
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = [
+    "reactive", "graph", "fpg", "forward propogating graph", "time series", "functional reactive programming",
+    "order", "pricing", "oms"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[project.urls]
+Homepage = "https://github.com/hhenson/hg_oap"
+Repository = "https://github.com/hhenson/hg_oap.git"
+
+[tool.hatch.version]
+path = "src/hg_oap/__about__.py"
+
+# Development Environment Config
+[tool.hatch.envs.default]
+dependencies = [
+  "coverage[toml]>=6.5",
+  "pytest",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+test-cov = "coverage run -m pytest {args:tests}"
+cov-report = [
+  "- coverage combine",
+  "coverage report",
+]
+cov = [
+  "test-cov",
+  "cov-report",
+]
+
+[[tool.hatch.envs.all.matrix]]
+python = ["3.11", "3.12"]
+
+# MyPy Type Checking
+[tool.hatch.envs.types]
+dependencies = [
+  "mypy>=1.0.0",
+]
+
+[tool.hatch.envs.types.scripts]
+check = "mkdir -p .mypy_cache && mypy --cache-dir .mypy_cache --install-types --non-interactive {args:src/hg_oap tests}"
+
+# Configure pytest
+[tool.pytest.ini_options]
+minversion = "7.4.3"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+# Configure coverage
+[tool.coverage.run]
+source_pkgs = ["hg_oap", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/hg_oap/__about__.py",
+]
+
+[tool.coverage.paths]
+hg = ["src/hg_oap", "*/hg_oap/src/hg_oap"]
+tests = ["tests", "*/hg_oap/tests"]
+
+[tool.coverage.report]
+fail_under = 80
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
