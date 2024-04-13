@@ -1,11 +1,9 @@
-from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Self, TypeVar, Generic
 
 from hgraph import CompoundScalar
 
 from hg_oap.quanity.unit import Unit
-
 
 UNIT = TypeVar("UNIT", bound=Unit)
 
