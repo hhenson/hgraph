@@ -104,11 +104,11 @@ class PolarsDataFrameSource(DataFrameSource):
     A simple data frame source
     """
 
-    def __init__(self, df: DATA_FRAME_SOURCE):
-        self._df: DATA_FRAME_SOURCE = df
+    def __init__(self, df: pl.DataFrame):
+        self._df: pl.DataFrame = df
 
     @property
-    def data_frame(self) -> DATA_FRAME_SOURCE:
+    def data_frame(self) -> pl.DataFrame:
         return self._df
 
 

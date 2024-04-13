@@ -3,25 +3,26 @@ from typing import Callable, OrderedDict
 
 import polars as pl
 
-from hgraph import generator, TS_SCHEMA, TSB, TSD, SCALAR, SCALAR_1, TS, ts_schema, HgTimeSeriesTypeMetaData, Array, \
-    SIZE, TSL, clone_typevar, Size, SCALAR_2
+from hgraph import generator, TS_SCHEMA, TSB, TSD, SCALAR, SCALAR_1, TS, ts_schema, Array, \
+    SIZE, TSL, clone_typevar, Size, SCALAR_2, HgScalarTypeMetaData, HgTSTypeMetaData
 from hgraph.adaptors.data_frame.data_frame_source import DATA_FRAME_SOURCE, DataStore
 
 __all__ = ("tsb_from_data_source",)
 
 
-def _schema_and_dt_col(mapping, scalars) -> tuple[OrderedDict[str, pl.DataType], tuple[str, pl.DataType]]:
+def _schema_and_dt_col(mapping, scalars) -> tuple[
+    OrderedDict[str, HgScalarTypeMetaData], tuple[str, HgScalarTypeMetaData]]:
     dfs: type[DATA_FRAME_SOURCE] = mapping[DATA_FRAME_SOURCE].py_type
     dfs_instance = DataStore.instance().get_data_source(dfs)
     schema = dfs_instance.schema
     dt_col = scalars['dt_col']
-    return {k: _convert_type(v) for k, v in schema.items() if k != dt_col}, (dt_col, schema[dt_col])
+    return {k: _convert_type(v) for k, v in schema.items() if k != dt_col}, (dt_col, _convert_type(schema[dt_col]))
 
 
 def _extract_schema(mapping, scalars) -> TS_SCHEMA:
     """Extract the schema from the mapping"""
     schema, _ = _schema_and_dt_col(mapping, scalars)
-    return ts_schema(**schema)
+    return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
 
 
 @generator(resolvers={TS_SCHEMA: _extract_schema})
@@ -42,15 +43,15 @@ def tsb_from_data_source(
 
 
 def _extract_tsd_key_scalar(mapping, scalars) -> SCALAR:
-    schema, (dt_col, dt_tp) = _schema_and_dt_col(mapping, scalars)
+    schema, _ = _schema_and_dt_col(mapping, scalars)
     return schema[scalars['key_col']].py_type
 
 
 def _extract_tsd_key_value_scalar(mapping, scalars) -> SCALAR_1:
-    schema, (dt_col, dt_tp) = _schema_and_dt_col(mapping, scalars)
+    schema, _ = _schema_and_dt_col(mapping, scalars)
     schema.pop(scalars['key_col'])
     assert len(schema) == 1
-    return next(schema.values().py_type)
+    return next(iter(schema.values())).py_type
 
 
 @generator(resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar})
@@ -67,10 +68,45 @@ def tsd_k_v_from_data_source(
         +------+---------+-------+
         |  ...                   |
     """
-    ...
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    schema = tuple(dfs_instance.schema.keys())
+    dt_ndx = schema.index(dt_col)
+    key_ndx = schema.index(key_col)
+    value_ndx = next(iter({0, 1, 2} - {dt_ndx, key_ndx}))
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    values: dict[SCALAR, SCALAR_1] = {}
+    last_dt: datetime | None = None
+    for df in dfs_instance.iter_frames():
+        for value in df.iter_rows(named=False):
+            dt = dt_converter(value[dt_ndx])
+            if last_dt != dt:
+                if last_dt is not None:
+                    yield last_dt + offset, values
+                values = {value[key_ndx]: value[value_ndx]}
+                last_dt = dt
+            else:
+                key = value[key_ndx]
+                values[key] = value[value_ndx]
+    if last_dt is not None:
+        yield last_dt + offset, values
 
 
-@generator
+def _extract_tsd_pivot_key_value_scalar(mapping, scalars) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    return schema[scalars['pivot_col']].py_type
+
+
+def _extract_tsd_pivot_value_value_scalar(mapping, scalars) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema.pop(scalars['key_col'])
+    schema.pop(scalars['pivot_col'])
+    assert len(schema) == 1
+    return next(iter(schema.values())).py_type
+
+
+@generator(resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_pivot_key_value_scalar,
+                      SCALAR_2: _extract_tsd_pivot_value_value_scalar})
 def tsd_k_tsd_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, pivot_col: str, offset: timedelta = timedelta()
 ) -> TSD[SCALAR, TSD[SCALAR_1, TS[SCALAR_2]]]:
@@ -85,9 +121,44 @@ def tsd_k_tsd_from_data_source(
         +------+---------+------------+-------+
         |  ...                                |
     """
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    schema = tuple(dfs_instance.schema.keys())
+    dt_ndx = schema.index(dt_col)
+    key_ndx = schema.index(key_col)
+    pivot_ndx = schema.index(pivot_col)
+    value_ndx = next(iter({0, 1, 2, 3} - {dt_ndx, key_ndx, pivot_ndx}))
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    outer_dict: dict[SCALAR, SCALAR_1] = {}
+    inner_dict: dict[SCALAR_1, SCALAR_2] = {}
+    last_dt: datetime | None = None
+    last_key: SCALAR_1 | None = None
+    for df in dfs_instance.iter_frames():
+        for value in df.iter_rows(named=False):
+            dt = dt_converter(value[dt_ndx])
+            if last_dt != dt:
+                if last_dt is not None:
+                    yield last_dt + offset, outer_dict
+                last_dt = dt
+                last_key = value[key_ndx]
+                inner_dict = {value[pivot_ndx]: value[value_ndx]}
+                outer_dict = {value[key_ndx]: inner_dict}
+            elif last_key != value[key_ndx]:
+                last_key = value[key_ndx]
+                outer_dict[last_key] = inner_dict = {value[pivot_ndx]: value[value_ndx]}
+            else:
+                inner_dict[value[pivot_ndx]] = value[value_ndx]
+    if last_dt is not None:
+        yield last_dt + offset, outer_dict
 
 
-@generator
+def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema.pop(scalars['key_col'])
+    return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
+
+
+@generator(resolvers={SCALAR: _extract_tsd_key_scalar, TS_SCHEMA: _extract_tsd_key_value_bundle})
 def tsd_k_b_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, offset: timedelta = timedelta()
 ) -> TSD[SCALAR, TSB[TS_SCHEMA]]:
@@ -101,7 +172,23 @@ def tsd_k_b_from_data_source(
         +------+---------+----+-----+----+
         |          ...                   |
     """
-    ...
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    values: dict[SCALAR, dict] = {}
+    last_dt: datetime | None = None
+    for df in dfs_instance.iter_frames():
+        for value in df.iter_rows(named=True):
+            dt = dt_converter(value.pop(dt_col))
+            if last_dt != dt:
+                if last_dt is not None:
+                    yield last_dt + offset, values
+                values = {value.pop(key_col): value}
+                last_dt = dt
+            else:
+                values[value.pop(key_col)] = value
+    if last_dt is not None:
+        yield last_dt + offset, values
 
 
 @generator
@@ -149,33 +236,33 @@ def ts_of_array_from_data_source(
     """
 
 
-def _convert_type(pl_type: pl.DataType) -> HgTimeSeriesTypeMetaData:
+def _convert_type(pl_type: pl.DataType) -> HgScalarTypeMetaData:
     from polars import String, Boolean, Date, Datetime, Time, Duration, Categorical, List, Array, Object
     from polars.datatypes import IntegerType
     from polars.datatypes.classes import FloatType
     if isinstance(pl_type, IntegerType):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[int])
+        return HgScalarTypeMetaData.parse_type(int)
     if isinstance(pl_type, FloatType):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[float])
+        return HgScalarTypeMetaData.parse_type(float)
     if isinstance(pl_type, String):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[str])
+        return HgScalarTypeMetaData.parse_type(str)
     if isinstance(pl_type, Boolean):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[bool])
+        return HgScalarTypeMetaData.parse_type(bool)
     if isinstance(pl_type, Date):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[date])
+        return HgScalarTypeMetaData.parse_type(date)
     if isinstance(pl_type, Datetime):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[datetime])
+        return HgScalarTypeMetaData.parse_type(datetime)
     if isinstance(pl_type, Time):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[time])
+        return HgScalarTypeMetaData.parse_type(time)
     if isinstance(pl_type, Duration):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[timedelta])
+        return HgScalarTypeMetaData.parse_type(timedelta)
     if isinstance(pl_type, Categorical):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[str])
+        return HgScalarTypeMetaData.parse_type(str)
     if isinstance(pl_type, (List, Array)):
         tp: List = pl_type
-        return HgTimeSeriesTypeMetaData.parse_type(TS[_convert_type(tp.inner).py_type])
+        return HgScalarTypeMetaData.parse_type(_convert_type(tp.inner).py_type)
     if isinstance(pl_type, Object):
-        return HgTimeSeriesTypeMetaData.parse_type(TS[object])
+        return HgScalarTypeMetaData.parse_type(object)
     # Do Struct, still
 
     raise ValueError(f"Unable to convert {pl_type} to HgTimeSeriesTypeMetaData")
