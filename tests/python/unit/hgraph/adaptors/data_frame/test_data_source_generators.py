@@ -1,10 +1,11 @@
+import numpy as np
 import polars as pl
 from frozendict import frozendict as fd
 
 from hgraph import MIN_ST, MIN_TD
 from hgraph.adaptors.data_frame.data_frame_source import PolarsDataFrameSource
 from hgraph.adaptors.data_frame.data_source_generators import tsb_from_data_source, tsd_k_v_from_data_source, \
-    tsd_k_tsd_from_data_source, tsd_k_b_from_data_source
+    tsd_k_tsd_from_data_source, tsd_k_b_from_data_source, ts_of_array_from_data_source, tsd_k_a_from_data_source
 from hgraph.test import eval_node
 
 _1 = MIN_ST
@@ -82,4 +83,47 @@ def test_k_b_from_data_source():
         fd({'a': fd({'p1': 1.0, 'p2': 4})}),
         fd({'b': fd({'p1': 2.0, 'p2': 5}), 'c': fd({'p1': 3.0, 'p2': 6})}),
         fd({'d': fd({'p1': 4.0, 'p2': 7})}),
+    ]
+
+
+class TsArrayMockDataSource(PolarsDataFrameSource):
+
+    def __init__(self):
+        df = pl.DataFrame({
+            'dt': [_1, _2, _3],
+            'p1': [1, 2, 3],
+            'p2': [4, 5, 6],
+        })
+        super().__init__(df)
+
+
+def test_ts_of_array_from_data_source():
+    results = eval_node(ts_of_array_from_data_source, TsArrayMockDataSource, 'dt')
+    results = [list(row) for row in results]
+    assert results == [
+        [1, 4],
+        [2, 5],
+        [3, 6],
+    ]
+
+
+class TsdKeyArrayMockDataSource(PolarsDataFrameSource):
+
+    def __init__(self):
+        df = pl.DataFrame({
+            'dt': [_1, _2, _3],
+            'k': ['a', 'b', 'c'],
+            'p1': [1, 2, 3],
+            'p2': [4, 5, 6],
+        })
+        super().__init__(df)
+
+
+def test_tsd_k_of_array_from_data_source():
+    results = eval_node(tsd_k_a_from_data_source, TsdKeyArrayMockDataSource, 'dt', 'k')
+    results = [{k: list(v) for k, v in row.items()} for row in results]
+    assert results == [
+        fd({'a': [1, 4]}),
+        fd({'b': [2, 5]}),
+        fd({'c': [3, 6]}),
     ]

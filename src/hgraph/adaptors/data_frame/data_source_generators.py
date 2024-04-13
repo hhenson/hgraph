@@ -1,6 +1,7 @@
 from datetime import timedelta, date, datetime, time
 from typing import Callable, OrderedDict
 
+import numpy as np
 import polars as pl
 
 from hgraph import generator, TS_SCHEMA, TSB, TSD, SCALAR, SCALAR_1, TS, ts_schema, Array, \
@@ -191,7 +192,21 @@ def tsd_k_b_from_data_source(
         yield last_dt + offset, values
 
 
-@generator
+def _extract_tsd_array_value(mapping, scalars) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema.pop(scalars['key_col'])
+    tp = next(iter(schema.values())).py_type
+    assert all(tp == v.py_type for v in schema.values()), f"All columns must be of same type ({tp}): {schema}"
+    return tp
+
+
+def _extract_tsd_array_size(mapping, scalars) -> SIZE:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema.pop(scalars['key_col'])
+    return Size[len(schema)]
+
+
+@generator(resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_array_value, SIZE: _extract_tsd_array_size})
 def tsd_k_a_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, offset: timedelta = timedelta()
 ) -> TSD[SCALAR, TS[Array[SCALAR_1, SIZE]]]:
@@ -199,32 +214,82 @@ def tsd_k_a_from_data_source(
     Extract out a TSD with value type of Array. This requires the value columns to be of the same type.
     This is best used when the data type is bool, int, float, date or datetime.
     """
-    ...
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    values: dict[SCALAR, Array[SCALAR_1, SIZE]] = {}
+    last_dt: datetime | None = None
+    for df in dfs_instance.iter_frames():
+        df_dt = df[dt_col]
+        df_key = df[key_col]
+        df_value = df.select(*(k for k in df.schema.keys() if k not in (dt_col, key_col)))
+        for dt, key, value in zip(df_dt, df_key, df_value.iter_rows(named=False)):
+            value = np.array(value)
+            dt = dt_converter(dt)
+            if last_dt != dt:
+                if last_dt is not None:
+                    yield last_dt + offset, values
+                last_dt = dt
+                values = {key: value}
+            else:
+                values[key] = value
+    if last_dt is not None:
+        yield last_dt + offset, values
 
 
-@generator
+def _extract_array_value(mapping, scalars) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    tp = next(iter(schema.values())).py_type
+    assert all(tp == v.py_type for v in schema.values()), f"All columns must be of same type ({tp}): {schema}"
+    return tp
+
+
+def _extract_array_size(mapping, scalars) -> SIZE:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    return Size[len(schema)]
+
+
+@generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size})
 def ts_of_array_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()
-) -> TS[Array[SCALAR_1, SIZE]]:
+) -> TS[Array[SCALAR, SIZE]]:
     """
     Extract out a TS of Array values.
     """
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    for df in dfs_instance.iter_frames():
+        df_dt = df[dt_col]
+        df_values = df.select(*(k for k in df.schema.keys() if k != dt_col))
+        for dt, values in zip(df_dt, df_values.iter_rows(named=False)):
+            dt = dt_converter(dt)
+            yield dt + offset, np.array(values)
 
 
-@generator
+@generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size})
 def tsl_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()
 ) -> TSL[TS[SCALAR], SIZE]:
     """
     Extract a TSL from a data frame.
     """
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    for df in dfs_instance.iter_frames():
+        df_dt = df[dt_col]
+        df_values = df.select(*(k for k in df.schema.keys() if k != dt_col))
+        for dt, values in zip(df_dt, df_values.iter_rows(named=False)):
+            dt = dt_converter(dt)
+            yield dt + offset, values
 
 
 SIZE_1 = clone_typevar(SIZE, "SIZE_1")
 
 
 @generator
-def ts_of_array_from_data_source(
+def ts_of_matrix_from_data_source(
         dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(),
         sz_2: type[SIZE_1] = Size[-1]
 ) -> TS[Array[SCALAR_1, SIZE, SIZE_1]]:
