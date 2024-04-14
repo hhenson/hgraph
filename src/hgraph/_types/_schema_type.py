@@ -126,8 +126,6 @@ class AbstractSchema:
             if k in resolution_dict:
                 raise ParseError(f"'{cls}' has already defined '{k}'")
             if parsed_v := cls._parse_type(v):
-                # if not parsed_v.is_resolved:
-                #     raise ParseError(f"'{cls}' type '{k}': '{v}' is an unresolved type, not support")
                 resolution_dict[k] = parsed_v
             else:
                 raise ParseError(f"In '{cls}' type '{k}': '{v}' was unable to parse as a valid type")
