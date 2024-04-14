@@ -1,5 +1,6 @@
+from functools import wraps, update_wrapper, partial
 from inspect import signature
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, cast
 
 from frozendict import frozendict
 
@@ -28,7 +29,8 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                  valid: Sequence[str] = None,
                  all_valid: Sequence[str] = None,
                  overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
-                 resolvers: Mapping[TypeVar, Callable] = None) -> COMPUTE_NODE_SIGNATURE:
+                 resolvers: Mapping[TypeVar, Callable] = None,
+                 deprecated: bool | str = False) -> COMPUTE_NODE_SIGNATURE:
     """
     Used to define a python function to be a compute-node. A compute-node is the worker unit in the graph and
     will be called each time of the inputs to the compute node ticks.
@@ -43,7 +45,7 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
-                           resolvers=resolvers)
+                           resolvers=resolvers, deprecated=deprecated)
 
 
 def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None,
@@ -313,7 +315,8 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                     valid: Sequence[str] = None, all_valid: Sequence[str] = None,
                     node_class: Type["WiringNodeClass"] = None,
                     overloads: "WiringNodeClass" = None, interfaces=None,
-                    resolvers: Mapping[TypeVar, Callable] = None) -> Callable:
+                    resolvers: Mapping[TypeVar, Callable] = None,
+                    deprecated: bool | str = False) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
@@ -325,7 +328,8 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                   active=active,
                   valid=valid,
                   all_valid=all_valid,
-                  interfaces=interfaces)
+                  interfaces=interfaces,
+                  deprecated=deprecated,)
     if node_impl is not None:
         if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
             kwargs["node_class"] = node_impl
@@ -387,9 +391,15 @@ def _assert_no_node_configs(label: str, kwargs):
         raise ValueError(f"{label} do not support all_valid")
 
 
-def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
-                 node_class: Type["WiringNodeClass"] = None, active: Sequence[str] = None, valid: Sequence[str] = None,
-                 all_valid: Sequence[str] = None, interfaces=None, resolver=None) -> "WiringNodeClass":
+def _create_node(signature_fn, impl_fn=None,
+                 node_type: "WiringNodeType" = None,
+                 node_class: Type["WiringNodeClass"] = None,
+                 active: Sequence[str] = None,
+                 valid: Sequence[str] = None,
+                 all_valid: Sequence[str] = None,
+                 interfaces=None,
+                 resolver=None,
+                 deprecated: bool | str = False) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
@@ -403,7 +413,7 @@ def _create_node(signature_fn, impl_fn=None, node_type: "WiringNodeType" = None,
     all_valid_inputs = frozenset(all_valid) if all_valid is not None else None
     signature = signature_fn if isinstance(signature_fn, WiringNodeSignature) else \
         extract_signature(signature_fn, node_type, active_inputs=active_inputs, valid_inputs=valid_inputs,
-                          all_valid_inputs=all_valid_inputs)
+                          all_valid_inputs=all_valid_inputs, deprecated=deprecated)
     if interfaces is None:
         return node_class(signature, impl_fn)
     else:
@@ -438,3 +448,7 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         injectable_inputs=extract_injectable_inputs(**kwargs)
     )
     return signature
+
+
+CALLABLE = TypeVar("CALLABLE", bound=Callable)
+

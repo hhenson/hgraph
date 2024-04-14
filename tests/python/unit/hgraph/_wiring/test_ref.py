@@ -1,8 +1,9 @@
 from typing import cast
 
 from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, TSD, REMOVE, \
-    PythonTimeSeriesReference, Removed, K, KEYABLE_SCALAR
+    Removed, K, KEYABLE_SCALAR
 from hgraph.nodes import tss_contains
+from hgraph.nodes._conditional import route_ref
 from hgraph.test import eval_node
 
 
@@ -13,12 +14,6 @@ def create_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
 
 def test_ref():
     assert eval_node(create_ref[TIME_SERIES_TYPE: TS[int]], ts=[1, 2]) == [1, 2]
-
-
-@compute_node
-def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], Size[2]]:
-    return cast(TSL,
-                (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))
 
 
 def test_route_ref():
