@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import ClassVar, Tuple
+from typing import Tuple
 
 from hg_oap.utils.unit_system import UnitSystem
 

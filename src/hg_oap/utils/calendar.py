@@ -1,9 +1,9 @@
-__all__ = ('Calendar',)
-
 from abc import abstractmethod
 from bisect import bisect, bisect_left
 from datetime import date, timedelta
 from typing import Tuple, Set
+
+__all__ = ('Calendar',)
 
 
 class Calendar:

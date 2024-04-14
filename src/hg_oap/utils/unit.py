@@ -3,11 +3,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from functools import reduce
-from itertools import product
-from typing import Tuple, ClassVar, ForwardRef
+from typing import Tuple, ForwardRef
 
-from hg_oap.utils.exprclass import ExprClass
 from hg_oap.utils.dimension import Dimension
+from hg_oap.utils.exprclass import ExprClass
 from hg_oap.utils.unit_system import UnitSystem
 
 

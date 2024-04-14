@@ -198,7 +198,7 @@ def test_date_generator():
 
 
 def test_date_expressions():
-    from dexpr import ParameterOp
+    from hg_oap.utils.magic import ParameterOp
     _0 = ParameterOp(_index=0)
     _1 = ParameterOp(_index=1)
 
