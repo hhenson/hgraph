@@ -7,6 +7,7 @@ name = "hg_oap"
 dynamic = ["version"]
 dependencies = [
     "hgraph>=0.2.9",
+    "holidays>=0.46",
 ]
 requires-python = ">=3.11"
 authors = [
