@@ -29,6 +29,12 @@ class Unit:
         else:
             raise RuntimeError("Only supports adding units to a numeric quantity")
 
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def __hash__(self):
+        return hash(type(self))
+
 
 class AtomicUnit(Unit):
     """
@@ -48,7 +54,7 @@ class AtomicUnit(Unit):
         Returns a new Quantity unit in with the units requested. If this results in information loss an exception
         is raised
         """
-        if unit.unit_family != self._unit_family:
+        if unit._unit_family != self._unit_family:
             raise UnconvertableTypes(self, unit)
         return self.do_convert_to(value, unit)
 
@@ -75,7 +81,7 @@ class LinearAtomicUnit(AtomicUnit):
     def do_convert_to(self, value: float, unit: "Unit") -> float:
         """Converts the value to the unit provided"""
         return ((value * self.ratio_to_normal()) + self.offset_to_normal()) \
-            / self.ratio_to_normal() - self.offset_to_normal()
+            / unit.ratio_to_normal() - unit.offset_to_normal()
 
     @abstractmethod
     def normal_unit(self) -> "AtomicUnit":
