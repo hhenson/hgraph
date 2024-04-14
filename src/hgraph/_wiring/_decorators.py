@@ -1,6 +1,5 @@
-from functools import wraps, update_wrapper, partial
 from inspect import signature
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, cast
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
 
 from frozendict import frozendict
 
@@ -49,22 +48,24 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
 
 
 def pull_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None,
-                     resolvers: Mapping[TypeVar, Callable] = None) -> SOURCE_NODE_SIGNATURE:
+                     resolvers: Mapping[TypeVar, Callable] = None,
+                     deprecated: bool | str = False) -> SOURCE_NODE_SIGNATURE:
     """
     Used to indicate the signature for a source node. For Python source nodes use either the
     generator or source_adapter annotations.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_impl, resolvers=resolvers)
+    return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, node_impl, resolvers=resolvers, deprecated=deprecated)
 
 
 def push_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None,
-                     resolvers: Mapping[TypeVar, Callable] = None) -> SOURCE_NODE_SIGNATURE:
+                     resolvers: Mapping[TypeVar, Callable] = None,
+                     deprecated: bool | str = False) -> SOURCE_NODE_SIGNATURE:
     """
     Used to indicate the signature for a push source node.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl, resolvers=resolvers)
+    return _node_decorator(WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl, resolvers=resolvers, deprecated=deprecated)
 
 
 def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
@@ -73,7 +74,8 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
               valid: Sequence[str] = None,
               all_valid: Sequence[str] = None,
               overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None,
-              resolvers: Mapping[TypeVar, Callable] = None) -> SINK_NODE_SIGNATURE:
+              resolvers: Mapping[TypeVar, Callable] = None,
+              deprecated: bool | str = False) -> SINK_NODE_SIGNATURE:
     """
     Indicates the function definition represents a sink node. This type of node has no return type.
     Other than that it behaves in much the same way as compute node.
@@ -87,7 +89,7 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.SINK_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
-                           resolvers=resolvers)
+                           resolvers=resolvers, deprecated=deprecated)
 
 
 def graph(fn: GRAPH_SIGNATURE = None,
@@ -104,7 +106,8 @@ def graph(fn: GRAPH_SIGNATURE = None,
 
 def generator(fn: SOURCE_NODE_SIGNATURE = None,
               overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-              resolvers: Mapping[TypeVar, Callable] = None) -> SOURCE_NODE_SIGNATURE:
+              resolvers: Mapping[TypeVar, Callable] = None,
+              deprecated: bool | str = False) -> SOURCE_NODE_SIGNATURE:
     """
     Creates a pull source node that supports generating a sequence of ticks that will be fed into the
     graph. The generator wraps a function that is implemented as a python generator which returns a tuple of
@@ -129,12 +132,13 @@ def generator(fn: SOURCE_NODE_SIGNATURE = None,
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.PULL_SOURCE_NODE, fn, overloads=overloads,
-                           node_class=PythonGeneratorWiringNodeClass, resolvers=resolvers)
+                           node_class=PythonGeneratorWiringNodeClass, resolvers=resolvers, deprecated=deprecated)
 
 
 def push_queue(tp: type[TIME_SERIES_TYPE],
                overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None,
-               resolvers: Mapping[TypeVar, Callable] = None
+               resolvers: Mapping[TypeVar, Callable] = None,
+               deprecated: bool | str = False
                ):
     """
     Creates a push source node that supports injecting values into the graph asynchronously.
@@ -161,7 +165,8 @@ def push_queue(tp: type[TIME_SERIES_TYPE],
 
         node = _create_node(_create_node_signature(fn.__name__,
                                                    annotations, tp, defaults=defaults,
-                                                   node_type=WiringNodeType.PUSH_SOURCE_NODE),
+                                                   node_type=WiringNodeType.PUSH_SOURCE_NODE,
+                                                   deprecated=deprecated),
                             impl_fn=fn, node_type=WiringNodeType.PUSH_SOURCE_NODE,
                             node_class=PythonPushQueueWiringNodeClass)
 
@@ -252,12 +257,14 @@ def request_reply_service(fn: SERVICE_DEFINITION = None,
 
 
 def service_impl(*, interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
-                 resolvers: Mapping[TypeVar, Callable] = None):
+                 resolvers: Mapping[TypeVar, Callable] = None,
+                 deprecated: bool | str = False):
     """
     Wraps a service implementation. The service is defined to implement the declared interface.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.SVC_IMPL, None, interfaces=interfaces, resolvers=resolvers)
+    return _node_decorator(WiringNodeType.SVC_IMPL, None, interfaces=interfaces, resolvers=resolvers,
+                           deprecated=deprecated)
 
 
 def register_service(path: str, implementation, resolution_dict=None, **kwargs):
@@ -329,7 +336,7 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
                   valid=valid,
                   all_valid=all_valid,
                   interfaces=interfaces,
-                  deprecated=deprecated,)
+                  deprecated=deprecated, )
     if node_impl is not None:
         if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
             kwargs["node_class"] = node_impl
@@ -422,7 +429,8 @@ def _create_node(signature_fn, impl_fn=None,
 
 def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType",
                            active_inputs: frozenset[str] = None, valid_inputs: frozenset[str] = None,
-                           all_valid_inputs: frozenset[str] = None, defaults: dict[str, Any] = None) -> Callable:
+                           all_valid_inputs: frozenset[str] = None, defaults: dict[str, Any] = None,
+                           deprecated: bool | str = False) -> Callable:
     """
     Create a function that takes the kwargs and returns the kwargs. This is used to create a function that
     can be used to create a signature.
@@ -445,10 +453,10 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         all_valid_inputs=all_valid_inputs,
         unresolved_args=frozenset(),
         time_series_args=frozenset(),
-        injectable_inputs=extract_injectable_inputs(**kwargs)
+        injectable_inputs=extract_injectable_inputs(**kwargs),
+        deprecated=deprecated
     )
     return signature
 
 
 CALLABLE = TypeVar("CALLABLE", bound=Callable)
-
