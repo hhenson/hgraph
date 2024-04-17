@@ -1,14 +1,6 @@
 from hgraph import TSB, TimeSeriesSchema, TSD, TS, TSS, compute_node, subscription_service
 
-from hg_oap.instruments.instrument import INSTRUMENT_ID, InstrumentUnit, InstrumentQuantity
-from hg_oap.quanity.currency_unit import CurrencyUnit
-from hg_oap.quanity.price_unit import Price
-
-
-class Position(TimeSeriesSchema):
-    """A position consists of a quantity, and a unit value"""
-    qty: TS[InstrumentId]
-    notional: TS[Price]
+from hg_oap.instruments.instrument import INSTRUMENT_ID
 
 
 BOOK_ID = str

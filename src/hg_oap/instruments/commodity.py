@@ -2,7 +2,7 @@ from enum import Enum
 
 from hg_oap.assets.commodities import BaseMetals
 from hg_oap.dates.tenor import Tenor
-from hg_oap.instruments.instrument import Future
+from hg_oap.instruments.future import Future
 
 
 class ThreeMonthBaseMetals(Enum):
