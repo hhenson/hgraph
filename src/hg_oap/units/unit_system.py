@@ -33,9 +33,9 @@ class UnitSystem:
         self.__class__.__instance__ = None
 
     def __setattr__(self, key, value):
-        from hg_oap.utils.quantity import Quantity
+        from hg_oap.units.quantity import Quantity
         if isinstance(value, Quantity):
-            from hg_oap.utils.unit import PrimaryUnit, DerivedUnit, ComplexUnit
+            from hg_oap.units.unit import PrimaryUnit, DerivedUnit, ComplexUnit
             if isinstance(value.unit, (PrimaryUnit, DerivedUnit)):
                 value = DerivedUnit(value)
             elif isinstance(value.unit, ComplexUnit):

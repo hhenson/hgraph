@@ -6,8 +6,8 @@ import pytest
 from hg_oap.units.unit import Unit
 from hg_oap.units.dimension import PrimaryDimension, DerivedDimension
 from hg_oap.utils.exprclass import ExprClass
-from hg_oap.utils.quantity import Quantity
-from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit, DiffDerivedUnit
+from hg_oap.units.quantity import Quantity
+from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit
 from hg_oap.units.unit_system import UnitSystem, UnitConversionContext
 
 
@@ -81,7 +81,7 @@ def test_unit_conversion_1():
         assert (U.meter/U.second).convert(1., to=U.cm / U.minute) == 6000.
         assert (U.cm/U.second).convert(1., to=U.meter / U.minute) == 60. / 100.
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             (U.meter/U.second).convert(1., to=U.meter_sq)
 
 
@@ -150,7 +150,7 @@ def test_contexts_and_conversion_factors():
 
         my_speed = 2. * U.meter_per_second
 
-        with UnitConversionContext({(U.timespan, U.length): my_speed}):
+        with UnitConversionContext({U.length/U.timespan: my_speed}):
             assert U.hour.convert(1., to=U.meter) == 7200.
 
 

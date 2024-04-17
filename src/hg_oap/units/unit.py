@@ -8,7 +8,7 @@ from functools import reduce
 from typing import Tuple, ForwardRef, TypeVar, ClassVar
 
 from hg_oap.units.dimension import Dimension
-from hg_oap.utils.exprclass import ExprClass, CallableDescriptor
+from hg_oap.utils.exprclass import ExprClass
 from hg_oap.units.unit_system import UnitSystem
 
 NUMBER = TypeVar('NUMBER', int, float, Decimal)
@@ -27,7 +27,7 @@ class Unit(ExprClass):
 
     def __rmul__(self, value):
         if isinstance(value, (int, float, Decimal)):
-            from hg_oap.utils.quantity import Quantity
+            from hg_oap.units.quantity import Quantity
             return Quantity(value, self)
 
         return NotImplemented
@@ -226,7 +226,7 @@ class ComplexUnit(Unit):
     name: str = lambda s: s._build_name()
 
     def __new__(cls, components, name=None):
-        from hg_oap.utils.quantity import Quantity
+        from hg_oap.units.quantity import Quantity
         if isinstance(components, Quantity):
             scale = components.value
             components = components.unit._to_components()
