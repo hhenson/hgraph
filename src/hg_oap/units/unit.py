@@ -65,7 +65,7 @@ class DerivedUnit(Unit):
     dimension: Dimension = lambda s: s.primary_unit.dimension
 
     def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), scaling_factor: Decimal = Decimal(1), name=None):
-        from dexpr.quantity import Quantity
+        from hg_oap.quanity.quantity import Quantity
         if type(primary_unit) is Quantity:
             primary_unit = primary_unit.unit
             scaling_factor = primary_unit.value
