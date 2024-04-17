@@ -1,9 +1,14 @@
 from hgraph import TSB, TimeSeriesSchema, TSD, TS, TSS, compute_node, subscription_service
 
 from hg_oap.instruments.instrument import INSTRUMENT_ID
-
+from hg_oap.units.unit import Unit
 
 BOOK_ID = str
+
+
+class PositionQuantity(TimeSeriesSchema):
+    qty: TS[float]
+    qty_unit: TS[Unit]
 
 
 class Book(TimeSeriesSchema):
@@ -17,7 +22,7 @@ class Book(TimeSeriesSchema):
     Typically, books contain a related set of instruments. This can be related to a strategy, a trader, or a collection
     of related assets. A position represent in a book is unique and will not be found in another book.
     """
-    positions: TSD[INSTRUMENT_ID, TSB[Position]]
+    positions: TSD[INSTRUMENT_ID, TSB[PositionQuantity]]
 
 
 @subscription_service
@@ -48,10 +53,8 @@ def get_portfolio(portfolio_id: TS[PORTFOLIO_ID]) -> TSB[Portfolio]:
 
 
 @subscription_service
-def positions(portfolio_id: TS[PORTFOLIO_ID]) -> TSD[INSTRUMENT_ID, TSB[Position]]:
+def rolled_positions(portfolio_id: TS[PORTFOLIO_ID]) -> TSD[INSTRUMENT_ID, TSB[PositionQuantity]]:
     """
     Return the positions associated to this portfolio. This will recursively traverse the portfolio collecting up the
     books and then reducing the positions of all the books.
     """
-
-
