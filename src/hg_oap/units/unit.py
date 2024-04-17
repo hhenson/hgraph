@@ -3,7 +3,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from functools import reduce
-from typing import Tuple, ForwardRef
+from typing import Tuple, ForwardRef, TypeVar
 
 from hg_oap.units.dimension import Dimension
 from hg_oap.utils.exprclass import ExprClass
@@ -17,6 +17,9 @@ class Unit(ExprClass):
 
     def __str__(self):
         return self.name
+
+
+UNIT = TypeVar("UNIT", bound=Unit)
 
 
 @dataclass(frozen=True)
