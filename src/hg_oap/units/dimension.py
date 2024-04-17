@@ -12,17 +12,26 @@ class Dimension:
     def __str__(self):
         return self.name
 
+    def __hash__(self):
+        return id(self)
+
 
 @dataclass(frozen=True)
 class PrimaryDimension(Dimension):
     def __new__(cls, name=None):
-        if d := UnitSystem.instance().__dimensions__.get(name):
-            return d
+        if name:
+            if d := UnitSystem.instance().__dimensions__.get(name):
+                return d
 
         n = super().__new__(cls)
-        object.__setattr__(n, 'name', name)
-        UnitSystem.instance().__dimensions__[name] = n
+        if name:
+            object.__setattr__(n, 'name', name)
+            UnitSystem.instance().__dimensions__[name] = n
+
         return n
+
+    def __hash__(self):
+        return id(self)
 
     def __pow__(self, power, modulo=None):
         return DerivedDimension(components=((self, power),))
@@ -63,7 +72,12 @@ class DerivedDimension(Dimension):
                 for d1, p1 in d.components:
                     reduced_components[d1] += p1 * p
 
-        reduced_components = tuple(reduced_components.items())
+        reduced_components = tuple((d, p) for d, p in reduced_components.items() if p != 0)
+
+        if len(reduced_components) == 1 and reduced_components[0][1] == 1:
+            return reduced_components[0][0]
+
+        reduced_components = tuple(sorted(reduced_components, key=lambda x: x[0].name))
 
         if d := UnitSystem.instance().__derived_dimensions__.get(reduced_components):
             return d
@@ -82,8 +96,11 @@ class DerivedDimension(Dimension):
             dn = ('/' + dn) if dn else ''
             object.__setattr__(self, 'name', up + dn)
 
+    def __hash__(self):
+        return id(self)
+
     def __pow__(self, power, modulo=None):
-        return DerivedDimension(components=((d, p * power) for d, p in self.components))
+        return DerivedDimension(components=tuple((d, p * power) for d, p in self.components))
 
     def __mul__(self, other: Dimension):
         if isinstance(other, PrimaryDimension):
