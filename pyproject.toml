@@ -11,9 +11,6 @@ dependencies = [
     "ordered-set>=4.1.0",
     "numpy>=1.23",
     "polars>=0.20.18",
-    "sqlalchemy>=2.0.29",
-    "duckdb>=0.10.1",
-    "pyarrow>=15.0.2"
 ]
 requires-python = ">=3.11"
 authors = [
@@ -34,6 +31,21 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
+[project.optional-dependencies]
+data_frame = [
+    "sqlalchemy",
+    "duckdb",
+    "pyarrow"
+]
+perspective = [
+    "perspective",
+    "tornado"
+]
+all = [
+    "hgraph[data_frame]",
+    "hgraph[perspective]"
+]
+
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
 Repository = "https://github.com/hhenson/hgraph.git"
@@ -44,29 +56,34 @@ path = "src/hgraph/__about__.py"
 # Development Environment Config
 [tool.hatch.envs.default]
 dependencies = [
-  "coverage[toml]>=6.5",
-  "pytest",
+    "coverage[toml]>=6.5",
+    "pytest",
 ]
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args:tests}"
 test-cov = "coverage run -m pytest {args:tests}"
 cov-report = [
-  "- coverage combine",
-  "coverage report",
+    "- coverage combine",
+    "coverage report",
 ]
 cov = [
-  "test-cov",
-  "cov-report",
+    "test-cov",
+    "cov-report",
 ]
 
 [[tool.hatch.envs.all.matrix]]
 python = ["3.11", "3.12"]
 
+[[tool.hatch.envs.test.matrix]]
+python = ["3.11", "3.12"]
+version = ["9000"]
+features = ["data_frame", "perspective", "all"]
+
 # MyPy Type Checking
 [tool.hatch.envs.types]
 dependencies = [
-  "mypy>=1.0.0",
+    "mypy>=1.0.0",
 ]
 
 [tool.hatch.envs.types.scripts]
@@ -86,7 +103,7 @@ source_pkgs = ["hgraph", "tests"]
 branch = true
 parallel = true
 omit = [
-  "src/hgraph/__about__.py",
+    "src/hgraph/__about__.py",
 ]
 
 [tool.coverage.paths]
@@ -96,7 +113,7 @@ tests = ["tests", "*/hgraph/tests"]
 [tool.coverage.report]
 fail_under = 80
 exclude_lines = [
-  "no cov",
-  "if __name__ == .__main__.:",
-  "if TYPE_CHECKING:",
+    "no cov",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
 ]
