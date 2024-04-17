@@ -11,6 +11,11 @@ dependencies = [
     "ordered-set>=4.1.0",
     "numpy>=1.23",
     "polars>=0.20.18",
+    "sqlalchemy",
+    "duckdb",
+    "pyarrow",
+#    "perspective",
+#    "tornado"
 ]
 requires-python = ">=3.11"
 authors = [
@@ -29,21 +34,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: Implementation :: CPython",
-]
-
-[project.optional-dependencies]
-data_frame = [
-    "sqlalchemy",
-    "duckdb",
-    "pyarrow"
-]
-perspective = [
-    "perspective",
-    "tornado"
-]
-all = [
-    "hgraph[data_frame]",
-    "hgraph[perspective]"
 ]
 
 [project.urls]
@@ -74,11 +64,6 @@ cov = [
 
 [[tool.hatch.envs.all.matrix]]
 python = ["3.11", "3.12"]
-
-[[tool.hatch.envs.test.matrix]]
-python = ["3.11", "3.12"]
-version = ["9000"]
-features = ["data_frame", "perspective", "all"]
 
 # MyPy Type Checking
 [tool.hatch.envs.types]
