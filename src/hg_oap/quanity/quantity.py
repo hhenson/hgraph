@@ -3,7 +3,7 @@ from typing import TypeVar, Generic, cast
 
 from hgraph import TimeSeriesSchema, TS, compute_node, TSB, graph, switch_, AUTO_RESOLVE
 
-from hg_oap.quanity.unit import Unit
+from hg_oap.units.unit import Unit
 
 UNIT = TypeVar("UNIT", bound=Unit)
 UNIT_1 = TypeVar("UNIT_1", bound=Unit)

@@ -1,15 +1,14 @@
 from dataclasses import dataclass
 
-from hgraph import TimeSeriesSchema, TS, TSS
+from hgraph import TimeSeriesSchema, TS, TSS, CompoundScalar
 
 from hg_oap.orders.order_type import OrderType
 from hg_oap.quanity.price_unit import Price
 from hg_oap.quanity.quantity import Quantity
-from hg_oap.quanity.unit import CompoundUnit
 
 
 @dataclass
-class OriginatorInfo(CompoundUnit):
+class OriginatorInfo(CompoundScalar):
     account: str
 
 

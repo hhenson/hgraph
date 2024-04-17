@@ -2,9 +2,9 @@ from datetime import date, timedelta
 from itertools import islice
 from typing import cast
 
-from hg_oap.utils.calendar import Calendar
+from hg_oap.dates.calendar import Calendar
 from hg_oap.utils.magic import Item, const, Op
-from hg_oap.utils.tenor import Tenor
+from hg_oap.dates.tenor import Tenor
 
 __all__ = ('is_dgen', 'make_date', 'make_dgen', 'years', 'months', 'weeks', 'weekdays', 'weekends', 'days',
            'business_days', 'roll_fwd', 'roll_bwd')

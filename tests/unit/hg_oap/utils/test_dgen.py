@@ -3,11 +3,11 @@ from datetime import date, timedelta
 import holidays
 import pytest
 
-from hg_oap.utils.calendar import WeekendCalendar, HolidayCalendar
-from hg_oap.utils.dgen import make_date, make_dgen, days, weeks, weekdays, weekends, months, years, business_days, roll_fwd, \
+from hg_oap.dates.calendar import WeekendCalendar, HolidayCalendar
+from hg_oap.dates.dgen import make_date, make_dgen, days, weeks, weekdays, weekends, months, years, business_days, roll_fwd, \
     roll_bwd
 from hg_oap.utils.magic import Expression
-from hg_oap.utils.tenor import Tenor
+from hg_oap.dates.tenor import Tenor
 
 
 @pytest.mark.parametrize(['s', 'valid'], [

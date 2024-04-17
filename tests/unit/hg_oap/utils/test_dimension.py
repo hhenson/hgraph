@@ -1,5 +1,5 @@
-from hg_oap.utils.dimension import PrimaryDimension, DerivedDimension
-from hg_oap.utils.unit_system import UnitSystem
+from hg_oap.units.dimension import PrimaryDimension, DerivedDimension
+from hg_oap.units.unit_system import UnitSystem
 
 
 def test_dimensions():

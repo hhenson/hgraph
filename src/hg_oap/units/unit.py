@@ -5,9 +5,9 @@ from decimal import Decimal
 from functools import reduce
 from typing import Tuple, ForwardRef
 
-from hg_oap.utils.dimension import Dimension
+from hg_oap.units.dimension import Dimension
 from hg_oap.utils.exprclass import ExprClass
-from hg_oap.utils.unit_system import UnitSystem
+from hg_oap.units.unit_system import UnitSystem
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -2,7 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Tuple
 
-from hg_oap.utils.unit_system import UnitSystem
+from hg_oap.units.unit_system import UnitSystem
 
 
 @dataclass(frozen=True, kw_only=True)

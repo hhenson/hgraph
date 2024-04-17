@@ -2,8 +2,8 @@ from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from hg_oap.utils.tenor import Tenor
-from hg_oap.utils.dgen import days
+from hg_oap.dates.tenor import Tenor
+from hg_oap.dates.dgen import days
 from hg_oap.utils.exprclass import ExprClass, dataclassex, CallableDescriptor, exprclass
 from hg_oap.utils.magic import ParameterOp, lazy
 

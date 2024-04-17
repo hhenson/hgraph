@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-from hg_oap.utils.calendar import WeekendCalendar, HolidayCalendar
-from hg_oap.utils.dgen import weeks
+from hg_oap.dates.calendar import WeekendCalendar, HolidayCalendar
+from hg_oap.dates.dgen import weeks
 
 
 @pytest.mark.parametrize(['d', 't', 'r'], (
