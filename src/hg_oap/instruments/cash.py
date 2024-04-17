@@ -11,9 +11,9 @@ class Cash(Instrument):
 
 
 class CashInstruments(Enum):
-    EUR = Cash("EUR", asset=Currencies.EUR)
-    GBP = Cash("GBP", asset=Currencies.GBP)
-    GBX = Cash("GBX", asset=Currencies.GBX)
-    USD = Cash("USD", asset=Currencies.USD)
-    USX = Cash("USX", asset=Currencies.USX)
+    EUR = Cash("EUR", currency=Currencies.EUR)
+    GBP = Cash("GBP", currency=Currencies.GBP)
+    GBX = Cash("GBX", currency=Currencies.GBX)
+    USD = Cash("USD", currency=Currencies.USD)
+    USX = Cash("USX", currency=Currencies.USX)
 
