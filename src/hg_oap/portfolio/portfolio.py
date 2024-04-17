@@ -1,6 +1,6 @@
 from hgraph import TSB, TimeSeriesSchema, TSD, TS, TSS, compute_node, subscription_service
 
-from hg_oap.instruments.data_types import INSTRUMENT_ID, InstrumentUnit, InstrumentQuantity
+from hg_oap.instruments.instrument import INSTRUMENT_ID, InstrumentUnit, InstrumentQuantity
 from hg_oap.quanity.currency_unit import CurrencyUnit
 from hg_oap.quanity.price_unit import Price
 

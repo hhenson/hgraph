@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from hgraph import CompoundScalar
 
-from hg_oap.instruments.data_types import Instrument
+from hg_oap.instruments.instrument import Instrument
 from hg_oap.quanity.price_unit import Price
 from hg_oap.quanity.quantity import Quantity
 
