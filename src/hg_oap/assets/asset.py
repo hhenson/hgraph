@@ -2,16 +2,15 @@ from dataclasses import dataclass
 
 from hgraph import CompoundScalar
 
-from hg_oap.instruments.instrument import Instrument
-
 
 @dataclass(frozen=True)
-class Asset(Instrument):
+class Asset(CompoundScalar):
     """
     A thing of value that can be held. An asset can be an underlyer of an instrument.
     Whilst technically an asset is not an instrument, but for our purposes, it is convenient to thing of them
     as instruments.
     """
+    symbol: str
 
 
 @dataclass(frozen=True)

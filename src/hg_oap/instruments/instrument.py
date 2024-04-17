@@ -4,6 +4,8 @@ from hgraph import CompoundScalar, TimeSeriesSchema, TS
 
 __all__ = ("INSTRUMENT_ID", "Instrument")
 
+from hg_oap.assets.asset import Asset
+
 INSTRUMENT_ID = str  # A useful alias to help make it clear when a string is intended to represent an instrument id.
 
 
