@@ -1,5 +1,8 @@
+import operator
 from dataclasses import dataclass
 from decimal import Decimal
+from functools import reduce
+from itertools import chain, combinations
 from typing import ClassVar, Tuple, Iterable
 
 
@@ -83,4 +86,9 @@ class UnitConversionContext:
 
     @staticmethod
     def make_conversion_factors(factors: Iterable["Quantity[Decimal]"]):
-        return {q.unit.dimension: q for q in factors}
+        combination_factors = [[reduce(operator.mul, j)
+                                for j in combinations(factors, i)] for i in range(2, len(factors) + 1)]
+
+        all_factors = chain(*((f, 1/f) for f in chain(factors, chain.from_iterable(combination_factors))))
+
+        return {q.unit.dimension: q for q in all_factors}

@@ -171,6 +171,7 @@ def test_contexts_and_conversion_factors_2():
 
         U.weight = PrimaryDimension()
         U.kg = PrimaryUnit(dimension=U.weight)
+        U.mt = Decimal('1000') * U.kg
         U.pound = Decimal('0.453592') * U.kg
 
         U.future_contract = PrimaryDimension()
@@ -190,21 +191,23 @@ def test_contexts_and_conversion_factors_2():
             price_tick_size: Decimal
             price_currency: str
 
-            conversion_factors: dict[tuple[Unit, Unit], Quantity] = \
+            unit_conversion_factors: dict[tuple[Unit, Unit], Quantity] = \
                 lambda s: UnitConversionContext.make_conversion_factors((
                     Quantity(Decimal(s.lot_size), s.unit / U.lot),
-                    Quantity(Decimal(1) / Decimal(s.lot_size), U.lot / s.unit),
                     s.asset.density,
-                    1. / s.asset.density,
                 ))
 
-            def conversion_context(self):
-                return UnitConversionContext(self.conversion_factors)
+            def unit_conversion_context(self):
+                return UnitConversionContext(self.unit_conversion_factors)
 
 
         asset = MyAsset('corn', Quantity(Decimal('0.75'), U.kg / U.liter))
         instrument = MyInstrument(asset, 10000, U.bushel, U.cent, Decimal('0.25'), 'USD')
 
-        with instrument.conversion_context():
+        with instrument.unit_conversion_context():
             assert U.lot.convert(1., to=U.bushel) == 10000.
             assert U.lot.convert(1., to=U.cubic_meter) == 352.391
+            assert U.lot.convert(1., to=U.mt) == 264.29325
+
+            assert round(U.mt.convert(1., to=U.lot), 5) == 0.00378
+            assert round(U.pound.convert(1000., to=U.lot), 5) == 0.00172
