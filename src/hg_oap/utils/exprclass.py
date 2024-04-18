@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, Field
 from datetime import date
 from inspect import isfunction, signature
 
@@ -34,9 +34,18 @@ class _BaseExDescriptor:
             else:
                 raise AttributeError(f'field {self.name} in {instance} is readonly')
 
+    def __override_set__(self, instance, value):
+        if value is not self and instance is not None:
+            object.__setattr__(instance, self.cache_name, value)
+            object.__setattr__(instance, self.overriden_name, True)
+
+    def __overriden__(self, instance):
+        return getattr(instance, self.overriden_name, False)
+
     def __set_name__(self, owner, name):
         self.name = name
         self.cache_name = f'__cache_{self.name or id(self)}__'
+        self.overriden_name = f'__overriden_{self.name or id(self)}__'
 
 
 class CallableDescriptor(_BaseExDescriptor):
@@ -67,7 +76,7 @@ class DateListDescriptor(_BaseExDescriptor):
 
 
 def _process_ops_and_lambdas(cls):
-    cls.__annotations__.pop('Self', None)
+    cls.__annotations__.pop('SELF', None)
 
     for k, a in cls.__annotations__.items():
         if (op := getattr(cls, k, None)) is not None:
@@ -79,17 +88,28 @@ def _process_ops_and_lambdas(cls):
             else:
                 descriptor_type = CallableDescriptor
 
-            if isinstance(op, Op) and not is_op(a):
-                descriptor = descriptor_type(Expression(op))
-                descriptor.__set_name__(cls, k)
-                setattr(cls, k, descriptor)
-            elif isfunction(op) and op.__name__ == '<lambda>':
-                if len(signature(op).parameters) == 1:
-                    descriptor = descriptor_type(op)
-                    descriptor.__set_name__(cls, k)
-                    setattr(cls, k, descriptor)
+            if isinstance(op, Field) and op.default is not None:
+                d = _make_descriptor(a, cls, descriptor_type, k, op.default)
+                if d is not None:
+                    op.default = d
+            else:
+                d = _make_descriptor(a, cls, descriptor_type, k, op)
+                if d is not None:
+                    setattr(cls, k, d)
 
     return cls
+
+
+def _make_descriptor(annotation, cls, descriptor_type, name, op):
+    if isinstance(op, Op) and not is_op(annotation):
+        descriptor = descriptor_type(Expression(op))
+        descriptor.__set_name__(cls, name)
+        return descriptor
+    elif isfunction(op) and op.__name__ == '<lambda>':
+        if len(signature(op).parameters) == 1:
+            descriptor = descriptor_type(op)
+            descriptor.__set_name__(cls, name)
+            return descriptor
 
 
 class ExprClass:

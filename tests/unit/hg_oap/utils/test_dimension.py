@@ -1,4 +1,4 @@
-from hg_oap.units.dimension import PrimaryDimension, DerivedDimension
+from hg_oap.units.dimension import PrimaryDimension, DerivedDimension, Dimensionless
 from hg_oap.units.unit_system import UnitSystem
 
 
@@ -44,3 +44,18 @@ def test_auto_naming():
         assert U.volume.name == 'volume'
         assert U.area * U.length is U.volume
         assert U.volume / U.length is U.area
+
+
+def test_dimensionless():
+    with UnitSystem() as U:
+        U.dimensionless = Dimensionless()
+        assert U.dimensionless**2 is U.dimensionless
+        assert U.dimensionless / U.dimensionless is U.dimensionless
+        assert U.dimensionless * U.dimensionless is U.dimensionless
+
+        U.length = PrimaryDimension()
+        assert U.length * U.dimensionless is U.length
+        assert U.dimensionless * U.length is U.length
+        assert U.length / U.dimensionless is U.length
+        assert U.dimensionless / U.length**2 is U.length**-2
+        assert U.length / U.length is U.dimensionless
