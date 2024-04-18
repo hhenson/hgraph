@@ -5,6 +5,8 @@ from functools import reduce
 from itertools import chain, combinations
 from typing import ClassVar, Tuple, Iterable
 
+from hg_oap.utils.exprclass import CallableDescriptor
+
 
 @dataclass
 class UnitSystem:
@@ -50,7 +52,7 @@ class UnitSystem:
                 value = ComplexUnit(value)
 
         if value.name != key:
-            if desc := getattr(type(value), 'name', None):
+            if (desc := getattr(type(value), 'name', None)) and isinstance(desc, CallableDescriptor):
                 desc.__override_set__(value, key)
             else:
                 object.__setattr__(value, 'name', key)
@@ -102,6 +104,6 @@ class UnitConversionContext:
         combination_factors = [[reduce(operator.mul, j)
                                 for j in combinations(factors, i)] for i in range(2, len(factors) + 1)]
 
-        all_factors = chain(*((f, 1/f) for f in chain(factors, chain.from_iterable(combination_factors))))
+        all_factors = chain(*((f, Decimal(1)/f) for f in chain(factors, chain.from_iterable(combination_factors))))
 
         return {q.unit.dimension: q for q in all_factors}

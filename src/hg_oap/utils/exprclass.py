@@ -76,7 +76,7 @@ class DateListDescriptor(_BaseExDescriptor):
 
 
 def _process_ops_and_lambdas(cls):
-    cls.__annotations__.pop('Self', None)
+    cls.__annotations__.pop('SELF', None)
 
     for k, a in cls.__annotations__.items():
         if (op := getattr(cls, k, None)) is not None:

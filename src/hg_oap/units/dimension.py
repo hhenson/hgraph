@@ -9,16 +9,9 @@ from hg_oap.units.unit_system import UnitSystem
 class Dimension:
     name: str = None
 
-    def __str__(self):
-        return self.name
-
-    def __hash__(self):
-        return id(self)
-
-
-@dataclass(frozen=True)
-class PrimaryDimension(Dimension):
     def __new__(cls, name=None):
+        assert cls is not Dimension, 'Base Dimension types is not instantiable.'
+
         if name:
             if d := UnitSystem.instance().__dimensions__.get(name):
                 return d
@@ -30,6 +23,46 @@ class PrimaryDimension(Dimension):
 
         return n
 
+    def __str__(self):
+        return self.name
+
+    def __hash__(self):
+        return id(self)
+
+    def _to_components(self, power=1):
+        return ((self, power),)
+
+
+@dataclass(frozen=True)
+class Dimensionless(Dimension):
+    name: str = 'dimensionless'
+
+    def __new__(cls):
+        if d := UnitSystem.instance().__dimensions__.get('dimensionless'):
+            return d
+
+        n = super().__new__(cls, name='dimensionless')
+        UnitSystem.instance().__dimensions__['dimensionless'] = n
+        return n
+
+    def __hash__(self):
+        return id(self)
+
+    def __pow__(self, power, modulo=None):
+        return self
+
+    def __mul__(self, other: Dimension):
+        return other
+
+    def __truediv__(self, other):
+        return other**-1
+
+    def _to_components(self, power=1):
+        return ()
+
+
+@dataclass(frozen=True)
+class PrimaryDimension(Dimension):
     def __hash__(self):
         return id(self)
 
@@ -37,10 +70,8 @@ class PrimaryDimension(Dimension):
         return DerivedDimension(components=((self, power),))
 
     def __mul__(self, other: Dimension):
-        if isinstance(other, PrimaryDimension):
-            components = defaultdict(int, ((other, 1),))
-        elif isinstance(other, DerivedDimension):
-            components = defaultdict(int, other.components)
+        if isinstance(other, Dimension):
+            components = defaultdict(int, other._to_components())
         else:
             raise ValueError(f"cannot multiply {self} and {other}")
 
@@ -48,10 +79,8 @@ class PrimaryDimension(Dimension):
         return DerivedDimension(components=tuple(components.items()))
 
     def __truediv__(self, other):
-        if isinstance(other, PrimaryDimension):
-            components = defaultdict(int, ((other, -1),))
-        elif isinstance(other, DerivedDimension):
-            components = defaultdict(int, ((d, -p) for d, p in other.components))
+        if isinstance(other, Dimension):
+            components = defaultdict(int, other._to_components(-1))
         else:
             raise ValueError(f"cannot divide {self} and {other}")
 
@@ -73,6 +102,9 @@ class DerivedDimension(Dimension):
                     reduced_components[d1] += p1 * p
 
         reduced_components = tuple((d, p) for d, p in reduced_components.items() if p != 0)
+
+        if len(reduced_components) == 0:
+            return Dimensionless()
 
         if len(reduced_components) == 1 and reduced_components[0][1] == 1:
             return reduced_components[0][0]
@@ -103,10 +135,8 @@ class DerivedDimension(Dimension):
         return DerivedDimension(components=tuple((d, p * power) for d, p in self.components))
 
     def __mul__(self, other: Dimension):
-        if isinstance(other, PrimaryDimension):
-            components = defaultdict(int, ((other, 1),))
-        elif isinstance(other, DerivedDimension):
-            components = defaultdict(int, other.components)
+        if isinstance(other, Dimension):
+            components = defaultdict(int, other._to_components())
         else:
             raise ValueError(f"cannot multiply {self} and {other}")
 
@@ -116,10 +146,8 @@ class DerivedDimension(Dimension):
         return DerivedDimension(components=tuple(components.items()))
 
     def __truediv__(self, other):
-        if isinstance(other, PrimaryDimension):
-            components = defaultdict(int, ((other, -1),))
-        elif isinstance(other, DerivedDimension):
-            components = defaultdict(int, ((d, -p) for d, p in other.components))
+        if isinstance(other, Dimension):
+            components = defaultdict(int, other._to_components(-1))
         else:
             raise ValueError(f"cannot multiply {self} and {other}")
 
@@ -127,3 +155,9 @@ class DerivedDimension(Dimension):
             components[d] += p
 
         return DerivedDimension(components=tuple(components.items()))
+
+    def _to_components(self, power=1):
+        if power == 1:
+            return self.components
+        else:
+            return tuple((c, p*power) for c, p in self.components)

@@ -1,6 +1,7 @@
+import math
 from decimal import Decimal
 
-from hg_oap.units.dimension import PrimaryDimension
+from hg_oap.units.dimension import PrimaryDimension, Dimensionless
 from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit
 from hg_oap.units.unit_system import UnitSystem
 
@@ -12,7 +13,7 @@ def units():
     with UnitSystem(__prefixes__=std_prefixes) as U:
         U.length = PrimaryDimension()
         U.m = PrimaryUnit(dimension=U.length, prefixes=('k', 'c', 'm', 'u', 'n'))
-        U.mile = DerivedUnit(primary_unit=U.m, ratio=Decimal('1609.344'))
+        U.mi = DerivedUnit(primary_unit=U.m, ratio=Decimal('1609.344'))
         U.nautical_mile = DerivedUnit(primary_unit=U.m, ratio=Decimal('1852'))
 
         U.area = U.length**2
@@ -43,7 +44,7 @@ def units():
 
         U.velocity = U.length / U.time
         U.kph = U.km / U.h
-        U.mph = U.mile / U.h
+        U.mph = U.mi / U.h
 
         U.temperature = PrimaryDimension()
         U.K = PrimaryUnit(dimension=U.temperature)
@@ -59,6 +60,14 @@ def units():
 
         U.Wh = U.W * U.h
         U.add_prefixes(U.Wh, ('k', 'M', 'G', 'T'))
+
+        U.dimentionless = Dimensionless()
+        U.turn = PrimaryUnit(dimension=U.dimentionless)
+        U.rad = DerivedUnit(primary_unit=U.turn, ratio=Decimal(2)*Decimal(math.pi))
+        U.deg = DerivedUnit(primary_unit=U.rad, ratio=Decimal(1)/Decimal(360))
+
+        U.rpm = U.turn / U.min
+
 
     return U
 
@@ -88,3 +97,5 @@ def test_quantity_1():
         assert 1.*U.m**3 <= 1000.*U.l
 
         assert (1.*U.m)**3 == 1000.*U.l
+
+        assert 2.*U.rpm == (1/30.)*U.s**-1
