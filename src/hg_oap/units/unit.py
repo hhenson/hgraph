@@ -18,6 +18,7 @@ NUMBER = TypeVar('NUMBER', int, float, Decimal)
 class Unit(ExprClass):
     name: str = None
     dimension: Dimension
+    prefixes: Tuple[str, ...] | None = field(default=None, hash=False)
 
     def __str__(self):
         return self.name
@@ -29,6 +30,31 @@ class Unit(ExprClass):
         if isinstance(value, (int, float, Decimal)):
             from hg_oap.units.quantity import Quantity
             return Quantity(value, self)
+
+        return NotImplemented
+
+    def __rtruediv__(self, value):
+        if isinstance(value, (int, float, Decimal)):
+            from hg_oap.units.quantity import Quantity
+            return Quantity(value, self**-1)
+
+        return NotImplemented
+
+    def __mul__(self, other) -> 'Unit':
+        return NotImplemented
+
+    def __truediv__(self, other) -> 'Unit':
+        return NotImplemented
+
+    def __add__(self, other):
+        if isinstance(other, Unit) and self.dimension is other.dimension:
+            return self, self
+
+        return NotImplemented
+
+    def __sub__(self, other):
+        if isinstance(other, Unit) and self.dimension is other.dimension:
+            return self, self
 
         return NotImplemented
 
@@ -61,7 +87,7 @@ UNIT = TypeVar("UNIT", bound=Unit)
 class PrimaryUnit(Unit):
     ratio: Decimal = Decimal(1)
 
-    def __new__(cls, name=None, dimension: Dimension = None):
+    def __new__(cls, name=None, dimension: Dimension = None, prefixes=None):
         if d := UnitSystem.instance().__primary_units__.get(dimension):
             assert d.dimension is dimension
             return d
@@ -70,6 +96,8 @@ class PrimaryUnit(Unit):
         object.__setattr__(n, 'dimension', dimension)
         if name:
             object.__setattr__(n, 'name', name)
+        if prefixes:
+            object.__setattr__(n, 'prefixes', prefixes)
 
         UnitSystem.instance().__primary_units__[dimension] = n
         return n
@@ -98,7 +126,7 @@ class PrimaryUnit(Unit):
     def _do_convert(self, value: NUMBER, to: 'Unit') -> NUMBER:
         if isinstance(to, OffsetDerivedUnit):
             return value / type(value)(to.ratio) - type(value)(to.offset)
-        elif isinstance(to, DerivedUnit):
+        elif isinstance(to, Unit):
             return value / type(value)(to.ratio)
 
         assert False, f'conversion from {self} to {to} is not supported'
@@ -111,7 +139,7 @@ class DerivedUnit(Unit):
     dimension: Dimension = lambda s: s.primary_unit.dimension
     name: str = lambda s: f"{s.ratio}*{s.primary_unit.name}"
 
-    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), name=None):
+    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), name=None, prefixes=None):
         from .quantity import Quantity
         if type(primary_unit) is Quantity:
             ratio = primary_unit.value
@@ -127,13 +155,17 @@ class DerivedUnit(Unit):
         n = super().__new__(cls)
         object.__setattr__(n, 'primary_unit', primary_unit)
         object.__setattr__(n, 'ratio', ratio)
+
         if name:
             object.__setattr__(n, 'name', name)
+        if prefixes:
+            object.__setattr__(n, 'prefixes', prefixes)
+
         UnitSystem.instance().__derived_units__[(primary_unit, ratio)] = n
         return n
 
     def __pow__(self, power, modulo=None):
-        return ComplexUnit(components=((self, 2),))
+        return ComplexUnit(components=((self, power),))
 
     def __mul__(self, other):
         if isinstance(other, (PrimaryUnit, DerivedUnit, ComplexUnit)):
@@ -168,7 +200,7 @@ class OffsetDerivedUnit(DerivedUnit):
 
     _is_multiplicative: ClassVar[bool] = False
 
-    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), offset: Decimal = Decimal(0), name=None):
+    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), offset: Decimal = Decimal(0), name=None, prefixes=None):
         if type(primary_unit) is DerivedUnit:
             primary_unit = primary_unit.primary_unit
             ratio *= primary_unit.ratio
@@ -180,10 +212,31 @@ class OffsetDerivedUnit(DerivedUnit):
         object.__setattr__(n, 'primary_unit', primary_unit)
         object.__setattr__(n, 'ratio', ratio)
         object.__setattr__(n, 'offset', offset)
+
         if name:
             object.__setattr__(n, 'name', name)
+        if prefixes:
+            object.__setattr__(n, 'prefixes', prefixes)
+
         UnitSystem.instance().__derived_units__[(id(primary_unit), ratio, offset)] = n
         return n
+
+    def __add__(self, other):
+        if isinstance(other, DiffDerivedUnit) and other.dimension is self.dimension:
+            return self, self.diff
+
+        return NotImplemented
+
+    def __sub__(self, other):
+        if isinstance(other, DiffDerivedUnit) and other.dimension is self.dimension:
+            return self, self.diff
+        elif other is self:
+            return self.diff, self
+
+        return NotImplemented
+
+    def __rsub__(self, other):
+        return NotImplemented
 
     def _do_convert(self, value: NUMBER, to: 'Unit') -> NUMBER:
         primary_value = (value + type(value)(self.offset)) * type(value)(self.ratio)
@@ -216,6 +269,20 @@ class DiffDerivedUnit(DerivedUnit):
         UnitSystem.instance().__derived_units__[(id(offset_unit), 'diff')] = n
         return n
 
+    def __add__(self, other):
+        if isinstance(other, OffsetDerivedUnit) and other.dimension is self.dimension:
+            return self.primary_unit, self.primary_unit
+        elif isinstance(other, DiffDerivedUnit) and other.dimension is self.dimension:
+            return self, self
+
+        return NotImplemented
+
+    def __sub__(self, other):
+        if isinstance(other, DiffDerivedUnit) and other.dimension is self.dimension:
+            return self, self
+
+        return NotImplemented
+
 
 @dataclass(frozen=True, kw_only=True, init=False)
 class ComplexUnit(Unit):
@@ -225,7 +292,7 @@ class ComplexUnit(Unit):
     ratio: Decimal = lambda s: reduce(operator.mul, (pow(u.ratio, m) for u, m in s.components)) * s.scale
     name: str = lambda s: s._build_name()
 
-    def __new__(cls, components, name=None):
+    def __new__(cls, components, name=None, prefixes=None):
         from hg_oap.units.quantity import Quantity
         if isinstance(components, Quantity):
             scale = components.value
@@ -247,6 +314,8 @@ class ComplexUnit(Unit):
 
         if name:
             object.__setattr__(n, 'name', name)
+        if prefixes:
+            object.__setattr__(n, 'prefixes', prefixes)
 
         UnitSystem.instance().__complex_units__[lookup_key] = n
         return n

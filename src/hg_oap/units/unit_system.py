@@ -1,5 +1,5 @@
 import operator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from functools import reduce
 from itertools import chain, combinations
@@ -8,16 +8,17 @@ from typing import ClassVar, Tuple, Iterable
 
 @dataclass
 class UnitSystem:
-    __instance__ = None
+    __instance__: ClassVar['UnitSystem'] = None
 
-    __dimensions__: ClassVar[dict[str, "Dimension"]] = dict()
-    __derived_dimensions__: ClassVar[dict[tuple[tuple["Dimension", int], ...], "Dimension"]] = dict()
+    __dimensions__: dict[str, "Dimension"] = field(default_factory=dict)
+    __derived_dimensions__: dict[tuple[tuple["Dimension", int], ...], "Dimension"] = field(default_factory=dict)
 
-    __primary_units__: ClassVar[dict[str, "Unit"]] = dict()
-    __derived_units__: ClassVar[dict[Tuple["Unit", Decimal], "Unit"]] = dict()
-    __complex_units__: ClassVar[dict[tuple[tuple["Unit", int], ...], "Unit"]] = dict()
+    __primary_units__: dict[str, "Unit"] = field(default_factory=dict)
+    __derived_units__: dict[Tuple["Unit", Decimal], "Unit"] = field(default_factory=dict)
+    __complex_units__: dict[tuple[tuple["Unit", int], ...], "Unit"] = field(default_factory=dict)
 
-    __contexts__: ClassVar[list["UnitConversionContext"]] = []
+    __contexts__: list["UnitConversionContext"] = field(default_factory=list)
+    __prefixes__: dict[str, Decimal] = field(default_factory=dict)
 
     @classmethod
     def instance(cls):
@@ -36,6 +37,10 @@ class UnitSystem:
         self.__class__.__instance__ = None
 
     def __setattr__(self, key, value):
+        if key in self.__class__.__dataclass_fields__:
+            object.__setattr__(self, key, value)
+            return
+
         from hg_oap.units.quantity import Quantity
         if isinstance(value, Quantity):
             from hg_oap.units.unit import PrimaryUnit, DerivedUnit, ComplexUnit
@@ -55,6 +60,14 @@ class UnitSystem:
                 self.__dimensions__[key] = value
 
         object.__setattr__(self, key, value)
+
+        from hg_oap.units.unit import Unit
+        if isinstance(value, Unit) and value.prefixes:
+            self.add_prefixes(value, value.prefixes)
+
+    def add_prefixes(self, unit, prefixes):
+        for p in prefixes:
+            self.__setattr__(f"{p}{unit.name}", self.__prefixes__[p] * unit)
 
     def enter_context(self, context: "UnitConversionContext"):
         self.__contexts__.append(context)

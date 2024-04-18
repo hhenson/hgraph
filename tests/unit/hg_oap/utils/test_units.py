@@ -155,7 +155,7 @@ def test_contexts_and_conversion_factors():
 
 
 def test_contexts_and_conversion_factors_2():
-    with (UnitSystem() as U):
+    with UnitSystem() as U:
         U.currency = PrimaryDimension()
         U.currency_unit = PrimaryUnit(dimension=U.currency)
         U.cent = DerivedUnit(primary_unit=U.currency_unit, ratio=Decimal('0.01'))
