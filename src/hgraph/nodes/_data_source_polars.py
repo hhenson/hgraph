@@ -72,7 +72,7 @@ def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polar
     # the data frame from the recorded data.
 
     # Split up columns and record them independently
-    for k, v in schema.items():
+    for k, v in schema._schema_items():
         if type(v) is not HgTSTypeMetaData:
             raise CustomMessageWiringError(
                 f"Schema '{ts.schema}' is not suitable for polars conversion as it is not a simple structure")
@@ -84,7 +84,7 @@ def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polar
 
     @_stub.stop
     def _stub_stop(location: str, schema: type[TS_SCHEMA]):
-        df_s = [pl.DataFrame(get_recorded_value(label=f"{location}::{k}"), schema=[time_col, k]) for k in schema.keys()]
+        df_s = [pl.DataFrame(get_recorded_value(label=f"{location}::{k}"), schema=[time_col, k]) for k in schema._schema_keys()]
         df = df_s[0]
         for df_other in df_s[1:]:
             df = df.join(df_other, on=time_col, how="outer_coalesce")

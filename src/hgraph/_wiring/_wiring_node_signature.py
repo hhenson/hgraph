@@ -9,7 +9,7 @@ from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 from frozendict import frozendict
 
 from hgraph._types._scalar_type_meta_data import HgEvaluationClockType, HgEvaluationEngineApiType, HgStateType, \
-    HgReplayType
+    HgReplayType, HgLoggerType
 from hgraph._runtime._node import InjectableTypes
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
     HgTypeOfTypeMetaData
@@ -413,6 +413,7 @@ def extract_injectable_inputs(**kwargs) -> InjectableTypes:
                        HgStateType: InjectableTypes.STATE,
                        HgOutputType: InjectableTypes.OUTPUT,
                        HgReplayType: InjectableTypes.REPLAY_STATE,
+                       HgLoggerType: InjectableTypes.LOGGER,
                    }.get(type(v), InjectableTypes(0)) for v in kwargs.values()),
                   InjectableTypes(0)
                   )

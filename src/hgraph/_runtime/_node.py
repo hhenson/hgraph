@@ -32,6 +32,7 @@ class InjectableTypes(IntFlag):
     CLOCK = auto()
     ENGINE_API = auto()
     REPLAY_STATE = auto()
+    LOGGER = auto()
 
 
 @dataclass

@@ -22,7 +22,7 @@ def tsb_get_item_by_name(tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SC
         if tsb.value.has_peer:
             return PythonTimeSeriesReference(tsb.value.output[key])
         else:
-            item = tsb.value.items[_schema.index_of(key)]
+            item = tsb.value.items[_schema._schema_index_of(key)]
             return item if isinstance(item, TimeSeriesReference) else PythonTimeSeriesReference(item)
     else:
         return PythonTimeSeriesReference()

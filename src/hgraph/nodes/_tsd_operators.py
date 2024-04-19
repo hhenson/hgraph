@@ -164,7 +164,7 @@ def tsd_get_bundle_item(tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Typ
             if v.value.has_peer:
                 out[k] = PythonTimeSeriesReference(v.value.output[key])
             else:
-                out[k] = PythonTimeSeriesReference(v.value[_schema.index_of(key)])
+                out[k] = PythonTimeSeriesReference(v.value[_schema._schema_index_of(key)])
         else:
             out[k] = PythonTimeSeriesReference()
 

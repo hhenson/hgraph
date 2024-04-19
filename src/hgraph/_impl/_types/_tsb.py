@@ -30,15 +30,24 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
 
     @property
     def value(self):
-        return {k: ts.value for k, ts in self.items() if ts.valid}
+        v = {k: ts.value for k, ts in self.items() if ts.valid}
+        if s := self.__schema__.scalar_type():
+            return s(**v)
+        else:
+            return v
 
     @value.setter
     def value(self, v: Mapping[str, Any] | None):
         if v is None:
             self.invalidate()
         else:
-            for k, v_ in v.items():
-                cast(TimeSeriesOutput, self[k]).value = v_
+            if type(v) is self.__schema__.scalar_type():
+                for k in self.__schema__._schema_keys():
+                    if i := getattr(v, k, None):
+                        cast(TimeSeriesOutput, self[k]).value = i
+            else:
+                for k, v_ in v.items():
+                    cast(TimeSeriesOutput, self[k]).value = v_
 
     def invalidate(self):
         if self.valid:
@@ -118,7 +127,11 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().value
         else:
-            return {K: ts.value for K, ts in self.items() if ts.valid}
+            v = {k: ts.value for k, ts in self.items() if ts.valid}
+            if s := self.__schema__.scalar_type():
+                return s(**v)
+            else:
+                return v
 
     @property
     def delta_value(self) -> Mapping[str, Any]:

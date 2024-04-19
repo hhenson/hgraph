@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import tempfile
@@ -146,12 +147,13 @@ class PerspectiveTablesManager:
 
 
 @sink_node
-def perspective_web(host: str, port: int, static: Dict[str, str] = None, 
+def perspective_web(host: str, port: int, static: Dict[str, str] = None,
                     table_template: str = "table_template.html",
-                    index_template: str = "index_template.html", 
+                    index_template: str = "index_template.html",
                     workspace_template: str = "workspace_template.html",
                     layouts_path: str = None,
-                    _sig: TS[bool] = True):
+                    _sig: TS[bool] = True,
+                    logger: logging.Logger = None):
     perspective_manager = PerspectiveTablesManager.current()
     app = GlobalState.instance()['tornado_app']
     started = False
@@ -172,11 +174,11 @@ def perspective_web(host: str, port: int, static: Dict[str, str] = None,
         while not started:
             time.sleep(0.1)
 
-        print(f"Perspective server started at http://{host}:{port}")
+        logger.info(f"Perspective server started at http://{host}:{port}")
     else:
         # we want the table publishing nodes to work but do not want the web server to run (for testing for ex)
         perspective_manager.set_loop_callback(lambda *args, **kwargs: None)
-        print(f"Perspective server not started")
+        logger.info(f"Perspective server not started")
 
 
 @perspective_web.start
@@ -259,7 +261,7 @@ class TablePageHandler(tornado.web.RequestHandler):
         self.port = port
 
     def get(self, table_name):
-        print('requesting table', table_name)
+        tornado.log.app_log.info('requesting table', table_name)
         if table_name in self.mgr.get_table_names():
             self.render(self.template, table_name=table_name, table=self.mgr.get_table(table_name), editable=self.mgr.is_table_editable(table_name), host=self.host, port=self.port)
         else:
@@ -276,7 +278,7 @@ class IndexPageHandler(tornado.web.RequestHandler):
         self.port = port
 
     def get(self, url):
-        print(f'requesting url {url} for template {self.index_template}')
+        tornado.log.app_log.info(f'requesting url {url} for template {self.index_template}')
         if url == '' or True:
             layouts = glob(os.path.join(self.layouts_path, f"{url or '*'}.json"))
             layouts = [os.path.basename(f).split('.json')[0] for f in layouts]
@@ -298,20 +300,20 @@ class WorkspacePageHandler(tornado.web.RequestHandler):
         self.path = path
 
     def get(self, url):
-        print(f'requesting workspace {url}')
+        tornado.log.app_log.info(f'requesting workspace {url}')
         if url != '':
             try:
                 if '.' in url and os.path.isfile(v_path := os.path.join(self.path, f"{url}.version")):
                     with open(v_path, 'r') as f:
                         json = f.read().encode('utf-8')
-                        print('loaded layout', url, 'returning', json)
+                        tornado.log.app_log.info('loaded layout', url, 'returning', json)
                         self.finish(json)
                         return
 
                 layout_file = os.path.join(self.path, f"{url}.json")
                 with open(layout_file, 'r') as f:
                     json = f.read().encode('utf-8')
-                    print('loaded layout', url, 'from', layout_file, 'returning', json)
+                    tornado.log.app_log.info('loaded layout', url, 'from', layout_file, 'returning', json)
                     self.finish(json)
             except:
                 files = glob(os.path.join(self.path, f"{url}.*.version"))
@@ -319,11 +321,11 @@ class WorkspacePageHandler(tornado.web.RequestHandler):
                     files.sort()
                     with open(files[-1], 'r') as f:
                         json = f.read().encode('utf-8')
-                        print('loaded layout', url, 'from', files[-1], 'returning', json)
+                        tornado.log.app_log.info('loaded layout', url, 'from', files[-1], 'returning', json)
                         self.finish(json)
                 else:
                     self.finish('{}')
-                    print('failed to open file', os.path.join(self.path, url), 'and no found no versions, returning {}')
+                    tornado.log.app_log.warn('failed to open file', os.path.join(self.path, url), 'and no found no versions, returning {}')
         else:
             self.set_status(404)
             self.finish("not found")
@@ -340,7 +342,7 @@ class WorkspacePageHandler(tornado.web.RequestHandler):
                     self.finish('ok')
                     return
 
-        print(f'posting workspace {url} at {layout_path} with {json}')
+        tornado.log.app_log.info(f'posting workspace {url} at {layout_path} with {json}')
         with open(layout_path, 'w') as f:
             f.write(json)
         with open(layout_path_hist, 'w') as f:

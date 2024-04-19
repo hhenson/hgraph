@@ -154,7 +154,7 @@ class TSBWiringPort(WiringPort):
         schema: TimeSeriesSchema = self.__schema__
         if type(item) is str:
             arg = item
-            ndx = schema.index_of(item)
+            ndx = schema._schema_index_of(item)
         elif type(item) is int:
             ndx = item
             arg = nth(schema.__meta_data_schema__.keys(), item)
@@ -176,6 +176,13 @@ class TSBWiringPort(WiringPort):
 
     def as_dict(self):
         return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}
+
+    def as_scalar_ts(self):
+        if self.__schema__.scalar_type() is None:
+            raise CustomMessageWiringError("The schema does not have a scalar type")
+
+        from hgraph.nodes import cs_from_tsb
+        return cs_from_tsb(self)
 
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
                   dst_path: tuple[SCALAR, ...]) -> \
@@ -202,6 +209,13 @@ class TSBREFWiringPort(WiringPort):
     def as_schema(self):
         """Support the as_schema syntax"""
         return self
+
+    def as_scalar_ts(self):
+        if self.__schema__.scalar_type() is None:
+            raise CustomMessageWiringError("The schema does not have a scalar type")
+
+        from hgraph.nodes import cs_from_tsb
+        return cs_from_tsb(self)
 
     def __getattr__(self, item):
         from hgraph.nodes._tsb_operators import tsb_get_item

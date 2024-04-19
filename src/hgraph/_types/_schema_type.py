@@ -25,23 +25,23 @@ class AbstractSchema:
     __partial_resolution_parent__: Type["AbstractSchema"]
 
     @classmethod
-    def index_of(cls, key: str) -> int:
+    def _schema_index_of(cls, key: str) -> int:
         return list(cls.__meta_data_schema__.keys()).index(key)
 
     @classmethod
-    def get(cls, key: str) -> "HgTypeMetaData":
+    def _schema_get(cls, key: str) -> "HgTypeMetaData":
         return cls.__meta_data_schema__.get(key)
 
     @classmethod
-    def items(cls) -> ItemsView[str, "HgTypeMetaData"]:
+    def _schema_items(cls) -> ItemsView[str, "HgTypeMetaData"]:
         return cls.__meta_data_schema__.items()
 
     @classmethod
-    def values(cls) -> ValuesView["HgTypeMetaData"]:
+    def _schema_values(cls) -> ValuesView["HgTypeMetaData"]:
         return cls.__meta_data_schema__.values()
 
     @classmethod
-    def keys(cls) -> KeysView[str]:
+    def _schema_keys(cls) -> KeysView[str]:
         return cls.__meta_data_schema__.keys()
 
     @classmethod
@@ -64,7 +64,7 @@ class AbstractSchema:
             s = cls._parse_type(v)
             if s is None:
                 raise ParseError(f"When parsing '{cls}', unable to parse item {k} with value {v}")
-            if k in schema and not (s_p := schema[k]).is_convertable(s):
+            if k in schema and not (s_p := schema[k]).matches(s):
                 raise ParseError(f"Attribute: '{k}' in '{cls}' is already defined in a parent as '{str(s_p)}'"
                                  f" but attempted to be redefined as '{str(s)}")
             schema[k] = s
@@ -73,7 +73,7 @@ class AbstractSchema:
     @classmethod
     def _root_cls(cls) -> Type["AbstractSchema"]:
         """This class or the __partial_resolution_parent__ if this is a partially resolved class"""
-        return getattr(cls, "__partial_resolution_parent__", cls)
+        return getattr(cls, "__partial_resolution_parent__", None) or getattr(cls, "__root__", cls)
 
     @classmethod
     def _create_resolved_class(cls, schema: dict[str, "HgTypeMetaData"]) -> Type["AbstractSchema"]:
@@ -85,6 +85,7 @@ class AbstractSchema:
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             r_cls = type(cls_name, (root_cls,), {})
             r_cls.__meta_data_schema__ = frozendict(schema)
+            r_cls.__root__ = root_cls
             r_cls.__name__ = f"{root_cls.__name__}[{suffix}]"
             cls.__resolved__[cls_name] = r_cls
         return r_cls
@@ -131,10 +132,13 @@ class AbstractSchema:
                 raise ParseError(f"In '{cls}' type '{k}': '{v}' was unable to parse as a valid type")
         if len(resolution_dict) < len(cls.__parameters__):
             # Only a partial resolution is place
-            return cls._create_partial_resolved_class(resolution_dict)
+            tp = cls._create_partial_resolved_class(resolution_dict)
+        else:
+            v: HgTypeMetaData
+            tp = cls._create_resolved_class({k: v.resolve(resolution_dict) for k, v in cls.__meta_data_schema__.items()})
 
-        v: HgTypeMetaData
-        return cls._create_resolved_class({k: v.resolve(resolution_dict) for k, v in cls.__meta_data_schema__.items()})
+        tp.__args__ = items
+        return tp
 
 
 AbstractSchema.__annotations__ = {}
