@@ -68,7 +68,7 @@ class Unit(ExprClass):
         if self.dimension is to.dimension:
             return self._do_convert(value, to)
         elif conversion_factor := UnitSystem.instance().conversion_factor(to.dimension/self.dimension):
-            converted_value = value * type(value)(conversion_factor.value)
+            converted_value = value * type(value)(conversion_factor.qty)
             converted_units = self * conversion_factor.unit
             return converted_units.convert(converted_value, to)
         else:
@@ -142,7 +142,7 @@ class DerivedUnit(Unit):
     def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), name=None, prefixes=None):
         from .quantity import Quantity
         if type(primary_unit) is Quantity:
-            ratio = primary_unit.value
+            ratio = primary_unit.qty
             primary_unit = primary_unit.unit
 
         if type(primary_unit) is DerivedUnit:
@@ -295,7 +295,7 @@ class ComplexUnit(Unit):
     def __new__(cls, components, name=None, prefixes=None):
         from hg_oap.units.quantity import Quantity
         if isinstance(components, Quantity):
-            scale = components.value
+            scale = components.qty
             components = components.unit._to_components()
         else:
             scale = None
