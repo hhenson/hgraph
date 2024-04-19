@@ -1,7 +1,11 @@
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, runtime_checkable, Protocol, Generic, Any, KeysView, ItemsView, ValuesView, Union
+from logging import Logger
+from types import GenericAlias
+from typing import TYPE_CHECKING, runtime_checkable, Protocol, Generic, Any, KeysView, ItemsView, ValuesView, Union, \
+    _GenericAlias
 from typing import TypeVar, Type
 
 from frozendict import frozendict
@@ -15,7 +19,7 @@ if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
-           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR")
+           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE")
 
 
 class _UnSet:
@@ -83,7 +87,7 @@ SCALAR = TypeVar("SCALAR", bound=object)
 KEYABLE_SCALAR = TypeVar("KEYABLE_SCALAR", bound=Hashable)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
 SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
-NUMBER = TypeVar("NUMBER", int, float)
+NUMBER = TypeVar("NUMBER", int, float, Decimal)
 
 
 class STATE(Generic[COMPOUND_SCALAR]):
@@ -210,6 +214,9 @@ class REPLAY_STATE:
         return "REPLAY_STATE"
 
 
+LOGGER = Logger
+
+
 def is_keyable_scalar(value) -> bool:
     """
     Is this value a supported scalar type. Not all python types are valid scalar types.
@@ -226,11 +233,11 @@ def is_keyable_scalar(value) -> bool:
                     issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum))))
             or
             (isinstance(value, TypeVar) and (
-                        value.__bound__ in (Hashable, bool, int, float, date, datetime, time, timedelta, str)
-                        or
-                        issubclass(value.__bound__, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum))
-                        or
-                        all(is_keyable_scalar(v) for v in value.__constraints__)
+                        is_keyable_scalar(value.__bound__) or all(is_keyable_scalar(v) for v in value.__constraints__)
+                        ))
+            or
+            (isinstance(value, (GenericAlias, _GenericAlias)) and (
+                        is_keyable_scalar(value.__origin__) and all(is_keyable_scalar(v) for v in value.__args__)
                         ))
     )
 

@@ -1,10 +1,10 @@
 from typing import Type
 
 from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, HgTypeMetaData, IncorrectTypeBinding, with_signature, \
-    TimeSeries, CustomMessageWiringError
+    TimeSeries, CustomMessageWiringError, TSB, AUTO_RESOLVE, TS_SCHEMA
 from hgraph._runtime._operators import getattr_
 
-__all__ = ("getattr_cs", "cs_from_ts")
+__all__ = ("getattr_cs", "cs_from_ts", "cs_from_tsb")
 
 
 @compute_node(overloads=getattr_, resolvers={SCALAR: lambda mapping, scalars: mapping[COMPOUND_SCALAR].meta_data_schema[scalars['attr']].py_type})
@@ -29,3 +29,8 @@ def cs_from_ts(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
         return cls(**{k: v if not isinstance(v, TimeSeries) else v.value for k, v in kwargs.items()})
 
     return from_ts_node(**kwargs)
+
+
+@compute_node(resolvers={COMPOUND_SCALAR: lambda mapping, tsb: mapping[TS_SCHEMA].py_type.scalar_type})
+def cs_from_tsb(tsb: TSB[TS_SCHEMA]) -> TS[COMPOUND_SCALAR]:
+    return tsb.value

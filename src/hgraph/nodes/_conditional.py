@@ -2,7 +2,7 @@ from typing import cast
 
 from hgraph import TS, compute_node, TIME_SERIES_TYPE, REF, TSL, PythonTimeSeriesReference, Size
 
-__all__ = ("if_then_else", "if_true")
+__all__ = ("if_then_else", "if_true", "route_ref", "filter_")
 
 
 @compute_node(valid=("condition",))
@@ -45,3 +45,9 @@ def if_true(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
 def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], Size[2]]:
     return cast(TSL,
                 (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))
+
+
+@compute_node
+def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    if condition.value:
+        return ts.value if condition.modified else ts.delta_value

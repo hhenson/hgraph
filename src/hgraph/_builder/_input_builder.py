@@ -1,7 +1,6 @@
 import typing
 
-from _pytest.nodes import Node
-
+from hgraph._runtime._node import Node
 from hgraph._builder._builder import Builder
 
 if typing.TYPE_CHECKING:

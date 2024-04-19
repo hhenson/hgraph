@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import ForwardRef
 
 from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext
 from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
@@ -13,7 +14,7 @@ class SimpleSchema(TimeSeriesSchema):
 
 
 @dataclass
-class LessSimpleBundle(SimpleSchema):
+class LessSimpleBundle(SimpleSchema, scalar_type=True):
     p2: TS[str]
     p3: SimpleSchema
 
@@ -33,6 +34,23 @@ def test_simple_bundle():
         assert b1.__schema__ == SimpleSchema
         assert b1.p1.__orig_eq__(p1)
         assert b1.as_schema.p1.__orig_eq__(p1)
+
+
+def test_simple_scalar_from_bundle():
+    scalar = SimpleSchema.to_scalar_schema()
+    assert is_compound_scalar(scalar)
+    assert scalar.__meta_data_schema__["p1"] == HgScalarTypeMetaData.parse_type(int)
+    assert len(scalar.__meta_data_schema__) == 1
+    i = scalar(p1=1)
+    assert i.p1 == 1
+
+
+def test_less_simple_scalar_from_bundle():
+    assert LessSimpleBundle.scalar_type is not None
+    assert LessSimpleBundle.scalar_type.__name__ == 'LessSimpleBundleStruct'
+    assert LessSimpleBundle.scalar_type.__meta_data_schema__["p1"] == HgScalarTypeMetaData.parse_type(int)
+    assert LessSimpleBundle.scalar_type.__meta_data_schema__["p2"] == HgScalarTypeMetaData.parse_type(str)
+    assert LessSimpleBundle.scalar_type.__meta_data_schema__["p3"] == HgScalarTypeMetaData.parse_type(SimpleSchema.to_scalar_schema())
 
 
 @dataclass(frozen=True)
@@ -75,3 +93,14 @@ class UnResolvedCompoundScalar(CompoundScalar):
 def test_unresolved_compound_scalar():
     hg_meta = HgCompoundScalarType.parse_type(UnResolvedCompoundScalar)
     assert not hg_meta.is_resolved
+
+
+def test_recursive_scalar():
+    @dataclass(frozen=True)
+    class RecursiveCompoundScalar(CompoundScalar):
+        p1: SCALAR
+        p2: ForwardRef("RecursiveCompoundScalar")
+
+    hg_meta = HgCompoundScalarType.parse_type(RecursiveCompoundScalar)
+    assert hg_meta.is_resolved
+    assert not hg_meta.is_atomic

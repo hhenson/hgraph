@@ -41,5 +41,5 @@ def format_tsb(format_str: TS[str], args: TSB[TS_SCHEMA], _schema: type[TS_SCHEM
 @format_tsb.start
 def format_tsb_start(_schema: type[TS_SCHEMA], _state: STATE):
     """Pre-parse structure to speed up processing"""
-    _state.args = tuple(k for k in _schema.keys() if _ARG_PATTERN.search(k) is not None)
-    _state.kwargs = tuple(k for k in _schema.keys() if _ARG_PATTERN.search(k) is None)
+    _state.args = tuple(k for k in _schema._schema_keys() if _ARG_PATTERN.search(k) is not None)
+    _state.kwargs = tuple(k for k in _schema._schema_keys() if _ARG_PATTERN.search(k) is None)

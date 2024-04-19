@@ -7,6 +7,7 @@ from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictSca
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
+from hgraph._types._scalar_types import CompoundScalar
 
 __all__ = ("HgTimeSeriesSchemaTypeMetaData", "HgTSBTypeMetaData",)
 
@@ -93,6 +94,8 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         from hgraph._types._tsb_type import TimeSeriesSchema
         if isinstance(value_tp, type) and issubclass(value_tp, TimeSeriesSchema) and not value_tp is TimeSeriesSchema:
             return HgTimeSeriesSchemaTypeMetaData(value_tp)
+        elif isinstance(value_tp, CompoundScalar):
+            return HgTimeSeriesSchemaTypeMetaData(TimeSeriesSchema.from_scalar_schema(value_tp))
         return None
 
     def __eq__(self, o: object) -> bool:

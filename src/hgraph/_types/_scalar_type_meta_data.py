@@ -1,4 +1,5 @@
 import itertools
+import logging
 from abc import abstractmethod
 from collections.abc import Mapping, Set
 from datetime import date, datetime, time, timedelta
@@ -9,7 +10,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE
+from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE, LOGGER
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -190,7 +191,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return issubclass(tp.py_type, self.py_type) if tp is HgAtomicType else False
 
     def is_convertable(self, tp: "HgTypeMetaData") -> bool:
-        return tp is HgAtomicType and self.py_type in tp.convertable_types
+        return type(tp) is HgAtomicType and (self.py_type == tp.py_type or self.py_type in tp.convertable_types)
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -294,7 +295,8 @@ class HgInjectableType(HgScalarTypeMetaData):
             EvaluationEngineApiInjector: lambda: HgEvaluationEngineApiType(),
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
-            REPLAY_STATE: lambda: HgReplayType()
+            REPLAY_STATE: lambda: HgReplayType(),
+            LOGGER: lambda: HgLoggerType()
         }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -358,6 +360,24 @@ class HgReplayType(HgInjectableType):
     @property
     def injector(self):
         return ReplayInjector()
+
+
+class LoggerInjector(Injector):
+    def __call__(self, node):
+        return logging.getLogger('hgraph')
+
+
+class HgLoggerType(HgInjectableType):
+    """
+    Injectable for replay state.
+    """
+
+    def __init__(self):
+        super().__init__(logging.Logger)
+
+    @property
+    def injector(self):
+        return LoggerInjector()
 
 
 class StateInjector(Injector):

@@ -1,13 +1,16 @@
 import functools
+import types
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
+from operator import getitem
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
-    ItemsView, ValuesView, cast
+    ItemsView, ValuesView, cast, ClassVar
 
 from frozendict import frozendict
 
 from hgraph._types._schema_type import AbstractSchema
-from hgraph._types._scalar_types import SCALAR
+from hgraph._types._scalar_types import SCALAR, CompoundScalar
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
@@ -17,7 +20,7 @@ from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
-        HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, WiringNodeInstance
+    HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, WiringNodeInstance, TS
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
            "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "ts_schema")
@@ -28,6 +31,100 @@ class TimeSeriesSchema(AbstractSchema):
     Describes a time series schema, this is similar to a data class, and produces a data class to represent
     it's point-in-time value.
     """
+    __scalar_type__: ClassVar[Type[SCALAR] | None] = None
+
+    @property
+    def scalar_type(self) -> Type[SCALAR]:
+        return self.__dict__.get("__scalar_type__")
+
+    def __init_subclass__(cls, **kwargs):
+        scalar_type = kwargs.pop("scalar_type", False)
+        super().__init_subclass__(**kwargs)
+
+        if scalar_type is True:
+            cls.scalar_type = cls.to_scalar_schema()
+        elif type(scalar_type) is type:
+            cls.scalar_type = scalar_type
+
+    def __class_getitem__(cls, item):
+        out = super(TimeSeriesSchema, cls).__class_getitem__(item)
+        if cls.scalar_type and item is not TS_SCHEMA:
+            out.scalar_type = out.to_scalar_schema()
+        return out
+
+    @staticmethod
+    def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
+        """
+        Creates a new schema from the scalar schema provided.
+        """
+        if schema is CompoundScalar:
+            return TimeSeriesSchema
+
+        assert issubclass(schema, CompoundScalar), f'Can only create bundle schema from scalar schemas, not {schema}'
+
+        if tsc_schema := schema.__dict__.get("__bundle_type__", None):
+            return tsc_schema
+
+        if (root := schema._root_cls()) and root is not schema:
+            root_bundle = TimeSeriesSchema.from_scalar_schema(root)
+            return root_bundle[schema.__args__]
+
+        from hgraph._types._ts_type import TS
+        annotations = {k: TS[v.py_type] for k, v in schema.__meta_data_schema__.items()}
+
+        bases = []
+        for b in schema.__bases__:
+            if issubclass(b, CompoundScalar):
+                bases.append(TimeSeriesSchema.from_scalar_schema(b))
+            elif b is Generic:
+                bases.append(Generic[schema.__parameters__])
+            else:
+                bases.append(b)
+
+        tsc_schema = types.new_class(f"{schema.__name__}Bundle",
+                                     tuple(bases),
+                                     None,
+                                     lambda ns: ns.update({"__annotations__": annotations, "__module__": schema.__module__}))
+
+        tsc_schema.__scalar_type__ = schema
+        schema.__bundle_type__ = tsc_schema
+        return tsc_schema
+
+    @classmethod
+    @functools.lru_cache(maxsize=None)
+    def to_scalar_schema(cls: Type["TimeSeriesSchema"]) -> Type[CompoundScalar]:
+        """
+        Converts a time series schema to a scalar schema.
+        """
+        if cls is TimeSeriesSchema:
+            return CompoundScalar
+
+        assert issubclass(cls, TimeSeriesSchema), f'Can only convert bundle schemas to scalar schemas, not {cls}'
+
+        if scalar_schema := cls.__dict__.get("__scalar_type__", None):
+            return scalar_schema
+
+        if (root := cls._root_cls()) and root is not cls:
+            root_scalar = root.to_scalar_schema()
+            return root_scalar[cls.__args__]
+
+        bases = tuple(b.to_scalar_schema() if issubclass(b, TimeSeriesSchema) else b
+                      for b in cls.__bases__)
+
+        from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData
+        annotations = {k: v.scalar_type().py_type
+                          if not type(v) is HgTimeSeriesSchemaTypeMetaData
+                          else v.py_type.to_scalar_schema()
+                       for k, v in cls.__meta_data_schema__.items()}
+
+        scalar_schema = type(f"{cls.__name__}Struct",
+                             bases,
+                             {"__annotations__": annotations, "__module__": cls.__module__})
+
+        scalar_schema = dataclass(scalar_schema, frozen=True)  #should this be kw_only too?
+
+        scalar_schema.__bundle_type__ = cls
+        return scalar_schema
 
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
@@ -75,17 +172,24 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
 
     def __class_getitem__(cls, item) -> Any:
         # For now limit to validation of item
-        out = super(TimeSeriesBundle, cls).__class_getitem__(item)
         if item is not TS_SCHEMA:
             from hgraph._types._type_meta_data import HgTypeMetaData
             if HgTypeMetaData.parse_type(item).is_scalar:
-                raise ParseError(
-                    f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+                if isinstance(item, type) and issubclass(item, CompoundScalar):
+                    item = TimeSeriesSchema.from_scalar_schema(item)
+                else:
+                    raise ParseError(
+                        f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+
+            out = super(TimeSeriesBundle, cls).__class_getitem__(item)
             if hasattr(out, "from_ts"):
                 fn = out.from_ts
                 code = fn.__code__
                 out.from_ts = functools.partial(fn, __schema__=item)
                 out.from_ts.__code__ = code
+        else:
+            out = super(TimeSeriesBundle, cls).__class_getitem__(item)
+
         return out
 
     @property

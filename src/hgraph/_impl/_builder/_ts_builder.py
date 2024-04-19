@@ -61,7 +61,7 @@ class PythonTSBOutputBuilder(TSBOutputBuilder):
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
         object.__setattr__(self, 'schema_builders', frozendict(
-            {k: factory.make_output_builder(v) for k, v in self.schema.items()}))
+            {k: factory.make_output_builder(v) for k, v in self.schema._schema_items()}))
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hgraph import PythonTimeSeriesBundleOutput
@@ -82,7 +82,7 @@ class PythonTSBInputBuilder(TSBInputBuilder):
     def __post_init__(self):
         factory = TimeSeriesBuilderFactory.instance()
         object.__setattr__(self, 'schema_builders', frozendict(
-            {k: factory.make_input_builder(v) for k, v in self.schema.items()}))
+            {k: factory.make_input_builder(v) for k, v in self.schema._schema_items()}))
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesBundleInput

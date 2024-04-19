@@ -1,6 +1,8 @@
+from dataclasses import dataclass
+
 import pytest
 
-from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError
+from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError, CompoundScalar
 from hgraph.test import eval_node
 
 
@@ -82,3 +84,16 @@ def test_ts_schema_error():
         assert False, "Should have raised an exception"
     except ParseError:
         ...
+
+
+def test_tsb_from_scalar():
+    @dataclass
+    class MyScalar(CompoundScalar):
+        p1: int
+        p2: str
+
+    @graph
+    def g(ts: TSB[MyScalar]) -> TS[int]:
+        return ts.p1
+
+    assert eval_node(g, MyScalar(1, "a")) == [1]
