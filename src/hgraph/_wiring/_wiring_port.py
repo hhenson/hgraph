@@ -178,7 +178,7 @@ class TSBWiringPort(WiringPort):
         return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}
 
     def as_scalar_ts(self):
-        if self.__schema__.scalar_type is None:
+        if self.__schema__.scalar_type() is None:
             raise CustomMessageWiringError("The schema does not have a scalar type")
 
         from hgraph.nodes import cs_from_tsb
@@ -211,7 +211,7 @@ class TSBREFWiringPort(WiringPort):
         return self
 
     def as_scalar_ts(self):
-        if self.__schema__.scalar_type is None:
+        if self.__schema__.scalar_type() is None:
             raise CustomMessageWiringError("The schema does not have a scalar type")
 
         from hgraph.nodes import cs_from_tsb

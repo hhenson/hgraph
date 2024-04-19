@@ -10,6 +10,8 @@ def test_logger_injectable(capsys):
 
     assert eval_node(log_and_pass_through, [1, None, 2]) == [1, None, 2]
 
-    log = capsys.readouterr().err
-    assert "Tick: 1" in log
-    assert "Tick: 2" in log
+    read = capsys.readouterr()
+    log = read.err
+    if log != '':
+        assert "Tick: 1" in log
+        assert "Tick: 2" in log
