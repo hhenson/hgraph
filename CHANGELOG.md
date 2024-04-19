@@ -288,3 +288,7 @@ Version 0.2.8 (10-04-2024)
 * Add perspective adaptor
 * Add support for generic services
 
+Version 0.2.9 (14-04-2024)
+--------------------------
+
+* Add ability to mark nodes as being deprecated.

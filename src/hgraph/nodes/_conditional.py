@@ -1,6 +1,6 @@
-from typing import cast
+from typing import cast, Generic
 
-from hgraph import TS, compute_node, TIME_SERIES_TYPE, REF, TSL, PythonTimeSeriesReference, Size
+from hgraph import TS, compute_node, TIME_SERIES_TYPE, REF, TSL, PythonTimeSeriesReference, Size, TimeSeriesSchema, TSB
 
 __all__ = ("if_then_else", "if_true", "route_ref", "filter_")
 
@@ -41,7 +41,27 @@ def if_true(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
         return True
 
 
-@compute_node
+class BoolResult(TimeSeriesSchema, Generic[TIME_SERIES_TYPE]):
+    true: REF[TIME_SERIES_TYPE]
+    false: REF[TIME_SERIES_TYPE]
+
+
+@compute_node(valid=("condition",))
+def if_(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSB[BoolResult[TIME_SERIES_TYPE]]:
+    """
+    Emits a tick with value True when the input condition ticks with False.
+    If tick_once_only is True then this will only tick once, otherwise this will tick with every tick of the condition,
+    when the condition is False.
+    """
+    if condition.value:
+        return {'true': ts.value if ts.valid else PythonTimeSeriesReference(),
+                'false': PythonTimeSeriesReference()}
+    else:
+        return {'false': ts.value if ts.valid else PythonTimeSeriesReference(),
+                'true': PythonTimeSeriesReference()}
+
+
+@compute_node(deprecated="Use if_ instead.")
 def route_ref(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], Size[2]]:
     return cast(TSL,
                 (ts.value, PythonTimeSeriesReference()) if condition.value else (PythonTimeSeriesReference(), ts.value))

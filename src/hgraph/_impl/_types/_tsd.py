@@ -77,7 +77,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             return
         # Expect a mapping of some sort or an iterable of k, v pairs
         for k, v_ in v.items() if isinstance(v, (dict, frozendict)) else v:
-            if v_ in (REMOVE, REMOVE_IF_EXISTS):
+            if v_ is REMOVE or v_ is REMOVE_IF_EXISTS:  # Supporting numpy arrays has its costs (==)
                 if v_ is REMOVE_IF_EXISTS and k not in self._ts_values:  # is check should be faster than contains check
                     continue
                 del self[k]

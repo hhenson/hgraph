@@ -87,6 +87,7 @@ class WiringNodeSignature:
     # supplied via inputs
     label: str | None = None  # A label if provided, this can help to disambiguate the node
     record_and_replay_id: str | None = None
+    deprecated: str  | bool = False
 
     @property
     def uses_scheduler(self) -> bool:
@@ -115,7 +116,8 @@ class WiringNodeSignature:
                     all_valid_inputs=self.all_valid_inputs,
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     injectable_inputs=self.injectable_inputs, label=self.label,
-                    record_and_replay_id=self.record_and_replay_id)
+                    record_and_replay_id=self.record_and_replay_id,
+                    deprecated=self.deprecated)
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
         kwargs_ = self.as_dict() | kwargs
@@ -318,10 +320,12 @@ class WiringNodeSignature:
                 if not v.dereference().matches(kwarg_types[k].dereference()):
                     raise IncorrectTypeBinding(v, kwarg_types[k])
 
+
 def extract_signature(fn, wiring_node_type: WiringNodeType,
                       active_inputs: frozenset[str] | None = None,
                       valid_inputs: frozenset[str] | None = None,
-                      all_valid_inputs: frozenset[str] | None = None) -> WiringNodeSignature:
+                      all_valid_inputs: frozenset[str] | None = None,
+                      deprecated: bool = False) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
     :param fn:
@@ -395,7 +399,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         time_series_args=time_series_inputs,
         injectable_inputs=injectable_inputs,
         label=None,
-        record_and_replay_id=None
+        record_and_replay_id=None,
+        deprecated=deprecated
     )
 
 

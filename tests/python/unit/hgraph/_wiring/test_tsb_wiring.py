@@ -1,8 +1,11 @@
 from dataclasses import dataclass
+from typing import Generic
 
 import pytest
 
-from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError, CompoundScalar
+from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError, TIME_SERIES_TYPE, \
+    SCALAR, SCALAR_1, AUTO_RESOLVE, CompoundScalar
+
 from hgraph.test import eval_node
 
 
@@ -97,3 +100,22 @@ def test_tsb_from_scalar():
         return ts.p1
 
     assert eval_node(g, MyScalar(1, "a")) == [1]
+
+    
+def test_generic_tsb():
+    from frozendict import frozendict as fd
+
+    class GenericTSB(TimeSeriesSchema, Generic[SCALAR]):
+        p1: TS[SCALAR]
+
+    @graph
+    def tsb_multi_type(ts: TSB[GenericTSB[SCALAR]], v: TS[SCALAR_1],
+                       _v_tp: type[SCALAR_1] = AUTO_RESOLVE) -> TSB[GenericTSB[SCALAR_1]]:
+        return TSB[GenericTSB[_v_tp]].from_ts(p1=v)
+
+    @graph
+    def g(ts1: TS[int], ts2: TS[str]) -> TSB[GenericTSB[str]]:
+        return tsb_multi_type(TSB[GenericTSB[int]].from_ts(p1=ts1), ts2)
+
+    assert eval_node(g, [1, 2], ["a", "b"]) == [fd({"p1": "a"}), fd({"p1": "b"})]
+

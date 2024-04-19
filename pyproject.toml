@@ -10,7 +10,12 @@ dependencies = [
     "sortedcontainers>=2.4.0",
     "ordered-set>=4.1.0",
     "numpy>=1.23",
-    "polars>=0.20.15",
+    "polars>=0.20.18",
+    "sqlalchemy",
+    "duckdb",
+    "pyarrow",
+#    "perspective",
+#    "tornado"
 ]
 requires-python = ">=3.11"
 authors = [
@@ -41,20 +46,20 @@ path = "src/hgraph/__about__.py"
 # Development Environment Config
 [tool.hatch.envs.default]
 dependencies = [
-  "coverage[toml]>=6.5",
-  "pytest",
+    "coverage[toml]>=6.5",
+    "pytest",
 ]
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args:tests}"
 test-cov = "coverage run -m pytest {args:tests}"
 cov-report = [
-  "- coverage combine",
-  "coverage report",
+    "- coverage combine",
+    "coverage report",
 ]
 cov = [
-  "test-cov",
-  "cov-report",
+    "test-cov",
+    "cov-report",
 ]
 
 [[tool.hatch.envs.all.matrix]]
@@ -63,7 +68,7 @@ python = ["3.11", "3.12"]
 # MyPy Type Checking
 [tool.hatch.envs.types]
 dependencies = [
-  "mypy>=1.0.0",
+    "mypy>=1.0.0",
 ]
 
 [tool.hatch.envs.types.scripts]
@@ -83,7 +88,7 @@ source_pkgs = ["hgraph", "tests"]
 branch = true
 parallel = true
 omit = [
-  "src/hgraph/__about__.py",
+    "src/hgraph/__about__.py",
 ]
 
 [tool.coverage.paths]
@@ -93,7 +98,7 @@ tests = ["tests", "*/hgraph/tests"]
 [tool.coverage.report]
 fail_under = 80
 exclude_lines = [
-  "no cov",
-  "if __name__ == .__main__.:",
-  "if TYPE_CHECKING:",
+    "no cov",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
 ]

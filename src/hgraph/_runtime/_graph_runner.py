@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from dataclasses import dataclass, field
 from datetime import datetime
 from logging import Logger, getLogger, DEBUG, StreamHandler, Formatter
 from typing import Callable, Any
@@ -7,7 +6,7 @@ from typing import Callable, Any
 from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph_executor import GraphEngineFactory
-from hgraph._runtime._graph_recorder import GraphRecorder
+import warnings
 
 __all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
@@ -28,7 +27,14 @@ def _default_logger() -> Logger:
         ch.setFormatter(formatter)
         # add ch to logger
         logger.addHandler(ch)
+    warnings.showwarning = warn_with_log
+    warnings.filterwarnings("once", category=DeprecationWarning)
     return logger
+
+
+def warn_with_log(message, category, filename, lineno, file=None, line=None):
+    log = getLogger("hgraph")
+    log.warning(f"{filename}:{lineno}: {category.__name__}: {message}")
 
 
 @dataclass

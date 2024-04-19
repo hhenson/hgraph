@@ -1,16 +1,14 @@
 import inspect
 from dataclasses import replace
-from types import GenericAlias
 from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple, List
 
 from frozendict import frozendict
 
-from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData, HgScalarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
-from hgraph._types._type_meta_data import HgTypeMetaData, ParseError, AUTO_RESOLVE
+from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_errors import WiringError, IncorrectTypeBinding, MissingInputsError, \
+from hgraph._wiring._wiring_errors import WiringError, MissingInputsError, \
     CustomMessageWiringError, WiringFailureError
 from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
@@ -173,8 +171,8 @@ class BaseWiringNodeClass(WiringNodeClass):
     def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                           **kwargs) -> "WiringNodeSignature":
         _, resolved_signature, _ = self._validate_and_resolve_signature(*args,
-                                                                     __pre_resolved_types__=__pre_resolved_types__,
-                                                                     **kwargs)
+                                                                        __pre_resolved_types__=__pre_resolved_types__,
+                                                                        **kwargs)
         return resolved_signature
 
     def _validate_and_resolve_signature(self, *args,
@@ -260,8 +258,8 @@ class BaseWiringNodeClass(WiringNodeClass):
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             # Now validate types and resolve any un-resolved types and provide an updated signature.
             kwargs_, resolved_signature, _ = self._validate_and_resolve_signature(*args,
-                                                                               __pre_resolved_types__=__pre_resolved_types__,
-                                                                               **kwargs)
+                                                                                  __pre_resolved_types__=__pre_resolved_types__,
+                                                                                  **kwargs)
 
             # TODO: This mechanism to work out rank may fail when using a delayed binding?
             match resolved_signature.node_type:
@@ -275,7 +273,12 @@ class BaseWiringNodeClass(WiringNodeClass):
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")
-
+            if self.signature.deprecated:
+                import warnings
+                warnings.warn(
+                    f"{self.signature.signature} is deprecated and will be removed in a future version."
+                    f"{(' ' + self.signature.deprecated) if type(self.signature.deprecated) is str else ''}",
+                    DeprecationWarning, stacklevel=3)
             wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank)
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
             # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
