@@ -31,6 +31,6 @@ def cs_from_ts(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
     return from_ts_node(**kwargs)
 
 
-@compute_node(resolvers={COMPOUND_SCALAR: lambda mapping, tsb: mapping[TS_SCHEMA].py_type.scalar_type})
+@compute_node(resolvers={COMPOUND_SCALAR: lambda mapping, tsb: mapping[TS_SCHEMA].py_type.scalar_type()})
 def cs_from_tsb(tsb: TSB[TS_SCHEMA]) -> TS[COMPOUND_SCALAR]:
     return tsb.value
