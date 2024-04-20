@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - 'main'
+
+  pull_request:
+    types: [ opened, reopened, synchronize, labeled ]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure latest pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install hatch
+        run: pip install hatch
+
+      - name: Build hgraph
+        run: hatch build
+
+      - name: Run tests
+        run: hatch run cov
