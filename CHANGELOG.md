@@ -307,4 +307,9 @@ Version 0.2.12 (19-04-2024)
 * Clean up schema accessor methods
 * Add ability to move between TSB and Scalar structures
 * Add filter_ node
-* 
+
+Version 0.2.13 (20-04-2024)
+---------------------------
+
+* Add support to publish directly from GitHub.
+
