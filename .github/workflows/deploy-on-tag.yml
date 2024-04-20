@@ -3,7 +3,7 @@ name: Deploy on New Tag
 on:
   push:
     tags:
-      - 'v*'
+      - 'v_*'
 
 jobs:
   deploy:
