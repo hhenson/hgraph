@@ -8,7 +8,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    environment: release
+    permissions:
+      # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -22,8 +25,5 @@ jobs:
       - name: Build hgraph
         run: hatch build
 
-      - name: Build and Publish to PyPI
-        env:
-          HATCH_INDEX_USER: $${{ secrets.PYPI_API_USER }}
-          HATCH_INDEX_AUTH: ${{ secrets.PYPI_API_TOKEN }}
-        run: hatch publish
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
