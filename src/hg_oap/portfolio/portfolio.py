@@ -49,7 +49,7 @@ class Portfolio(TimeSeriesSchema):
 
 @subscription_service
 def get_portfolio(portfolio_id: TS[PORTFOLIO_ID]) -> TSB[Portfolio]:
-    """Returns the porfolio TSB of a given portfolio_id"""
+    """Returns the portfolio TSB of a given portfolio_id"""
 
 
 @subscription_service

@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from hg_oap.instruments.instrument import Instrument
 from hg_oap.assets.asset import FinancialAsset
 
 
