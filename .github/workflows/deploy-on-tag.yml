@@ -25,5 +25,10 @@ jobs:
       - name: Build hgraph
         run: hatch build
 
+      - name: Run tests
+        run: hatch run test
+
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
