@@ -59,3 +59,13 @@ def test_dimensionless():
         assert U.length / U.dimensionless is U.length
         assert U.dimensionless / U.length**2 is U.length**-2
         assert U.length / U.length is U.dimensionless
+
+
+def test_dimension_qualifiers():
+    with UnitSystem() as U:
+        U.money = PrimaryDimension()
+        U.us_dollars = U.money.us_dollars
+        U.euros = U.money.euros
+        U.bitcoins = U.money.bitcoins
+
+        assert (U.euros / U.us_dollars).name == 'euros/us_dollars'

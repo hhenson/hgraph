@@ -4,11 +4,12 @@ from decimal import Decimal
 import pytest
 
 from hg_oap.units.unit import Unit
-from hg_oap.units.dimension import PrimaryDimension, DerivedDimension
+from hg_oap.units.dimension import PrimaryDimension, DerivedDimension, Dimension
 from hg_oap.utils.exprclass import ExprClass
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit
 from hg_oap.units.unit_system import UnitSystem, UnitConversionContext
+from hgraph import CompoundScalar
 
 
 def test_units():
@@ -135,6 +136,28 @@ def test_time_units():
         U.seconds = PrimaryUnit(dimension=U.time)
 
 
+def test_qualified_units():
+    with UnitSystem() as U:
+        U.money = PrimaryDimension()
+        U.us_dollars = U.money.us_dollars
+        U.USD = PrimaryUnit(dimension=U.us_dollars)
+        U.USX = Decimal('0.01') * U.USD
+
+        U.euros = U.money.euros
+        U.EUR = PrimaryUnit(dimension=U.euros)
+        U.EUX = Decimal('0.01') * U.EUR
+
+        U.bitcoins = U.money.bitcoins
+        U.BTC = PrimaryUnit(dimension=U.bitcoins)
+
+        assert U.USX.convert(100., to=U.USD) == 1.
+        assert U.EUX.convert(100., to=U.EUR) == 1.
+        assert (U.EUR/U.USD).name == 'EUR/USD'  # EUR/USD
+
+        with UnitConversionContext((Decimal(1.15) * (U.USD/U.EUR),)):
+            assert U.EUR.convert(1., to=U.USD) == 1.15
+
+
 def test_contexts_and_conversion_factors():
     with UnitSystem() as U:
         U.length = PrimaryDimension()
@@ -148,9 +171,9 @@ def test_contexts_and_conversion_factors():
         U.velocity = U.length / U.timespan
         U.meter_per_second = U.meter / U.second
 
-        my_speed = 2. * U.meter_per_second
+        my_speed = Decimal(2.) * U.meter_per_second
 
-        with UnitConversionContext({U.length/U.timespan: my_speed}):
+        with UnitConversionContext((my_speed,)):
             assert U.hour.convert(1., to=U.meter) == 7200.
 
 
@@ -183,7 +206,7 @@ def test_contexts_and_conversion_factors_2():
             density: Quantity
 
         @dataclass
-        class MyInstrument(ExprClass):
+        class MyInstrument(CompoundScalar, ExprClass, UnitConversionContext):
             asset: MyAsset
             lot_size: int
             unit: Unit
@@ -191,20 +214,17 @@ def test_contexts_and_conversion_factors_2():
             price_tick_size: Decimal
             price_currency: str
 
-            unit_conversion_factors: dict[tuple[Unit, Unit], Quantity] = \
-                lambda s: UnitConversionContext.make_conversion_factors((
-                    Quantity(Decimal(s.lot_size), s.unit / U.lot),
-                    s.asset.density,
-                ))
-
-            def unit_conversion_context(self):
-                return UnitConversionContext(self.unit_conversion_factors)
+            unit_conversion_factors: tuple[Quantity] = \
+                lambda self: (
+                    Quantity(Decimal(self.lot_size), self.unit / U.lot),
+                    self.asset.density,
+                )
 
 
         asset = MyAsset('corn', Quantity(Decimal('0.75'), U.kg / U.liter))
         instrument = MyInstrument(asset, 10000, U.bushel, U.cent, Decimal('0.25'), 'USD')
 
-        with instrument.unit_conversion_context():
+        with instrument:
             assert U.lot.convert(1., to=U.bushel) == 10000.
             assert U.lot.convert(1., to=U.cubic_meter) == 352.391
             assert U.lot.convert(1., to=U.mt) == 264.29325

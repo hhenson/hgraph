@@ -53,7 +53,7 @@ class UnitSystem:
 
         if value.name != key:
             if (desc := getattr(type(value), 'name', None)) and isinstance(desc, CallableDescriptor):
-                desc.__override_set__(value, key)
+                desc.__override__(value, key)
             else:
                 object.__setattr__(value, 'name', key)
 
@@ -87,8 +87,8 @@ class UnitSystem:
 
 
 class UnitConversionContext:
-    def __init__(self, conversion_factors: dict["Dimension", "Quantity[Decimal]"]):
-        self.conversion_factors = conversion_factors
+    def __init__(self, conversion_factors: tuple["Quantity[Decimal]"] = ()):
+        self.unit_conversion_factors = conversion_factors
 
     def __enter__(self):
         UnitSystem.instance().enter_context(self)
@@ -97,7 +97,11 @@ class UnitConversionContext:
         UnitSystem.instance().exit_context(self)
 
     def conversion_factor(self, dimension: "Dimension") -> "Quantity[Decimal]":
-        return self.conversion_factors.get(dimension, None)
+        if (ucf := getattr(self, "_unit_conversion_factors_lookup", None)) is None:
+            ucf = UnitConversionContext.make_conversion_factors(self.unit_conversion_factors)
+            self._unit_conversion_factors_lookup = ucf
+
+        return ucf.get(dimension, None)
 
     @staticmethod
     def make_conversion_factors(factors: Iterable["Quantity[Decimal]"]):

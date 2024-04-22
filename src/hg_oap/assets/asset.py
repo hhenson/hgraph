@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 
+from hg_oap.units.unit_system import UnitConversionContext
+from hg_oap.utils.exprclass import ExprClass
 from hgraph import CompoundScalar
 
 
 @dataclass(frozen=True)
-class Asset(CompoundScalar):
+class Asset(CompoundScalar, ExprClass, UnitConversionContext):
     """
     A thing of value that can be held. An asset can be an underlyer of an instrument.
     Whilst technically an asset is not an instrument, but for our purposes, it is convenient to thing of them

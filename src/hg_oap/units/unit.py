@@ -102,6 +102,10 @@ class PrimaryUnit(Unit):
         UnitSystem.instance().__primary_units__[dimension] = n
         return n
 
+    @property
+    def primary_unit(self):
+        return self
+
     def __pow__(self, power, modulo=None):
         return ComplexUnit(components=((self, power),))
 

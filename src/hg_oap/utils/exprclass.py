@@ -15,7 +15,7 @@ class _BaseExDescriptor:
 
     def __get__(self, instance, owner = None):
         if instance is not None:
-            if (v := getattr(instance, self.cache_name, None)) is not None:
+            if (v := instance.__dict__.get(self.cache_name, None)) is not None:
                 return v
 
             v = self.__calc__(instance)
@@ -34,7 +34,7 @@ class _BaseExDescriptor:
             else:
                 raise AttributeError(f'field {self.name} in {instance} is readonly')
 
-    def __override_set__(self, instance, value):
+    def __override__(self, instance, value):
         if value is not self and instance is not None:
             object.__setattr__(instance, self.cache_name, value)
             object.__setattr__(instance, self.overriden_name, True)
