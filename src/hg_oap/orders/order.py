@@ -42,6 +42,8 @@ class Order(TimeSeriesSchema):
     The fills time-series represent the stream of fills received on the order.
     """
     order_id: TS[str]
+    order_version: TS[int]
+    last_updated_by: TS[str]  # The client id who last updated the order
     order_type: TS[OrderType]
     originator_info: TS[OriginatorInfo]
     is_done: TS[bool]
