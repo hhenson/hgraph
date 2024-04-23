@@ -288,3 +288,28 @@ Version 0.2.8 (10-04-2024)
 * Add perspective adaptor
 * Add support for generic services
 
+Version 0.2.9 (14-04-2024)
+--------------------------
+
+* Add ability to mark nodes as being deprecated.
+
+
+Version 0.2.10, 11
+------------------
+
+* Experimental attempt to build with feature support
+
+
+Version 0.2.12 (19-04-2024)
+---------------------------
+
+* Add Logger injectable
+* Clean up schema accessor methods
+* Add ability to move between TSB and Scalar structures
+* Add filter_ node
+
+Version 0.2.13 (20-04-2024)
+---------------------------
+
+* Add support to publish directly from GitHub.
+

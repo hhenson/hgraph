@@ -31,7 +31,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
     @property
     def value(self):
         v = {k: ts.value for k, ts in self.items() if ts.valid}
-        if s := self.__schema__.scalar_type:
+        if s := self.__schema__.scalar_type():
             return s(**v)
         else:
             return v
@@ -41,7 +41,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
         if v is None:
             self.invalidate()
         else:
-            if type(v) is self.__schema__.__scalar_type__:
+            if type(v) is self.__schema__.scalar_type():
                 for k in self.__schema__._schema_keys():
                     if i := getattr(v, k, None):
                         cast(TimeSeriesOutput, self[k]).value = i
@@ -128,7 +128,7 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
             return super().value
         else:
             v = {k: ts.value for k, ts in self.items() if ts.valid}
-            if s := self.__schema__.scalar_type:
+            if s := self.__schema__.scalar_type():
                 return s(**v)
             else:
                 return v

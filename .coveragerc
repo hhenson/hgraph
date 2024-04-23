@@ -1,0 +1,6 @@
+[coverage:run]
+omit =
+    tests/*
+
+[coverage:report]
+fail_under = 80

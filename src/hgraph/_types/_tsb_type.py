@@ -33,22 +33,22 @@ class TimeSeriesSchema(AbstractSchema):
     """
     __scalar_type__: ClassVar[Type[SCALAR] | None] = None
 
-    @property
-    def scalar_type(self) -> Type[SCALAR]:
-        return self.__dict__.get("__scalar_type__")
+    @classmethod
+    def scalar_type(cls) -> Type[SCALAR]:
+        return cls.__dict__.get("__scalar_type__")
 
     def __init_subclass__(cls, **kwargs):
         scalar_type = kwargs.pop("scalar_type", False)
         super().__init_subclass__(**kwargs)
 
         if scalar_type is True:
-            cls.scalar_type = cls.to_scalar_schema()
+            cls.__scalar_type__ = cls.to_scalar_schema()
         elif type(scalar_type) is type:
-            cls.scalar_type = scalar_type
+            cls.__scalar_type__ = scalar_type
 
     def __class_getitem__(cls, item):
         out = super(TimeSeriesSchema, cls).__class_getitem__(item)
-        if cls.__scalar_type__ and item is not TS_SCHEMA:
+        if cls.scalar_type() and item is not TS_SCHEMA:
             out.__scalar_type__ = out.to_scalar_schema()
         return out
 
