@@ -196,12 +196,13 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolution_dict = self.signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
             resolved_inputs = self.signature.resolve_inputs(resolution_dict)
             resolved_output = self.signature.resolve_output(resolution_dict, weak=not __enforce_output_type__)
-            valid_inputs = self.signature.resolve_valid_inputs(**kwargs)
-            all_valid_inputs = self.signature.resolve_all_valid_inputs(**kwargs)
+            valid_inputs, has_valid_overrides = self.signature.resolve_valid_inputs(**kwargs)
+            all_valid_inputs, has_all_valid_overrides = self.signature.resolve_all_valid_inputs(**kwargs)
             resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
                                                                          resolved_inputs)
 
-            if self.signature.is_resolved:
+            if self.signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides:
+                self.signature.resolve_context_kwargs(kwargs, kwarg_types, resolved_inputs)
                 self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                 self.signature.validate_resolved_types(kwarg_types, kwargs)
                 return kwargs, self.signature if record_replay_id is None else self.signature.copy_with(
@@ -219,6 +220,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     active_inputs=self.signature.active_inputs,
                     valid_inputs=valid_inputs,
                     all_valid_inputs=all_valid_inputs,
+                    context_inputs=self.signature.context_inputs,
                     unresolved_args=frozenset(),
                     time_series_args=self.signature.time_series_args,
                     injectable_inputs=self.signature.injectable_inputs,  # This should not differ based on resolution
@@ -226,6 +228,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     record_and_replay_id=record_replay_id
                 )
                 if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
+                    resolve_signature.resolve_context_kwargs(kwargs, kwarg_types, resolved_inputs)
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     self.signature.validate_resolved_types(kwarg_types, kwargs)
                     return kwargs, resolve_signature, resolution_dict
@@ -270,8 +273,11 @@ class BaseWiringNodeClass(WiringNodeClass):
                 case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
                     rank = 1
                 case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE | WiringNodeType.SUBS_SVC:
-                    rank = max(v.rank for k, v in kwargs_.items() if
-                               v is not None and k in self.signature.time_series_args) + 1024  # leave enough space of all services
+                    upstream_rank = max(v.rank for k, v in kwargs_.items() if
+                               v is not None and k in self.signature.time_series_args)
+
+                    from hgraph import TimeSeriesContextTracker
+                    rank = max(upstream_rank + 1, 1024, TimeSeriesContextTracker.instance().max_context_rank() + 1)
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")

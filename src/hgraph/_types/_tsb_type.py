@@ -48,8 +48,8 @@ class TimeSeriesSchema(AbstractSchema):
 
     def __class_getitem__(cls, item):
         out = super(TimeSeriesSchema, cls).__class_getitem__(item)
-        if cls.scalar_type and item is not TS_SCHEMA:
-            out.scalar_type = out.to_scalar_schema()
+        if cls.__scalar_type__ and item is not TS_SCHEMA:
+            out.__scalar_type__ = out.to_scalar_schema()
         return out
 
     @staticmethod
@@ -292,6 +292,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             active_inputs=None,
             valid_inputs=None,
             all_valid_inputs=None,
+            context_inputs=None,
             unresolved_args=frozenset(),
             time_series_args=frozenset(kwargs.keys()),
         )

@@ -32,6 +32,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
         active_inputs=frozenset({"ts",}),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
+        context_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset({'ts',}),
         label=key
@@ -59,6 +60,7 @@ def create_output_stub(output: WiringPort):
         active_inputs=frozenset({"ts",}),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
+        context_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset({'ts',}),
         label="graph:out"

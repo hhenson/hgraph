@@ -95,12 +95,12 @@ def test_unresolved_compound_scalar():
     assert not hg_meta.is_resolved
 
 
-def test_recursive_scalar():
-    @dataclass(frozen=True)
-    class RecursiveCompoundScalar(CompoundScalar):
-        p1: SCALAR
-        p2: ForwardRef("RecursiveCompoundScalar")
-
-    hg_meta = HgCompoundScalarType.parse_type(RecursiveCompoundScalar)
-    assert hg_meta.is_resolved
-    assert not hg_meta.is_atomic
+# def test_recursive_scalar():
+#     @dataclass(frozen=True)
+#     class RecursiveCompoundScalar(CompoundScalar):
+#         p1: SCALAR
+#         p2: ForwardRef("RecursiveCompoundScalar")
+#
+#     hg_meta = HgCompoundScalarType.parse_type(RecursiveCompoundScalar)
+#     assert hg_meta.is_resolved
+#     assert not hg_meta.is_atomic

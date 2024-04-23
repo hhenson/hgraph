@@ -80,6 +80,7 @@ class WiringNodeSignature:
     active_inputs: frozenset[str] | None
     valid_inputs: frozenset[str] | None
     all_valid_inputs: frozenset[str] | None
+    context_inputs: frozenset[str] | None
     unresolved_args: frozenset[str]
     time_series_args: frozenset[str]
     injectable_inputs: InjectableTypes = InjectableTypes(0)
@@ -112,7 +113,7 @@ class WiringNodeSignature:
         return dict(node_type=self.node_type, name=self.name, args=self.args, defaults=self.defaults,
                     input_types=self.input_types, output_type=self.output_type, src_location=self.src_location,
                     active_inputs=self.active_inputs, valid_inputs=self.valid_inputs,
-                    all_valid_inputs=self.all_valid_inputs,
+                    all_valid_inputs=self.all_valid_inputs, context_inputs=self.context_inputs,
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     injectable_inputs=self.injectable_inputs, label=self.label,
                     record_and_replay_id=self.record_and_replay_id)
@@ -262,26 +263,26 @@ class WiringNodeSignature:
             raise IncorrectTypeBinding(HgTSBTypeMetaData(out_type), out_type)
         return out_type
 
-    def resolve_valid_inputs(self, **kwargs) -> frozenset[str]:
+    def resolve_valid_inputs(self, **kwargs) -> tuple[frozenset[str], bool]:
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if self.valid_inputs:
-                return frozenset(k for k in self.valid_inputs if k not in optional_inputs)
+                return (r := frozenset(k for k in self.valid_inputs if k not in optional_inputs)), r != self.valid_inputs
             else:
-                return frozenset(k for k in self.time_series_args if k not in optional_inputs)
+                return frozenset(k for k in self.time_series_args if k not in optional_inputs), True
         else:
-            return self.valid_inputs
+            return self.valid_inputs, False
 
-    def resolve_all_valid_inputs(self, **kwargs) -> frozenset[str] | None:
+    def resolve_all_valid_inputs(self, **kwargs) -> tuple[frozenset[str] | None, bool]:
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if self.all_valid_inputs:
                 # Remove any optional inputs from validity requirements if not provided.
-                return frozenset(k for k in self.all_valid_inputs if k not in optional_inputs)
+                return (r := frozenset(k for k in self.all_valid_inputs if k not in optional_inputs)), r != self.all_valid_inputs
             else:
-                return None
+                return None, False
         else:
-            return self.all_valid_inputs
+            return self.all_valid_inputs, False
 
     def resolve_auto_resolve_kwargs(self, resolution_dict, kwarg_types, kwargs, resolved_inputs):
         new_resolved_inputs = {}
@@ -307,6 +308,22 @@ class WiringNodeSignature:
                 kwargs[arg] = const(kwargs[arg], tp=v.py_type)
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
+
+    def resolve_context_kwargs(self, kwargs, kwarg_types, resolved_inputs):
+        if self.context_inputs:
+            for arg in self.context_inputs:
+                from hgraph import REQUIRED
+                if (v := kwargs.get(arg, None)) is None or v is REQUIRED:
+                    from hgraph import TimeSeriesContextTracker
+                    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+                    if c := TimeSeriesContextTracker.instance().find_context(
+                            resolved_inputs[arg].value_tp,
+                            WiringNodeInstanceContext.instance()):
+                        kwargs[arg] = c
+                        kwarg_types[arg] = c.output_type
+                    elif v is REQUIRED:
+                        raise CustomMessageWiringError(f"Context for argument '{arg}' is required, but not found")
+
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         for k, v in self.input_types.items():
@@ -348,6 +365,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         raise ParseError(f"The output type is not valid, did you mean TSB[{output_type.py_type.__name__}]")
     unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
+    context_inputs = frozenset(a for a in args if input_types[a].is_context)
+
 
     # Validations to ensure the signature matches the node type
     if wiring_node_type in (WiringNodeType.PULL_SOURCE_NODE, WiringNodeType.PUSH_SOURCE_NODE):
@@ -390,6 +409,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,
         all_valid_inputs=all_valid_inputs,
+        context_inputs=context_inputs,
         src_location=SourceCodeDetails(file=filename, start_line=first_line),
         unresolved_args=unresolved_inputs,
         time_series_args=time_series_inputs,

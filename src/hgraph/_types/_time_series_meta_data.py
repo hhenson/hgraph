@@ -41,10 +41,12 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
         from hgraph._types._ref_meta_data import HgREFTypeMetaData, HgREFOutTypeMetaData
         from hgraph._types._ts_signal_meta_data import HgSignalMetaData
+        from hgraph._types._context_meta_data import HgCONTEXTTypeMetaData
 
         parsers = (HgTSTypeMetaData, HgTSOutTypeMetaData, HgTSLTypeMetaData, HgTSLOutTypeMetaData, HgTSSTypeMetaData,
-                  HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
-                  HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData, HgSignalMetaData)
+                   HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
+                   HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData,
+                   HgSignalMetaData, HgCONTEXTTypeMetaData)
 
         if isinstance(value_tp, parsers):
             return value_tp

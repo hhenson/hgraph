@@ -53,6 +53,9 @@ class WiringNodeInstanceContext:
     def instance(cls) -> "WiringNodeInstanceContext":
         return cls.__stack__[-1]
 
+    def graph_nesting_depth(self) -> int:
+        return len(self.__stack__)
+
     def __enter__(self):
         self.__stack__.append(self)
 
@@ -130,6 +133,7 @@ class WiringNodeInstance:
             active_inputs=self.resolved_signature.active_inputs,
             valid_inputs=self.resolved_signature.valid_inputs,
             all_valid_inputs=self.resolved_signature.all_valid_inputs,
+            context_inputs=self.resolved_signature.context_inputs,
             injectable_inputs=self.resolved_signature.injectable_inputs,
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,

@@ -51,6 +51,7 @@ class NodeSignature:
     active_inputs: frozenset[str] | None = None
     valid_inputs: frozenset[str] | None = None
     all_valid_inputs: frozenset[str] | None = None
+    context_inputs: frozenset[str] | None = None
     injectable_inputs: InjectableTypes = InjectableTypes(0)
     capture_exception: bool = False
     trace_back_depth: int = 1

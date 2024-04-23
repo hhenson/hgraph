@@ -41,7 +41,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
         if v is None:
             self.invalidate()
         else:
-            if type(v) is self.__schema__.scalar_type:
+            if type(v) is self.__schema__.__scalar_type__:
                 for k in self.__schema__._schema_keys():
                     if i := getattr(v, k, None):
                         cast(TimeSeriesOutput, self[k]).value = i

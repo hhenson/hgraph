@@ -433,6 +433,7 @@ def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, n
         active_inputs=active_inputs,
         valid_inputs=valid_inputs,
         all_valid_inputs=all_valid_inputs,
+        context_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset(),
         injectable_inputs=extract_injectable_inputs(**kwargs)

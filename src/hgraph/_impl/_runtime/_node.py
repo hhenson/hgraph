@@ -2,6 +2,7 @@ import functools
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
@@ -156,15 +157,23 @@ class BaseNodeImpl(Node, ABC):
                 # so we need to check that something has caused this to be scheduled.
                 if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
                     return
-        if self.error_output:
-            try:
+
+        with ExitStack() if self.signature.context_inputs else nullcontext() as stack:
+            if self.signature.context_inputs:
+                for context in self.signature.context_inputs:
+                    if self.input[context].valid:
+                        stack.enter_context(self.input[context].value)
+
+            if self.error_output:
+                try:
+                    self.do_eval()
+                except Exception as e:
+                    out = None
+                    from hgraph._types._error_type import NodeError
+                    self.error_output.apply_result(NodeError.capture_error(e, self))
+            else:
                 self.do_eval()
-            except Exception as e:
-                out = None
-                from hgraph._types._error_type import NodeError
-                self.error_output.apply_result(NodeError.capture_error(e, self))
-        else:
-            self.do_eval()
+
         if scheduled:
             self._scheduler.advance()
         elif self.scheduler.is_scheduled:

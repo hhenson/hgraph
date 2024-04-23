@@ -71,9 +71,10 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                 cast(KeyStubEvalFn, node.eval_fn).key = self._active_key
             else:
                 ts = self.input[arg]
-                node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
-                # Now we need to re-parent the pruned ts input.
-                ts.re_parent(node.input)
+                if ts.output:
+                    node.input['ts'].bind_output(ts.output)
+                else:
+                    ts.value.bind_input(node.input['ts'])
 
         if self.output_node_ids:
             node: Node = graph.nodes[self.output_node_ids[self._active_key]]
