@@ -313,3 +313,8 @@ Version 0.2.13 (20-04-2024)
 
 * Add support to publish directly from GitHub.
 
+Version 0.2.14 (24-04-2024)
+---------------------------
+
+* Add context support
+* Add support for casting to base-class when wiring.
