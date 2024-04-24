@@ -292,6 +292,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             active_inputs=None,
             valid_inputs=None,
             all_valid_inputs=None,
+            context_inputs=None,
             unresolved_args=frozenset(),
             time_series_args=frozenset(kwargs.keys()),
         )

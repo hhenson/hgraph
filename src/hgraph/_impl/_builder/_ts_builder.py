@@ -3,6 +3,7 @@ from typing import Mapping, cast
 
 from frozendict import frozendict
 
+from hgraph import HgCONTEXTTypeMetaData
 from hgraph._builder._ts_builder import (TSOutputBuilder, TimeSeriesBuilderFactory,
                                          TSInputBuilder, TSBInputBuilder, TSSignalInputBuilder, TSBOutputBuilder,
                                          TSSOutputBuilder, TSSInputBuilder, TSLOutputBuilder, TSLInputBuilder,
@@ -285,7 +286,8 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
                                                              size_tp=cast(HgTSLTypeMetaData, value_tp).size_tp),
             HgTSDTypeMetaData: lambda: PythonTSDInputBuilder(key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp,
                                                              value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp),
-            HgREFTypeMetaData: lambda: PythonREFInputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp)
+            HgREFTypeMetaData: lambda: PythonREFInputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp),
+            HgCONTEXTTypeMetaData: lambda: self.make_input_builder(value_tp.value_tp)
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:

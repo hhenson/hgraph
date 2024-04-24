@@ -128,6 +128,7 @@ def _reduce_tsd(func, ts, zero):
         active_inputs=resolved_signature.active_inputs,
         valid_inputs=resolved_signature.valid_inputs,
         all_valid_inputs=resolved_signature.all_valid_inputs,
+        context_inputs=resolved_signature.context_inputs,
         unresolved_args=resolved_signature.unresolved_args,
         time_series_args=resolved_signature.time_series_args,
         injectable_inputs=resolved_signature.injectable_inputs,

@@ -68,12 +68,14 @@ class WiringGraphContext:
     def instance(cls) -> "WiringGraphContext":
         return WiringGraphContext.__stack__[-1] if WiringGraphContext.__stack__ else None
 
-    def __init__(self, node_signature: Optional[WiringNodeSignature]):
+    def __init__(self, node_signature: Optional[WiringNodeSignature] = None, temporary: bool = False):
         """
         If we are wiring the root graph, then there is no wiring node. In this case None is
         passed in.
         """
         self._wiring_node_signature: WiringNodeSignature = node_signature
+        self._temporary = temporary
+
         self._sink_nodes: ["WiringNodeInstance"] = []
         self._other_nodes: [Tuple["WiringPort", dict]] = []
         self._service_clients: [Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]]] = []
@@ -239,7 +241,7 @@ class WiringGraphContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         WiringGraphContext.__stack__.pop()
-        if WiringGraphContext.__stack__:
+        if not self._temporary and WiringGraphContext.__stack__:
             # For now lets bubble the sink nodes up.
             # It may be useful to track the sink nodes in the graph they are produced.
             # The alternative would be to track them only on the root node.

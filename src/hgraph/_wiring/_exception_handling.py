@@ -94,6 +94,7 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
             active_inputs=frozenset(),
             valid_inputs=frozenset(),
             all_valid_inputs=frozenset(),
+            context_inputs=None,
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
