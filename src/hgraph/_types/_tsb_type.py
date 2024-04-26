@@ -3,6 +3,7 @@ import types
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from inspect import isfunction, isdatadescriptor
 from operator import getitem
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
     ItemsView, ValuesView, cast, ClassVar
@@ -70,7 +71,8 @@ class TimeSeriesSchema(AbstractSchema):
             return root_bundle[schema.__args__]
 
         from hgraph._types._ts_type import TS
-        annotations = {k: TS[v.py_type] for k, v in schema.__meta_data_schema__.items()}
+        annotations = {k: TS[v.py_type] for k, v in schema.__meta_data_schema__.items()
+                       if not isfunction(d := getattr(schema, k, None)) and not isdatadescriptor(d)}
 
         bases = []
         for b in schema.__bases__:
@@ -252,6 +254,8 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
     @staticmethod
     def _validate_kwargs(schema: TS_SCHEMA, **kwargs):
         from hgraph._wiring._wiring_port import WiringPort
+        from hgraph._types._type_meta_data import HgTypeMetaData
+
         meta_data_schema: dict[str, "HgTypeMetaData"] = schema.__meta_data_schema__
         if any(k not in meta_data_schema for k in kwargs.keys()):
             from hgraph._wiring._wiring_errors import InvalidArgumentsProvided
@@ -267,6 +271,20 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
                     with WiringContext(current_arg=k, current_signature=STATE(
                             signature=f"TSB[{schema.__name__}].from_ts({', '.join(kwargs.keys())})")):
                         raise IncorrectTypeBinding(expected_type=meta_data_schema[k], actual_type=v.output_type)
+            elif isinstance(v, TimeSeriesInput):
+                pass
+            elif meta_data_schema[k].scalar_type().matches(HgTypeMetaData.parse_value(v)):
+                from hgraph.nodes import const
+                kwargs[k] = const(v, tp=meta_data_schema[k].py_type)
+            else:
+                from hgraph import IncorrectTypeBinding
+                from hgraph import WiringContext
+                from hgraph import STATE
+                with WiringContext(current_arg=k, current_signature=STATE(
+                        signature=f"TSB[{schema.__name__}].from_ts({', '.join(kwargs.keys())})")):
+                    raise IncorrectTypeBinding(expected_type=meta_data_schema[k], actual_type=v)
+
+        return kwargs
 
     @staticmethod
     def from_ts(**kwargs) -> "TimeSeriesBundleInput[TS_SCHEMA]":
@@ -296,7 +314,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             unresolved_args=frozenset(),
             time_series_args=frozenset(kwargs.keys()),
         )
-        TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
+        kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSBWiringPort, WiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)

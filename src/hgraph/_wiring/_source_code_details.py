@@ -11,7 +11,7 @@ class SourceCodeDetails:
     start_line: int
 
     def __str__(self):
-        return f"{str(self.file)}: {self.start_line}"
+        return f"{str(self.file)}:{self.start_line}"
 
     def __lt__(self, other):
         return str(self) < str(other)

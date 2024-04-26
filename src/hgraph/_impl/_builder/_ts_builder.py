@@ -287,7 +287,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSDTypeMetaData: lambda: PythonTSDInputBuilder(key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp,
                                                              value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp),
             HgREFTypeMetaData: lambda: PythonREFInputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp),
-            HgCONTEXTTypeMetaData: lambda: self.make_input_builder(value_tp.value_tp)
+            HgCONTEXTTypeMetaData: lambda: self.make_input_builder(value_tp.ts_type)
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:

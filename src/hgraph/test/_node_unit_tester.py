@@ -73,7 +73,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
         # Dealing with scalar to time-series support
         max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
         set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
-    observers = [EvaluationTrace()] if __trace__ else []
+    observers = [EvaluationTrace(**(__trace__ if type(__trace__) is dict else {}))] if __trace__ else []
     observers.extend(__observers__ if __observers__ else [])
     run_graph(eval_node_graph, life_cycle_observers=observers)
 

@@ -156,7 +156,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
 
         if n in kwargs: # provided as keyword
             if isinstance(kwargs[n], (WiringPort, _MappingMarker)):
-                tp = kwargs[n].output_type
+                tp = kwargs[n].output_type.dereference()
                 if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
                     annotations[n] = tp.value_tp
                 else:
@@ -585,4 +585,4 @@ def _validate_multiplex_types(signature: WiringNodeSignature, kwargs_, multiplex
                 (m_type := kwargs_[arg].output_type.dereference()).value_tp):
             raise CustomMessageWiringError(
                 f"The input '{arg}: {m_type}' is a multiplexed type, "
-                f"but its '{m_type.value_tp}' is not compatible with the input type: {in_type}")
+                f"but its value type '{m_type.value_tp}' is not compatible with the input type of the inner graph: {in_type}")

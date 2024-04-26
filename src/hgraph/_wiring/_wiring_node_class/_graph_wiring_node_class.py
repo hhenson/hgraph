@@ -171,7 +171,7 @@ class WiringGraphContext:
             return item
         else:
             if not quiet:
-                raise CustomMessageWiringError(f"No service implementation found for path: {typed_path}")
+                raise CustomMessageWiringError(f"No service implementation found for path: {typed_path or path}")
 
     def add_built_service_impl(self, path, node):
         if node:

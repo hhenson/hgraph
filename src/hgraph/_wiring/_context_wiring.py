@@ -1,9 +1,9 @@
 import inspect
 import sys
 from contextlib import AbstractContextManager
-from typing import Mapping, Any
+from typing import Mapping, Any, Type
 
-from hgraph._types import TS, SCALAR, SCALAR_1, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData
+from hgraph._types import AUTO_RESOLVE, TS, TSB, TS_SCHEMA, SCALAR, SCALAR_1, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
@@ -66,11 +66,18 @@ class TimeSeriesContextTracker(AbstractContextManager):
 
     def find_context(self, tp, graph_scope):
         for context, scope, depth, path in reversed(self.contexts):
-            if tp.matches(context.output_type):
+
+            if tp.is_scalar and tp.matches(context.output_type.dereference().scalar_type()):
+                match = True
+            elif not tp.is_scalar and tp.matches(context.output_type):
+                match = True
+            else:
+                match = False
+
+            if match:
                 if graph_scope == scope:  # the consumer is on the same graph as the producer
                     return context
                 else:
-                    from hgraph.nodes import get_shared_reference_output
                     from hgraph import TIME_SERIES_TYPE
                     return get_context_output[TIME_SERIES_TYPE: context.output_type](path, depth - 1)
         return None
@@ -92,8 +99,9 @@ def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None):
 @capture_context.start
 def capture_context_start(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE):
     """Place the reference into the global state"""
-    state.path = f"context-{ts.value.output.owning_node.owning_graph_id}-{path}"
-    GlobalState.instance()[state.path] = ts.value
+    source = ts.output or ts.value.output
+    state.path = f"context-{source.owning_node.owning_graph_id}-{path}"
+    GlobalState.instance()[state.path] = ts
 
 
 @capture_context.stop
@@ -122,18 +130,26 @@ class ContextNodeClass(BaseWiringNodeClass):
                 """The service must be available by now, so we can retrieve the output reference."""
                 from hgraph._runtime._global_state import GlobalState
                 path = f'context-{self.owning_graph_id[:self.scalars["depth"]*2]}-{self.scalars["path"]}'
-                shared_output = GlobalState.instance().get(path)
-                if shared_output is None:
+                shared_input = GlobalState.instance().get(path)
+                if shared_input is None:
                     raise RuntimeError(f"Missing shared output for path: {path}")
+                elif shared_input.has_peer: # it is a reference with a per so its value might update
+                    output = shared_input.output
+                    output.subscribe(self)
+                    if self.subscribed_output is not None and self.subscribed_output is not output:
+                        self.subscribed_output.unsubscribe(self)
+                    self.subscribed_output = output
                 # NOTE: The output needs to be a reference value output so we can set the value and continue!
-                self.output.value = shared_output
+                self.output.value = shared_input.value  # might be none
 
             def do_start(self):
-                """Make sure we get notified to serve the service output reference"""
+                """Make sure we get notified to serve the reference"""
+                self.subscribed_output = None
                 self.notify()
 
             def do_stop(self):
-                """Nothing to do, but abstract so must be implemented"""
+                if self.subscribed_output is not None:
+                    self.subscribed_output.unsubscribe(self)
 
         return PythonNodeImplNodeBuilder(
             signature=node_signature,
@@ -151,7 +167,15 @@ def get_context_output(path: str, depth: int) -> REF[TIME_SERIES_TYPE]:
 
 
 @graph(resolvers={SCALAR_1: lambda m, s: get_context_manager_base(m[SCALAR].py_type)})
-def enter_ts_context(context: TS[SCALAR]) -> TS[SCALAR_1]:
+def enter_ts_context(context: TS[SCALAR], tp: Type[SCALAR_1] = AUTO_RESOLVE) -> TS[SCALAR]:
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+    TimeSeriesContextTracker.instance().enter_context(context, WiringNodeInstanceContext.instance())
+
+    return context
+
+
+@graph(overloads=enter_ts_context, resolvers={SCALAR_1: lambda m, s: get_context_manager_base(m[TS_SCHEMA].py_type.scalar_type())})
+def enter_ts_context_tsb(context: TSB[TS_SCHEMA], tp: Type[SCALAR_1] = AUTO_RESOLVE) -> TSB[TS_SCHEMA]:
     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
     TimeSeriesContextTracker.instance().enter_context(context, WiringNodeInstanceContext.instance())
 
@@ -162,7 +186,7 @@ WiringPort.__enter__ = lambda s: enter_ts_context(s)
 
 
 @graph  # __enter__ will have checked SCALAR is a context manager class
-def exit_ts_context(context: TS[SCALAR]):
+def exit_ts_context(context: TIME_SERIES_TYPE):
     TimeSeriesContextTracker.instance().exit_context(context)
 
 

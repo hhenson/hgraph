@@ -147,7 +147,7 @@ WiringPort.__eq__ = lambda x, y: eq_(x, y)
 
 @graph
 def ne_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
-    from hgraph.nodes import not_
+    from hgraph import not_
     return not_(lhs == rhs)
 
 

@@ -96,7 +96,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         graph.initialise()
         self._wire_graph(key, graph)
         graph.start()
-        self._evaluate_graph(key)
+        self._scheduled_keys[key] = self.last_evaluation_time
 
     def _remove_graph(self, key: K):
         """Un-wire graph and schedule for removal"""
