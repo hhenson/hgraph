@@ -5,6 +5,8 @@ from typing import Tuple
 from hg_oap.units.unit_system import UnitSystem
 from hg_oap.utils.exprclass import ExprClass
 
+__all__ = ("Dimension", "Dimensionless", "PrimaryDimension", "DerivedDimension", "QualifiedDimension")
+
 
 @dataclass(frozen=True, kw_only=True, init=False)
 class Dimension(ExprClass):

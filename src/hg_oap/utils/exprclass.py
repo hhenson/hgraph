@@ -4,7 +4,7 @@ from datetime import date
 from inspect import isfunction, signature
 
 from hg_oap.dates.dgen import make_date, is_dgen
-from hg_oap.utils.magic import Op, Expression, is_op
+from hg_oap.utils.op import Op, Expression, is_op
 
 __all__ = ("dataclassex", 'exprclass', 'ExprClass')
 

@@ -1,5 +1,8 @@
 from dataclasses import dataclass
+from decimal import Decimal
 
+from hg_oap.quanity.quantity import Quantity
+from hg_oap.units.unit import Unit
 from hg_oap.units.unit_system import UnitConversionContext
 from hg_oap.utils.exprclass import ExprClass
 from hgraph import CompoundScalar
@@ -21,6 +24,9 @@ class PhysicalAsset(Asset):
     A tangible thing, for example: raw materials, infrastructure, equipment, etc.
     """
     name: str
+    unit: Unit  # The basic unit used to measure the asset
+    unit_conversion_factors: tuple[Quantity[Decimal]]  # Properties of the asset that can be used to convert between
+                                                       # units of different dimensions - i.e. density for mass/volume
 
 
 @dataclass(frozen=True)

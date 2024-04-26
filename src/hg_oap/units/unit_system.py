@@ -8,6 +8,8 @@ from typing import ClassVar, Tuple, Iterable
 from hg_oap.utils.exprclass import CallableDescriptor
 
 
+__all__ = ("UnitSystem", "UnitConversionContext")
+
 @dataclass
 class UnitSystem:
     __instance__: ClassVar['UnitSystem'] = None
@@ -99,7 +101,7 @@ class UnitConversionContext:
     def conversion_factor(self, dimension: "Dimension") -> "Quantity[Decimal]":
         if (ucf := getattr(self, "_unit_conversion_factors_lookup", None)) is None:
             ucf = UnitConversionContext.make_conversion_factors(self.unit_conversion_factors)
-            self._unit_conversion_factors_lookup = ucf
+            object.__setattr__(self, '_unit_conversion_factors_lookup', ucf)
 
         return ucf.get(dimension, None)
 

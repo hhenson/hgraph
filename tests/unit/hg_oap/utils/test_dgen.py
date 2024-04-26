@@ -6,7 +6,7 @@ import pytest
 from hg_oap.dates.calendar import WeekendCalendar, HolidayCalendar
 from hg_oap.dates.dgen import make_date, make_dgen, days, weeks, weekdays, weekends, months, years, business_days, roll_fwd, \
     roll_bwd
-from hg_oap.utils.magic import Expression
+from hg_oap.utils.op import Expression
 from hg_oap.dates.tenor import Tenor
 
 
@@ -198,7 +198,7 @@ def test_date_generator():
 
 
 def test_date_expressions():
-    from hg_oap.utils.magic import ParameterOp
+    from hg_oap.utils.op import ParameterOp
     _0 = ParameterOp(_index=0)
     _1 = ParameterOp(_index=1)
 
