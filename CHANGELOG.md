@@ -325,3 +325,5 @@ Version 0.2.15 (TBD)
 
 * Add unroll node
 * Clean up feedback signature
+* Clean up inputs
+

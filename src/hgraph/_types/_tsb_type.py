@@ -3,24 +3,21 @@ import types
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from operator import getitem
 from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYPE_CHECKING, Mapping, KeysView, \
     ItemsView, ValuesView, cast, ClassVar
 
 from frozendict import frozendict
 
-from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._scalar_types import SCALAR, CompoundScalar
+from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._typing_utils import nth
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
-    HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, WiringNodeInstance, TS
+    HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, TS
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
            "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "ts_schema")
@@ -140,6 +137,7 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
         schema = {k: HgTimeSeriesTypeMetaData.parse_type(v) for k, v in kwargs.items()}
         if any(v is None for v in schema.values()):
             bad_inputs = {k: v for k, v in kwargs.items() if schema[k] is None}
+            from hgraph._wiring._wiring_errors import CustomMessageWiringError
             raise CustomMessageWiringError(f"The following inputs are not valid time-series types: {bad_inputs}")
         return cls.create_resolved_schema(schema)
 
@@ -280,7 +278,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         schema: TS_SCHEMA = kwargs.pop("__schema__")
         fn_details = TimeSeriesBundleInput.from_ts.__code__
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSBTypeMetaData, \
-            HgTimeSeriesSchemaTypeMetaData, WiringNodeInstance
+            HgTimeSeriesSchemaTypeMetaData
         wiring_node_signature = WiringNodeSignature(
             node_type=WiringNodeType.STUB,
             name=f"TSB[{schema.__name__}].from_ts",
@@ -300,6 +298,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSBWiringPort, WiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
+        from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
         wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,

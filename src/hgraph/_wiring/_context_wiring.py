@@ -3,7 +3,11 @@ import sys
 from contextlib import AbstractContextManager
 from typing import Mapping, Any
 
-from hgraph._types import TS, SCALAR, SCALAR_1, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData
+from hgraph._types._ts_type import TS
+from hgraph._types._scalar_types import SCALAR, SCALAR_1, STATE
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._ref_type import REF
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node

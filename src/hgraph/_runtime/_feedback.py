@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from typing import Generic
+from typing import Generic, TYPE_CHECKING
 
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._decorators import sink_node
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._wiring._wiring_node_class._pull_source_node_class import last_value_source_node
-from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
+
+if TYPE_CHECKING:
+    from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = ("feedback",)
 
@@ -20,7 +20,7 @@ def _feedback_sink(ts: TIME_SERIES_TYPE, ts_self: TIME_SERIES_TYPE):
 @dataclass
 class FeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
 
-    _delegate: WiringPort
+    _delegate: "WiringPort"
     _bound: bool = False
 
     def __call__(self, ts: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
@@ -28,6 +28,7 @@ class FeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
             return self._delegate
 
         if self._bound:
+            from hgraph._wiring._wiring_errors import CustomMessageWiringError
             raise CustomMessageWiringError(f"feeback is already bounded")
         self._bound = True
         _feedback_sink(ts, self._delegate)
@@ -53,6 +54,8 @@ def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> FeedbackWir
     fb(out)  # Bind the value to the feedback node
     ```
     """
+    from hgraph._wiring._wiring_port import _wiring_port_for
+    from hgraph._wiring._wiring_node_class._pull_source_node_class import last_value_source_node
     node_instance = last_value_source_node("feedback", tp_, default)
     real_wiring_port = _wiring_port_for(node_instance.output_type, node_instance, tuple())
     return FeedbackWiringPort(_delegate=real_wiring_port)
