@@ -1,7 +1,10 @@
-from typing import Type, TypeVar
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Type, TypeVar, Generic
 
 from hgraph import SCALAR, TS, HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, compute_node, \
-    with_signature, TimeSeries, HgTupleFixedScalarType, HgTupleCollectionScalarType, TSL
+    with_signature, TimeSeries, HgTupleFixedScalarType, HgTupleCollectionScalarType, TSL, STATE, CompoundScalar, \
+    SCHEDULER, MIN_TD
 from hgraph._runtime._operators import getitem_
 from hgraph.nodes import flatten_tsl_values
 
@@ -50,3 +53,25 @@ def tuple_from_ts(cls: Type[TUPLE], *args, all_valid: bool = True) -> TS[TUPLE]:
         return flatten_tsl_values(TSL.from_ts(*args), all_valid=all_valid)
     else:
         raise IncorrectTypeBinding(TUPLE, cls)
+
+
+@dataclass
+class UnrollState(CompoundScalar, Generic[SCALAR]):
+    buffer: deque[SCALAR] = field(default_factory=deque)
+
+
+@compute_node
+def unroll(ts: TS[tuple[SCALAR]], _state: STATE[UnrollState[SCALAR]] = None, _schedule: SCHEDULER = None) -> TS[SCALAR]:
+    """
+    The values contained in the tuple are unpacked and returned one at a time until all values are unpacked.
+    """
+    if ts.modified:
+        _state.buffer.extend(ts.value)
+
+    if _state.buffer:
+        d: deque[SCALAR] = _state.buffer
+        v = d.popleft()
+        if d:
+            _schedule.schedule(MIN_TD)
+        return v
+
