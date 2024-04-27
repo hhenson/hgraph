@@ -318,3 +318,9 @@ Version 0.2.14 (24-04-2024)
 
 * Add context support
 * Add support for casting to base-class when wiring.
+
+
+Version 0.2.15 (TBD)
+--------------------
+
+* Add unroll node

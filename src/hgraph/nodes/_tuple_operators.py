@@ -61,7 +61,8 @@ class UnrollState(CompoundScalar, Generic[SCALAR]):
 
 
 @compute_node
-def unroll(ts: TS[tuple[SCALAR]], _state: STATE[UnrollState[SCALAR]] = None, _schedule: SCHEDULER = None) -> TS[SCALAR]:
+def unroll(ts: TS[tuple[SCALAR, ...]],
+           _state: STATE[UnrollState[SCALAR]] = None, _schedule: SCHEDULER = None) -> TS[SCALAR]:
     """
     The values contained in the tuple are unpacked and returned one at a time until all values are unpacked.
     """
