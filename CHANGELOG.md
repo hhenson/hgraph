@@ -320,8 +320,8 @@ Version 0.2.14 (24-04-2024)
 * Add support for casting to base-class when wiring.
 
 
-Version 0.2.15 (TBD)
---------------------
+Version 0.2.15 (27-04-2024)
+---------------------------
 
 * Add unroll node
 * Clean up feedback signature
