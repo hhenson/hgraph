@@ -1,10 +1,11 @@
 from hgraph import graph, TS, TSB, compute_node, register_service
+from hgraph.nodes import nothing
 from hgraph.test import eval_node
 
 from hg_oap.instruments.instrument import Instrument
 from hg_oap.orders.order import OrderState, SingleLegOrder, OriginatorInfo
 from hg_oap.orders.order_service import order_handler, OrderRequest, OrderResponse, order_client, \
-    CreateOrderRequest
+    CreateOrderRequest, OrderHandlerOutput, OrderEvent
 from hg_oap.orders.order_type import MarketOrderType
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit
@@ -15,13 +16,13 @@ from hg_oap.units.unit import Unit
 def simple_handler(
         request: TS[OrderRequest],
         order_state: TSB[OrderState[SingleLegOrder]]
-) -> TS[OrderResponse]:
+) -> TSB[OrderHandlerOutput]:
     """
     Simple example
     """
     request: OrderRequest = request.value
     result = OrderResponse.accept(request)
-    return result
+    return dict(order_response=result)
 
 
 def test_simple_handler():

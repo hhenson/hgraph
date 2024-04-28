@@ -4,10 +4,10 @@ from typing import Any, TypeVar, cast
 
 from frozendict import frozendict
 from hgraph import request_reply_service, reference_service, TSD, TS, CompoundScalar, service_impl, feedback, TSB, \
-    compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE
+    compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema
 from hgraph.nodes._tuple_operators import unroll
 
-from hg_oap.orders.order import OriginatorInfo, ORDER, OrderState, SingleLegOrder, MultiLegOrder
+from hg_oap.orders.order import OriginatorInfo, ORDER, OrderState, SingleLegOrder, MultiLegOrder, Fill
 from hg_oap.orders.order_type import OrderType, MultiLegOrderType, SingleLegOrderType
 
 
@@ -121,11 +121,54 @@ class OrderReject(OrderResponse):
     reason: str
 
 
+@dataclass(frozen=True)
+class OrderEvent(CompoundScalar):
+    """
+    Order events are created by order handlers, they can interact order state and make changes that are not as a direct
+    response to a request. These include Fills, UnsolicitedCancels, UnsolicitedSuspend and UnsolicitedResume events.
+    """
+    order_id: str
+
+
+@dataclass(frozen=True)
+class FillEvent(OrderEvent):
+    fill: Fill
+
+
+@dataclass(frozen=True)
+class UnsolicitedCancelEvent(OrderEvent):
+    """Cancelled from the server side"""
+    reason: str
+
+
+@dataclass(frozen=True)
+class UnsolicitedSuspendEvent(OrderEvent):
+    key: str
+
+
+@dataclass(frozen=True)
+class UnsolicitedResumeEvent(OrderEvent):
+    key: str
+
+
 @request_reply_service
 def order_client(path: str, request: TS[OrderRequest]) -> TS[OrderResponse]:
     """
     Order client allows sending order requests to the order service.
     """
+
+
+@dataclass
+class OrderHandlerOutput(TimeSeriesSchema):
+    """Response structure from a """
+    order_response: TS[OrderResponse]
+    order_event: TS[OrderEvent]
+
+
+@dataclass
+class OrderHandlerOutputs(TimeSeriesSchema):
+    order_responses: TS[tuple[OrderResponse, ...]]
+    order_events: TS[tuple[OrderEvent, ...]]
 
 
 def order_handler(fn):
@@ -139,7 +182,7 @@ def order_handler(fn):
         request: TS[OrderRequest],
         order_state: TSB[OrderState[SingleLegOrder]]
         **kwargs
-    ) -> TS[OrderResponse]:
+    ) -> TSB[OrderHandlerOutput]:
         ...
 
     If the handler is designed to handle multiple orders, the other options
@@ -152,7 +195,7 @@ def order_handler(fn):
         request: TSD[str, tuple[OrderRequest,...]],
         order_state: TSD[str, TSB[OrderState[SingleLegOrder]]]
         **kwargs
-    ) -> TSD[str, TS[tuple[OrderResponse,...]]]:
+    ) -> TSD[str, TSB[OrderHandlerOutputs]]:
         ...
 
     The result of this is a service impl allows for handling order requests
@@ -182,7 +225,7 @@ def order_handler(fn):
 
     @service_impl(interfaces=(order_states, order_client))
     def _order_handler_impl(path: str):
-        order_responses_fb = feedback(TSD[str, TS[tuple[OrderResponse, ...]]])
+        order_responses_fb = feedback(TSD[str, TSB[OrderHandlerOutputs]])
 
         order_client_input = order_client.wire_impl_inputs_stub(path).request
         requests = _convert_to_tsd_by_order_id(order_client_input)
@@ -192,12 +235,12 @@ def order_handler(fn):
         order_states.wire_impl_out_stub(path, order_state)
 
         if needs_map:
-            result: TSD[str, TS[tuple[OrderResponse, ...]]] = \
+            result: TSD[str, TSB[OrderHandlerOutputs]] = \
                 map_(lambda request_, order_state_: _to_tuple(fn(unroll(request_), order_state_)), requests,
                      order_state)
         else:
             requests = _flatten(requests)
-            result: TSD[str, TS[tuple[OrderResponse, ...]]] = \
+            result: TSD[str, TSB[OrderHandlerOutputs]] = \
                 fn(requests, order_state)
 
         order_responses_fb(result)
@@ -218,7 +261,7 @@ def _key_from_request(request: OrderRequest) -> tuple:
 
 @compute_node(valid=("requests",))
 def _map_response_to_request(
-        requests: TSD[int, TS[OrderRequest]], responses: TSD[str, TS[tuple[OrderResponse, ...]]],
+        requests: TSD[int, TS[OrderRequest]], responses: TSD[str, TSB[OrderHandlerOutputs]],
         _state: STATE[MapRequestToIdSate] = None) -> TSD[int, TS[OrderResponse]]:
     d = _state.requests
     if requests.modified:
@@ -226,17 +269,25 @@ def _map_response_to_request(
             d[_key_from_request(request.value)] = key
     if responses.modified:
         out = {}
-        for responses_ in responses.modified_values():
-            for response in responses_.value:
-                request = response.original_request
-                key = d.pop(_key_from_request(request))
-                out[key] = response
+        for output in responses.modified_values():
+            if output.order_responses.modified:
+                for response in output.order_responses.value:
+                    request = response.original_request
+                    key = d.pop(_key_from_request(request))
+                    out[key] = response
         return out
 
 
 @compute_node
-def _to_tuple(ts: TS[OrderResponse]) -> TS[tuple[OrderResponse, ...]]:
-    return (ts.value,)
+def _to_tuple(tsb: TSB[OrderHandlerOutput]) -> TSB[OrderHandlerOutputs]:
+    out = {}
+    if tsb.order_response.modified:
+        out['order_responses'] = (tsb.order_response.value,)
+
+    if tsb.order_event.modified:
+        out['order_events'] = (tsb.order_event.value,)
+
+    return out
 
 
 @compute_node
@@ -261,7 +312,7 @@ class PendingRequests:
 @compute_node(valid=("requests",))
 def _compute_order_state_single(
         requests: TS[tuple[OrderRequest, ...]],
-        responses: TS[tuple[OrderResponse, ...]],
+        responses: TSB[OrderHandlerOutputs],
         _state: STATE[PendingRequests] = None,
         _output: TSB_OUT[OrderState[ORDER]] = None
 ) -> TSB[OrderState[SingleLegOrder]]:
@@ -271,18 +322,20 @@ def _compute_order_state_single(
     requested = _output.requested.value
 
     if responses.modified:
-        responses = {response.version: response for response in responses.value}
-        _state.pending_requests = [request for request in _state.pending_requests if request.version not in responses]
-        # Apply responses to confirmed state
-        for response in responses.values():
-            confirmed, delta = apply_confirmation(confirmed, response)
-            out_confirmed.update(delta)
+        if responses.order_responses.modified:
+            order_responses = responses.order_responses.value
+            order_responses = {response.version: response for response in order_responses}
+            _state.pending_requests = [request for request in _state.pending_requests if request.version not in responses]
+            # Apply responses to confirmed state
+            for response in order_responses.values():
+                confirmed, delta = apply_confirmation(confirmed, response)
+                out_confirmed.update(delta)
 
-        requested = confirmed
-        out_requested = requested
-        for request in _state.pending_requests:
-            requested, delta = apply_requested_single_leg(requested, request)
-            out_requested.update(delta)
+            requested = confirmed
+            out_requested = requested
+            for request in _state.pending_requests:
+                requested, delta = apply_requested_single_leg(requested, request)
+                out_requested.update(delta)
 
     if requests.modified:
         _state.pending_requests.extend(requests.value)
@@ -337,7 +390,7 @@ def apply_requested_single_leg(requested: dict, request: OrderRequest) -> tuple[
 @compute_node
 def _compute_order_state_multi(
         requests: TS[tuple[OrderRequest, ...]],
-        responses: TS[tuple[OrderResponse, ...]],
+        responses: TSB[OrderHandlerOutputs],
         _state: STATE[PendingRequests] = None,
         _output: TSB_OUT[OrderState[ORDER]] = None
 ) -> TSB[OrderState[MultiLegOrderType]]:
