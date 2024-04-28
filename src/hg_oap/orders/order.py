@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Generic
+from typing import Generic, TypeVar
 
 from hgraph import TimeSeriesSchema, TS, TSS, CompoundScalar, TSD, TSB
 
 from hg_oap.orders.order_type import OrderType, MultiLegOrderType, SingleLegOrderType
 from hg_oap.pricing.price import Price
-from hg_oap.quanity.quantity import Quantity, UNIT
+from hg_oap.units.quantity import Quantity
 
 
 @dataclass
@@ -52,13 +52,13 @@ class Order(TimeSeriesSchema):
 
 
 @dataclass
-class SingleLegOrder(Order, Generic[UNIT]):
+class SingleLegOrder(Order):
     """
     Orders that operate on a single leg. These orders deal with a single instrument and a quantity.
     """
     order_type: TS[SingleLegOrderType]
-    remaining_qty: TSB[Quantity[UNIT]]
-    filled_qty: TSB[Quantity[UNIT]]
+    remaining_qty: TSB[Quantity[float]]
+    filled_qty: TSB[Quantity[float]]
     filled_notional: TSB[Price]
     is_filled: TS[bool]
     fills: TS[Fill]
@@ -68,15 +68,32 @@ LEG_ID = str
 
 
 @dataclass
-class MultiLegOrder(Order, Generic[UNIT]):
+class MultiLegOrder(Order):
     """
     Orders that operate over multiple legs. These orders operate over multiple single leg order types.
     Example of these types of orders include IfDone, OneCancelOther, etc.
     """
     order_type: TS[MultiLegOrderType]
-    remaining_qty: TSD[LEG_ID, TSB[Quantity[UNIT]]]
-    filled_qty: TSD[LEG_ID, TSB[Quantity[UNIT]]]
+    remaining_qty: TSD[LEG_ID, TSB[Quantity[float]]]
+    filled_qty: TSD[LEG_ID, TSB[Quantity[float]]]
     filled_notional: TSD[LEG_ID, TSB[Price]]
     is_filled: TSD[LEG_ID, TS[bool]]
     is_leg_done: TSD[LEG_ID, TS[bool]]
     fills: TSD[LEG_ID, TS[Fill]]
+
+
+ORDER = TypeVar("ORDER", SingleLegOrder, MultiLegOrder)
+
+
+@dataclass
+class OrderState(TimeSeriesSchema, Generic[ORDER]):
+    """
+    The order state is the couple of requested and confirmed order state.
+    The requested state the order as requested by the initiator of an order.
+    The confirmed state is that which has been confirmed by the implementor
+    of the order. These should ultimately converge.
+    The requested state is effectively the confirmed state plus the
+    effect of the pending requests.
+    """
+    requested: TSB[ORDER]
+    confirmed: TSB[ORDER]

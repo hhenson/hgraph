@@ -5,7 +5,7 @@ from hgraph import CompoundScalar, HgScalarTypeMetaData, HgScalarTypeVar
 
 from hg_oap.instruments.instrument import Instrument
 from hg_oap.pricing.price import Price
-from hg_oap.quanity.quantity import Quantity
+from hg_oap.units.quantity import Quantity
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class OrderType(CompoundScalar):
 @dataclass(frozen=True)
 class SingleLegOrderType(OrderType):
     instrument: Instrument
-    quantity: Quantity
+    quantity: Quantity[float]
 
 
 SINGLE_LEG_ORDER_TYPE = TypeVar("SINGLE_LEG_ORDER_TYPE", bound=SingleLegOrderType)
