@@ -7,8 +7,11 @@ from hgraph import request_reply_service, reference_service, TSD, TS, CompoundSc
     compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema
 from hgraph.nodes._tuple_operators import unroll
 
+from hg_oap.assets.currency import Currency, Currencies
 from hg_oap.orders.order import OriginatorInfo, ORDER, OrderState, SingleLegOrder, MultiLegOrder, Fill
 from hg_oap.orders.order_type import OrderType, MultiLegOrderType, SingleLegOrderType
+from hg_oap.pricing.price import Price
+from hg_oap.units.quantity import Quantity
 
 
 @reference_service
@@ -128,6 +131,10 @@ class OrderEvent(CompoundScalar):
     response to a request. These include Fills, UnsolicitedCancels, UnsolicitedSuspend and UnsolicitedResume events.
     """
     order_id: str
+
+    @staticmethod
+    def create_fill(confirmed: dict, fill: Fill) -> "FillEvent":
+        return FillEvent(order_id=confirmed['order_id'], fill=fill)
 
 
 @dataclass(frozen=True)
@@ -337,6 +344,14 @@ def _compute_order_state_single(
                 requested, delta = apply_requested_single_leg(requested, request)
                 out_requested.update(delta)
 
+        if responses.order_events.modified:
+            order_events = responses.order_events.value
+            for order_event in order_events:
+                confirmed, delta = apply_event_single_leg(confirmed, order_event)
+                out_confirmed.update(delta)
+                out_requested.update(delta)
+                requested.update(delta)
+
     if requests.modified:
         _state.pending_requests.extend(requests.value)
         for request in requests.value:
@@ -344,6 +359,18 @@ def _compute_order_state_single(
             out_requested.update(delta)
 
     return {"requested": out_requested, "confirmed": out_confirmed}
+
+
+def apply_event_single_leg(confirmed: dict, event: OrderEvent) -> tuple[dict, dict]:
+    out = {}
+    if isinstance(event, FillEvent):
+        out['fills'] = event.fill
+        out['filled_qty'] = confirmed['filled_qty'] + event.fill.qty
+        out['remaining_qty'] = confirmed['remaining_qty'] - event.fill.qty
+        out['filled_notional'] = confirmed['filled_notional'] + event.fill.notional
+
+    confirmed.update(confirmed)
+    return confirmed, out
 
 
 def apply_confirmation(confirmed: dict, response: OrderResponse) -> tuple[Any, dict]:
@@ -361,7 +388,7 @@ def apply_confirmation(confirmed: dict, response: OrderResponse) -> tuple[Any, d
             is_suspended=False,
             remaining_qty=order_type.quantity,
             filled_qty=dict(qty=0.0, unit=order_type.quantity.unit),
-            filled_notional=dict(price=0.0),
+            filled_notional=dict(price=0.0, currency=Currencies.USD.value),
             is_filled=False,
         )
         return v, v
@@ -381,7 +408,7 @@ def apply_requested_single_leg(requested: dict, request: OrderRequest) -> tuple[
             is_suspended=False,
             remaining_qty=order_type.quantity,
             filled_qty=dict(qty=0.0, unit=order_type.quantity.unit),
-            filled_notional=dict(price=0.0),
+            filled_notional=dict(price=0.0, currency=Currencies.USD.value),
             is_filled=False,
         )
         return v, v

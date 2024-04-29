@@ -30,9 +30,9 @@ class Fill(CompoundScalar):
     thus fill price is notional / qty.
     """
     fill_id: str
-    additional_ids: tuple[str, ...]
-    qty: float
-    notional: float
+    qty: Quantity[float]
+    notional: Price
+    additional_ids: tuple[str, ...] = tuple()
 
 
 @dataclass
