@@ -75,7 +75,10 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         # not sure if there are other scalar types applicable
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
-        return HgTypeMetaData.parse_type(Dict[str, object])
+        if s := self.py_type.scalar_type():
+            return HgTypeMetaData.parse_type(s)
+        else:
+            return HgTypeMetaData.parse_type(Dict[str, object])
 
     @property
     def has_references(self) -> bool:

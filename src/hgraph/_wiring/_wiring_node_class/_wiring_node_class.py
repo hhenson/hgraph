@@ -196,11 +196,13 @@ class BaseWiringNodeClass(WiringNodeClass):
             resolved_output = self.signature.resolve_output(resolution_dict, weak=not __enforce_output_type__)
             valid_inputs, has_valid_overrides = self.signature.resolve_valid_inputs(**kwargs)
             all_valid_inputs, has_all_valid_overrides = self.signature.resolve_all_valid_inputs(**kwargs)
+            valid_inputs, has_valid_overrides = self.signature.resolve_context_kwargs(kwargs, kwarg_types,
+                                                                                      resolved_inputs, valid_inputs,
+                                                                                      has_valid_overrides)
             resolved_inputs = self.signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
                                                                          resolved_inputs)
 
             if self.signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides:
-                self.signature.resolve_context_kwargs(kwargs, kwarg_types, resolved_inputs)
                 self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                 self.signature.validate_resolved_types(kwarg_types, kwargs)
                 return kwargs, self.signature if record_replay_id is None else self.signature.copy_with(
@@ -226,7 +228,6 @@ class BaseWiringNodeClass(WiringNodeClass):
                     record_and_replay_id=record_replay_id
                 )
                 if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
-                    resolve_signature.resolve_context_kwargs(kwargs, kwarg_types, resolved_inputs)
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     self.signature.validate_resolved_types(kwarg_types, kwargs)
                     return kwargs, resolve_signature, resolution_dict
@@ -340,7 +341,7 @@ def create_input_output_builders(
     return input_builder, output_builder, error_builder
 
 
-class PreResolvedWiringNodeWrapper(WiringNodeClass):
+class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
     """Wraps a WiringNodeClass_ instance with the associated resolution dictionary"""
 
     underlying_node: BaseWiringNodeClass
@@ -366,6 +367,11 @@ class PreResolvedWiringNodeWrapper(WiringNodeClass):
 
     def __call__(self, *args, **kwargs) -> "WiringPort":
         more_resolved_types = kwargs.pop('__pre_resolved_types__', None) or {}
+
+        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=more_resolved_types)
+        if found_overload:
+            return r
+
         return self.underlying_node(*args,
                                     __pre_resolved_types__={**self.resolved_types, **more_resolved_types},
                                     **kwargs)

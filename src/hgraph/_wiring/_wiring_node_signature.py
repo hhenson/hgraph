@@ -252,6 +252,9 @@ class WiringNodeSignature:
         if self.is_resolved:
             return self.input_types
 
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in resolution_dict.items() if
+                                                          isinstance(v, HgTypeMetaData)} if resolution_dict else {}
+
         input_types = {}
         for arg, meta_data in self.input_types.items():
             input_types[arg] = meta_data.resolve(resolution_dict, weak)
@@ -311,7 +314,7 @@ class WiringNodeSignature:
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
-    def resolve_context_kwargs(self, kwargs, kwarg_types, resolved_inputs):
+    def resolve_context_kwargs(self, kwargs, kwarg_types, resolved_inputs, valid_inputs, has_valid_overrides):
         if self.context_inputs:
             for arg in self.context_inputs:
                 from hgraph import REQUIRED
@@ -323,9 +326,12 @@ class WiringNodeSignature:
                             WiringNodeInstanceContext.instance()):
                         kwargs[arg] = c
                         kwarg_types[arg] = c.output_type
+                        return (frozenset((valid_inputs or set()) | {arg}),
+                                has_valid_overrides or valid_inputs is None or arg not in valid_inputs)
                     elif v is REQUIRED:
                         raise CustomMessageWiringError(f"Context for argument '{arg}' is required, but not found")
 
+        return valid_inputs, has_valid_overrides
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         for k, v in self.input_types.items():

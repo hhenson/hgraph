@@ -14,7 +14,7 @@ def getattr_cs(ts: TS[COMPOUND_SCALAR], attr: str) -> TS[SCALAR]:
 
 def cs_from_ts(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
     scalar_schema = cls.__meta_data_schema__
-    kwargs_schema = {k: HgTypeMetaData.parse_value(v) for k, v in kwargs.items()}
+    kwargs_schema = {k: HgTypeMetaData.parse_value(v).dereference() for k, v in kwargs.items()}
 
     for k, t in scalar_schema.items():
         if (kt := kwargs_schema.get(k)) is None:

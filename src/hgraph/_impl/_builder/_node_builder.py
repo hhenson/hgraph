@@ -1,5 +1,7 @@
 from abc import ABC
+from copy import copy
 from dataclasses import dataclass
+from inspect import isfunction
 from typing import Callable, TypeVar
 
 from hgraph._builder._node_builder import NodeBuilder
@@ -46,7 +48,7 @@ class PythonNodeBuilder(PythonBaseNodeBuilder):
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
-            eval_fn=self.eval_fn,
+            eval_fn=self.eval_fn if isfunction(self.eval_fn) else copy(self.eval_fn),
             start_fn=self.start_fn,
             stop_fn=self.stop_fn
         )

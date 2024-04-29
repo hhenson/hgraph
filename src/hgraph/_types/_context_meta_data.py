@@ -8,53 +8,70 @@ from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
 
 class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
-    """Parses CONTEXT[TS[...]]"""
+    """Parses CONTEXT[...]"""
 
-    value_tp: HgTimeSeriesTypeMetaData
+    value_tp: HgTypeMetaData
     is_context: bool = True
 
-    def __init__(self, value_type: HgTimeSeriesTypeMetaData):
+    def __init__(self, value_type: HgTypeMetaData):
         self.value_tp = value_type
 
     @property
     def is_resolved(self) -> bool:
-        return self.value_tp.is_resolved
+        return self.value_tp.is_resolved and not self.value_tp.is_scalar
 
     @property
     def py_type(self) -> Type:
         from hgraph._types._context_type import CONTEXT
         return CONTEXT[self.value_tp.py_type]
 
+    @property
+    def ts_type(self):
+        from hgraph import HgTSTypeMetaData
+        return HgTSTypeMetaData(self.value_tp) if self.value_tp.is_scalar else self.value_tp
+
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
+        elif self.value_tp.is_scalar:
+            return resolution_dict[self] if self in resolution_dict else self
         else:
             return type(self)(self.value_tp.resolve(resolution_dict, weak))
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         if isinstance(tp, HgCONTEXTTypeMetaData):
             return self.value_tp.matches(tp.value_tp)
+        elif self.value_tp.is_scalar:
+            if tp.is_scalar:
+                return self.value_tp.matches(tp)
+            else:
+                return self.value_tp.matches(tp.scalar_type())
         else:
             return self.value_tp.matches(tp.dereference())
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if isinstance(wired_type, HgCONTEXTTypeMetaData):
             self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
+        elif self.value_tp.is_scalar:
+            resolution_dict[self] = wired_type
         else:
             self.value_tp.build_resolution_dict(resolution_dict, wired_type if wired_type else None)
 
     def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
                                           wired_type: "HgTypeMetaData", value: object):
-        self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
+        if not self.value_tp.is_scalar:
+            self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
+        else:
+            self.value_tp.build_resolution_dict(resolution_dict, wired_type)
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
-        return self.value_tp.scalar_type()
+        return self.value_tp if self.value_tp.is_scalar else self.value_tp.scalar_type()
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._context_type import TimeSeriesContextInput
         if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesContextInput:
-            value_tp = HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[0])
+            value_tp = HgTypeMetaData.parse_type(value_tp.__args__[0])
             if value_tp is None:
                 raise ParseError(f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]' unable to parse time series type from '{str(value_tp.__args__[0])}'")
             if value_tp.has_references:

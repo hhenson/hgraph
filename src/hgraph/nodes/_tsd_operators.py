@@ -4,11 +4,11 @@ from typing import Type, Mapping, cast, Tuple
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput
+    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, generator, WiringNodeClass, zero
 from hgraph._runtime._operators import getattr_, mul_
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
 from hgraph.nodes._analytical import sum_
-from hgraph.nodes._const import const
+from hgraph.nodes._const import const, nothing
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 from hgraph.nodes._tsl_operators import merge
@@ -100,7 +100,8 @@ def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
         _ref_ref.bind_output(_ref.value.output)
         _ref_ref.make_active()
 
-    return _ref_ref.value if _ref_ref.bound else _ref.value
+    result = _ref_ref.value if _ref_ref.bound else _ref.value
+    return result
 
 
 @compute_node
@@ -412,3 +413,11 @@ def tsd_partition(ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]]
             out[partition][k] = v.value
 
     return out
+
+
+@graph(overloads=zero)
+def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+    """
+    This is a helper generator to create a zero time-series for the reduce function.
+    """
+    return nothing(ts)
