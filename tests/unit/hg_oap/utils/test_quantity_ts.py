@@ -1,17 +1,16 @@
 from decimal import Decimal
 from typing import TypeVar, Type
 
+from hgraph import graph, TS, compute_node, TSB, TSL, AUTO_RESOLVE
+from hgraph.nodes import cs_from_ts, route_ref, filter_, merge
+from hgraph.test import eval_node
+
+from hg_oap.units import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit, NUMBER
-from hgraph import graph, TS, compute_node, STATE, TSB, dispatch, TSL, AUTO_RESOLVE
-from hgraph.nodes import cs_from_ts, route_ref, sample, filter_, merge
-from hgraph.test import eval_node
 
 
 def test_quantity_ts():
-    from .test_quantity import units
-
-    U = units()
 
     @compute_node
     def convert(ts: TS[Quantity[float]], units: TS[Unit]) -> TS[Quantity[float]]:
@@ -26,9 +25,6 @@ def test_quantity_ts():
 
 
 def test_quantity_tsb():
-    from .test_quantity import units
-
-    U = units()
 
     UNIT_1 = TypeVar("UNIT_1", bound=Unit)
     UNIT_2 = TypeVar("UNIT_2", bound=Unit)
@@ -72,10 +68,9 @@ def test_quantity_tsb():
         v = TSB[Quantity[Decimal]].from_ts(qty=ts, unit=u)
         return convert(v, u1).as_scalar_ts()
 
-    with (U):
-        assert eval_node(g, ts=[Decimal(1.), None, Decimal(2.)], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
-        assert eval_node(g,
-                         ts=[Decimal('274.15'), None, Decimal("273.15"), None],
-                         u=[U.K, None, None, None],
-                         u1=[U.K, U.degC, U.degF, U.K]) == \
-        [Decimal('274.15')*U.K, 1.*U.degC, 32.*U.degF, Decimal("273.15")*U.K]
+    assert eval_node(g, ts=[Decimal(1.), None, Decimal(2.)], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
+    assert eval_node(g,
+                     ts=[Decimal('274.15'), None, Decimal("273.15"), None],
+                     u=[U.K, None, None, None],
+                     u1=[U.K, U.degC, U.degF, U.K]) == \
+    [Decimal('274.15')*U.K, 1.*U.degC, 32.*U.degF, Decimal("273.15")*U.K]

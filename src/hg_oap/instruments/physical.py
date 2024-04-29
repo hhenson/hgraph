@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 
-from hg_oap.assets.commodities import Commodity, BaseMetals
+from hg_oap.assets.commodities import Commodity
 from hg_oap.instruments.instrument import Instrument
-from hg_oap.quanity.quantity import Quantity
+from hg_oap.units import Quantity
 
 
 @dataclass(frozen=True)
