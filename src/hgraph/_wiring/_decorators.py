@@ -248,7 +248,7 @@ def request_reply_service(fn: SERVICE_DEFINITION = None,
             error: TS[str]
 
         @request_reply_service
-        def my_request_replay(path: str | None, request: TIME_SERIES_TYPE) -> TSB[ReqRepResponse[TIME_SERIES_TYPE_1]]:
+        def my_request_reply(path: str | None, request: TIME_SERIES_TYPE) -> TSB[ReqRepResponse[TIME_SERIES_TYPE_1]]:
             ...
 
     """

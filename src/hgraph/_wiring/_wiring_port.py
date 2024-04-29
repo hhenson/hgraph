@@ -197,6 +197,15 @@ class TSBWiringPort(WiringPort):
                 edges.update(wiring_port.edges_for(node_map, dst_node_ndx, dst_path + (ndx,)))
         return edges
 
+    def copy_with(self, **kwargs):
+        """
+        Creates a new instance of a wiring time bundle using the values of this instance combined / overridden from
+        the kwargs provided. Can be used to clone a runtime instance of a bundle as well.
+        """
+        self.output_type.py_type._validate_kwargs(self.__schema__, **kwargs)
+        tsb = self.output_type.py_type.from_ts(**(self.as_dict() | kwargs))
+        return tsb
+
 
 @dataclass(frozen=True)
 class TSBREFWiringPort(WiringPort):

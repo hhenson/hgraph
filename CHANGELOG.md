@@ -313,3 +313,21 @@ Version 0.2.13 (20-04-2024)
 
 * Add support to publish directly from GitHub.
 
+Version 0.2.14 (24-04-2024)
+---------------------------
+
+* Add context support
+* Add support for casting to base-class when wiring.
+
+
+Version 0.2.15 (27-04-2024)
+---------------------------
+
+* Add unroll node
+* Clean up feedback signature
+* Clean up inputs
+
+Version 0.2.16 (29-04-2024)
+---------------------------
+
+* Add copy_with to the TSBWiringPort
