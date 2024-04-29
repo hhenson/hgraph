@@ -327,3 +327,7 @@ Version 0.2.15 (27-04-2024)
 * Clean up feedback signature
 * Clean up inputs
 
+Version 0.2.16 (29-04-2024)
+---------------------------
+
+* Add copy_with to the TSBWiringPort
