@@ -1,4 +1,3 @@
-import pytest
 from hgraph import graph, TS, TSB, compute_node, register_service, MIN_TD, SIGNAL
 from hgraph.nodes import delay, sample, debug_print
 from hgraph.test import eval_node
@@ -10,18 +9,9 @@ from hg_oap.orders.order_service import order_handler, OrderRequest, OrderRespon
     CreateOrderRequest, OrderHandlerOutput, OrderEvent, order_states
 from hg_oap.orders.order_type import MarketOrderType
 from hg_oap.pricing.price import Price
-from hg_oap.units.dimension import PrimaryDimension
 from hg_oap.units.quantity import Quantity
-from hg_oap.units.unit import Unit, PrimaryUnit
 from hg_oap.units.unit_system import UnitSystem
 
-
-@pytest.fixture
-def unit_system() -> UnitSystem:
-    with UnitSystem() as U:
-        U.trade_unit = PrimaryDimension()
-        U.lot = PrimaryUnit(dimension=U.trade_unit)
-        yield U
 
 @order_handler
 @graph
@@ -51,7 +41,7 @@ def _fill_order(confirmed: TSB[ORDER], fill: SIGNAL) -> TS[OrderEvent]:
     return OrderEvent.create_fill(confirmed, fill)
 
 
-def test_simple_handler(unit_system: UnitSystem):
+def test_simple_handler():
     @graph
     def g(ts: TS[OrderRequest]) -> TS[OrderResponse]:
         register_service("order.simple_handler", simple_handler)

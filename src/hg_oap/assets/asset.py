@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from hg_oap.quanity.quantity import Quantity
+from hg_oap.units import Quantity
 from hg_oap.units.unit import Unit
 from hg_oap.units.unit_system import UnitConversionContext
 from hg_oap.utils.exprclass import ExprClass
