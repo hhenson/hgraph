@@ -331,3 +331,9 @@ Version 0.2.16 (29-04-2024)
 ---------------------------
 
 * Add copy_with to the TSBWiringPort
+
+Version 0.2.17 (29-04-2024)
+---------------------------
+
+* Add profiling support
+* Updates to context support
