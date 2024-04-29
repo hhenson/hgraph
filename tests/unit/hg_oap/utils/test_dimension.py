@@ -3,7 +3,6 @@ from hg_oap.units.unit_system import UnitSystem
 
 
 def test_dimensions():
-    UnitSystem.__instance__ = None # TODO: Either make this stackable or only import U when requried
     with UnitSystem():
         length = PrimaryDimension(name='length')
         volume = length**3

@@ -12,9 +12,7 @@ std_prefixes = {'k': Decimal('1000'), 'M': Decimal('1_000_000'), 'G': Decimal('1
                 'c': Decimal('0.01'), 'm': Decimal('0.001'), 'u': Decimal('0.000_001'), 'n': Decimal('0.000_000_001'), 'p': Decimal('0.000_000_000_001')}
 
 U = UnitSystem(__prefixes__=std_prefixes)
-U.__enter__()  # on import this unit system becomes the implicit default.
-               # Tests can still create their own unit systems and use them as context managers.
-
+U.register()  # If this has been imported we can go ahead and register it.
 
 U.length = PrimaryDimension()
 U.m = PrimaryUnit(dimension=U.length, prefixes=('k', 'c', 'm', 'u', 'n'))

@@ -16,7 +16,7 @@ class Currency(FinancialAsset):
     minor_currency_ratio: Optional[int] = None  # For example US cents rather than dollars
 
     def __post_init__(self):
-        from hg_oap.units import U
+        from hg_oap.units.default_unit_system import U
         setattr(U, f"currency.{self.symbol}", currency_dim := getattr(U.money, self.symbol))  # Add the currency to the unit system as a qualified dimansion
         setattr(U, self.symbol, unit := PrimaryUnit(dimension=currency_dim))
         if self.minor_currency_ratio is not None:

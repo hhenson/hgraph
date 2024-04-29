@@ -3,17 +3,17 @@ from datetime import date
 from decimal import Decimal
 from enum import Enum
 
+from hgraph import CompoundScalar
+
 from hg_oap.assets.currency import Currency
 from hg_oap.dates.calendar import Calendar
 from hg_oap.dates.dgen import DGen
-from hg_oap.dates.tenor import Tenor
 from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
-from hg_oap.units import U
+from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit
 from hg_oap.units.unit_system import UnitConversionContext
-from hg_oap.utils import ExprClass, SELF, ParameterOp, lazy
-from hgraph import CompoundScalar
+from hg_oap.utils import ExprClass, SELF, ParameterOp
 
 
 class SettlementMethod(Enum):

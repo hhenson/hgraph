@@ -6,7 +6,7 @@ from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit
 from hg_oap.units.unit_system import UnitSystem
 
 def test_quantity_1():
-    from hg_oap.units.U import U
+    from hg_oap.units.default_unit_system import U
     with U:
         assert 1.*U.m == 1.*U.m
         assert 1.*U.m == 100.*U.cm

@@ -18,7 +18,7 @@ from hg_oap.instruments.future import Settlement, SettlementMethod, FutureContra
 from hg_oap.instruments.fx import FXSpot
 from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
 from hg_oap.instruments.physical import PhysicalCommodity
-from hg_oap.units import U
+from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit, NUMBER
 from hg_oap.units.unit_system import UnitConversionContext

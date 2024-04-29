@@ -3,12 +3,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from functools import reduce
 from itertools import chain, combinations
-from typing import ClassVar, Tuple, Iterable
+from typing import ClassVar, Tuple, Iterable, Callable
 
 from hg_oap.utils.exprclass import CallableDescriptor
 
 
 __all__ = ("UnitSystem", "UnitConversionContext")
+
 
 @dataclass
 class UnitSystem:
@@ -24,21 +25,31 @@ class UnitSystem:
     __contexts__: list["UnitConversionContext"] = field(default_factory=list)
     __prefixes__: dict[str, Decimal] = field(default_factory=dict)
 
-    @classmethod
-    def instance(cls):
-        return cls.__instance__
+    @staticmethod
+    def instance():
+        if UnitSystem.__instance__ is None and UnitSystem.__default__ is not None:
+            from hg_oap.units import default_unit_system
+            UnitSystem.__instance__ = U
+        return UnitSystem.__instance__
+
+    def register(self):
+        """Register the unit system to make use of"""
+        UnitSystem.__instance__ = self
+
+    @staticmethod
+    def de_register():
+        """De-register the unit system"""
+        UnitSystem.__instance__ = None
 
     def __enter__(self):
-        if self.__class__.__instance__ is not None:
-            raise ValueError(f"UnitSystems are not stackable contexts")
-
-        self.__class__.__instance__ = self
+        """
+        Context manager enter, used largely for testing. This will replace any existing unit system.
+        """
+        self.register()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        assert self.__class__.__instance__ == self
-
-        self.__class__.__instance__ = None
+        self.de_register()
 
     def __setattr__(self, key, value):
         if key in self.__class__.__dataclass_fields__:

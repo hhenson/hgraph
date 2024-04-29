@@ -5,7 +5,7 @@ from hgraph import graph, TS, compute_node, TSB, TSL, AUTO_RESOLVE
 from hgraph.nodes import cs_from_ts, route_ref, filter_, merge
 from hgraph.test import eval_node
 
-from hg_oap.units import U
+from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit, NUMBER
 
