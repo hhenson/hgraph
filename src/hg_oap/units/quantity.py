@@ -5,6 +5,8 @@ from typing import Generic
 from hg_oap.units.unit import Unit, NUMBER
 from hgraph import CompoundScalar
 
+__all__ = ("Quantity",)
+
 
 @dataclass(frozen=True)
 class Quantity(CompoundScalar, Generic[NUMBER]):
@@ -56,8 +58,10 @@ class Quantity(CompoundScalar, Generic[NUMBER]):
         return NotImplemented
 
     def __rtruediv__(self, other):
-        if isinstance(other, type(self.qty)) and self.qty != 0:
+        if isinstance(other, type(self.qty)):
             return Quantity[type(self.qty)](other / self.qty, self.unit ** -1)
+        else:
+            return Quantity[type(self.qty)](type(self.qty)(other) / self.qty, self.unit ** -1)
 
         return NotImplemented
 

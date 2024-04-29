@@ -1,15 +1,19 @@
+from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
-
-from polars.dependencies import dataclasses
 
 from hg_oap.assets.commodities import Commodity, BaseMetals
 from hg_oap.instruments.instrument import Instrument
+from hg_oap.quanity.quantity import Quantity
 
 
-@dataclasses(frozen=True)
+@dataclass(frozen=True)
 class PhysicalCommodity(Instrument):
     asset: Commodity
 
+    unit_conversion_factors: tuple[Quantity[Decimal]] = lambda self: self.asset.unit_conversion_factors
+
 
 class PhysicalCommodities(Enum):
-    MAL = PhysicalCommodity("MAL", asset=BaseMetals.MAL)
+    ...
+    # MAL = PhysicalCommodity("MAL", asset=BaseMetals.MAL)

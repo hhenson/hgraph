@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from hg_oap.dates.tenor import Tenor
 from hg_oap.dates.dgen import days
 from hg_oap.utils.exprclass import ExprClass, dataclassex, CallableDescriptor, exprclass
-from hg_oap.utils.magic import ParameterOp, lazy
+from hg_oap.utils.op import ParameterOp, lazy
 
 SELF = ParameterOp(_name='SELF', _index=0)
 

@@ -3,8 +3,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from hg_oap.utils.magic import *
-from hg_oap.utils.magic import FailedOp, Expression
+from hg_oap.utils.op import *
+from hg_oap.utils.op import FailedOp, Expression
 
 
 @dataclass

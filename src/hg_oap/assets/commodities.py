@@ -19,12 +19,13 @@ class BaseMetal(Commodity):
 
 
 class BaseMetals(Enum):
-    MAL = BaseMetal("MAL", "Aluminium")
-    MCU = BaseMetal("MCU", "Copper")
-    MNI = BaseMetal("MNI", "Nickel")
-    MPB = BaseMetal("MPB", "Lead")
-    MSN = BaseMetal("MSN", "Tin")
-    MZN = BaseMetal("MZN", "Zinc")
+    ...
+    # MAL = BaseMetal("MAL", "Aluminium")
+    # MCU = BaseMetal("MCU", "Copper")
+    # MNI = BaseMetal("MNI", "Nickel")
+    # MPB = BaseMetal("MPB", "Lead")
+    # MSN = BaseMetal("MSN", "Tin")
+    # MZN = BaseMetal("MZN", "Zinc")
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,8 @@ class PreciousMetal(Commodity):
 
 
 class PreciousMetals(Enum):
-    XAU = PreciousMetal("XAU", "Gold")
-    XAG = PreciousMetal("XAG", "Silver")
-    XPD = PreciousMetal("XPD", "Palladium")
-    XPT = PreciousMetal("XPT", "Platinum")
+    ...
+    # XAU = PreciousMetal("XAU", "Gold")
+    # XAG = PreciousMetal("XAG", "Silver")
+    # XPD = PreciousMetal("XPD", "Palladium")
+    # XPT = PreciousMetal("XPT", "Platinum")

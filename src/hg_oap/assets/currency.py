@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
+from typing import Optional
 
 from hg_oap.assets.asset import FinancialAsset
+from hg_oap.units import PrimaryUnit
 
 
 @dataclass(frozen=True)
@@ -10,7 +13,15 @@ class Currency(FinancialAsset):
     The medium of exchange for goods and services, you may have used this. For example USD, EUR, GBP, etc.
     These represent the most commonly used currencies in the USA, Europe or the United Kingdom.
     """
-    is_minor_currency: bool = False  # For example US cents rather than dollars
+    minor_currency_ratio: Optional[int] = None  # For example US cents rather than dollars
+
+    def __post_init__(self):
+        from hg_oap.units import U
+        setattr(U, f"currency.{self.symbol}", currency_dim := getattr(U.money, self.symbol))  # Add the currency to the unit system as a qualified dimansion
+        setattr(U, self.symbol, unit := PrimaryUnit(dimension=currency_dim))
+        if self.minor_currency_ratio is not None:
+            minor_symbol = f"{self.symbol[:-1]}X"
+            setattr(U, minor_symbol, Decimal(1)/Decimal(self.minor_currency_ratio) * unit)
 
 
 @dataclass(frozen=True)
@@ -28,8 +39,6 @@ class MinorCurrency(Currency):
 
 class Currencies(Enum):
     """The collection of known currencies"""
-    EUR = Currency("EUR")
-    GBP = (gbp_ := Currency("GBP"))
-    GBX = MinorCurrency("GBX", major_currency=gbp_)
-    USD = (usd_ := Currency("USD"))
-    USX = MinorCurrency("USX", major_currency=usd_)
+    EUR = Currency("EUR", minor_currency_ratio=100)
+    GBP = Currency("GBP", minor_currency_ratio=100)
+    USD = Currency("USD", minor_currency_ratio=100)

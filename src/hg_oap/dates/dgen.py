@@ -3,7 +3,7 @@ from itertools import islice
 from typing import cast
 
 from hg_oap.dates.calendar import Calendar
-from hg_oap.utils.magic import Item, const, Op
+from hg_oap.utils.op import Item, Op, lazy
 from hg_oap.dates.tenor import Tenor
 
 __all__ = ('is_dgen', 'make_date', 'make_dgen', 'years', 'months', 'weeks', 'weekdays', 'weekends', 'days',
@@ -142,7 +142,7 @@ class DGen(Item):
                 raise ValueError(f"{type(self)} date generator does not support negative indices")
             return SliceDGen(self, item)
         if isinstance(item, Op):
-            return const(self)[item]
+            return lazy(self)[item]
 
     def over(self, calendar: Calendar):
         return WithCalendarDGen(self, calendar)
@@ -606,7 +606,7 @@ class SubSequenceDGen(DGen):
         if isinstance(item, slice):
             return SubSequenceDGen(self.main_sequence, self.sub_sequence, item)
         if isinstance(item, Op):
-            return const(self)[item]
+            return lazy(self)[item]
 
 class DaysOfMonthDGen(DGen):
     def __init__(self, months, days):

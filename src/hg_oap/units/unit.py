@@ -10,17 +10,22 @@ from typing import Tuple, ForwardRef, TypeVar, ClassVar
 from hg_oap.units.dimension import Dimension
 from hg_oap.utils.exprclass import ExprClass
 from hg_oap.units.unit_system import UnitSystem
+from hgraph import CompoundScalar
 
 NUMBER = TypeVar('NUMBER', int, float, Decimal)
 
+__all__ = ("Unit", "PrimaryUnit", "DerivedUnit", "OffsetDerivedUnit", "DiffDerivedUnit", "ComplexUnit", "UNIT")
 
-@dataclass(frozen=True, kw_only=True, init=False)
-class Unit(ExprClass):
+@dataclass(frozen=True, kw_only=True, init=False, repr=False)
+class Unit(CompoundScalar, ExprClass):
     name: str = None
     dimension: Dimension
     prefixes: Tuple[str, ...] | None = field(default=None, hash=False)
 
     def __str__(self):
+        return self.name
+
+    def __repr__(self):
         return self.name
 
     def __hash__(self):
@@ -83,7 +88,7 @@ class Unit(ExprClass):
 UNIT = TypeVar("UNIT", bound=Unit)
 
 
-@dataclass(frozen=True, kw_only=True, init=False)
+@dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class PrimaryUnit(Unit):
     ratio: Decimal = Decimal(1)
 
@@ -101,6 +106,10 @@ class PrimaryUnit(Unit):
 
         UnitSystem.instance().__primary_units__[dimension] = n
         return n
+
+    @property
+    def primary_unit(self):
+        return self
 
     def __pow__(self, power, modulo=None):
         return ComplexUnit(components=((self, power),))
@@ -132,7 +141,7 @@ class PrimaryUnit(Unit):
         assert False, f'conversion from {self} to {to} is not supported'
 
 
-@dataclass(frozen=True, kw_only=True, init=False)
+@dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class DerivedUnit(Unit):
     primary_unit: Unit
     ratio: Decimal
@@ -193,7 +202,7 @@ class DerivedUnit(Unit):
             return primary_value
 
 
-@dataclass(frozen=True, kw_only=True, init=False)
+@dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class OffsetDerivedUnit(DerivedUnit):
     offset: Decimal
     diff: Unit = field(default=lambda s: DiffDerivedUnit(offset_unit=s), hash=False)
@@ -246,7 +255,7 @@ class OffsetDerivedUnit(DerivedUnit):
             return primary_value
 
 
-@dataclass(frozen=True, kw_only=True, init=False)
+@dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class DiffDerivedUnit(DerivedUnit):
     offset_unit: Unit = None
     primary_unit: Unit = lambda s: s.offset_unit.primary_unit
