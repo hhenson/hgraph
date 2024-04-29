@@ -4,7 +4,9 @@ from typing import Any, TypeVar, cast
 
 from frozendict import frozendict
 from hgraph import request_reply_service, reference_service, TSD, TS, CompoundScalar, service_impl, feedback, TSB, \
-    compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema
+    compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema, graph
+from hgraph.nodes import if_then_else
+from hgraph.nodes._conditional import if_
 from hgraph.nodes._tuple_operators import unroll
 
 from hg_oap.assets.currency import Currency, Currencies
@@ -239,7 +241,7 @@ def order_handler(fn):
 
         _compute_order_state = _compute_order_state_single if order_state_tp is SingleLegOrder else _compute_order_state_multi
         order_state = map_(_compute_order_state, requests, order_responses_fb())
-        order_states.wire_impl_out_stub(path, order_state)
+        order_states[ORDER: order_state_tp].wire_impl_out_stub(path, order_state)
 
         if needs_map:
             result: TSD[str, TSB[OrderHandlerOutputs]] = \
@@ -316,8 +318,26 @@ class PendingRequests:
     pending_requests: list[OrderRequest] = field(default_factory=list)
 
 
-@compute_node(valid=("requests",))
+@graph
 def _compute_order_state_single(
+    requests: TS[tuple[OrderRequest, ...]],
+    responses: TSB[OrderHandlerOutputs]
+) -> TSB[OrderState[SingleLegOrder]]:
+    out = __compute_order_state_single(requests, responses)
+    confirmed = out.confirmed
+    requested: TSB[SingleLegOrder] = out.requested
+    requested = requested.copy_with(
+        remaining_qty=confirmed.remaining_qty,
+        filled_qty=confirmed.filled_qty,
+        filled_notional=confirmed.filled_notional,
+        is_filled=confirmed.is_filled,
+        fills=confirmed.fills
+    )
+    return TSB[OrderState[SingleLegOrder]].from_ts(requested=requested, confirmed=confirmed)
+
+
+@compute_node(valid=("requests",))
+def __compute_order_state_single(
         requests: TS[tuple[OrderRequest, ...]],
         responses: TSB[OrderHandlerOutputs],
         _state: STATE[PendingRequests] = None,
@@ -349,8 +369,6 @@ def _compute_order_state_single(
             for order_event in order_events:
                 confirmed, delta = apply_event_single_leg(confirmed, order_event)
                 out_confirmed.update(delta)
-                out_requested.update(delta)
-                requested.update(delta)
 
     if requests.modified:
         _state.pending_requests.extend(requests.value)
@@ -366,8 +384,9 @@ def apply_event_single_leg(confirmed: dict, event: OrderEvent) -> tuple[dict, di
     if isinstance(event, FillEvent):
         out['fills'] = event.fill
         out['filled_qty'] = confirmed['filled_qty'] + event.fill.qty
-        out['remaining_qty'] = confirmed['remaining_qty'] - event.fill.qty
+        out['remaining_qty'] = (remaining_qty := confirmed['remaining_qty'] - event.fill.qty)
         out['filled_notional'] = confirmed['filled_notional'] + event.fill.notional
+        out['is_filled'] = bool(remaining_qty.qty <= 0.0)
 
     confirmed.update(confirmed)
     return confirmed, out

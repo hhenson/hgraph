@@ -12,3 +12,5 @@ Version 0.1.1 (TBD)
 -------------------
 
 * Clean up imports and extend order types.
+* Expand Order API
+* Many adjustments to Units

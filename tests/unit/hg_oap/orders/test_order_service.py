@@ -1,13 +1,13 @@
 import pytest
 from hgraph import graph, TS, TSB, compute_node, register_service, MIN_TD, SIGNAL
-from hgraph.nodes import delay, sample
+from hgraph.nodes import delay, sample, debug_print
 from hgraph.test import eval_node
 
 from hg_oap.assets.currency import Currencies
 from hg_oap.instruments.instrument import Instrument
 from hg_oap.orders.order import OrderState, SingleLegOrder, OriginatorInfo, ORDER, Fill
 from hg_oap.orders.order_service import order_handler, OrderRequest, OrderResponse, order_client, \
-    CreateOrderRequest, OrderHandlerOutput, OrderEvent
+    CreateOrderRequest, OrderHandlerOutput, OrderEvent, order_states
 from hg_oap.orders.order_type import MarketOrderType
 from hg_oap.pricing.price import Price
 from hg_oap.units.dimension import PrimaryDimension
@@ -55,6 +55,9 @@ def test_simple_handler(unit_system: UnitSystem):
     @graph
     def g(ts: TS[OrderRequest]) -> TS[OrderResponse]:
         register_service("order.simple_handler", simple_handler)
+        order_state = order_states[ORDER: SingleLegOrder]("order.simple_handler")["1"]
+        debug_print("requested", order_state.requested)
+        debug_print("confirmed", order_state.confirmed)
         return order_client("order.simple_handler", ts)
 
     requests = [
