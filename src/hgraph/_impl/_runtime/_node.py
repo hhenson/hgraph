@@ -365,6 +365,9 @@ class GeneratorNodeImpl(NodeImpl):
         else:
             time, out = None, None
         if out is not None and time is not None and time <= et:
+            if self.output.last_modified_time == time:
+                from hgraph import NodeException
+                raise ValueError(f"Duplicate time produced by generator: [{time}] - {out}")
             self.output.apply_result(out)
             self.next_value = None
             self.eval()  # We are going to apply now! Prepare next step,
