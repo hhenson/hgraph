@@ -43,11 +43,12 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
         else:
             if type(v) is self.__schema__.scalar_type():
                 for k in self.__schema__._schema_keys():
-                    if i := getattr(v, k, None):
+                    if (i := getattr(v, k, None)) is not None:
                         cast(TimeSeriesOutput, self[k]).value = i
             else:
                 for k, v_ in v.items():
-                    cast(TimeSeriesOutput, self[k]).value = v_
+                    if v_ is not None:
+                        cast(TimeSeriesOutput, self[k]).value = v_
 
     def invalidate(self):
         if self.valid:
@@ -79,9 +80,9 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
 
     def mark_invalid(self):
         if self.valid:
+            super().mark_invalid()
             for v in self._ts_value.values():
                 v.mark_invalid()
-            super().mark_invalid()
 
     @property
     def all_valid(self) -> bool:
