@@ -343,3 +343,8 @@ Version 0.2.18 (01-05-2024)
 
 * Don't try and invalidate values unless it is set explicitly (i.e. not as a property of a dict supplied ot a bundle)
 * Catch duplicate time in generator code to avoid misleading exceptions when this happens.
+
+Version 0.2.19 (TBD)
+--------------------
+
+* Clean up processing of data frames.
