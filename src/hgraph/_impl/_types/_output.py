@@ -34,8 +34,9 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
         return self._last_modified_time
 
     def mark_invalid(self):
-        self._last_modified_time = MIN_DT
-        self._notify()
+        if self._last_modified_time > MIN_DT:
+            self._last_modified_time = MIN_DT
+            self._notify()
 
     def mark_modified(self):
         clock = self.owning_graph.evaluation_clock

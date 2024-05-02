@@ -74,26 +74,12 @@ def tsd_k_v_from_data_source(
     """
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
-    schema = tuple(dfs_instance.schema.keys())
-    dt_ndx = schema.index(dt_col)
-    key_ndx = schema.index(key_col)
-    value_ndx = next(iter({0, 1, 2} - {dt_ndx, key_ndx}))
+    value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    values: dict[SCALAR, SCALAR_1] = {}
-    last_dt: datetime | None = None
-    for df in dfs_instance.iter_frames():
-        for value in df.iter_rows(named=False):
-            dt = dt_converter(value[dt_ndx])
-            if last_dt != dt:
-                if last_dt is not None:
-                    yield last_dt + offset, values
-                values = {value[key_ndx]: value[value_ndx]}
-                last_dt = dt
-            else:
-                key = value[key_ndx]
-                values[key] = value[value_ndx]
-    if last_dt is not None:
-        yield last_dt + offset, values
+    for df_1 in dfs_instance.iter_frames():
+        for dt, df in df_1.group_by(dt_col, maintain_order=True):
+            dt = dt_converter(dt)
+            yield dt + offset, {k: v for k, v in df.select(key_col, value_col).iter_rows()}
 
 
 def _extract_tsd_pivot_key_value_scalar(mapping, scalars) -> SCALAR_1:
@@ -127,33 +113,15 @@ def tsd_k_tsd_from_data_source(
     """
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
-    schema = tuple(dfs_instance.schema.keys())
-    dt_ndx = schema.index(dt_col)
-    key_ndx = schema.index(key_col)
-    pivot_ndx = schema.index(pivot_col)
-    value_ndx = next(iter({0, 1, 2, 3} - {dt_ndx, key_ndx, pivot_ndx}))
+    value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col, pivot_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    outer_dict: dict[SCALAR, SCALAR_1] = {}
-    inner_dict: dict[SCALAR_1, SCALAR_2] = {}
-    last_dt: datetime | None = None
-    last_key: SCALAR_1 | None = None
-    for df in dfs_instance.iter_frames():
-        for value in df.iter_rows(named=False):
-            dt = dt_converter(value[dt_ndx])
-            if last_dt != dt:
-                if last_dt is not None:
-                    yield last_dt + offset, outer_dict
-                last_dt = dt
-                last_key = value[key_ndx]
-                inner_dict = {value[pivot_ndx]: value[value_ndx]}
-                outer_dict = {value[key_ndx]: inner_dict}
-            elif last_key != value[key_ndx]:
-                last_key = value[key_ndx]
-                outer_dict[last_key] = inner_dict = {value[pivot_ndx]: value[value_ndx]}
-            else:
-                inner_dict[value[pivot_ndx]] = value[value_ndx]
-    if last_dt is not None:
-        yield last_dt + offset, outer_dict
+    for df_all in dfs_instance.iter_frames():
+        for dt, df_1 in df_all.group_by(dt_col, maintain_order=True):
+            dt = dt_converter(dt)
+            out = {}
+            for key, df in df_1.group_by(key_col, maintain_order=True):
+                out[key] = {k: v for k, v in df.select(pivot_col, value_col).iter_rows()}
+            yield dt + offset, out
 
 
 def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:
@@ -179,20 +147,13 @@ def tsd_k_b_from_data_source(
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    values: dict[SCALAR, dict] = {}
-    last_dt: datetime | None = None
-    for df in dfs_instance.iter_frames():
-        for value in df.iter_rows(named=True):
-            dt = dt_converter(value.pop(dt_col))
-            if last_dt != dt:
-                if last_dt is not None:
-                    yield last_dt + offset, values
-                values = {value.pop(key_col): value}
-                last_dt = dt
-            else:
-                values[value.pop(key_col)] = value
-    if last_dt is not None:
-        yield last_dt + offset, values
+    value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
+    for df_all in dfs_instance.iter_frames():
+        for dt, df in df_all.group_by(dt_col, maintain_order=True):
+            dt = dt_converter(dt)
+            key_df = df[key_col]
+            value_df = df.select(*value_keys)
+            yield dt + offset, {k: v for k, v in zip(key_df, value_df.iter_rows(named=True))}
 
 
 def _extract_tsd_array_value(mapping, scalars) -> SCALAR_1:
@@ -221,24 +182,12 @@ def tsd_k_a_from_data_source(
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    values: dict[SCALAR, Array[SCALAR_1, SIZE]] = {}
-    last_dt: datetime | None = None
-    for df in dfs_instance.iter_frames():
-        df_dt = df[dt_col]
-        df_key = df[key_col]
-        df_value = df.select(*(k for k in df.schema.keys() if k not in (dt_col, key_col)))
-        for dt, key, value in zip(df_dt, df_key, df_value.iter_rows(named=False)):
-            value = np.array(value)
+    value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
+    for df_all in dfs_instance.iter_frames():
+        for dt, df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
-            if last_dt != dt:
-                if last_dt is not None:
-                    yield last_dt + offset, values
-                last_dt = dt
-                values = {key: value}
-            else:
-                values[key] = value
-    if last_dt is not None:
-        yield last_dt + offset, values
+            out = {k: np.array(v) for k, v in zip(df[key_col], df.select(*value_keys).iter_rows())}
+            yield dt + offset, out
 
 
 def _extract_array_value(mapping, scalars) -> SCALAR:
@@ -263,10 +212,9 @@ def ts_of_array_from_data_source(
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
     for df in dfs_instance.iter_frames():
-        df_dt = df[dt_col]
-        df_values = df.select(*(k for k in df.schema.keys() if k != dt_col))
-        for dt, values in zip(df_dt, df_values.iter_rows(named=False)):
+        for dt, values in zip(df[dt_col], df.select(*value_keys).iter_rows()):
             dt = dt_converter(dt)
             yield dt + offset, np.array(values)
 
@@ -281,9 +229,10 @@ def tsl_from_data_source(
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    value_keys = tuple(k for k in df.schema.keys() if k != dt_col)
     for df in dfs_instance.iter_frames():
         df_dt = df[dt_col]
-        df_values = df.select(*(k for k in df.schema.keys() if k != dt_col))
+        df_values = df.select(*value_keys)
         for dt, values in zip(df_dt, df_values.iter_rows(named=False)):
             dt = dt_converter(dt)
             yield dt + offset, values
@@ -305,22 +254,12 @@ def ts_of_matrix_from_data_source(
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    values: list[list[SCALAR]] = []
-    last_dt: datetime | None = None
-    for df in dfs_instance.iter_frames():
-        df_dt = df[dt_col]
-        df_value = df.select(*(k for k in df.schema.keys() if k != dt_col))
-        for dt, value in zip(df_dt, df_value.iter_rows(named=False)):
+    value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
+    for df_all in dfs_instance.iter_frames():
+        for dt, df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
-            if last_dt != dt:
-                if last_dt is not None:
-                    yield last_dt + offset, np.array(values)
-                last_dt = dt
-                values = [value]
-            else:
-                values.append(value)
-    if last_dt is not None:
-        yield last_dt + offset, np.array(values)
+            df_values = df.select(*value_keys)
+            yield dt + offset, df_values.to_numpy()
 
 
 def _convert_type(pl_type: pl.DataType) -> HgScalarTypeMetaData:

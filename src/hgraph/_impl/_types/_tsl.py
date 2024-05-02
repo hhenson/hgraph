@@ -31,12 +31,14 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
         else:
             if isinstance(v, (dict, frozendict)):
                 for k, v_ in v.items():
-                    self[k].value = v_
+                    if v_ is not None:
+                        self[k].value = v_
             elif isinstance(v, (tuple, list)):
                 if len(v) != len(self._ts_values):
                     raise ValueError(f"Expected {len(self._ts_values)} elements, got {len(v)}")
                 for ts, v_ in zip(self._ts_values, v):
-                    ts.value = v_
+                    if v_ is not None:
+                        ts.value = v_
 
     @property
     def delta_value(self) -> Optional[dict[int, Any]]:
