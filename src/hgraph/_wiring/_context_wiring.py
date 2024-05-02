@@ -1,38 +1,21 @@
-import inspect
 import sys
+from collections import namedtuple
 from contextlib import AbstractContextManager
-from typing import Mapping, Any, Type
+from typing import Mapping, Any
 
-from hgraph._types import AUTO_RESOLVE, TS, TSB, TS_SCHEMA, SCALAR, SCALAR_1, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData
-from hgraph._wiring._wiring_port import WiringPort
-from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
-from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._runtime._global_state import GlobalState
+from hgraph._types import (TS, SCALAR, TIME_SERIES_TYPE, REF, STATE,
+                           HgREFTypeMetaData, clone_typevar)
+from hgraph._wiring._decorators import graph, sink_node, pull_source_node
+from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
+from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ('TimeSeriesContextTracker',)
-
-
-def findclass(func):
-    cls = sys.modules.get(func.__module__)
-    if cls is None:
-        return None
-    for name in func.__qualname__.split('.')[:-1]:
-        if name == '<locals>':
-            raise ValueError('Local classes are not supported for time series context managers')
-        cls = getattr(cls, name)
-    if not inspect.isclass(cls):
-        raise ValueError(f'failed to find class for context manager function {func}')
-    return cls
+__all__ = ('TimeSeriesContextTracker', 'CONTEXT_TIME_SERIES_TYPE')
 
 
-def get_context_manager_base(tp):
-    if (enter := getattr(tp, '__enter__', None)) and (exit := getattr(tp, '__exit__', None)):
-        if tp.__mro__.index(enter_class := findclass(enter)) < tp.__mro__.index(exit_class := findclass(exit)):
-            return exit_class
-        else:
-            return enter_class
-    else:
-        return None
+CONTEXT_TIME_SERIES_TYPE = clone_typevar(TIME_SERIES_TYPE, name="CONTEXT_TIME_SERIES_TYPE")
+
+ContextInfo = namedtuple('ContextInfo', ['context', 'scope', 'depth', 'path', 'frame', 'inner_graph_use'])
 
 
 class TimeSeriesContextTracker(AbstractContextManager):
@@ -40,7 +23,7 @@ class TimeSeriesContextTracker(AbstractContextManager):
     __counter__ = 0
 
     def __init__(self):
-        self.contexts: list[tuple[WiringPort, object, int, str]] = []
+        self.contexts: list[ContextInfo] = []
 
     @classmethod
     def instance(cls):
@@ -55,31 +38,39 @@ class TimeSeriesContextTracker(AbstractContextManager):
         if self.__instance__ == self:
             self.__instance__ = None
 
-    def enter_context(self, context, graph_scope):
+    def enter_context(self, context, graph_scope, frame):
         self.__counter__ += 1
         path = f"{context.output_type}-{self.__counter__}"
-        capture_context(path, context)
-        self.contexts.append((context, graph_scope, graph_scope.graph_nesting_depth(), path))
+        self.contexts.append(ContextInfo(context, graph_scope, graph_scope.graph_nesting_depth(), path, frame, {}))
 
     def exit_context(self, context):
-        self.contexts.pop()
+        details = self.contexts.pop()
+        if details.inner_graph_use:
+            capture_context(details.path, details.context)
 
-    def find_context(self, tp, graph_scope):
-        for context, scope, depth, path in reversed(self.contexts):
+    def find_context(self, tp, graph_scope, name=None):
+        for details in reversed(self.contexts):
 
-            if tp.is_scalar and tp.matches(context.output_type.dereference().scalar_type()):
+            if tp.is_scalar and tp.matches(details.context.output_type.dereference().scalar_type()):
                 match = True
-            elif not tp.is_scalar and tp.matches(context.output_type):
+            elif not tp.is_scalar and tp.matches(details.context.output_type):
                 match = True
             else:
                 match = False
 
             if match:
-                if graph_scope == scope:  # the consumer is on the same graph as the producer
-                    return context
+                if name:
+                    if name not in details.frame.f_locals or details.frame.f_locals[name] is not details.context:
+                        continue
+
+                if graph_scope == details.scope:  # the consumer is on the same graph as the producer
+                    return details.context
                 else:
-                    from hgraph import TIME_SERIES_TYPE
-                    return get_context_output[TIME_SERIES_TYPE: context.output_type](path, depth - 1)
+                    details.inner_graph_use[graph_scope.graph_nesting_depth()] = True
+                    from hgraph import CONTEXT_TIME_SERIES_TYPE
+                    return get_context_output[CONTEXT_TIME_SERIES_TYPE: details.context.output_type](
+                        details.path, details.depth - 1)
+
         return None
 
     def max_context_rank(self):
@@ -125,7 +116,6 @@ class ContextNodeClass(BaseWiringNodeClass):
         from hgraph._impl._runtime._node import BaseNodeImpl
 
         class _PythonContextStubSourceNode(BaseNodeImpl):
-
             def do_eval(self):
                 """The service must be available by now, so we can retrieve the output reference."""
                 from hgraph._runtime._global_state import GlobalState
@@ -162,23 +152,16 @@ class ContextNodeClass(BaseWiringNodeClass):
 
 
 @pull_source_node(node_impl=ContextNodeClass)
-def get_context_output(path: str, depth: int) -> REF[TIME_SERIES_TYPE]:
+def get_context_output(path: str, depth: int) -> REF[CONTEXT_TIME_SERIES_TYPE]:
     """Uses the special node to extract a context output from the global state."""
 
 
-@graph(resolvers={SCALAR_1: lambda m, s: get_context_manager_base(m[SCALAR].py_type)})
-def enter_ts_context(context: TS[SCALAR], tp: Type[SCALAR_1] = AUTO_RESOLVE) -> TS[SCALAR]:
+@graph
+def enter_ts_context(context: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-    TimeSeriesContextTracker.instance().enter_context(context, WiringNodeInstanceContext.instance())
 
-    return context
-
-
-@graph(overloads=enter_ts_context, resolvers={SCALAR_1: lambda m, s: get_context_manager_base(m[TS_SCHEMA].py_type.scalar_type())})
-def enter_ts_context_tsb(context: TSB[TS_SCHEMA], tp: Type[SCALAR_1] = AUTO_RESOLVE) -> TSB[TS_SCHEMA]:
-    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-    TimeSeriesContextTracker.instance().enter_context(context, WiringNodeInstanceContext.instance())
-
+    frame = sys._getframe(3)
+    TimeSeriesContextTracker.instance().enter_context(context, WiringNodeInstanceContext.instance(), frame)
     return context
 
 

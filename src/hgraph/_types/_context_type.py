@@ -15,4 +15,15 @@ class TimeSeriesContextInput(TimeSeriesInput, ABC, Generic[TIME_SERIES_TYPE]):
 
 # Shorthand for a TimeSeriesValueInput
 CONTEXT = TimeSeriesContextInput
-REQUIRED = object()
+
+
+class REQUIRED:
+    def __init__(self, name: str):
+        self.name = name
+
+    def __class_getitem__(cls, item):
+        assert type(item) is str
+        return cls(item)
+
+    def __str__(self):
+        return self.name

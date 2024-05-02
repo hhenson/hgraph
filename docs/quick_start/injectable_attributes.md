@@ -148,3 +148,18 @@ def sum_(ts: TS[int], _output: TS_OUT[int] = None) -> TS[int]:
 
 The output has all the properties of the time-series input, but also has the ability
 to set the value.
+
+
+LOGGER
+------
+
+The logger injectable attribute provides access to the logger object.
+
+```python
+from hgraph import TS, LOGGER, sink_node
+
+@sink_node
+def log(ts: TS[int], _logger: LOGGER = None):
+    _logger.info(f"Logging: {ts.value}")
+```
+

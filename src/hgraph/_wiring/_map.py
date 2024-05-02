@@ -144,7 +144,8 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
         if i < len(args):  # provided as positional and not key
             if isinstance(args[i], (WiringPort, _MappingMarker)):
                 tp = args[i].output_type.dereference()
-                if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
+                if (isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp)
+                        and not isinstance(args[i], _PassthroughMarker)):
                     annotations[n] = tp.value_tp
                 else:
                     annotations[n] = tp
@@ -157,7 +158,8 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
         if n in kwargs: # provided as keyword
             if isinstance(kwargs[n], (WiringPort, _MappingMarker)):
                 tp = kwargs[n].output_type.dereference()
-                if isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp):
+                if (isinstance(tp, HgTSDTypeMetaData) and key_type.matches(tp.key_tp)
+                        and not isinstance(kwargs[n], _PassthroughMarker)):
                     annotations[n] = tp.value_tp
                 else:
                     annotations[n] = tp

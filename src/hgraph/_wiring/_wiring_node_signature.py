@@ -1,22 +1,23 @@
 from dataclasses import dataclass
 from enum import Enum
-from inspect import isfunction, signature
-from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast, Callable, GenericAlias, _GenericAlias
 from functools import reduce
+from inspect import isfunction, signature
 from operator import or_
+from typing import Callable, GenericAlias, _GenericAlias
 from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 
 from frozendict import frozendict
 
+from hgraph._runtime._node import InjectableTypes
 from hgraph._types._scalar_type_meta_data import HgEvaluationClockType, HgEvaluationEngineApiType, HgStateType, \
     HgReplayType, HgLoggerType
-from hgraph._runtime._node import InjectableTypes
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
     HgTypeOfTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import IncorrectTypeBinding, CustomMessageWiringError
@@ -88,7 +89,8 @@ class WiringNodeSignature:
     # supplied via inputs
     label: str | None = None  # A label if provided, this can help to disambiguate the node
     record_and_replay_id: str | None = None
-    deprecated: str  | bool = False
+    deprecated: str | bool = False
+    requires: Callable[[...], bool] | None = None
 
     @property
     def uses_scheduler(self) -> bool:
@@ -315,23 +317,39 @@ class WiringNodeSignature:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
     def resolve_context_kwargs(self, kwargs, kwarg_types, resolved_inputs, valid_inputs, has_valid_overrides):
-        if self.context_inputs:
-            for arg in self.context_inputs:
+        for arg, tp in self.time_series_inputs.items():
+            if tp.is_context_wired:
                 from hgraph import REQUIRED
-                if (v := kwargs.get(arg, None)) is None or v is REQUIRED:
+                if (v := kwargs.get(arg, None)) is None or v is REQUIRED or isinstance(v, (REQUIRED, str)):
                     from hgraph import TimeSeriesContextTracker
                     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
                     if c := TimeSeriesContextTracker.instance().find_context(
-                            resolved_inputs[arg].value_tp,
-                            WiringNodeInstanceContext.instance()):
+                            self.input_types[arg].value_tp,
+                            WiringNodeInstanceContext.instance(),
+                            name=str(v) if isinstance(v, (REQUIRED, str)) else None):
                         kwargs[arg] = c
                         kwarg_types[arg] = c.output_type
-                        return (frozenset((valid_inputs or set()) | {arg}),
-                                has_valid_overrides or valid_inputs is None or arg not in valid_inputs)
+                        valid_inputs = frozenset((valid_inputs or set()) | {arg})
+                        has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
                     elif v is REQUIRED:
-                        raise CustomMessageWiringError(f"Context for argument '{arg}' is required, but not found")
+                        raise CustomMessageWiringError(f"Context of type {tp} for argument '{arg}' is required, "
+                                                       f"but not found")
+                    elif type(v) is REQUIRED:
+                        raise CustomMessageWiringError(f"Context of type {tp} with name {v} for argument '{arg}' "
+                                                       f"is required, but not found")
+                    else:
+                        from hgraph.nodes import nothing
+                        kwargs[arg] = nothing[TIME_SERIES_TYPE: tp.ts_type]()
+                        kwarg_types[arg] = tp.ts_type
+                        valid_inputs = frozenset((valid_inputs or set(self.time_series_inputs.keys())) - {arg})
+                        has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
 
         return valid_inputs, has_valid_overrides
+
+    def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
+        if self.requires:
+            if not self.requires(resolution_dict, kwargs):
+                raise CustomMessageWiringError(f"Requirements not met for {self.name}")
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         for k, v in self.input_types.items():
@@ -348,7 +366,9 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
                       active_inputs: frozenset[str] | None = None,
                       valid_inputs: frozenset[str] | None = None,
                       all_valid_inputs: frozenset[str] | None = None,
-                      deprecated: bool = False) -> WiringNodeSignature:
+                      deprecated: bool = False,
+                      requires: Callable[[...], bool] | None = None
+                      ) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
     :param fn:
@@ -375,7 +395,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         raise ParseError(f"The output type is not valid, did you mean TSB[{output_type.py_type.__name__}]")
     unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
-    context_inputs = frozenset(a for a in args if input_types[a].is_context)
+    context_inputs = frozenset(a for a in args if input_types[a].is_context_manager)
 
 
     # Validations to ensure the signature matches the node type
@@ -426,7 +446,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         injectable_inputs=injectable_inputs,
         label=None,
         record_and_replay_id=None,
-        deprecated=deprecated
+        deprecated=deprecated,
+        requires=requires
     )
 
 

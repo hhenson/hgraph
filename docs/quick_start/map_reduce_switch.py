@@ -63,3 +63,14 @@ def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
 
 
 print(eval_node(graph_switch, selector=["add", None, "sub", None], lhs=[1, 2, 3, 4], rhs=[2, 3, 4, 5]))
+
+
+@graph
+def graph_switch_lambda(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return switch_({
+        "add": lambda lhs, rhs: lhs + rhs,
+        "sub": lambda lhs, rhs: lhs - rhs,
+    }, selector, lhs, rhs)
+
+
+print(eval_node(graph_switch_lambda, selector=["add", None, "sub", None], lhs=[1, 2, 3, 4], rhs=[2, 3, 4, 5]))

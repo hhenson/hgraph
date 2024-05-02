@@ -1,6 +1,8 @@
 from typing import Tuple
 
-from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR, contains_
+import pytest
+
+from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR, contains_, SCALAR_1, SCALAR_2
 from hgraph.test import eval_node
 
 
@@ -69,3 +71,17 @@ def test_contains():
         return contains_(ts, item)
 
     assert eval_node(main, [frozenset({1}), frozenset({1, 2}), frozenset({3})], [2]) == [False, True, False]
+
+
+def test_requires():
+    @compute_node(requires=lambda m, kw: m[SCALAR] != m[SCALAR_1])
+    def add(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> TS[SCALAR]:
+        return lhs.value + type(lhs.value)(rhs.value)
+
+    assert eval_node(add[SCALAR: int, SCALAR_1: float], 1, 2.) == [3]
+    from hgraph import WiringError
+    with pytest.raises(WiringError, match='Requirements not met'):
+        assert eval_node(add[SCALAR: int, SCALAR_1: int], 1, 2) == [3]
+    assert eval_node(add[SCALAR: float, SCALAR_1: int], 1., 2) == [3.]
+
+

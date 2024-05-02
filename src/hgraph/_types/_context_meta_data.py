@@ -1,3 +1,4 @@
+from types import NoneType
 from typing import Type, TypeVar, Optional, _GenericAlias
 
 
@@ -11,10 +12,18 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
     """Parses CONTEXT[...]"""
 
     value_tp: HgTypeMetaData
-    is_context: bool = True
+    is_context_wired: bool = True
+    is_context_manager: bool = False
 
     def __init__(self, value_type: HgTypeMetaData):
         self.value_tp = value_type
+
+        if value_type.is_scalar:
+            scalar_py_type = value_type.py_type
+        else:
+            scalar_py_type = value_type.scalar_type().py_type if value_type.is_resolved else NoneType
+
+        self.is_context_manager = getattr(scalar_py_type, '__enter__', None) and getattr(scalar_py_type, '__exit__', None)
 
     @property
     def is_resolved(self) -> bool:

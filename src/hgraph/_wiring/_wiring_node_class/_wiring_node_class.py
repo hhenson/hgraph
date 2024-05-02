@@ -205,6 +205,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             if self.signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides:
                 self.signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                 self.signature.validate_resolved_types(kwarg_types, kwargs)
+                self.signature.validate_requirements(resolution_dict, kwargs)
                 return kwargs, self.signature if record_replay_id is None else self.signature.copy_with(
                     record_and_replay_id=record_replay_id), resolution_dict
             else:
@@ -225,11 +226,13 @@ class BaseWiringNodeClass(WiringNodeClass):
                     time_series_args=self.signature.time_series_args,
                     injectable_inputs=self.signature.injectable_inputs,  # This should not differ based on resolution
                     label=self.signature.label,
-                    record_and_replay_id=record_replay_id
+                    record_and_replay_id=record_replay_id,
+                    requires=self.signature.requires
                 )
                 if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
                     resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
                     self.signature.validate_resolved_types(kwarg_types, kwargs)
+                    self.signature.validate_requirements(resolution_dict, kwargs)
                     return kwargs, resolve_signature, resolution_dict
                 else:
                     raise WiringError(f"{resolve_signature.name} was not able to resolve itself")
