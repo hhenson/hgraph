@@ -87,3 +87,14 @@ def sum_(ts: TS[int], _output: TS_OUT[int] = None) -> TS[int]:
 
 
 print(eval_node(sum_, ts=[1, 2, 3, 4, 5]))
+
+
+## LOGGER
+
+from hgraph import LOGGER
+
+@sink_node
+def log(ts: TS[int], _logger: LOGGER = None):
+    _logger.info(f"Logging: {ts.value}")
+
+eval_node(log, ts=[1, 2, 3, 4, 5])

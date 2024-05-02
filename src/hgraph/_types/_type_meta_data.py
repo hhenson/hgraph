@@ -17,7 +17,8 @@ class HgTypeMetaData:
     is_generic: bool = False  # Is this instance of metadata representing a template type (i.e. TypeVar)
     is_injectable: bool = False  # This indicates the type represent an injectable property (such as ExecutionContext)
     is_reference: bool = False
-    is_context: bool = False # Is this a context type
+    is_context_manager: bool = False  # Is this a context manager type
+    is_context_wired: bool = False  # Is this auto-wiring from context
     py_type: Type  # The python type that represents this type
 
     @classmethod

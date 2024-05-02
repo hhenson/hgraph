@@ -28,6 +28,7 @@ The following time-series types are supported:
 * TSS
 * TSD
 * REF
+* CONTEXT
 
 For the basic atomic types (bool, int, etc.) these are as presented, for the collection types, they are also required
 to be typed, with tuple supporting both heterogeneous and homogenous properties. For example,
@@ -151,7 +152,8 @@ def my_other_func(tsl: TSL[TS[int], SIZE], ndx: TS[int]) -> TS[int]:
 
 The time-series bundle, represents a heterogeneous collection of time-series values. The structure of the bundle
 is described by supplying a [``TimeSeriesSchema``](schema_based_types.md#timeseriesschema) instance to the type
-description. For example: ``TSB[MySchema]``.
+description. For example: ``TSB[MySchema]``. A scalar schema can also be specified - classes derived 
+from `CompoundScalar, in that case a flat bundle will be generated with TS[scalar_type] field for each field of the compound scalar. 
 
 The ``TSB`` is a collection class and can be peered or non-peered. This is a useful tool for passing related time-series
 values around the graph.
@@ -178,6 +180,11 @@ def print_tsb(tsb: TSB[MySchema]):
     print(f"p1: {tsb.as_schema.p1.value}, p2: {tsb.p2.value}")
 
 ```
+
+The value of a bundle time series is a dictionary with the keys being the field names of the schema, unless if was made 
+using a scalar schema, in which case it is an object of that schema. Also when defining a time series schema a class 
+parameter `scalar_type=True` can be supplied then a scalar type will be generated for the schema and will be the value type 
+of the bundle time series. 
 
 ### TSS
 
@@ -244,3 +251,112 @@ ensures the correct output is bound to the receiver, and the ``if_`` node will o
 when the condition changes (or the bound outputs change).
 
 This type is largely used by library functions.
+
+
+### CONTEXT
+
+The context type is a special type that is used to pass context information around the graph by using time series as 
+a context manager so that nodes in graph wired inside the context can access the context information. 
+
+```python
+@graph
+def use_context(a: CONTEXT[TS[str]] = None) -> TS[str]:
+    return format_("{} World",a)
+
+@graph
+def f() -> TS[str]:
+    return use_context()
+
+@graph
+def g(ts1: TS[str]) -> TS[str]:
+    with ts1 as a:
+        return f()
+
+```
+
+In the above example, the context time series is available to `use_context` from the `with` statement.
+
+Contexts are type checked so if multiple contexts are available the one with matching type will be picked up.
+
+Contexts can also be named using teh `with x as NAME:` syntax. For example, in the following code, 
+the context is named `a` and `b` and the `use_context` function is called with the named context matching the name
+used as default value: 
+
+```python
+@graph
+def use_context(a: CONTEXT[TIME_SERIES_TYPE] = 'a', b: CONTEXT[TIME_SERIES_TYPE] = 'b') -> TS[str]:
+    return format_("{} {}",a, b)
+
+@graph
+def f() -> TS[str]:
+    return use_context()
+
+@graph
+def g(ts1: TS[str], ts2: TS[str]) -> TS[str]:
+    with ts1 as a, ts2 as b:
+        return f()
+
+```
+
+Nodes and graphs can specify whether contexts they are looking for are required to be present or are optional:
+
+```python
+@graph
+def use_context(a: CONTEXT[TS[str]] = None) -> TS[str]:  # Context is optional, nothing() will be wired if not present 
+    return format_("{} World",a)
+
+@graph
+def use_context(a: CONTEXT[TS[str]] = 'HelloContext') -> TS[str]:  # Named context is optional, nothing() will be wired if not present
+    return format_("{} World",a)
+
+@graph
+def use_context(a: CONTEXT[TS[str]] = REQUIRED) -> TS[str]:  # Context is required, will raise an error if not present
+    return format_("{} World",a)
+
+@graph
+def use_context(a: CONTEXT[TS[str]] = REQUIRED['HelloContext']) -> TS[str]:  # Named context is required, will raise an error if not present
+    return format_("{} World",a)
+
+```
+
+If the time series carries a scalar that is a context manager, i.e. has __enter__ and __exit__ methods, then it will be
+entered before a node that wired it in is evaluated.
+
+```python
+class AContextManager:
+    __instance__ = None
+
+    def __init__(self, msg: str):
+        self.msg = msg
+
+    @classmethod
+    def instance(cls):
+        return cls.__instance__
+
+    def __enter__(self):
+        type(self).__instance__ = self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        type(self).__instance__ = None
+        
+@compute_node
+def use_context(context: CONTEXT[TS[AContextManager]] = None) -> TS[str]:
+    return f"{AContextManager.instance().msg} World"
+
+@graph
+def g() -> TS[str]:
+    with const(AContextManager("Hello")):
+        return use_context(ts)
+```
+
+In the above example, the `AContextManager` instance is entered before the `use_context` node is evaluated 
+and exited straight after.
+
+The above extends to time series bundles if the scalar type of the bundle is a context manager. In that case you can 
+also specify the scalar type of the context manager in the context type:
+
+```python 
+@compute_node
+def use_context(context: CONTEXT[AContextManager] = None) -> TS[str]:  # Note absence of TS[]
+    return f"{AContextManager.instance().msg} World"
+```

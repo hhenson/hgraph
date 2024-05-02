@@ -74,6 +74,18 @@ Non-key inputs are wrapped in a similar ways as pass-through inputs, but using t
 inputs where one of the inputs may be larger than the set of keys you wish the 
 ``map_`` to operate over.
 
+You can also supply a lambda instead of a graph or node to the ``map_`` function. The lambda will be
+treated as a graph and its signature deduced from the inputs given to map_ and the names of the lambda arguments.
+
+```python
+from hgraph import graph, map_, TSD, TS
+
+@graph
+def g(tsd: TSD[str, TS[int]]):
+    return map_(lambda i: i + 1, i=tsd)
+
+```
+
 reduce
 ------
 
@@ -94,11 +106,13 @@ def graph_reduce_tsd(tsd: TSD[str, TS[int]]) -> TS[int]:
 This will sum the values of the inputs and produce a time-series of values
 representing the sum of the inputs.
 
-Not the requirement of a zero value.
+Note the requirement of a zero value.
 
 Reduce currently can accept both ``TSD`` and ``TSL`` inputs, but does not support
 mixed inputs (i.e. where the LHS and RHS of the reduction function are different types)
 for anything other than the ``TSL`` input type with the is_associated argument set to True.
+
+Reduce will also accept lambdas as the reduction function, the lambda has to have two arguments to be compatible.
 
 
 switch
@@ -138,3 +152,16 @@ the appropriate order handling function. The result is re-multiplexed.
 The user may be interested in some aggregates from the order stream, such as the
 net open value of the orders. This can be achieved by using the ``reduce`` function
 to operate over the orders' dollar value, for example, using the ``add_`` function.
+
+Switch also supports lambdas. The lambda has to have the same signature as the other functions in the switch.
+
+```python
+from hgraph import TS, graph, switch_
+
+@graph
+def graph_switch_lambda(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return switch_({
+        "add": lambda lhs, rhs: lhs + rhs,
+        "sub": lambda lhs, rhs: lhs - rhs,
+    }, selector, lhs, rhs)
+```
