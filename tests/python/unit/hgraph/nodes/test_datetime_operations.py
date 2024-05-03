@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from hgraph import lt_, sub_, TS, add_, eq_, gt_, le_, ge_, MIN_ST, MIN_TD
-from hgraph.nodes._datetime_operators import modified_date, modified_datetime
+from hgraph.nodes import modified_date, modified_datetime
 from hgraph.test import eval_node
 
 

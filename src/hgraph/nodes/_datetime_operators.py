@@ -5,7 +5,7 @@ from hgraph._runtime._operators import getattr_, add_, sub_, lt_, gt_, eq_, le_,
 
 __all__ = (
     "datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr", "datetime_add_delta",
-    "date_add_delta", "datetime_sub_delta", "date_sub_delta")
+    "date_add_delta", "datetime_sub_delta", "date_sub_delta", "modified_datetime", "modified_date")
 
 _datetime_properties = {
     'year': int,
