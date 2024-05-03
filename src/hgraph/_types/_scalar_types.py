@@ -5,7 +5,7 @@ from enum import Enum
 from logging import Logger
 from types import GenericAlias
 from typing import TYPE_CHECKING, runtime_checkable, Protocol, Generic, Any, KeysView, ItemsView, ValuesView, Union, \
-    _GenericAlias
+    _GenericAlias, Mapping
 from typing import TypeVar, Type
 
 from frozendict import frozendict
@@ -19,7 +19,8 @@ if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
-           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE")
+           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
+           "compound_scalar", "UnNamedCompoundScalar")
 
 
 class _UnSet:
@@ -67,6 +68,34 @@ class CompoundScalar(AbstractSchema):
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         return HgScalarTypeMetaData.parse_type(tp)
+
+
+class UnNamedCompoundScalar(CompoundScalar):
+    """Use this class to create un-named compound schemas"""
+
+    @classmethod
+    def create(cls, **kwargs) -> Type["UnNamedCompoundScalar"]:
+        """Creates a type instance with root class UnNamedCompoundScalar using the kwargs provided"""
+        from hgraph._types._time_series_meta_data import HgScalarTypeMetaData
+        schema = {k: HgScalarTypeMetaData.parse_type(v) for k, v in kwargs.items()}
+        if any(v is None for v in schema.values()):
+            bad_inputs = {k: v for k, v in kwargs.items() if schema[k] is None}
+            from hgraph._wiring._wiring_errors import CustomMessageWiringError
+            raise CustomMessageWiringError(f"The following inputs are not valid scalar types: {bad_inputs}")
+        return cls.create_resolved_schema(schema)
+
+    @classmethod
+    def create_resolved_schema(cls, schema: Mapping[str, "HgScalarTypeMetaData"]) \
+            -> Type["UnNamedCompoundScalar"]:
+        """Creates a type instance with root class UnNamedCompoundSchema using the schema provided"""
+        return cls._create_resolved_class(schema)
+
+
+def compound_scalar(**kwargs) -> Type["CompoundScalar"]:
+    """
+    Creates an un-named time-series schema using the kwargs provided.
+    """
+    return UnNamedCompoundScalar.create(**kwargs)
 
 
 @runtime_checkable
