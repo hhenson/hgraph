@@ -348,3 +348,5 @@ Version 0.2.19 (TBD)
 --------------------
 
 * Clean up processing of data frames.
+* Add ability to construct un-named compound scalar types
+* Add data frame iteration support.

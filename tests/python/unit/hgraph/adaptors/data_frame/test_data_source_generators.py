@@ -5,6 +5,7 @@ from hgraph import MIN_ST, MIN_TD
 from hgraph.adaptors.data_frame import PolarsDataFrameSource, tsb_from_data_source, tsd_k_v_from_data_source, \
     tsd_k_tsd_from_data_source, tsd_k_b_from_data_source, ts_of_array_from_data_source, tsd_k_a_from_data_source, \
     ts_of_matrix_from_data_source
+from hgraph.adaptors.data_frame._data_source_generators import ts_of_frames_from_data_source
 from hgraph.test import eval_node
 
 _1 = MIN_ST
@@ -146,4 +147,24 @@ def test_ts_matrix_from_data_source():
         [[1, 4], [2, 5]],
         [[3, 6], [4, 7]],
         [[5, 8], [6, 9]],
+    ]
+
+
+def test_ts_of_frames_from_data_source():
+    results = eval_node(ts_of_frames_from_data_source, TsdMatrixMockDataSource, 'dt')
+    results = [[list(i) for i in row] for row in results]  # for i in row is columnar not row wise
+    assert results == [
+        [[1, 2], [4, 5]],
+        [[3, 4], [6, 7]],
+        [[5, 6], [8, 9]],
+    ]
+
+
+def test_ts_of_frames_from_data_source_with_dt():
+    results = eval_node(ts_of_frames_from_data_source, TsdMatrixMockDataSource, 'dt', remove_dt_col=False)
+    results = [[list(i) for i in row] for row in results]  # for i in row is columnar not row wise
+    assert results == [
+        [[_1, _1], [1, 2], [4, 5]],
+        [[_2, _2], [3, 4], [6, 7]],
+        [[_3, _3], [5, 6], [8, 9]],
     ]
