@@ -3,7 +3,7 @@ from typing import Type
 from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_2
+from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
 
 """
 The minimum implementation for comparisons are le_ and eq_, the remaining operators are synthesized, it is better to 
@@ -18,7 +18,7 @@ __all__ = (
 
 
 @graph
-def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TIME_SERIES_TYPE_2:
     raise WiringError(f"operator add_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
@@ -27,7 +27,7 @@ WiringPort.__radd__ = lambda x, y: add_(y, x)
 
 
 @graph
-def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TIME_SERIES_TYPE_2:
     raise WiringError(f"operator sub_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 

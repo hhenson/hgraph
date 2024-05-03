@@ -1,7 +1,7 @@
 from datetime import datetime, date, time, timedelta
 
 from hgraph import compute_node, graph, TS, SCALAR
-from hgraph._runtime._operators import getattr_, add_, sub_
+from hgraph._runtime._operators import getattr_, add_, sub_, lt_, gt_, eq_, le_, ge_
 
 __all__ = (
     "datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr", "datetime_add_delta",
@@ -60,20 +60,55 @@ def datetime_getattr(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
 
 
 @compute_node(overloads=add_)
-def datetime_add_delta(ts: TS[datetime], delta: TS[timedelta]) -> TS[datetime]:
-    return ts.value + delta.value
+def datetime_add_delta(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]:
+    return lhs.value + rhs.value
 
 
 @compute_node(overloads=add_)
-def date_add_delta(ts: TS[date], delta: TS[timedelta]) -> TS[datetime]:
-    return ts.value + delta.value
+def date_add_delta(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
+    return lhs.value + rhs.value
 
 
 @compute_node(overloads=sub_)
-def datetime_sub_delta(ts: TS[datetime], delta: TS[timedelta]) -> TS[datetime]:
-    return ts.value - delta.value
+def datetime_sub_delta(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]:
+    return lhs.value - rhs.value
 
 
 @compute_node(overloads=sub_)
-def date_sub_delta(ts: TS[date], delta: TS[timedelta]) -> TS[datetime]:
-    return ts.value - delta.value
+def date_sub_delta(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
+    return lhs.value - rhs.value
+
+
+@compute_node(overloads=lt_)
+def lt_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
+    return lhs.value < rhs.value
+
+
+@compute_node(overloads=le_)
+def le_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
+    return lhs.value <= rhs.value
+
+
+@compute_node(overloads=gt_)
+def gt_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
+    return lhs.value > rhs.value
+
+
+@compute_node(overloads=ge_)
+def lt_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
+    return lhs.value >= rhs.value
+
+
+@compute_node(overloads=eq_)
+def eq_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
+    return lhs.value == rhs.value
+
+
+@compute_node(overloads=sub_)
+def sub_date(lhs: TS[date], rhs: TS[date]) -> TS[timedelta]:
+    return lhs.value - rhs.value
+
+
+@compute_node(overloads=sub_)
+def sub_datetime(lhs: TS[datetime], rhs: TS[datetime]) -> TS[timedelta]:
+    return lhs.value - rhs.value
