@@ -352,14 +352,16 @@ class WiringNodeSignature:
                 raise CustomMessageWiringError(f"Requirements not met for {self.name}")
 
     def validate_resolved_types(self, kwarg_types, kwargs):
-        for k, v in self.input_types.items():
-            from hgraph._wiring._wiring_port import WiringPort
-            if isinstance(kwargs[k], WiringPort):
-                if not v.dereference().matches(kwargs[k].output_type.dereference()):
-                    raise IncorrectTypeBinding(v, kwarg_types[k])
-            else:
-                if not v.dereference().matches(kwarg_types[k].dereference()):
-                    raise IncorrectTypeBinding(v, kwarg_types[k])
+        with WiringContext(current_kwargs=kwargs):
+            for k, v in self.input_types.items():
+                from hgraph._wiring._wiring_port import WiringPort
+                with WiringContext(current_arg=k):
+                    if isinstance(kwargs[k], WiringPort):
+                        if not v.dereference().matches(kwargs[k].output_type.dereference()):
+                            raise IncorrectTypeBinding(v, kwarg_types[k])
+                    else:
+                        if not v.dereference().matches(kwarg_types[k].dereference()):
+                            raise IncorrectTypeBinding(v, kwarg_types[k])
 
 
 def extract_signature(fn, wiring_node_type: WiringNodeType,
