@@ -351,3 +351,8 @@ Version 0.2.19 (03-05-2024)
 * Change and improvements to CONTEXT support
 * Additions to documentation
 
+Version 0.2.20 (03-04-2024)
+---------------------------
+
+* Add ability to construct un-named compound scalar types
+* Add data frame iteration support.

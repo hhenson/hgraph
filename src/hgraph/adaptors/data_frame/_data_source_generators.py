@@ -5,7 +5,8 @@ import numpy as np
 import polars as pl
 
 from hgraph import generator, TS_SCHEMA, TSB, TSD, SCALAR, SCALAR_1, TS, ts_schema, Array, \
-    SIZE, TSL, clone_typevar, Size, SCALAR_2, HgScalarTypeMetaData, HgTSTypeMetaData
+    SIZE, TSL, clone_typevar, Size, SCALAR_2, HgScalarTypeMetaData, HgTSTypeMetaData, Frame, COMPOUND_SCALAR,\
+    compound_scalar
 from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, DataStore
 
 __all__ = (
@@ -262,6 +263,34 @@ def ts_of_matrix_from_data_source(
             yield dt + offset, df_values.to_numpy()
 
 
+def _extract_frame_schema(mapping, scalars) -> COMPOUND_SCALAR:
+    schema, dt_col = _schema_and_dt_col(mapping, scalars)
+    remove_dt_col = scalars['remove_dt_col']
+    if not remove_dt_col:
+        schema = {dt_col[0]: dt_col[1]} | schema
+    cs = compound_scalar(**{k: v.py_type for k, v in schema.items()})
+    return cs
+
+
+@generator(resolvers={COMPOUND_SCALAR: _extract_frame_schema})
+def ts_of_frames_from_data_source(
+        dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), remove_dt_col: bool = True
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    """
+    Iterates over the data frame/s grouping by date. The resultant data frame is returned, by default with the
+    date column remove, though this can be included by adjusting the value of remove_dt_col.
+    """
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    value_keys = tuple(k for k in dfs_instance.schema.keys() if not remove_dt_col or k != dt_col)
+    for df_all in dfs_instance.iter_frames():
+        for dt, df in df_all.group_by(dt_col, maintain_order=True):
+            dt = dt_converter(dt)
+            df_values = df.select(*value_keys)
+            yield dt + offset, df_values
+
+
 def _convert_type(pl_type: pl.DataType) -> HgScalarTypeMetaData:
     from polars import String, Boolean, Date, Datetime, Time, Duration, Categorical, List, Array, Object
     from polars.datatypes import IntegerType
@@ -291,7 +320,7 @@ def _convert_type(pl_type: pl.DataType) -> HgScalarTypeMetaData:
         return HgScalarTypeMetaData.parse_type(object)
     # Do Struct, still
 
-    raise ValueError(f"Unable to convert {pl_type} to HgTimeSeriesTypeMetaData")
+    raise ValueError(f"Unable to convert {pl_type} to HgScalarTypeMetaData")
 
 
 def _dt_converter(dt_tp: pl.DataType) -> Callable[[date | datetime], datetime]:
