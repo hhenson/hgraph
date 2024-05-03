@@ -7,7 +7,7 @@ from hg_oap.utils.op import Item, Op, lazy
 from hg_oap.dates.tenor import Tenor
 
 __all__ = ('is_dgen', 'make_date', 'make_dgen', 'years', 'months', 'weeks', 'weekdays', 'weekends', 'days',
-           'business_days', 'roll_fwd', 'roll_bwd')
+           'business_days', 'roll_fwd', 'roll_bwd', 'DGen')
 
 
 def is_dgen(obj):

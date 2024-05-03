@@ -236,13 +236,13 @@ def test_example():
             first_trading_date=CONTRACT_BASE_DATE - '3y' < years.dec.days[15],  # dec 15th 3 years before the expiry date (actual CME rules are more complex)
             last_trading_date=SELF.expiry(CONTRACT_BASE_DATE)
         )
-        zcm5 = Future(series=corn_future_months, contract_base_date=date(2025, 5, 1))
-        register_instrument(zcm5)
+        zck5 = Future(series=corn_future_months, contract_base_date=date(2025, 5, 1))
+        register_instrument(zck5)
 
         gbpusd = FXSpot(symbol='GBPUSD', base=Currencies.GBP.value, quote=Currencies.USD.value)
         register_instrument(gbpusd)
 
-        zcm5_position = Position[float](qty=100., unit=U.lot, instrument=zcm5)
+        zcm5_position = Position[float](qty=100., unit=U.lot, instrument=zck5)
         notional = calculate_notional(zcm5_position, currency=U.GBP)
 
         map_(lambda key, p: submit_price(key, p), prices)

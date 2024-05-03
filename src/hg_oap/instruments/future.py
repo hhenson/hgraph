@@ -34,7 +34,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     """
     The specification of a future contract.
     """
-    exchange: str
+    exchange_mic: str
     symbol: str
     underlying: Instrument
     contract_size: Quantity[Decimal]
