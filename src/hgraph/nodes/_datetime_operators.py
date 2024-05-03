@@ -1,6 +1,6 @@
 from datetime import datetime, date, time, timedelta
 
-from hgraph import compute_node, graph, TS, SCALAR
+from hgraph import compute_node, graph, TS, SCALAR, SIGNAL
 from hgraph._runtime._operators import getattr_, add_, sub_, lt_, gt_, eq_, le_, ge_
 
 __all__ = (
@@ -112,3 +112,19 @@ def sub_date(lhs: TS[date], rhs: TS[date]) -> TS[timedelta]:
 @compute_node(overloads=sub_)
 def sub_datetime(lhs: TS[datetime], rhs: TS[datetime]) -> TS[timedelta]:
     return lhs.value - rhs.value
+
+
+@compute_node
+def modified_date(ts: SIGNAL) -> TS[date]:
+    """
+    The date that this ts was modified.
+    """
+    return ts.last_modified_time.date()
+
+
+@compute_node
+def modified_datetime(ts: SIGNAL) -> TS[datetime]:
+    """
+    The datetime that this time-series was modified.
+    """
+    return ts.last_modified_time

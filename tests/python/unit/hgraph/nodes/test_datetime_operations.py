@@ -2,7 +2,8 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from hgraph import lt_, sub_, TS, graph, TIME_SERIES_TYPE, TIME_SERIES_TYPE_2, add_, eq_, gt_, le_, ge_
+from hgraph import lt_, sub_, TS, add_, eq_, gt_, le_, ge_, MIN_ST, MIN_TD
+from hgraph.nodes._datetime_operators import modified_date, modified_datetime
 from hgraph.test import eval_node
 
 
@@ -24,5 +25,14 @@ from hgraph.test import eval_node
     ]
 )
 def test_date_ops(op, d1, d2, expected):
-
     assert eval_node(op, d1, d2) == [expected]
+
+
+def test_modified_date():
+    assert eval_node(modified_date, [True, None, True], resolution_dict={"ts": TS[bool]}) == [MIN_ST.date(), None,
+                                                                                              MIN_ST.date()]
+
+
+def test_modified_datetime():
+    assert eval_node(modified_datetime, [True, None, True], resolution_dict={"ts": TS[bool]})\
+           == [MIN_ST, None, MIN_ST + 2 * MIN_TD]

@@ -356,3 +356,9 @@ Version 0.2.20 (03-04-2024)
 
 * Add ability to construct un-named compound scalar types
 * Add data frame iteration support.
+
+
+Version 0.2.21 (TBD)
+--------------------
+
+* Add date and datetime operators
