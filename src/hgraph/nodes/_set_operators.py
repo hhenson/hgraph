@@ -1,18 +1,10 @@
-from hgraph import TSS, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta, TIME_SERIES_TYPE, TS, KEYABLE_SCALAR
+from hgraph import TSS, SIZE, TSL, compute_node, TSS_OUT, PythonSetDelta, TIME_SERIES_TYPE, TS, KEYABLE_SCALAR, \
+    union_tsl, is_empty, SCALAR
 
-__all__ = ("union_", "is_empty")
-
-
-def union_(*args: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
-    """
-    Union of all the inputs
-    :param args:
-    :return:
-    """
-    return _union_tsl(TSL.from_ts(*args))
+__all__ = tuple()
 
 
-@compute_node(valid=tuple())
+@compute_node(valid=tuple(), overloads=union_tsl)
 def _union_tsl(tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
     tss: TSS[KEYABLE_SCALAR, SIZE]
     to_add: set[KEYABLE_SCALAR] = set()
@@ -35,6 +27,6 @@ def _union_tsl(tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCA
     return PythonSetDelta(to_add, to_remove)
 
 
-@compute_node
-def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
+@compute_node(overloads=is_empty)
+def is_empty_ts(ts: TS[SCALAR]) -> TS[bool]:
     return len(ts.value) == 0

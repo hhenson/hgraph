@@ -243,8 +243,8 @@ def _build_map_wiring_node_and_inputs(
                 kwargs_[KEYS_ARG] = __keys__
             else:
                 if len(multiplex_args) > 1:
-                    from hgraph.nodes import union_
-                    __keys__ = union_(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args))
+                    from hgraph import union
+                    __keys__ = union(*tuple(kwargs_[k].key_set for k in multiplex_args if k not in no_key_args))
                 else:
                     __keys__ = kwargs_[next(iter(multiplex_args))].key_set
                 kwargs_[KEYS_ARG] = __keys__

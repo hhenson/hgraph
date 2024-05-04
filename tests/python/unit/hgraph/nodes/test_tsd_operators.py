@@ -2,8 +2,8 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
-    compute_node, REF, TSS, Size, SIZE, K_1
-from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, is_empty, sum_, tsd_get_item, const, tsd_rekey, tsd_flip,
+    compute_node, REF, TSS, Size, SIZE, K_1, is_empty
+from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, sum_, tsd_get_item, const, tsd_rekey, tsd_flip,
                           merge_tsds, tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys,
                           merge_nested_tsds)
 from hgraph.test import eval_node

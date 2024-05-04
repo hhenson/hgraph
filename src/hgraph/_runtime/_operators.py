@@ -1,22 +1,22 @@
 from typing import Type
 
-from hgraph._types._scalar_types import Size
+from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
+from hgraph._types._scalar_types import Size, SIZE
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._decorators import graph, compute_node
+from hgraph._wiring._decorators import graph
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError, WiringNodeClass
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
 
 """
 The minimum implementation for comparisons are le_ and eq_, the remaining operators are synthesized, it is better to 
 provide an actual implementation for performance reasons.
 """
 
-
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
     "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
-    "getattr_", "min_", "zero", "len_", "min_op", "and_op", "or_op"
+    "getattr_", "min_", "zero", "len_", "min_op", "and_op", "or_op", "union_op", "union", "union_tsl", "intersection_op",
+    "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty"
 )
 
 
@@ -590,6 +590,7 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
     """
     raise WiringError(f"operator contains_ is not implemented for {ts.output_type} and {item.output_type}")
 
+
 # Can't override __contains__ as it seems to always returns a bool value.
 # WiringPort.__contains__ = lambda x, y: contains_(x, y)
 
@@ -714,3 +715,100 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
     Then ensure that the code is imported before performing the operation.
     """
     raise WiringError(f"operator len_ is not implemented for {ts.output_type}")
+
+
+# SET Operators
+
+def union(*args: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Performs a union of a collection of time-series values.
+    Each arg must be of the same type.
+    """
+    if len(args) == 1:
+        return args[0]
+
+    return union_tsl(TSL.from_ts(*args))
+
+
+@graph
+def union_tsl(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+    """
+    Performs a union of the provided time-series values.
+
+    By default, is ``reduce(union_op, tls)``
+
+    Union is { p | p element of tsl[i] for i in range(len(tsl)) }
+    """
+    from hgraph._wiring._reduce import reduce
+    raise reduce(union_op, tsl)
+
+
+@graph
+def union_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Performs a union of the provided time-series values.
+
+    Union is { p | p element of lhs and p element of rhs }
+    """
+    raise WiringError(
+        f"operator union_op is not implemented for {lhs.output_type.value_tp} and {rhs.output_type.value_tp}")
+
+
+def intersection(*args: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Performs a union of a collection of time-series values.
+    Each arg must be of the same type.
+    """
+    if len(args) == 1:
+        return args[0]
+
+    return intersection_tsl(TSL.from_ts(*args))
+
+
+@graph
+def intersection_tsl(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+    """
+    Performs an intersection of the provided time-series values.
+
+    Intersection is { p | p in all tsl[i] for i in range(len(tsl)) }
+    """
+    from hgraph._wiring._reduce import reduce
+    raise reduce(intersection_op, tsl)
+
+
+@graph
+def intersection_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Performs an intersection of the provided time-series values.
+
+    Intersection is { p | p in lhs and p in rhs }
+    """
+    raise WiringError(
+        f"operator union_op is not implemented for {lhs.output_type.value_tp} and {rhs.output_type.value_tp}")
+
+
+@graph
+def difference(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Performs a difference of the provided time-series values.
+
+    Difference is { p | p element of lhs and p not element of rhs }
+    """
+    raise WiringError(f"operator difference is not implemented for {lhs.output_type.value_tp}")
+
+
+@graph
+def symmetric_difference(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Performs the symmetric difference of the provided time-series values.
+
+    Symmetric difference is { p | p element of union(lhs, rhs), but not element of intersection(lhs, rhs) }
+    """
+    raise WiringError(f"operator symmetric_difference is not implemented for {lhs.output_type.value_tp}")
+
+
+@graph
+def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
+    """
+    Returns True if the value of the time-series is considered empty, False otherwise.
+    """

@@ -1,5 +1,4 @@
-from hgraph import TSS, graph, TS, Removed, not_
-from hgraph.nodes import is_empty
+from hgraph import TSS, graph, TS, Removed, not_, is_empty
 from hgraph.test import eval_node
 
 
