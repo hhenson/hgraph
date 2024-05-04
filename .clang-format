@@ -1,0 +1,51 @@
+---
+IndentWidth: 4
+---
+Language: Cpp
+Standard: c++20
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignEscapedNewlines: Right
+AlignTrailingComments: true
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Always
+AllowShortLoopsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterControlStatement: false
+  AfterClass: true
+  AfterFunction: false
+  AfterNamespace: true
+  AfterStruct: true
+  BeforeCatch: false
+  BeforeElse: false
+  SplitEmptyFunction: false
+  SplitEmptyNamespace: false
+  SplitEmptyRecord: false
+  IndentBraces: false
+
+BreakBeforeBinaryOperators: None
+ColumnLimit: 132
+IndentCaseBlocks: true
+IndentCaseLabels: true
+IndentExternBlock: Indent
+IndentPPDirectives: BeforeHash
+NamespaceIndentation: All
+SpaceBeforeAssignmentOperators: true
+SpacesBeforeTrailingComments: 2
+SpaceBeforeCpp11BracedList: false
+UseCRLF: false
+IndentWidth: 4
+ReflowComments: true
+ContinuationIndentWidth: 4
+Cpp11BracedListStyle: true
+
+
+
+
+
+
