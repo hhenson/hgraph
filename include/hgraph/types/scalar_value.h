@@ -1,6 +1,8 @@
-//
-// Created by Howard Henson on 04/04/2021.
-//
+/*
+ *  This is a prototype of a concept for representing values in C++. This would allow for a generic representation
+ *  of C++ value. An alternative to using std::any which supports a version of copy-on-write to allow for
+ *  using references use inside of a compute node, but creating a copy if stored between engine-cycles.
+ */
 
 #ifndef HGRAPH_SCALAR_VALUE_H
 #define HGRAPH_SCALAR_VALUE_H
