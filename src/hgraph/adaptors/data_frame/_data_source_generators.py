@@ -11,8 +11,16 @@ from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, Dat
 
 __all__ = (
     "tsb_from_data_source", "tsd_k_a_from_data_source", "ts_of_matrix_from_data_source", "tsd_k_v_from_data_source",
-    "tsd_k_b_from_data_source", "tsd_k_tsd_from_data_source", "ts_of_array_from_data_source", 'tsl_from_data_source'
+    "tsd_k_b_from_data_source", "tsd_k_tsd_from_data_source", "ts_of_array_from_data_source", 'tsl_from_data_source',
+    "schema_from_frame"
 )
+
+
+def schema_from_frame(frame: pl.DataFrame) -> COMPOUND_SCALAR:
+    """Converts a polars data frame to a COMPOUND_SCALAR."""
+    schema = frame.schema
+    out = compound_scalar(**{name: _convert_type(dtype).py_type for name, dtype in schema.items()})
+    return out
 
 
 def _schema_and_dt_col(mapping, scalars) -> tuple[

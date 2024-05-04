@@ -751,7 +751,7 @@ def union_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     Union is { p | p element of lhs and p element of rhs }
     """
     raise WiringError(
-        f"operator union_op is not implemented for {lhs.output_type.value_tp} and {rhs.output_type.value_tp}")
+        f"operator union_op is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 def intersection(*args: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
@@ -784,7 +784,7 @@ def intersection_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES
     Intersection is { p | p in lhs and p in rhs }
     """
     raise WiringError(
-        f"operator union_op is not implemented for {lhs.output_type.value_tp} and {rhs.output_type.value_tp}")
+        f"operator union_op is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 @graph
@@ -794,7 +794,7 @@ def difference(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE
 
     Difference is { p | p element of lhs and p not element of rhs }
     """
-    raise WiringError(f"operator difference is not implemented for {lhs.output_type.value_tp}")
+    raise WiringError(f"operator difference is not implemented for {lhs.output_type}")
 
 
 @graph
@@ -804,11 +804,14 @@ def symmetric_difference(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_S
 
     Symmetric difference is { p | p element of union(lhs, rhs), but not element of intersection(lhs, rhs) }
     """
-    raise WiringError(f"operator symmetric_difference is not implemented for {lhs.output_type.value_tp}")
+    raise WiringError(f"operator symmetric_difference is not implemented for {lhs.output_type}")
 
 
 @graph
 def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """
     Returns True if the value of the time-series is considered empty, False otherwise.
+
+    By default
     """
+    return eq_(len_(ts), 0)

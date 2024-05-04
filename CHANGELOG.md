@@ -370,3 +370,4 @@ Version 0.2.22 (TBD)
 --------------------
 
 * Add generic set operators in hgraph and adjust implementors in nodes package.
+* Experimental approach to frame operators.

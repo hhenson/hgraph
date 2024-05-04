@@ -69,9 +69,27 @@ class CompoundScalar(AbstractSchema):
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         return HgScalarTypeMetaData.parse_type(tp)
 
+    def to_dict(self):
+        d = {}
+        for k in self.__meta_data_schema__:
+            v = getattr(self, k, None)
+            if isinstance(v, CompoundScalar):
+                v = v.to_dict()
+            if v is not None:
+                d[k] = v
+        return d
+
 
 class UnNamedCompoundScalar(CompoundScalar):
     """Use this class to create un-named compound schemas"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        for k, v in kwargs.items():
+            if k in self.__meta_data_schema__:
+                object.__setattr__(self, k, v)
+            else:
+                raise ValueError(f"{k} is not defined in schema: {self.__meta_data_schema__}")
 
     @classmethod
     def create(cls, **kwargs) -> Type["UnNamedCompoundScalar"]:
@@ -112,6 +130,7 @@ UnSet = _UnSet()  # The marker instance to indicate the value is not set.
 SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 COMPOUND_SCALAR_1 = clone_typevar(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
+COMPOUND_SCALAR_2 = clone_typevar(COMPOUND_SCALAR, "COMPOUND_SCALAR_2")
 SCALAR = TypeVar("SCALAR", bound=object)
 KEYABLE_SCALAR = TypeVar("KEYABLE_SCALAR", bound=Hashable)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
