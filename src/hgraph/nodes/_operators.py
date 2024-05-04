@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from typing import Type
 
-from hgraph import compute_node, SCALAR, SCALAR_1, TS, TIME_SERIES_TYPE, REF, graph, SIGNAL, STATE, CompoundScalar
+from hgraph import compute_node, SCALAR, SCALAR_1, TS, TIME_SERIES_TYPE, REF, graph, SIGNAL, STATE, CompoundScalar, \
+    contains_, eq_, not_, abs_, len_
 
-__all__ = ("cast_", "downcast_", "downcast_ref", "len_", "drop", "take")
+__all__ = ("cast_", "downcast_", "downcast_ref", "drop", "take")
 
 
 @compute_node
@@ -31,9 +32,8 @@ def downcast_ref(tp: Type[SCALAR], ts: REF[TS[SCALAR_1]]) -> REF[TS[SCALAR]]:
     return ts.value
 
 
-
-@compute_node
-def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
+@compute_node(overloads=len_)
+def len_ts(ts: TS[SCALAR]) -> TS[int]:
     """
     Returns the notion of length for the input time-series.
     By default, it is the length of the value of the time-series.
@@ -69,3 +69,27 @@ def take(ts: TIME_SERIES_TYPE, count: int = 1, _state: STATE[CounterState] = Non
     if c == count:
         ts.make_passive()
     return ts.delta_value
+
+
+@compute_node(overloads=contains_)
+def contains_ts(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
+    """Implements using the standard ``in`` Python operator"""
+    return key.value in ts.value
+
+
+@compute_node(overloads=eq_)
+def eq_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
+    """Implements using the standard ``==`` Python operator"""
+    return lhs.value == rhs.value
+
+
+@compute_node(overloads=not_)
+def not_ts(ts: TS[SCALAR]) -> TS[bool]:
+    """Implements not_ using the standards Python ``not`` operator"""
+    return not ts.value
+
+
+@compute_node(overloads=abs_)
+def abs_ts(ts: TS[SCALAR]) -> TS[SCALAR]:
+    """Implements using the standard ``abs`` Python operator"""
+    return abs(ts.value)

@@ -1,6 +1,7 @@
 from typing import Type
 
 import hgraph
+import hgraph._runtime._operators
 from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass, SCALAR, REF
 from hgraph._runtime._operators import min_, min_op
 
@@ -39,7 +40,7 @@ def lt_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
     return bool(lhs.value < rhs.value)
 
 
-@graph(overloads=hgraph.zero)
+@graph(overloads=hgraph._runtime._operators.zero)
 def zero_int(tp: Type[TS[int]], op: WiringNodeClass) -> TS[int]:
     mapping = {
         'add_': 0,
@@ -48,7 +49,7 @@ def zero_int(tp: Type[TS[int]], op: WiringNodeClass) -> TS[int]:
     return mapping[op.signature.name]
 
 
-@graph(overloads=hgraph.zero)
+@graph(overloads=hgraph._runtime._operators.zero)
 def zero_float(tp: Type[TS[float]], op: WiringNodeClass) -> TS[float]:
     mapping = {
         'add_': 0.,

@@ -358,7 +358,9 @@ Version 0.2.20 (03-04-2024)
 * Add data frame iteration support.
 
 
-Version 0.2.21 (TBD)
---------------------
+Version 0.2.21 (04-04-2024)
+---------------------------
 
 * Add date and datetime operators
+* Clean up generic operators to force all template types (defined in hgraph) to be un-implemented
+* Implement the core operators that have unit tests in this library.

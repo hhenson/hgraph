@@ -1,7 +1,7 @@
 import pytest
 
-from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, abs_
-from hgraph.nodes import cast_, len_, drop, take
+from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, abs_, len_
+from hgraph.nodes import cast_, drop, take
 from hgraph.test import eval_node
 
 

@@ -4,8 +4,8 @@ from typing import Type, Mapping, cast, Tuple
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, generator, WiringNodeClass, zero
-from hgraph._runtime._operators import getattr_, mul_
+    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, generator, WiringNodeClass
+from hgraph._runtime._operators import getattr_, mul_, zero
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const, nothing
