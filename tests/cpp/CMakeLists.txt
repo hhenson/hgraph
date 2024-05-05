@@ -6,6 +6,7 @@ enable_testing()
 
 
 set(HGRAPH_UNIT_TEST_SOURCES
+        types/test_node.cpp
         types/test_scalar_value.cpp
 )
 
