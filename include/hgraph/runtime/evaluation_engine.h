@@ -141,8 +141,57 @@ namespace hgraph {
         virtual void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) = 0;
     };
 
-    struct HGRAPH_EXPORT EvaluationEngineApiDelegate : EvaluationEngineApi {
-        explicit EvaluationEngineApiDelegate(EvaluationEngineApi *api);
+    struct EvalautionEngineClock : EvaluationClock {
+
+        virtual void set_evaluation_time(engine_time_t value) = 0;
+
+        virtual engine_time_t next_scheduled_evalaution_time() = 0;
+
+        virtual void update_next_scheduled_evaluation_time(engine_time_t next_time) = 0;
+
+        virtual void advance_to_next_scheduled_time() = 0;
+
+        virtual void mark_push_node_requires_scheduling() = 0;
+
+        [[nodiscard]] virtual bool push_node_requires_scheduling() = 0;
+
+        virtual void reset_push_node_requires_scheduling() = 0;
+    };
+
+    struct EvaluationEngineDelegate;
+
+    struct EvaluationEngine : EvaluationEngineApi {
+        virtual EngineEvalautionClock& engine_evaluation_clock() = 0;
+
+        virtual void advance_engine_time() = 0;
+
+        virtual void notify_before_evaluation() = 0;
+
+        virtual void notify_after_evaluation() = 0;
+
+        virtual void notify_before_start_graph(Graph& graph) = 0;
+        virtual void notify_after_start_graph(Graph& graph) = 0;
+
+        virtual void notify_before_start_node(Node& node) = 0;
+        virtual void notify_after_start_node(Node& node) = 0;
+
+        virtual void notify_before_graph_evaluation(Graph& graph) = 0;
+        virtual void notify_after_graph_evaluation(Graph& graph) = 0;
+
+        virtual void notify_before_node_evaluation(Node& node) = 0;
+        virtual void notify_after_node_evaluation(Node& node) = 0;
+
+        virtual void notify_before_stop_node(Node& node) = 0;
+        virtual void notify_after_stop_node(Node& node) = 0;
+
+        virtual void notify_before_stop_graph(Graph& graph) = 0;
+        virtual void notify_after_stop_graph(Graph& graph) = 0;
+
+        friend EvaluationEngineDelegate;
+    };
+
+    struct HGRAPH_EXPORT EvaluationEngineDelegate : EvaluationEngine {
+        explicit EvaluationEngineDelegate(EvaluationEngine *api);
 
         [[nodiscard]] EvaluationMode evaluation_mode() const override;
 
@@ -151,6 +200,8 @@ namespace hgraph {
         [[nodiscard]] engine_time_t end_time() const override;
 
         [[nodiscard]] EvaluationClock &evaluation_clock() override;
+
+        EngineEvalautionClock & engine_evaluation_clock() override;
 
         void request_engine_stop() override;
 
@@ -164,6 +215,36 @@ namespace hgraph {
 
         void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
+        void advance_engine_time() override;
+
+        void notify_before_evaluation() override;
+
+        void notify_after_evaluation() override;
+
+        void notify_before_start_graph(Graph &graph) override;
+
+        void notify_after_start_graph(Graph &graph) override;
+
+        void notify_before_start_node(Node &node) override;
+
+        void notify_after_start_node(Node &node) override;
+
+        void notify_before_graph_evaluation(Graph &graph) override;
+
+        void notify_after_graph_evaluation(Graph &graph) override;
+
+        void notify_before_node_evaluation(Node &node) override;
+
+        void notify_after_node_evaluation(Node &node) override;
+
+        void notify_before_stop_node(Node &node) override;
+
+        void notify_after_stop_node(Node &node) override;
+
+        void notify_before_stop_graph(Graph &graph) override;
+
+        void notify_after_stop_graph(Graph &graph) override;
+
     protected:
         void initialise() override;
 
@@ -174,7 +255,7 @@ namespace hgraph {
         void dispose() override;
 
     private:
-        EvaluationEngineApi *_evaluation_engine_api;
+        EvaluationEngine *_evaluation_engine;
     };
 }
 
