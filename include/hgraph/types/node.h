@@ -15,6 +15,8 @@
 
 #include <hgraph/util/lifecycle.h>
 
+#include "hgraph/util/date_time.h"
+
 namespace hgraph {
     struct Graph;
 
@@ -111,16 +113,36 @@ namespace hgraph {
         static void py_register(py::module_ &m);
     };
 
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle{
+    struct TimeSeriesBundleInput;
+    struct TimeSeriesOutput;
+
+    struct NodeScheduler {
+        [[nodiscard]] engine_time_t next_scheduled_time() const;
+        [[nodiscard]] bool is_scheduled() const;
+        [[nodiscard]] bool is_scheduled_node() const;
+        [[nodiscard]] bool has_tag(const std::string& tag) const;
+        engine_time_t pop_tag(const std::string& tag, std::optional<engine_time_t> default_time);
+        void schedule(engine_time_t when, std::optional<std::string> tag);
+        void schedule(engine_time_delta_t when, std::optional<std::string> tag);
+        void un_schedule(std::optional<std::string> tag);
+        void reset();
+    };
+
+    struct HGRAPH_EXPORT Node : ComponentLifeCycle {
         int64_t node_ndx;
         std::vector<int64_t> owning_graph_id;
         std::vector<int64_t> node_id;
         NodeSignature signature;
         std::unordered_map<std::string, py::object> scalars;
         Graph *graph;
-
+        TimeSeriesBundleInput *input;
+        TimeSeriesOutput* output;
+        TimeSeriesOutput* error_output;
+        std::optional<NodeScheduler> scheduler;
+        virtual void eval() = 0;
+        void notify();
+        void notify_next_cycle();
     };
-
 }
 
 #endif //NODE_H
