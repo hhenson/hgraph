@@ -2,9 +2,14 @@ project(_hgraph)
 
 set(HGRAPH_SOURCES
         python/_hgraph_module.cpp
+        python/_hgraph_types.cpp
         python/_hgraph_graph.cpp
+
+        types/node.cpp
         types/scalar_value.cpp
         types/schema.cpp
+
+        util/lifecycle.cpp
         )
 
 add_definitions(-Dhgraph_EXPORTS)
