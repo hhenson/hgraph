@@ -5,6 +5,8 @@ set(HGRAPH_SOURCES
         python/_hgraph_types.cpp
         python/_hgraph_graph.cpp
 
+        runtime/evaluation_engine.cpp
+
         types/node.cpp
         types/scalar_value.cpp
         types/schema.cpp

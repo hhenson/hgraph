@@ -16,6 +16,8 @@
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
+    struct Graph;
+
     template<typename Enum>
     typename std::enable_if<std::is_enum<Enum>::value, Enum>::type
     operator|(Enum lhs, Enum rhs) {
@@ -110,6 +112,12 @@ namespace hgraph {
     };
 
     struct HGRAPH_EXPORT Node : ComponentLifeCycle{
+        int64_t node_ndx;
+        std::vector<int64_t> owning_graph_id;
+        std::vector<int64_t> node_id;
+        NodeSignature signature;
+        std::unordered_map<std::string, py::object> scalars;
+        Graph *graph;
 
     };
 

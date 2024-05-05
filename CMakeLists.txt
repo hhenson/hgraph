@@ -79,6 +79,8 @@ include_directories(include)
 set(HGRAPH_INCLUDES
         include/hgraph/types/meta/type_meta_data.h
 
+        include/hgraph/runtime/evaluation_engine.h
+        include/hgraph/types/graph.h
         include/hgraph/types/node.h
         include/hgraph/types/scalar_value.h
         include/hgraph/types/schema.h
