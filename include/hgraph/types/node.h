@@ -143,7 +143,6 @@ namespace hgraph {
         void notify();
         void notify_next_cycle();
     };
-
 }
 
 #endif //NODE_H
