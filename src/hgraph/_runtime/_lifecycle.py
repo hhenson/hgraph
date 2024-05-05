@@ -73,7 +73,7 @@ class ComponentLifeCycle:
     def dispose(self):
         """
         Use this life-cycle call to clean up any resources held. This is called once only at the end of the components
-        life-cycle and it is expected the component will be released after this call completes. This ensures
+        life-cycle and its expected the component will be released after this call completes. This ensures
         That any resources that are referenced are cleaned up in a timely fashion.
         When called in the graph context, the order of initialise and dispose are also ensured.
         It is the responsibility of this component to delegate this call to any life-cycle managed components
