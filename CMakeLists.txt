@@ -35,6 +35,7 @@ find_package(pybind11 CONFIG)
 
 find_package(Boost REQUIRED)
 find_package(Threads)
+find_package(range-v3 CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 #find_package(immer CONFIG REQUIRED)
 
@@ -76,6 +77,9 @@ configure_file(
 include_directories(include)
 
 set(HGRAPH_INCLUDES
+        include/hgraph/types/meta/type_meta_data.h
+
+        include/hgraph/types/node.h
         include/hgraph/types/scalar_value.h
         include/hgraph/types/schema.h
 
@@ -83,6 +87,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/python/pyb_wiring.h
 
         include/hgraph/util/date_time.h
+        include/hgraph/util/lifecycle.h
         include/hgraph/util/reference_count_subscriber.h
 )
 

@@ -10,11 +10,10 @@
 
 #include <hgraph/python/pyb_wiring.h>
 
-void export_graph_elements(py::module&);
-
+void export_types(py::module_&);
 
 PYBIND11_MODULE(_hgraph, m) {
     m.doc() = "The HGraph C++ runtime engine";
 
-    export_graph_elements(m);
+    export_types(m);
 }
