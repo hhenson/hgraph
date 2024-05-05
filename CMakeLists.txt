@@ -84,6 +84,8 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/node.h
         include/hgraph/types/scalar_value.h
         include/hgraph/types/schema.h
+        include/hgraph/types/time_series_types.h
+        include/hgraph/types/tsb_type.h
 
         include/hgraph/python/pyb.h
         include/hgraph/python/pyb_wiring.h
