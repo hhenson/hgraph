@@ -16,8 +16,9 @@ namespace hgraph {
     struct TimeSeries {
         virtual ~TimeSeries() = default;
 
-        Node *owning_node{};
-        Graph *owning_graph{};
+        [[nodiscard]] virtual Node *owning_node() const = 0;
+
+        [[nodiscard]] Graph *owning_graph() const;
 
         [[nodiscard]] virtual py::object py_value() const = 0;
 
@@ -31,9 +32,12 @@ namespace hgraph {
 
         [[nodiscard]] virtual engine_time_t last_modified_time() const = 0;
 
-        virtual void re_parent(Node *parent) const = 0;
+        virtual void re_parent(Node *parent) = 0;
 
-        virtual void re_parent(TimeSeries *parent) const = 0;
+        virtual void re_parent(TimeSeries *parent) = 0;
+
+    protected:
+        std::optional<Node *> _owning_node;
     };
 
     struct TimeSeriesInput;
@@ -42,6 +46,8 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesOutput *parent_output() const;
 
         [[nodiscard]] bool has_parent_output() const;
+
+        void re_parent(TimeSeriesOutput *parent);
 
         virtual void set_py_value(py::object value) = 0;
 
@@ -65,31 +71,48 @@ namespace hgraph {
     struct TimeSeriesInput : TimeSeries {
         TimeSeriesInput() = default;
 
-        [[nodiscard]] TimeSeriesInput *parent_input() const;
+        [[nodiscard]] Node *owning_node() const override;
 
-        [[nodiscard]] bool has_parent_input() const;
+        [[nodiscard]] const TimeSeriesInput *parent_input() const { return *_parent_input; }
 
-        [[nodiscard]] virtual bool bound() const;
+        [[nodiscard]] bool has_parent_input() const { return (bool) _parent_input; };
 
-        [[nodiscard]] virtual bool has_peer() const;
+        void re_parent(Node *parent) override;
 
-        [[nodiscard]] TimeSeriesOutput *output() const;
+        void re_parent(TimeSeriesInput *parent);
 
-        virtual bool bind_output(TimeSeriesOutput *value);
+        [[nodiscard]] bool bound() const { return _output.has_value(); };
 
-        virtual void do_bind_output(TimeSeriesOutput *value);
+        [[nodiscard]] virtual bool has_peer() const { return _output.has_value(); };
+
+        [[nodiscard]] TimeSeriesOutput *output() const { return _output.value(); };
+
+        virtual bool bind_output(TimeSeriesOutput *output);
+
+        virtual bool do_bind_output(TimeSeriesOutput *value);
 
         void un_bind_output();
 
         virtual void do_un_bind_output(TimeSeriesOutput *value) {
         };
 
-        [[nodiscard]] virtual bool active() = 0;
+        [[nodiscard]] bool active() const;
 
         virtual void make_active() = 0;
 
         virtual void make_passive() = 0;
+
+    protected:
+        [[nodiscard]] virtual bool active_un_bound() const { return _active; }
+
+    private:
+        std::optional<TimeSeriesInput *> _parent_input;
+        std::optional<TimeSeriesOutput *> _output;
+        std::optional<TimeSeriesOutput *> _reference_output;
+        bool _active{false};
+        engine_time_t _sample_time{MIN_DT};
     };
+
 
     struct TimeSeriesSignalInput : TimeSeriesInput {
         [[nodiscard]] py::object py_value() const override;

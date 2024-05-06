@@ -82,9 +82,11 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/evaluation_engine.h
         include/hgraph/types/graph.h
         include/hgraph/types/node.h
+        include/hgraph/types/ref_type.h
         include/hgraph/types/scalar_value.h
         include/hgraph/types/schema.h
-        include/hgraph/types/time_series_types.h
+        include/hgraph/types/time_series_type.h
+        include/hgraph/types/ts_type.h
         include/hgraph/types/tsb_type.h
 
         include/hgraph/python/pyb.h
