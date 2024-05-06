@@ -5,7 +5,7 @@
 #ifndef TSB_TYPE_H
 #define TSB_TYPE_H
 
-#include<hgraph/types/time_series_types.h>
+#include<hgraph/types/time_series_type.h>
 #include<vector>
 #include<algorithm>
 #include <ranges>
