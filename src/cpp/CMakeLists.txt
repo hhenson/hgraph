@@ -10,6 +10,8 @@ set(HGRAPH_SOURCES
         types/node.cpp
         types/scalar_value.cpp
         types/schema.cpp
+        types/time_series_type.cpp
+        types/ts_type.cpp
 
         util/lifecycle.cpp
         )
