@@ -312,3 +312,20 @@ def test_generic_multi_service_with_non_trivial_resolve():
         return map_(lambda key: subscribe('submit', key), __keys__=receive[KEYABLE_SCALAR: tp]('submit'))
 
     assert eval_node(multiservice_test[SCALAR: int, SCALAR_1: str], [1, None], [None, 2]) == [None, {}, {1: '1'}, {2: '2'}]
+
+
+def test_resolution_of_service_vs_impl_with_additional_template_params():
+    @reference_service
+    def receive(path: str = default_path) -> TS[KEYABLE_SCALAR]:
+        ...
+
+    @service_impl(interfaces=(receive,))
+    def impl(tp: type[SCALAR]) -> TS[KEYABLE_SCALAR]:
+        return const(tp(), TS[str])
+
+    @graph
+    def g_test() -> TS[str]:
+        receive[KEYABLE_SCALAR: str].register_impl(default_path, impl, tp=str)
+        return receive[KEYABLE_SCALAR: str]()
+
+    assert eval_node(g_test) ==  [""]

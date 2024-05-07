@@ -306,7 +306,7 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
 
     for i in implementation.interfaces:
         WiringGraphContext.instance().register_service_impl(
-            i, i.full_path(path) if path else None, implementation, kwargs,
+            i, i.full_path(path), implementation, kwargs,
             resolution_dict)
 
 

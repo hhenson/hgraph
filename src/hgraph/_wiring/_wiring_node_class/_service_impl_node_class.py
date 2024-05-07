@@ -58,7 +58,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                  __interface__: WiringNodeSignature = None,
                  **kwargs) -> "WiringPort":
-
+        path_types = __pre_resolved_types__
         with WiringContext(current_wiring_node=self, current_signature=self._original_signature):
             path = kwargs.get("path")
 
@@ -86,7 +86,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
                         'inner_graph': HgObjectType.parse_type(object)}))
 
             with WiringContext(current_wiring_node=self, current_signature=self.signature):
-                inner_graph, paths = create_inner_graph(self._original_signature, self.fn, kwargs_, self.interfaces, resolution_dict)
+                inner_graph, paths = create_inner_graph(self._original_signature, self.fn, kwargs_, self.interfaces, resolution_dict, path_types)
                 kwargs_['inner_graph'] = inner_graph
 
             # We pass in rank of -1 because service implementations are ranked at the end of the graph build
@@ -167,16 +167,17 @@ def validate_signature_vs_interfaces(signature: WiringNodeSignature, fn: Callabl
 
 
 def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any],
-                       interfaces: list[WiringNodeSignature], resolution_dict: dict[TypeVar, HgTypeMetaData] = None) -> (GraphBuilder, [str]):
+                       interfaces: list[WiringNodeSignature], resolution_dict: dict[TypeVar, HgTypeMetaData] = None,
+                       interface_resolution_dict: dict[TypeVar, HgTypeMetaData] = None) -> (GraphBuilder, [str]):
     if len(interfaces) == 1:
         s: WiringNodeSignature = interfaces[0].signature
         match s.node_type:
             case WiringNodeType.REF_SVC:
-                return wire_reference_data_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict)
+                return wire_reference_data_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict, interface_resolution_dict)
             case WiringNodeType.SUBS_SVC:
-                return wire_subscription_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict)
+                return wire_subscription_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict, interface_resolution_dict)
             case WiringNodeType.REQ_REP_SVC:
-                return wire_request_reply_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict)
+                return wire_request_reply_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict, interface_resolution_dict)
             case _:
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
     else:
@@ -210,18 +211,18 @@ def wire_multi_service(fn: Callable, scalars: Mapping[str, Any], resolution_dict
 
 
 def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any],
-                              interface, resolution_dict=None) -> (GraphBuilder, [str]):
+                              interface, resolution_dict=None, interface_resolution_dict=None) -> (GraphBuilder, [str]):
     path = (scalars := dict(scalars)).pop("path")
-    typed_full_path = interface.typed_full_path(path, resolution_dict)
+    typed_full_path = interface.typed_full_path(path, interface_resolution_dict)
 
     from hgraph._wiring._decorators import graph
 
     @graph
     def subscription_service():
-        subscriptions = interface[resolution_dict].wire_impl_inputs_stub(path)
+        subscriptions = interface[interface_resolution_dict].wire_impl_inputs_stub(path)
         # Call the implementation graph with the scalars provided
         out = graph(fn)[resolution_dict](**(subscriptions.as_dict() | scalars))
-        interface[resolution_dict].wire_impl_out_stub(path, out)
+        interface[interface_resolution_dict].wire_impl_out_stub(path, out)
 
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         subscription_service()
@@ -247,9 +248,9 @@ def wire_request_reply_service_stubs(wiring_signature: WiringNodeSignature, type
 
 
 def wire_request_reply_service(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any],
-                              interface, resolution_dict) -> (GraphBuilder, [str]):
+                              interface, resolution_dict, interface_resolution_dict) -> (GraphBuilder, [str]):
     path = (scalars := dict(scalars)).pop("path")
-    typed_full_path = interface.typed_full_path(path, resolution_dict)
+    typed_full_path = interface.typed_full_path(path, interface_resolution_dict)
 
     wire_request_reply_service_stubs(wiring_signature, typed_full_path, interface, resolution_dict)
 
@@ -257,10 +258,10 @@ def wire_request_reply_service(wiring_signature: WiringNodeSignature, fn: Callab
 
     @graph
     def request_reply_service():
-        requests = interface[resolution_dict].wire_impl_inputs_stub(path)
+        requests = interface[interface_resolution_dict].wire_impl_inputs_stub(path)
         # Call the implementation graph with the scalars provided
         out = graph(fn)[resolution_dict](**(requests.as_dict() | scalars))
-        interface[resolution_dict].wire_impl_out_stub(path, out)
+        interface[interface_resolution_dict].wire_impl_out_stub(path, out)
 
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         request_reply_service()
@@ -273,11 +274,13 @@ def wire_reference_data_service(
         fn: Callable,
         scalars: Mapping[str, Any],
         interface,
-        resolution_dict) -> (GraphBuilder, [str]):
+        resolution_dict,
+        interface_resolution_dict=None
+) -> (GraphBuilder, [str]):
     # The path was added to the scalars when initially wired to create the wiring node instance,
     # now we pop it off so that we can make use of both the scalars and the path.
     path = (scalars := dict(scalars)).pop("path")
-    typed_full_path = interface.typed_full_path(path, resolution_dict)
+    typed_full_path = interface.typed_full_path(path, interface_resolution_dict)
 
     from hgraph._wiring._decorators import graph
     from hgraph.nodes._service_utils import capture_output_to_global_state

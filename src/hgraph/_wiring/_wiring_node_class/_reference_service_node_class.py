@@ -85,6 +85,12 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
         WiringGraphContext.instance().add_built_service_impl(typed_full_path, None)
 
-    def register_impl(self, path: str, impl: "NodeBuilder", __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None):
+    def register_impl(self, path: str, impl: "NodeBuilder",
+                      __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+                      **kwargs):
+        """
+        Register an implementation for a service instance. This is useful when there in only one service which has
+        type resolution required.
+        """
         from hgraph import register_service
-        register_service(path, impl, self.signature.try_build_resolution_dict(__pre_resolved_types__))
+        register_service(path, impl, self.signature.try_build_resolution_dict(__pre_resolved_types__), **kwargs)
