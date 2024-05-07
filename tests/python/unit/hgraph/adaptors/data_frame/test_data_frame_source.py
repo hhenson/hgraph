@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 import polars as pl
+import pytest
 
 from hgraph import GraphConfiguration, evaluate_graph, graph, TSB, ts_schema, TS
 from hgraph.adaptors.data_frame import PolarsDataFrameSource, DataStore, DataConnectionStore, \
@@ -50,14 +51,34 @@ INSERT_TEST_DATA = [
 ]
 
 
-def test_db_source():
+@pytest.fixture(scope='function')
+def connection():
     import duckdb
-    conn = duckdb.connect(":memory:")
-    conn.execute(CREATE_TBL_SQL)
-    conn.commit()
+    return duckdb.connect(":memory:")
+
+
+@pytest.fixture(scope="function")
+def age_data(connection):
+    connection.execute(CREATE_TBL_SQL)
+    connection.commit()
     for ins in INSERT_TEST_DATA:
-        conn.execute(ins)
-    conn.commit()
+        connection.execute(ins)
+    connection.commit()
+    print("Data loaded")
+    yield
+    connection.execute('DROP TABLE IF EXISTS my_table')
+    connection.commit()
+
+
+@pytest.fixture(scope="function")
+def data_store_connection(connection):
+    dsc = DataConnectionStore()
+    dsc.set_connection("duckdb", connection)
+    print("Connection stored")
+    return dsc
+
+
+def test_db_source(age_data, data_store_connection):
 
     class AgeDataSource(SqlDataFrameSource):
 
@@ -68,8 +89,7 @@ def test_db_source():
     def main() -> TSB[ts_schema(name=TS[str], age=TS[int])]:
         return tsb_from_data_source(AgeDataSource, "date")
 
-    with DataConnectionStore() as dsc, DataStore():
-        dsc.set_connection("duckdb", conn)
+    with data_store_connection, DataStore():
         config = GraphConfiguration()
         result = evaluate_graph(main, config)
 

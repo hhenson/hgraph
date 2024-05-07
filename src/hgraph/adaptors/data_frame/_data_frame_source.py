@@ -157,7 +157,7 @@ class SqlDataFrameSource(DataFrameSource):
     This uses the query connection and batch_size properties. Any execute_options can be provided as kwargs.
     """
 
-    def __init__(self, query: str, connection: str, batch_size: int = 1000, **kwargs):
+    def __init__(self, query: str, connection: str, batch_size: int = -1, **kwargs):
         self._query: str = query
         self._kwargs: dict = kwargs
         self._connection: str = connection
@@ -171,8 +171,7 @@ class SqlDataFrameSource(DataFrameSource):
 
     @property
     def data_frame(self) -> pl.DataFrame:
-        if self._df is None or self._iter is not None:
-            self._iter = None
+        if self._df is None:
             self._df = pl.read_database(
                 self._query,
                 self.connection,
@@ -182,25 +181,28 @@ class SqlDataFrameSource(DataFrameSource):
 
     def iter_frames(self) -> Iterator[pl.DataFrame]:
         if self._df is None:
-            return pl.read_database(
-                self._query,
-                self.connection,
-                iter_batches=True,
-                batch_size=self._batch_size,
-                execute_options=self._kwargs
-            )
-        elif self._iter is not None:
-            # We probably loaded this via the schema method, clean up and return.
-            i = chain([self._df], self._iter)
-            self._df = None
-            self._iter = None
-            return i
+            if self._batch_size == -1:
+                return iter([self.data_frame])
+            else:
+                df = pl.read_database(
+                    self._query,
+                    self.connection,
+                    iter_batches=True,
+                    batch_size=self._batch_size,
+                    execute_options=self._kwargs
+                )
+                if isinstance(df, pl.DataFrame):
+                    return iter([self.data_frame])
+                else:
+                    return df
         else:
             # Since we already have the data loaded, just use the loaded data-frame
-            return iter([self._df])
+            return iter([self.data_frame])
 
     @cached_property
     def schema(self) -> OrderedDict[str, pl.DataType]:
-        self._iter = self.iter_frames()
-        self._df = next(self._iter)
-        return self._df.schema
+        df = pl.read_database(
+            self._query + " LIMIT 1",
+            self.connection
+        )
+        return df.schema
