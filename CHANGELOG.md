@@ -366,8 +366,9 @@ Version 0.2.21 (04-04-2024)
 * Implement the core operators that have unit tests in this library.
 
 
-Version 0.2.22 (TBD)
---------------------
+Version 0.2.22 (07-04-2024)
+---------------------------
 
 * Add generic set operators in hgraph and adjust implementors in nodes package.
 * Experimental approach to frame operators.
+* Fixes to services where impl has more type resolutions than the interfaces.
