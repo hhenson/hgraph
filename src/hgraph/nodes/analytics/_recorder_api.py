@@ -36,7 +36,7 @@ class RecorderAPI:
 
     @abstractmethod
     def create_or_update_table_definition(self, table_name: str, definition: type[COMPOUND_SCALAR],
-                                          date_column: tuple[str, date | datetime],
+                                          date_column: tuple[str, date | datetime] = ('date', date),
                                           renamed_fields: dict[str, str] = None) -> None:
         """
         Defines a table definition for a table. This is used for validation and can perform operations such
@@ -54,13 +54,14 @@ class RecorderAPI:
         """
 
     @abstractmethod
-    def drop_table(self, table_name: str):
+    def drop_table(self, table_name: str, variant: str = None):
         """
         Removes a table and its definition.
+        :param variant:
         """
 
     @abstractmethod
-    def reset_table(self):
+    def reset_table(self, table_name: str, variant: str = None):
         """
         Removes all the data associated to a table.
         """
@@ -152,12 +153,25 @@ class TableWriterAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 
 class TableReaderAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 
+    @property
     @abstractmethod
-    def get_frame(self) -> Frame[COMPOUND_SCALAR]:
+    def data_frame(self) -> Frame[COMPOUND_SCALAR]:
         """Returns the frame of data associated to the current date"""
 
+    @property
     @abstractmethod
-    def get_next_available_time(self) -> datetime | None:
+    def next_available_time(self) -> datetime | None:
         """
         The next available time present in recorded data set. If there is no next available time, None is returned.
         """
+
+    @property
+    @abstractmethod
+    def first_time(self) -> datetime | date:
+        """The first time that table has data for."""
+
+    @property
+    @abstractmethod
+    def last_time(self) -> datetime | date:
+        """The last time that table has data for."""
+
