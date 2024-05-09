@@ -7,6 +7,8 @@ import polars as pl
 from hgraph import COMPOUND_SCALAR, Frame
 from ._recorder_api import RecorderAPI, TableAPI, TableReaderAPI, TableWriterAPI
 
+__all__ = ('PolarsRecorderAPI',)
+
 
 class PolarsRecorderAPI(RecorderAPI):
 

@@ -7,6 +7,9 @@ from hgraph import TIME_SERIES_TYPE, sink_node, SCALAR, AUTO_RESOLVE, pull_sourc
     WiringNodeClass, create_wiring_node_instance, BaseWiringNodeClass, PythonBaseNodeBuilder, NodeImpl
 
 
+__all__ = ("recordable_feedback",)
+
+
 @sink_node(active=("ts",), valid=("ts",))
 def _recordable_feedback_sink(ts: TIME_SERIES_TYPE, ts_self: TIME_SERIES_TYPE):
     """This binds the value of ts to the _feedback source node"""
