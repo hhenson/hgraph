@@ -30,8 +30,7 @@ def delay_start(state: STATE):
 
 
 @generator
-def signal(delay: timedelta, initial_delay: bool = True, max_ticks: int = None) -> TS[bool]:
-    max_ticks = max_ticks or sys.maxsize
+def signal(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.maxsize) -> TS[bool]:
     initial_timedelta = delay if initial_delay else timedelta()
     yield(initial_timedelta, True)
     for _ in range(max_ticks - 1):
