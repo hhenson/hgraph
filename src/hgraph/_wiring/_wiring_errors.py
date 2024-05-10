@@ -8,7 +8,8 @@ if typing.TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData
 
 __all__ = ("WiringError", "ArgumentBindingErrors", "IncorrectTypeBinding", "TemplateTypeIncompatibleResolution",
-           "MissingInputsError", "NoTimeSeriesInputsError", "InvalidArgumentsProvided", "CustomMessageWiringError")
+           "MissingInputsError", "NoTimeSeriesInputsError", "InvalidArgumentsProvided", "CustomMessageWiringError",
+           "RequirementsNotMetWiringError")
 
 
 class WiringError(RuntimeError, ABC):
@@ -158,3 +159,16 @@ class CustomMessageWiringError(WiringError):
         signature = self.signature.signature if self.signature else "unnamed graph"
         msg = f"When resolving '{signature}' \n{self.message}"
         self._print_error(msg)
+
+
+class RequirementsNotMetWiringError(WiringError):
+    def __init__(self, message: str):
+        self.message = message
+        self.signature = WIRING_CONTEXT.current_signature
+        super().__init__(self.message)
+
+    def print_error(self):
+        signature = self.signature.signature if self.signature else "unnamed graph"
+        msg = f"Requitements not met for '{signature}' \n{self.message}"
+        self._print_error(msg)
+

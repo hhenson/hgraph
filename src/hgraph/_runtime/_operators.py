@@ -16,7 +16,7 @@ __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
     "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
     "getattr_", "min_", "max_", "zero", "len_", "min_op", "max_op", "and_op", "or_op", "union_op", "union", "union_tsl",
-    "intersection_op", "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty"
+    "intersection_op", "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty", "type_"
 )
 
 
@@ -843,3 +843,11 @@ def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
     By default
     """
     return eq_(len_(ts), 0)
+
+
+@graph
+def type_(ts: TIME_SERIES_TYPE) -> TS[type]:
+    """
+    Returns the type of the time-series value.
+    """
+    return type(ts.value)
