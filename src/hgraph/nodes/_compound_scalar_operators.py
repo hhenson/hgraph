@@ -1,7 +1,7 @@
 from typing import Type
 
 from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, HgTypeMetaData, IncorrectTypeBinding, with_signature, \
-    TimeSeries, CustomMessageWiringError, TSB, AUTO_RESOLVE, TS_SCHEMA
+    TimeSeries, CustomMessageWiringError, TSB, TS_SCHEMA
 from hgraph._runtime._operators import getattr_
 
 __all__ = ("getattr_cs", "cs_from_ts", "cs_from_tsb")

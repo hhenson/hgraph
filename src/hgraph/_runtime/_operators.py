@@ -15,8 +15,8 @@ provide an actual implementation for performance reasons.
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
     "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
-    "getattr_", "min_", "zero", "len_", "min_op", "and_op", "or_op", "union_op", "union", "union_tsl", "intersection_op",
-    "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty"
+    "getattr_", "min_", "max_", "zero", "len_", "min_op", "max_op", "and_op", "or_op", "union_op", "union", "union_tsl",
+    "intersection_op", "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty"
 )
 
 
@@ -687,6 +687,34 @@ def min_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     Then ensure that the code is imported before performing the operation.
     """
     raise WiringError(f"operator min_ is not implemented for {lhs.output_type}")
+
+
+@graph
+def max_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+    if rhs is None:
+        return lhs
+    else:
+        return max_op(lhs, rhs)
+
+
+@graph
+def max_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    This represents the `max` operator for time series types.
+
+    This is expected to return the minimum value of the two provided time-series values.
+
+    This is the interface definition graph, by default it is not implemented.
+    To implement the min_op_ operator, do:
+    ::
+
+        @compute_node(overloads=min_op_)
+        def my_min_op(lhs: TS[MyType], rhs: TS[MyType]) -> TS[bool]:
+            ...
+
+    Then ensure that the code is imported before performing the operation.
+    """
+    raise WiringError(f"operator max_ is not implemented for {lhs.output_type}")
 
 
 @graph
