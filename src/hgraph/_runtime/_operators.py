@@ -702,14 +702,14 @@ def max_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the `max` operator for time series types.
 
-    This is expected to return the minimum value of the two provided time-series values.
+    This is expected to return the maximum value of the two provided time-series values.
 
     This is the interface definition graph, by default it is not implemented.
-    To implement the min_op_ operator, do:
+    To implement the max_op_ operator, do:
     ::
 
-        @compute_node(overloads=min_op_)
-        def my_min_op(lhs: TS[MyType], rhs: TS[MyType]) -> TS[bool]:
+        @compute_node(overloads=max_op_)
+        def my_max_op(lhs: TS[MyType], rhs: TS[MyType]) -> TS[bool]:
             ...
 
     Then ensure that the code is imported before performing the operation.
