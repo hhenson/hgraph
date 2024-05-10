@@ -22,3 +22,5 @@ def test_signal():
 
     # The generator node seems to tick out None for the time every engine cycle where there is no generator value
     assert eval_node(signal, delay=MIN_TD, max_ticks=4, initial_delay=True) == [None, True, True, True, True]
+
+    assert eval_node(signal, delay=MIN_TD, max_ticks=1, initial_delay=False) == [True]
