@@ -474,7 +474,7 @@ class AddTenorDGen(DGen):
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
         start = start if start is not date.min else after
-        start = self.tenor.sub_from(start, calendar) if not self.tenor.is_neg() else start
+        start = self.tenor.sub_from(start, calendar) if not self.tenor.is_neg() and start is not date.min else start
         yield from (self.tenor.add_to(d, calendar) for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs))
 
     def __repr__(self):

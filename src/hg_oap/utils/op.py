@@ -467,7 +467,7 @@ class CallOp(Op):
             call_args.append(a)
 
         call_kwargs = {}
-        for k, v in self._kwargs:
+        for k, v in self._kwargs.items():
             v = v.__invoke__(*args, **kwargs) if isinstance(v, Op) else v
             if isinstance(v, FailedOp):
                 return v
@@ -778,7 +778,7 @@ class Expression:
         return calc(self._op, *args, **kwargs)
 
     def __repr__(self):
-        return repr(self.op)
+        return repr(self._op)
 
     @property
     def __signature__(self):

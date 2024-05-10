@@ -4,12 +4,12 @@ from decimal import Decimal
 from enum import Enum
 from typing import Type, Callable
 
-from hg_oap.utils.op import Op
+from hg_oap.utils.op import Op, lazy
 from hgraph import CompoundScalar
 
 from hg_oap.assets.currency import Currency
 from hg_oap.dates.calendar import Calendar
-from hg_oap.dates.dgen import DGen, DGenParameter
+from hg_oap.dates.dgen import DGen, DGenParameter, make_dgen
 from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
@@ -50,7 +50,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     tick_size: Quantity[Decimal]
 
     unit_conversion_factors: tuple[Quantity[Decimal]] = \
-        lambda self: self.underlying.unit_conversion_factors + (self.contract_size/(Decimal(1.)*U.lot),)
+        lambda self: self.underlying.unit_conversion_factors + (self.contract_size/(1.*U.lot),)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -74,7 +74,7 @@ class FutureContractSeries(CompoundScalar, ExprClass, UnitConversionContext):
     last_trading_date: Expression[[date], date]  # given a contract base date, produces the last trading date
 
 
-CONTRACT_BASE_DATE = ParameterOp(_name="CONTRACT_BASE_DATE")
+CONTRACT_BASE_DATE = lazy(make_dgen)(ParameterOp(_name="CONTRACT_BASE_DATE"))
 
 
 def month_code(d: int | date) -> str:
@@ -98,8 +98,8 @@ class Future(Instrument):
     symbol: str = SELF.series.symbol_expr(SELF)
 
 
-    expiry: date = SELF.series.expiry(SELF.contract_base_date)
-    first_trading_date: date = SELF.series.first_trading_date(SELF.contract_base_date)
-    last_trading_date: date = SELF.series.last_trading_date(SELF.contract_base_date)
+    expiry: date = SELF.series.expiry(CONTRACT_BASE_DATE=SELF.contract_base_date)
+    first_trading_date: date = SELF.series.first_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
+    last_trading_date: date = SELF.series.last_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
 
     unit_conversion_factors: tuple[Quantity[Decimal]] = SELF.series.spec.unit_conversion_factors
