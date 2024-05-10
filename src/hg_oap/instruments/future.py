@@ -2,18 +2,20 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import Enum
+from typing import Type, Callable
 
+from hg_oap.utils.op import Op
 from hgraph import CompoundScalar
 
 from hg_oap.assets.currency import Currency
 from hg_oap.dates.calendar import Calendar
-from hg_oap.dates.dgen import DGen
+from hg_oap.dates.dgen import DGen, DGenParameter
 from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit
 from hg_oap.units.unit_system import UnitConversionContext
-from hg_oap.utils import ExprClass, SELF, ParameterOp
+from hg_oap.utils import ExprClass, Expression, SELF, ParameterOp
 
 
 class SettlementMethod(Enum):
@@ -51,28 +53,33 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
         lambda self: self.underlying.unit_conversion_factors + (self.contract_size/(Decimal(1.)*U.lot),)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class FutureContractSeries(CompoundScalar, ExprClass, UnitConversionContext):
+    SELF: "FutureContractSeries" = SELF
     """
     A series of future contracts.
     """
 
     spec: FutureContractSpec
     name: str
-    symbol: INSTRUMENT_ID
+    symbol: str = SELF.spec.symbol + SELF.name
+    future_type: Type[Instrument] = lambda self: Future
     frequency: DGen  # a date generator that produces "contract base dates"
 
-    expiry: DGen # given a contract base date, produces the expiry date
+    symbol_expr: Expression[[Instrument], str]
 
-    first_trading_date: DGen  # given a contract base date, produces the first trading date
-    last_trading_date: DGen  # given a contract base date, produces the last trading date
+    expiry: Expression[[date], date]  # given a contract base date, produces the expiry date
+
+    first_trading_date: Expression[[date], date]  # given a contract base date, produces the first trading date
+    last_trading_date: Expression[[date], date]  # given a contract base date, produces the last trading date
 
 
-CONTRACT_BASE_DATE = ParameterOp(0, "contract_base_date")
+CONTRACT_BASE_DATE = ParameterOp(_name="CONTRACT_BASE_DATE")
 
 
-def month_code(d: date) -> str:
-    return ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'][d.month - 1]
+def month_code(d: int | date) -> str:
+    m = (d.month if type(d) is date else d) - 1
+    return ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'][m]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -88,7 +95,8 @@ class Future(Instrument):
     contract_base_date: date
 
     name: str = lambda self: self.series.name + self.contract_base_date.strftime("%b %y")
-    symbol: str = lambda self: f"{self.series.symbol}{month_code(self.contract_base_date)}{self.contract_base_date.year % 10}"
+    symbol: str = SELF.series.symbol_expr(SELF)
+
 
     expiry: date = SELF.series.expiry(SELF.contract_base_date)
     first_trading_date: date = SELF.series.first_trading_date(SELF.contract_base_date)

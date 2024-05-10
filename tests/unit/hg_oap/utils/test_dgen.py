@@ -4,8 +4,9 @@ import holidays
 import pytest
 
 from hg_oap.dates.calendar import WeekendCalendar, HolidayCalendar
-from hg_oap.dates.dgen import make_date, make_dgen, days, weeks, weekdays, weekends, months, years, business_days, roll_fwd, \
-    roll_bwd
+from hg_oap.dates.dgen import make_date, make_dgen, days, weeks, weekdays, weekends, months, years, business_days, \
+    roll_fwd, \
+    roll_bwd, DGenParameter
 from hg_oap.utils.op import Expression
 from hg_oap.dates.tenor import Tenor
 
@@ -210,3 +211,11 @@ def test_date_expressions():
 
     c = months.fri[_0]
     assert list(Expression(c)(1)(after='2020-01-01', before='2020-02-01')) == [date(2020, 1, 10)]
+
+
+def test_dgen_parameter():
+    _0 = DGenParameter('_0')
+    _1 = DGenParameter('_1')
+
+    c = _0 <= months.fri <= _1
+    assert list(c(_0='2020-01-01', _1='2020-02-01')) == [date(2020, 1, 3), date(2020, 1, 10), date(2020, 1, 17), date(2020, 1, 24), date(2020, 1, 31)]
