@@ -358,15 +358,18 @@ class GeneratorNodeImpl(NodeImpl):
 
     def eval(self):
         et = self.graph.evaluation_clock.evaluation_time
-        while (v := next(self.generator, None)) and v[0] < et:
-            ...
-        if v is not None:
+
+        while v := next(self.generator, None):
             time, out = v
-        else:
+            if time.__class__ is timedelta:
+                time = et + time
+                break
+            if time >= et:
+                break
+        if v is None:
             time, out = None, None
-        if out is not None and time is not None and time <= et:
+        elif out is not None and time is not None and time <= et:
             if self.output.last_modified_time == time:
-                from hgraph import NodeException
                 raise ValueError(f"Duplicate time produced by generator: [{time}] - {out}")
             self.output.apply_result(out)
             self.next_value = None
