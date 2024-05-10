@@ -26,18 +26,13 @@ def delay(ts: TIME_SERIES_TYPE, delay: timedelta, sched: SCHEDULER = None, ec: E
 
 @delay.start
 def delay_start(state: STATE):
-    state.queue = deque()
+    state.queue = deque()git co
 
 
-@graph
+@generator
 def signal(delay: timedelta, initial_delay: bool = True, max_ticks: int = None) -> TS[bool]:
     max_ticks = max_ticks or sys.maxsize
     initial_timedelta = delay if initial_delay else timedelta()
-
-    @generator
-    def _(delay: timedelta) -> TS[bool]:
-        yield(initial_timedelta, True)
-        for _ in range(max_ticks - 1):
-            yield (delay, True)
-
-    return _(delay)
+    yield(initial_timedelta, True)
+    for _ in range(max_ticks - 1):
+        yield (delay, True)
