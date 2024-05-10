@@ -26,7 +26,7 @@ def delay(ts: TIME_SERIES_TYPE, delay: timedelta, sched: SCHEDULER = None, ec: E
 
 @delay.start
 def delay_start(state: STATE):
-    state.queue = deque()git co
+    state.queue = deque()
 
 
 @generator
