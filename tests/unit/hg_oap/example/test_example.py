@@ -218,7 +218,7 @@ def test_example():
         corn = Agricultural(symbol='C', name="corn", unit=U.bushel, unit_conversion_factors=(Quantity(Decimal('0.75'), U.kg / U.l),))
         corn_future_months = FutureContractSeries(
             spec=FutureContractSpec(
-                exchange='CME',
+                exchange_mic='CME',
                 symbol='ZC',
                 underlying=PhysicalCommodity(symbol='Corn',asset=corn),
                 contract_size=Quantity(Decimal('5000'), U.bushel),
@@ -230,7 +230,7 @@ def test_example():
                 tick_size=Quantity(Decimal('0.25'), U.USX),
             ),
             name='Corn Future',
-            symbol='ZC',
+            symbol_expr=SELF.spec.symbol,
             frequency=years.mar | years.may | years.jul | years.sep | years.dec,
             expiry=roll_bwd(CONTRACT_BASE_DATE + '15d').over(SELF.spec.trading_calendar),
             first_trading_date=CONTRACT_BASE_DATE - '3y' < years.dec.days[15],  # dec 15th 3 years before the expiry date (actual CME rules are more complex)
