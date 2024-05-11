@@ -351,14 +351,14 @@ Version 0.2.19 (03-05-2024)
 * Change and improvements to CONTEXT support
 * Additions to documentation
 
-Version 0.2.20 (03-04-2024)
+Version 0.2.20 (03-05-2024)
 ---------------------------
 
 * Add ability to construct un-named compound scalar types
 * Add data frame iteration support.
 
 
-Version 0.2.21 (04-04-2024)
+Version 0.2.21 (04-05-2024)
 ---------------------------
 
 * Add date and datetime operators
@@ -366,9 +366,16 @@ Version 0.2.21 (04-04-2024)
 * Implement the core operators that have unit tests in this library.
 
 
-Version 0.2.22 (07-04-2024)
+Version 0.2.22 (07-05-2024)
 ---------------------------
 
 * Add generic set operators in hgraph and adjust implementors in nodes package.
 * Experimental approach to frame operators.
 * Fixes to services where impl has more type resolutions than the interfaces.
+
+Version 0.2.23 (11-05-2024)
+---------------------------
+
+* Make generics work in dispatch
+* Add max_ operator
+* Fixes to docs and tests
