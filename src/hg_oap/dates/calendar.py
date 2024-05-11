@@ -3,7 +3,7 @@ from bisect import bisect, bisect_left
 from datetime import date, timedelta
 from typing import Tuple, Set
 
-__all__ = ('Calendar',)
+__all__ = ('Calendar', 'WeekendCalendar', 'HolidayCalendar')
 
 
 class Calendar:

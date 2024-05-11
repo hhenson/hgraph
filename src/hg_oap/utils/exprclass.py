@@ -3,8 +3,7 @@ from dataclasses import dataclass, Field
 from datetime import date
 from inspect import isfunction, signature
 
-from hg_oap.dates.dgen import make_date, is_dgen
-from hg_oap.utils.op import Op, Expression, is_op
+from .op import Op, Expression, is_op, lazy
 
 __all__ = ("dataclassex", 'exprclass', 'ExprClass')
 
@@ -53,8 +52,19 @@ class CallableDescriptor(_BaseExDescriptor):
         return self.expr(instance)
 
 
+class CallableExpressionDescriptor(_BaseExDescriptor):
+    def __calc__(self, instance):
+        expr = self.expr(SELF=instance, __partial__=True)
+        if is_op(expr):
+            return Expression(expr)
+        else:
+            return expr
+
+
 class DateDescriptor(_BaseExDescriptor):
     def __calc__(self, instance):
+        from hg_oap.dates import is_dgen, make_date
+
         r = self.expr(instance)
         if isinstance(r, date):
             return r
@@ -66,6 +76,8 @@ class DateDescriptor(_BaseExDescriptor):
 
 class DateListDescriptor(_BaseExDescriptor):
     def __calc__(self, instance):
+        from hg_oap.dates import is_dgen, make_date
+
         r = self.expr(instance)
         if isinstance(r, date):
             return [r]
@@ -80,11 +92,12 @@ def _process_ops_and_lambdas(cls):
 
     for k, a in cls.__annotations__.items():
         if (op := getattr(cls, k, None)) is not None:
-
             if a == date:  # special treatment for dates
                 descriptor_type = DateDescriptor
             elif a == list[date] or a == tuple[date]:
                 descriptor_type = DateListDescriptor
+            elif getattr(a, '__origin__', None) is Expression:
+                descriptor_type = CallableExpressionDescriptor
             else:
                 descriptor_type = CallableDescriptor
 
@@ -101,13 +114,13 @@ def _process_ops_and_lambdas(cls):
 
 
 def _make_descriptor(annotation, cls, descriptor_type, name, op):
-    if isinstance(op, Op) and not is_op(annotation):
+    if isinstance(op, Op):
         descriptor = descriptor_type(Expression(op))
         descriptor.__set_name__(cls, name)
         return descriptor
     elif isfunction(op) and op.__name__ == '<lambda>':
         if len(signature(op).parameters) == 1:
-            descriptor = descriptor_type(op)
+            descriptor = descriptor_type(lambda SELF, __partial__=None: op(SELF) if __partial__ is None else op)
             descriptor.__set_name__(cls, name)
             return descriptor
 
