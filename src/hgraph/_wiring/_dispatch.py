@@ -1,6 +1,6 @@
 from typing import Tuple, Type, Callable
 
-from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType, COMPOUND_SCALAR
+from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType, HgTypeMetaData
 from hgraph._wiring._wiring_node_class import WiringNodeClass, BaseWiringNodeClass, WiringNodeSignature
 
 __all__ = ('dispatch', 'dispatch_')
@@ -14,22 +14,29 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
     if fn is None:
         return lambda fn: dispatch(fn, on=on)
 
-    from hgraph import graph, with_signature
+    from hgraph import graph, with_signature, AUTO_RESOLVE
     from hgraph._wiring._wiring_node_class._wiring_node_class import OverloadedWiringNodeHelper
 
     if not isinstance(fn, BaseWiringNodeClass):
         fn: WiringNodeClass = graph(fn)
 
-    @with_signature(kwargs=fn.signature.input_types, return_annotation=fn.signature.output_type)
+    @with_signature(
+        kwargs={**fn.signature.non_autoresolve_inputs, '__resolution_dict__': HgTypeMetaData.parse_type(object)},
+        defaults={'__resolution_dict__': AUTO_RESOLVE},
+        return_annotation=fn.signature.output_type)
     def dispatch_(**kwargs):
         if overloads := getattr(dispatch_graph, 'overload_list', None):
             overload_list = overloads.overloads + [(fn, OverloadedWiringNodeHelper._calc_rank(fn.signature))]
+            if __resolution_dict__ := kwargs.get('__resolution_dict__', None):
+                args = tuple(slice(k, v) for k, v in __resolution_dict__.items())
+                overload_list = tuple((o[args], r) for o, r in overload_list)
             return _dispatch_impl(fn.signature, overload_list, __on__=on, **kwargs)
         else:
             from hgraph import CustomMessageWiringError
             raise CustomMessageWiringError(f'{fn.signature} has no overloads to dispatch to')
 
     dispatch_graph = graph(dispatch_)
+    dispatch_graph.skip_overload_check = True
     return dispatch_graph
 
 
@@ -65,7 +72,8 @@ def dispatch_(overloaded: BaseWiringNodeClass, *args, __on__: Tuple[str, ...] = 
         raise CustomMessageWiringError(f'{overloaded.signature} has no overloads to dispatch to')
 
 
-def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClass, *args, __on__: Tuple[str, ...] = None, **kwargs):
+def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClass, *args,
+                   __on__: Tuple[str, ...] = None, **kwargs):
     from hgraph import CustomMessageWiringError, switch_, TSL, SCALAR, with_signature, graph, nth, compute_node, TS, CompoundScalar, extract_kwargs
     from hgraph.nodes import flatten_tsl_values, downcast_ref
 
@@ -96,23 +104,29 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
 
         def make_dispatch_graph(o, dispatch_types):
             @graph
-            @with_signature(kwargs=signature.input_types, return_annotation=signature.output_type)
+            @with_signature(kwargs=signature.non_autoresolve_inputs, return_annotation=o.signature.output_type)
             def dispatch(**kwargs):
                 kw = {k: downcast_ref(dispatch_types[k].py_type, v) if k in dispatch_types else v for k, v in kwargs.items()}
                 return o(**kw)
             return dispatch
 
+        from hgraph import create_input_stub
+        stub_args = {k: create_input_stub(k, HgTSTypeMetaData(v), False) for k, v in o_dispatch_types.items()}
+        stub_args.update({k: v for k, v in kwargs.items() if k not in dispatch_args and k in o.signature.args})
+
+        from hgraph import RequirementsNotMetWiringError
+        try:
+            o.resolve_signature(**stub_args)
+        except RequirementsNotMetWiringError:
+            continue
+
         key = tuple(t.py_type for t in o_dispatch_types.values())
         if len(o_dispatch_types) == 1:
             key = key[0]
+
         dispatch_map[key] = make_dispatch_graph(o, o_dispatch_types)
 
     kwargs = extract_kwargs(signature, *args, **kwargs)  # process args and kwargs in kwargs so we can build a key
-
-    @compute_node
-    def get_type(key: TS[COMPOUND_SCALAR]) -> TS[Type[CompoundScalar]]:
-        return type(key.value)
-
 
     if len(dispatch_args) == 1:
         @compute_node
@@ -130,7 +144,8 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
                     raise RuntimeError(f"Ambiguous dispatch for {key.value}")
                 return candidates[0][0]
 
-        key = adjust_dispatch_key(get_type(kwargs[nth(dispatch_args.keys(), 0)]), tuple(dispatch_map.keys()))
+        from hgraph import type_
+        key = adjust_dispatch_key(type_(kwargs[nth(dispatch_args.keys(), 0)]), tuple(dispatch_map.keys()))
     else:
         @compute_node
         def adjust_dispatch_keys(key: TS[Tuple[Type[CompoundScalar], ...]],
@@ -150,6 +165,7 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
                     raise RuntimeError(f"Ambiguous dispatch for {key.value}")
                 return candidates[0][0]
 
-        key = adjust_dispatch_keys(flatten_tsl_values[SCALAR: Type[CompoundScalar]](TSL.from_ts(*[get_type(kwargs[k]) for k in dispatch_args]), all_valid=True), tuple(dispatch_map.keys()))
+        from hgraph import type_
+        key = adjust_dispatch_keys(flatten_tsl_values[SCALAR: Type[CompoundScalar]](TSL.from_ts(*[type_(kwargs[k]) for k in dispatch_args]), all_valid=True), tuple(dispatch_map.keys()))
 
     return switch_(dispatch_map, **kwargs, key=key)  # AB: should rename key to __key__ in the switch_ signature?

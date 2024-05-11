@@ -157,7 +157,7 @@ def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]
 def tsd_get_bundle_item(tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE) \
         -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
-    Returns a TSD of teh given items from the bundles in the original TSD
+    Returns a TSD of the given items from the bundles in the original TSD
     """
     out = {}
     for k, v in tsd.modified_items():

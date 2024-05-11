@@ -53,7 +53,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
                             f"signature type is '{node.signature.input_types[ts_arg]}'")
                     ts_type = HgTSTypeMetaData(ts_type)
                     print(f"Auto resolved type for '{ts_arg}' to '{ts_type}'")
-                ts_type = ts_type.py_type
+                ts_type = ts_type.py_type if not ts_type.is_context_wired else ts_type.ts_type.py_type
             inputs[ts_arg] = replay(ts_arg, ts_type)
         for scalar_args in node.signature.scalar_inputs.keys():
             inputs[scalar_args] = kwargs_[scalar_args]

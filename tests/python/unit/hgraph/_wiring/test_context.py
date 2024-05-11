@@ -210,6 +210,18 @@ def test_two_contexts():
     assert eval_node(g, ['Hello', None], [None, 'World']) == [None, "Hello World"]
 
 
+def test_context_wired_explicitly():
+    @compute_node
+    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = REQUIRED['a']) -> TS[str]:
+        return f"{a.value}"
+
+    @graph
+    def g(ts1: TS[str]) -> TS[str]:
+        return use_context(ts1)
+
+    assert eval_node(g, ['Hello', None]) == ["Hello", None]
+
+
 def test_graph_contexts():
     @graph
     def use_context(a: CONTEXT[TIME_SERIES_TYPE] = 'a', b: CONTEXT[TIME_SERIES_TYPE] = 'b') -> TS[str]:

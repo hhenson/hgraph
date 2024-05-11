@@ -35,31 +35,38 @@ def take(n, iterable):
     return itertools.islice(iterable, n)
 
 
-def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, return_annotation=None):
+def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, defaults=None, return_annotation=None):
     from inspect import signature, Parameter, Signature
 
     if fn is None:
-        return lambda fn: with_signature(fn, annotations=annotations, args=args, kwargs=kwargs, return_annotation=return_annotation)
+        return lambda fn: with_signature(fn, annotations=annotations, args=args, kwargs=kwargs, defaults=defaults,
+                                         return_annotation=return_annotation)
 
     sig = signature(fn)
+    annotations = annotations or {}
+    defaults = defaults or {}
     new_params = []
     new_annotations = {}
     for n, parameter in sig.parameters.items():
         if parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY, Parameter.KEYWORD_ONLY):
             if n in annotations:
-                new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD, annotation=annotations[n]))
+                new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD,
+                                            annotation=annotations[n],
+                                            default=defaults.get(n, Parameter.empty)))
                 new_annotations[n] = annotations[n]
             else:
                 new_params.append(parameter)
                 new_annotations[n] = parameter.annotation
         if parameter.kind == Parameter.VAR_POSITIONAL:
             for n, a in args.items():
-                new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD, annotation=a))
+                new_params.append(Parameter(n, Parameter.POSITIONAL_OR_KEYWORD, annotation=a,
+                                            default=defaults.get(n, Parameter.empty)))
                 new_annotations[n] = a
             args = None
         if parameter.kind == Parameter.VAR_KEYWORD:
             for n, a in kwargs.items():
-                new_params.append(Parameter(n, Parameter.KEYWORD_ONLY, annotation=a))
+                new_params.append(Parameter(n, Parameter.KEYWORD_ONLY, annotation=a,
+                                            default=defaults.get(n, Parameter.empty)))
                 new_annotations[n] = a
             kwargs = None
 
