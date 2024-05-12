@@ -123,7 +123,7 @@ class PolarsTableWriterAPI(PolarsTableAPI[COMPOUND_SCALAR], TableWriterAPI[COMPO
 
     def write_rows(self, rows: Sequence[tuple[Any, ...] | dict[str, Any]]):
         for row in rows:
-            if isinstance(rows, dict):
+            if isinstance(row, dict):
                 self.write_columns(**row)
             else:
                 self.write_columns(**{k: v for k, v in zip(self._schema.__meta_data_schema__, row)})
@@ -180,7 +180,15 @@ class PolarsTableReaderAPI(PolarsTableAPI[COMPOUND_SCALAR], TableReaderAPI[COMPO
 
     @property
     def next_available_time(self) -> datetime | None:
-        return self._table.filter(pl.col(self.date_column[0]) > self.current_time.date())[self.date_column[0]].min()[0]
+        tbl = self._table.filter(pl.col(self.date_column[0]) > self.current_time.date())
+        if len(tbl) > 0:
+            return tbl[self.date_column[0]].min()[0]
+
+    @property
+    def previous_available_time(self) -> datetime | None:
+        tbl = self._table.filter(pl.col(self.date_column[0]) < self.current_time.date())
+        if len(tbl) > 0:
+            return tbl[self.date_column[0]].max()[0]
 
     @property
     def first_time(self) -> datetime:

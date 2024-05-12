@@ -3,8 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Sequence, Any, Generic
 
-from hgraph import COMPOUND_SCALAR, Frame, GlobalState, compute_node, TS, sink_node, STATE, CompoundScalar, graph, \
-    TIME_SERIES_TYPE, SCALAR, AUTO_RESOLVE, WiringPort, TSD, SCALAR_1
+from hgraph import COMPOUND_SCALAR, Frame, GlobalState, TS, sink_node, STATE, CompoundScalar
 
 __all__ = ("RecorderAPI", "TableAPI", "TableReaderAPI", "TableWriterAPI", "register_recorder_api")
 
@@ -77,7 +76,7 @@ class RecorderAPI:
         """
 
     @abstractmethod
-    def get_table_writer(self, table_name: str, variant: str = None):
+    def get_table_writer(self, table_name: str, variant: str = None) -> "TableWriterAPI":
         """
         A writer instance for the given table name.
         The writer will support writing data to the table, it will track the current engine time under the covers.
@@ -90,7 +89,7 @@ class RecorderAPI:
         """
 
     @abstractmethod
-    def get_table_reader(self, table_name: str, variant: str = None):
+    def get_table_reader(self, table_name: str, variant: str = None) -> "TableReaderAPI":
         """
         A reader instance for the given table name.
         The table reader strips out the date column and returns the subset of data associated to the date.
@@ -181,6 +180,13 @@ class TableReaderAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 
     @property
     @abstractmethod
+    def previous_available_time(self) -> datetime | None:
+        """
+        The previous available time present in recorded data set. If there is no previous available time, None
+        """
+
+    @property
+    @abstractmethod
     def first_time(self) -> datetime | date:
         """The first time that table has data for."""
 
@@ -205,70 +211,3 @@ def record_frame(table_id: str, frame: TS[Frame[COMPOUND_SCALAR]], _state: STATE
     table_writer.record_frame(frame.value)
 
 
-@graph
-def record_to_table_api(table_id: str, ts: TIME_SERIES_TYPE):
-    """
-    Records the value of the time-series to the underlying RecorderApi.
-    :param table_id: The id of the table to write the value/s to.
-    :param ts: The value to record.
-    """
-    ts: WiringPort
-    raise RuntimeError(f"No recorder has been defined for the ts type: {ts.output_type.py_type}")
-
-
-@dataclass
-class RecordTsState(CompoundScalar):
-    column_name: str = "value"
-    writer: TableWriterAPI | None = None
-
-
-@sink_node(overloads=record_to_table_api)
-def record_ts(table_id: str, ts: TS[SCALAR], _state: STATE[RecordTsState] = None):
-    """
-    Records a single value. The value name will be the name of the column in the table (that is not the date columns)
-    """
-    writer: TableWriterAPI = _state.writer
-    writer.current_time = ts.last_modified_time
-    writer.write_columns(**{_state.column_name: ts.value})
-
-
-@record_ts.start
-def record_ts_start(table_id: str, _state: STATE[RecordTsState]):
-    _state.writer: TableWriterAPI = get_recorder_api().get_table_writer(table_id, get_recording_label())
-    _state.column_name = next(iter(k for k in _state.writer.schema.__meta_data_schema__ if k != _state.writer.date_column))
-
-
-@record_ts.stop
-def record_ts_stop(_state: STATE[RecordTsState]):
-    _state.writer.flush()
-
-
-@dataclass
-class RecordTsdState(CompoundScalar):
-    key_column: str = "key"
-    column_name: str = "value"
-    writer: TableWriterAPI | None = None
-
-
-@sink_node(overloads=record_to_table_api)
-def record_tsd(table_id: str, ts: TSD[SCALAR, TS[SCALAR_1]], _state: STATE[RecordTsdState] = None):
-    """
-    Records a single value. The value name will be the name of the column in the table (that is not the date columns)
-    """
-    writer: TableWriterAPI = _state.writer
-    writer.current_time = ts.last_modified_time
-    for k, ts_ in ts.modified_items():
-        writer.write_columns(**{_state.key_column: k, _state.column_name: ts_.value})
-
-
-@record_tsd.start
-def record_tsd_start(table_id: str, _state: STATE[RecordTsdState]):
-    _state.writer: TableWriterAPI = get_recorder_api().get_table_writer(table_id, get_recording_label())
-    it = iter(k for k in _state.writer.schema.__meta_data_schema__ if k != _state.writer.date_column)
-    _state.key_column = next(it)
-    _state.column_name = next(it)
-
-
-@record_tsd.stop
-def record_tsd_stop(_state: STATE[RecordTsdState]):
-    _state.writer.flush()

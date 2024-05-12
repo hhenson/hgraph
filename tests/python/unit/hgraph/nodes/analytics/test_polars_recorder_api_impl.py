@@ -4,7 +4,8 @@ import pytest
 
 from hgraph import compound_scalar, MIN_TD, graph, TS, GlobalState, CompoundScalar, TSD
 from hgraph.nodes.analytics._polars_recorder_api_impl import PolarsRecorderAPI
-from hgraph.nodes.analytics._recorder_api import record_to_table_api, set_recording_label, register_recorder_api
+from hgraph.nodes.analytics._recordable_converters import record_to_table_api
+from hgraph.nodes.analytics._recorder_api import set_recording_label, register_recorder_api
 from hgraph.test import eval_node
 
 

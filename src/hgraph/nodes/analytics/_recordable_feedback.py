@@ -3,8 +3,10 @@ from typing import Generic, cast, Optional, Any
 
 from frozendict import frozendict
 
-from hgraph import TIME_SERIES_TYPE, sink_node, SCALAR, AUTO_RESOLVE, pull_source_node, HgScalarTypeMetaData, \
+from hgraph import TIME_SERIES_TYPE, sink_node, SCALAR, pull_source_node, HgScalarTypeMetaData, \
     WiringNodeClass, create_wiring_node_instance, BaseWiringNodeClass, PythonBaseNodeBuilder, NodeImpl
+from hgraph.nodes.analytics._recordable_converters import record_to_table_api
+from hgraph.nodes.analytics._recorder_api import get_recorder_api, get_recording_label, TableReaderAPI
 
 
 __all__ = ("recordable_feedback",)
@@ -32,7 +34,7 @@ class RecordableFeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
             raise CustomMessageWiringError(f"recordable_feedback is already bounded")
         self._bound = True
         _recordable_feedback_sink(ts, self._delegate)
-        recorded_result(self._recordable_id, ts)
+        record_to_table_api(self._recordable_id, ts)
 
 
 def recordable_feedback(
@@ -48,13 +50,6 @@ def recordable_feedback(
     node_instance = _recorded_source_node(recordable_id, tp_, default)
     real_wiring_port = _wiring_port_for(node_instance.output_type, node_instance, tuple())
     return RecordableFeedbackWiringPort(_recordable_id=recordable_id, _tp=tp_, _delegate=real_wiring_port)
-
-
-@sink_node
-def recorded_result(recordable_id: str, ts: TIME_SERIES_TYPE, tp_: type[TIME_SERIES_TYPE] = AUTO_RESOLVE):
-    """
-    Track the result for recording
-    """
 
 
 @pull_source_node
@@ -130,6 +125,10 @@ class PythonRecordedSourceNodeImpl(NodeImpl):
     def do_start(self):
         """Load data for the current start time"""
         start_time = self.graph.evaluation_engine_api.start_time
+        reader: TableReaderAPI = get_recorder_api().get_table_reader(self._recordable_id, get_recording_label())
+        reader.current_time = start_time
+        previous_time = reader.previous_available_time
+        reader.current_time = previous_time
         self._delta_value = ...  # Load data (for the last tick prior to start_time)
         if self._delta_value is not None:
             self.notify()
