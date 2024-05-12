@@ -51,19 +51,19 @@ def to_frame_tsd_tsd_ts(ts: TSD[SCALAR, TSD[SCALAR_1, TS[SCALAR]]],
     return pl.DataFrame({k: v for k, v in zip(_tp.__meta_data_schema__.keys(), (keys_1, keys_2, values))})
 
 
-@compute_node(overloads=to_frame)
-def to_frame_tsb(ts: TSB[COMPOUND_SCALAR], _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
-    dv = ts.delta_value
-    return pl.DataFrame({k: [dv.get(k, None)] for k in _tp.__meta_data_schema__.keys()})
+# @compute_node(overloads=to_frame)
+# def to_frame_tsb(ts: TSB[COMPOUND_SCALAR], _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
+#     dv = ts.delta_value
+#     return pl.DataFrame({k: [dv.get(k, None)] for k in _tp.__meta_data_schema__.keys()})
 
 
-@compute_node(overloads=to_frame)
-def to_frame_tsb_tsb(ts: TSB[SCALAR, TSB[COMPOUND_SCALAR_1]],
-                     _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
-    schema_keys = [k for k in ts.__meta_data_schema__.keys()]
-    values = defaultdict(list)
-    for k, v in ts.delta_value.items():
-        values[schema_keys[0]].append(k)
-        for k_ in schema_keys[1:]:
-            values[k_].append(v.get(k_, None))
-    return pl.DataFrame(values)
+# @compute_node(overloads=to_frame)
+# def to_frame_tsb_tsb(ts: TSB[SCALAR, TSB[COMPOUND_SCALAR_1]],
+#                      _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
+#     schema_keys = [k for k in ts.__meta_data_schema__.keys()]
+#     values = defaultdict(list)
+#     for k, v in ts.delta_value.items():
+#         values[schema_keys[0]].append(k)
+#         for k_ in schema_keys[1:]:
+#             values[k_].append(v.get(k_, None))
+#     return pl.DataFrame(values)

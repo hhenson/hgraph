@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Generic, Sequence, Any
 
 import polars as pl
+from polars import DataFrame
 
 from hgraph import COMPOUND_SCALAR, Frame
 from ._recorder_api import RecorderAPI, TableAPI, TableReaderAPI, TableWriterAPI
@@ -111,7 +112,8 @@ class PolarsTableWriterAPI(PolarsTableAPI[COMPOUND_SCALAR], TableWriterAPI[COMPO
         super().__init__(schema, date_column, as_of)
         self._table_name = table_name
         self._variant = variant
-        self._current_data: dict[str, list] = {date_column[0]: []} | {k: [] for k in self._schema.__meta_data_schema__}
+        self._current_data: dict[str, list] = self._empty_struct()
+        self._current_table: pl.DataFrame | None = None
         self._recorder_api: PolarsRecorderAPI = recorder_api
 
     def write_columns(self, **kwargs):
@@ -126,8 +128,30 @@ class PolarsTableWriterAPI(PolarsTableAPI[COMPOUND_SCALAR], TableWriterAPI[COMPO
             else:
                 self.write_columns(**{k: v for k, v in zip(self._schema.__meta_data_schema__, row)})
 
+    def write_data_frame(self, frame: Frame[COMPOUND_SCALAR]):
+        frame = frame.select(pl.lit(self.current_time.date()).alias(self.date_column[0]), pl.all())
+        current_frame = self._data_as_frame()
+        if len(current_frame) > 0:
+            self._current_table = pl.concat([self._data_as_frame(), frame])
+        else:
+            self._current_table = frame
+
+    def _empty_struct(self) -> dict[str, list]:
+        return {self.date_column[0]: []} | {k: [] for k in self._schema.__meta_data_schema__}
+
+    def _data_as_frame(self) -> DataFrame:
+        if self._current_table is not None:
+            if self._current_data[self.date_column[0]]:
+                return pl.concat([self._current_table, self._current_table])
+            else:
+                return self._current_table
+        else:
+            self._current_table = pl.DataFrame(self._current_data)
+            self._current_data = self._empty_struct()
+            return self._current_table
+
     def flush(self):
-        df = pl.concat([self._recorder_api._tables[self._table_name][self._variant], pl.DataFrame(self._current_data)])
+        df = pl.concat([self._recorder_api._tables[self._table_name][self._variant], self._data_as_frame()])
         self._recorder_api._tables[self._table_name][self._variant] = df
 
 

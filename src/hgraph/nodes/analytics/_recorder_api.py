@@ -1,8 +1,10 @@
 from abc import abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Sequence, Any, Generic
 
-from hgraph import COMPOUND_SCALAR, Frame, GlobalState
+from hgraph import COMPOUND_SCALAR, Frame, GlobalState, compute_node, TS, sink_node, STATE, CompoundScalar, graph, \
+    TIME_SERIES_TYPE, SCALAR, AUTO_RESOLVE, WiringPort
 
 __all__ = ("RecorderAPI", "TableAPI", "TableReaderAPI", "TableWriterAPI", "register_recorder_api")
 
@@ -26,6 +28,14 @@ def get_recorder_api() -> "RecorderAPI":
     Decorator that registers a recorder API as a global state.
     """
     return GlobalState.instance().__recorder_api__
+
+
+def set_recording_label(label: str):
+    GlobalState.instance().__recorder_api__label__ = label
+
+
+def get_recording_label() -> str:
+    return GlobalState.instance().__recorder_api__label__
 
 
 class RecorderAPI:
@@ -136,7 +146,6 @@ class TableWriterAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
         """
         Use this to write simple values that translate to a single row for this engine cycle
         """
-        ...
 
     @abstractmethod
     def write_rows(self, rows: Sequence[tuple[Any, ...] | dict[str, Any]]):
@@ -144,7 +153,12 @@ class TableWriterAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
         Use this to write a collection of rows to the table.
         When rows need to be written, the table must be fully populated.
         """
-        ...
+
+    @abstractmethod
+    def write_data_frame(self, frame: Frame[COMPOUND_SCALAR]):
+        """
+        Write the frame.
+        """
 
     @abstractmethod
     def flush(self):
@@ -175,3 +189,52 @@ class TableReaderAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
     def last_time(self) -> datetime | date:
         """The last time that table has data for."""
 
+
+@dataclass
+class RecorderApiState(CompoundScalar):
+    recorder_api: RecorderAPI = field(default_factory=get_recorder_api)
+    label: str = field(default_factory=get_recording_label)
+
+
+@sink_node
+def record_frame(table_id: str, frame: TS[Frame[COMPOUND_SCALAR]], _state: STATE[RecorderApiState] = None):
+    """
+    Record the frame to the underlying RecorderApi
+    """
+    table_writer = _state.recorder_api.get_table_writer(table_id, _state.label)
+    table_writer.record_frame(frame.value)
+
+
+@graph
+def record_to_table_api(table_id: str, ts: TIME_SERIES_TYPE):
+    """
+    Records the value of the time-series to the underlying RecorderApi.
+    :param table_id: The id of the table to write the value/s to.
+    :param ts: The value to record.
+    """
+    ts: WiringPort
+    raise RuntimeError(f"No recorder has been defined for the ts type: {ts.output_type.py_type}")
+
+
+class RecordTsState(CompoundScalar):
+    column_name: str = "value"
+    writer: TableWriterAPI | None = None
+
+
+@sink_node(overloads=record_to_table_api)
+def record_ts(table_id: str, ts: TS[SCALAR], _state: STATE[RecordTsState] = None):
+    """
+    Records a single value. The value name will be the name of the column in the table (that is not the date columns)
+    """
+    _state.writer.write_columns(**{_state.column_name: ts.value})
+
+
+@record_ts.start
+def record_ts_start(table_id: str, _state: STATE[RecordTsState]):
+    _state.writer: TableWriterAPI = get_recorder_api().get_table_writer(table_id, get_recording_label())
+    _state.column_name = next(iter(k for k in _state.writer.schema.__meta_data_schema__ if k != _state.writer.date_column))
+
+
+@record_ts.stop
+def record_ts_stop(_state: STATE[RecordTsState]):
+    _state.writer.flush()
