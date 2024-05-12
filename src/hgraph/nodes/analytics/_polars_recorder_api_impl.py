@@ -168,8 +168,15 @@ class PolarsTableReaderAPI(PolarsTableAPI[COMPOUND_SCALAR], TableReaderAPI[COMPO
         self._table = existing_table
 
     @property
+    def raw_table(self) -> pl.DataFrame:
+        return self._table
+
+    @property
     def data_frame(self) -> Frame[COMPOUND_SCALAR]:
-        return self._table.filter(pl.col(self.date_column[0]) == self.current_time.date()).drop(self.date_column[0])
+        if self.current_time is not None:
+            return self._table.filter(pl.col(self.date_column[0]) == self.current_time.date()).drop(self.date_column[0])
+        else:
+            raise ValueError("No current time set")
 
     @property
     def next_available_time(self) -> datetime | None:

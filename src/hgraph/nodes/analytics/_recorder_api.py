@@ -226,7 +226,9 @@ def record_ts(table_id: str, ts: TS[SCALAR], _state: STATE[RecordTsState] = None
     """
     Records a single value. The value name will be the name of the column in the table (that is not the date columns)
     """
-    _state.writer.write_columns(**{_state.column_name: ts.value})
+    writer: TableWriterAPI = _state.writer
+    writer.current_time = ts.last_modified_time
+    writer.write_columns(**{_state.column_name: ts.value})
 
 
 @record_ts.start
