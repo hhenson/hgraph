@@ -5,7 +5,7 @@ from frozendict import frozendict
 
 from hgraph import TIME_SERIES_TYPE, sink_node, SCALAR, pull_source_node, HgScalarTypeMetaData, \
     WiringNodeClass, create_wiring_node_instance, BaseWiringNodeClass, PythonBaseNodeBuilder, NodeImpl
-from hgraph.nodes.analytics._recordable_converters import record_to_table_api
+from hgraph.nodes.analytics._recordable_converters import record_to_table_api, get_converter_for, RecordableConverter
 from hgraph.nodes.analytics._recorder_api import get_recorder_api, get_recording_label, TableReaderAPI
 
 
@@ -53,7 +53,7 @@ def recordable_feedback(
 
 
 @pull_source_node
-def _source_node_signature() -> TIME_SERIES_TYPE:
+def _source_node_signature(recordable_id: str) -> TIME_SERIES_TYPE:
     ...
 
 
@@ -63,14 +63,14 @@ def _recorded_source_node(
         default: SCALAR = None
 ) -> TIME_SERIES_TYPE:
     changes = {"name": "recordable_feedback"}
-    inputs = {}
+    inputs = {"recordable_id": recordable_id}
+    signature = cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE: tp]).resolve_signature(recordable_id)
     if default is not None:
         default_type = HgScalarTypeMetaData.parse_value(default)
-        changes["args"] = tuple(["default"])
-        changes["input_types"] = frozendict({"default": default_type})
+        changes["args"] = signature.args + tuple(["default"])
+        changes["input_types"] = frozendict(signature.input_types | {"default": default_type})
         inputs["default"] = default
-    signature = cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE: tp]).resolve_signature().copy_with(
-        **changes)
+    signature = signature.copy_with(**changes)
     # Source node need to be unique, use an object instance as the fn arg to ensure uniqueness
     return create_wiring_node_instance(node=PythonRecordedSourceNodeWiringNodeClass(signature, object()),
                                        resolved_signature=signature,
@@ -86,7 +86,7 @@ class PythonRecordedSourceNodeWiringNodeClass(BaseWiringNodeClass):
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonRecordedSourceNodeWiringNodeClass must have a time series output"
-        return PythonLastValuePullNodeBuilder(
+        return PythonRecordedSourceNodeBuilder(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
@@ -117,9 +117,8 @@ class PythonRecordedSourceNodeImpl(NodeImpl):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._delta_value: Optional[Any] = None
-        if value := self.scalars.get("delta_value"):
+        if value := self.scalars.get("default"):
             self._delta_value = value
-            self.notify()
         self._recordable_id = self.scalars.get("recordable_id")
 
     def do_start(self):
@@ -127,9 +126,11 @@ class PythonRecordedSourceNodeImpl(NodeImpl):
         start_time = self.graph.evaluation_engine_api.start_time
         reader: TableReaderAPI = get_recorder_api().get_table_reader(self._recordable_id, get_recording_label())
         reader.current_time = start_time
-        previous_time = reader.previous_available_time
-        reader.current_time = previous_time
-        self._delta_value = ...  # Load data (for the last tick prior to start_time)
+        # previous_time = reader.previous_available_time
+        df = reader.data_frame
+        if len(df) > 0:
+            converter: RecordableConverter = get_converter_for(self.signature.time_series_output.py_type)
+            self._delta_value = converter.convert_to_ts_value(df)
         if self._delta_value is not None:
             self.notify()
 

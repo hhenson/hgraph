@@ -182,13 +182,16 @@ class PolarsTableReaderAPI(PolarsTableAPI[COMPOUND_SCALAR], TableReaderAPI[COMPO
     def next_available_time(self) -> datetime | None:
         tbl = self._table.filter(pl.col(self.date_column[0]) > self.current_time.date())
         if len(tbl) > 0:
-            return tbl[self.date_column[0]].min()[0]
+            return tbl[self.date_column[0]].min()
 
     @property
     def previous_available_time(self) -> datetime | None:
         tbl = self._table.filter(pl.col(self.date_column[0]) < self.current_time.date())
         if len(tbl) > 0:
-            return tbl[self.date_column[0]].max()[0]
+            v = tbl[self.date_column[0]].max()
+            if type(v) is date:
+                return datetime(v.year, v.month, v.day)
+            return v
 
     @property
     def first_time(self) -> datetime:
