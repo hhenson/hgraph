@@ -1,4 +1,3 @@
-from decimal import Decimal
 from typing import TypeVar, Type
 
 from hgraph import graph, TS, compute_node, TSB, TSL, AUTO_RESOLVE
@@ -64,13 +63,13 @@ def test_quantity_tsb():
         return fr.value.convert(qty.value, to=to.value)
 
     @graph
-    def g(ts: TS[Decimal], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[Decimal]]:
-        v = TSB[Quantity[Decimal]].from_ts(qty=ts, unit=u)
+    def g(ts: TS[float], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[float]]:
+        v = TSB[Quantity[float]].from_ts(qty=ts, unit=u)
         return convert(v, u1).as_scalar_ts()
 
-    assert eval_node(g, ts=[Decimal(1.), None, Decimal(2.)], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
+    assert eval_node(g, ts=[1.0, None, 2.0], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
     assert eval_node(g,
-                     ts=[Decimal('274.15'), None, Decimal("273.15"), None],
+                     ts=[274.15, None, 273.15, None],
                      u=[U.K, None, None, None],
                      u1=[U.K, U.degC, U.degF, U.K]) == \
-    [Decimal('274.15')*U.K, 1.*U.degC, 32.*U.degF, Decimal("273.15")*U.K]
+    [274.15*U.K, 1.*U.degC, 32.*U.degF, 273.15*U.K]

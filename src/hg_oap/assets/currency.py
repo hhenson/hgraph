@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
@@ -21,7 +20,7 @@ class Currency(FinancialAsset):
         setattr(U, self.symbol, unit := PrimaryUnit(dimension=currency_dim))
         if self.minor_currency_ratio is not None:
             minor_symbol = f"{self.symbol[:-1]}X"
-            setattr(U, minor_symbol, Decimal(1)/Decimal(self.minor_currency_ratio) * unit)
+            setattr(U, minor_symbol, 1.0/self.minor_currency_ratio * unit)
 
 
 @dataclass(frozen=True)

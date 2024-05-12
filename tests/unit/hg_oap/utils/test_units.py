@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from decimal import Decimal
 
 import pytest
 
@@ -60,10 +59,10 @@ def test_unit_conversion_1():
 
         assert U.meter.convert(100., to=U.meter) == 100.
 
-        U.cm = DerivedUnit(primary_unit=U.meter, ratio=Decimal('0.01'))
+        U.cm = DerivedUnit(primary_unit=U.meter, ratio=0.01)
 
         assert U.cm.convert(100., to=U.meter) == 1.
-        assert U.cm.convert(Decimal(100), to=U.meter) == 1.
+        assert U.cm.convert(100.0, to=U.meter) == 1.
 
         assert U.meter.convert(100., to=U.cm) == 10000.
 
@@ -75,7 +74,7 @@ def test_unit_conversion_1():
 
         U.timespan = PrimaryDimension()
         U.second = PrimaryUnit(dimension=U.timespan)
-        U.minute = DerivedUnit(primary_unit=U.second, ratio=Decimal(60))
+        U.minute = DerivedUnit(primary_unit=U.second, ratio=60.0)
 
         U.velocity = U.length / U.timespan
 
@@ -90,7 +89,7 @@ def test_offset_units():
     with UnitSystem() as U:
         U.temperature = PrimaryDimension()
         U.kelvin = PrimaryUnit(dimension=U.temperature)
-        U.celsius = OffsetDerivedUnit(primary_unit=U.kelvin, ratio=Decimal('1'), offset=Decimal('273.15'))
+        U.celsius = OffsetDerivedUnit(primary_unit=U.kelvin, ratio=1.0, offset=273.15)
 
         assert U.celsius.convert(0., to=U.celsius) == 0.
         assert U.kelvin.convert(273.15, to=U.kelvin) == 273.15
@@ -100,7 +99,7 @@ def test_offset_units():
 
         assert U.celsius.convert(100., to=U.kelvin) == 373.15
 
-        U.fahrenheit = OffsetDerivedUnit(primary_unit=U.kelvin, ratio=Decimal('5')/Decimal('9'), offset=Decimal('459.67'))
+        U.fahrenheit = OffsetDerivedUnit(primary_unit=U.kelvin, ratio=5.0/9.0, offset=459.67)
 
         assert U.fahrenheit.convert(32., to=U.fahrenheit) == 32.
         assert round(U.fahrenheit.convert(32., to=U.celsius), 2) == 0.
@@ -141,11 +140,11 @@ def test_qualified_units():
         U.money = PrimaryDimension()
         U.us_dollars = U.money.us_dollars
         U.USD = PrimaryUnit(dimension=U.us_dollars)
-        U.USX = Decimal('0.01') * U.USD
+        U.USX = 0.01 * U.USD
 
         U.euros = U.money.euros
         U.EUR = PrimaryUnit(dimension=U.euros)
-        U.EUX = Decimal('0.01') * U.EUR
+        U.EUX = 0.01 * U.EUR
 
         U.bitcoins = U.money.bitcoins
         U.BTC = PrimaryUnit(dimension=U.bitcoins)
@@ -154,7 +153,7 @@ def test_qualified_units():
         assert U.EUX.convert(100., to=U.EUR) == 1.
         assert (U.EUR/U.USD).name == 'EUR/USD'  # EUR/USD
 
-        with UnitConversionContext((Decimal(1.15) * (U.USD/U.EUR),)):
+        with UnitConversionContext((1.15 * (U.USD/U.EUR),)):
             assert U.EUR.convert(1., to=U.USD) == 1.15
 
 
@@ -165,13 +164,13 @@ def test_contexts_and_conversion_factors():
 
         U.timespan = PrimaryDimension()
         U.second = PrimaryUnit(dimension=U.timespan)
-        U.minute = DerivedUnit(primary_unit=U.second, ratio=Decimal(60))
-        U.hour = DerivedUnit(primary_unit=U.minute, ratio=Decimal(60))
+        U.minute = DerivedUnit(primary_unit=U.second, ratio=60.)
+        U.hour = DerivedUnit(primary_unit=U.minute, ratio=60.)
 
         U.velocity = U.length / U.timespan
         U.meter_per_second = U.meter / U.second
 
-        my_speed = Decimal(2.) * U.meter_per_second
+        my_speed = 2. * U.meter_per_second
 
         with UnitConversionContext((my_speed,)):
             assert U.hour.convert(1., to=U.meter) == 7200.
@@ -181,21 +180,21 @@ def test_contexts_and_conversion_factors_2():
     with UnitSystem() as U:
         U.currency = PrimaryDimension()
         U.currency_unit = PrimaryUnit(dimension=U.currency)
-        U.cent = DerivedUnit(primary_unit=U.currency_unit, ratio=Decimal('0.01'))
+        U.cent = DerivedUnit(primary_unit=U.currency_unit, ratio=0.01)
 
         U.length = PrimaryDimension()
         U.meter = PrimaryUnit(dimension=U.length)
 
         U.volume = U.length**3
         U.cubic_meter = U.meter**3
-        U.liter = Decimal('0.001') * U.cubic_meter
+        U.liter = 0.001 * U.cubic_meter
 
-        U.bushel = Decimal('35.2391') * U.liter
+        U.bushel = 35.2391 * U.liter
 
         U.weight = PrimaryDimension()
         U.kg = PrimaryUnit(dimension=U.weight)
-        U.mt = Decimal('1000') * U.kg
-        U.pound = Decimal('0.453592') * U.kg
+        U.mt = 1000. * U.kg
+        U.pound = 0.453592 * U.kg
 
         U.future_contract = PrimaryDimension()
         U.lot = PrimaryUnit(dimension=U.future_contract)
@@ -211,18 +210,18 @@ def test_contexts_and_conversion_factors_2():
             lot_size: int
             unit: Unit
             price_unit: Unit
-            price_tick_size: Decimal
+            price_tick_size: float
             price_currency: str
 
             unit_conversion_factors: tuple[Quantity] = \
                 lambda self: (
-                    Quantity(Decimal(self.lot_size), self.unit / U.lot),
+                    Quantity(self.lot_size, self.unit / U.lot),
                     self.asset.density,
                 )
 
 
-        asset = MyAsset('corn', Quantity(Decimal('0.75'), U.kg / U.liter))
-        instrument = MyInstrument(asset, 10000, U.bushel, U.cent, Decimal('0.25'), 'USD')
+        asset = MyAsset('corn', Quantity(0.75, U.kg / U.liter))
+        instrument = MyInstrument(asset, 10000, U.bushel, U.cent, 0.25, 'USD')
 
         with instrument:
             assert U.lot.convert(1., to=U.bushel) == 10000.

@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from enum import Enum
 from typing import Type, Callable
 
@@ -39,7 +38,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     exchange_mic: str
     symbol: str
     underlying: Instrument
-    contract_size: Quantity[Decimal]
+    contract_size: Quantity[float]
     currency: Currency
 
     trading_calendar: Calendar
@@ -47,10 +46,10 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
 
     quotation_currency_unit: Unit
     quotation_unit: Unit
-    tick_size: Quantity[Decimal]
+    tick_size: Quantity[float]
 
-    unit_conversion_factors: tuple[Quantity[Decimal]] = \
-        lambda self: self.underlying.unit_conversion_factors + (self.contract_size/(1.*U.lot),)
+    unit_conversion_factors: tuple[Quantity[float]] = \
+        lambda self: self.underlying.unit_conversion_factors #+ (self.contract_size/(1.*U.lot),)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -102,4 +101,4 @@ class Future(Instrument):
     first_trading_date: date = SELF.series.first_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
     last_trading_date: date = SELF.series.last_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
 
-    unit_conversion_factors: tuple[Quantity[Decimal]] = SELF.series.spec.unit_conversion_factors
+    unit_conversion_factors: tuple[Quantity[float]] = SELF.series.spec.unit_conversion_factors

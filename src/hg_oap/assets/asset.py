@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from decimal import Decimal
 
 from hg_oap.units import Quantity
 from hg_oap.units.unit import Unit
@@ -25,7 +24,7 @@ class PhysicalAsset(Asset):
     """
     name: str
     unit: Unit  # The basic unit used to measure the asset
-    unit_conversion_factors: tuple[Quantity[Decimal]] = ()  # Properties of the asset that can be used to convert
+    unit_conversion_factors: tuple[Quantity[float]] = ()  # Properties of the asset that can be used to convert
                                                             # between units of different dimensions - i.e. density
                                                             # for mass/volume
 
