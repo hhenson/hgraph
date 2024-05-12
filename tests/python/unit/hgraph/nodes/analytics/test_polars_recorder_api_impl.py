@@ -1,6 +1,8 @@
 from datetime import datetime, date
 
-from hgraph import compound_scalar, MIN_TD, graph, TS, GlobalState
+import pytest
+
+from hgraph import compound_scalar, MIN_TD, graph, TS, GlobalState, CompoundScalar, TSD
 from hgraph.nodes.analytics._polars_recorder_api_impl import PolarsRecorderAPI
 from hgraph.nodes.analytics._recorder_api import record_to_table_api, set_recording_label, register_recorder_api
 from hgraph.test import eval_node
@@ -78,18 +80,26 @@ def test_polars_writer_data_frame():
     assert reader.data_frame['value'][0] == 1.0
 
 
-def test_record_to_table_api():
+@pytest.mark.parametrize(
+    ["input", "tp", "schema", "expected"],
+    [
+        [[1, 2, 3], TS[int], compound_scalar(value=int), {'value': [1, 2, 3]}],
+        [[{"a": 1}, {'b': 2}, {'a': 3}], TSD[str, TS[int]], compound_scalar(key=str, value=int),
+         {'key': ['a', 'b', 'a'], 'value': [1, 2, 3]}],
+    ]
+)
+def test_record_to_table_api(input, tp, schema: CompoundScalar, expected):
     polars_api = PolarsRecorderAPI()
-    polars_api.create_or_update_table_definition("test", compound_scalar(value=int), ("date", date))
+    polars_api.create_or_update_table_definition("test", schema, ("date", date))
 
     @graph
-    def g(ts: TS[int]):
+    def g(ts: tp):
         record_to_table_api("test", ts)
 
     with GlobalState():
         set_recording_label("test_label")
         register_recorder_api(polars_api)
-        eval_node(g, [1, 2, 3])
+        eval_node(g, input)
         import polars as pl
         df: pl.DataFrame = polars_api.get_table_reader("test", "test_label").raw_table
-        assert list(df['value']) == [1, 2, 3]
+        assert df.select(schema.__meta_data_schema__.keys()).to_dict(False) == expected
