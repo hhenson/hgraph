@@ -7,6 +7,16 @@
 #include <hgraph/types/time_series_type.h>
 
 namespace hgraph {
+
+    struct TimeSeriesValueOutput : TimeSeriesOutput {
+
+    };
+
+    template<typename T>
+    struct TimeSeriesValueOutputT : TimeSeriesValueOutput {
+
+    };
+
     struct TimeSeriesValueInput : TimeSeriesInput {
     };
 
