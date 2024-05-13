@@ -245,12 +245,13 @@ class BaseWiringNodeClass(WiringNodeClass):
                 f"Failure resolving signature for {self.signature.signature}, graph call stack:\n{path}") from e
 
     def _check_overloads(self, *args, **kwargs) -> Tuple[bool, "WiringPort"]:
-        if (overload_helper := getattr(self, "overload_list", None)) is not None:
-            overload_helper: OverloadedWiringNodeHelper
-            best_overload = overload_helper.get_best_overload(*args, **kwargs)
-            best_overload: WiringNodeClass
-            if best_overload is not self:
-                return True, best_overload(*args, **kwargs)
+        if not getattr(self, "skip_overload_check", None):
+            if (overload_helper := getattr(self, "overload_list", None)) is not None:
+                overload_helper: OverloadedWiringNodeHelper
+                best_overload = overload_helper.get_best_overload(*args, **kwargs)
+                best_overload: WiringNodeClass
+                if best_overload is not self:
+                    return True, best_overload(*args, **kwargs)
 
         return False, None
 

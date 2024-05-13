@@ -27,6 +27,8 @@ class HgScalarTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
         for parser in cls._parsers():
+            if isinstance(value_tp, parser):
+                return value_tp
             if meta_data := parser.parse_type(value_tp):
                 return meta_data
 
@@ -96,6 +98,8 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
                 else:
                     if issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c):
                         return True
+
+        return False
 
     @property
     def type_var(self) -> TypeVar:
@@ -236,7 +240,7 @@ class HgObjectType(HgAtomicType):
         return super().__hash__()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((issubclass(getattr(tp.py_type, '__origin__', tp.py_type), self.py_type))
+        return ((issubclass(getattr(tp.py_type, '__origin__', tp.py_type), getattr(self.py_type, '__origin__', self.py_type)))
                 or (type(tp) is HgScalarTypeVar and tp.matches(self)))
 
     @classmethod

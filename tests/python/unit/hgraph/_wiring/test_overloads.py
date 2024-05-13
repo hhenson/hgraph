@@ -2,7 +2,8 @@ from typing import Tuple
 
 import pytest
 
-from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR, contains_, SCALAR_1, SCALAR_2
+from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR, contains_, SCALAR_1, SCALAR_2, \
+    RequirementsNotMetWiringError
 from hgraph.test import eval_node
 
 
@@ -79,8 +80,7 @@ def test_requires():
         return lhs.value + type(lhs.value)(rhs.value)
 
     assert eval_node(add[SCALAR: int, SCALAR_1: float], 1, 2.) == [3]
-    from hgraph import WiringError
-    with pytest.raises(WiringError, match='Requirements not met'):
+    with pytest.raises(RequirementsNotMetWiringError):
         assert eval_node(add[SCALAR: int, SCALAR_1: int], 1, 2) == [3]
     assert eval_node(add[SCALAR: float, SCALAR_1: int], 1., 2) == [3.]
 
