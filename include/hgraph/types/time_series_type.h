@@ -8,6 +8,7 @@
 #include<hgraph/python/pyb.h>
 
 #include "hgraph/util/date_time.h"
+#include "hgraph/util/reference_count_subscriber.h"
 
 namespace hgraph {
     struct Node;
@@ -34,8 +35,6 @@ namespace hgraph {
 
         virtual void re_parent(Node *parent) = 0;
 
-        virtual void re_parent(TimeSeries *parent) = 0;
-
     protected:
         std::optional<Node *> _owning_node;
     };
@@ -43,9 +42,13 @@ namespace hgraph {
     struct TimeSeriesInput;
 
     struct TimeSeriesOutput : TimeSeries {
+        [[nodiscard]] Node * owning_node() const override;
+
         [[nodiscard]] TimeSeriesOutput *parent_output() const;
 
         [[nodiscard]] bool has_parent_output() const;
+
+        void re_parent(Node *parent) override;
 
         void re_parent(TimeSeriesOutput *parent);
 
@@ -53,11 +56,19 @@ namespace hgraph {
 
         void apply_result(py::object value);
 
+        [[nodiscard]] bool modified() const override;
+
+        [[nodiscard]] bool valid() const override;
+
+        [[nodiscard]] bool all_valid() const override;
+
+        [[nodiscard]] engine_time_t last_modified_time() const override;
+
         virtual void invaliate() = 0;
 
-        virtual void mark_invalidate() = 0;
+        virtual void mark_invalidate();
 
-        virtual void mark_modified() = 0;
+        virtual void mark_modified();
 
         void subscribe_node(Node *node);
 
@@ -66,6 +77,14 @@ namespace hgraph {
         virtual void copy_from_output(TimeSeriesOutput &output) = 0;
 
         virtual void copy_from_input(TimeSeriesInput &input) = 0;
+
+    protected:
+        void _notify();
+
+    private:
+        std::optional<TimeSeriesOutput *> _parent_output{};
+        ReferenceCountSubscriber<Node *> _subscribers{};
+        engine_time_t _last_modified_time{MIN_DT};
     };
 
     struct TimeSeriesInput : TimeSeries {
@@ -87,14 +106,13 @@ namespace hgraph {
 
         [[nodiscard]] TimeSeriesOutput *output() const { return _output.value(); };
 
-        virtual bool bind_output(TimeSeriesOutput *output);
+        virtual bool bind_output(TimeSeriesOutput *value);
 
         virtual bool do_bind_output(TimeSeriesOutput *value);
 
         void un_bind_output();
 
-        virtual void do_un_bind_output(TimeSeriesOutput *value) {
-        };
+        virtual void do_un_bind_output(TimeSeriesOutput *value);
 
         [[nodiscard]] bool active() const;
 
@@ -102,8 +120,18 @@ namespace hgraph {
 
         virtual void make_passive() = 0;
 
+        [[nodiscard]] bool modified() const override;
+
+        [[nodiscard]] bool valid() const override;
+
+        [[nodiscard]] bool all_valid() const override;
+
+        [[nodiscard]] engine_time_t last_modified_time() const override;
+
     protected:
         [[nodiscard]] virtual bool active_un_bound() const { return _active; }
+
+        [[nodiscard]] bool sampled() const;
 
     private:
         std::optional<TimeSeriesInput *> _parent_input;
