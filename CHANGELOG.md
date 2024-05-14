@@ -386,3 +386,8 @@ Version 0.2.24 (14-05-2024)
 * Fix eq_ts to force cast to bool result
 * Add or_ts and and_ts
 * Some initial structure for recorded analytics
+
+Version 0.2.25 (TBD)
+--------------------
+
+* GlobalState __enter__ must return self
