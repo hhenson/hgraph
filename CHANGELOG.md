@@ -387,7 +387,8 @@ Version 0.2.24 (14-05-2024)
 * Add or_ts and and_ts
 * Some initial structure for recorded analytics
 
-Version 0.2.25 (TBD)
---------------------
+Version 0.2.25 (14-05-2024)
+---------------------------
 
 * GlobalState __enter__ must return self
+* Fix pre-resolved node wrapper start / stop properties to delegate to underlyer
