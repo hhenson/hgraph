@@ -52,6 +52,10 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @property
+    def typevars(self):
+        return (self.py_type,)
+
+    @property
     def operator_rank(self) -> float:
         # A complete wild card, will have a rank of 1. however one with constraints will have a lower rank so we can
         # discriminate between typevar with different constraints

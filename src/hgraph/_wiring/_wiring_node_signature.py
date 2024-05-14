@@ -142,6 +142,15 @@ class WiringNodeSignature:
         return not self.unresolved_args
 
     @property
+    def typevars(self):
+        typevars = set()
+        if not self.is_resolved:
+            for arg, v in self.input_types.items():
+                typevars.update(v.typevars)
+            typevars.update(self.output_type.typevars)
+        return frozenset(typevars)
+
+    @property
     def scalar_inputs(self) -> Mapping[str, HgScalarTypeMetaData]:
         """Split out scalar inputs from time-series inputs """
         return frozendict({k: v for k, v in self.input_types.items() if v.is_scalar})
@@ -330,7 +339,7 @@ class WiringNodeSignature:
                 if (v := kwargs.get(arg, None)) is None or v is REQUIRED or isinstance(v, (REQUIRED, str)):
                     from hgraph import TimeSeriesContextTracker
                     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-                    if c := TimeSeriesContextTracker.instance().find_context(
+                    if c := TimeSeriesContextTracker.instance().get_context(
                             self.input_types[arg].value_tp,
                             WiringNodeInstanceContext.instance(),
                             name=str(v) if isinstance(v, (REQUIRED, str)) else None):

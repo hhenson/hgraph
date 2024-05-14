@@ -2,10 +2,10 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
-    compute_node, REF, TSS, Size, SIZE, K_1, is_empty
+    compute_node, REF, TSS, Size, SIZE, K_1, is_empty, Removed
 from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, sum_, tsd_get_item, const, tsd_rekey, tsd_flip,
                           merge_tsds, tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys,
-                          merge_nested_tsds)
+                          merge_nested_tsds, tsd_get_items)
 from hgraph.test import eval_node
 
 
@@ -57,6 +57,12 @@ def test_tsd_get_item():
     assert (eval_node(tsd_get_item[K: int, TIME_SERIES_TYPE: TS[int]],
                       [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}], [None, 1, None, None, 2])
             == [None, 3, 4, None, -2])
+
+
+def test_tsd_get_items():
+    assert (eval_node(tsd_get_items[K: int, TIME_SERIES_TYPE: TS[int]],
+                      [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}], [None, {1}, {2}, {Removed(2)}, None])
+            == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None])
 
 
 def test_tsd_get_bundle_item():

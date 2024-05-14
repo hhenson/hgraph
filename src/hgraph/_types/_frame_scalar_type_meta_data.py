@@ -35,6 +35,10 @@ try:
             return Frame[self.schema.py_type]
 
         @property
+        def typevars(self):
+            return self.schema.typevars
+
+        @property
         def operator_rank(self) -> float:
             return self.schema.operator_rank / 100.
 
@@ -102,6 +106,10 @@ try:
         @property
         def py_type(self) -> Type:
             return Series[self.value_tp.py_type]
+
+        @property
+        def typevars(self):
+            return self.value_tp.typevars
 
         @property
         def operator_rank(self) -> float:

@@ -297,7 +297,7 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
         implementation = implementation.underlying_node
         resolution_dict = implementation.resolved_types or {}
     else:
-        resolution_dict = WiringNodeClass._convert_item(resolution_dict) if resolution_dict else {}
+        resolution_dict = implementation.signature._convert_item(resolution_dict) if resolution_dict else {}
 
     if not isinstance(implementation, ServiceImplNodeClass):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")

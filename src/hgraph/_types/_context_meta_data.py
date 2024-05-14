@@ -95,6 +95,10 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
         return self
 
     @property
+    def typevars(self):
+        return self.value_tp.typevars
+
+    @property
     def operator_rank(self) -> float:
         return self.value_tp.operator_rank
 

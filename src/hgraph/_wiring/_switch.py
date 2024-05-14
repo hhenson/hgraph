@@ -189,7 +189,7 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', 
         if i == 0:
             if n == input_key_name:  # this is the key input
                 input_has_key_arg = True
-                input_key_tp = key_type.py_type
+                input_key_tp = HgTSTypeMetaData(key_type)
                 annotations[input_key_name] = input_key_tp
                 continue
 

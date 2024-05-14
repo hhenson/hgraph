@@ -36,6 +36,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         self._old_output: TimeSeriesOutput | None = None
 
     def eval(self):
+        self.mark_evaluated()
         # 1. If the key has ticked we need to create a new graph.
         # (if the value has changed or if reload_on_ticked is True)
         key: TS[SCALAR] = self._kwargs['key']
@@ -46,16 +47,20 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                     self._unwire_graph(self._active_graph)
                     self._active_graph.dispose()
                 self._active_key = key.value
-                self._active_graph = self.nested_graph_builders[self._active_key].make_instance(
-                    self.node_id + (self._count,), self, str(self._active_key))
-                self._count += 1
-                self._active_graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine,
-                                                                              NestedEngineEvaluationClock(
-                                                                                  self.graph.engine_evaluation_clock,
-                                                                                  self))
-                self._active_graph.initialise()
-                self._wire_graph(self._active_graph)
-                self._active_graph.start()
+
+                if builder := self.nested_graph_builders.get(self._active_key):
+                    self._active_graph = builder.make_instance(
+                        self.node_id + (self._count,), self, str(self._active_key))
+                    self._count += 1
+                    self._active_graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine,
+                                                                                  NestedEngineEvaluationClock(
+                                                                                      self.graph.engine_evaluation_clock,
+                                                                                      self))
+                    self._active_graph.initialise()
+                    self._wire_graph(self._active_graph)
+                    self._active_graph.start()
+                else:
+                    raise ValueError(f'No graph defined for key {self._active_key}')
 
         if self._active_graph:
             self._active_graph.evaluate_graph()

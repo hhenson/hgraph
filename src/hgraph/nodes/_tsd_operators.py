@@ -17,7 +17,7 @@ __all__ = (
     "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains",
     "tsd_not", "tsd_is_empty", "tsd_len", "sum_tsd", "mul_tsd", "tsd_get_bundle_item",
     "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_rekey", "tsd_flip", "tsd_flip_tsd", "merge_tsds",
-    "merge_nested_tsds", "tsd_partition", "get_schema_type")
+    "merge_nested_tsds", "tsd_partition", "get_schema_type", "tsd_get_items")
 
 
 @compute_node(valid=("key",))
@@ -102,6 +102,19 @@ def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
 
     result = _ref_ref.value if _ref_ref.bound else _ref.value
     return result
+
+
+@compute_node(overloads=tsd_get_item)
+def tsd_get_items(tsd: TSD[K, REF[TIME_SERIES_TYPE]], keys: TSS[K]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    """
+    Filters the tsd to the given keys.
+    """
+    return {
+        **{k: v for k, v in tsd.modified_items() if k in keys},
+        **{k: REMOVE_IF_EXISTS for k in tsd.removed_keys()},
+        **{k: tsd[k].value for k in keys.added() if k in tsd},
+        **{k: REMOVE_IF_EXISTS for k in keys.removed()}
+    }
 
 
 @compute_node

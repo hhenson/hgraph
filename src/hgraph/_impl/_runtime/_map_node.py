@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
+from hgraph import MAX_DT
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \
     PythonNestedNodeImpl
@@ -59,6 +60,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self.key_arg: str = key_arg
         self._scheduled_keys: dict[K, datetime] = {}
         self._active_graphs: dict[K, Graph] = {}
+        self._pending_keys: set[K] = set()
         self._count = 0
 
     def eval(self):
@@ -75,13 +77,14 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         scheduled_keys = self._scheduled_keys
         self._scheduled_keys = {}
         for k, dt in scheduled_keys.items():
-            if dt == self.last_evaluation_time:
-                self._evaluate_graph(k)
-            elif dt < self.last_evaluation_time:
+            if dt < self.last_evaluation_time:
                 raise RuntimeError(
                     f"Scheduled time is in the past; last evaluation time: {self.last_evaluation_time}, "
                     f"scheduled time: {dt}, evaluation time: {self.graph.evaluation_clock.evaluation_time}")
-            else:
+            elif dt == self.last_evaluation_time:
+                dt = self._evaluate_graph(k)
+
+            if dt != MAX_DT and dt > self.last_evaluation_time:
                 # Re-schedule for the next time.
                 self._scheduled_keys[k] = dt
                 self.graph.schedule_node(self.node_ndx, dt)
@@ -122,6 +125,8 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 error_output.value = node_error
         else:
             graph.evaluate_graph()
+
+        return graph.evaluation_clock.next_scheduled_evaluation_time
 
     def _un_wire_graph(self, key: K, graph: Graph):
         if self.output_node_id:

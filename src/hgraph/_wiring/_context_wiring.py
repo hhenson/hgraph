@@ -42,15 +42,15 @@ class TimeSeriesContextTracker(AbstractContextManager):
         self.__counter__ += 1
         path = f"{context.output_type}-{self.__counter__}"
         self.contexts.append(ContextInfo(context, graph_scope, graph_scope.graph_nesting_depth(), path, frame, {}))
+        return path
 
-    def exit_context(self, context):
+    def exit_context(self, context, capture=True):
         details = self.contexts.pop()
-        if details.inner_graph_use:
+        if details.inner_graph_use and capture:
             capture_context(details.path, details.context)
 
-    def find_context(self, tp, graph_scope, name=None):
+    def _find_context_details(self, tp, graph_scope, name=None):
         for details in reversed(self.contexts):
-
             if tp.is_scalar and tp.matches(details.context.output_type.dereference().scalar_type()):
                 match = True
             elif not tp.is_scalar and tp.matches(details.context.output_type):
@@ -63,20 +63,32 @@ class TimeSeriesContextTracker(AbstractContextManager):
                     if name not in details.frame.f_locals or details.frame.f_locals[name] is not details.context:
                         continue
 
-                if graph_scope == details.scope:  # the consumer is on the same graph as the producer
-                    return details.context
-                else:
-                    details.inner_graph_use[graph_scope.graph_nesting_depth()] = True
-                    from hgraph import CONTEXT_TIME_SERIES_TYPE
-                    return get_context_output[CONTEXT_TIME_SERIES_TYPE: details.context.output_type](
-                        details.path, details.depth - 1)
+                return details
 
         return None
 
-    def max_context_rank(self):
+    def find_context(self, tp, graph_scope, name=None):
+        if details := self._find_context_details(tp, graph_scope, name):
+            return details.context
+
+        return None
+
+    def get_context(self, tp, graph_scope, name=None):
+        if details := self._find_context_details(tp, graph_scope, name):
+            if graph_scope == details.scope:  # the consumer is on the same graph as the producer
+                return details.context
+            else:
+                details.inner_graph_use[graph_scope.graph_nesting_depth()] = True
+                from hgraph import CONTEXT_TIME_SERIES_TYPE
+                return get_context_output[CONTEXT_TIME_SERIES_TYPE: details.context.output_type](
+                    details.path, details.depth - 1)
+
+        return None
+
+    def max_context_rank(self, scope):
         # we are making an assumption here that the rank of the capture_output_to_global_state node
         # is always 1 higher than the rank of the context manager node
-        return max(0, 0, *(c[0].rank + 1 for c in self.contexts))
+        return max(0, 0, *(c[0].rank + 1 for c in self.contexts if c[1] is scope))
 
 
 @sink_node(active=tuple(), valid=tuple())
@@ -120,17 +132,26 @@ class ContextNodeClass(BaseWiringNodeClass):
                 """The service must be available by now, so we can retrieve the output reference."""
                 from hgraph._runtime._global_state import GlobalState
                 path = f'context-{self.owning_graph_id[:self.scalars["depth"]*2]}-{self.scalars["path"]}'
-                shared_input = GlobalState.instance().get(path)
-                if shared_input is None:
+                shared = GlobalState.instance().get(path)
+
+                from hgraph import TimeSeriesOutput
+                if shared is None:
                     raise RuntimeError(f"Missing shared output for path: {path}")
-                elif shared_input.has_peer: # it is a reference with a per so its value might update
-                    output = shared_input.output
-                    output.subscribe(self)
+                elif isinstance(shared, TimeSeriesOutput):
+                    output = shared
+                elif shared.has_peer:  # it is a reference with a peer so its value might update
+                    output = shared.output
+                else:
+                    output = None
+
+                if output:
+                    output.subscribe_node(self)
                     if self.subscribed_output is not None and self.subscribed_output is not output:
-                        self.subscribed_output.unsubscribe(self)
+                        self.subscribed_output.un_subscribe_node(self)
                     self.subscribed_output = output
+
                 # NOTE: The output needs to be a reference value output so we can set the value and continue!
-                self.output.value = shared_input.value  # might be none
+                self.output.value = shared.value  # might be none
 
             def do_start(self):
                 """Make sure we get notified to serve the reference"""
@@ -139,7 +160,7 @@ class ContextNodeClass(BaseWiringNodeClass):
 
             def do_stop(self):
                 if self.subscribed_output is not None:
-                    self.subscribed_output.unsubscribe(self)
+                    self.subscribed_output.un_subscribe_node(self)
 
         return PythonNodeImplNodeBuilder(
             signature=node_signature,

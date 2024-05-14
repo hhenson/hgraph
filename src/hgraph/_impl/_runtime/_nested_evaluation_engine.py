@@ -17,7 +17,14 @@ class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
         super().__init__(engine_evaluation_clock)
         self._nested_node = nested_node
 
+    @property
+    def node(self) -> "PythonNestedNodeImpl":
+        return self._nested_node
+
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
+        if next_time <= self._nested_node.last_evaluation_time:
+            return
+
         self._nested_node.graph.schedule_node(self._nested_node.node_ndx, next_time)
 
 
