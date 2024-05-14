@@ -22,7 +22,7 @@ class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
         return self._nested_node
 
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
-        if next_time <= self._nested_node.last_evaluation_time:
+        if (let := self._nested_node.last_evaluation_time) and let >= next_time:
             return
 
         self._nested_node.graph.schedule_node(self._nested_node.node_ndx, next_time)
