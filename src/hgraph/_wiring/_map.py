@@ -59,6 +59,16 @@ def map_(func: Callable, *args, **kwargs):
     This is a simple wrapper that makes it easier to use the map without having to think about the inputs too much.
     This will attempt to infer which of the map functions are suitable to make use of based on the inputs provided.
     It will then delegate to the appropriate map function.
+
+    For mapping over TSD multiplexed inputs the following extension are available:
+    * ``__keys__: TSS[SCALAR]`` - The set of keys to use for de-multiplexing values
+    * ``__key_arg__: str = 'key'`` - The name of the input that represent the key property
+
+    It is possible to mark an input as not contributing to the key set (when the ``__keys__`` property is not set).
+    To do this wrap the input with the ``no_key`` operator.
+
+    Sometimes it is not possible to determine if an input is to be de-multiplexed or not, when you need to be
+    explicit, use the ``pass_through`` operator ot mark the input as needing to be supplied directly.
     """
     if len(args) + len(kwargs) == 0:
         raise NoTimeSeriesInputsError()
