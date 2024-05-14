@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Type
 
 from hgraph import compute_node, SCALAR, SCALAR_1, TS, TIME_SERIES_TYPE, REF, graph, SIGNAL, STATE, CompoundScalar, \
-    contains_, eq_, not_, abs_, len_
+    contains_, eq_, not_, abs_, len_, and_, or_
 
 __all__ = ("cast_", "downcast_", "downcast_ref", "drop", "take")
 
@@ -80,12 +80,12 @@ def contains_ts(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
 @compute_node(overloads=eq_)
 def eq_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """Implements using the standard ``==`` Python operator"""
-    return lhs.value == rhs.value
+    return bool(lhs.value == rhs.value)
 
 
 @compute_node(overloads=not_)
 def not_ts(ts: TS[SCALAR]) -> TS[bool]:
-    """Implements not_ using the standards Python ``not`` operator"""
+    """Implements not_ using the standard Python ``not`` operator"""
     return not ts.value
 
 
@@ -93,3 +93,15 @@ def not_ts(ts: TS[SCALAR]) -> TS[bool]:
 def abs_ts(ts: TS[SCALAR]) -> TS[SCALAR]:
     """Implements using the standard ``abs`` Python operator"""
     return abs(ts.value)
+
+
+@compute_node(overloads=and_)
+def and_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
+    """Implements using the standard ``and`` Python operator"""
+    return bool(lhs.value and rhs.value)
+
+
+@compute_node(overloads=or_)
+def or_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
+    """Implements using the standard ``or`` Python operator"""
+    return bool(lhs.value or rhs.value)
