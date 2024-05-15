@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from typing import Any
 
 from hgraph import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, \
@@ -67,18 +68,18 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
             # For now, not to worry about un_named bundle outputs
             record(out)
 
-    GlobalState.reset()
-    max_count = 0
-    for ts_arg in time_series_inputs:
-        v = kwargs_[ts_arg]
-        if v is None:
-            continue
-        # Dealing with scalar to time-series support
-        max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
-        set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
-    observers = [EvaluationTrace(**(__trace__ if type(__trace__) is dict else {}))] if __trace__ else []
-    observers.extend(__observers__ if __observers__ else [])
-    run_graph(eval_node_graph, life_cycle_observers=observers)
+    with GlobalState() if GlobalState._instance is None else nullcontext():
+        max_count = 0
+        for ts_arg in time_series_inputs:
+            v = kwargs_[ts_arg]
+            if v is None:
+                continue
+            # Dealing with scalar to time-series support
+            max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
+            set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
+        observers = [EvaluationTrace(**(__trace__ if type(__trace__) is dict else {}))] if __trace__ else []
+        observers.extend(__observers__ if __observers__ else [])
+        run_graph(eval_node_graph, life_cycle_observers=observers)
 
     results = get_recorded_value() if node.signature.output_type is not None else []
     if results:
@@ -99,6 +100,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
         else:
             out = [result[1] for result in results]
         return out
+      
 
 
 def _time_iter(start, end, delta):

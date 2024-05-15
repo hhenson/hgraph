@@ -6,7 +6,7 @@ from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData,
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import add_, debug_print, const, pass_through
+from hgraph.nodes import add_, debug_print, const, pass_through, format_
 from hgraph.test import eval_node
 
 
@@ -92,14 +92,16 @@ def test_guess_arguments_f_sum_lhs_tsl():
     with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
         rhs = const(2)
-        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs, __key_arg__='key')
+        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(f_sum, f_sum.signature, lhs, rhs,
+                                                                       __key_arg__='key')
         signature: TslMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs')
         assert signature.size_tp == HgTypeMetaData.parse_type(Size[2])
         assert signature.key_arg == 'key'
         assert signature.output_type == HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]])})
+            {'lhs': HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]]),
+             'rhs': HgTypeMetaData.parse_type(REF[TS[int]])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs'}
 
@@ -113,7 +115,8 @@ def test_guess_arguments_add_no_keys_tsl():
         assert signature.args == ('lhs', 'rhs')
         assert signature.output_type == HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]])
         assert signature.input_types == frozendict(
-            {'lhs': HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]]), 'rhs': HgTypeMetaData.parse_type(REF[TS[int]])})
+            {'lhs': HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]]),
+             'rhs': HgTypeMetaData.parse_type(REF[TS[int]])})
         assert signature.multiplexed_args == frozenset({'lhs', })
         assert wiring_inputs.keys() == {'lhs', 'rhs'}
 
@@ -299,7 +302,6 @@ def test_tsd_map_life_cycle(inputs, expected):
 
 
 def test_map_over_compute_node_with_injectables():
-
     @compute_node
     def cn_with_scheduler(ts: TS[int], _scheduler: SCHEDULER = None) -> TS[int]:
         return ts.value
@@ -308,7 +310,7 @@ def test_map_over_compute_node_with_injectables():
     def map_cn(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
         return map_(cn_with_scheduler, tsd)
 
-    assert eval_node(map_cn, [{1: 1, 2: 2}]) == [{1:1, 2:2}]
+    assert eval_node(map_cn, [{1: 1, 2: 2}]) == [{1: 1, 2: 2}]
 
 
 def test_map_over_lambda():
@@ -340,7 +342,7 @@ def test_map_over_lambda_tsl_passthru():
     def map_l(tsd: TSD[int, TS[int]], a: TSL[TS[int], Size[2]]) -> TSD[int, TS[int]]:
         return map_(
             lambda v, u:
-                v + u[0] + u[1],
+            v + u[0] + u[1],
             tsd, a)
 
     assert eval_node(map_l, [{1: 1, 2: 2}], [(1, 2)]) == [{1: 4, 2: 5}]
@@ -364,4 +366,10 @@ def test_map_over_lambda_errors_2():
         eval_node(map_l, [{1: 1, 2: 2}], [2])
 
 
+def test_map_restricted_keys():
+    @graph
+    def g(keys: TSS[str], value: TSD[str, TS[int]]) -> TSD[str, TS[str]]:
+        return map_(lambda key, v: format_("{}_{}", key, v), value, __keys__=keys)
 
+    assert eval_node(g, [frozenset({"a", "b"}), ], [{"a": 1, "b": 2}, {"c": 3}]) == [
+        frozendict({"a": "a_1", "b": "b_2"}), None]
