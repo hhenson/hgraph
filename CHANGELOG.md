@@ -398,3 +398,8 @@ Version 0.2.26 (15-05-2024)
 
 * Initial implementation of mesh_ computation fabric.
 * Fixes to switch_ and map_
+
+Version 0.2.27 (15-05-2024)
+---------------------------
+
+* Small fix of eval_node, move GlobalState to a higher level in the wrapper
