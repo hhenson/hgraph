@@ -35,6 +35,7 @@ def mesh_(func: Callable, *args, **kwargs):
         return get_mesh(kwargs.get('__name__', func))
 
     from inspect import isfunction
+    name = kwargs.pop('__name__', None)
     if isfunction(func) and func.__name__ == "<lambda>":
         graph = _deduce_signature_from_lambda_and_args(func, *args, **kwargs)
     elif isinstance(func, WiringNodeClass):
@@ -44,7 +45,7 @@ def mesh_(func: Callable, *args, **kwargs):
 
     with WiringContext(current_signature=STATE(signature=f"mesh_('{graph.signature.signature}', ...)")):
         signature: WiringNodeSignature = graph.signature
-        map_wiring_node, calling_kwargs = _build_mesh_wiring_node_and_inputs(func, signature, *args, **kwargs)
+        map_wiring_node, calling_kwargs = _build_mesh_wiring_node_and_inputs(graph, signature, *args, **kwargs, __name__=name)
         return map_wiring_node(**calling_kwargs).out[calling_kwargs[KEYS_ARG]]
 
 
@@ -163,7 +164,8 @@ def _create_mesh_wiring_node(
                                           {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
                                            if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
                                           provisional_signature,
-                                          input_key_name),
+                                          input_key_name,
+                                          depth=2),
             context_path=path
         )
 

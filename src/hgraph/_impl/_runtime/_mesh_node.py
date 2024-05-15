@@ -108,14 +108,11 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
 
         # 2. or one of the nested graphs has been scheduled for evaluation.
         next_time = MAX_DT
-        print(f'mesh schedule {self._scheduled_keys_by_rank} and {self._scheduled_ranks}')
         rank = 0
         while rank <= self.max_rank:
             dt = self._scheduled_ranks.pop(rank, None)
-            print(f'rank {rank}: {dt}')
             if dt == self.last_evaluation_time:
                 graphs = self._scheduled_keys_by_rank.pop(rank, {})
-                print(f'graphs {graphs}')
                 for k, dtg in graphs.items():
                     if dtg == dt:
                         self.current_eval_graph = k
@@ -151,7 +148,6 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self.schedule_graph(key, self.last_evaluation_time)
 
     def schedule_graph(self, key, tm):
-        print(f'update_next_scheduled_evaluation_time {key} {tm}')
         rank = self._active_graphs_rank[key]
         self._scheduled_keys_by_rank[rank][key] = tm
         self._scheduled_ranks[rank] = min(self._scheduled_ranks.get(rank, MAX_DT), tm)
@@ -183,7 +179,6 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         if (prev_rank := self._active_graphs_rank[key]) <= (below := self._active_graphs_rank[dependes_on]):
             schedule = self._scheduled_keys_by_rank[prev_rank].pop(key, None)
             new_rank = below + 1
-            print(f're_rank {key} from {prev_rank} to {new_rank}')
             self.max_rank = max(self.max_rank, new_rank)
             self._active_graphs_rank[key] = new_rank
             if schedule:

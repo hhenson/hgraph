@@ -66,7 +66,8 @@ def wire_nested_graph(fn: WiringNodeClass,
                       input_types: Mapping[str, HgTypeMetaData],
                       scalars: Mapping[str, Any],
                       outer_wiring_node_signature: WiringNodeSignature,
-                      key_arg: str
+                      key_arg: str,
+                      depth: int = 1
                       ) -> "GraphBuilder":
     """
     Wire the inner function using stub inputs and wrap stub outputs.
@@ -79,7 +80,7 @@ def wire_nested_graph(fn: WiringNodeClass,
     if temp_factory := not TimeSeriesBuilderFactory.has_instance():
         TimeSeriesBuilderFactory.declare_default_factory()
 
-    with WiringNodeInstanceContext(), WiringGraphContext(outer_wiring_node_signature) as context:
+    with WiringNodeInstanceContext(depth), WiringGraphContext(outer_wiring_node_signature) as context:
         inputs_ = {}
         for k, v in input_types.items():
             if v.is_scalar:

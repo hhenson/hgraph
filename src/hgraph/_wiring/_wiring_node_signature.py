@@ -92,6 +92,9 @@ class WiringNodeSignature:
     deprecated: str | bool = False
     requires: Callable[[...], bool] | None = None
 
+    def __repr__(self):
+        return self.signature
+
     @property
     def uses_scheduler(self) -> bool:
         return InjectableTypes.SCHEDULER in self.injectable_inputs

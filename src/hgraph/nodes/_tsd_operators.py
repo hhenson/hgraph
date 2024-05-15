@@ -110,7 +110,7 @@ def tsd_get_items(tsd: TSD[K, REF[TIME_SERIES_TYPE]], keys: TSS[K]) -> TSD[K, RE
     Filters the tsd to the given keys.
     """
     return {
-        **{k: v for k, v in tsd.modified_items() if k in keys},
+        **{k: v.value for k, v in tsd.modified_items() if k in keys},
         **{k: REMOVE_IF_EXISTS for k in tsd.removed_keys()},
         **{k: tsd[k].value for k in keys.added() if k in tsd},
         **{k: REMOVE_IF_EXISTS for k in keys.removed()}

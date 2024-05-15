@@ -144,7 +144,8 @@ def _reduce_tsd(func, ts, zero):
                                       {k: tp.value_tp for k in func.signature.input_types},
                                       {},
                                       resolved_signature,
-                                      None)
+                                      None,
+                                      depth=2)
     )
     wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
     return wiring_node(ts, zero)

@@ -1,6 +1,6 @@
 from frozendict import frozendict
 
-from hgraph import switch_, graph, TS, SCALAR, compute_node, generator, EvaluationClock, MIN_TD, TSD, TSS, map_
+from hgraph import switch_, graph, TS, SCALAR, compute_node, generator, EvaluationClock, MIN_TD, TSD, TSS, map_, DEFAULT
 from hgraph.nodes import add_, sub_, const, default
 from hgraph.test import eval_node
 
@@ -99,3 +99,11 @@ def test_nested_switch():
         fd({'one': 'two_3', 'two': 'two_4'}),
         fd({'one': 'two_4'}),
     ]
+
+
+def test_switch_default():
+    @graph
+    def switch_test(key: TS[str], value: TS[str]) -> TS[str]:
+        return switch_({DEFAULT: lambda v: const("one")}, key, value)
+
+    assert eval_node(switch_test, ['one', 'two'], ["test"]) == ["one", "one"]

@@ -7,8 +7,11 @@ from hgraph.nodes import replay, record, SimpleArrayReplaySource, set_replay_val
 from hgraph.test._node_printer import EvaluationTrace
 
 
-def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool = False,
-              __observers__: list[EvaluationLifeCycleObserver] = None, **kwargs):
+def eval_node(node, *args, resolution_dict: [str, Any] = None,
+              __trace__: bool = False,
+              __observers__: list[EvaluationLifeCycleObserver] = None,
+              __elide__: bool = False,
+              **kwargs):
     """
     Evaluates a node using the supplied arguments.
     This will detect time-series inputs in the node and will convert array inputs into time-series inputs.
@@ -84,14 +87,17 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None, __trace__: bool =
     # Extract the results into a list of values without time-stamps, place a None when there is no recorded value.
     if results:
         out = []
-        result_iter = iter(results)
-        result = next(result_iter)
-        for t in _time_iter(MIN_ST, MIN_ST + max_count * MIN_TD, MIN_TD):
-            if result and t == result[0]:
-                out.append(result[1])
-                result = next(result_iter, None)
-            else:
-                out.append(None)
+        if not __elide__:
+            result_iter = iter(results)
+            result = next(result_iter)
+            for t in _time_iter(MIN_ST, MIN_ST + max_count * MIN_TD, MIN_TD):
+                if result and t == result[0]:
+                    out.append(result[1])
+                    result = next(result_iter, None)
+                else:
+                    out.append(None)
+        else:
+            out = [result[1] for result in results]
         return out
 
 

@@ -131,7 +131,7 @@ class ContextNodeClass(BaseWiringNodeClass):
             def do_eval(self):
                 """The service must be available by now, so we can retrieve the output reference."""
                 from hgraph._runtime._global_state import GlobalState
-                path = f'context-{self.owning_graph_id[:self.scalars["depth"]*2]}-{self.scalars["path"]}'
+                path = f'context-{self.owning_graph_id[:self.scalars["depth"]]}-{self.scalars["path"]}'
                 shared = GlobalState.instance().get(path)
 
                 from hgraph import TimeSeriesOutput

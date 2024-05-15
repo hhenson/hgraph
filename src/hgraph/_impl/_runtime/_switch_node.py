@@ -35,6 +35,9 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         self._count: int = 0
         self._old_output: TimeSeriesOutput | None = None
 
+        from hgraph._wiring._switch import DEFAULT
+        self._default_graph_builder: GraphBuilder = self.nested_graph_builders.get(DEFAULT)
+
     def eval(self):
         self.mark_evaluated()
         # 1. If the key has ticked we need to create a new graph.
@@ -48,7 +51,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                     self._active_graph.dispose()
                 self._active_key = key.value
 
-                if builder := self.nested_graph_builders.get(self._active_key):
+                if builder := self.nested_graph_builders.get(self._active_key, self._default_graph_builder):
                     self._active_graph = builder.make_instance(
                         self.node_id + (self._count,), self, str(self._active_key))
                     self._count += 1
@@ -67,7 +70,10 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
 
     def _wire_graph(self, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
-        for arg, node_ndx in self.input_node_ids[self._active_key].items():
+        from hgraph._wiring._switch import DEFAULT
+        graph_key = self._active_key if self._active_key in self.nested_graph_builders else DEFAULT
+
+        for arg, node_ndx in self.input_node_ids[graph_key].items():
             node: NodeImpl = graph.nodes[node_ndx]
             node.notify()
             if arg == 'key':
@@ -82,14 +88,16 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                     ts.value.bind_input(node.input['ts'])
 
         if self.output_node_ids:
-            node: Node = graph.nodes[self.output_node_ids[self._active_key]]
+            node: Node = graph.nodes[self.output_node_ids[graph_key]]
             # Replace the nodes output with the map node's output for the key
             self._old_output = node.output
             node.output = self.output
 
     def _unwire_graph(self, graph: Graph):
         if self._old_output is not None:
-            node: Node = graph.nodes[self.output_node_ids[self._active_key]]
+            from hgraph._wiring._switch import DEFAULT
+            graph_key = self._active_key if self._active_key in self.nested_graph_builders else DEFAULT
+            node: Node = graph.nodes[self.output_node_ids[graph_key]]
             node.output = self._old_output
             self._old_output = None
 

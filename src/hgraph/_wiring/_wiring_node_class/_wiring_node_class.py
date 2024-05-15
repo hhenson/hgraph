@@ -150,6 +150,9 @@ class BaseWiringNodeClass(WiringNodeClass):
         self.start_fn: Callable = None
         self.stop_fn: Callable = None
 
+    def __repr__(self):
+        return self.signature.signature
+
     def overload(self, other: "WiringNodeClass"):
         if getattr(self, "overload_list", None) is None:
             self.overload_list = OverloadedWiringNodeHelper(self)
@@ -386,9 +389,16 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
 
     def __getitem__(self, item):
         if item:
-            return PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
+            further_resolved = PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
                                                 underlying_node=self.underlying_node,
                                                 resolved_types={**self.resolved_types, **self._convert_item(item)})
+
+            if (overload_helper := getattr(self, "overload_list", None)) is not None:
+                for o, r in overload_helper.overloads:
+                    if o is not self:
+                        further_resolved.overload(o[item])
+
+            return further_resolved
         else:
             return self
 
@@ -400,6 +410,14 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
                 return lambda *args, **kwargs: fn(*args, **kwargs)
 
         raise AttributeError(f"Attribute {item} not found on {self.underlying_node}")
+
+    def __repr__(self):
+        sig = self.underlying_node.signature
+        args = (f'{arg}: {str(sig.input_types[arg])}'
+                for arg in sig.args)
+        return_ = '' if sig.output_type is None else f" -> {str(sig.output_type)}"
+        type_params = ','.join(f'{k}:{v if not inspect.isfunction(v) else "{}"}' for k, v in self.resolved_types.items())
+        return f"{sig.name}[{type_params}]({', '.join(args)}){return_}"
 
 
 class OverloadedWiringNodeHelper:

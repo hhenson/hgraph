@@ -31,7 +31,6 @@ def mesh_subscribe_node(mesh: REF[TSD[SCALAR, TIME_SERIES_TYPE]], item: TS[SCALA
     if available_now:
         return mesh.value
     else:
-        print(f'Scheduling to inject dependency {new_dependency_key} into {key} next tick')
         scheduler.schedule(MIN_TD)
 
 

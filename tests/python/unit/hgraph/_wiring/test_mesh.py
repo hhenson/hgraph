@@ -1,7 +1,7 @@
 from typing import Tuple, Callable
 
-from hgraph import TS, TSD, switch_, graph, pass_through, mesh_, contains_, TSS, TSL, Removed, REMOVE
-from hgraph.nodes import match, parse, tuple_from_ts, merge
+from hgraph import TS, TSD, switch_, graph, pass_through, mesh_, contains_, TSS, TSL, Removed, REMOVE, DEFAULT
+from hgraph.nodes import match, parse, tuple_from_ts, merge, const
 from hgraph.test import eval_node
 
 
@@ -76,3 +76,19 @@ def test_mesh_2():
                   )
 
     assert [x for x in r if x] == [{'e': 0.}, {'e': 2.}, {'f': 5.}, {'c': 4.}, {'e': REMOVE}, {'f': 4., 'c': 3.}]
+
+
+def test_mesh_named():
+    @graph
+    def fib(n: TS[int]) -> TS[int]:
+        return switch_({
+            0: lambda key: const(0),
+            1: lambda key: const(1),
+            DEFAULT: lambda key: mesh_('fib')[key - 1] + mesh_('fib')[key - 2]
+        }, n)
+
+    @graph
+    def g(i: TSS[int]) -> TSD[int, TS[int]]:
+        return mesh_(fib, __key_arg__='n', __keys__=i, __name__='fib')
+
+    assert eval_node(g, [{7}, {8}, {9}])[-1] == {7: 13, 8: 21, 9: 34}
