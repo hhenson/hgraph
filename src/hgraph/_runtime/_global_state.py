@@ -25,6 +25,7 @@ class GlobalState(object):
     def __enter__(self):
         self._previous = GlobalState._instance
         GlobalState._instance = self
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         GlobalState._instance = self._previous

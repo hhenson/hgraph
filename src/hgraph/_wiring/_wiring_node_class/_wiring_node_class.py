@@ -397,6 +397,12 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
 
         raise AttributeError(f"Attribute {item} not found on {self.underlying_node}")
 
+    def start(self, fn: Callable):
+        self.underlying_node.start(fn)
+
+    def stop(self, fn: Callable):
+        self.underlying_node.stop(fn)
+
 
 class OverloadedWiringNodeHelper:
     """

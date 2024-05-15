@@ -379,3 +379,16 @@ Version 0.2.23 (11-05-2024)
 * Make generics work in dispatch
 * Add max_ operator
 * Fixes to docs and tests
+
+Version 0.2.24 (14-05-2024)
+---------------------------
+
+* Fix eq_ts to force cast to bool result
+* Add or_ts and and_ts
+* Some initial structure for recorded analytics
+
+Version 0.2.25 (14-05-2024)
+---------------------------
+
+* GlobalState __enter__ must return self
+* Fix pre-resolved node wrapper start / stop properties to delegate to underlyer
