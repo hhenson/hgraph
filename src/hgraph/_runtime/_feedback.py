@@ -29,7 +29,7 @@ class FeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
 
         if self._bound:
             from hgraph._wiring._wiring_errors import CustomMessageWiringError
-            raise CustomMessageWiringError(f"feeback is already bounded")
+            raise CustomMessageWiringError(f"feedback is already bounded")
         self._bound = True
         _feedback_sink(ts, self._delegate)
 

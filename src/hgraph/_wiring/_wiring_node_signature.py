@@ -20,7 +20,7 @@ from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._types._type_meta_data import ParseError
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_errors import IncorrectTypeBinding, CustomMessageWiringError
+from hgraph._wiring._wiring_errors import IncorrectTypeBinding, CustomMessageWiringError, RequirementsNotMetWiringError
 
 __all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
            "extract_hg_time_series_type", "extract_scalar_type", "extract_injectable_inputs")
@@ -149,6 +149,10 @@ class WiringNodeSignature:
     @property
     def time_series_inputs(self) -> Mapping[str, HgTimeSeriesTypeMetaData]:
         return frozendict({k: v for k, v in self.input_types.items() if not v.is_scalar})
+
+    @property
+    def non_autoresolve_inputs(self) -> Mapping[str, HgTypeMetaData]:
+        return frozendict({k: v for k, v in self.input_types.items() if self.defaults.get(k) is not AUTO_RESOLVE})
 
     def convert_kwargs_to_types(self, _ensure_match=True, **kwargs) -> dict[str, HgTypeMetaData]:
         """Attempt to convert input types to better support type resolution"""
@@ -295,8 +299,11 @@ class WiringNodeSignature:
         new_resolved_inputs = {}
         for arg, v in self.defaults.items():
             if v is AUTO_RESOLVE:
-                kwargs[arg] = kwarg_types[arg].value_tp.resolve(resolution_dict).py_type
-                new_resolved_inputs[arg] = kwarg_types[arg].resolve(resolution_dict)
+                if arg == '__resolution_dict__':
+                    kwargs[arg] = resolution_dict
+                else:
+                    kwargs[arg] = kwarg_types[arg].value_tp.resolve(resolution_dict).py_type
+                    new_resolved_inputs[arg] = kwarg_types[arg].resolve(resolution_dict)
         if new_resolved_inputs:
             return frozendict(dict(resolved_inputs, **new_resolved_inputs))
         else:
@@ -351,7 +358,7 @@ class WiringNodeSignature:
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:
             if not self.requires(resolution_dict, kwargs):
-                raise CustomMessageWiringError(f"Requirements not met for {self.name}")
+                raise RequirementsNotMetWiringError(f"resolution dict was {resolution_dict}")
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         with WiringContext(current_kwargs=kwargs):
@@ -381,13 +388,11 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     name = fn.__name__
     annotations = get_type_hints(fn)
     code = fn.__code__
-    args: tuple[str, ...] = tuple(signature(fn).parameters.keys())
+    parameters = signature(fn).parameters
+    args: tuple[str, ...] = tuple(parameters.keys())
+    defaults = frozendict({k: p.default for k, p in parameters.items() if p.default is not p.empty})
     filename = code.co_filename
     first_line = code.co_firstlineno
-    if fn_defaults := fn.__defaults__:
-        defaults = frozendict((k, v) for k, v in zip(args[len(args) - len(fn_defaults):], fn_defaults))
-    else:
-        defaults = frozendict()
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
     # to know where to apply the defaults.
     input_types: frozendict[str, HgTypeMetaData] = frozendict(

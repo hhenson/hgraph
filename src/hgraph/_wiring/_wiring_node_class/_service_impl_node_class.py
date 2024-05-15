@@ -219,9 +219,13 @@ def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callabl
 
     @graph
     def subscription_service():
+        g = graph(fn)
+        if 'path' in g.signature.args:
+            scalars['path'] = path
+
         subscriptions = interface[interface_resolution_dict].wire_impl_inputs_stub(path)
         # Call the implementation graph with the scalars provided
-        out = graph(fn)[resolution_dict](**(subscriptions.as_dict() | scalars))
+        out = g[resolution_dict](**(subscriptions.as_dict() | scalars))
         interface[interface_resolution_dict].wire_impl_out_stub(path, out)
 
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
@@ -258,9 +262,13 @@ def wire_request_reply_service(wiring_signature: WiringNodeSignature, fn: Callab
 
     @graph
     def request_reply_service():
+        g = graph(fn)
+        if 'path' in g.signature.args:
+            scalars['path'] = path
+
         requests = interface[interface_resolution_dict].wire_impl_inputs_stub(path)
         # Call the implementation graph with the scalars provided
-        out = graph(fn)[resolution_dict](**(requests.as_dict() | scalars))
+        out = g[resolution_dict](**(requests.as_dict() | scalars))
         interface[interface_resolution_dict].wire_impl_out_stub(path, out)
 
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
@@ -287,8 +295,12 @@ def wire_reference_data_service(
 
     @graph
     def ref_svc_inner_graph():
+        g = graph(fn)
+        if 'path' in g.signature.args:
+            scalars['path'] = path
+
         # Call the implementation graph with the scalars provided
-        out = graph(fn)[resolution_dict](**scalars)
+        out = g[resolution_dict](**scalars)
         capture_output_to_global_state(typed_full_path, out)
 
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:

@@ -278,7 +278,7 @@ In the above example, the context time series is available to `use_context` from
 
 Contexts are type checked so if multiple contexts are available the one with matching type will be picked up.
 
-Contexts can also be named using teh `with x as NAME:` syntax. For example, in the following code, 
+Contexts can also be named using the `with x as NAME:` syntax. For example, in the following code, 
 the context is named `a` and `b` and the `use_context` function is called with the named context matching the name
 used as default value: 
 

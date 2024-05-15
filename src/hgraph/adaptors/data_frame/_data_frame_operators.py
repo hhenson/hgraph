@@ -1,11 +1,11 @@
-from typing import TypeVar, Sequence, Mapping
+from typing import TypeVar
 
 import polars as pl
 
-from hgraph import TS, Frame, COMPOUND_SCALAR, compute_node, CompoundScalar, graph, WiringError
-from hgraph._types._scalar_types import COMPOUND_SCALAR_1, COMPOUND_SCALAR_2, compound_scalar
+from hgraph import TS, Frame, COMPOUND_SCALAR, compute_node, CompoundScalar, TSD
+from hgraph._types._scalar_types import COMPOUND_SCALAR_1, COMPOUND_SCALAR_2, compound_scalar, KEYABLE_SCALAR
 
-__all__ = ("join", "filter_cs", "filter_exp", "filter_exp_seq")
+__all__ = ("join", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_")
 
 ON_TYPE = TypeVar("ON_TYPE", str, tuple[str, ...], pl.Expr)
 
@@ -60,3 +60,18 @@ def filter_exp(ts: TS[Frame[COMPOUND_SCALAR]], predicate: pl.Expr) -> TS[Frame[C
 @compute_node
 def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...]) -> TS[Frame[COMPOUND_SCALAR]]:
     return ts.value.filter(predicate)
+
+
+@compute_node
+def group_by(ts: TS[Frame[COMPOUND_SCALAR]], by: str) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
+    return {k: v for k, v in ts.value.group_by(by)}
+
+
+@compute_node
+def ungroup(ts: TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]) -> TS[Frame[COMPOUND_SCALAR]]:
+    return pl.concat(ts.values())
+
+
+@compute_node
+def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, reverse: bool = False) -> TS[Frame[COMPOUND_SCALAR]]:
+    return ts.value.sort(by, reverse=reverse)
