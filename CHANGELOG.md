@@ -392,3 +392,9 @@ Version 0.2.25 (14-05-2024)
 
 * GlobalState __enter__ must return self
 * Fix pre-resolved node wrapper start / stop properties to delegate to underlyer
+
+Version 0.2.26 (15-05-2024)
+---------------------------
+
+* Initial implementation of mesh_ computation fabric.
+* Fixes to switch_ and map_
