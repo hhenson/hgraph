@@ -300,7 +300,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                                     f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'") from e
 
                     if not output_type.dereference().matches(out.output_type.dereference()):
-                        raise WiringError(f"'{self.signature.name}' declares it's output as '{str(output_type)}' but "
+                        raise WiringError(f"'{self.signature.name}' declares its output as '{str(output_type)}' but "
                                           f"'{str(out.output_type)}' was returned from the graph")
                 elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
                     raise WiringError(f"'{self.signature.name}' does not seem to do anything")

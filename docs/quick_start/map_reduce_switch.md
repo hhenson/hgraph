@@ -115,10 +115,10 @@ for anything other than the ``TSL`` input type with the is_associated argument s
 Reduce will also accept lambdas as the reduction function, the lambda has to have two arguments to be compatible.
 
 
-switch
-------
+switch_
+-------
 
-The ``switch`` function provides the mechanism to switch between different functions
+The ``switch_`` function provides the mechanism to switch between different functions
 that share the same function signature, but provide different implementations.
 
 For example:
@@ -135,14 +135,14 @@ def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
     }, selector, lhs, rhs)
 ```
 
-In this case we initial wire in the ``add_`` functions, based on the value of selector.
+In this case we initially wire in the ``add_`` functions, based on the value of 'selector'.
 Then until the selector changes, the inputs are few to add that is the output.
 Then, when we tick 'sub', the inputs are switched to the ``sub_`` function and the results
 represent the process through the ``sub_`` function.
 
-The combination of ``map_``, ``reduce`` and ``switch`` provide the basis for dynamic
-graph construction. With ``map_`` de-multiplexing the inputs and ``switch`` providing
-the ability to switch between different functions based on a selection criteria, 
+The combination of ``map_``, ``reduce`` and ``switch_`` provide the basis for dynamic
+graph construction. With ``map_`` de-multiplexing the inputs and ``switch_`` providing
+the ability to switch between different functions based on a selection criteria. 
 Finally the ``reduce`` is able to convert a multiplexed result into an aggregate value.
 
 An example of this would be when dealing with a stream of various orders, then each
