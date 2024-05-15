@@ -49,7 +49,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     tick_size: Quantity[float]
 
     unit_conversion_factors: tuple[Quantity[float]] = \
-        lambda self: self.underlying.unit_conversion_factors #+ (self.contract_size/(1.*U.lot),)
+        lambda self: self.underlying.unit_conversion_factors + (self.contract_size/(1.*U.lot),)
 
 
 @dataclass(frozen=True, kw_only=True)
