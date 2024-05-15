@@ -1,5 +1,3 @@
-from itertools import chain
-
 import hgraph
 from hgraph import compute_node, contains_, REF, TSS, TS, STATE, PythonTimeSeriesReference, not_, graph, \
     KEYABLE_SCALAR, PythonSetDelta
@@ -81,7 +79,7 @@ def tss_difference(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KE
 @compute_node
 def tss_intersection(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
     added = set()
-    removed = set(chain(lhs.removed(), rhs.removed()))
+    removed = lhs.removed() | rhs.removed()
     lhs_value = lhs.value
     rhs_value = rhs.value
     for i in lhs.added():
