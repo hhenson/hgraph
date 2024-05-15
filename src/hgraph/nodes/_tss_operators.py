@@ -1,10 +1,13 @@
+from itertools import chain
+
+import hgraph
 from hgraph import compute_node, contains_, REF, TSS, TS, STATE, PythonTimeSeriesReference, not_, graph, \
-    KEYABLE_SCALAR
+    KEYABLE_SCALAR, PythonSetDelta
 from hgraph.nodes._operators import len_
 from hgraph.nodes._set_operators import is_empty
 
 
-__all__ = ("tss_contains", "tss_is_empty", "tss_not_")
+__all__ = ("tss_contains", "tss_is_empty", "tss_not_", "tss_len", "tss_intersection", "tss_union", "tss_difference")
 
 
 @compute_node(overloads=contains_)
@@ -42,3 +45,53 @@ def tss_not_(ts: TSS[KEYABLE_SCALAR]) -> TS[bool]:
 @compute_node(overloads=len_)
 def tss_len(ts: TSS[KEYABLE_SCALAR]) -> TS[int]:
     return len(ts.value)
+
+
+@compute_node(overloads=hgraph.add_)
+def tss_union(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
+    added = set(chain(lhs.added(), rhs.added()))
+    removed = set()
+    lhs_value = lhs.value
+    rhs_value = rhs.value
+    for i in lhs.removed():
+        if i not in rhs_value:
+            removed.add(i)
+    for i in rhs.removed():
+        if i not in lhs_value:
+            removed.add(i)
+    return PythonSetDelta(added, removed)
+
+
+@compute_node(overloads=hgraph.sub_)
+def tss_difference(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
+    added = set()
+    removed = set()
+    lhs_value = lhs.value
+    rhs_value = rhs.value
+    for i in lhs.added():
+        if i not in rhs_value:
+            added.add(i)
+    for i in lhs.removed():
+        removed.add(i)
+    for i in rhs.added():
+        if i in lhs_value:
+            removed.add(i)
+    for i in rhs.removed():
+        if i in lhs_value:
+            added.add(i)
+    return PythonSetDelta(added, removed)
+
+
+@compute_node
+def tss_intersection(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
+    added = set()
+    removed = set(chain(lhs.removed(), rhs.removed()))
+    lhs_value = lhs.value
+    rhs_value = rhs.value
+    for i in lhs.added():
+        if i in rhs_value:
+            added.add(i)
+    for i in rhs.added():
+        if i in lhs_value:
+            added.add(i)
+    return PythonSetDelta(added, removed)

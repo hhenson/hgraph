@@ -137,7 +137,7 @@ def test_two_services():
     assert eval_node(main, [1]) == [None, None, None, None, 3]
 
 
-def test_mutltiservice():
+def test_multiservice():
     @request_reply_service
     def submit(path: str, ts: TS[int]):
         ...

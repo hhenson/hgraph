@@ -40,7 +40,7 @@ Next steps, we take a look at some of the more advanced features of node constru
 
 [Using injectable attributes](injectable_attributes.md).
 
-Now we take a look at some of the more advance graph wiring features.
+Now we take a look at some of the more advanced graph wiring features.
 
 [map_, reduce, switch](map_reduce_switch.md).
 
