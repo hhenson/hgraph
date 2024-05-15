@@ -49,13 +49,9 @@ def tss_len(ts: TSS[KEYABLE_SCALAR]) -> TS[int]:
 
 @compute_node(overloads=hgraph.add_)
 def tss_union(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
-    added = set(chain(lhs.added(), rhs.added()))
-    removed = set()
+    added = lhs.added() | rhs.added()
     lhs_value = lhs.value
-    rhs_value = rhs.value
-    for i in lhs.removed():
-        if i not in rhs_value:
-            removed.add(i)
+    removed = lhs.removed() - rhs.value
     for i in rhs.removed():
         if i not in lhs_value:
             removed.add(i)
