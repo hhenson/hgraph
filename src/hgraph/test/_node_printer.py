@@ -15,7 +15,7 @@ from hgraph import EvaluationLifeCycleObserver
 
 
 class EvaluationTrace(EvaluationLifeCycleObserver):
-    def  __init__(self, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
+    def __init__(self, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
         self.start = start
         self.eval = eval
         self.stop = stop

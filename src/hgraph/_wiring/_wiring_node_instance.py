@@ -34,8 +34,9 @@ class WiringNodeInstanceContext:
     """
     __stack__: ["WiringNodeInstanceContext"] = []
 
-    def __init__(self):
+    def __init__(self, depth=1):
         self._node_instances: dict[tuple, WiringNodeInstance] = {}
+        self._depth = depth
 
     def create_wiring_node_instance(self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
                                     inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
@@ -54,7 +55,7 @@ class WiringNodeInstanceContext:
         return cls.__stack__[-1]
 
     def graph_nesting_depth(self) -> int:
-        return len(self.__stack__)
+        return sum(c._depth for c in self.__stack__)
 
     def __enter__(self):
         self.__stack__.append(self)
@@ -88,6 +89,9 @@ class WiringNodeInstance:
     def __hash__(self) -> int:
         # Rely on WiringNodeInstances to be interned data structures
         return id(self)
+
+    def __repr__(self):
+        return self.resolved_signature.signature
 
     def mark_error_handler_registered(self, trace_back_depth: int = 1, capture_values: bool = False):
         super().__setattr__("error_handler_registered", True)

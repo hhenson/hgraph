@@ -88,6 +88,10 @@ class HgTypeMetaData:
         return self
 
     @property
+    def typevars(self):
+        return ()
+
+    @property
     def operator_rank(self) -> float:
         """
         The operator rank indicates how imprecision exists in the type. The higher the rank, the more imprecise.

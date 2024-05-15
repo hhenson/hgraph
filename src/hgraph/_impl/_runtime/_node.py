@@ -273,6 +273,12 @@ class NodeImpl(BaseNodeImpl):
         if self.stop_fn is not None:
             self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 
+    def __repr__(self):
+        if self.signature.label:
+            return f"{self.signature.wiring_path_name}.{self.signature.label}"
+        else:
+            return f"{self.signature.wiring_path_name}.{self.signature.name}"
+
 
 class NodeSchedulerImpl(NodeScheduler):
 

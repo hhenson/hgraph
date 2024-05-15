@@ -10,7 +10,8 @@ from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, MissingInputsError, \
     CustomMessageWiringError, WiringFailureError
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
+from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance, \
+    WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
 
@@ -37,12 +38,14 @@ class WiringNodeClass:
     def __call__(self, *args, **kwargs) -> "WiringNodeInstance":
         raise NotImplementedError()
 
-    @staticmethod
-    def _convert_item(item) -> dict[TypeVar, HgTypeMetaData | Callable]:
+    def _convert_item(self, item) -> dict[TypeVar, HgTypeMetaData | Callable]:
         if isinstance(item, dict):
             item = tuple(slice(k, v) for k, v in item.items())
-        if isinstance(item, slice):
+        elif isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
+        elif isinstance(item, type) and len(tpv := self.signature.typevars) == 1:
+            item = (slice(tuple(tpv)[0], item),)
+
         out = {}
         for s in item:
             assert s.step is None, f"Signature of type resolution is incorrect, expect TypeVar: Type, ... got {s}"
@@ -146,6 +149,9 @@ class BaseWiringNodeClass(WiringNodeClass):
         super().__init__(signature, fn)
         self.start_fn: Callable = None
         self.stop_fn: Callable = None
+
+    def __repr__(self):
+        return self.signature.signature
 
     def overload(self, other: "WiringNodeClass"):
         if getattr(self, "overload_list", None) is None:
@@ -280,7 +286,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                                v is not None and k in self.signature.time_series_args)
 
                     from hgraph import TimeSeriesContextTracker
-                    rank = max(upstream_rank + 1, 1024, TimeSeriesContextTracker.instance().max_context_rank() + 1)
+                    rank = max(upstream_rank + 1, 1024,
+                               TimeSeriesContextTracker.instance().max_context_rank(WiringNodeInstanceContext.instance()) + 1)
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")
@@ -382,9 +389,16 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
 
     def __getitem__(self, item):
         if item:
-            return PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
+            further_resolved = PreResolvedWiringNodeWrapper(signature=self.underlying_node.signature, fn=self.fn,
                                                 underlying_node=self.underlying_node,
                                                 resolved_types={**self.resolved_types, **self._convert_item(item)})
+
+            if (overload_helper := getattr(self, "overload_list", None)) is not None:
+                for o, r in overload_helper.overloads:
+                    if o is not self:
+                        further_resolved.overload(o[item])
+
+            return further_resolved
         else:
             return self
 
@@ -397,11 +411,21 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
 
         raise AttributeError(f"Attribute {item} not found on {self.underlying_node}")
 
+
+    def __repr__(self):
+        sig = self.underlying_node.signature
+        args = (f'{arg}: {str(sig.input_types[arg])}'
+                for arg in sig.args)
+        return_ = '' if sig.output_type is None else f" -> {str(sig.output_type)}"
+        type_params = ','.join(f'{k}:{v if not inspect.isfunction(v) else "{}"}' for k, v in self.resolved_types.items())
+        return f"{sig.name}[{type_params}]({', '.join(args)}){return_}"
+
     def start(self, fn: Callable):
         self.underlying_node.start(fn)
 
     def stop(self, fn: Callable):
         self.underlying_node.stop(fn)
+
 
 
 class OverloadedWiringNodeHelper:

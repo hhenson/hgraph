@@ -5,6 +5,7 @@ from hgraph._wiring._exception_handling import *
 from hgraph._wiring._graph_builder import *
 from hgraph._wiring._map import *
 from hgraph._wiring._reduce import *
+from hgraph._wiring._mesh import *
 from hgraph._wiring._source_code_details import *
 from hgraph._wiring._stub_wiring_node import *
 from hgraph._wiring._switch import *

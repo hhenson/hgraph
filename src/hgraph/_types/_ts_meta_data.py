@@ -21,6 +21,10 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_scalar_tp.is_resolved
 
     @property
+    def typevars(self):
+        return self.value_scalar_tp.typevars
+
+    @property
     def operator_rank(self) -> float:
         return self.value_scalar_tp.operator_rank / 100.
 

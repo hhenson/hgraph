@@ -1,4 +1,5 @@
 from hashlib import sha1
+from itertools import chain
 from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
 from hgraph._types._typing_utils import nth
@@ -167,6 +168,10 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
             return HgTSBTypeMetaData(self.bundle_schema_tp.dereference())
         else:
             return self
+
+    @property
+    def typevars(self):
+        return tuple(chain(t.typevars for t in self.bundle_schema_tp.meta_data_schema.values()))
 
     @property
     def operator_rank(self) -> float:

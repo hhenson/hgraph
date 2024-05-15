@@ -198,7 +198,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == input_key_name)
 
     from hgraph import WiringGraphContext
-    with WiringGraphContext(None) as context:
+    with WiringGraphContext(None, temporary=True) as context:
         out = func(**inputs_)
         if out is not None:
             output_type = out.output_type
@@ -482,7 +482,8 @@ def _create_tsd_map_wiring_node(
                                       {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
                                        if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
                                       provisional_signature,
-                                      input_key_name)
+                                      input_key_name,
+                                      depth=2)
     )
     wiring_node = TsdMapWiringNodeClass(map_signature, fn)
     return wiring_node
@@ -539,7 +540,8 @@ def _create_tsl_map_signature(
                                       {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
                                        if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
                                       provisional_signature,
-                                      input_key_name)
+                                      input_key_name,
+                                      depth=2)
     )
     wiring_node = TslMapWiringNodeClass(map_signature, fn)
     return wiring_node

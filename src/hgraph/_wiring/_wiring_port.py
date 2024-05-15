@@ -22,7 +22,7 @@ if typing.TYPE_CHECKING:
     from hgraph import WiringNodeInstance
 
 
-__all__ = ("WiringPort", "ErrorWiringPort", "TSDWiringPort", "TSDREFWiringPort",
+__all__ = ("WiringPort", "ErrorWiringPort", "TSDWiringPort", "TSDREFWiringPort", "DelayedBindingWiringPort",
            "TSBWiringPort", "TSBREFWiringPort", "TSLWiringPort", "TSLREFWiringPort")
 
 
@@ -99,6 +99,31 @@ class ErrorWiringPort(WiringPort):
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
         return self.node_instance.error_output_type
+
+
+@dataclass(frozen=True)
+class DelayedBindingWiringPort(WiringPort):
+    """
+    A wiring port that is not yet bound to a node. This is used in the graph builder to create a placeholder for
+    a wiring port that will be bound later.
+    """
+    node_instance: "WiringNodeInstance" = None
+    output_type: HgTimeSeriesTypeMetaData = None
+
+    @property
+    def rank(self) -> int:
+        if self.node_instance:
+            return self.node_instance.rank
+        else:
+            raise CustomMessageWiringError("The rank of a delayed binding port is not known until it is bound")
+
+    def bind(self, wiring_port: WiringPort):
+        if self.output_type != wiring_port.output_type:
+            raise CustomMessageWiringError("The output type of the delayed binding port does not match the output type "
+                                           "of the port being bound")
+
+        object.__setattr__(self, "node_instance", wiring_port.node_instance)
+        object.__setattr__(self, "path", wiring_port.path)
 
 
 @dataclass(frozen=True)
