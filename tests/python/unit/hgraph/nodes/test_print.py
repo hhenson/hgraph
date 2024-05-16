@@ -14,3 +14,13 @@ def test_debug_print(capsys):
     eval_node(main, [(1, 2, 3), {1: 3}], ('a', 'b', 'c'))
 
     assert "tsd" in capsys.readouterr().out
+
+
+def test_debug_print_sample(capsys):
+    @graph
+    def main(ts: TS[int]):
+        debug_print("ts", ts, sample=2)
+
+    eval_node(main, [1, 2, 3, 4])
+
+    assert "[2] ts" in capsys.readouterr().out

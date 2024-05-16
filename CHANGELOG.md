@@ -403,3 +403,11 @@ Version 0.2.27 (15-05-2024)
 ---------------------------
 
 * Small fix of eval_node, move GlobalState to a higher level in the wrapper
+
+
+Version 0.2.28 (16-05-2024)
+---------------------------
+
+* Add mod_ts to implement the mod_ operator over scalars.
+* Add a sample param to format_ to allow for easy construction of sampled text for debugging.
+* Add a sample param to debug_print

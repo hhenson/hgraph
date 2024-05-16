@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Type
 
 from hgraph import compute_node, SCALAR, SCALAR_1, TS, TIME_SERIES_TYPE, REF, graph, SIGNAL, STATE, CompoundScalar, \
-    contains_, eq_, not_, abs_, len_, and_, or_
+    contains_, eq_, not_, abs_, len_, and_, or_, mod_
 
 __all__ = ("cast_", "downcast_", "downcast_ref", "drop", "take")
 
@@ -105,3 +105,10 @@ def and_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
 def or_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """Implements using the standard ``or`` Python operator"""
     return bool(lhs.value or rhs.value)
+
+
+@compute_node(overloads=mod_)
+def mod_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
+    """Implements using the standard ``mod`` Python operator"""
+    return lhs.value % rhs.value
+

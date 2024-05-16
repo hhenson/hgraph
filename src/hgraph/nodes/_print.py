@@ -1,14 +1,27 @@
 import sys
+from dataclasses import dataclass
 
-from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, TS
+from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, TS, STATE, CompoundScalar
 
 __all__ = ("debug_print", "print_")
 
 from hgraph.nodes import format_
 
 
+@dataclass
+class _DebugPrintState(CompoundScalar):
+    count: int = 0
+
+
 @sink_node
-def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, _clock: EvaluationClock = None):
+def debug_print(
+        label: str,
+        ts: TIME_SERIES_TYPE,
+        print_delta: bool = True,
+        sample: int = -1,
+        _clock: EvaluationClock = None,
+        _state: STATE[_DebugPrintState] = None
+):
     """
     Use this to help debug code, this will print the value of the supplied time-series to the standard out.
     It will include the engine time in the print. Do not leave these lines in production code.
@@ -16,13 +29,20 @@ def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, _clo
     :param label: The label to print before the value
     :param ts: The time-series to print
     :param print_delta: If true, print the delta value, otherwise print the value
+    :param sample: Only print an output for every sample number of ticks.
     :param _clock: The evaluation clock (to be injected)
     """
-    if print_delta:
-        value = ts.delta_value
-    else:
-        value = ts.value
-    print(f"[{_clock.now}][{_clock.evaluation_time}] {label}: {value}")
+    _state.count += 1
+    if sample < 2 or _state.count % sample == 0:
+        if print_delta:
+            value = ts.delta_value
+        else:
+            value = ts.value
+        if sample > 1:
+            count = f"[{_state.count}]"
+        else:
+            count = ""
+        print(f"[{_clock.now}][{_clock.evaluation_time}]{count} {label}: {value}")
 
 
 def print_(format_str: TS[str] | str, *args, __std_out__: bool =True, **kwargs):
