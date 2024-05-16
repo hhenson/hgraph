@@ -1,3 +1,4 @@
+from dataclasses import KW_ONLY, Field, InitVar
 from hashlib import shake_256
 from inspect import get_annotations
 from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar
@@ -61,13 +62,26 @@ class AbstractSchema:
         for k, v in get_annotations(cls, eval_str=True).items():
             if getattr(v, "__origin__", None) == ClassVar:
                 continue
+            if v is KW_ONLY:
+                continue
+            if isinstance(v, InitVar):
+                if getattr(getattr(cls, k, None), "__get__", None):  # property
+                    v = v.type
+                else:
+                    continue
+            if isinstance(f := getattr(cls, k, None), Field) and f.metadata.get("hidden"):
+                continue
+
             s = cls._parse_type(v)
+
             if s is None:
                 raise ParseError(f"When parsing '{cls}', unable to parse item {k} with value {v}")
             if k in schema and not (s_p := schema[k]).matches(s):
                 raise ParseError(f"Attribute: '{k}' in '{cls}' is already defined in a parent as '{str(s_p)}'"
                                  f" but attempted to be redefined as '{str(s)}")
+
             schema[k] = s
+
         cls.__meta_data_schema__ = frozendict(schema)
 
     @classmethod
