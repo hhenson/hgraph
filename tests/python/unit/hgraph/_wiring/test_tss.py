@@ -61,7 +61,7 @@ def test_tss_add_or_union():
     assert eval_node(app,
                      [{1}, {2},  None, {4},    {5},  None,         {Removed(5)}],
                      [{1}, None, {3},  {5},    None, {Removed(5)}, None]) \
-           ==        [{1}, {2},  {3},  {4, 5}, None, None,         Removed(5)]
+           ==        [{1}, {2},  {3},  {4, 5}, None, None,         {Removed(5)}]
 
 
 def test_tss_intersection():
