@@ -96,11 +96,12 @@ For example:
 
 ```python
 from hgraph import TS, graph, TSD, reduce
-from hgraph.nodes import add_
+from hgraph.nodes import add_ts
+
 
 @graph
 def graph_reduce_tsd(tsd: TSD[str, TS[int]]) -> TS[int]:
-    return reduce(add_, tsd, 0)
+    return reduce(add_ts, tsd, 0)
 
 ```
 This will sum the values of the inputs and produce a time-series of values
@@ -125,13 +126,14 @@ For example:
 
 ```python
 from hgraph import TS, graph, switch_
-from hgraph.nodes import add_, sub_
+from hgraph.nodes import add_ts, sub_ts
+
 
 @graph
 def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
     return switch_({
-        "add": add_,
-        "sub": sub_,
+        "add": add_ts,
+        "sub": sub_ts,
     }, selector, lhs, rhs)
 ```
 

@@ -1,14 +1,14 @@
 from frozendict import frozendict
 
 from hgraph import switch_, graph, TS, SCALAR, compute_node, generator, EvaluationClock, MIN_TD, TSD, TSS, map_, DEFAULT
-from hgraph.nodes import add_, sub_, const, default, print_
+from hgraph.nodes import add_ts, sub_ts, const, default, print_
 from hgraph.test import eval_node
 
 
 def test_switch():
     @graph
     def switch_test(key: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-        s = switch_({'add': add_, 'sub': sub_}, key, lhs, rhs)
+        s = switch_({'add': add_ts, 'sub': sub_ts}, key, lhs, rhs)
         return s
 
     assert eval_node(switch_test, ['add', 'sub'], [1, 2], [3, 4]) == [4, -2]

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Type
 
 from hgraph import compute_node, SCALAR, SCALAR_1, TS, TIME_SERIES_TYPE, REF, graph, SIGNAL, STATE, CompoundScalar, \
-    contains_, eq_, not_, abs_, len_, and_, or_, mod_
+    contains_, eq_, not_, abs_, len_, and_, or_, mod_, ne_
 
 __all__ = ("cast_", "downcast_", "downcast_ref", "drop", "take")
 
@@ -81,6 +81,12 @@ def contains_ts(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
 def eq_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """Implements using the standard ``==`` Python operator"""
     return bool(lhs.value == rhs.value)
+
+
+@compute_node(overloads=ne_)
+def ne_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
+    """Implements using the standard ``!=`` Python operator"""
+    return bool(lhs.value != rhs.value)
 
 
 @compute_node(overloads=not_)

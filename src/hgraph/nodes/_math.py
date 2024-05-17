@@ -5,29 +5,29 @@ import hgraph._runtime._operators
 from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass, SCALAR, REF
 from hgraph._runtime._operators import min_, min_op
 
-__all__ = ("add_", "sub_", "mult_", "div_", "lt_", "zero_int", "zero_float", "min_op_number")
+__all__ = ("add_ts", "sub_ts", "mult_ts", "div_ts", "lt_ts", "zero_int", "zero_float", "min_op_number")
 
 
 @compute_node(overloads=hgraph.add_)
-def add_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
+def add_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
     """ Adds two time-series values of numbers together"""
     return lhs.value + rhs.value
 
 
 @compute_node(overloads=hgraph.sub_)
-def sub_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
+def sub_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
     """ Subtracts two time-series values of numbers together"""
     return lhs.value - rhs.value
 
 
 @compute_node(overloads=hgraph.mul_)
-def mult_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
+def mult_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
     """ Multiplies two time-series values of numbers together"""
     return lhs.value * rhs.value
 
 
 @compute_node(overloads=hgraph.div_)
-def div_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[float]:
+def div_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[float]:
     """ Divides two time-series values of numbers together"""
     # TODO: Provide options for improved handling of different scenarios,
     # e.g. divide by zero can be handled in different ways.
@@ -36,8 +36,23 @@ def div_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[float]:
 
 
 @compute_node(overloads=hgraph.lt_)
-def lt_(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
+def lt_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
     return bool(lhs.value < rhs.value)
+
+
+@compute_node(overloads=hgraph.gt_)
+def gt_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
+    return bool(lhs.value > rhs.value)
+
+
+@compute_node(overloads=hgraph.le_)
+def le_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
+    return bool(lhs.value <= rhs.value)
+
+
+@compute_node(overloads=hgraph.ge_)
+def ge_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[bool]:
+    return bool(lhs.value >= rhs.value)
 
 
 @graph(overloads=hgraph._runtime._operators.zero)

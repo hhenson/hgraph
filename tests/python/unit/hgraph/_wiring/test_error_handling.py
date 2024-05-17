@@ -4,7 +4,7 @@ from frozendict import frozendict
 
 from hgraph import TryExceptResult, try_except, TryExceptTsdMapResult, exception_time_series
 from hgraph import graph, TS, TSB, NodeError, ts_schema, TSD, map_, REF, sink_node
-from hgraph.nodes import div_
+from hgraph.nodes import div_ts
 from hgraph.test import eval_node
 
 
@@ -29,7 +29,7 @@ def test_error_handling_with_map():
 
     @graph
     def main(lhs: TSD[int, TS[float]], rhs: TSD[int, TS[float]]) -> TSB[schema]:
-        out = map_(div_, lhs, rhs)
+        out = map_(div_ts, lhs, rhs)
         return TSB[schema].from_ts(out=out, error=exception_time_series(out))
 
     result = eval_node(main, [{0: 1.0}, {1: 2.0}, {2: 3.0}], [{0: 1.0}, {1: 2.0}, {2: 0.0}])
@@ -40,7 +40,7 @@ def test_error_handling_with_map():
 def test_error_handling_try_except():
     @graph
     def main(lhs: TS[float], rhs: TS[float]) -> TSB[TryExceptResult[TS[float]]]:
-        out = try_except(div_, lhs, rhs)
+        out = try_except(div_ts, lhs, rhs)
         return out
 
     result = eval_node(main, [1.0, 2.0, 3.0], [1.0, 2.0, 0.0])
@@ -56,7 +56,7 @@ def test_error_handling_with_map_try_except():
     @graph
     def main(lhs: TSD[int, TS[float]], rhs: TSD[int, TS[float]]) -> \
             TSB[TryExceptTsdMapResult[int, TSD[int, TS[float]]]]:
-        out = try_except(map_, div_, lhs, rhs)
+        out = try_except(map_, div_ts, lhs, rhs)
         return out
 
     result = eval_node(main, [{0: 1.0}, {1: 2.0}, {2: 3.0}], [{0: 1.0}, {1: 2.0}, {2: 0.0}])
