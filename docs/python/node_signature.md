@@ -13,6 +13,7 @@ These special inputs include:
 * _engine: ``EvaluationEngineApi``
 * _state: ``STATE``
 * _scheduler: ``SCHEDULER``
+* _log: ``LOGGER``   
 * _output: ``TSOut[str]`` (for example)
 
 In all cases, except for ``_output``, the names of the special inputs are not important, but for consistency
@@ -95,6 +96,12 @@ requests. The basic functionality is:
 * has_tag - Indicates if the scheduler has a tag currently schedule.
 * next_scheduled_time - The time the node is next scheduled.
 * reset - Removes all pending scheduled events (both tagged and non-tagged events)
+
+
+LOGGER
+---------
+
+This provides access to the system logger.
 
 
 _output

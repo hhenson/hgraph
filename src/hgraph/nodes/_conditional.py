@@ -9,8 +9,8 @@ __all__ = ("if_then_else", "if_true", "route_ref", "filter_")
 def if_then_else(condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]) \
         -> REF[TIME_SERIES_TYPE]:
     """
-    If the condition is true the output is bound ot the true_value, otherwise it is bound to the false_value.
-    This just connect the time-series values.
+    If the condition is true the output is bound to the true_value, otherwise it is bound to the false_value.
+    This just connects the time-series values.
     """
     condition_value = condition.value
     if condition.modified:

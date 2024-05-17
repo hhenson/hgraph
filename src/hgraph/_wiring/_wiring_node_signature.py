@@ -329,7 +329,10 @@ class WiringNodeSignature:
         of duplicate nodes we create (especially for const nodes).
         """
         for arg, v in self.input_types.items():
+            v = v.dereference()
             if not v.is_scalar and kwarg_types[arg].is_scalar:
+                if not v.scalar_type().matches(kwarg_types[arg]):
+                    raise IncorrectTypeBinding(v, kwarg_types[arg])
                 from hgraph.nodes import const
                 kwargs[arg] = const(kwargs[arg], tp=v.py_type)
             if type(v) is HgTypeOfTypeMetaData:

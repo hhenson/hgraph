@@ -1,7 +1,7 @@
 Exception Handling
 ==================
 
-There are two key mechanisms to capture exceptions in the graph, 
+There are two key mechanisms to capture exceptions in the graph: 
 one is to capture an exception on a specific node, the other is
 to create the equivalent of a ``try`` ``catch`` block which will
 capture the exceptions of the nodes included in a graph.
@@ -25,7 +25,7 @@ key is the map key and the value is the standard error stream.
 Here is an example of capturing an exception:
 
 ```python
-from hgraph import graph, exception_time_series, run_graph
+from hgraph import graph, exception_time_series
 from hgraph.nodes import const, debug_print
 
 

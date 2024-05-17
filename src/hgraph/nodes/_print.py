@@ -1,11 +1,12 @@
 import sys
+import logging
 from dataclasses import dataclass
 
-from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, TS, STATE, CompoundScalar
-
-__all__ = ("debug_print", "print_")
-
+from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, TS, STATE, CompoundScalar, LOGGER
 from hgraph.nodes import format_
+
+
+__all__ = ("debug_print", "print_", "log")
 
 
 @dataclass
@@ -58,7 +59,7 @@ def print_(format_str: TS[str] | str, *args, __std_out__: bool =True, **kwargs):
     if len(args) == 0 and len(kwargs) == 0:
         return _print(format_str)
     else:
-        _print(format_(format_str, *args, **kwargs), std_out__=__std_out__)
+        return _print(format_(format_str, *args, **kwargs), std_out__=__std_out__)
 
 
 @sink_node
@@ -70,3 +71,23 @@ def _print(ts: TS[str], std_out: bool = True):
     :param std_out: If true, print to std out else std err.
     """
     print(ts.value) if std_out else print(ts.value, file=sys.stderr)
+
+
+def log(format_str: TS[str] | str, *args, level: int = logging.INFO, **kwargs):
+    """
+    A sink node that will log the formatted string to the system logger.
+
+    :param format_str: The format string as defined in format
+    :param level: The logging level
+    :param args: The time-series enumerated inputs
+    :param kwargs: The named time-series inputs
+    """
+    if len(args) == 0 and len(kwargs) == 0:
+        return _log(format_str, level)
+    else:
+        return _log(format_(format_str, *args, **kwargs), level)
+
+
+@sink_node
+def _log(ts: TS[str], level: int, logger: LOGGER = None):
+    logger.log(level, ts.value)

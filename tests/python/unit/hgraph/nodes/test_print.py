@@ -1,5 +1,7 @@
+import logging
+
 from hgraph import graph, TSL, SIZE, TS, Size
-from hgraph.nodes import debug_print
+from hgraph.nodes import debug_print, const, log, print_
 from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 
@@ -16,6 +18,27 @@ def test_debug_print(capsys):
     assert "tsd" in capsys.readouterr().out
 
 
+def test_print_(capsys):
+    @graph
+    def main(ts: TS[str]):
+        print_("Test output {c}", c=ts)
+
+    eval_node(main, ["Contents"])
+    assert "Contents" in capsys.readouterr().out
+
+
+def test_log(capsys):
+    @graph
+    def main(ts1: TS[str], ts2: TS[int]):
+        log("Error output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.ERROR)
+        log("Info output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.INFO)
+
+    eval_node(main, ["Test"], [1])
+    stderr = capsys.readouterr().err
+    assert "[ERROR] Error output Test 1" in stderr
+    assert "[INFO] Info output Test 1" in stderr
+
+
 def test_debug_print_sample(capsys):
     @graph
     def main(ts: TS[int]):
@@ -24,3 +47,4 @@ def test_debug_print_sample(capsys):
     eval_node(main, [1, 2, 3, 4])
 
     assert "[2] ts" in capsys.readouterr().out
+
