@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, abs_, len_
+from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, abs_, len_, mod_
 from hgraph.nodes import cast_, drop, take
 from hgraph.test import eval_node
 
@@ -45,3 +45,7 @@ def test_take():
 )
 def test_abs(values, expected):
     assert eval_node(abs_, values) == expected
+
+
+def test_mod():
+    assert eval_node(mod_, [1, 2, 3, 4, 5], [3]) == [1, 2, 0, 1, 2]

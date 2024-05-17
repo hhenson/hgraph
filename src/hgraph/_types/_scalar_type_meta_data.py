@@ -112,6 +112,10 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         return False
 
     @property
+    def typevars(self):
+        return (self.py_type,)
+
+    @property
     def operator_rank(self) -> float:
         # This is a complete wild card, so this is the weakest match (which strangely is 1.0)
         return 1.
@@ -512,6 +516,10 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         return self.py_collection_type[self.element_type.py_type, ...]
 
     @property
+    def typevars(self):
+        return tuple(itertools.chain(t.typevars for t in self.element_type))
+
+    @property
     def operator_rank(self) -> float:
         return self.element_type.operator_rank / 100.
 
@@ -560,6 +568,10 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
     @property
     def py_type(self) -> Type:
         return Array[self.element_type.py_type, *(tp.py_type for tp in self.shape_types)]
+
+    @property
+    def typevars(self):
+        return self.element_type.typevars
 
     @property
     def operator_rank(self) -> float:
@@ -632,6 +644,10 @@ class HgTupleFixedScalarType(HgTupleScalarType):
         return False
 
     @property
+    def typevars(self):
+        return tuple(itertools.chain(t.typevars for t in self.element_types))
+
+    @property
     def operator_rank(self) -> float:
         return sum(t.operator_rank for t in self.element_types) / 100.
 
@@ -690,6 +706,10 @@ class HgSetScalarType(HgCollectionType):
     @property
     def is_resolved(self) -> bool:
         return self.element_type.is_resolved
+
+    @property
+    def typevars(self):
+        return self.element_type.typevars
 
     @property
     def operator_rank(self) -> float:
@@ -751,6 +771,10 @@ class HgDictScalarType(HgCollectionType):
     @property
     def is_resolved(self) -> bool:
         return self.key_type.is_resolved and self.value_type.is_resolved
+
+    @property
+    def typevars(self):
+        return self.key_type.typevars + self.value_type.typevars
 
     @property
     def operator_rank(self) -> float:
@@ -819,6 +843,10 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     def __hash__(self) -> int:
         return hash(self.py_type)
+
+    @property
+    def typevars(self):
+        return tuple(itertools.chain(t.typevars for t in self.py_type.__meta_data_schema__.values()))
 
     @property
     def operator_rank(self) -> float:
@@ -909,6 +937,10 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
     @property
     def py_type(self) -> Type:
         return type[self.value_tp.py_type]
+
+    @property
+    def typevars(self):
+        return self.value_tp.typevars
 
     @property
     def operator_rank(self) -> float:

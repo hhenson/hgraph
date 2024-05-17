@@ -79,6 +79,10 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @property
+    def typevars(self):
+        return self.key_tp.typevars + self.value_tp.typevars
+
+    @property
     def operator_rank(self) -> float:
         return (self.key_tp.operator_rank + self.value_tp.operator_rank) / 100.
 

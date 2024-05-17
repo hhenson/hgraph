@@ -37,3 +37,13 @@ def test_log(capsys):
     stderr = capsys.readouterr().err
     assert "[ERROR] Error output Test 1" in stderr
     assert "[INFO] Info output Test 1" in stderr
+
+def test_debug_print_sample(capsys):
+    @graph
+    def main(ts: TS[int]):
+        debug_print("ts", ts, sample=2)
+
+    eval_node(main, [1, 2, 3, 4])
+
+    assert "[2] ts" in capsys.readouterr().out
+

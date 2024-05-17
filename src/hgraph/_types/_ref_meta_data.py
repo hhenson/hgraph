@@ -65,6 +65,10 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_tp.dereference()
 
     @property
+    def typevars(self):
+        return self.value_tp.typevars
+
+    @property
     def operator_rank(self) -> float:
         return self.value_tp.operator_rank
 

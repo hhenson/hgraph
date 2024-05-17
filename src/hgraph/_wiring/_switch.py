@@ -21,7 +21,10 @@ from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ("switch_",)
+__all__ = ("switch_", "DEFAULT")
+
+
+DEFAULT = object()  # a marker to indicate the default option for
 
 
 def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], key: TS[SCALAR], *args,
@@ -122,7 +125,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
                                  resolved_signature_inner.input_types,
                                  {k: kwargs_[k] for k, v in resolved_signature_inner.input_types.items()
                                   if not isinstance(v, HgTimeSeriesTypeMetaData) and k != 'key'},
-                                 resolved_signature_outer, 'key')
+                                 resolved_signature_outer, 'key', depth=2)
             for k, v in
             switches.items()}
 
@@ -189,7 +192,7 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', 
         if i == 0:
             if n == input_key_name:  # this is the key input
                 input_has_key_arg = True
-                input_key_tp = key_type.py_type
+                input_key_tp = HgTSTypeMetaData(key_type)
                 annotations[input_key_name] = input_key_tp
                 continue
 
