@@ -56,3 +56,12 @@ def test_len():
         return const(len(tsl))
 
     assert eval_node(l_test, tsl=[None], resolution_dict={"tsl": TSL[TS[int], Size[5]]}) == [5]
+
+
+def test_tsl_compatible_types():
+    @graph
+    def tsl_test(ts1: TS[object], ts2: TS[int]) -> TSL[TS[object], Size[2]]:
+        tsl = TSL.from_ts(ts1, ts2, tp=TS[object])
+        return tsl
+
+    assert eval_node(tsl_test, ts1=[1, 2], ts2=[3, 4]) == [{0: 1, 1: 3}, {0: 2, 1: 4}]

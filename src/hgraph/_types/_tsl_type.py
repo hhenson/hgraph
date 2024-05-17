@@ -89,11 +89,11 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
     """
 
     @classmethod
-    def from_ts(cls, *args, __type__=TIME_SERIES_TYPE, __size__=SIZE, **kwargs) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
+    def from_ts(cls, *args, tp=TIME_SERIES_TYPE, size=SIZE) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
         """To force a Type (to ensure input types are as expected, then provide __type__ and / or __size__"""
         if len(args) == 1 and isinstance(args[0], Generator):
             args = [arg for arg in args[0]]
-        size_, tp_ = cls._validate_inputs(*args, **kwargs)
+        size_, tp_ = cls._validate_inputs(*args, tp_=tp, size_=size)
         fn_details = TimeSeriesListInput.from_ts.__code__
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
             HgTimeSeriesTypeMetaData, HgAtomicType
@@ -130,9 +130,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         return TSLWiringPort(wiring_node_instance, tuple())
 
     @classmethod
-    def _validate_inputs(cls, *args, **kwargs):
-        tp_ = kwargs.pop("__type__", TIME_SERIES_TYPE)
-        size_: Size = kwargs.pop("__size__", SIZE)
+    def _validate_inputs(cls, *args, tp_=None, size_=None):
         if not args:
             with _from_ts_wiring_context(tp_, size_):
                 from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
@@ -154,7 +152,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             from hgraph import HgTimeSeriesTypeMetaData
             tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
         for v in inputs:
-            if v.output_type.dereference() != tp_:
+            if not tp_.matches(v.output_type.dereference()):
                 with _from_ts_wiring_context(tp_, size_):
                     from hgraph._wiring._wiring_errors import CustomMessageWiringError
                     raise CustomMessageWiringError(
