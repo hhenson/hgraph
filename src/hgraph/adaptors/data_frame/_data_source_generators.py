@@ -336,4 +336,4 @@ def _dt_converter(dt_tp: pl.DataType) -> Callable[[date | datetime], datetime]:
         return lambda dt: datetime.combine(dt, time())
     if isinstance(dt_tp, pl.datatypes.Datetime):
         return lambda dt: dt
-    raise RuntimeError(f"Unable to convert {dt_tp} to a date or datetime")
+    raise RuntimeError(f"Attempting to convert: {dt_tp} to a datetime but it is neither a date or a datime as requried")
