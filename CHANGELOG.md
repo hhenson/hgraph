@@ -421,3 +421,8 @@ Version 0.2.29 (17-05-2024)
 * tss operators
 * TSL improvements
 * allow switch graphs to have no output
+
+Version 0.2.30 (TBD)
+--------------------
+
+* Add explicit mappings for <=, >=, >, !=
