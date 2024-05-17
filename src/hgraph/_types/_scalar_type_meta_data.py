@@ -10,7 +10,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE, LOGGER
+from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE, LOGGER, UnNamedCompoundScalar
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -512,7 +512,7 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
     def matches(self, tp: "HgTypeMetaData") -> bool:
         tp_ = type(tp)
         return (tp_ is HgTupleCollectionScalarType and self.element_type.matches(tp.element_type)) or (
-                # Support matching a delta value as well.
+            # Support matching a delta value as well.
                 tp_ is HgDictScalarType and self.element_type.matches(tp.value_type) and tp.key_type.py_type is int)
 
     @property
@@ -837,7 +837,15 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         self.py_type = py_type
 
     def __eq__(self, o: object) -> bool:
-        return type(o) is HgCompoundScalarType and self.py_type is o.py_type
+        return (
+                type(o) is HgCompoundScalarType and (
+                self.py_type is o.py_type or
+                (
+                        (issubclass(self.py_type, UnNamedCompoundScalar) or
+                         issubclass(o.py_type, UnNamedCompoundScalar)) and
+                        self.py_type.__meta_data_schema__ == o.py_type.__meta_data_schema__
+                )
+        ))
 
     def __str__(self) -> str:
         return f'{self.py_type.__name__}'
@@ -857,7 +865,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return super().operator_rank / self.py_type.__mro__.index(CompoundScalar)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgCompoundScalarType and issubclass(tp.py_type, self.py_type)
+        return type(tp) is HgCompoundScalarType and (issubclass(tp.py_type, self.py_type) or self.__eq__(tp))
 
     @property
     def is_resolved(self) -> bool:

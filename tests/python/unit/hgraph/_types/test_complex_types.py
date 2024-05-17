@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from typing import ForwardRef
 
-from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext
+from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext, \
+    compound_scalar, ts_schema
 from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
 from hgraph._types._scalar_types import is_compound_scalar
 from hgraph._types._ts_type import TS
@@ -22,6 +23,12 @@ class LessSimpleBundle(SimpleSchema, scalar_type=True):
 def test_matches_bundle():
     tp = HgTimeSeriesTypeMetaData.parse_type(LessSimpleBundle)
     assert tp.matches(tp)
+
+
+def test_matches_un_named_type():
+    tp_1 = HgTimeSeriesTypeMetaData.parse_type(SimpleSchema)
+    tp_2 = HgTimeSeriesTypeMetaData.parse_type(ts_schema(p1=TS[int]))
+    assert tp_1.matches(tp_2)
 
 
 def test_simple_bundle():
@@ -68,6 +75,12 @@ class LessSimpleCompoundScalar(SimpleCompoundScalar):
 def test_matches_compound_scalar():
     tp = HgScalarTypeMetaData.parse_type(LessSimpleCompoundScalar)
     assert tp.matches(tp)
+
+
+def test_matches_compound_scalar_un_named_type():
+    tp_1 = HgScalarTypeMetaData.parse_type(SimpleCompoundScalar)
+    tp_2 = HgScalarTypeMetaData.parse_type(compound_scalar(p1=int))
+    assert tp_1.matches(tp_2)
 
 
 def test_simple_compound_scalar():
