@@ -63,7 +63,7 @@ interface EvaluationClock {
 ```
 </details>
 
-The evaluation clock is available to be injection into a node. The most useful property is the ``evaluation_time``,
+The evaluation clock is available to be injected into a node. The most useful property is the ``evaluation_time``,
 this provides the logical notion of the current time, this is considered as the computation time.
 ``now`` provides the view of the current wall clock time, which should generally always be larger than the 
 ``evaluation_time``. In ``SIMULATION`` mode, ``now`` may not necessarily be monotonically increasing over engine-cycles
@@ -139,7 +139,7 @@ execution of the nodes for the ``evaluation_time`` of the graph executor.
 
 ### Node
 
-As disused in the introduction, there are three key node types: source, compute, 
+As discussed in the introduction, there are three key node types: source, compute, 
 and sink nodes. Nodes in the graph are represented as classes within the internals
 of the system. The base class is as follows:
 
@@ -163,11 +163,11 @@ interface Node {
 ```
 </details>
 
-The node signature describes the important static meta-data of the node. This includes attributes such as the node type.
-The inputs and output signatures, etc.
+The node signature describes the important static meta-data of the node. This includes attributes such as the node type,
+the inputs and output signatures, etc.
 
 The node has a virtual function ``eval()``, this is called when the node has been scheduled for evaluation. The 
-``notify()`` method is called to advice the node to schedule itself for evaluation with it's associated ``graph``.
+``notify()`` method is called to advise the node to schedule itself for evaluation with its associated ``graph``.
 The node may have an ``input`` and / or an ``output`` (depending on the node type).
 
 In the Python node implementation, this wraps the python function decorated by one of the node decorators (such as 

@@ -1,9 +1,10 @@
+import sys
 from collections import deque
 from datetime import timedelta
 
-from hgraph import compute_node, TIME_SERIES_TYPE, MIN_TD, STATE, SCHEDULER, SIGNAL, EvaluationClock
+from hgraph import compute_node, TIME_SERIES_TYPE, STATE, SCHEDULER, SIGNAL, EvaluationClock, generator, TS, graph
 
-__all__ = ("sample", "delay")
+__all__ = ("sample", "delay", "signal")
 
 
 @compute_node(active=('signal',))
@@ -26,3 +27,11 @@ def delay(ts: TIME_SERIES_TYPE, delay: timedelta, sched: SCHEDULER = None, ec: E
 @delay.start
 def delay_start(state: STATE):
     state.queue = deque()
+
+
+@generator
+def signal(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.maxsize) -> TS[bool]:
+    initial_timedelta = delay if initial_delay else timedelta()
+    yield(initial_timedelta, True)
+    for _ in range(max_ticks - 1):
+        yield (delay, True)

@@ -129,7 +129,7 @@ This is useful when the input changing is the only thing of interest. This is ON
 
 The TSL is a time-series list. As of now the list is a constrained size list. When defining a TSL the user is required
 to specify the type of collection and the size of the collection. This is done by supplying this information as
-a type tuple, i.e. ``TSL[TS[int], Size[2]`` where Size is a special type that allows us to specify the size of the
+a type tuple, i.e. ``TSL[TS[int], Size[2]]`` where Size is a special type that allows us to specify the size of the
 collection as a generic input. The first argument is the time-series type the list contains.
 
 A list can be peered or non-peered with a useful constructor method ``from_ts`` that can construct a non-peered
