@@ -411,3 +411,13 @@ Version 0.2.28 (16-05-2024)
 * Add mod_ts to implement the mod_ operator over scalars.
 * Add a sample param to format_ to allow for easy construction of sampled text for debugging.
 * Add a sample param to debug_print
+
+Version 0.2.29 (17-05-2024)
+---------------------------
+
+* Bug fixes
+* drop_dups specialisation for float
+* log node
+* tss operators
+* TSL improvements
+* allow switch graphs to have no output
