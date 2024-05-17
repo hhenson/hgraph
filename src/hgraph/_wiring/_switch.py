@@ -150,10 +150,14 @@ def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SER
             check_signature = cast(WiringNodeClass, v).resolve_signature(**kwargs)
         else:
             this_signature = cast(WiringNodeClass, v).resolve_signature(**kwargs)
-            if this_signature.args != check_signature.args or \
-                    any(not check_signature.input_types[arg].matches(this_signature.input_types[arg]) for arg in
-                        check_signature.args) or \
-                    not this_signature.output_type.matches(check_signature.output_type):
+            same_arg_no = this_signature.args == check_signature.args
+            same_arg_types = same_arg_no and \
+                    all(check_signature.input_types[arg].matches(this_signature.input_types[arg]) for arg in
+                        check_signature.args)
+            same_output = this_signature.output_type.matches(check_signature.output_type) \
+                if check_signature.output_type is not None \
+                else this_signature.output_type is None
+            if not (same_arg_no and same_arg_types and same_output):
                 # If the signatures do not match, then we cannot wire the switch.
                 # We ensure the arguments and their types match, as well as the output type.
                 raise CustomMessageWiringError(

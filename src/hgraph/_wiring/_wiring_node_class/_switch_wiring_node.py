@@ -41,8 +41,10 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
         nested_graph_input_ids = {}
         nested_graph_output_ids = {}
         for k, v in nested_graphs.items():
-            nested_graph_input_ids[k], nested_graph_output_ids[k] = \
-                extract_stub_node_indices(v, self._resolved_signature_inner.time_series_args)
+            ins, outs = extract_stub_node_indices(v, self._resolved_signature_inner.time_series_args)
+            nested_graph_input_ids[k] = ins
+            if outs:
+                nested_graph_output_ids[k] = outs
 
         input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
                                                                                     self.error_output_type)
