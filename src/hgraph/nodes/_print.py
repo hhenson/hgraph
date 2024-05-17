@@ -2,7 +2,7 @@ import sys
 import logging
 from dataclasses import dataclass
 
-from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, TS, STATE, CompoundScalar
+from hgraph import sink_node, TIME_SERIES_TYPE, EvaluationClock, TS, STATE, CompoundScalar, LOGGER
 from hgraph.nodes import format_
 
 

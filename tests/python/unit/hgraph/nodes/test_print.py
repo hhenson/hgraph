@@ -38,6 +38,7 @@ def test_log(capsys):
     assert "[ERROR] Error output Test 1" in stderr
     assert "[INFO] Info output Test 1" in stderr
 
+
 def test_debug_print_sample(capsys):
     @graph
     def main(ts: TS[int]):
