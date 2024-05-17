@@ -244,7 +244,8 @@ class HgObjectType(HgAtomicType):
         return super().__hash__()
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return ((issubclass(getattr(tp.py_type, '__origin__', tp.py_type), getattr(self.py_type, '__origin__', self.py_type)))
+        return ((issubclass(getattr(tp.py_type, '__origin__', tp.py_type),
+                            getattr(self.py_type, '__origin__', self.py_type)))
                 or (type(tp) is HgScalarTypeVar and tp.matches(self)))
 
     @classmethod
@@ -509,7 +510,10 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         self.element_type = element_type
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgTupleCollectionScalarType and self.element_type.matches(tp.element_type)
+        tp_ = type(tp)
+        return (tp_ is HgTupleCollectionScalarType and self.element_type.matches(tp.element_type)) or (
+                # Support matching a delta value as well.
+                tp_ is HgDictScalarType and self.element_type.matches(tp.value_type) and tp.key_type.py_type is int)
 
     @property
     def py_type(self) -> Type:
