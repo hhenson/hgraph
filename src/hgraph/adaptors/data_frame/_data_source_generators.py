@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 
 from hgraph import generator, TS_SCHEMA, TSB, TSD, SCALAR, SCALAR_1, TS, ts_schema, Array, \
-    SIZE, TSL, clone_typevar, Size, SCALAR_2, HgScalarTypeMetaData, HgTSTypeMetaData, Frame, COMPOUND_SCALAR,\
+    SIZE, TSL, clone_typevar, Size, SCALAR_2, HgScalarTypeMetaData, HgTSTypeMetaData, Frame, COMPOUND_SCALAR, \
     compound_scalar
 from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, DataStore
 
@@ -36,6 +36,23 @@ def _extract_schema(mapping, scalars) -> TS_SCHEMA:
     """Extract the schema from the mapping"""
     schema, _ = _schema_and_dt_col(mapping, scalars)
     return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
+
+
+def _extract_scalar(mapping, scalars) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    return schema[scalars['value_col']]
+
+
+@generator(resolvers={SCALAR: _extract_scalar})
+def ts_from_data_source(dfs: type[DATA_FRAME_SOURCE], dt_col: str = 'date', value_col: str = 'value',
+                        offset: timedelta = timedelta()) -> TS[SCALAR]:
+    df: pl.DataFrame
+    dfs_instance = DataStore.instance().get_data_source(dfs)
+    dt_converter = _dt_converter(dfs_instance.schema[dt_col])
+    for df in dfs_instance.iter_frames():
+        for dt, value in df.select([dt_col, value_col]).iter_rows(named=False):
+            dt = dt_converter(dt)
+            yield dt + offset, value
 
 
 @generator(resolvers={TS_SCHEMA: _extract_schema})

@@ -427,3 +427,4 @@ Version 0.2.30 (TBD)
 
 * Add explicit mappings for <=, >=, >, !=
 * Make compound scalar objects match UnNamedCompoundScalar objects with the same properties.
+* add extraction of a single ts value from a data-frame source

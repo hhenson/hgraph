@@ -6,6 +6,7 @@ import pytest
 from hgraph import GraphConfiguration, evaluate_graph, graph, TSB, ts_schema, TS
 from hgraph.adaptors.data_frame import PolarsDataFrameSource, DataStore, DataConnectionStore, \
     SqlDataFrameSource, tsb_from_data_source
+from hgraph.adaptors.data_frame._data_source_generators import ts_from_data_source
 
 
 class MockDataSource(PolarsDataFrameSource):
@@ -17,6 +18,22 @@ class MockDataSource(PolarsDataFrameSource):
             'age': [25, 30, 35]
         })
         super().__init__(df)
+
+
+def test_ts_data_source():
+    @graph
+    def main() -> TS[int]:
+        return ts_from_data_source(MockDataSource, "date", "age")
+
+    with DataStore() as store:
+        config = GraphConfiguration()
+        result = evaluate_graph(main, config)
+
+    assert result == [
+        (datetime(2020, 1, 1), 25),
+        (datetime(2020, 1, 2), 30),
+        (datetime(2020, 1, 3), 35)
+    ]
 
 
 def test_data_source():
