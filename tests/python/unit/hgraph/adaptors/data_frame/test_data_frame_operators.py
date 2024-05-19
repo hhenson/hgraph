@@ -1,7 +1,10 @@
 import polars as pl
+from duckdb.experimental.spark import DataFrame
+from frozendict import frozendict
 
-from hgraph import Frame, TS
-from hgraph.adaptors.data_frame import schema_from_frame, join, filter_cs, filter_exp
+from hgraph import Frame, TS, graph, compound_scalar, TSD
+from hgraph.adaptors.data_frame import schema_from_frame, join, filter_cs, filter_exp, ungroup
+from hgraph.nodes import const
 from hgraph.test import eval_node
 
 
@@ -32,3 +35,25 @@ def test_filter_cs():
         ),
         [df.filter(**condition.to_dict())]
     ))
+
+
+def test_ungroup():
+    df_1 = pl.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
+    df_2 = pl.DataFrame({'a': [1, 2, 3], 'b': [7, 8, 9]})
+    df_3 = pl.DataFrame({'a': [], 'b': []})
+
+    scheama = compound_scalar(a=int, b=int)
+
+    @graph
+    def g(c: TSD[str, TS[Frame[scheama]]]) -> TS[Frame[scheama]]:
+        v = ungroup(c)
+        return v
+
+    result = eval_node(g, [frozendict({'a': df_1, 'b': df_2})])
+    assert len(result[0]) == 6
+
+    result = eval_node(g, [frozendict({'a': df_3, 'b': df_3})])
+    assert result is None
+
+    result = eval_node(g, [frozendict({'a': df_1, 'b': df_3})])
+    assert len(result[0]) == 3

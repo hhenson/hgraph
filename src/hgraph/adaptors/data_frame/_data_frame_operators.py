@@ -69,7 +69,9 @@ def group_by(ts: TS[Frame[COMPOUND_SCALAR]], by: str) -> TSD[KEYABLE_SCALAR, TS[
 
 @compute_node
 def ungroup(ts: TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]) -> TS[Frame[COMPOUND_SCALAR]]:
-    return pl.concat(ts.values())
+    v = [v.value for v in ts.valid_values() if v is not None and len(v.value) > 0]
+    if v:
+        return pl.concat(v)
 
 
 @compute_node
