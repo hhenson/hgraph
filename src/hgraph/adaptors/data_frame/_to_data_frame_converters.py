@@ -29,8 +29,19 @@ def to_frame(ts: TIME_SERIES_TYPE) -> TS[Frame[COMPOUND_SCALAR]]:
     raise NotImplemented(f"to_frame is not yet implemented for type: {ts.output_type}")
 
 
-@compute_node(overloads=to_frame)
-def to_frame_ts(ts: TS[SCALAR], value_col: str = None, dt_col: str = None,
+def _ts_frame_cs_resolver(mapping, scalars):
+    value_col = scalars['value_col']
+    if value_col is None:
+        raise ValueError("value_col cannot be None")
+    schema = {value_col: mapping[SCALAR].py_type}
+    dt_col = scalars['dt_col']
+    if dt_col is not None:
+        schema = {dt_col: date if scalars['dt_is_date'] else datetime} | schema
+    return compound_scalar(**schema)
+
+
+@compute_node(overloads=to_frame, resolvers={COMPOUND_SCALAR: _ts_frame_cs_resolver})
+def to_frame_ts(ts: TS[SCALAR], value_col: str = None, dt_col: str = None, dt_is_date: bool = False,
                 _state: STATE = None,
                 _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
                 _s_tp: type[SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:

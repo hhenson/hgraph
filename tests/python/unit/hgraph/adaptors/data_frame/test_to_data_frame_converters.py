@@ -13,6 +13,12 @@ def test_to_frame_ts_value():
     assert [r['value'][0] for r in result] == [1, 2, 3]
 
 
+def test_to_frame_ts_value_resolver():
+    result = eval_node(to_frame_ts, [1, 2, 3], value_col='value')
+    assert len(result) == 3
+    assert [r['value'][0] for r in result] == [1, 2, 3]
+
+
 def test_to_frame_ts_dt_value():
     result = eval_node(to_frame_ts[COMPOUND_SCALAR: compound_scalar(dt=datetime, value=int)], [1, 2, 3])
     assert len(result) == 3
@@ -20,8 +26,22 @@ def test_to_frame_ts_dt_value():
     assert [r['dt'][0] for r in result] == [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2]
 
 
+def test_to_frame_ts_dt_value_resolver():
+    result = eval_node(to_frame_ts, [1, 2, 3], value_col='value', dt_col='dt')
+    assert len(result) == 3
+    assert [r['value'][0] for r in result] == [1, 2, 3]
+    assert [r['dt'][0] for r in result] == [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2]
+
+
 def test_to_frame_ts_date_value():
     result = eval_node(to_frame_ts[COMPOUND_SCALAR: compound_scalar(dt=date, value=int)], [1, 2, 3])
+    assert len(result) == 3
+    assert [r['value'][0] for r in result] == [1, 2, 3]
+    assert [r['dt'][0] for r in result] == [MIN_ST.date(), MIN_ST.date(), MIN_ST.date()]
+
+
+def test_to_frame_ts_date_value_resolver():
+    result = eval_node(to_frame_ts, [1, 2, 3], value_col='value', dt_col='dt', dt_is_date=True)
     assert len(result) == 3
     assert [r['value'][0] for r in result] == [1, 2, 3]
     assert [r['dt'][0] for r in result] == [MIN_ST.date(), MIN_ST.date(), MIN_ST.date()]
