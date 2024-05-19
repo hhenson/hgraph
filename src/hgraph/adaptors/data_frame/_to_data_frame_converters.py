@@ -151,20 +151,20 @@ def _start_to_frame_tsb(dt_col: str, map_: frozendict[str, str],
             f"to_frame unable to map from {tsb_schema} to {frame_schema} {'using the mapping ' if map_ else ''}{map_ if map_ else ''}")
 
 
-@compute_node(overloads=to_frame)
-def to_frame_tsd(ts: TSD[SCALAR, TS[SCALAR_1]],
-                 dt_col: str = None, key_col_ = None, value_col_=None, dt_is_date: bool = False,
-                 _state: STATE = None,
-                 _key_tp: type[SCALAR] = AUTO_RESOLVE,
-                 _value_tp: type[SCALAR_1] = AUTO_RESOLVE,
-                 _frame_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
-    return _state.to_frame(ts)
-
-
-@to_frame_tsd.start
-def _start_to_frame_tsd(dt_col: str, key_col_: str, value_col_: str,
-                        _state: STATE,
-                        _key_tp: type[SCALAR],
-                        _value_tp: type[SCALAR_1],
-                        _frame_tp: type[COMPOUND_SCALAR]):
-    ...
+# @compute_node(overloads=to_frame)
+# def to_frame_tsd(ts: TSD[SCALAR, TS[SCALAR_1]],
+#                  dt_col: str = None, key_col_: str = None, value_col_: str = None, dt_is_date: bool = False,
+#                  _state: STATE = None,
+#                  _key_tp: type[SCALAR] = AUTO_RESOLVE,
+#                  _value_tp: type[SCALAR_1] = AUTO_RESOLVE,
+#                  _frame_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
+#     return _state.to_frame(ts)
+#
+#
+# @to_frame_tsd.start
+# def _start_to_frame_tsd(dt_col: str, key_col_: str, value_col_: str,
+#                         _state: STATE,
+#                         _key_tp: type[SCALAR],
+#                         _value_tp: type[SCALAR_1],
+#                         _frame_tp: type[COMPOUND_SCALAR]):
+#     ...
