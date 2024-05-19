@@ -422,8 +422,8 @@ Version 0.2.29 (17-05-2024)
 * TSL improvements
 * allow switch graphs to have no output
 
-Version 0.2.30 (TBD)
---------------------
+Version 0.2.30 (19-05-2024)
+---------------------------
 
 * Add explicit mappings for <=, >=, >, !=
 * Make compound scalar objects match UnNamedCompoundScalar objects with the same properties.
