@@ -1,10 +1,8 @@
 import polars as pl
-from duckdb.experimental.spark import DataFrame
 from frozendict import frozendict
 
 from hgraph import Frame, TS, graph, compound_scalar, TSD
-from hgraph.adaptors.data_frame import schema_from_frame, join, filter_cs, filter_exp, ungroup
-from hgraph.nodes import const
+from hgraph.adaptors.data_frame import schema_from_frame, join, filter_cs, ungroup
 from hgraph.test import eval_node
 
 
