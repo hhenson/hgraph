@@ -176,7 +176,7 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
     @property
     def operator_rank(self) -> float:
         if isinstance(self.bundle_schema_tp, HgTsTypeVarTypeMetaData):
-            return self.bundle_schema_tp.operator_rank
+            return self.bundle_schema_tp.operator_rank / 10.
         else:
             return sum(t.operator_rank for t in self.bundle_schema_tp.meta_data_schema.values()) / 100.
 

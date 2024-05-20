@@ -3,7 +3,7 @@ from datetime import datetime, date
 from frozendict import frozendict as fd
 
 from hgraph import compound_scalar, COMPOUND_SCALAR, MIN_ST, MIN_TD, TSB, ts_schema, TS
-from hgraph.adaptors.data_frame._to_data_frame_converters import to_frame_ts, to_frame_tsb
+from hgraph.adaptors.data_frame._to_data_frame_converters import to_frame_ts, to_frame_tsb, to_frame
 from hgraph.test import eval_node
 
 
@@ -107,3 +107,10 @@ def test_to_frame_tsb_guess_schema_with_mapping_date():
     assert [r['dt'][0] for r in result] == [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2]
     assert [r['p1'][0] for r in result] == [1, 2, 3]
     assert [r['p2'][0] for r in result] == ['a', 'b', 'c']
+
+
+def test_to_frame_resolution():
+    ts_schema_ = ts_schema(p1=TS[int], p2=TS[str])
+    result = eval_node(to_frame, [fd(p1=1, p2="a"), fd(p1=2, p2="b"), fd(p1=3, p2="c")],
+                       resolution_dict={"ts": TSB[ts_schema_]})
+    assert len(result) == 3

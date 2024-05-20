@@ -432,3 +432,7 @@ Version 0.2.30 (19-05-2024)
   * to_frame_ts
   * to_frame_tsb
   
+Version 0.2.31 (20-05-2024)
+---------------------------
+
+* Fix resolution order to a TSB[TS_SCHEMA] to fix to_frame resolution.
