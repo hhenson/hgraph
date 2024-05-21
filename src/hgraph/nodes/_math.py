@@ -1,9 +1,7 @@
 from typing import Type
 
-import hgraph
 import hgraph._runtime._operators
-from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass, SCALAR, REF
-from hgraph._runtime._operators import min_, min_op
+from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass
 
 __all__ = ("add_ts", "sub_ts", "mult_ts", "div_ts", "lt_ts", "zero_int", "zero_float")
 
