@@ -5,7 +5,7 @@ import hgraph._runtime._operators
 from hgraph import compute_node, TS, NUMBER, graph, WiringNodeClass, SCALAR, REF
 from hgraph._runtime._operators import min_, min_op
 
-__all__ = ("add_ts", "sub_ts", "mult_ts", "div_ts", "lt_ts", "zero_int", "zero_float", "min_op_number")
+__all__ = ("add_ts", "sub_ts", "mult_ts", "div_ts", "lt_ts", "zero_int", "zero_float")
 
 
 @compute_node(overloads=hgraph.add_)
@@ -72,8 +72,4 @@ def zero_float(tp: Type[TS[float]], op: WiringNodeClass) -> TS[float]:
     }
     return mapping[op.signature.name]
 
-
-@compute_node(overloads=min_op)
-def min_op_number(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
-    return min(lhs.value, rhs.value)
 

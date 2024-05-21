@@ -1,7 +1,6 @@
 import hgraph
 from hgraph import compute_node, contains_, REF, TSS, TS, STATE, PythonTimeSeriesReference, not_, graph, \
-    KEYABLE_SCALAR, PythonSetDelta
-from hgraph.nodes._operators import len_
+    KEYABLE_SCALAR, PythonSetDelta, len_
 from hgraph.nodes._set_operators import is_empty
 
 

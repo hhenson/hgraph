@@ -20,6 +20,7 @@ from hgraph.nodes._replay import *
 from hgraph.nodes._service_utils import *
 from hgraph.nodes._set_operators import *
 from hgraph.nodes._stream_operators import *
+from hgraph.nodes._ts_operators import *
 from hgraph.nodes._tsb_operators import *
 from hgraph.nodes._tsd_operators import *
 from hgraph.nodes._tsl_operators import *

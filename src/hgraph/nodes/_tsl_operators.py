@@ -1,8 +1,7 @@
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
-    PythonTimeSeriesReference
+    PythonTimeSeriesReference, len_
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const
-from hgraph.nodes._operators import len_
 
 
 __all__ = ("flatten_tsl_values", "merge", "tsl_len", "sum_tsl", "tsl_to_tsd", "tsl_get_item")

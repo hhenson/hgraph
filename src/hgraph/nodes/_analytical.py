@@ -4,8 +4,9 @@ from datetime import timedelta
 from typing import TypeVar
 
 from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_, TSD, \
-    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar
-from hgraph.nodes._operators import cast_, len_
+    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar, len_
+from hgraph.nodes._operators import cast_
+
 
 __all__ = (
     "ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "sum_", "accumulate", "lag", "diff",

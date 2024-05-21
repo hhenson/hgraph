@@ -9,7 +9,7 @@ from hgraph._runtime._operators import getattr_, mul_, zero
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const, nothing
-from hgraph.nodes._operators import len_
+from hgraph._runtime._operators import len_
 from hgraph.nodes._set_operators import is_empty
 from hgraph.nodes._tsl_operators import merge
 
