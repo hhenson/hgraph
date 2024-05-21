@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Generic
 
 import pytest
+from frozendict import frozendict
 
 from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError, TIME_SERIES_TYPE, \
     SCALAR, SCALAR_1, AUTO_RESOLVE, CompoundScalar
@@ -47,6 +48,15 @@ def test_tsb_splitting():
         return tsb.as_schema.p1
 
     assert eval_node(split_tester, [1, 2], ["a", "b"]) == [1, 2]
+
+
+def test_tsb_from_ts_with_nothing_defaults():
+
+    @graph
+    def nothing_tester(ts1: TS[int]) -> TSB[MyTsb]:
+        return TSB[MyTsb].from_ts(p1=ts1)
+
+    assert eval_node(nothing_tester, [1, 2]) == [frozendict(p1=1), frozendict(p1=2)]
 
 
 def test_tsb_splitting_peered():

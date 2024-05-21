@@ -443,3 +443,4 @@ Version 0.2.32 (21-05-2024)
 * Add min_ts and max_ts operator overloads
 * Clean up location of ts operators to _ts_operators.py
 * Expose ddof param in numpy std function
+* Support partial parameter sets in TSB.from_ts defaulting missing values as nothing() nodes.
