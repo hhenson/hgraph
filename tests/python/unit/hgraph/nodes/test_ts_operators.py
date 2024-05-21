@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, len_, abs_, mod_
+from hgraph import TSS, Removed, TSL, TS, Size, TSD, REMOVE, len_, abs_, mod_, min_, max_
 from hgraph.test import eval_node
 
 
@@ -30,3 +30,11 @@ def test_abs(values, expected):
 
 def test_mod():
     assert eval_node(mod_, [1, 2, 3, 4, 5], [3]) == [1, 2, 0, 1, 2]
+
+
+def test_min():
+    assert eval_node(min_, [1, 2, 3], [3, 2, 1]) == [1, 2, 1]
+
+
+def test_max():
+    assert eval_node(max_, [1, 2, 3], [3, 2, 1]) == [3, 2, 3]

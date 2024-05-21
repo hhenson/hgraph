@@ -436,3 +436,10 @@ Version 0.2.31 (20-05-2024)
 ---------------------------
 
 * Fix resolution order to a TSB[TS_SCHEMA] to fix to_frame resolution.
+
+Version 0.2.32 (21-05-2024)
+---------------------------
+
+* Add min_ts and max_ts operator overloads
+* Clean up location of ts operators to _ts_operators.py
+* Expose ddof param in numpy std function
