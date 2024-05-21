@@ -1,4 +1,4 @@
-from dataclasses import KW_ONLY, Field, InitVar
+from dataclasses import KW_ONLY, Field, InitVar, dataclass
 from hashlib import shake_256
 from inspect import get_annotations
 from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar
@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData
 
 
-__all__ = ("AbstractSchema",)
+__all__ = ("AbstractSchema", "Base")
 
 
 class AbstractSchema:
@@ -82,7 +82,8 @@ class AbstractSchema:
 
             schema[k] = s
 
-        cls.__meta_data_schema__ = frozendict(schema)
+        if getattr(cls, '__build_meta_data__', True):
+            cls.__meta_data_schema__ = frozendict(schema)
 
     @classmethod
     def _root_cls(cls) -> Type["AbstractSchema"]:
@@ -156,3 +157,42 @@ class AbstractSchema:
 
 
 AbstractSchema.__annotations__ = {}
+
+
+class Base:
+    def __init__(self, item):
+        self.item = item
+
+    def __class_getitem__(cls, item):
+        if cls is Base and isinstance(item, TypeVar):
+            assert item.__bound__ is not None
+            return cls(item)
+        elif cls.__mro__[2] is not Base:
+            return super().__class_getitem__(item)
+        else:
+            typevar = cls.__base_typevar__
+            typevar_index = cls.__parameters__.index(typevar)
+            item = (item,) if not isinstance(item, tuple) else item
+            item = item[typevar_index]
+            new_mro = tuple(item if t is Base else t for t in cls.__mro__
+                            if not issubclass(item, t) and t.__mro__[1] is not Base)
+            new_type = type(cls.__name__ + f"[{item.__name__}]", new_mro, {
+                '__module__': cls.__module__,
+                '__annotations__': cls.__annotations__,
+                '__orig_bases__': cls.__orig_bases__,
+                '__doc__': cls.__doc__,
+                '__parameters__': cls.__parameters__,
+                '__build_meta_data__': True
+            })
+            new_type_specialised = new_type[item]
+            if hasattr(cls, '__dataclass_fields__') and '__dataclass_fields__' not in new_type_specialised.__dict__:
+                p = cls.__dataclass_params__
+                return dataclass(new_type_specialised, frozen=p.frozen, init=p.init, repr=p.repr)
+            else:
+                return new_type_specialised
+
+    def __mro_entries__(self, bases):
+        return (
+            type(f"Base_{self.item.__name__}", (Base,), {'__base_typevar__': self.item, '__build_meta_data__': False}),
+            Base,
+            self.item.__bound__)

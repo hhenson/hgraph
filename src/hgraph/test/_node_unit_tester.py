@@ -81,25 +81,25 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
         observers.extend(__observers__ if __observers__ else [])
         run_graph(eval_node_graph, life_cycle_observers=observers)
 
-    results = get_recorded_value() if node.signature.output_type is not None else []
-    if results:
-        # For push nodes, there are no time-series inputs, so we compute size of the result from the result.
-        max_count = max(max_count, int((results[-1][0] - MIN_DT) / MIN_TD))
-    # Extract the results into a list of values without time-stamps, place a None when there is no recorded value.
-    if results:
-        out = []
-        if not __elide__:
-            result_iter = iter(results)
-            result = next(result_iter)
-            for t in _time_iter(MIN_ST, MIN_ST + max_count * MIN_TD, MIN_TD):
-                if result and t == result[0]:
-                    out.append(result[1])
-                    result = next(result_iter, None)
-                else:
-                    out.append(None)
-        else:
-            out = [result[1] for result in results]
-        return out
+        results = get_recorded_value() if node.signature.output_type is not None else []
+        if results:
+            # For push nodes, there are no time-series inputs, so we compute size of the result from the result.
+            max_count = max(max_count, int((results[-1][0] - MIN_DT) / MIN_TD))
+        # Extract the results into a list of values without time-stamps, place a None when there is no recorded value.
+        if results:
+            out = []
+            if not __elide__:
+                result_iter = iter(results)
+                result = next(result_iter)
+                for t in _time_iter(MIN_ST, MIN_ST + max_count * MIN_TD, MIN_TD):
+                    if result and t == result[0]:
+                        out.append(result[1])
+                        result = next(result_iter, None)
+                    else:
+                        out.append(None)
+            else:
+                out = [result[1] for result in results]
+            return out
 
 
 def _time_iter(start, end, delta):

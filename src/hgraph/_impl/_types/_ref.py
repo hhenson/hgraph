@@ -157,7 +157,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         if self.owning_node.is_started and self._output and self._output.valid:
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
-                self.owning_node.notify()
+                self.notify(self._sample_time)
 
         return peer
 
@@ -166,8 +166,8 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             return super().do_bind_output(output)
         else:
             self._value = PythonTimeSeriesReference(output)
-            self.owning_node.notify()
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST  # TODO: what are we supposed to do in a branch?
+            self.notify(self._sample_time)
             return False
 
     def do_un_bind_output(self):
@@ -181,8 +181,16 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         if self._items is None:
             self._items = []
         while item > len(self._items) - 1:
-            self._items.append(PythonTimeSeriesReferenceInput(_owning_node=self._owning_node, _parent_input=self))
+            new_item = PythonTimeSeriesReferenceInput(_owning_node=self._owning_node, _parent_input=self)
+            new_item.set_subscribe_method(subscribe_input=True)
+            new_item.make_active()
+            self._items.append(new_item)
         return self._items[item]
+
+    def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
+        self._value = None  # one of the items of a non-peer reference input has changed, clear the cached value
+        if self.active:
+            super().notify_parent(self, modified_time)
 
     @property
     def value(self):

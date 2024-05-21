@@ -209,10 +209,13 @@ class BaseNodeImpl(Node, ABC):
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.
 
-    def notify(self):
+    def notify(self, modified_time: datetime = None):
         """Notify the graph that this node needs to be evaluated."""
         if self.is_started or self.is_starting:
-            self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
+            self.graph.schedule_node(self.node_ndx,
+                                     modified_time
+                                     if modified_time is not None
+                                     else self.graph.evaluation_clock.evaluation_time)
         else:
             self.scheduler.schedule(when=MIN_ST, tag="start")
 

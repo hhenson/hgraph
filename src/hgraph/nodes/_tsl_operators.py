@@ -1,10 +1,13 @@
+from typing import Type
+
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
     PythonTimeSeriesReference, len_
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const
 
 
-__all__ = ("flatten_tsl_values", "merge", "tsl_len", "sum_tsl", "tsl_to_tsd", "tsl_get_item")
+__all__ = ("flatten_tsl_values", "merge", "tsl_len", "sum_tsl", "tsl_to_tsd", "tsl_get_item", "tsl_get_item_ts",
+           "index_of")
 
 
 @compute_node
@@ -51,15 +54,40 @@ def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> 
     return {k: ts.value for k, ts in zip(keys, tsl) if ts.modified}
 
 
-@compute_node
+@compute_node(requires=lambda m, s: 0 <= s['index'] < m[SIZE])
 def tsl_get_item(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: int) -> REF[TIME_SERIES_TYPE]:
     """
-    Return a reference to an item in the TSB referenced, by its name
+    Return a reference to an item in the TSL referenced
     """
     if tsl.value.valid:
         if tsl.value.has_peer:
             return PythonTimeSeriesReference(tsl.value.output[index])
         else:
-            return PythonTimeSeriesReference(tsl.value[index])
+            return tsl.value.items[index]
     else:
         return PythonTimeSeriesReference()
+
+
+@compute_node(overloads=tsl_get_item)
+def tsl_get_item_ts(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: TS[int], size: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
+    """
+    Return a reference to an item in the TSL referenced
+    """
+    if index.value < 0 or index.value >= size.SIZE:
+        return PythonTimeSeriesReference()
+
+    if tsl.value.valid:
+        if tsl.value.has_peer:
+            return PythonTimeSeriesReference(tsl.value.output[index.value])
+        else:
+            return tsl.value.items[index.value]
+    else:
+        return PythonTimeSeriesReference()
+
+
+@compute_node
+def index_of(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[int]:
+    """
+    Return the index of the leftmost time-series with the equal value to ts in the TSL
+    """
+    return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)

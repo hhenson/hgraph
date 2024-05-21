@@ -277,6 +277,10 @@ class TSLWiringPort(WiringPort):
 
     def __getitem__(self, item):
         """Return the wiring port for an individual TSL element"""
+        if isinstance(item, WiringPort):
+            from hgraph.nodes import tsl_get_item_ts
+            return tsl_get_item_ts(self, item)
+
         output_type: HgTSLTypeMetaData = self.output_type
         tp_ = output_type.value_tp
         size_ = output_type.size

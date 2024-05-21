@@ -246,9 +246,6 @@ def test_tsd_reduce_no_zero(inputs, expected):
     assert eval_node(reduce_test, inputs) == expected
 
 
-# assert eval_node(reduce_test, inputs, __trace__=True) == expected
-
-
 @pytest.mark.parametrize(
     ["inputs", 'size', "expected"],
     [

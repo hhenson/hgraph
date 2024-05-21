@@ -1,34 +1,39 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 import typing
+from datetime import datetime
 
 if typing.TYPE_CHECKING:
     from hgraph._impl._runtime._node import Node
+    from hgraph._impl._types._input import TimeSeriesInput
 
 
-__all__ = ("NodeSubscriber",)
+__all__ = ("TimeSeriesSubscriber",)
+
+
+SUBSCRIBER = typing.TypeVar("SUBSCRIBER", "Node", "TimeSeriesInput")
 
 
 @dataclass
-class NodeSubscriber:
+class TimeSeriesSubscriber:
     """
-    A reference counted subscription of a node.
+    A reference counted subscription collection.
     """
 
     _subscriber_count: dict[tuple[int, ...], int] = field(default_factory=lambda :defaultdict[tuple[int, ...], int](int))
-    _subscribers: list["Node"] = field(default_factory=list)
+    _subscribers: list[SUBSCRIBER] = field(default_factory=list)
 
-    def subscribe_node(self, node: "Node"):
-        self._subscriber_count[node.node_id] += 1
-        if self._subscriber_count[node.node_id] == 1:
-            self._subscribers.append(node)
+    def subscribe(self, subscriber: SUBSCRIBER):
+        self._subscriber_count[id(subscriber)] += 1
+        if self._subscriber_count[id(subscriber)] == 1:
+            self._subscribers.append(subscriber)
 
-    def un_subscribe_node(self, node: "Node"):
-        self._subscriber_count[node.node_id] -= 1
-        if self._subscriber_count[node.node_id] == 0:
-            self._subscribers.remove(node)
+    def unsubscribe(self, subscriber: SUBSCRIBER):
+        self._subscriber_count[id(subscriber)] -= 1
+        if self._subscriber_count[id(subscriber)] == 0:
+            self._subscribers.remove(subscriber)
 
-    def notify(self):
+    def notify(self, modified_time: datetime):
         """Notified the graph executor that the nodes should be scheduled for this engine cycle of evaluation"""
-        for node in self._subscribers:
-            node.notify()
+        for s in self._subscribers:
+            s.notify(modified_time)

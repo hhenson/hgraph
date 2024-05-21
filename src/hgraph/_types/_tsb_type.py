@@ -83,7 +83,11 @@ class TimeSeriesSchema(AbstractSchema):
         tsc_schema = types.new_class(f"{schema.__name__}Bundle",
                                      tuple(bases),
                                      None,
-                                     lambda ns: ns.update({"__annotations__": annotations, "__module__": schema.__module__}))
+                                     lambda ns: ns.update({
+                                         "__annotations__": annotations,
+                                         "__module__": schema.__module__,
+                                         "__build_meta_data__": getattr(schema, "__build_meta_data__", True)
+                                     }))
 
         tsc_schema.__scalar_type__ = schema
         schema.__bundle_type__ = tsc_schema

@@ -261,7 +261,7 @@ class Node(ComponentLifeCycle, ABC):
         """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
 
     @abstractmethod
-    def notify(self):
+    def notify(self, modified_time: datetime):
         """Notify the node that it is need of scheduling"""
 
     @abstractmethod
@@ -339,8 +339,8 @@ class NodeDelegate(Node):
     def eval(self):
         self._node.eval()
 
-    def notify(self):
-        self._node.notify()
+    def notify(self, modified_time):
+        self._node.notify(modified_time)
 
     def notify_next_cycle(self):
         self._node.notify_next_cycle()
