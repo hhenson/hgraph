@@ -23,6 +23,7 @@ class SettlementMethod(Enum):
     Financial: str = "Financial"
 
 
+# TODO - why the extra wrapping - why not use SettlementMethod directly (e.g. in the contract spec)
 @dataclass(frozen=True)
 class Settlement(CompoundScalar):
     """
@@ -42,11 +43,11 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     contract_size: Quantity[Decimal]
     currency: Currency
 
-    trading_calendar: Calendar
+    trading_calendar: Calendar  # TODO - we also need settlement calendar and reset calendar?  To get the expiry dates
     settlement: Settlement
 
-    quotation_currency_unit: Unit
-    quotation_unit: Unit
+    quotation_currency_unit: Unit  # TODO - why is this a unit whereas currency itself is a Currency?.  Should they both just be strings? Also why are there both anyway?
+    quotation_unit: Unit  # TODO - how is quotation unit different from contract_size unit?
     tick_size: Quantity[Decimal]
 
     unit_conversion_factors: tuple[Quantity[Decimal]] = \
@@ -96,7 +97,6 @@ class Future(Instrument):
 
     name: str = lambda self: self.series.name + self.contract_base_date.strftime("%b %y")
     symbol: str = SELF.series.symbol_expr(SELF)
-
 
     expiry: date = SELF.series.expiry(CONTRACT_BASE_DATE=SELF.contract_base_date)
     first_trading_date: date = SELF.series.first_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
