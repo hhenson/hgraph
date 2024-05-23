@@ -232,7 +232,7 @@ WiringPort.__rrshift__ = lambda x, y: rshift_(y, x)
 
 
 @graph
-def and_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[TIME_SERIES_TYPE_1]:
+def and_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
     """
     This represents the `&` operator for time series types.
 

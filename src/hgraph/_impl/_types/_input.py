@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
 
 from hgraph._types._scalar_types import UnSet
-from hgraph._runtime._constants import MIN_DT
+from hgraph._runtime._constants import MIN_DT, MAX_DT
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 from hgraph._runtime._node import Node
 
@@ -81,6 +81,12 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             self._active = True
             if self.bound:
                 self._output.subscribe(self if self._subscribe_input else self.owning_node)
+                if self._output.valid and self._output.modified:
+                    self.notify(self._output.last_modified_time)
+                    return  # If the output is modified we do not need to check if sampled
+
+            if self._sampled:
+                self.notify(self._sample_time)
 
     def make_passive(self):
         if self._active:

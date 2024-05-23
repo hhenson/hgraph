@@ -30,7 +30,6 @@ def test_sum(inputs, expected):
 
 
 def test_tsl_to_tsd():
-
     assert eval_node(tsl_to_tsd, [(1, 2, 3), {1: 3}], ('a', 'b', 'c'),
                      resolution_dict={'tsl': TSL[TS[int], Size[3]]}) == [{'a': 1, 'b': 2, 'c': 3}, {'b': 3}]
 

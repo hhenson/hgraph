@@ -1,6 +1,7 @@
 from frozendict import frozendict
 
-from hgraph import switch_, graph, TS, SCALAR, compute_node, generator, EvaluationClock, MIN_TD, TSD, TSS, map_, DEFAULT
+from hgraph import switch_, graph, TS, SCALAR, compute_node, generator, EvaluationClock, MIN_TD, TSD, TSS, map_, \
+    DEFAULT, TimeSeriesSchema, TSB
 from hgraph.nodes import add_ts, sub_ts, const, default, print_
 from hgraph.test import eval_node
 
@@ -115,3 +116,18 @@ def test_switch_no_output():
         return switch_({'one': lambda key: print_(key), 'two': lambda key: print_(key)}, key)
 
     assert eval_node(switch_test, ['one', 'two']) == None
+
+
+def test_switch_bundle():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @graph
+    def switch_test(key: TS[str]) -> TSB[AB]:
+        return switch_({
+            'one': lambda key: TSB[AB].from_ts(a=1),
+            'two': lambda key: TSB[AB].from_ts(b=1)},
+            key)
+
+    assert eval_node(switch_test, ['one', 'two']) == [{'a': 1}, {'b': 1}]

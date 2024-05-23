@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, IntFlag, auto
-from typing import Optional, Mapping, TYPE_CHECKING, Any
+from typing import Optional, Mapping, TYPE_CHECKING, Any, Set
 
 from hgraph._runtime._lifecycle import ComponentLifeCycle
 
@@ -224,6 +224,13 @@ class Node(ComponentLifeCycle, ABC):
     def inputs(self) -> Optional[Mapping[str, "TimeSeriesInput"]]:
         """
         The inputs associated to this node.
+        """
+
+    @property
+    @abstractmethod
+    def start_inputs(self) -> list["TimeSeriesInput"]:
+        """
+        The inputs scheduled for start callback
         """
 
     @property

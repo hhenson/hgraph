@@ -259,6 +259,18 @@ class TSBREFWiringPort(WiringPort):
         from hgraph.nodes._tsb_operators import tsb_get_item
         return tsb_get_item(self, item)
 
+    def as_dict(self):
+        return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}
+
+    def copy_with(self, **kwargs):
+        """
+        Creates a new instance of a wiring time bundle using the values of this instance combined / overridden from
+        the kwargs provided. Can be used to clone a runtime instance of a bundle as well.
+        """
+        self.output_type.value_tp.py_type._validate_kwargs(self.__schema__, **kwargs)
+        tsb = self.output_type.value_tp.py_type.from_ts(**(self.as_dict() | kwargs))
+        return tsb
+
 
 @dataclass(frozen=True)
 class TSLWiringPort(WiringPort):
