@@ -299,8 +299,6 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         requirement.
         """
         schema: TS_SCHEMA = kwargs.pop("__schema__")
-        from hgraph.nodes._const import nothing
-        kwargs = kwargs | {k: nothing(v.py_type) for k, v in schema.__meta_data_schema__.items() if k not in kwargs}
         fn_details = TimeSeriesBundleInput.from_ts.__code__
         kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
 
