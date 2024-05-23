@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from dataclasses import dataclass, Field
+from dataclasses import dataclass, Field, MISSING, field, InitVar, KW_ONLY
 from datetime import date
 from inspect import isfunction, signature
 
@@ -14,7 +14,9 @@ class _BaseExDescriptor:
 
     def __get__(self, instance, owner = None):
         if instance is not None:
-            if (v := instance.__dict__.get(self.cache_name, None)) is not None:
+            if (v := instance.__dict__.get(self.override_name, MISSING)) is not MISSING:
+                return v
+            if (v := instance.__dict__.get(self.cache_name, MISSING)) is not MISSING:
                 return v
 
             v = self.__calc__(instance)
@@ -29,22 +31,21 @@ class _BaseExDescriptor:
     def __set__(self, instance, value):
         if value is not self and instance is not None:
             if not instance.__dataclass_params__.frozen:
-                setattr(instance, self.cache_name, value)
+                setattr(instance, self.override_name, value)
             else:
                 raise AttributeError(f'field {self.name} in {instance} is readonly')
 
     def __override__(self, instance, value):
         if value is not self and instance is not None:
-            object.__setattr__(instance, self.cache_name, value)
-            object.__setattr__(instance, self.overriden_name, True)
+            object.__setattr__(instance, self.override_name, value)
 
     def __overriden__(self, instance):
-        return getattr(instance, self.overriden_name, False)
+        return getattr(instance, self.override_name, MISSING) is not MISSING
 
     def __set_name__(self, owner, name):
         self.name = name
         self.cache_name = f'__cache_{self.name or id(self)}__'
-        self.overriden_name = f'__overriden_{self.name or id(self)}__'
+        self.override_name = f'_override_{self.name or id(self)}'
 
 
 class CallableDescriptor(_BaseExDescriptor):
@@ -90,6 +91,9 @@ class DateListDescriptor(_BaseExDescriptor):
 def _process_ops_and_lambdas(cls):
     cls.__annotations__.pop('SELF', None)
 
+    overridable = []
+    new_annotations = {}
+
     for k, a in cls.__annotations__.items():
         if (op := getattr(cls, k, None)) is not None:
             if a == date:  # special treatment for dates
@@ -109,6 +113,29 @@ def _process_ops_and_lambdas(cls):
                 d = _make_descriptor(a, cls, descriptor_type, k, op)
                 if d is not None:
                     setattr(cls, k, d)
+
+            if d:
+                cls.__annotations__[k] = InitVar[a]
+                overridable.append(k)
+
+                override = f"_override_{k}"
+                new_annotations[override] = a
+                setattr(cls, override, field(default=None, init=False, repr=False, metadata={'hidden': True}))
+
+    cls.__annotations__ = {'_': KW_ONLY, **cls.__annotations__, **new_annotations}
+
+    original_post_init = getattr(cls, '__post_init__', None)
+
+    def post_init(self, *args):
+        for k, v in zip(overridable, args):
+            if not isinstance(v, _BaseExDescriptor):
+                setattr(self, f'_override_{k}', v)
+        if original_post_init:
+            # ideally we would figure out if there were any initvars in the original annotations and filter on those
+            # and pass in but dataclasses using positional args for initvars makes it difficult to do this
+            original_post_init(self)
+
+    setattr(cls, '__post_init__', post_init)
 
     return cls
 

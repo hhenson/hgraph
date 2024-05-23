@@ -1,5 +1,6 @@
 from typing import TypeVar, Type
 
+from hg_oap.quanity.conversion import convert
 from hgraph import graph, TS, compute_node, TSB, TSL, AUTO_RESOLVE
 from hgraph.nodes import cs_from_ts, route_ref, filter_, merge
 from hgraph.test import eval_node
@@ -29,45 +30,12 @@ def test_quantity_tsb():
     UNIT_2 = TypeVar("UNIT_2", bound=Unit)
 
     @graph
-    def convert(qty: TS[NUMBER], fr: TS[UNIT_1], to: TS[UNIT_2], tp: Type[NUMBER] = AUTO_RESOLVE) -> TS[NUMBER]:
-        """
-        Cater for the three usa cases of conversion:
-            - Same unit, no conversion required
-            - Direct conversion ratio available - both units are multiplicative
-            - One of both units are offset
-        """
-
-        pass_through, to_convert = route_ref(fr == to, qty)
-        calc_ratio = has_conversion_ratio(fr, to)
-        ratio_convert, offset_convert = route_ref(calc_ratio, to_convert)
-        ratio = conversion_ratio[NUMBER:tp](filter_(calc_ratio, fr), filter_(calc_ratio, to))
-        ratio_converted = ratio_convert * ratio
-        offset_converted = convert_units(offset_convert, fr, to)
-        return merge(TSL.from_ts(pass_through, ratio_converted, offset_converted))
-
-    @graph(overloads=convert)
-    def convert_qty(qty: TSB[Quantity[NUMBER]], to: TS[Unit]) -> TSB[Quantity[NUMBER]]:
-        return {"qty": convert(qty.qty, qty.unit, to), "unit": to}
-
-    @compute_node
-    def has_conversion_ratio(fr: TS[Unit], to: TS[Unit]) -> TS[bool]:
-        return fr.value._is_multiplicative and to.value._is_multiplicative
-
-    @compute_node
-    def conversion_ratio(fr: TS[Unit], to: TS[Unit], tp: Type[NUMBER] = AUTO_RESOLVE) -> TS[NUMBER]:
-        if fr.value._is_multiplicative and to.value._is_multiplicative:
-            return fr.value.convert(tp(1.), to=to.value)
-
-    @compute_node
-    def convert_units(qty: TS[NUMBER], fr: TS[Unit], to: TS[Unit]) -> TS[NUMBER]:
-        return fr.value.convert(qty.value, to=to.value)
-
-    @graph
     def g(ts: TS[float], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[float]]:
         v = TSB[Quantity[float]].from_ts(qty=ts, unit=u)
         return convert(v, u1).as_scalar_ts()
 
     assert eval_node(g, ts=[1.0, None, 2.0], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
+
     assert eval_node(g,
                      ts=[274.15, None, 273.15, None],
                      u=[U.K, None, None, None],
