@@ -292,7 +292,7 @@ class DiffDerivedUnit(DerivedUnit):
         return NotImplemented
 
 
-@dataclass(frozen=True, kw_only=True, init=False)
+@dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class ComplexUnit(Unit):
     components: Tuple[Tuple[Unit, int], ...]
     scale: float = 1.0
