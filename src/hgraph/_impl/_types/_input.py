@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
@@ -44,8 +44,9 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
             self._owning_node = None
             self._parent_input = parent
 
+    @abstractmethod
     def notify(self, modified_time: datetime):
-        self.parent_input.notify_parent(self, modified_time) if self.parent_input else self.owning_node.notify(modified_time)
+        pass
 
     def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
         self.notify(modified_time)
@@ -68,6 +69,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     _subscribe_input: bool = False
     _active: bool = False
     _sample_time: datetime = MIN_DT
+    _notify_time: datetime = MIN_DT
 
     @property
     def active(self) -> bool:
@@ -94,6 +96,11 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             if self.bound:
                 self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
 
+    def notify(self, modified_time: datetime):
+        if self._notify_time != modified_time:
+            self._notify_time = modified_time
+            self.parent_input.notify_parent(self, modified_time) if self.parent_input else self.owning_node.notify(modified_time)
+
     @property
     def output(self) -> TimeSeriesOutput:
         return self._output
@@ -107,6 +114,9 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             self._reference_output = output
             peer = False
         else:
+            if output is self._output:
+                return self.has_peer
+
             peer = self.do_bind_output(output)
 
         if (self.owning_node.is_started or self.owning_node.is_starting) and self._output and self._output.valid:

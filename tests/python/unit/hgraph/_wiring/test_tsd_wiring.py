@@ -1,4 +1,4 @@
-from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE, contains_
+from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE, contains_, TimeSeriesSchema, TSB, map_, TSL, Size
 from hgraph.test import eval_node
 
 
@@ -36,3 +36,20 @@ def test_tsd_contains():
 
     assert eval_node(main, [{"a": 1}, {"b": 2}, {"b": 3}, {}, {"a": REMOVE}], ["b", None, None, "a"]) \
            == [False, True, None, True, False]
+
+
+def test_fast_non_peer_tsd():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @graph
+    def g(tsd1: TSD[str, TS[int]], tsd2: TSD[str, TS[int]]) -> TSD[str, TSB[AB]]:
+        return copy_tsd(map_(lambda x, y: TSB[AB].from_ts(a=x, b=y), tsd1, tsd2))
+
+    @compute_node
+    def copy_tsd(tsd: TSD[str, TSB[AB]]) -> TSD[str, TSB[AB]]:
+        return dict((k, v.delta_value) for k, v in zip(tsd.modified_keys(), tsd.modified_values()))
+
+    assert eval_node(g, [{"x": 1, "y": 2}, {}], [{}, {"x": 7, "y": 8}]) == \
+           [{'x': {'a': 1}, 'y': {"a": 2}}, {'x': {'b': 7}, 'y': {"b": 8}}]
