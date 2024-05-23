@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Generic, Iterable, Any, Set, Optional, cast
 
 from hgraph._impl._types._feature_extension import FeatureOutputRequestTracker, FeatureOutputExtension
@@ -150,8 +151,8 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             return
         self.value = result
 
-    def mark_modified(self):
-        super().mark_modified()
+    def mark_modified(self, modified_time: datetime = None):
+        super().mark_modified(modified_time or self.owning_graph.evaluation_clock.evaluation_time)
         self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset)
 
     def _reset(self):

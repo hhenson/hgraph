@@ -94,7 +94,8 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         from hgraph._types._time_series_types import TimeSeries
         from hgraph._types._tsb_type import TimeSeriesSchema
         if isinstance(value_tp, TypeVar):
-            if value_tp.__bound__ and issubclass(value_tp.__bound__, (TimeSeries, TimeSeriesSchema)):
+            if value_tp.__bound__ and issubclass(
+                    getattr(value_tp.__bound__, '__origin__', value_tp.__bound__), (TimeSeries, TimeSeriesSchema)):
                 return HgTsTypeVarTypeMetaData(value_tp, (HgTimeSeriesTypeMetaData.parse_type(value_tp.__bound__) or value_tp.__bound__,))
             elif value_tp.__constraints__ and all(not HgTypeMetaData.parse_type(c).is_scalar for c in value_tp.__constraints__):
                 return HgTsTypeVarTypeMetaData(value_tp, tuple(HgTimeSeriesTypeMetaData.parse_type(t) or t for t in value_tp.__constraints__))

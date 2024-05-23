@@ -175,7 +175,8 @@ def test_context_over_witch_inside_map():
     def h(ts: TSD[int, TSD[int, TS[bool]]], s: TSD[int, TS[str]]) -> TSD[int, TSD[int, TS[str]]]:
         return map_(f, ts, pass_through(s))
 
-    assert eval_node(h, ts=[{1: {1: True}, 2: {2: True}}, {1: {1: False}}, None], s=[{1: 'Hello', 2: "Chao"}, None, {2: "Ho"}]) \
+    assert eval_node(h, ts=[{1: {1: True}, 2: {2: True}}, {1: {1: False}}, None], s=[{1: 'Hello', 2: "Chao"}, None, {2: "Ho"}],
+                     __trace__={'start': False}) \
             == [{1: {1: "Hello_ True"}, 2: {2: "Chao_ True"}}, {1: {1: "Chao False"}}, {2: {2: "Ho_ True"}}]
 
 

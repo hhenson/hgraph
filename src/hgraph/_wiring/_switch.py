@@ -154,7 +154,7 @@ def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SER
             same_arg_types = same_arg_no and \
                     all(check_signature.input_types[arg].matches(this_signature.input_types[arg]) for arg in
                         check_signature.args)
-            same_output = this_signature.output_type.matches(check_signature.output_type) \
+            same_output = this_signature.output_type.dereference().matches(check_signature.output_type.dereference()) \
                 if check_signature.output_type is not None \
                 else this_signature.output_type is None
             if not (same_arg_no and same_arg_types and same_output):

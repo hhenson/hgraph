@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
 
 from hgraph._types._scalar_types import UnSet
-from hgraph._runtime._constants import MIN_DT
+from hgraph._runtime._constants import MIN_DT, MAX_DT
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 from hgraph._runtime._node import Node
 
@@ -44,6 +44,12 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
             self._owning_node = None
             self._parent_input = parent
 
+    def notify(self, modified_time: datetime):
+        self.parent_input.notify_parent(self, modified_time) if self.parent_input else self.owning_node.notify(modified_time)
+
+    def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
+        self.notify(modified_time)
+
 
 @dataclass
 class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
@@ -59,6 +65,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     # however there is no guarantee that if there were other types of observers they would not clash with the
     # references, so probably this is required to be this way. I am just a little annoyed with the growth of the object
 
+    _subscribe_input: bool = False
     _active: bool = False
     _sample_time: datetime = MIN_DT
 
@@ -66,17 +73,26 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def active(self) -> bool:
         return self._active
 
+    def set_subscribe_method(self, subscribe_input: bool):
+        self._subscribe_input = subscribe_input
+
     def make_active(self):
         if not self._active:
             self._active = True
             if self.bound:
-                self._output.subscribe_node(self.owning_node)
+                self._output.subscribe(self if self._subscribe_input else self.owning_node)
+                if self._output.valid and self._output.modified:
+                    self.notify(self._output.last_modified_time)
+                    return  # If the output is modified we do not need to check if sampled
+
+            if self._sampled:
+                self.notify(self._sample_time)
 
     def make_passive(self):
         if self._active:
             self._active = False
             if self.bound:
-                self._output.un_subscribe_node(self.owning_node)
+                self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
 
     @property
     def output(self) -> TimeSeriesOutput:
@@ -96,7 +112,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
         if (self.owning_node.is_started or self.owning_node.is_starting) and self._output and self._output.valid:
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
-                self.owning_node.notify()  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
+                self.notify(self._sample_time)  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
 
         return peer
 
@@ -114,7 +130,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
                 self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
                 if self.active:
                     # Notify as the state of the node has changed from bound to un_bound
-                    self.owning_node.notify()
+                    self.owning_node.notify(self._sample_time)
 
     def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         active = self.active
@@ -128,7 +144,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     def do_un_bind_output(self):
         if self.active:
-            self._output.un_subscribe_node(self.owning_node)
+            self._output.unsubscribe(self.owning_node)
         self._output = None
 
     @property

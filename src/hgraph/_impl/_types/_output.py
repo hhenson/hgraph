@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from hgraph._runtime._constants import MIN_DT
-from hgraph._impl._runtime._common import NodeSubscriber
+from hgraph._impl._runtime._common import TimeSeriesSubscriber, SUBSCRIBER
 from hgraph._types._time_series_types import TimeSeriesOutput
 
 if typing.TYPE_CHECKING:
@@ -21,7 +21,7 @@ __all__ = ("PythonTimeSeriesOutput",)
 class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     _owning_node: Optional["Node"] = None
     _parent_output: Optional["TimeSeriesOutput"] = None
-    _subscribers: NodeSubscriber = field(default_factory=NodeSubscriber)
+    _subscribers: TimeSeriesSubscriber = field(default_factory=TimeSeriesSubscriber)
     _last_modified_time: datetime = MIN_DT
 
     @property
@@ -36,16 +36,20 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     def mark_invalid(self):
         if self._last_modified_time > MIN_DT:
             self._last_modified_time = MIN_DT
-            self._notify()
+            self._notify(self._last_modified_time)
 
-    def mark_modified(self):
-        clock = self.owning_graph.evaluation_clock
-        et = clock.evaluation_time
-        if self._last_modified_time < et:
-            self._last_modified_time = et
+    def mark_modified(self, modified_time: datetime = None):
+        if modified_time is None:
+            clock = self.owning_graph.evaluation_clock
+            modified_time = clock.evaluation_time
+        if self._last_modified_time < modified_time:
+            self._last_modified_time = modified_time
             if self._parent_output is not None:
-                self._parent_output.mark_modified()
-            self._notify()
+                self._parent_output.mark_child_modified(self, modified_time)
+            self._notify(modified_time)
+
+    def mark_child_modified(self, child: "TimeSeriesOutput", modified_time: datetime):
+        self.mark_modified(modified_time)
 
     @property
     def valid(self) -> bool:
@@ -82,12 +86,12 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     def owning_graph(self) -> "Graph":
         return self.owning_node.graph
 
-    def subscribe_node(self, node: "Node"):
-        self._subscribers.subscribe_node(node)
+    def subscribe(self, subscriber: SUBSCRIBER):
+        self._subscribers.subscribe(subscriber)
 
-    def un_subscribe_node(self, node: "Node"):
-        self._subscribers.un_subscribe_node(node)
+    def unsubscribe(self, subscriber: SUBSCRIBER):
+        self._subscribers.unsubscribe(subscriber)
 
-    def _notify(self):
-        self._subscribers.notify()
+    def _notify(self, modified_time):
+        self._subscribers.notify(modified_time)
 

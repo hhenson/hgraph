@@ -40,6 +40,9 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
                     f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
         return out
 
+    def __len__(self) -> int:
+        return len(self._ts_values)
+
     def __getitem__(self, item: int) -> TIME_SERIES_TYPE:
         """
         Returns the time series at this index position

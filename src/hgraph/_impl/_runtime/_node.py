@@ -49,6 +49,7 @@ class BaseNodeImpl(Node, ABC):
         self._error_output: Optional["TimeSeriesOutput"] = None
         self._scheduler: Optional["NodeSchedulerImpl"] = None
         self._kwargs: dict[str, Any] | None = None
+        self._start_inputs: list["TimeSeriesInput"] = []
 
     @property
     def node_ndx(self) -> int:
@@ -114,6 +115,10 @@ class BaseNodeImpl(Node, ABC):
         return {k: self.input[k] for k in self.signature.time_series_inputs}
 
     @property
+    def start_inputs(self) -> list["TimeSeriesInput"]:
+        return self._start_inputs
+
+    @property
     def scheduler(self) -> "NodeScheduler":
         if self._scheduler is None:
             self._scheduler = NodeSchedulerImpl(self)
@@ -133,6 +138,8 @@ class BaseNodeImpl(Node, ABC):
 
     def _initialise_inputs(self):
         if self.input:
+            for i in self._start_inputs:
+                i.start()
             for k, ts in self.input.items():
                 ts: TimeSeriesInput
                 if self.signature.active_inputs is None or k in self.signature.active_inputs:
@@ -209,10 +216,13 @@ class BaseNodeImpl(Node, ABC):
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.
 
-    def notify(self):
+    def notify(self, modified_time: datetime = None):
         """Notify the graph that this node needs to be evaluated."""
         if self.is_started or self.is_starting:
-            self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
+            self.graph.schedule_node(self.node_ndx,
+                                     modified_time
+                                     if modified_time is not None
+                                     else self.graph.evaluation_clock.evaluation_time)
         else:
             self.scheduler.schedule(when=MIN_ST, tag="start")
 
@@ -520,7 +530,6 @@ class PythonLastValuePullNodeImpl(NodeImpl):
 
 
 class SkipEvalDelegate(NodeDelegate):
-
     def eval(self):
         """Don't evaluate"""
         ...

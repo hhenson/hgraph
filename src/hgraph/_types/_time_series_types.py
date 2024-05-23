@@ -159,12 +159,12 @@ class TimeSeriesOutput(TimeSeries):
         """
 
     @abstractmethod
-    def subscribe_node(self, node: "Node"):
+    def subscribe(self, node: "Node"):
         """Add this node to receive notifications when this output changes
         (this is called by make_active by the bound input)"""
 
     @abstractmethod
-    def un_subscribe_node(self, node: "Node"):
+    def unsubscribe(self, node: "Node"):
         """Remove this node from receiving notifications when this output changes
         (this is called by make_passive by the bound input)"""
 
