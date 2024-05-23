@@ -4,7 +4,7 @@ import operator
 from collections import defaultdict
 from typing import Callable, Union, Sequence, Mapping
 
-__all__ = ('lazy', 'calc', 'ParameterOp')
+__all__ = ('lazy', 'calc', 'ParameterOp', 'Expression')
 
 
 def is_op(obj):
@@ -467,7 +467,7 @@ class CallOp(Op):
             call_args.append(a)
 
         call_kwargs = {}
-        for k, v in self._kwargs:
+        for k, v in self._kwargs.items():
             v = v.__invoke__(*args, **kwargs) if isinstance(v, Op) else v
             if isinstance(v, FailedOp):
                 return v
@@ -578,6 +578,8 @@ class ParameterOp(Op):
             return kwargs[self._name]
         elif self._index is not None and len(args) > self._index:
             return args[self._index]
+        elif '__partial__' in kwargs:
+            return self
         else:
             return FailedOp(f"missing argument with {'name ' + self._name if self._name else ''}"
                             f"{' or ' if self._name and self._index is not None else ''}"
@@ -776,7 +778,7 @@ class Expression:
         return calc(self._op, *args, **kwargs)
 
     def __repr__(self):
-        return repr(self.op)
+        return repr(self._op)
 
     @property
     def __signature__(self):
@@ -800,3 +802,12 @@ class Expression:
 
         parametes.extend(kw_parameters)
         return inspect.Signature(parametes)
+
+    def __class_getitem__(cls, params):
+        from typing import _SpecialGenericAlias
+        args, result = params
+        if isinstance(args, list):
+            params = tuple(args) + (result,)
+        else:
+            params = args + (result,)
+        return _SpecialGenericAlias(cls, 2)[params]

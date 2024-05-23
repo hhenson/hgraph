@@ -8,25 +8,30 @@ __all__ = ('Tenor',)
 class Tenor:
     ymwd_b: tuple[int, int, int, int, int]
 
-    def __init__(self, tenor):
-        if type(tenor) is str:
-            if m := re.match(r"^(-)?(?:(?:(\d+)y)?(?:(\d+)m)?(?:(\d+)w)?(?:(\d+)d)?|(?:(\d+)b)?)$", tenor):
-                sign, y, m, w, d, b = m.groups()
-                s, y, m, w, d, b = not sign, int(y or 0), int(m or 0), int(w or 0), int(d or 0), int(b or 0)
-                if sign:
-                    y, m, w, d, b = -y, -m, -w, -d, -b
+    def __init__(self, tenor=None, /, *, y=0, m=0, w=0, d=0, b=0):
+        if tenor is not None:
+            assert not any((y, m, w, d, b)), 'cannot specify both a tenor and individual components'
 
-                self.ymwd_b = (y, m, w, d, b)
+            if type(tenor) is str:
+                if m := re.match(r"^(-)?(?:(?:(\d+)y)?(?:(\d+)m)?(?:(\d+)w)?(?:(\d+)d)?|(?:(\d+)b)?)$", tenor):
+                    sign, y, m, w, d, b = m.groups()
+                    s, y, m, w, d, b = not sign, int(y or 0), int(m or 0), int(w or 0), int(d or 0), int(b or 0)
+                    if sign:
+                        y, m, w, d, b = -y, -m, -w, -d, -b
+
+                    self.ymwd_b = (y, m, w, d, b)
+                else:
+                    raise ValueError(f'"{tenor}" is a invalid tenor string')
+            elif type(tenor) is Tenor:
+                self.ymwd_b = tenor.ymwd_b
+            elif type(tenor) is timedelta:
+                self.ymwd_b = (0, 0, 0, tenor.days, 0)
+            elif type(tenor) is tuple and len(tenor) == 5 and all(isinstance(i, int) for i in tenor):
+                self.ymwd_b = tenor
             else:
-                raise ValueError(f'"{tenor}" is a invalid tenor string')
-        elif type(tenor) is Tenor:
-            self.ymwd_b = (tenor.y, tenor.m, tenor.w, tenor.d, tenor.b)
-        elif type(tenor) is timedelta:
-            self.ymwd_b = (0, 0, 0, tenor.days, 0)
-        elif type(tenor) is tuple and len(tenor) == 5 and all(isinstance(i, int) for i in tenor):
-            self.ymwd_b = tenor
+                raise ValueError(f'"{tenor}" is a invalid tenor value')
         else:
-            raise ValueError(f'"{tenor}" is a invalid tenor value')
+            self.ymwd_b = (y, m, w, d, b)
 
     def __str__(self):
         s = sum(self.ymwd_b)

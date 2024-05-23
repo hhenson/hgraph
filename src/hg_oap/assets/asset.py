@@ -25,8 +25,9 @@ class PhysicalAsset(Asset):
     """
     name: str
     unit: Unit  # The basic unit used to measure the asset
-    unit_conversion_factors: tuple[Quantity[Decimal]]  # Properties of the asset that can be used to convert between
-                                                       # units of different dimensions - i.e. density for mass/volume
+    unit_conversion_factors: tuple[Quantity[Decimal]] = ()  # Properties of the asset that can be used to convert
+                                                            # between units of different dimensions - i.e. density
+                                                            # for mass/volume
 
 
 @dataclass(frozen=True)
