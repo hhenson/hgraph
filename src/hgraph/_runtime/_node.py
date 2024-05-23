@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, IntFlag, auto
-from typing import Optional, Mapping, TYPE_CHECKING, Any
+from typing import Optional, Mapping, TYPE_CHECKING, Any, Set
 
 from hgraph._runtime._lifecycle import ComponentLifeCycle
 
@@ -228,6 +228,13 @@ class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
+    def start_inputs(self) -> list["TimeSeriesInput"]:
+        """
+        The inputs scheduled for start callback
+        """
+
+    @property
+    @abstractmethod
     def output(self) -> Optional["TimeSeriesOutput"]:
         """
         The output of this node. This could be a TimeSeriesBundleOutput or a single output value.
@@ -261,7 +268,7 @@ class Node(ComponentLifeCycle, ABC):
         """Called by the graph evaluation engine when the node has been scheduled for evaluation."""
 
     @abstractmethod
-    def notify(self):
+    def notify(self, modified_time: datetime):
         """Notify the node that it is need of scheduling"""
 
     @abstractmethod
@@ -339,8 +346,8 @@ class NodeDelegate(Node):
     def eval(self):
         self._node.eval()
 
-    def notify(self):
-        self._node.notify()
+    def notify(self, modified_time):
+        self._node.notify(modified_time)
 
     def notify_next_cycle(self):
         self._node.notify_next_cycle()

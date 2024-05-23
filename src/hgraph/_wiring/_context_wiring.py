@@ -145,9 +145,9 @@ class ContextNodeClass(BaseWiringNodeClass):
                     output = None
 
                 if output:
-                    output.subscribe_node(self)
+                    output.subscribe(self)
                     if self.subscribed_output is not None and self.subscribed_output is not output:
-                        self.subscribed_output.un_subscribe_node(self)
+                        self.subscribed_output.unsubscribe(self)
                     self.subscribed_output = output
 
                 # NOTE: The output needs to be a reference value output so we can set the value and continue!
@@ -160,7 +160,7 @@ class ContextNodeClass(BaseWiringNodeClass):
 
             def do_stop(self):
                 if self.subscribed_output is not None:
-                    self.subscribed_output.un_subscribe_node(self)
+                    self.subscribed_output.unsubscribe(self)
 
         return PythonNodeImplNodeBuilder(
             signature=node_signature,

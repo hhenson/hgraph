@@ -1,9 +1,12 @@
 from dataclasses import dataclass
+from datetime import datetime
 from itertools import chain
 from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING, cast
 
 from frozendict import frozendict
 
+from hgraph._runtime._constants import MIN_DT
+from hgraph._types._tss_type import TimeSeriesSetInput
 from hgraph._impl._types._feature_extension import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
@@ -53,6 +56,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._ref_ts_feature: FeatureOutputExtension = FeatureOutputExtension(
             self, self._ts_ref_builder,
             lambda output, key: PythonTimeSeriesReference(output.get(key)))
+        self._ts_values_to_keys: dict[int, K] = {}
+        self._modified_items: list[Tuple[K, V]] = []
 
     def add_key_observer(self, observer: TSDKeyObserver):
         self._key_observers.append(observer)
@@ -91,11 +96,23 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def __delitem__(self, k):
         if k not in self._ts_values:
             raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
-        self._removed_items[k] = self._ts_values.pop(k)
+        item = self._ts_values.pop(k)
+        self._removed_items[k] = item
+        self._ts_values_to_keys.pop(id(item))
         self._ref_ts_feature.update(k)
         cast(TimeSeriesSetOutput, self.key_set).remove(k)
         for observer in self._key_observers:
             observer.on_key_removed(k)
+
+    def mark_child_modified(self, child: "TimeSeriesOutput", modified_time: datetime):
+        if self._last_modified_time < modified_time:
+            # _last_modified_time is set in mark_modified later
+            self._modified_items = []
+
+        if child is not self._key_set:
+            self._modified_items.append((self._ts_values_to_keys[id(child)], child))
+
+        super().mark_child_modified(child, modified_time)
 
     def get_ref(self, key: K, reference: Any) -> TimeSeriesReferenceOutput:
         return self._ref_ts_feature.create_or_increment(key, reference)
@@ -122,7 +139,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def _create(self, key: K):
         cast(TimeSeriesSetOutput, self.key_set).add(key)
-        self._ts_values[key] = self._ts_builder.make_instance(owning_output=self)
+        item = self._ts_builder.make_instance(owning_output=self)
+        self._ts_values[key] = item
+        self._ts_values_to_keys[id(item)] = key
         self._ref_ts_feature.update(key)
         for observer in self._key_observers:
             observer.on_key_added(key)
@@ -150,6 +169,15 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def added_items(self) -> Iterable[Tuple[K, V]]:
         return ((k, self[k]) for k in self._added_keys)
 
+    def modified_keys(self) -> Iterable[K]:
+        return (k for k, v in self._modified_items) if self.modified else ()
+
+    def modified_values(self) -> Iterable[V]:
+        return (v for k, v in self._modified_items) if self.modified else ()
+
+    def modified_items(self) -> Iterable[Tuple[K, V]]:
+        return self._modified_items if self.modified else ()
+
     def removed_keys(self) -> Iterable[K]:
         return self._removed_items.keys()
 
@@ -176,6 +204,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._ts_builder: TSInputBuilder = PythonTimeSeriesBuilderFactory.instance().make_input_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
         self._has_peer: bool = False
+        self._ts_values_to_keys: dict[int, K] = {}
+        self._last_notified_time = MIN_DT
+        self._modified_items = []
 
     @property
     def has_peer(self) -> bool:
@@ -235,16 +266,27 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             super().do_un_bind_output()
 
     def _create(self, key: K):
-        self._ts_values[key] = self._ts_builder.make_instance(owning_input=self)
+        item = self._ts_builder.make_instance(owning_input=self)
+        item.set_subscribe_method(subscribe_input=not self.has_peer)
+        self._ts_values[key] = item
+        self._ts_values_to_keys[id(item)] = key
+
+    def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
+        if self._last_notified_time < modified_time:
+            self._last_notified_time = modified_time
+            self._modified_items = []
+
+        self._modified_items.append((self._ts_values_to_keys[id(child)], child))
+        super().notify_parent(self, modified_time)
 
     def _reset_prev(self):
         self._prev_output = None
 
     def on_key_added(self, key: K):
         v = self.get_or_create(key)
-        v.bind_output(self.output[key])
         if not self.has_peer and self.active:
             v.make_active()
+        v.bind_output(self.output[key])
 
     def on_key_removed(self, key: K):
         if not self._removed_items:
@@ -265,6 +307,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def modified(self) -> bool:
         if self.has_peer:
             return super().modified
+        elif self.active:
+            et = self.owning_graph.evaluation_clock.evaluation_time
+            return self._last_notified_time == et or self.key_set.modified or self._sample_time == et
         else:
             return self.key_set.modified or any(v.modified for v in self._ts_values.values())
 
@@ -275,7 +320,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     @property
     def delta_value(self):
         return frozendict(chain(
-            ((k, v.delta_value) for k, v in self.items() if v.modified),
+            ((k, v.delta_value) for k, v in self.modified_items()),
             ((k, REMOVE) for k in self.removed_keys())))
 
     def __contains__(self, item):
@@ -291,13 +336,43 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         return ((k, self[k]) for k in self.added_keys())
 
     def modified_keys(self) -> Iterable[K]:
-        return (k for k, v in self.items() if v.modified)
+        if self._sampled:
+            return (k for k, v in self.items() if v.valid)
+        elif self.has_peer:
+            return self._output.modified_keys()
+        elif self.active:
+            if self._last_notified_time == self.owning_graph.evaluation_clock.evaluation_time:
+                return (k for k, v in self._modified_items)
+            else:
+                return ()
+        else:
+            return (k for k, v in self.items() if v.modified)
 
     def modified_values(self) -> Iterable[V]:
-        return (v for k, v in self.items() if v.modified)
+        if self._sampled:
+            return (v for k, v in self.items() if v.valid)
+        elif self.has_peer:
+            return self._output.modified_values()
+        elif self.active:
+            if self._last_notified_time == self.owning_graph.evaluation_clock.evaluation_time:
+                return (v for k, v in self._modified_items)
+            else:
+                return ()
+        else:
+            return (v for k, v in self.items() if v.modified)
 
     def modified_items(self) -> Iterable[Tuple[K, V]]:
-        return ((k, v) for k, v in self.items() if v.modified)
+        if self._sampled:
+            return (i for i in self.items() if i[1].valid)
+        elif self.has_peer:
+            return ((k, self._ts_values[k]) for k in self._output.modified_keys())
+        elif self.active:
+            if self._last_notified_time == self.owning_graph.evaluation_clock.evaluation_time:
+                return self._modified_items
+            else:
+                return ()
+        else:
+            return ((k, v) for k, v in self.items() if v.modified)
 
     def removed_keys(self) -> Iterable[K]:
         return self.key_set.removed()

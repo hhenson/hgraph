@@ -28,3 +28,5 @@ from hgraph.nodes._tss_operators import *
 from hgraph.nodes._tuple_operators import *
 from hgraph.nodes._window_operators import *
 from hgraph.nodes._str_operators import *
+from hgraph.nodes._time_series_properties import *
+from hgraph.nodes._enum_operators import *

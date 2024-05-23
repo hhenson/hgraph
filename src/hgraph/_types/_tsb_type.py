@@ -83,7 +83,11 @@ class TimeSeriesSchema(AbstractSchema):
         tsc_schema = types.new_class(f"{schema.__name__}Bundle",
                                      tuple(bases),
                                      None,
-                                     lambda ns: ns.update({"__annotations__": annotations, "__module__": schema.__module__}))
+                                     lambda ns: ns.update({
+                                         "__annotations__": annotations,
+                                         "__module__": schema.__module__,
+                                         "__build_meta_data__": getattr(schema, "__build_meta_data__", True)
+                                     }))
 
         tsc_schema.__scalar_type__ = schema
         schema.__bundle_type__ = tsc_schema
@@ -182,11 +186,8 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
                         f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
 
             out = super(TimeSeriesBundle, cls).__class_getitem__(item)
-            if hasattr(out, "from_ts"):
-                fn = out.from_ts
-                code = fn.__code__
-                out.from_ts = functools.partial(fn, __schema__=item)
-                out.from_ts.__code__ = code
+            from_ts_with_schema = functools.partial(TimeSeriesBundleInput.from_ts, __schema__=item)
+            object.__setattr__(out, "from_ts", from_ts_with_schema)
         else:
             out = super(TimeSeriesBundle, cls).__class_getitem__(item)
 
@@ -259,7 +260,8 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             from hgraph._wiring._wiring_errors import InvalidArgumentsProvided
             raise InvalidArgumentsProvided(tuple(k for k in kwargs.keys() if k not in meta_data_schema))
 
-        for k, v in kwargs.items():
+        for k, t in meta_data_schema.items():
+            v = kwargs.get(k)
             # If v is a wiring port then we perform a validation of the output type to the expected input type.
             if isinstance(v, WiringPort):
                 if not meta_data_schema[k].matches(cast(WiringPort, v).output_type.dereference()):
@@ -274,6 +276,9 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             elif meta_data_schema[k].scalar_type().matches(HgTypeMetaData.parse_value(v)):
                 from hgraph.nodes import const
                 kwargs[k] = const(v, tp=meta_data_schema[k].py_type)
+            elif v is None:
+                from hgraph.nodes import nothing
+                kwargs[k] = nothing(tp=meta_data_schema[k].py_type)
             else:
                 from hgraph import IncorrectTypeBinding
                 from hgraph import WiringContext
@@ -294,9 +299,9 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         requirement.
         """
         schema: TS_SCHEMA = kwargs.pop("__schema__")
-        from hgraph.nodes._const import nothing
-        kwargs = kwargs | {k: nothing(v.py_type) for k, v in schema.__meta_data_schema__.items() if k not in kwargs}
         fn_details = TimeSeriesBundleInput.from_ts.__code__
+        kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
+
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSBTypeMetaData, \
             HgTimeSeriesSchemaTypeMetaData
         wiring_node_signature = WiringNodeSignature(
@@ -314,7 +319,6 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             unresolved_args=frozenset(),
             time_series_args=frozenset(kwargs.keys()),
         )
-        kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSBWiringPort, WiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)

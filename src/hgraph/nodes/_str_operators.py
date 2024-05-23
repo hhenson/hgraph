@@ -1,8 +1,16 @@
 from typing import Tuple, Type
 
-from hgraph import compute_node, TS, TimeSeriesSchema, TSB, SCALAR, AUTO_RESOLVE
+from hgraph import compute_node, TS, TimeSeriesSchema, TSB, SCALAR, AUTO_RESOLVE, add_
 
-__all__ = ('match', 'parse')
+__all__ = ('match', 'parse', 'add_str')
+
+
+@compute_node(overloads=add_)
+def add_str(lhs: TS[str], rhs: TS[str]) -> TS[str]:
+    """
+    Concatenates two strings.
+    """
+    return lhs.value + rhs.value
 
 
 class Match(TimeSeriesSchema):
