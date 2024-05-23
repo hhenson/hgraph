@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from typing import Generic, TypeVar, Type
 
+import pytest
 from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, AUTO_RESOLVE, \
     subscription_service, request_reply_service, service_impl, CONTEXT, register_service
 from hgraph.nodes import merge, filter_, route_ref, tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, cs_from_ts, \
@@ -14,7 +14,7 @@ from hg_oap.assets.currency import Currencies
 from hg_oap.dates.calendar import WeekendCalendar
 from hg_oap.dates.dgen import roll_bwd, years
 from hg_oap.instruments.future import Settlement, SettlementMethod, FutureContractSpec, FutureContractSeries, \
-    CONTRACT_BASE_DATE, Future
+    CONTRACT_BASE_DATE, Future, month_code
 from hg_oap.instruments.fx import FXSpot
 from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
 from hg_oap.instruments.physical import PhysicalCommodity
@@ -215,22 +215,22 @@ def test_example():
         register_service("price_service", price_service)
         register_service("instrument_service", instrument_service)
 
-        corn = Agricultural(symbol='C', name="corn", unit=U.bushel, unit_conversion_factors=(Quantity(Decimal('0.75'), U.kg / U.l),))
+        corn = Agricultural(symbol='C', name="corn", unit=U.bushel, unit_conversion_factors=(Quantity(0.75, U.kg / U.l),))
         corn_future_months = FutureContractSeries(
             spec=FutureContractSpec(
-                exchange='CME',
+                exchange_mic='CME',
                 symbol='ZC',
                 underlying=PhysicalCommodity(symbol='Corn',asset=corn),
-                contract_size=Quantity(Decimal('5000'), U.bushel),
+                contract_size=Quantity(5000., U.bushel),
                 currency=Currencies.USD.value,
                 trading_calendar=WeekendCalendar(),
                 settlement=Settlement(SettlementMethod.Deliverable),
                 quotation_currency_unit=U.USX,
                 quotation_unit=U.bushel,
-                tick_size=Quantity(Decimal('0.25'), U.USX),
+                tick_size=Quantity(0.25, U.USX),
             ),
-            name='Corn Future',
-            symbol='ZC',
+            name='M',
+            symbol_expr=lambda future: f"{future.series.spec.symbol}{month_code(future.contract_base_date)}{future.contract_base_date.year % 10}",
             frequency=years.mar | years.may | years.jul | years.sep | years.dec,
             expiry=roll_bwd(CONTRACT_BASE_DATE + '15d').over(SELF.spec.trading_calendar),
             first_trading_date=CONTRACT_BASE_DATE - '3y' < years.dec.days[15],  # dec 15th 3 years before the expiry date (actual CME rules are more complex)

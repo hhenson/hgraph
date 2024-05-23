@@ -3,7 +3,6 @@ import operator
 from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
-from decimal import Decimal
 from functools import reduce
 from typing import Tuple, ForwardRef, TypeVar, ClassVar
 
@@ -12,7 +11,7 @@ from hg_oap.utils.exprclass import ExprClass
 from hg_oap.units.unit_system import UnitSystem
 from hgraph import CompoundScalar
 
-NUMBER = TypeVar('NUMBER', int, float, Decimal)
+NUMBER = TypeVar('NUMBER', int, float)
 
 __all__ = ("Unit", "PrimaryUnit", "DerivedUnit", "OffsetDerivedUnit", "DiffDerivedUnit", "ComplexUnit", "UNIT")
 
@@ -32,14 +31,14 @@ class Unit(CompoundScalar, ExprClass):
         return id(self)  # units are singletons within a UnitSystem by construction so this is safe
 
     def __rmul__(self, value):
-        if isinstance(value, (int, float, Decimal)):
+        if isinstance(value, (int, float)):
             from hg_oap.units.quantity import Quantity
             return Quantity(value, self)
 
         return NotImplemented
 
     def __rtruediv__(self, value):
-        if isinstance(value, (int, float, Decimal)):
+        if isinstance(value, (int, float)):
             from hg_oap.units.quantity import Quantity
             return Quantity(value, self**-1)
 
@@ -90,7 +89,7 @@ UNIT = TypeVar("UNIT", bound=Unit)
 
 @dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class PrimaryUnit(Unit):
-    ratio: Decimal = Decimal(1)
+    ratio: float = 1.0
 
     def __new__(cls, name=None, dimension: Dimension = None, prefixes=None):
         if d := UnitSystem.instance().__primary_units__.get(dimension):
@@ -144,11 +143,11 @@ class PrimaryUnit(Unit):
 @dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class DerivedUnit(Unit):
     primary_unit: Unit
-    ratio: Decimal
+    ratio: float
     dimension: Dimension = lambda s: s.primary_unit.dimension
     name: str = lambda s: f"{s.ratio}*{s.primary_unit.name}"
 
-    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), name=None, prefixes=None):
+    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: float = 1.0, name=None, prefixes=None):
         from .quantity import Quantity
         if type(primary_unit) is Quantity:
             ratio = primary_unit.qty
@@ -204,12 +203,12 @@ class DerivedUnit(Unit):
 
 @dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class OffsetDerivedUnit(DerivedUnit):
-    offset: Decimal
+    offset: float
     diff: Unit = field(default=lambda s: DiffDerivedUnit(offset_unit=s), hash=False)
 
     _is_multiplicative: ClassVar[bool] = False
 
-    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: Decimal = Decimal(1), offset: Decimal = Decimal(0), name=None, prefixes=None):
+    def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: float = 1.0, offset: float = 0.0, name=None, prefixes=None):
         if type(primary_unit) is DerivedUnit:
             primary_unit = primary_unit.primary_unit
             ratio *= primary_unit.ratio
@@ -259,7 +258,7 @@ class OffsetDerivedUnit(DerivedUnit):
 class DiffDerivedUnit(DerivedUnit):
     offset_unit: Unit = None
     primary_unit: Unit = lambda s: s.offset_unit.primary_unit
-    ratio: Decimal = lambda s: s.offset_unit.ratio
+    ratio: float = lambda s: s.offset_unit.ratio
     name: str = lambda s: f"{s.offset_unit.name}_diff"
 
     _is_multiplicative: ClassVar[bool] = True
@@ -296,9 +295,9 @@ class DiffDerivedUnit(DerivedUnit):
 @dataclass(frozen=True, kw_only=True, init=False)
 class ComplexUnit(Unit):
     components: Tuple[Tuple[Unit, int], ...]
-    scale: Decimal = Decimal(1)
+    scale: float = 1.0
     dimension: Dimension = lambda s: reduce(operator.mul, (u.dimension**m for u, m in s.components))
-    ratio: Decimal = lambda s: reduce(operator.mul, (pow(u.ratio, m) for u, m in s.components)) * s.scale
+    ratio: float = lambda s: reduce(operator.mul, (pow(u.ratio, m) for u, m in s.components)) * s.scale
     name: str = lambda s: s._build_name()
 
     def __new__(cls, components, name=None, prefixes=None):
@@ -337,7 +336,7 @@ class ComplexUnit(Unit):
         return scale + up + dn
 
     def _to_components(self, power=1):
-        if type(self).name.__overriden__(self) or self.scale != Decimal(1):
+        if type(self).name.__overriden__(self) or self.scale != 1.0:
             return super()._to_components(power)
         else:
             return self.components if power == 1 else tuple((u, p * power) for u, p in self.components)
