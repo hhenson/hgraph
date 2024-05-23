@@ -454,7 +454,7 @@ class CallOp(Op):
         args = ', '.join(
             itertools.chain(
                 (repr(a) for a in self._args),
-                (f'{k}={v}' for k, v in self._kwargs)))
+                (f'{k}={v}' for k, v in self._kwargs.items())))
 
         return f"{repr_inner(self, self._fn)}({args})"
 

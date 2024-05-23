@@ -25,6 +25,8 @@ U.acre = DerivedUnit(primary_unit=U.m**2, ratio=4046.8564224)
 U.volume = U.length**3
 U.l = DerivedUnit(primary_unit=U.m**3, ratio=0.001)
 U.bushel = DerivedUnit(primary_unit=U.m**3, ratio=0.03523907)
+U.gallon = DerivedUnit(primary_unit=U.l, ratio=3.785411784)
+U.bbl = DerivedUnit(primary_unit=U.gallon, ratio=42.0)
 
 U.weight = PrimaryDimension()
 U.kg = PrimaryUnit(dimension=U.weight)
@@ -56,6 +58,7 @@ U.degF = OffsetDerivedUnit(primary_unit=U.K, ratio=5.0/9.0, offset=459.67)
 U.energy = U.weight * U.length**2 / U.time**2
 U.J = PrimaryUnit(dimension=U.energy)
 U.cal = DerivedUnit(primary_unit=U.J, ratio=4.184)
+U.MMBtu = DerivedUnit(primary_unit=U.J, ratio=1055.05585262)
 
 U.power = U.energy / U.time
 U.W = PrimaryUnit(dimension=U.power, prefixes=('k', 'M', 'G', 'T', 'm'))
@@ -63,8 +66,8 @@ U.W = PrimaryUnit(dimension=U.power, prefixes=('k', 'M', 'G', 'T', 'm'))
 U.Wh = U.W * U.h
 U.add_prefixes(U.Wh, ('k', 'M', 'G', 'T'))
 
-U.dimentionless = Dimensionless()
-U.turn = PrimaryUnit(dimension=U.dimentionless)
+U.dimensionless = Dimensionless()
+U.turn = PrimaryUnit(dimension=U.dimensionless)
 U.rad = DerivedUnit(primary_unit=U.turn, ratio=2.0*math.pi)
 U.deg = DerivedUnit(primary_unit=U.rad, ratio=1.0/360.0)
 

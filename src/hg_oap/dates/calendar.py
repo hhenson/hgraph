@@ -102,7 +102,7 @@ class WeekendCalendar(Calendar):
 
 class HolidayCalendar(WeekendCalendar):
     _holidays: Tuple[date, ...]
-    _holidays_set = Set[date]
+    _holidays_set: Set[date]
 
     def __init__(self, holidays: Tuple[date, ...], weekend_days: Tuple[int, ...] = (5, 6)):
         super().__init__(weekend_days)
@@ -140,4 +140,3 @@ class HolidayCalendar(WeekendCalendar):
             else:
                 days = i - j
                 i = j
-
