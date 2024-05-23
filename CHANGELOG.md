@@ -444,3 +444,9 @@ Version 0.2.32 (21-05-2024)
 * Clean up location of ts operators to _ts_operators.py
 * Expose ddof param in numpy std function
 * Support partial parameter sets in TSB.from_ts defaulting missing values as nothing() nodes.
+
+Version 0.2.33 (23-05-2024)
+---------------------------
+
+* Updates to improve TSD behaviour at scale.
+* Many bug fixes.
