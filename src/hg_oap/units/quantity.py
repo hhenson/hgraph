@@ -3,9 +3,12 @@ from numbers import Number
 from typing import Generic
 
 from hg_oap.units.unit import Unit, NUMBER
-from hgraph import CompoundScalar
+from hgraph import CompoundScalar, compute_node, div_, TS
 
 __all__ = ("Quantity",)
+
+
+EPSILON = 1e-9
 
 
 @dataclass(frozen=True)
@@ -21,7 +24,8 @@ class Quantity(CompoundScalar, Generic[NUMBER]):
 
     def __eq__(self, other):
         if isinstance(other, Quantity):
-            return self.qty == other.unit.convert(other.qty, to=self.unit)
+            other_qty = other.unit.convert(other.qty, to=self.unit)
+            return other_qty - EPSILON <= self.qty <= other_qty + EPSILON
 
         return NotImplemented
 
@@ -110,3 +114,7 @@ class Quantity(CompoundScalar, Generic[NUMBER]):
     def as_(self, unit):
         return Quantity[type(self.qty)](self.unit.convert(self.qty, to=unit), unit)
 
+
+@compute_node(overloads=div_)
+def div_qty(lhs: TS[Quantity], rhs: TS[Quantity]) -> TS[Quantity]:
+    return lhs.value / rhs.value

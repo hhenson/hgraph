@@ -1,6 +1,5 @@
 import operator
 from dataclasses import dataclass, field
-from decimal import Decimal
 from functools import reduce
 from itertools import chain, combinations
 from typing import ClassVar, Tuple, Iterable, Callable
@@ -19,11 +18,11 @@ class UnitSystem:
     __derived_dimensions__: dict[tuple[tuple["Dimension", int], ...], "Dimension"] = field(default_factory=dict)
 
     __primary_units__: dict[str, "Unit"] = field(default_factory=dict)
-    __derived_units__: dict[Tuple["Unit", Decimal], "Unit"] = field(default_factory=dict)
+    __derived_units__: dict[Tuple["Unit", float], "Unit"] = field(default_factory=dict)
     __complex_units__: dict[tuple[tuple["Unit", int], ...], "Unit"] = field(default_factory=dict)
 
     __contexts__: list["UnitConversionContext"] = field(default_factory=list)
-    __prefixes__: dict[str, Decimal] = field(default_factory=dict)
+    __prefixes__: dict[str, float] = field(default_factory=dict)
 
     @staticmethod
     def instance():
@@ -91,7 +90,7 @@ class UnitSystem:
         assert self.__contexts__[-1] == context
         self.__contexts__.pop()
 
-    def conversion_factor(self, dimension: "Dimension") -> "Quantity[Decimal]":
+    def conversion_factor(self, dimension: "Dimension") -> "Quantity[float]":
         for context in reversed(self.__contexts__):
             if factor := context.conversion_factor(dimension):
                 return factor
@@ -100,7 +99,7 @@ class UnitSystem:
 
 
 class UnitConversionContext:
-    def __init__(self, conversion_factors: tuple["Quantity[Decimal]"] = ()):
+    def __init__(self, conversion_factors: tuple["Quantity[float]"] = ()):
         self.unit_conversion_factors = conversion_factors
 
     def __enter__(self):
@@ -109,7 +108,7 @@ class UnitConversionContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         UnitSystem.instance().exit_context(self)
 
-    def conversion_factor(self, dimension: "Dimension") -> "Quantity[Decimal]":
+    def conversion_factor(self, dimension: float) -> "Quantity[float]":
         if (ucf := getattr(self, "_unit_conversion_factors_lookup", None)) is None:
             ucf = UnitConversionContext.make_conversion_factors(self.unit_conversion_factors)
             object.__setattr__(self, '_unit_conversion_factors_lookup', ucf)
@@ -117,10 +116,10 @@ class UnitConversionContext:
         return ucf.get(dimension, None)
 
     @staticmethod
-    def make_conversion_factors(factors: Iterable["Quantity[Decimal]"]):
+    def make_conversion_factors(factors: Iterable["Quantity[float]"]):
         combination_factors = [[reduce(operator.mul, j)
                                 for j in combinations(factors, i)] for i in range(2, len(factors) + 1)]
 
-        all_factors = chain(*((f, Decimal(1)/f) for f in chain(factors, chain.from_iterable(combination_factors))))
+        all_factors = chain(*((f, 1.0/f) for f in chain(factors, chain.from_iterable(combination_factors))))
 
         return {q.unit.dimension: q for q in all_factors}

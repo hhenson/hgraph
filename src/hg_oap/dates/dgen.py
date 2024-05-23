@@ -450,10 +450,17 @@ class DayOfWeekDGen(DGen):
 
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
-        d = after + timedelta(days=(self.weekday - after.weekday()) % 7)
-        while d < before:
-            yield d
-            d += timedelta(days=7)
+        if self.gen is None:
+            d = after + timedelta(days=(self.weekday - after.weekday()) % 7)
+            while d < before:
+                yield d
+                d += timedelta(days=7)
+        else:
+            after -= timedelta(days=6)
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+                d_ = d + timedelta(days=(self.weekday - d.weekday()) % 7)
+                if d_ < before:
+                    yield d_
 
     def __repr__(self):
         weekday_name = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')[self.weekday]
@@ -470,6 +477,9 @@ class AddTenorDGen(DGen):
 
     def cadence(self):
         return self.gen.cadence()
+
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
 
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
@@ -488,6 +498,9 @@ class SubTenorDGen(DGen):
 
     def cadence(self):
         return self.gen.cadence()
+
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
 
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
@@ -701,7 +714,16 @@ class SubSequenceDGen(DGen):
             return lazy(self)[item]
 
     def __repr__(self):
-        return f'{self.main_sequence}.{self.sub_sequence}'
+        if self.slice is None:
+            sl_str = ""
+        else:
+            if self.slice.start == self.slice.stop - 1:
+                sl_str = f"[{self.slice.start}]"
+            elif self.slice.step is None:
+                sl_str = f"[{self.slice.start}:{self.slice.stop}]"
+            else:
+                sl_str = f"[{self.slice.start}:{self.slice.stop}:{self.slice.step}]"
+        return f'{self.main_sequence}.{self.sub_sequence}{sl_str}'
 
 
 class DaysOfMonthDGen(DGen):

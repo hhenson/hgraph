@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "hg_oap"
 dynamic = ["version"]
 dependencies = [
-    "hgraph>=0.2.17",
+    "hgraph>=0.2.27",
     "holidays>=0.46",
 ]
 requires-python = ">=3.11"

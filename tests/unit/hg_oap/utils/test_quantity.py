@@ -1,5 +1,4 @@
 import math
-from decimal import Decimal
 
 from hg_oap.units.dimension import PrimaryDimension, Dimensionless
 from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit

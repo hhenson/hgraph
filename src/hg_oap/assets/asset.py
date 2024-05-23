@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from decimal import Decimal
 
 from hg_oap.units import Quantity
 from hg_oap.units.unit import Unit
@@ -12,7 +11,7 @@ from hgraph import CompoundScalar
 class Asset(CompoundScalar, ExprClass, UnitConversionContext):
     """
     A thing of value that can be held. An asset can be an underlyer of an instrument.
-    Whilst technically an asset is not an instrument, but for our purposes, it is convenient to thing of them
+    Whilst technically an asset is not an instrument, but for our purposes, it is convenient to think of them
     as instruments.
     """
     symbol: str
@@ -25,7 +24,7 @@ class PhysicalAsset(Asset):
     """
     name: str
     unit: Unit  # The basic unit used to measure the asset
-    unit_conversion_factors: tuple[Quantity[Decimal]] = ()  # Properties of the asset that can be used to convert
+    unit_conversion_factors: tuple[Quantity[float]] = ()  # Properties of the asset that can be used to convert
                                                             # between units of different dimensions - i.e. density
                                                             # for mass/volume
 

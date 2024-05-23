@@ -14,3 +14,9 @@ Version 0.1.1 (29-04-2024)
 * Clean up imports and extend order types.
 * Expand Order API
 * Many adjustments to Units
+
+Version 0.1.2 (15-05-2024)
+--------------------------
+
+* Unit framework
+* Some example of modeling.

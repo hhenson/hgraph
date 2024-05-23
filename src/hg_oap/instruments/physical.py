@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from decimal import Decimal
 from enum import Enum
 
 from hg_oap.assets.commodities import Commodity
@@ -11,7 +10,7 @@ from hg_oap.units import Quantity
 class PhysicalCommodity(Instrument):
     asset: Commodity
 
-    unit_conversion_factors: tuple[Quantity[Decimal]] = lambda self: self.asset.unit_conversion_factors
+    unit_conversion_factors: tuple[Quantity[float]] = lambda self: self.asset.unit_conversion_factors
 
 
 class PhysicalCommodities(Enum):
