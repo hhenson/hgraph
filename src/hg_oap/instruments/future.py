@@ -80,7 +80,6 @@ def month_code(d: int | date) -> str:
     return ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'][m]
 
 
-
 @dataclass(frozen=True, kw_only=True)
 class Future(Instrument):
     SELF: "Future" = SELF
