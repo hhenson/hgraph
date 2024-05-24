@@ -478,6 +478,9 @@ class AddTenorDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
+
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
         start = start if start is not date.min else after
@@ -495,6 +498,9 @@ class SubTenorDGen(DGen):
 
     def cadence(self):
         return self.gen.cadence()
+
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
 
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):

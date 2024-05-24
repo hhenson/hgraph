@@ -1,20 +1,19 @@
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Type, Callable
-
-from hg_oap.utils.op import Op, lazy
-from hgraph import CompoundScalar
+from typing import Type
 
 from hg_oap.assets.currency import Currency
 from hg_oap.dates.calendar import Calendar
-from hg_oap.dates.dgen import DGen, DGenParameter, make_dgen
-from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
+from hg_oap.dates.dgen import DGen, make_dgen
+from hg_oap.instruments.instrument import Instrument
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit
 from hg_oap.units.unit_system import UnitConversionContext
 from hg_oap.utils import ExprClass, Expression, SELF, ParameterOp
+from hg_oap.utils.op import lazy
+from hgraph import CompoundScalar
 
 
 class SettlementMethod(Enum):
@@ -41,7 +40,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     contract_size: Quantity[float]
     currency: Currency
 
-    trading_calendar: Calendar
+    trading_calendar: Calendar  # TODO - we also need settlement calendar and reset calendar?  To get the expiry dates
     settlement: Settlement
 
     quotation_currency_unit: Unit
