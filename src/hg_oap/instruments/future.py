@@ -95,6 +95,10 @@ class Future(Instrument):
     name: str = lambda self: self.series.name + self.contract_base_date.strftime("%b %y")
     symbol: str = SELF.series.symbol_expr(SELF)
 
+    currency_unit: Unit = SELF.series.spec.quotation_currency_unit
+    unit: Unit = SELF.series.spec.quotation_unit
+    tick_size: Quantity[float] = SELF.series.spec.tick_size
+
     expiry: date = SELF.series.expiry(CONTRACT_BASE_DATE=SELF.contract_base_date)
     first_trading_date: date = SELF.series.first_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
     last_trading_date: date = SELF.series.last_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)

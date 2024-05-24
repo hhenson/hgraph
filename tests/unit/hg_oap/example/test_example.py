@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from datetime import date
-from typing import Generic, TypeVar, Type
+from typing import Generic, TypeVar
 
-import pytest
-from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, AUTO_RESOLVE, \
-    subscription_service, request_reply_service, service_impl, CONTEXT, register_service
-from hgraph.nodes import merge, filter_, route_ref, tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, cs_from_ts, \
+from hg_oap.quanity.conversion import convert
+from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, \
+    subscription_service, request_reply_service, service_impl, register_service
+from hgraph.nodes import merge, tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, cs_from_ts, \
     sample
 from hgraph.test import eval_node
 
@@ -47,49 +47,6 @@ def instrument_service(path: str = 'instrument_service'):
         path,
         map_(lambda x: x, __keys__=get_instrument.wire_impl_inputs_stub(path).instrument, x=instrument_by_symbol),
     )
-
-
-####################
-
-
-@graph
-def convert(qty: TS[NUMBER], fr: TS[Unit], to: TS[Unit], tp: Type[NUMBER] = AUTO_RESOLVE) -> TS[NUMBER]:
-    """
-    Cater for the three usa cases of conversion:
-        - Same unit, no conversion required
-        - Direct conversion ratio available - both units are multiplicative
-        - One of both units are offset
-    """
-
-    pass_through, to_convert = route_ref(fr == to, qty)
-    calc_ratio = has_conversion_ratio(fr, to)
-    ratio_convert, offset_convert = route_ref(calc_ratio, to_convert)
-    ratio = conversion_ratio[NUMBER:tp](filter_(calc_ratio, fr), filter_(calc_ratio, to))
-    ratio_converted = ratio_convert * ratio
-    offset_converted = convert_units(offset_convert, fr, to)
-    return merge(TSL.from_ts(pass_through, ratio_converted, offset_converted))
-
-
-@graph(overloads=convert)
-def convert_qty(qty: TSB[Quantity[NUMBER]], to: TS[Unit]) -> TSB[Quantity[NUMBER]]:
-    return {"qty": convert(qty.qty, qty.unit, to), "unit": to}
-
-
-@compute_node
-def has_conversion_ratio(fr: TS[Unit], to: TS[Unit]) -> TS[bool]:
-    return fr.value._is_multiplicative and to.value._is_multiplicative
-
-
-@compute_node
-def conversion_ratio(fr: TS[Unit], to: TS[Unit], tp: Type[NUMBER] = AUTO_RESOLVE, context: CONTEXT[UnitConversionContext] = None) -> TS[NUMBER]:
-    if fr.value._is_multiplicative and to.value._is_multiplicative:
-        if context.bound is False or context.valid:
-            return fr.value.convert(tp(1.), to=to.value)
-
-
-@compute_node
-def convert_units(qty: TS[NUMBER], fr: TS[Unit], to: TS[Unit], context: CONTEXT[UnitConversionContext] = None) -> TS[NUMBER]:
-    return fr.value.convert(qty.value, to=to.value)
 
 
 ####################

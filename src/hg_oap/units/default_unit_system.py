@@ -43,8 +43,12 @@ U.add_prefixes(U.s, ('m', 'u', 'n'))
 
 U.min = 60.0 * U.s
 U.h = 60.0 * U.min
+U.hour = U.h
 U.day = 24.0 * U.h
 U.week = 7.0 * U.day
+
+U.calendar_months = U.time.calendar_months
+U.month = PrimaryUnit(dimension=U.calendar_months)
 
 U.velocity = U.length / U.time
 U.kph = U.km / U.h
@@ -58,7 +62,10 @@ U.degF = OffsetDerivedUnit(primary_unit=U.K, ratio=5.0/9.0, offset=459.67)
 U.energy = U.weight * U.length**2 / U.time**2
 U.J = PrimaryUnit(dimension=U.energy)
 U.cal = DerivedUnit(primary_unit=U.J, ratio=4.184)
-U.MMBtu = DerivedUnit(primary_unit=U.J, ratio=1055.05585262)
+
+U.Btu = DerivedUnit(primary_unit=U.J, ratio=1055.05585262)
+U.MMBtu = DerivedUnit(primary_unit=U.Btu, ratio=1e6)
+U.therm = DerivedUnit(primary_unit=U.Btu, ratio=100_000)
 
 U.power = U.energy / U.time
 U.W = PrimaryUnit(dimension=U.power, prefixes=('k', 'M', 'G', 'T', 'm'))

@@ -263,7 +263,7 @@ class GetattrOp(Op):
         try:
             obj = getattr(obj, self._attr)
         except AttributeError as e:
-            return FailedOp(f"{obj} does not have an attribute named {self._attr}", cause=e)
+            return FailedOp(f"{obj} does not have an attribute named {self._attr}", _cause=e)
 
         return obj
 
