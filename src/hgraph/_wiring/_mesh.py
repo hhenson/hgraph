@@ -19,7 +19,7 @@ from hgraph._wiring._wiring_node_class import extract_kwargs, WiringNodeClass
 from hgraph._wiring._wiring_node_class._mesh_wiring_node import MeshWiringNodeClass, MeshWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
-from hgraph._wiring._wiring_port import WiringPort, DelayedBindingWiringPort
+from hgraph._wiring._wiring_port import WiringPort, DelayedBindingWiringPort, TSDREFWiringPort
 from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 
 
@@ -177,7 +177,7 @@ def _create_mesh_wiring_node(
 
 
 @dataclass(frozen=True)
-class MeshWiringPort(WiringPort):
+class MeshWiringPort(TSDREFWiringPort):
     """
     A wiring port that represents a lattice wiring node
     """
