@@ -22,6 +22,48 @@ SINK_NODE_SIGNATURE = TypeVar("SINK_NODE_SIGNATURE", bound=Callable)
 GRAPH_SIGNATURE = TypeVar("GRAPH_SIGNATURE", bound=Callable)
 
 
+def operator(fn: GRAPH_SIGNATURE, deprecated: bool | str = False) -> GRAPH_SIGNATURE:
+    """
+    Used to define a name and partial signature of a graph operator. A graph operator is a function that
+    operates on more or more time-series values, typically producing a time-series value.
+
+    An operator cannot have an implementation and requires an override by a relevant graph node instance.
+
+    For example:
+    ::
+
+        @operator
+        def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+            ...
+
+        @compute_node(overloads=add_)
+        def add_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
+            ...
+
+    In this case, we define a generic `add_` operator; this is then overloaded to implement the operator over
+    two TS values.
+
+    Note that with an operator, the exact signature is not enforced and is provided to better support type
+    hinting, but as with C++ templates, the implementation can overwrite the exact signature as required.
+
+    Thus, it is possible to perform the following override:
+    ::
+        @compute_node(overloads=add_)
+        def add_ts_date(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
+            ...
+
+    The overload mechanism attempts to match the provided inputs to the implementation that is the closest fit.
+
+    All overloads need to be imported to work, thus when overloading an operator, it is important to make sure
+    the overload would have been imported prior to using. This can be done by making sure the overloads are included
+    in a __init__ (or chain thereof) where importing the top-level package ensures all the children are imported.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+    return _node_decorator(
+        WiringNodeType.COMPUTE_NODE, fn, None, None, None, None, overloads=None,
+        resolvers=None, requires=None, deprecated=deprecated)
+
+
 def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                  node_impl=None,
                  active: Sequence[str] = None,
@@ -32,9 +74,81 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                  requires: Callable[[..., ...], bool] = None,
                  deprecated: bool | str = False) -> COMPUTE_NODE_SIGNATURE:
     """
-    Used to define a python function to be a compute-node. A compute-node is the worker unit in the graph and
-    will be called each time of the inputs to the compute node ticks.
-    A compute-node requires inputs and outputs.
+    Marks a function as being a compute node in the graph, a compute node accepts one or more time-series inputs and
+    returns a time-series value. The compute node performs work whenever an input (marked as active) is modified.
+
+    Example:
+    ::
+
+        @compute_node
+        def add_ts(lhs: TS[NUMBER], rhs: TS[NUMBER]) -> TS[NUMBER]:
+            return lhs.value + rhs.value
+
+    In this example, the code accepts two time-series inputs and returns the sum of the two input values.
+
+    A compute node can also define some useful parameters to describe the initial state, perform input validations,
+    automatically determine type-signatures, etc.
+
+    The `active`, `valid`, and `all_valid` parameters' control how the compute node being defined will be marked for
+    evaluation.
+
+    The `active` parameter lists the input names that should be marked as active, if no list is provided then all inputs
+    are marked as being active.
+
+    For example:
+    ::
+        @compute_node(active('trade_request',))
+        def accept_trade_request(trade_request: TS[Trade], market_data: TS[float]) -> TS[bool]:
+            return trade_request.value.price == market_data.value
+
+    In the above example, we only accept trade requests if `price` on the request is exactly the same as the market_data.
+    In this scenario, we only care to respond to trade requests and not market data. By marking the `trade_request` as
+    being active, it implies the market data is passive, or in other words, it will not activate the logic when the
+    market data changes. Marking an input passive does not mean the value will be out of date, the value is always
+    up-to-date; it merely ensures the function is not activated when the input is modified.
+
+    'valid' works in a similar way to active, in that if it is not set, all inputs are required to be valid before the
+    function will be called. If set, then only the nodes that are listed are included in the guard. When using this the
+    function is required to test if an input is valid when not explicitly listed.
+
+    `all_valid`, when not specified, is defaulted to not requiring the inputs to be all valid. For collection time-series
+    values such as: TSB, TSD, and TSL; if any of the elements are valid, then the collection is marked as valid.
+    However, there are times when you want to ensure all inputs of a collection are valid, in this case mark the inputs
+    in the all_valid clause. This will ensure the function is only evaluated when this state is true.
+
+    The `overload` argument allows the node to be marked as implementing an `operator`, see help on the :func:`operator`
+    decorator for more information.
+
+    Resolvers allow the user to provide additional logic to determine a resolution of a `TypeVar`. The `resolver`
+    argument is set as a dictionary mapping the type var to be resolved and a function that will be able to resolve
+    the type.
+    For example:
+    ::
+        def _resolve_type(mapping: dict[TypeVar, type], scalars: dict[str, Any]) -> type:
+            schema = mapping[TS_SCHEMA]  # resolved as it is an input in to the node
+            attr = scalars['attr']
+            return schema.__meta_data_schema__[attr].value_type.py_type
+
+        @compute_node(resolvers={SCALAR: _resolve_type})
+        def get_attr_tsb(ts: TSB[TS_SCHEMA], attr: str) -> TS[SCALAR]:
+            ...
+
+    In the above example, the `_resolve_type` function gets the resolved schema, extracts out the type of the attr
+    and returns the type, which is the resolution of the SCALAR type var.
+
+    The `requires` argument is similar to the `resolver` argument, but only takes a single function whose responsibility
+    is to determine if the provided inputs meet with the requirements of the node.
+    For example:
+    ::
+        def _requires_enum_values(_resolve_type(mapping: dict[TypeVar, type], scalars: dict[str, Any]):
+            if scalars['rw_flags'] not in ('r', 'w', 'rw'):
+                raise ValueError("rw_flags must be one of 'r', 'w' or 'rw'")
+
+        @compute_node(requires=_requires_enum_values)
+        def some_func(ts: TS[float], rw_flags: str) -> TS[float]:
+            ...
+
+    In the above example, the `requires` function ensures the provided input strings match a valid list.
 
     :param fn: The function to wrap
     :param node_impl: The node implementation to use (this makes fn a signature only method)
@@ -42,6 +156,11 @@ def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
     :param valid: Which inputs to require to be valid (by default all are valid)
     :param all_valid: Which inputs are required to be ``all_valid`` (by default none are all_valid)
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
+    :param resolvers: A resolver method to assist with resolving types when they can be inferred but not deduced
+                      directly.
+    :param requires: Callable which accepts the mapping and scalars as parameters and validates the inputs meet with
+                     the requirements defined in the function.
+    :param deprecated: Marks the node as no longer supported and likely to be removed shortly
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.COMPUTE_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
@@ -83,8 +202,16 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
               requires: Callable[[..., ...], bool] = None,
               deprecated: bool | str = False) -> SINK_NODE_SIGNATURE:
     """
-    Indicates the function definition represents a sink node. This type of node has no return type.
-    Other than that it behaves in much the same way as compute node.
+    A sink node is a node in the graph that accepts one or more time-series inputs and produces no output.
+    These nodes are leaf nodes of the graph and generally the only nodes in the graph that we expect to have side
+    effects. Examples of sink nodes include: writing to the output stream, network, database, etc.
+    ::
+        @sink_node
+        def print_(format_str: str, value: TS[SCALAR]):
+            print(format_str.format(value.value))
+
+
+    The remaining arguments are the same as described in the :func:`compute_node` decorator.
 
     :param fn: The function to wrap
     :param node_impl: The node implementation to use (this makes fn a signature only method)
@@ -92,6 +219,11 @@ def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
     :param valid: Which inputs to require to be valid (by default all are valid)
     :param all_valid: Which inputs are required to be ``all_valid`` (by default none are all_valid)
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
+    :param resolvers: A resolver method to assist with resolving types when they can be inferred but not deduced
+                      directly.
+    :param requires: Callable which accepts the mapping and scalars as parameters and validates the inputs meet with
+                     the requirements defined in the function.
+    :param deprecated: Marks the node as no longer supported and likely to be removed shortly
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.SINK_NODE, fn, node_impl, active, valid, all_valid, overloads=overloads,
@@ -104,9 +236,40 @@ def graph(fn: GRAPH_SIGNATURE = None,
           requires: Callable[[..., ...], bool] = None,
           ) -> GRAPH_SIGNATURE:
     """
-    Wraps a wiring function. The function can take the form of a function that looks like a compute_node,
-    sink_node, souce_node, or a graph with no inputs or outputs. There is generally at least one graph in
-    any application. The main graph.
+    The `graph` decorator represents a function that contains wiring logic. Wiring logic is only evaluated once
+    when the graph is created and is used to indicate which nodes to construct and how to connect the input and outputs
+    of the nodes (or the edges of the graph). It is important to note that the logic of the function does not do any
+    work and merely describes the shape of the runtime graph. A graph can take time-series inputs and can return
+    a time-series value, but this is not a requirement. Typcially the main graph will only take scalar value inputs
+    for configuration (or take no imputs at all).
+    ::
+
+        @graph
+        def my_graph():
+            c = const(1)
+            debug_print('c', c)
+
+    This is the smallest meaningful graph.
+
+    The graph signature, whilst being more flexible takes the same form as for a source, compute or sink node.
+    A common design principle would be to describe behaviour with graph's initially and then convert to the appropriate
+    nodes once the logic is decomposed sufficiently. It is also possible to re-code a node as a graph, for example:
+    ::
+
+        @compute_node
+        def a_plus_b_plus_c(a: TS[float], b: TS[float]) -> TS[float]:
+            return a.value + b.value + c.value
+
+    Can be reworked to be:
+    ::
+
+        @graph
+        def a_plus_b_plus_c(a: TS[float], b: TS[float]) -> TS[float]:
+            return a+b+c
+
+    Or visa-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but `graph`s are far
+    better at re-use of existing components. The preference should always be to use graph logic before constructing
+    node functions.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires)
@@ -290,7 +453,7 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     :param kwargs:
     :return:
     """
-    from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper, WiringNodeClass
+    from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper
     from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
 
     if isinstance(implementation, PreResolvedWiringNodeWrapper):
@@ -446,7 +609,8 @@ def _create_node(signature_fn, impl_fn=None,
 def _create_node_signature(name: str, kwargs: dict[str, Type], ret_type: Type, node_type: "WiringNodeType",
                            active_inputs: frozenset[str] = None, valid_inputs: frozenset[str] = None,
                            all_valid_inputs: frozenset[str] = None, defaults: dict[str, Any] = None,
-                           deprecated: bool | str = False, requires: Callable[[..., ...], bool] | None = None) -> Callable:
+                           deprecated: bool | str = False,
+                           requires: Callable[[..., ...], bool] | None = None) -> Callable:
     """
     Create a function that takes the kwargs and returns the kwargs. This is used to create a function that
     can be used to create a signature.
