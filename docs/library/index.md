@@ -61,7 +61,7 @@ Time series conversion
 ----------------------
 
 ### convert
-This operation converts between different types of timeseries. Its syntax is `convert[TO_TS_TYPE](ts)`. See the 
+This operation converts between different types of timeseries. Its syntax is `convert[OUT: TO_TS_TYPE](ts)`. See the 
 compatibility matrix:
 
 | from \ to              | TS[T], T is int, float | TS[bool] | TS[str] | TS[tuple] | TS[set] | TS[dict] | TSS[T]             | TSL[TST, S] | TSB[Schema]                 | TSD[K, V]                   |
@@ -91,28 +91,44 @@ The following types are supported:
 ### collect
 This operation collects values into a collection, Syntax `collect[TSS[int]](ts)`
 
-| from \ to                         | TS[tuple]            | TS[set] | TS[dict]                            | TSS[T]  | TSL[TST, S] | TSB[Schema] | TSD[K, V]                       |
+| from \ to                         | TS[tuple]            | TS[set] | TS[Mapping]                         | TSS[T]  | TSL[TST, S] | TSB[Schema] | TSD[K, V]                       |
 |-----------------------------------|----------------------|---------|-------------------------------------|---------|-------------|-------------|---------------------------------|
 | TS[T], T is int, float, bool, str | &#9989;              | &#9989; | &#9989; from two inputs for K and V | &#9989; |             |             | &#9989; for two inputs, K and V |
 | TS[tuple]                         | &#9989; same as sums | &#9989; | &#9989; from two inputs for K and V | &#9989; |             |             | &#9989; for two inputs, K and V |
 | TS[set]                           |                      |         |                                     | &#9989; |             |             |                                 |
-| TS[dict]                          |                      |         |                                     |         |             |             | &#9989;                         |
+| TS[Mapping]                       |                      |         |                                     |         |             |             | &#9989;                         |
 
 `collect` can also receive a `remove` input to tell it to remove items from the collection.
 
-### dispense &#10067;
-Dispense is the opposite of `collect` and applies to collection types to emit their values one by one with the given 
-interval. If collection gets updated the new values are queued up behind the previous ones. `dispence` does not require
-type argument as it always emits single scalars.
+### emit
 
-| input type        | output type |
-|-------------------|-------------|
-| TS[tuple[T, ...]] | TS[T]       |
-| TS[set[T]]        | TS[T]       |
-| TS[dict[K, V]]    | TS[V]       |
-| TSS[T]            | TS[T]       |
-| TSL[T, S]         | TS[T]       |
-| TSD[K, V]         | V           |
+#### Purpose
+`emit` is the opposite of `collect` and applies to collection types to release their values one by one with the given 
+interval. If collection gets updated the new values are queued up behind the previous ones. This operator does not require
+type arguments as it can derive the output type from the input arguments.
+
+#### Example
+
+```python
+from hgraph.nodes import emit, print
+
+values = emit( (1, 2, 3) )
+print(values)
+
+>> 1
+>> 2
+>> 3
+```
+
+
+| input type             | output type |
+|------------------------|-------------|
+| TS[tuple[SCALAR, ...]] | TS[SCALAR]  |
+| TS[set[SCALAR]]        | TS[SCALAR]  |
+| TS[Mapping[K, V]]      | TS[V]       |
+| TSS[SCALAR]            | TS[SCALAR]  |
+| TSL[T, SIZE]           | T           | 
+| TSD[K, V]              | V           |
 
 
 Stream operators
