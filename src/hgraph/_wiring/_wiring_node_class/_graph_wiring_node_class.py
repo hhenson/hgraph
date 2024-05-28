@@ -11,7 +11,8 @@ from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, PreResolvedWiringNodeWrapper
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, PreResolvedWiringNodeWrapper, \
+    validate_and_resolve_signature
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import WiringPort
 
@@ -264,10 +265,12 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         # moving between node and graph implementations problematic, so resolution rules of the signature
         # hold
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
-            kwargs_, resolved_signature, _ = self._validate_and_resolve_signature(*args,
-                                                                                  __pre_resolved_types__=__pre_resolved_types__,
-                                                                                  __enforce_output_type__=False,
-                                                                                  **kwargs)
+            kwargs_, resolved_signature, _ = validate_and_resolve_signature(
+                self.signature,
+                *args,
+                __pre_resolved_types__=__pre_resolved_types__,
+                __enforce_output_type__=False,
+                **kwargs)
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:

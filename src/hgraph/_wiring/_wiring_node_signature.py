@@ -37,6 +37,7 @@ class WiringNodeType(Enum):
     SUBS_SVC = 7
     REQ_REP_SVC = 8
     SVC_IMPL = 9
+    OPERATOR = 10  # Similar to STUB, expect in this case will be replaced with a matched node.
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:

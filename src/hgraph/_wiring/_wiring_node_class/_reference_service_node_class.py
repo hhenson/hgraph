@@ -1,11 +1,10 @@
 from typing import Mapping, Any, TYPE_CHECKING, TypeVar
 
-from frozendict import frozendict
-
 from hgraph._types._ref_meta_data import HgREFTypeMetaData, HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
-from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders
+from hgraph._wiring._wiring_node_class._wiring_node_class import create_input_output_builders, \
+    validate_and_resolve_signature
 
 if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
@@ -64,15 +63,19 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
                  **kwargs) -> "WiringPort":
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
-            kwargs_, resolved_signature, resolution_dict = self._validate_and_resolve_signature(*args,
-                                                                               __pre_resolved_types__=__pre_resolved_types__,
-                                                                               **kwargs)
+            kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
+                self.signature,
+                *args,
+                __pre_resolved_types__=__pre_resolved_types__,
+                **kwargs)
 
             typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
-            port = super().__call__(__pre_resolved_types__=__pre_resolved_types__, **(kwargs_ | {'path': typed_full_path}))
+            port = super().__call__(__pre_resolved_types__=__pre_resolved_types__,
+                                    **(kwargs_ | {'path': typed_full_path}))
 
             from hgraph import WiringGraphContext
-            WiringGraphContext.instance().register_service_client(self, self.full_path(kwargs_.get("path")), resolution_dict or None)
+            WiringGraphContext.instance().register_service_client(self, self.full_path(kwargs_.get("path")),
+                                                                  resolution_dict or None)
 
             return port
 

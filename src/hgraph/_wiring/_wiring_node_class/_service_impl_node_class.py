@@ -2,9 +2,8 @@ from typing import Callable, Mapping, Any, Sequence, TypeVar, Dict
 
 from frozendict import frozendict
 
-from hgraph import TIME_SERIES_TYPE, graph
+from hgraph import graph
 from hgraph._builder._graph_builder import GraphBuilder
-from hgraph._runtime._global_state import GlobalState
 from hgraph._types._scalar_type_meta_data import HgAtomicType, HgObjectType
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -14,7 +13,7 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_class._pull_source_node_class import last_value_source_node
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, \
-    BaseWiringNodeClass
+    BaseWiringNodeClass, validate_and_resolve_signature
 from hgraph._wiring._wiring_node_instance import create_wiring_node_instance, WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import _wiring_port_for
@@ -33,10 +32,13 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
         has_path = "path" in signature.args
         super().__init__(
             signature.copy_with(
-                args=(('path',) if not has_path else ()) + tuple(arg for arg in signature.args if arg not in time_series_args),
+                args=(('path',) if not has_path else ()) + tuple(
+                    arg for arg in signature.args if arg not in time_series_args),
 
                 input_types=frozendict(
-                    {k: v for k, v in (signature.input_types | ({"path": HgAtomicType.parse_type(str)} if not has_path else {})).items() if
+                    {k: v for k, v in
+                     (signature.input_types | ({"path": HgAtomicType.parse_type(str)} if not has_path else {})).items()
+                     if
                      k not in time_series_args}),
                 time_series_args=tuple(),
             ), fn)
@@ -50,7 +52,8 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
         # Ensure the service impl signature is valid given the signature definitions of the interfaces.
         validate_signature_vs_interfaces(signature, fn, interfaces)
 
-    def _validate_service_not_already_bound(self, path: str | None, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
+    def _validate_service_not_already_bound(self, path: str | None,
+                                            __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         if WiringGraphContext.instance().is_service_built(path, __pre_resolved_types__):
             raise CustomMessageWiringError(
                 f"This path: '{path}' has already been registered for this service implementation")
@@ -76,17 +79,19 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
 
             # TODO: This is only going to resolve scalars or output values, we need to
             # take a look at resolving the actual signature if there are pre-resolved-types.
-            kwargs_, resolved_signature, resolution_dict = self._validate_and_resolve_signature(
+            kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
+                self.signature,
                 *args,
                 __pre_resolved_types__=__pre_resolved_types__,
                 **kwargs)
 
             resolved_signature = resolved_signature.copy_with(input_types=frozendict({
-                        **resolved_signature.input_types,
-                        'inner_graph': HgObjectType.parse_type(object)}))
+                **resolved_signature.input_types,
+                'inner_graph': HgObjectType.parse_type(object)}))
 
             with WiringContext(current_wiring_node=self, current_signature=self.signature):
-                inner_graph, paths = create_inner_graph(self._original_signature, self.fn, kwargs_, self.interfaces, resolution_dict, path_types)
+                inner_graph, paths = create_inner_graph(self._original_signature, self.fn, kwargs_, self.interfaces,
+                                                        resolution_dict, path_types)
                 kwargs_['inner_graph'] = inner_graph
 
             # We pass in rank of -1 because service implementations are ranked at the end of the graph build
@@ -163,7 +168,7 @@ def validate_signature_vs_interfaces(signature: WiringNodeSignature, fn: Callabl
             case _:
                 raise CustomMessageWiringError(f"Unknown service type: {interface_sig.node_type}")
     else:
-        pass # multiservice implementations use the interface stub APIs to wire up the service so checking happens there
+        pass  # multiservice implementations use the interface stub APIs to wire up the service so checking happens there
 
 
 def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any],
@@ -173,11 +178,14 @@ def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scal
         s: WiringNodeSignature = interfaces[0].signature
         match s.node_type:
             case WiringNodeType.REF_SVC:
-                return wire_reference_data_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict, interface_resolution_dict)
+                return wire_reference_data_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict,
+                                                   interface_resolution_dict)
             case WiringNodeType.SUBS_SVC:
-                return wire_subscription_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict, interface_resolution_dict)
+                return wire_subscription_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict,
+                                                 interface_resolution_dict)
             case WiringNodeType.REQ_REP_SVC:
-                return wire_request_reply_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict, interface_resolution_dict)
+                return wire_request_reply_service(wiring_signature, fn, scalars, interfaces[0], resolution_dict,
+                                                  interface_resolution_dict)
             case _:
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
     else:
@@ -185,16 +193,18 @@ def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scal
             graph, final_resolution_dict = wire_multi_service(fn, scalars)
             for path, node in context.built_services().items():
                 if node:
-                    raise CustomMessageWiringError(f"Mitliservice implementations should not be registering service nodes")
+                    raise CustomMessageWiringError(
+                        f"Mitliservice implementations should not be registering service nodes")
 
                 s: WiringNodeClass = context.find_service_impl(path)[0]
                 match s.signature.node_type:
-                    case WiringNodeType.REF_SVC: # reference service does not require external stubs
+                    case WiringNodeType.REF_SVC:  # reference service does not require external stubs
                         pass
-                    case WiringNodeType.SUBS_SVC: # subscription service does not require external stubs
+                    case WiringNodeType.SUBS_SVC:  # subscription service does not require external stubs
                         pass
                     case WiringNodeType.REQ_REP_SVC:
-                        wire_request_reply_service_stubs(s[final_resolution_dict].impl_signature(), path, s, final_resolution_dict)
+                        wire_request_reply_service_stubs(s[final_resolution_dict].impl_signature(), path, s,
+                                                         final_resolution_dict)
                     case _:
                         raise CustomMessageWiringError(f"Unknown service type: {s.signature.node_type}")
 
@@ -204,7 +214,8 @@ def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scal
 def wire_multi_service(fn: Callable, scalars: Mapping[str, Any], resolution_dict: dict[TypeVar, HgTypeMetaData] = None):
     with WiringNodeInstanceContext(), WiringGraphContext(None) as context:
         g = graph(fn)
-        _, _, final_resolution_dict = g._validate_and_resolve_signature(__pre_resolved_types__=resolution_dict, **scalars)
+        _, _, final_resolution_dict = validate_and_resolve_signature(g.signature,
+                                                                     __pre_resolved_types__=resolution_dict, **scalars)
         g[resolution_dict](**scalars)
         sink_nodes = context.pop_sink_nodes()
         return create_graph_builder(sink_nodes, False), final_resolution_dict
@@ -234,7 +245,8 @@ def wire_subscription_service(wiring_signature: WiringNodeSignature, fn: Callabl
         return create_graph_builder(sink_nodes, False), [typed_full_path]
 
 
-def wire_request_reply_service_stubs(wiring_signature: WiringNodeSignature, typed_full_path, interface, resolution_dict=None):
+def wire_request_reply_service_stubs(wiring_signature: WiringNodeSignature, typed_full_path, interface,
+                                     resolution_dict=None):
     from hgraph.nodes._service_utils import capture_output_node_to_global_state, capture_output_to_global_state
 
     for arg in wiring_signature.time_series_args:
@@ -245,14 +257,15 @@ def wire_request_reply_service_stubs(wiring_signature: WiringNodeSignature, type
         capture_output_to_global_state(f"{typed_full_path}/request_{arg}_out", request)
 
     if wiring_signature.output_type is not None:
-        replies_node = last_value_source_node(f"{typed_full_path}/replies_fb", wiring_signature.output_type.resolve(resolution_dict))
+        replies_node = last_value_source_node(f"{typed_full_path}/replies_fb",
+                                              wiring_signature.output_type.resolve(resolution_dict))
         replies = _wiring_port_for(wiring_signature.output_type, replies_node, tuple())
         capture_output_node_to_global_state(f"{typed_full_path}/replies_fb", replies)
         capture_output_to_global_state(f"{typed_full_path}/replies", replies)
 
 
 def wire_request_reply_service(wiring_signature: WiringNodeSignature, fn: Callable, scalars: Mapping[str, Any],
-                              interface, resolution_dict, interface_resolution_dict) -> (GraphBuilder, [str]):
+                               interface, resolution_dict, interface_resolution_dict) -> (GraphBuilder, [str]):
     path = (scalars := dict(scalars)).pop("path")
     typed_full_path = interface.typed_full_path(path, interface_resolution_dict)
 

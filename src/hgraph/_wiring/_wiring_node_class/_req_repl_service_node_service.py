@@ -3,7 +3,8 @@ from typing import Callable, TypeVar
 
 from frozendict import frozendict
 
-from hgraph import HgTypeMetaData, WiringContext, WiringGraphContext, TSB, ts_schema, TSD, TIME_SERIES_TYPE, WiringPort
+from hgraph import HgTypeMetaData, WiringContext, WiringGraphContext, TSB, ts_schema, TSD, TIME_SERIES_TYPE, WiringPort, \
+    validate_and_resolve_signature
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
@@ -24,7 +25,8 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
-            kwargs_, resolved_signature, resolution_dict = self._validate_and_resolve_signature(
+            kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
+                self.signature,
                 *args,
                 __pre_resolved_types__=__pre_resolved_types__,
                 **kwargs)
