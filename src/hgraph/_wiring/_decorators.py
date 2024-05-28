@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 __all__ = (
+    "operator",
     "compute_node", "pull_source_node", "push_source_node", "sink_node", "graph", "generator", "reference_service",
     "request_reply_service", "subscription_service", "default_path",
     "service_impl", "service_adaptor", "register_service", "push_queue")
@@ -60,7 +61,7 @@ def operator(fn: GRAPH_SIGNATURE, deprecated: bool | str = False) -> GRAPH_SIGNA
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
     return _node_decorator(
-        WiringNodeType.COMPUTE_NODE, fn, None, None, None, None, overloads=None,
+        WiringNodeType.OPERATOR, fn, None, None, None, None, overloads=None,
         resolvers=None, requires=None, deprecated=deprecated)
 
 
@@ -524,6 +525,10 @@ def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active
 
     interfaces = kwargs.pop('interfaces')
     match node_type:
+        case WiringNodeType.OPERATOR:
+            from hgraph._wiring._wiring_node_class._operator_wiring_node import OperatorWiringNodeClass
+            kwargs['node_class'] = OperatorWiringNodeClass
+            _assert_no_node_configs("Operators", kwargs)
         case WiringNodeType.GRAPH:
             kwargs['node_class'] = GraphWiringNodeClass
             _assert_no_node_configs("Graphs", kwargs)
