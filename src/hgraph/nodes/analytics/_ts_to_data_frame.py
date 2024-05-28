@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from hgraph import graph, TIME_SERIES_TYPE, TS, Frame, COMPOUND_SCALAR, SCALAR, compute_node, AUTO_RESOLVE, TSD, \
-    SCALAR_1, TSB
+    SCALAR_1, TSB, operator
 import polars as pl
 
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
@@ -10,9 +10,11 @@ from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 __all__ = ("to_frame",)
 
 
-@graph
+@operator
 def to_frame(ts: TIME_SERIES_TYPE) -> TS[Frame[COMPOUND_SCALAR]]:
-    raise RuntimeError("Not implemented yet")
+    """
+    Converts a time-series into a frame.
+    """
 
 
 @compute_node(overloads=to_frame)

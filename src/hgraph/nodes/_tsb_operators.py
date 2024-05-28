@@ -1,16 +1,18 @@
 from typing import Type
 
 from hgraph import compute_node, REF, TSB, TS_SCHEMA, TIME_SERIES_TYPE, PythonTimeSeriesReference, AUTO_RESOLVE, SCALAR, \
-    WiringError
+    WiringError, operator
 from hgraph._types._ref_type import TimeSeriesReference
 
 
 __all__ = ("tsb_get_item", "tsb_get_item_by_name", "tsb_get_item_by_index")
 
 
-@compute_node()
-def tsb_get_item(tsb: REF[TSB[TS_SCHEMA]], key: SCALAR, key_type: Type[SCALAR] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
-    raise WiringError(f"tsb_get_item can only pick items using string name or integer index, received {key_type}")
+@operator
+def tsb_get_item(tsb: TSB[TS_SCHEMA], key: SCALAR) -> TIME_SERIES_TYPE:
+    """
+    return the item from the tsb that matches the key provided.
+    """
 
 
 @compute_node(overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars['key']]})

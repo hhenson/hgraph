@@ -4,7 +4,7 @@ from typing import Type, Mapping, cast, Tuple
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, generator, WiringNodeClass
+    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, generator, WiringNodeClass, operator
 from hgraph._runtime._operators import getattr_, mul_, zero
 from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
 from hgraph.nodes._analytical import sum_
@@ -20,8 +20,19 @@ __all__ = (
     "merge_nested_tsds", "tsd_partition", "get_schema_type", "tsd_get_items")
 
 
-@compute_node(valid=("key",))
+@operator
 def make_tsd(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
+             ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+    """
+    Make a TSD from a time-series of key and value, if either key or value ticks an entry in the TSD will be
+    created / update. It is also possible to remove a key by setting remove_key to True.
+    In this scenario a key will be removed if the remove_key ticked True or if the key ticks and remove_key is already
+    set to True.
+    """
+
+
+@compute_node(overloads=make_tsd, valid=("key",))
+def make_tsd_default(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
              ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
     """
     Make a TSD from a time-series of key and value, if either key or value ticks an entry in the TSD will be
@@ -68,8 +79,15 @@ class KeyValueRefState:
     key: SCALAR | None = None
 
 
-@compute_node
-def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
+@operator
+def tsd_get_item(tsd: TSD[K, TIME_SERIES_TYPE], key: TS[K]) -> TIME_SERIES_TYPE:
+    """
+    Returns the time-series associated to the key provided.
+    """
+
+
+@compute_node(overloads=tsd_get_item, valid=("key",))
+def tsd_get_item_default(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
                  _ref: REF[TIME_SERIES_TYPE] = None,
                  _ref_ref: REF[TIME_SERIES_TYPE] = None,
                  _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
@@ -83,15 +101,16 @@ def tsd_get_item(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
         if _state.tsd is not None:
             _ref.make_passive()
             _state.tsd.release_ref(_state.key, _state.reference)
-        if tsd.value.valid:
+        if tsd.valid and tsd.value.valid:
             _state.tsd = tsd.value.output
             _state.key = key.value
         else:
             _state.tsd = None
             _state.key = None
-        output = _state.tsd.get_ref(_state.key, _state.reference)
-        _ref.bind_output(output)
-        _ref.make_active()
+        if _state.tsd is not None:
+            output = _state.tsd.get_ref(_state.key, _state.reference)
+            _ref.bind_output(output)
+            _ref.make_active()
 
     # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
     # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference

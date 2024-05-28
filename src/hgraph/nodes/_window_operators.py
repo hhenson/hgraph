@@ -2,7 +2,7 @@ from collections import deque
 from datetime import timedelta, datetime
 
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
-    AUTO_RESOLVE
+    AUTO_RESOLVE, operator
 from hgraph.nodes._analytical import accumulate, count, lag, INT_OR_TIME_DELTA
 from hgraph.nodes._conditional import if_then_else
 from hgraph.nodes._const import default, const
@@ -18,7 +18,7 @@ class RollingWindowResult(TimeSeriesSchema):
     index: TS[tuple[datetime, ...]]
 
 
-@graph
+@operator
 def rolling_window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
         -> TSB[RollingWindowResult]:
     """
@@ -33,7 +33,6 @@ def rolling_window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period:
     if you have 3 ticks at 1 microsecond intervals, and a window of 3 millisecond, then the buffer will
     not be full until the 4th tick.
     """
-    raise NotImplementedError(f"No resolution found for window: ts: {ts.output_type}, window: {period}")
 
 
 @compute_node(overloads=rolling_window)
@@ -78,15 +77,13 @@ def time_delta_window_start(_state: STATE):
     _state.index = deque[datetime]()
 
 
-@graph
+@operator
 def rolling_average(ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TS[
     float]:
     """
     Computes the rolling average of the time-series.
     This will either average by the number of ticks or by the time-delta.
     """
-    raise NotImplementedError(f"rolling_average is not implemented for given inputs: "
-                              f"ts: {str(ts.output_type)}, period: {type(period)}, min_windowPeriod: {type(min_window_period)}")
 
 
 @graph(overloads=rolling_average)

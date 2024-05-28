@@ -3,7 +3,8 @@ from typing import TypeVar, ContextManager
 
 from polars.testing import assert_frame_equal
 
-from hgraph import CompoundScalar, Frame, graph, compute_node, TS, generator, MIN_DT, MIN_ST, TimeSeriesSchema, TSB
+from hgraph import CompoundScalar, Frame, graph, compute_node, TS, generator, MIN_DT, MIN_ST, TimeSeriesSchema, TSB, \
+    operator
 from hgraph.nodes import const
 from hgraph.test import eval_node
 
@@ -25,8 +26,12 @@ def test_constraint_typevar_wiring():
 
     ST = TypeVar('ST', TS[ScalarType], TS[Frame[ScalarItemType]], TSB[OneAndMany])
 
-    @compute_node
+    @operator
     def add(x: TS[ScalarType], y: TS[float]) -> TS[ScalarType]:
+        ...
+
+    @compute_node(overloads=add)
+    def add_default(x: TS[ScalarType], y: TS[float]) -> TS[ScalarType]:
         return ScalarType(x.value.value + y.value)
 
 

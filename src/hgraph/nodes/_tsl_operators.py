@@ -1,7 +1,7 @@
 from typing import Type
 
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
-    PythonTimeSeriesReference, len_
+    PythonTimeSeriesReference, len_, operator
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const
 
@@ -25,9 +25,17 @@ def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool = False
     """
     return tsl.value if not all_valid or tsl.all_valid else None
 
-
-@compute_node
+@operator
 def merge(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+    """
+    Selects and returns the first of the values that tick (are modified) in the list provided.
+    If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
+    list.
+    """
+
+
+@compute_node(overloads=merge)
+def merge_default(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     """
     Selects and returns the first of the values that tick (are modified) in the list provided.
     If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
@@ -54,8 +62,15 @@ def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> 
     return {k: ts.value for k, ts in zip(keys, tsl) if ts.modified}
 
 
-@compute_node(requires=lambda m, s: 0 <= s['index'] < m[SIZE])
-def tsl_get_item(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: int) -> REF[TIME_SERIES_TYPE]:
+@operator
+def tsl_get_item(tsl: TSL[TIME_SERIES_TYPE, SIZE], index: int) -> TIME_SERIES_TYPE:
+    """
+    Returns the item from the TSL that matches the index provided
+    """
+
+
+@compute_node(overloads=tsl_get_item, requires=lambda m, s: 0 <= s['index'] < m[SIZE])
+def tsl_get_item_default(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: int) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
     """

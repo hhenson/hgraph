@@ -1,7 +1,7 @@
 import pytest
 from frozendict import frozendict
 
-from hgraph import compute_node, TS, TIME_SERIES_TYPE, graph, SCALAR, TSL, Size, TSS, TSD
+from hgraph import compute_node, TS, TIME_SERIES_TYPE, graph, SCALAR, TSL, Size, TSS, TSD, operator
 from hgraph.test import eval_node
 
 
@@ -39,8 +39,13 @@ def test_auto_const(ts_tp, value, should_work):
 
 
 def test_auto_cons_with_overload():
-    @compute_node
+
+    @operator
     def op(a: TS[int], b: TS[int]) -> TS[int]:
+        ...
+
+    @compute_node(overloads=op)
+    def op_default(a: TS[int], b: TS[int]) -> TS[int]:
         return a.value + b.value + 1
 
     @compute_node(overloads=op)

@@ -7,10 +7,10 @@ import polars as pl
 from frozendict import frozendict
 
 from hgraph import graph, TIME_SERIES_TYPE, TS, Frame, COMPOUND_SCALAR, compute_node, SCALAR, STATE, AUTO_RESOLVE, TSB, \
-    TS_SCHEMA, SCALAR_1, TSD, compound_scalar
+    TS_SCHEMA, SCALAR_1, TSD, compound_scalar, operator
 
 
-@graph
+@operator
 def to_frame(ts: TIME_SERIES_TYPE) -> TS[Frame[COMPOUND_SCALAR]]:
     """
     Converts the time-series into a dataframe.
@@ -26,7 +26,6 @@ def to_frame(ts: TIME_SERIES_TYPE) -> TS[Frame[COMPOUND_SCALAR]]:
     In the example above, the first column is a datetime element indicating that the frame should include the dt
     when constructed, the remaining property ('value') is then populated with the value of the time-series.
     """
-    raise NotImplemented(f"to_frame is not yet implemented for type: {ts.output_type}")
 
 
 def _ts_frame_cs_resolver(mapping, scalars):

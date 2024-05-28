@@ -3,13 +3,18 @@ from typing import Tuple
 import pytest
 
 from hgraph import compute_node, TIME_SERIES_TYPE, graph, TS, TSL, SIZE, Size, SCALAR, contains_, SCALAR_1, SCALAR_2, \
-    RequirementsNotMetWiringError
+    RequirementsNotMetWiringError, operator
 from hgraph.test import eval_node
 
 
 def test_overloads():
-    @compute_node
+
+    @operator
     def add(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+        ...
+
+    @compute_node(overloads=add)
+    def add_default(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
         return lhs.value + rhs.value
 
     @graph
@@ -36,8 +41,13 @@ def test_overloads():
 
 
 def test_scalar_overloads():
-    @compute_node
+
+    @operator
     def add(lhs: TS[SCALAR], rhs: SCALAR) -> TS[SCALAR]:
+        ...
+
+    @compute_node(overloads=add)
+    def add_default(lhs: TS[SCALAR], rhs: SCALAR) -> TS[SCALAR]:
         return lhs.value + rhs
 
     @graph

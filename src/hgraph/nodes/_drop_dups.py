@@ -1,12 +1,19 @@
 import math
 
-from hgraph import compute_node, TIME_SERIES_TYPE, TS
+from hgraph import compute_node, TIME_SERIES_TYPE, TS, operator
 
-__all__ = ("drop_dups", "drop_dups_float")
+__all__ = ("drop_dups", "drop_dups_default", "drop_dups_float")
 
 
-@compute_node
+@operator
 def drop_dups(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+    """
+   Drops duplicate values from a time-series.
+   """
+
+
+@compute_node(overloads=drop_dups)
+def drop_dups_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
     """
