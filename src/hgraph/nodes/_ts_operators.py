@@ -1,11 +1,11 @@
 """
 The home of hgraph operator overloads.
 """
-from hgraph import compute_node, len_, TS, SCALAR, contains_, SCALAR_1, eq_, ne_, not_, abs_, and_, or_, mod_, min_op, \
-    max_op
+from hgraph import compute_node, len_, TS, SCALAR, contains_, SCALAR_1, eq_, ne_, not_, abs_, and_, or_, mod_, max_, \
+    min_, graph
 
 __all__ = (
-"len_ts", "contains_ts", "eq_ts", "ne_ts", "not_ts", "abs_ts", "and_ts", "or_ts", "mod_ts", "min_op", "max_op")
+"len_ts", "contains_ts", "eq_ts", "ne_ts", "not_ts", "abs_ts", "and_ts", "or_ts", "mod_ts",)
 
 
 @compute_node(overloads=len_)
@@ -65,13 +65,19 @@ def mod_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value % rhs.value
 
 
-@compute_node(overloads=min_op)
+@compute_node(overloads=min_)
 def min_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """Implements using the standard ``min`` Python operator"""
     return min(lhs.value, rhs.value)
 
 
-@compute_node(overloads=max_op)
+@graph(overloads=min_)
+def min_ts_single(lhs: TS[SCALAR]) -> TS[SCALAR]:
+    """Catch the case where there is only one time-series provided"""
+    return lhs
+
+
+@compute_node(overloads=max_)
 def max_ts(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """Implements using the standard ``max`` Python operator"""
     return max(lhs.value, rhs.value)

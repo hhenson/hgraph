@@ -7,7 +7,7 @@ from frozendict import frozendict
 
 from hgraph import compute_node, Frame, TS, SCHEMA, SCALAR, AUTO_RESOLVE, Series, COMPOUND_SCALAR, K, TSD, \
     HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, with_signature, TimeSeries
-from hgraph._runtime._operators import getitem_, getattr_, min_op, max_op
+from hgraph._runtime._operators import getitem_, getattr_, max_, min_
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 
 __all__ = (
@@ -69,11 +69,11 @@ def frame_from_columns(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
         return from_ts_node(**kwargs)
 
 
-@compute_node(overloads=min_op)
+@compute_node(overloads=min_)
 def min_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
     return series.value.min()
 
 
-@compute_node(overloads=max_op)
+@compute_node(overloads=max_)
 def max_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
     return series.value.max()

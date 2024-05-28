@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import TypeVar
 
 from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_, TSD, \
-    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar, len_
+    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar, len_, operator
 from hgraph.nodes._operators import cast_
 
 
@@ -58,7 +58,7 @@ def span_to_alpha(span: float) -> float:
     return 2.0 / (span + 1.0)
 
 
-@graph
+@operator
 def mean(ts: TIME_SERIES_TYPE) -> TS[float]:
     """
     The mean of the values at point in time.
@@ -68,7 +68,6 @@ def mean(ts: TIME_SERIES_TYPE) -> TS[float]:
 
     will produce the mean of the values of the time-series list each time the list changes
     """
-    raise NotImplementedError(f"No implementation found for {ts.output_type}")
 
 
 @graph(overloads=mean)
@@ -105,12 +104,11 @@ def clip_start(min_: NUMBER, max_: NUMBER):
     raise RuntimeError(f"clip given min: {min_}, max: {max_}, but min is not < max")
 
 
-@graph
+@operator
 def sum_(ts: TIME_SERIES_TYPE) -> TS[NUMBER]:
     """
     The sum of the values in the time-series
     """
-    raise NotImplementedError(f"No implementation found for {ts.output_type}")
 
 
 @compute_node
@@ -138,7 +136,7 @@ def average(ts: TS[NUMBER], _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     return accumulate(ts) / (count(ts) if _tp is int else cast_(float, count(ts)))
 
 
-@graph
+@operator
 def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
     """
     Delays the delivery of an input by the period specified. This period can either be a number of ticks
@@ -146,7 +144,6 @@ def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
 
     When a time-delta is specified the value will be scheduled to be delivered at the receipt time + period.
     """
-    raise NotImplementedError(f"No resolution found for lag: ts: {ts.output_type}, window: {period}")
 
 
 @graph(overloads=lag)
