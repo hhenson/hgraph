@@ -86,6 +86,22 @@ def test_unit_conversion_1():
             (U.meter/U.second).convert(1., to=U.meter_sq)
 
 
+def test_conversion_2():
+    with UnitSystem(__prefixes__={'m': 0.001}) as U:
+        U.length = PrimaryDimension()
+        U.meter = PrimaryUnit(dimension=U.length)
+
+        U.volume = U.length**3
+        U.cubic_meter = U.meter**3
+        U.liter = 0.001 * U.cubic_meter
+
+        U.bushel = 35.2391 * U.liter
+        U.pint = 0.568 * U.liter
+        U.add_prefixes(U.pint, ('m',))
+
+        assert (U.mpint**-1).convert(1., to=U.bushel**-1) == 1/0.000568 * 35.2391
+
+
 def test_offset_units():
     with UnitSystem() as U:
         U.temperature = PrimaryDimension()

@@ -56,6 +56,15 @@ class Tenor:
         else:
             return other.__add__(self)
 
+    def __mul__(self, other):
+        if isinstance(other, int):
+            return Tenor(tuple(i * other for i in self.ymwd_b))
+        else:
+            return other.__mul__(self)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
     def add_to(self, dt, calendar = None):
         if self.is_neg():
             return self.__neg__().sub_from(dt, calendar)

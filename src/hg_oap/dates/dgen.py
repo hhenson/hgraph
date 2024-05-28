@@ -99,7 +99,7 @@ class DGen(Item):
         if is_op(other):
             return lazy(self) < other
         if is_dgen(other) and self.is_single_date_gen():
-            return other.__ge__(self)
+            return other.__gt__(self)
         else:
             if lhs := getattr(self, '__compared__', None):
                 return BeforeDGen(lhs, make_date(other))
@@ -121,7 +121,7 @@ class DGen(Item):
         if is_op(other):
             return lazy(self) <= other
         if is_dgen(other) and self.is_single_date_gen():
-            return other.__gt__(self)
+            return other.__ge__(self)
         else:
             if lhs := getattr(self, '__compared__', None):
                 return BeforeOrOnDGen(lhs, make_date(other))
@@ -874,6 +874,9 @@ class RollFwdDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
+
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
         c = self.calendar or calendar
@@ -899,6 +902,9 @@ class RollBwdDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
+
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
         c = self.calendar or calendar
@@ -920,11 +926,19 @@ class DGenRetain(DGen):
     def __init__(self, gen):
         self.gen = gen
         self.last = None
+        self.all = []
+
+    def cadence(self):
+        return self.gen.cadence()
+
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
 
     def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
                    calendar: Calendar = None, **kwargs):
         for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
             self.last = d
+            self.all.append(d)
             yield d
 
     def __repr__(self):
