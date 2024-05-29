@@ -450,3 +450,11 @@ Version 0.2.33 (23-05-2024)
 
 * Updates to improve TSD behaviour at scale.
 * Many bug fixes.
+
+Version 0.2.34 (TBD)
+--------------------
+
+* Update to introduce the operator decorator
+* Modification of code to use operator for overloaded types.
+* Support for *args and **kwargs in operator definitions
+* Further updates and refinements to library design doc.
