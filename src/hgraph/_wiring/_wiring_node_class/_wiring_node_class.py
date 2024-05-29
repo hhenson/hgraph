@@ -337,7 +337,7 @@ def validate_and_resolve_signature(
         from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
         path = '\n'.join(str(p) for p in WiringGraphContext.wiring_path())
         raise WiringFailureError(
-            f"Failure resolving signature for {signature.signature}, graph call stack:\n{path}") from e
+            f"Failure resolving signature for {signature.signature} due to: {str(e)}, graph call stack:\n{path}") from e
 
 
 def create_input_output_builders(

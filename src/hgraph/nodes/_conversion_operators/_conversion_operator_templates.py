@@ -2,19 +2,16 @@ from hgraph import TIME_SERIES_TYPE, graph, AUTO_RESOLVE, operator
 from hgraph._types._time_series_types import OUT
 
 
-__all__ = ("collect", "emit")
+__all__ = ("convert", "combine", "collect", "emit")
 
 
 @operator
-def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = AUTO_RESOLVE) -> OUT:
+def convert(ts: TIME_SERIES_TYPE, to: type[OUT]) -> OUT:
     """
     Converts the incoming time series to the desired result type. This can be called in one of two ways:
     ::
         c = const(..., TS[set[str]])
         convert(c, TS[tuple[str, ...]])
-    or as:
-    ::
-        convert[OUT: TS[tuple[str, ...]]](c)
     """
 
 
@@ -60,4 +57,3 @@ def emit(ts: TIME_SERIES_TYPE) -> OUT:
     Accepts a collection representation, for example: ``TS[tuple[int, ...]]`` and returns a time-series of the values
     as a stream of individual ticks (in the example above that would be ``TS[int]``.
     """
-    raise NotImplemented(f"Not implemented for input type {type(ts)}")
