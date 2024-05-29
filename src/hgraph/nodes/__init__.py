@@ -1,4 +1,5 @@
 from hgraph.nodes._analytical import *
+from hgraph.nodes._conversion_operators import *
 from hgraph.nodes._compound_scalar_operators import *
 from hgraph.nodes._conditional import *
 from hgraph.nodes._const import *

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from functools import reduce
-from inspect import isfunction, signature
+from inspect import isfunction, signature, Parameter
 from operator import or_
 from typing import Callable, GenericAlias, _GenericAlias
 from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
@@ -405,6 +405,9 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     parameters = signature(fn).parameters
     args: tuple[str, ...] = tuple(parameters.keys())
     defaults = frozendict({k: p.default for k, p in parameters.items() if p.default is not p.empty})
+    var_args = tuple(p.name for p in parameters.values() if p.kind in (Parameter.VAR_KEYWORD, Parameter.VAR_POSITIONAL))
+    if len(var_args) > 0 and wiring_node_type != WiringNodeType.OPERATOR:
+        raise RuntimeError("Only operator nodes are allow variable arguments in their definition")
     filename = code.co_filename
     first_line = code.co_firstlineno
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
@@ -416,9 +419,9 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     if output_type is not None and type(output_type) is HgTimeSeriesSchemaTypeMetaData:
         raise ParseError(f"The output type is not valid, did you mean TSB[{output_type.py_type.__name__}]")
-    unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
-    time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
-    context_inputs = frozenset(a for a in args if input_types[a].is_context_manager)
+    unresolved_inputs = frozenset(a for a in args if (a in var_args) or not input_types[a].is_resolved)
+    time_series_inputs = frozenset(a for a in args if (a not in var_args) and not input_types[a].is_scalar)
+    context_inputs = frozenset(a for a in args if (a not in var_args) and input_types[a].is_context_manager)
 
 
     # Validations to ensure the signature matches the node type

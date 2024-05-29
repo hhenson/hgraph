@@ -18,9 +18,9 @@ def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = AUTO_RESOLVE) -> OUT:
     """
 
 
-# @operator
-# def combine(args: TIME_SERIES_TYPE, **kwargs) -> OUT:
-#     ...
+@operator
+def combine(*args: TIME_SERIES_TYPE, **kwargs) -> OUT:
+    ...
 
 
 @operator
