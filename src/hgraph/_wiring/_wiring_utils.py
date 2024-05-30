@@ -1,27 +1,35 @@
-from dataclasses import dataclass
-from typing import Mapping, Any, cast, TYPE_CHECKING
 from collections.abc import Set
+from dataclasses import dataclass
+from typing import Mapping, Any, cast, TYPE_CHECKING, _GenericAlias
 
 from frozendict import frozendict
 
-from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
-from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
-
+from hgraph._types._ref_meta_data import HgREFTypeMetaData
+from hgraph._types._scalar_types import Size
+from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._ts_type import TS
+from hgraph._types._tsb_type import TSB
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._types._tsd_type import TSD
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+from hgraph._types._tsl_type import TSL
+from hgraph._types._tss_type import TSS
+from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._stub_wiring_node import create_input_stub, create_output_stub
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
-from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
-from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
-from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
 
-__all__ = ("stub_wiring_port", "StubWiringPort", "as_reference", "wire_nested_graph", "extract_stub_node_indices")
+__all__ = (
+    "stub_wiring_port", "StubWiringPort", "as_reference", "wire_nested_graph",
+    "extract_stub_node_indices", "pretty_str_types"
+)
 
 
 @dataclass(frozen=True)
@@ -115,3 +123,21 @@ def extract_stub_node_indices(inner_graph, input_args: Set[str]) \
             elif arg == "__out__":
                 output_node_id = node_ndx
     return frozendict(input_node_ids), output_node_id
+
+
+def pretty_str_types(value: Any) -> str:
+    if isinstance(value, _GenericAlias):
+        value: _GenericAlias
+        return f"{pretty_str_types(value.__origin__)}[{', '.join(pretty_str_types(a) for a in value.__args__)}]"
+
+    if isinstance(value, type):
+        return {
+            TS: 'TS',
+            TSL: 'TSL',
+            TSD: 'TSD',
+            TSB: 'TSB',
+            TSS: 'TSS',
+            Size: 'Size',
+        }.get(value, value.__name__)
+
+    return str(value)

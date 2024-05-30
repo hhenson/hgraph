@@ -1,5 +1,6 @@
 from typing import Mapping, Any, TypeVar, Callable, TYPE_CHECKING, List, Tuple
 
+from hgraph._wiring._wiring_utils import pretty_str_types
 from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_errors import WiringFailureError
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, HgTypeMetaData, WiringNodeSignature, \
@@ -18,7 +19,7 @@ class OperatorWiringNodeClass(WiringNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         super().__init__(signature, fn)
-        self._overload_helper: OverloadedWiringNodeHelper = OverloadedWiringNodeHelper(self)
+        self._overload_helper: OverloadedWiringNodeHelper = OverloadedWiringNodeHelper()
 
     def overload(self, other: "WiringNodeClass"):
         self._overload_helper.overload(other)
@@ -97,8 +98,8 @@ class OverloadedWiringNodeHelper:
 
     overloads: List[Tuple[WiringNodeClass, float]]
 
-    def __init__(self, base: WiringNodeClass):
-        self.overloads = [(base, self._calc_rank(base.signature))]
+    def __init__(self, base: WiringNodeClass = None):
+        self.overloads = [(base, self._calc_rank(base.signature))] if base is not None else []
 
     def overload(self, impl: WiringNodeClass):
         self.overloads.append((impl, self._calc_rank(impl.signature)))
@@ -124,7 +125,7 @@ class OverloadedWiringNodeHelper:
                 if isinstance(e, WiringFailureError):
                     e = e.__cause__
 
-                p = lambda x: str(x.output_type.py_type) if isinstance(x, WiringPort) else str(x)
+                p = lambda x: pretty_str_types(x.output_type.py_type) if isinstance(x, WiringPort) else pretty_str_types(x)
                 reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
                                  f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
 

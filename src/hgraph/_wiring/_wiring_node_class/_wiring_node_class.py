@@ -136,7 +136,7 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool
     Extract the args and kwargs, apply defaults and validate the input shape as correct.
     This does not validate the types, just that all args are provided.
     """
-    if len(args) + len(kwargs) > len(signature.args):
+    if len(args) + len(kwargs) > len(signature.args) and not signature.has_var_args:
         raise SyntaxError(
             f"[{signature.signature}] More arguments are provided than are defined for this function")
     kwargs_ = extract_kwargs(signature, *args, _ignore_defaults=_ignore_defaults, **kwargs)

@@ -92,6 +92,7 @@ class WiringNodeSignature:
     record_and_replay_id: str | None = None
     deprecated: str | bool = False
     requires: Callable[[...], bool] | None = None
+    has_var_args: bool = False
 
     def __repr__(self):
         return self.signature
@@ -124,7 +125,8 @@ class WiringNodeSignature:
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     injectable_inputs=self.injectable_inputs, label=self.label,
                     record_and_replay_id=self.record_and_replay_id,
-                    deprecated=self.deprecated)
+                    deprecated=self.deprecated, requires=self.requires, has_var_args=self.has_var_args,
+                    )
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
         kwargs_ = self.as_dict() | kwargs
@@ -372,7 +374,7 @@ class WiringNodeSignature:
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:
             if not self.requires(resolution_dict, kwargs):
-                raise RequirementsNotMetWiringError(f"resolution dict was {resolution_dict}")
+                raise RequirementsNotMetWiringError(f"Failed requirements check with resolution dict {resolution_dict}")
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         with WiringContext(current_kwargs=kwargs):
@@ -406,8 +408,11 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     args: tuple[str, ...] = tuple(parameters.keys())
     defaults = frozendict({k: p.default for k, p in parameters.items() if p.default is not p.empty})
     var_args = tuple(p.name for p in parameters.values() if p.kind in (Parameter.VAR_KEYWORD, Parameter.VAR_POSITIONAL))
-    if len(var_args) > 0 and wiring_node_type != WiringNodeType.OPERATOR:
-        raise RuntimeError("Only operator nodes are allow variable arguments in their definition")
+    if len(var_args) > 0:
+        if wiring_node_type != WiringNodeType.OPERATOR:
+            raise RuntimeError("Only operator nodes are allow variable arguments in their definition")
+        else:
+            args = tuple(a for a in args if a not in var_args)  # Remove var_args
     filename = code.co_filename
     first_line = code.co_firstlineno
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
@@ -419,9 +424,9 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     if output_type is not None and type(output_type) is HgTimeSeriesSchemaTypeMetaData:
         raise ParseError(f"The output type is not valid, did you mean TSB[{output_type.py_type.__name__}]")
-    unresolved_inputs = frozenset(a for a in args if (a in var_args) or not input_types[a].is_resolved)
-    time_series_inputs = frozenset(a for a in args if (a not in var_args) and not input_types[a].is_scalar)
-    context_inputs = frozenset(a for a in args if (a not in var_args) and input_types[a].is_context_manager)
+    unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
+    time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
+    context_inputs = frozenset(a for a in args if input_types[a].is_context_manager)
 
 
     # Validations to ensure the signature matches the node type
@@ -473,7 +478,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         label=None,
         record_and_replay_id=None,
         deprecated=deprecated,
-        requires=requires
+        requires=requires,
+        has_var_args=len(var_args) > 0
     )
 
 

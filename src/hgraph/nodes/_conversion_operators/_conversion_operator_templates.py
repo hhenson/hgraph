@@ -6,7 +6,7 @@ __all__ = ("convert", "combine", "collect", "emit")
 
 
 @operator
-def convert(ts: TIME_SERIES_TYPE, to: type[OUT]) -> OUT:
+def convert(ts: TIME_SERIES_TYPE, to: type[OUT], **kwargs) -> OUT:
     """
     Converts the incoming time series to the desired result type. This can be called in one of two ways:
     ::
