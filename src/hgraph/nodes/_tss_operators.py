@@ -61,12 +61,12 @@ def tss_difference(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KE
     removed = set()
     lhs_value = lhs.value
     rhs_value = rhs.value
-    for i in lhs.added():
+    for i in lhs_value:
         if i not in rhs_value:
             added.add(i)
     for i in lhs.removed():
         removed.add(i)
-    for i in rhs.added():
+    for i in rhs_value:
         if i in lhs_value:
             removed.add(i)
     for i in rhs.removed():
@@ -77,14 +77,6 @@ def tss_difference(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KE
 
 @compute_node
 def tss_intersection(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
-    added = set()
     removed = lhs.removed() | rhs.removed()
-    lhs_value = lhs.value
-    rhs_value = rhs.value
-    for i in lhs.added():
-        if i in rhs_value:
-            added.add(i)
-    for i in rhs.added():
-        if i in lhs_value:
-            added.add(i)
+    added = rhs.value.intersection(lhs.value)
     return PythonSetDelta(added, removed)

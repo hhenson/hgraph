@@ -53,6 +53,17 @@ def test_tss_sub_or_difference():
            ==        [{1}, {2},  {Removed(1)}, None, {Removed(2)}]
 
 
+def test_tss_sub_or_difference_initial_lhs_valid_before_rhs():
+    @graph
+    def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
+        return tss1 - tss2
+
+    assert eval_node(app,
+                     [{1},  {2}],
+                     [None, {3}]) \
+           ==        [None, {1, 2} ]
+
+
 def test_tss_add_or_union():
     @graph
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
