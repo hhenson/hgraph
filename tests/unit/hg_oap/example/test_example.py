@@ -172,7 +172,7 @@ def test_example():
         register_service("price_service", price_service)
         register_service("instrument_service", instrument_service)
 
-        corn = Agricultural(symbol='C', name="corn", unit=U.bushel, unit_conversion_factors=(Quantity(0.75, U.kg / U.l),))
+        corn = Agricultural(symbol='C', name="corn", default_unit=U.bushel, unit_conversion_factors=(Quantity(0.75, U.kg / U.l),))
         corn_future_months = FutureContractSeries(
             spec=FutureContractSpec(
                 exchange_mic='CME',

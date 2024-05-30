@@ -1,4 +1,9 @@
-from calendar import MARCH
+import sys
+
+if sys.version_info >= (3, 12):
+    from calendar import MARCH
+else:
+    MARCH = 3
 
 from hg_oap.instruments.future import month_code, month_from_code
 
