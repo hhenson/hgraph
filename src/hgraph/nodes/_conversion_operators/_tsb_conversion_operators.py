@@ -1,5 +1,5 @@
 from hgraph import graph, TSB, TS_SCHEMA, OUT, TS
-from hgraph.nodes import convert
+from hgraph.nodes._conversion_operators._conversion_operator_templates import convert
 
 
 @graph(overloads=convert)
