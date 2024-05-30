@@ -15,6 +15,9 @@ from hg_oap.utils import ExprClass, Expression, SELF, ParameterOp
 from hg_oap.utils.op import lazy
 from hgraph import CompoundScalar
 
+__all__ = ("SettlementMethod", "Settlement", "FutureContractSpec", "FutureContractSeries", "Future",
+           "CONTRACT_BASE_DATE", "month_code", "month_from_code")
+
 
 class SettlementMethod(Enum):
     Deliverable: str = "Deliverable"
@@ -75,9 +78,17 @@ class FutureContractSeries(CompoundScalar, ExprClass, UnitConversionContext):
 CONTRACT_BASE_DATE = lazy(make_dgen)(ParameterOp(_name="CONTRACT_BASE_DATE"))
 
 
+MONTH_CODES = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
+
 def month_code(d: int | date) -> str:
+    # Return the month code corresponding to the month (as a date or a 1-based month number)
     m = (d.month if type(d) is date else d) - 1
-    return ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'][m]
+    return MONTH_CODES[m]
+
+
+def month_from_code(code: str) -> int:
+    # Return a 1-based month number from a month code
+    return MONTH_CODES.index(code) + 1
 
 
 @dataclass(frozen=True, kw_only=True)
