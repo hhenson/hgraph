@@ -169,6 +169,6 @@ class RequirementsNotMetWiringError(WiringError):
 
     def print_error(self):
         signature = self.signature.signature if self.signature else "unnamed graph"
-        msg = f"Requitements not met for '{signature}' \n{self.message}"
+        msg = f"Requirements not met for '{signature}' \n{self.message}"
         self._print_error(msg)
 

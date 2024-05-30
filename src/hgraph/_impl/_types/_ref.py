@@ -220,12 +220,14 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     @property
     def modified(self) -> bool:
-        if self._output is not None:
+        if self._sampled:
+            return True
+        elif self._output is not None:
             return self.output.modified
         elif self._items:
             return any(i.modified for i in self._items)
         else:
-            return self._sample_time != MIN_DT and self._sample_time == self.owning_graph.evaluation_clock.evaluation_time
+            return False
 
     @property
     def valid(self) -> bool:
