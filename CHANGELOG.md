@@ -458,3 +458,7 @@ Version 0.2.34 (TBD)
 * Modification of code to use operator for overloaded types.
 * Support for *args and **kwargs in operator definitions
 * Further updates and refinements to library design doc.
+* Initial implementations for convert.
+* Fix ref input modified (from Alex)
+* Fix TSS diff where lhs is valid before rhs
+* small error message fix
