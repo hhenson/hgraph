@@ -109,7 +109,7 @@ def _reduce_tsd(func, ts, zero):
     if not isinstance(zero, WiringPort):
         if zero is None:
             import hgraph
-            zero = hgraph._runtime._operators.zero(item_tp, func)
+            zero = hgraph._operators._operators.zero(item_tp, func)
         else:
             from hgraph.nodes import const
             zero = const(zero, item_tp)

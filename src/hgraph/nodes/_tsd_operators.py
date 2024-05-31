@@ -4,13 +4,10 @@ from typing import Type, Mapping, cast, Tuple
 
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
     STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, generator, WiringNodeClass, operator
-from hgraph._runtime._operators import getattr_, mul_, zero
-from hgraph._types._time_series_types import K_1, TIME_SERIES_TYPE_1
+    getattr_, mul_, zero, len_, AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, operator, is_empty, K_1, \
+    TIME_SERIES_TYPE_1
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const, nothing
-from hgraph._runtime._operators import len_
-from hgraph.nodes._set_operators import is_empty
 from hgraph.nodes._tsl_operators import merge
 
 __all__ = (
@@ -33,7 +30,7 @@ def make_tsd(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
 
 @compute_node(overloads=make_tsd, valid=("key",))
 def make_tsd_default(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
-             ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+                     ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
     """
     Make a TSD from a time-series of key and value, if either key or value ticks an entry in the TSD will be
     created / update. It is also possible to remove a key by setting remove_key to True.
@@ -88,10 +85,10 @@ def tsd_get_item(tsd: TSD[K, TIME_SERIES_TYPE], key: TS[K]) -> TIME_SERIES_TYPE:
 
 @compute_node(overloads=tsd_get_item, valid=("key",))
 def tsd_get_item_default(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
-                 _ref: REF[TIME_SERIES_TYPE] = None,
-                 _ref_ref: REF[TIME_SERIES_TYPE] = None,
-                 _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-                 _state: STATE[KeyValueRefState] = None) -> REF[TIME_SERIES_TYPE]:
+                         _ref: REF[TIME_SERIES_TYPE] = None,
+                         _ref_ref: REF[TIME_SERIES_TYPE] = None,
+                         _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+                         _state: STATE[KeyValueRefState] = None) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
     """
@@ -378,7 +375,8 @@ def merge_tsds(tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME
 
 
 @compute_node(overloads=merge)
-def merge_nested_tsds(tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+def merge_nested_tsds(tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) -> TSD[
+    K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     out = defaultdict(dict)
     removals = set()
     nested_removals = defaultdict(set)

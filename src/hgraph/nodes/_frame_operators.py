@@ -6,9 +6,8 @@ import polars as pl
 from frozendict import frozendict
 
 from hgraph import compute_node, Frame, TS, SCHEMA, SCALAR, AUTO_RESOLVE, Series, COMPOUND_SCALAR, K, TSD, \
-    HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, with_signature, TimeSeries
-from hgraph._runtime._operators import getitem_, getattr_, max_, min_
-from hgraph._types._scalar_types import COMPOUND_SCALAR_1
+    HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, with_signature, TimeSeries,getitem_, \
+    getattr_, max_, min_, COMPOUND_SCALAR_1
 
 __all__ = (
 "get_frame_col", "get_frame_item_", "get_frame_item_ts_", "frame_from_tsd_items", "frame_from_columns", "min_of_series")

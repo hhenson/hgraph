@@ -1,7 +1,6 @@
 from datetime import datetime, date, time, timedelta
 
-from hgraph import compute_node, graph, TS, SCALAR, SIGNAL
-from hgraph._runtime._operators import getattr_, add_, sub_, lt_, gt_, eq_, le_, ge_
+from hgraph import compute_node, graph, TS, SCALAR, SIGNAL, getattr_, add_, sub_, lt_, gt_, eq_, le_, ge_
 
 __all__ = (
     "datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr", "datetime_add_delta",

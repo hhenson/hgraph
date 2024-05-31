@@ -5,7 +5,7 @@ from typing import Type, TypeVar, Generic
 from hgraph import SCALAR, TS, HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, compute_node, \
     with_signature, TimeSeries, HgTupleFixedScalarType, HgTupleCollectionScalarType, TSL, STATE, CompoundScalar, \
     SCHEDULER, MIN_TD
-from hgraph._runtime._operators import getitem_
+from hgraph._operators._operators import getitem_
 from hgraph.nodes import flatten_tsl_values
 
 

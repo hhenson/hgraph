@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
            "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
-           "compound_scalar", "UnNamedCompoundScalar")
+           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2",)
 
 
 class _UnSet:
