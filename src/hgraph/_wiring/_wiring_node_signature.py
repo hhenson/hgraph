@@ -238,21 +238,40 @@ class WiringNodeSignature:
                                                           isinstance(v, HgTypeMetaData)} if pre_resolved_types else {}
         resolvers_dict: dict[TypeVar, Callable] = {k: v for k, v in pre_resolved_types.items() if
                                                           isfunction(v)} if pre_resolved_types else {}
-        for arg, meta_data in self.input_types.items():
-            # This will validate the input type against the signature's type so don't short-cut this logic!
-            with WiringContext(current_arg=arg):
-                if not meta_data.is_scalar and (kwt := kwarg_types.get(arg)) is not None and kwt.is_scalar:
-                    meta_data: HgTimeSeriesTypeMetaData
-                    meta_data.build_resolution_dict_from_scalar(resolution_dict, kwt, kwargs[arg])
-                else:
-                    meta_data.build_resolution_dict(resolution_dict, kwarg_types.get(arg))
-        # now ensures all "resolved" items are actually resolved
-        out_dict = {}
-        all_resolved = True
-        for k, v in resolution_dict.items():
-            if v is not None:
-                out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
-                all_resolved &= out_dict[k].is_resolved
+        args = self.input_types.keys()
+        delayed_resolution = []
+        for _ in range(len(args) + 1):  # Limit the number of goes to try and resolve everything
+            for arg in args:
+                meta_data = self.input_types[arg]
+
+                # This will validate the input type against the signature's type so don't short-cut this logic!
+                with WiringContext(current_arg=arg):
+                    kwt = kwarg_types.get(arg)
+                    kwarg = kwargs.get(arg)
+                    if isinstance(kwarg, TypeVar) and kwarg in self.typevars:
+                        if kwarg in resolution_dict:
+                            kwt = HgTypeOfTypeMetaData(resolution_dict[kwarg])
+                            kwarg_types[arg] = kwt
+                        else:
+                            delayed_resolution.append(arg)
+                            continue
+                    if kwt is not None and not meta_data.is_scalar and kwt.is_scalar:
+                        meta_data: HgTimeSeriesTypeMetaData
+                        meta_data.build_resolution_dict_from_scalar(resolution_dict, kwt, kwarg)
+                    else:
+                        meta_data.build_resolution_dict(resolution_dict, kwt)
+            # now ensures all "resolved" items are actually resolved
+            out_dict = {}
+            all_resolved = True
+            for k, v in resolution_dict.items():
+                if v is not None:
+                    out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
+                    all_resolved &= out_dict[k].is_resolved
+
+            if not delayed_resolution:
+                break
+            else:
+                args = delayed_resolution
 
         if resolvers_dict:
             scalars = {k: v for k, v in kwargs.items() if (kwt := kwarg_types.get(k)) and kwt.is_scalar}

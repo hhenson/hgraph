@@ -89,7 +89,7 @@ class HgTypeMetaData:
 
     @property
     def typevars(self):
-        return ()
+        return set()
 
     @property
     def operator_rank(self) -> float:

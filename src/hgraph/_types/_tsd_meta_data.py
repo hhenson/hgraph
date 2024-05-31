@@ -80,7 +80,7 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def typevars(self):
-        return self.key_tp.typevars + self.value_tp.typevars
+        return self.key_tp.typevars | self.value_tp.typevars
 
     @property
     def operator_rank(self) -> float:

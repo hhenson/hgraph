@@ -34,10 +34,12 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return self.meta_data_schema[item]
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return (tp_ := type(tp)) is HgTsTypeVarTypeMetaData or \
-            (tp_ is HgTimeSeriesSchemaTypeMetaData and \
-             self.meta_data_schema.keys() == tp.meta_data_schema.keys() and \
-             all(v.matches(w_v) for v, w_v in zip(self.meta_data_schema.values(), tp.meta_data_schema.values())))
+        tp_ = type(tp)
+        if tp_ is HgTsTypeVarTypeMetaData:
+            return True  # Not sure why is this
+
+        if tp_ is HgTimeSeriesSchemaTypeMetaData:
+            return self.py_type._matches(tp.py_type) or self.py_type._matches_schema(tp.py_type)
 
     @property
     def meta_data_schema(self) -> dict[str, "HgTimeSeriesTypeMetaData"]:
@@ -45,24 +47,29 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def is_resolved(self) -> bool:
-        return all(v.is_resolved for v in self.meta_data_schema.values())
+        return self.py_type._schema_is_resolved()
+
+    @property
+    def typevars(self):
+        return (set().union(*(t.typevars for t in self.meta_data_schema.values())) |
+                set(getattr(self.py_type, '__parameters__', ())))
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
         else:
-            schema = {k: v.resolve(resolution_dict, weak) for k, v in self.meta_data_schema.items()}
-            return HgTimeSeriesSchemaTypeMetaData(self.py_type._create_resolved_class(schema))
+            return HgTimeSeriesSchemaTypeMetaData(self.py_type._resolve(resolution_dict))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
+
         wired_type: HgTimeSeriesSchemaTypeMetaData
-        if len(self.meta_data_schema) != len(wired_type.meta_data_schema):
+        if self.is_resolved and len(self.meta_data_schema) != len(wired_type.meta_data_schema):
             raise ParseError(f"'{self.py_type}' schema does not match '{wired_type.py_type}'")
         if any(k not in wired_type.meta_data_schema for k in self.meta_data_schema.keys()):
             raise ParseError("Keys of schema do not match")
-        for v, w_v in zip(self.meta_data_schema.values(), wired_type.meta_data_schema.values()):
-            v.build_resolution_dict(resolution_dict, w_v)
+
+        self.py_type._build_resolution_dict(resolution_dict, wired_type.py_type)
 
     def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
                                           wired_type: "HgTypeMetaData", value: object):
@@ -171,7 +178,7 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def typevars(self):
-        return tuple(chain(t.typevars for t in self.bundle_schema_tp.meta_data_schema.values()))
+        return self.bundle_schema_tp.typevars
 
     @property
     def operator_rank(self) -> float:

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import ForwardRef
+from typing import ForwardRef, Generic
 
 from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext, \
     compound_scalar, ts_schema
@@ -99,7 +99,7 @@ def test_simple_compound_scalar():
 
 
 @dataclass(frozen=True)
-class UnResolvedCompoundScalar(CompoundScalar):
+class UnResolvedCompoundScalar(CompoundScalar, Generic[SCALAR]):
     p1: SCALAR
     p2: str
 
