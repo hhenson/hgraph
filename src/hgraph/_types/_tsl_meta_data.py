@@ -75,6 +75,24 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
                 raise ParseError(f"'{value_tp.__args__[1]}' is not a valid Size type")
             return HgTSLTypeMetaData(v_meta_data, sz_meta_data)
 
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph import WiringPort, Size, HgTSTypeMetaData
+
+        if isinstance(value, (list, tuple)):
+            size = len(value)
+            type_ = next((v.output_type for v in value if isinstance(v, WiringPort)), None)
+            if not type_:
+                type_ = HgTypeMetaData.parse_value(next(i for i in value if i is not None))
+                if type_ is None:
+                    type_ = HgTSTypeMetaData(type_)
+                else:
+                    return None
+
+            return HgTSLTypeMetaData(type_, HgScalarTypeMetaData.parse_value(Size[size]))
+
+        return super().parse_value(value)
+
     @property
     def has_references(self) -> bool:
         return self.value_tp.has_references

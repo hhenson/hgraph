@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Generic
 
 import numpy as np
 
@@ -11,7 +12,7 @@ __all__ = ("NpRollingWindowResult", "NpRollingWindowState", "np_rolling_window",
 
 
 @dataclass
-class NpRollingWindowResult(TimeSeriesSchema):
+class NpRollingWindowResult(TimeSeriesSchema, Generic[SCALAR, SIZE]):
     buffer: TS[Array[SCALAR, SIZE]]
     index: TS[Array[datetime, SIZE]]
 

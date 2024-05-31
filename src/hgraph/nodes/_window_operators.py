@@ -1,5 +1,6 @@
 from collections import deque
 from datetime import timedelta, datetime
+from typing import Generic
 
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
     AUTO_RESOLVE, operator
@@ -13,7 +14,7 @@ from hgraph.nodes._stream_operators import sample
 __all__ = ("RollingWindowResult", "rolling_window", "rolling_average")
 
 
-class RollingWindowResult(TimeSeriesSchema):
+class RollingWindowResult(TimeSeriesSchema, Generic[SCALAR]):
     buffer: TS[tuple[SCALAR, ...]]
     index: TS[tuple[datetime, ...]]
 

@@ -113,7 +113,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
 
     @property
     def typevars(self):
-        return (self.py_type,)
+        return {self.py_type}
 
     @property
     def operator_rank(self) -> float:
@@ -411,7 +411,7 @@ class HgStateType(HgInjectableType):
 
     @property
     def injector(self):
-        return StateInjector(self.state_type.py_type if self.state_type.is_resolved else None)
+        return StateInjector(self.state_type.py_type if self.state_type is not None else None)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
@@ -422,12 +422,20 @@ class HgStateType(HgInjectableType):
                 raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to STATE")
             return HgStateType(bundle_tp)
         if value_tp is STATE:
-            from hgraph._types._scalar_types import COMPOUND_SCALAR
-            return HgStateType(HgScalarTypeMetaData.parse_type(COMPOUND_SCALAR))
+            return HgStateType(None)
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         return cls.parse_type(type(value))
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.state_type is None or self.state_type.is_resolved
+
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
+        if self.is_resolved:
+            return self
+        return HgStateType(self.state_type.resolve(resolution_dict, weak))
 
 
 class OutputInjector(Injector):
@@ -521,7 +529,7 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
 
     @property
     def typevars(self):
-        return tuple(itertools.chain(t.typevars for t in self.element_type))
+        return set().union(*(t.typevars for t in self.element_type))
 
     @property
     def operator_rank(self) -> float:
@@ -649,7 +657,7 @@ class HgTupleFixedScalarType(HgTupleScalarType):
 
     @property
     def typevars(self):
-        return tuple(itertools.chain(t.typevars for t in self.element_types))
+        return set().union(*(t.typevars for t in self.element_types))
 
     @property
     def operator_rank(self) -> float:
@@ -778,7 +786,7 @@ class HgDictScalarType(HgCollectionType):
 
     @property
     def typevars(self):
-        return self.key_type.typevars + self.value_type.typevars
+        return self.key_type.typevars | self.value_type.typevars
 
     @property
     def operator_rank(self) -> float:
@@ -858,18 +866,21 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     @property
     def typevars(self):
-        return tuple(itertools.chain(t.typevars for t in self.py_type.__meta_data_schema__.values()))
+        return (set().union(*(t.typevars for t in self.py_type.__meta_data_schema__.values()))
+                | set(getattr(self.py_type, '__parameters__', ())))
 
     @property
     def operator_rank(self) -> float:
-        return super().operator_rank / self.py_type.__mro__.index(CompoundScalar)
+        return (super().operator_rank / self.py_type.__mro__.index(CompoundScalar) +
+                sum(HgScalarTypeVar.parse_type(tp).operator_rank for tp in self.typevars) / 100.)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgCompoundScalarType and (issubclass(tp.py_type, self.py_type) or self.__eq__(tp))
 
     @property
     def is_resolved(self) -> bool:
-        return all(tp.is_resolved for tp in self.meta_data_schema.values())
+        return (all(tp.is_resolved for tp in self.meta_data_schema.values())
+                and not getattr(self.py_type, '__parameters__', False))
 
     def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
         return isinstance(tp, HgScalarTypeMetaData) and issubclass(self.py_type, tp.py_type)
@@ -894,8 +905,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         if self.is_resolved:
             return self
         else:
-            schema = {k: v.resolve(resolution_dict, weak) for k, v in self.meta_data_schema.items()}
-            return HgCompoundScalarType(self.py_type._create_resolved_class(schema))
+            return HgCompoundScalarType(self.py_type._resolve(resolution_dict))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)

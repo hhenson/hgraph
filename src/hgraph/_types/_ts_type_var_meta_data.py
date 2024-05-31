@@ -53,7 +53,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def typevars(self):
-        return (self.py_type,)
+        return {self.py_type}
 
     @property
     def operator_rank(self) -> float:

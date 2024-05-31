@@ -1,4 +1,5 @@
 import inspect
+from copy import copy
 from dataclasses import replace
 from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple, List
 
@@ -109,25 +110,44 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
     If _ensure_match is True, then the final kwargs must match the signature exactly.
     _allow_missing_count is the number of missing arguments that are allowed.
     """
-    kwargs_ = {k: arg for k, arg in zip(signature.args[_args_offset:], args)}  # Map the *args to keys
+    kwargs = copy(kwargs)
+    kwargs_ = {}
+    args_offset = _args_offset
+    for i, (k, arg) in enumerate(zip(signature.args[_args_offset:], args)):
+        args_offset += 1
+        if k == signature.var_arg:
+            kwargs_[k] = args[i:]
+            i = len(args)
+            break
+        else:
+            kwargs_[k] = arg
+
     if any(k in kwargs for k in kwargs_):
         raise SyntaxError(
             f"[{signature.signature}] The following keys are duplicated: {[k for k in kwargs_ if k in kwargs]}")
-    kwargs_ |= kwargs  # Merge in the current kwargs
+
+    for k in signature.args[args_offset:]:
+        if kwargs and k in kwargs:
+            kwargs_[k] = kwargs.pop(k)
+        if k == signature.var_kwarg and k not in kwargs_:
+            kwargs_[k] = kwargs
+            break
+
     if not _ignore_defaults:
         kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
     else:
         # Ensure we have all blanks filled in to make validations work
         kwargs_ |= {k: v if k in signature.defaults else None for k, v in signature.defaults.items() if
                     k not in kwargs_}
-    if _ensure_match and any(arg not in kwargs_ for arg in signature.args):
+
+    if _ensure_match and any(arg not in kwargs_ for arg in signature.args[_args_offset:]):
         raise SyntaxError(f"[{signature.signature}] Has incorrect kwargs names "
                           f"{[arg for arg in kwargs_ if arg not in signature.args]} "
                           f"expected: {[arg for arg in signature.args if arg not in kwargs_]}")
-    # Filter kwargs to ensure only valid keys are present, this will also align the order of kwargs with args.
-    kwargs_ = {k: kwargs_[k] for k in signature.args if k in kwargs_}
+
     if _ensure_match and len(kwargs_) < len(signature.args) - _args_offset:
         raise MissingInputsError(kwargs_)
+
     return kwargs_
 
 
@@ -136,7 +156,7 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool
     Extract the args and kwargs, apply defaults and validate the input shape as correct.
     This does not validate the types, just that all args are provided.
     """
-    if len(args) + len(kwargs) > len(signature.args) and not signature.has_var_args:
+    if len(args) + len(kwargs) > len(signature.args) and not signature.var_arg and not signature.var_kwarg:
         raise SyntaxError(
             f"[{signature.signature}] More arguments are provided than are defined for this function")
     kwargs_ = extract_kwargs(signature, *args, _ignore_defaults=_ignore_defaults, **kwargs)

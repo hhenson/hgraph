@@ -10,7 +10,7 @@ from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYP
 from frozendict import frozendict
 
 from hgraph._types._scalar_types import SCALAR, CompoundScalar
-from hgraph._types._schema_type import AbstractSchema
+from hgraph._types._schema_type import AbstractSchema, Base
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
@@ -18,7 +18,7 @@ from hgraph._types._typing_utils import nth
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
-    HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, TS
+    HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, TS, HgCompoundScalarType
 
 __all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
            "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "ts_schema")
@@ -45,7 +45,11 @@ class TimeSeriesSchema(AbstractSchema):
             cls.__scalar_type__ = scalar_type
 
     def __class_getitem__(cls, item):
-        out = super(TimeSeriesSchema, cls).__class_getitem__(item)
+        items = tuple(cls.from_scalar_schema(a)
+              if isinstance(a, type) and issubclass(a, CompoundScalar) else a
+              for a in (item if isinstance(item, tuple) else (item,)))
+
+        out = super(TimeSeriesSchema, cls).__class_getitem__(items)
         if cls.scalar_type() and item is not TS_SCHEMA:
             out.__scalar_type__ = out.to_scalar_schema()
         return out
@@ -72,22 +76,30 @@ class TimeSeriesSchema(AbstractSchema):
                        if not isfunction(d := getattr(schema, k, None)) and not isdatadescriptor(d)}
 
         bases = []
+        generic = False
         for b in schema.__bases__:
             if issubclass(b, CompoundScalar):
                 bases.append(TimeSeriesSchema.from_scalar_schema(b))
             elif b is Generic:
-                bases.append(Generic[schema.__parameters__])
+                generic = True
             else:
                 bases.append(b)
+
+        if generic or getattr(schema, '__parameters__', None):
+            bases.append(Generic[schema.__parameters__])
+
+        namespace = {
+            "__annotations__": annotations,
+            "__module__": schema.__module__,
+        }
+
+        if base_typevar := getattr(schema, '__base_typevar__', None):
+            namespace['__base_typevar__'] = base_typevar
 
         tsc_schema = types.new_class(f"{schema.__name__}Bundle",
                                      tuple(bases),
                                      None,
-                                     lambda ns: ns.update({
-                                         "__annotations__": annotations,
-                                         "__module__": schema.__module__,
-                                         "__build_meta_data__": getattr(schema, "__build_meta_data__", True)
-                                     }))
+                                     lambda ns: ns.update(namespace))
 
         tsc_schema.__scalar_type__ = schema
         schema.__bundle_type__ = tsc_schema
@@ -109,7 +121,9 @@ class TimeSeriesSchema(AbstractSchema):
 
         if (root := cls._root_cls()) and root is not cls:
             root_scalar = root.to_scalar_schema()
-            return root_scalar[cls.__args__]
+            return root_scalar[tuple(a.to_scalar_schema()
+                                     if isinstance(a, type) and issubclass(a, TimeSeriesSchema) else a
+                                     for a in cls.__args__)]
 
         bases = tuple(b.to_scalar_schema() if issubclass(b, TimeSeriesSchema) else b
                       for b in cls.__bases__)
@@ -124,10 +138,42 @@ class TimeSeriesSchema(AbstractSchema):
                              bases,
                              {"__annotations__": annotations, "__module__": cls.__module__})
 
-        scalar_schema = dataclass(scalar_schema, frozen=True)  #should this be kw_only too?
+        if hasattr(scalar_schema, '__dataclass_fields__'):
+            p = scalar_schema.__dataclass_params__
+            scalar_schema = dataclass(scalar_schema, frozen=p.frozen, init=p.init, eq=p.eq, repr=p.repr)
+        else:
+            scalar_schema = dataclass(scalar_schema, frozen=True)
 
         scalar_schema.__bundle_type__ = cls
         return scalar_schema
+
+    @classmethod
+    def _build_resolution_dict(cls, resolution_dict: dict[TypeVar, "HgTypeMetaData"], resolved: "AbstractSchema"):
+        """
+        Build the resolution dictionary for the resolved class.
+        """
+        for k, v in cls.__meta_data_schema__.items():
+            if r := resolved._schema_get(k):
+                v.do_build_resolution_dict(resolution_dict, r)
+        if (base := getattr(cls, '__base_typevar__', None)) is not None:
+            base = getattr(cls, '__base_typevar_meta_', None) or cls._parse_type(base)
+            if r := getattr(resolved, '__base_resolution_meta__', None):
+                if base.is_scalar and not r.is_scalar:
+                    r = r.scalar_type()
+                base.do_build_resolution_dict(resolution_dict, r)
+
+    @classmethod
+    def _resolve(cls, resolution_dict) -> Type["AbstractSchema"]:
+        """
+        Resolve the class using the resolution dictionary provided.
+        """
+        from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
+        resolution_dict = {
+            k: cls._parse_type(cls.from_scalar_schema(v.py_type)) if isinstance(v, HgCompoundScalarType) else v
+            for k, v in resolution_dict.items()
+        }
+        return super()._resolve(resolution_dict)
+
 
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
@@ -290,7 +336,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         return kwargs
 
     @staticmethod
-    def from_ts(**kwargs) -> "TimeSeriesBundleInput[TS_SCHEMA]":
+    def from_ts(arg=None, /, **kwargs) -> "TimeSeriesBundleInput[TS_SCHEMA]":
         """
         Create an instance of the TSB[SCHEMA] from the kwargs provided.
         This should be used in a graph instance only. It produces an instance of an un-bound time-series bundle with
@@ -300,6 +346,12 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         """
         schema: TS_SCHEMA = kwargs.pop("__schema__")
         fn_details = TimeSeriesBundleInput.from_ts.__code__
+
+        if arg is not None:
+            if not isinstance(arg, dict):
+                raise ParseError(f"Expected a dictionary of values, got {arg}")
+            kwargs.update(arg)
+
         kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
 
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSBTypeMetaData, \
