@@ -219,7 +219,7 @@ def test_contexts_and_conversion_factors_2():
         @dataclass
         class MyAsset:
             name: str
-            density: Quantity
+            density: Quantity[float]
 
         @dataclass
         class MyInstrument(CompoundScalar, ExprClass, UnitConversionContext):
@@ -230,7 +230,7 @@ def test_contexts_and_conversion_factors_2():
             price_tick_size: float
             price_currency: str
 
-            unit_conversion_factors: tuple[Quantity] = \
+            unit_conversion_factors: tuple[Quantity[float]] = \
                 lambda self: (
                     Quantity(self.lot_size, self.unit / U.lot),
                     self.asset.density,

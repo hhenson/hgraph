@@ -11,7 +11,7 @@ __all__ = ("Quantity",)
 EPSILON = 1e-9
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True, repr=False)
 class Quantity(CompoundScalar, Generic[NUMBER]):
     qty: NUMBER
     unit: Unit

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TypeVar, Any, cast
+from typing import TypeVar, Any, cast, Generic
 
 from hgraph import CompoundScalar, HgScalarTypeMetaData, HgScalarTypeVar
 
@@ -45,7 +45,7 @@ class MultiLegOrderType(OrderType):
 
 
 @dataclass(frozen=True)
-class IfDone(MultiLegOrderType):
+class IfDone(MultiLegOrderType, Generic[SINGLE_LEG_ORDER_TYPE_1, SINGLE_LEG_ORDER_TYPE_2]):
     """
     The 'if_' leg is processed first, if the 'if_' completed, the 'done' leg is then placed.
     """
@@ -54,7 +54,7 @@ class IfDone(MultiLegOrderType):
 
 
 @dataclass(frozen=True)
-class OneCancelOther(MultiLegOrderType):
+class OneCancelOther(MultiLegOrderType, Generic[SINGLE_LEG_ORDER_TYPE_1, SINGLE_LEG_ORDER_TYPE_2]):
     """
     Both 'one' and 'other' are attempted to execute, then if either is traded, the other is cancelled.
     If the leg order supports partial fills, then fills for each leg are considered as reducing the open quantity
@@ -69,7 +69,7 @@ class OneCancelOther(MultiLegOrderType):
 
 
 @dataclass(frozen=True)
-class IfDoneOneCancelOther(MultiLegOrderType):
+class IfDoneOneCancelOther(MultiLegOrderType, Generic[SINGLE_LEG_ORDER_TYPE_1, SINGLE_LEG_ORDER_TYPE_2]):
     """
     As with IfDone, the 'if_' is processed first, one completion, the 'done_one' and 'done_other' are placed using the
     logic of OneCancelOther.

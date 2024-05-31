@@ -70,7 +70,7 @@ def test_exprclass_dates():
     class date_expr_2:
         SELF: 'date_expr_2'
 
-        today: date = lambda x: date.today()
+        today: date = lambda x: date(date.today().year, date.today().month, 1)
         in_a_month: date = SELF.today + Tenor('1m')
         days_in_month: list[date] = SELF.today <= days < SELF.in_a_month
         number_of_days: int = lazy(len)(SELF.days_in_month)
