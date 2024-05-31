@@ -336,7 +336,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         return kwargs
 
     @staticmethod
-    def from_ts(**kwargs) -> "TimeSeriesBundleInput[TS_SCHEMA]":
+    def from_ts(arg=None, /, **kwargs) -> "TimeSeriesBundleInput[TS_SCHEMA]":
         """
         Create an instance of the TSB[SCHEMA] from the kwargs provided.
         This should be used in a graph instance only. It produces an instance of an un-bound time-series bundle with
@@ -346,6 +346,12 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         """
         schema: TS_SCHEMA = kwargs.pop("__schema__")
         fn_details = TimeSeriesBundleInput.from_ts.__code__
+
+        if arg is not None:
+            if not isinstance(arg, dict):
+                raise ParseError(f"Expected a dictionary of values, got {arg}")
+            kwargs.update(arg)
+
         kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
 
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSBTypeMetaData, \

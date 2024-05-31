@@ -94,7 +94,7 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
     @classmethod
     def from_ts(cls, *args, tp=TIME_SERIES_TYPE, size=SIZE) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
         """To force a Type (to ensure input types are as expected, then provide __type__ and / or __size__"""
-        if len(args) == 1 and isinstance(args[0], Generator):
+        if len(args) == 1 and isinstance(args[0], (Generator, list, tuple)):
             args = [arg for arg in args[0]]
         size_, tp_ = cls._validate_inputs(*args, tp_=tp, size_=size)
         fn_details = TimeSeriesListInput.from_ts.__code__

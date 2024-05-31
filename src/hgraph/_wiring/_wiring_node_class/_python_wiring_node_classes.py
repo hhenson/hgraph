@@ -1,6 +1,10 @@
-from typing import TYPE_CHECKING
+import inspect
+import types
+from typing import TYPE_CHECKING, Callable
 
+from hgraph._types._typing_utils import with_signature
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
@@ -47,6 +51,15 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
 
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
+
+    def __init__(self, signature: WiringNodeSignature, fn: Callable):
+        if signature.var_arg or signature.var_kwarg:
+            co = fn.__code__
+            kw_only_code = co.replace(co_flags=co.co_flags & ~(inspect.CO_VARARGS | inspect.CO_VARKEYWORDS),
+                                       co_argcount=0, co_posonlyargcount=0, co_kwonlyargcount=len(signature.args))
+            fn = types.FunctionType(kw_only_code, fn.__globals__)
+
+        super().__init__(signature, fn)
 
     def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder import PythonNodeBuilder

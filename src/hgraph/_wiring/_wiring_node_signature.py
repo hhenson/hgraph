@@ -92,7 +92,8 @@ class WiringNodeSignature:
     record_and_replay_id: str | None = None
     deprecated: str | bool = False
     requires: Callable[[...], bool] | None = None
-    has_var_args: bool = False
+    var_arg: str = None
+    var_kwarg: str = None
 
     def __repr__(self):
         return self.signature
@@ -125,7 +126,7 @@ class WiringNodeSignature:
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     injectable_inputs=self.injectable_inputs, label=self.label,
                     record_and_replay_id=self.record_and_replay_id,
-                    deprecated=self.deprecated, requires=self.requires, has_var_args=self.has_var_args,
+                    deprecated=self.deprecated, requires=self.requires, var_arg=self.var_arg, var_kwarg=self.var_kwarg
                     )
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
@@ -187,14 +188,19 @@ class WiringNodeSignature:
                         elif _ensure_match:
                             raise CustomMessageWiringError(
                                 f"Argument '{k}' is not marked as optional, but no value was supplied")
-                if k in filter(lambda k_: k_ in self.time_series_args, self.args):
+                if k in self.time_series_args:
                     # This should then get a wiring node, and we would like to extract the output type,
                     # But this is optional, so we should ensure that the type is present
                     if arg is None:
                         continue  # We will wire in a null source later
                     from hgraph import WiringPort
                     if not isinstance(arg, WiringPort):
-                        tp = HgScalarTypeMetaData.parse_value(arg)
+                        if k == self.var_arg and isinstance(arg, (list, tuple)):
+                            tp = self.input_types[k].parse_value(arg)
+                        elif k == self.var_kwarg and isinstance(arg, (dict, frozendict)):
+                            tp = self.input_types[k].parse_value(arg)
+                        else:
+                            tp = HgScalarTypeMetaData.parse_value(arg)
                         kwarg_types[k] = tp
                     elif arg.output_type:
                         kwarg_types[k] = arg.output_type
@@ -350,13 +356,18 @@ class WiringNodeSignature:
         we use fully resolved inputs when doing comparisons of WiringNodeInstance'. Which reduces the number
         of duplicate nodes we create (especially for const nodes).
         """
+        from hgraph._wiring._wiring_port import WiringPort
+
         for arg, v in self.input_types.items():
             v = v.dereference()
-            if not v.is_scalar and kwarg_types[arg].is_scalar:
-                if not v.scalar_type().matches(kwarg_types[arg]):
-                    raise IncorrectTypeBinding(v, kwarg_types[arg])
-                from hgraph.nodes import const
-                kwargs[arg] = const(kwargs[arg], tp=v.py_type)
+            if not v.is_scalar:
+                if kwarg_types[arg].is_scalar:
+                    if not v.scalar_type().matches(kwarg_types[arg]):
+                        raise IncorrectTypeBinding(v, kwarg_types[arg])
+                    from hgraph.nodes import const
+                    kwargs[arg] = const(kwargs[arg], tp=v.py_type)
+                elif not isinstance(kwargs[arg], WiringPort) and isinstance(kwargs[arg], (tuple, list, dict, frozendict)):
+                    kwargs[arg] = v.py_type.from_ts(kwargs[arg])
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
@@ -426,12 +437,13 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     parameters = signature(fn).parameters
     args: tuple[str, ...] = tuple(parameters.keys())
     defaults = frozendict({k: p.default for k, p in parameters.items() if p.default is not p.empty})
-    var_args = tuple(p.name for p in parameters.values() if p.kind in (Parameter.VAR_KEYWORD, Parameter.VAR_POSITIONAL))
-    if len(var_args) > 0:
-        if wiring_node_type != WiringNodeType.OPERATOR:
-            raise RuntimeError("Only operator nodes are allow variable arguments in their definition")
-        else:
-            args = tuple(a for a in args if a not in var_args)  # Remove var_args
+    var_arg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_POSITIONAL), None)
+    var_kwarg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_KEYWORD), None)
+    if var_arg or var_kwarg:
+        if wiring_node_type == WiringNodeType.OPERATOR:
+            # Remove var_args from operators - they are decorative
+            args = tuple(a for a in args if a not in (var_arg, var_kwarg))
+
     filename = code.co_filename
     first_line = code.co_firstlineno
     # Once we start defaulting, all attributes must be defaulted, so we can count backward
@@ -446,7 +458,6 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     unresolved_inputs = frozenset(a for a in args if not input_types[a].is_resolved)
     time_series_inputs = frozenset(a for a in args if not input_types[a].is_scalar)
     context_inputs = frozenset(a for a in args if input_types[a].is_context_manager)
-
 
     # Validations to ensure the signature matches the node type
     if wiring_node_type in (WiringNodeType.PULL_SOURCE_NODE, WiringNodeType.PUSH_SOURCE_NODE):
@@ -498,7 +509,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         record_and_replay_id=None,
         deprecated=deprecated,
         requires=requires,
-        has_var_args=len(var_args) > 0
+        var_arg=var_arg,
+        var_kwarg=var_kwarg
     )
 
 

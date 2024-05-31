@@ -2,6 +2,8 @@ from hashlib import sha1
 from itertools import chain
 from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
+from frozendict import frozendict
+
 from hgraph._types._typing_utils import nth
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
@@ -109,6 +111,20 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return HgTimeSeriesSchemaTypeMetaData(TimeSeriesSchema.from_scalar_schema(value_tp))
         return None
 
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph import UnNamedTimeSeriesSchema, HgTSTypeMetaData, WiringPort
+
+        if isinstance(value, (dict, frozendict)):
+            types = {
+                k: HgTSTypeMetaData(HgScalarTypeMetaData.parse_value(v))
+                if not isinstance(v, WiringPort) else v.output_type
+                for k, v in value.items()}
+
+            return HgTimeSeriesSchemaTypeMetaData(UnNamedTimeSeriesSchema.create(**types))
+
+        return super().parse_value(value)
+
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTimeSeriesSchemaTypeMetaData and \
             self.meta_data_schema == o.meta_data_schema
@@ -165,6 +181,14 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
                                                    (HgTimeSeriesSchemaTypeMetaData, HgTsTypeVarTypeMetaData)):
                 raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to TSB")
             return HgTSBTypeMetaData(bundle_tp)
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        if isinstance(value, dict):
+            return HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData.parse_value(value))
+
+        return super().parse_value(value)
+
 
     @property
     def has_references(self) -> bool:
