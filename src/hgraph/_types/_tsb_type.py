@@ -10,7 +10,7 @@ from typing import Union, Any, Generic, Optional, get_origin, TypeVar, Type, TYP
 from frozendict import frozendict
 
 from hgraph._types._scalar_types import SCALAR, CompoundScalar
-from hgraph._types._schema_type import AbstractSchema, Base
+from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
