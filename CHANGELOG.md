@@ -451,8 +451,8 @@ Version 0.2.33 (23-05-2024)
 * Updates to improve TSD behaviour at scale.
 * Many bug fixes.
 
-Version 0.2.34 (TBD)
---------------------
+Version 0.2.34 (30-05-2024)
+---------------------------
 
 * Update to introduce the operator decorator
 * Modification of code to use operator for overloaded types.
@@ -462,3 +462,11 @@ Version 0.2.34 (TBD)
 * Fix ref input modified (from Alex)
 * Fix TSS diff where lhs is valid before rhs
 * small error message fix
+
+Version 0.2.35 (01-06-2024)
+---------------------------
+
+* Update handling of Generic schema's to properly manage the generic handling and resolution.
+* Update parser to handle *arg: TSL[...] -> arg: TSL[...] (with mapping the elements to the time-series value)
+* Similar change to handle **kwargs: TSB[TS_SCHEMA] -> kwargs: TSB[TS_SCHEMA] (with the provided kwargs being the 
+  values making up the schema) (rough equivalent of TSB.from_ts(**kwargs) but automated.)
