@@ -38,7 +38,7 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
     def matches(self, tp: "HgTypeMetaData") -> bool:
         tp_ = type(tp)
         if tp_ is HgTsTypeVarTypeMetaData:
-            return True  # Not sure why is this
+            return True  # If we are matching a TIME_SERIES_TYPE, this matches that
 
         if tp_ is HgTimeSeriesSchemaTypeMetaData:
             return self.py_type._matches(tp.py_type) or self.py_type._matches_schema(tp.py_type)
