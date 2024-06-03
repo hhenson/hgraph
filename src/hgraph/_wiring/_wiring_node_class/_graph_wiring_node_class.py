@@ -135,7 +135,7 @@ class WiringGraphContext:
         for port, locals in self._other_nodes:
             varname = next((k for k, v in locals.items() if v is port), None)
             if varname and port.path == ():
-                port.node_instance.set_label(varname)
+                port.node_instance.label=varname
 
     def register_service_client(self, service: "ServiceInterfaceNodeClass", path: str, type_map: dict = None,
                                 node: "WiringNodeInstance" = None):

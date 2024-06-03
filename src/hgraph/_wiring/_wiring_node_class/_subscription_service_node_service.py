@@ -72,7 +72,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             f"{self.signature.name}_{arg}",
             (tp := TSS[self.signature.input_types[arg].resolve(resolution_dict).scalar_type().py_type]),
         )
-        subscriptions.set_label(f"{typed_path}/inputs/{arg}")
+        subscriptions.label = f"{typed_path}/inputs/{arg}"
         subscriptions = _wiring_port_for(tp, subscriptions, tuple())
         capture_output_node_to_global_state(f"{typed_path}/subs", subscriptions)
 
