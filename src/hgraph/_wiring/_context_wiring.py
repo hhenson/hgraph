@@ -1,7 +1,9 @@
 import sys
 from collections import namedtuple
 from contextlib import AbstractContextManager
-from typing import Mapping, Any
+from typing import Mapping, Any, TYPE_CHECKING
+
+from frozendict import frozendict
 
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types import (TS, SCALAR, TIME_SERIES_TYPE, REF, STATE,
@@ -9,6 +11,10 @@ from hgraph._types import (TS, SCALAR, TIME_SERIES_TYPE, REF, STATE,
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_port import WiringPort
+
+if TYPE_CHECKING:
+    from hgraph import WiringNodeInstance
+
 
 __all__ = ('TimeSeriesContextTracker', 'CONTEXT_TIME_SERIES_TYPE')
 
@@ -89,6 +95,11 @@ class TimeSeriesContextTracker(AbstractContextManager):
         # we are making an assumption here that the rank of the capture_output_to_global_state node
         # is always 1 higher than the rank of the context manager node
         return max(0, 0, *(c[0].rank + 1 for c in self.contexts if c[1] is scope))
+
+    def rank_marker(self, scope) -> frozendict[str, "WiringNodeInstance"]:
+        # Provide a stub wiring node that will allow us to ensure the marker ranks the dependants correctly
+        inputs = frozendict({c.path: c.context.node_instance for c in self.contexts if c.scope is scope})
+        return inputs
 
 
 @sink_node(active=tuple(), valid=tuple())

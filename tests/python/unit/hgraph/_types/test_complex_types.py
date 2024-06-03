@@ -1,12 +1,9 @@
 from dataclasses import dataclass
-from typing import ForwardRef, Generic
+from typing import Generic
 
-from hgraph import CompoundScalar, SCALAR, WiringPort, WiringNodeInstance, HgTimeSeriesTypeMetaData, WiringGraphContext, \
-    compound_scalar, ts_schema
-from hgraph._types import HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle
-from hgraph._types._scalar_types import is_compound_scalar
-from hgraph._types._ts_type import TS
-from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+from hgraph import CompoundScalar, SCALAR, HgTimeSeriesTypeMetaData, WiringGraphContext, \
+    compound_scalar, ts_schema, HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle, \
+    is_compound_scalar, TS, WiringNodeInstanceContext
 
 
 @dataclass

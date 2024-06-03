@@ -72,10 +72,15 @@ def _recorded_source_node(
         inputs["default"] = default
     signature = signature.copy_with(**changes)
     # Source node need to be unique, use an object instance as the fn arg to ensure uniqueness
-    return create_wiring_node_instance(node=PythonRecordedSourceNodeWiringNodeClass(signature, object()),
+    from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+    from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+    return create_wiring_node_instance(
+        node=PythonRecordedSourceNodeWiringNodeClass(signature, object()),
                                        resolved_signature=signature,
                                        inputs=frozendict(inputs),
-                                       rank=1)
+                                       rank=1,
+        rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
+    )
 
 
 class PythonRecordedSourceNodeWiringNodeClass(BaseWiringNodeClass):

@@ -375,11 +375,14 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         from hgraph._wiring._wiring_port import TSBWiringPort, WiringPort
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
+        from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+        from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
         wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict(kwargs),
-            rank=max((v.rank for k, v in kwargs.items() if isinstance(v, WiringPort)), default=1)
+            rank=max((v.rank for k, v in kwargs.items() if isinstance(v, WiringPort)), default=1),
+            rank_marker = TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
         )
         return TSBWiringPort(wiring_node_instance, tuple())
 
