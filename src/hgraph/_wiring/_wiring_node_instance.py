@@ -1,5 +1,5 @@
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, MutableMapping
 
 from frozendict import frozendict
@@ -69,7 +69,7 @@ def create_wiring_node_instance(node: "WiringNodeClass", resolved_signature: "Wi
     return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
 
 
-@dataclass(frozen=True, eq=False)  # We will write our own equality check, but still want a hash
+@dataclass  # We will write our own equality check, but still want a hash
 class WiringNodeInstance:
     node: "WiringNodeClass"
     resolved_signature: "WiringNodeSignature"
@@ -81,6 +81,7 @@ class WiringNodeInstance:
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
     _treat_as_source_node: bool = False
+    non_input_dependencies: typing.Mapping[str, "WiringPort"] = field(default_factory=dict)
 
     def __lt__(self, other: "WiringNodeInstance") -> bool:
         # The last part gives potential for inconsistent ordering, a better solution would be to
@@ -100,17 +101,14 @@ class WiringNodeInstance:
         return self.resolved_signature.signature
 
     def mark_error_handler_registered(self, trace_back_depth: int = 1, capture_values: bool = False):
-        super().__setattr__("error_handler_registered", True)
-        super().__setattr__("trace_back_depth", trace_back_depth)
-        super().__setattr__("capture_values", capture_values)
+        self.error_handler_registered = True
+        self.trace_back_depth = trace_back_depth
+        self.capture_values = capture_values
 
     @property
     def is_stub(self) -> bool:
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import StubWiringNodeClass
         return isinstance(self.node, StubWiringNodeClass)
-
-    def set_label(self, label: str):
-        super().__setattr__("label", label)
 
     @property
     def is_source_node(self) -> bool:
