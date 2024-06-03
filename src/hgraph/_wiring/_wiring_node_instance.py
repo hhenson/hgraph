@@ -80,7 +80,13 @@ class WiringNodeInstance:
     error_handler_registered: bool = False
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
-    _hash: int | None = None
+    _treat_as_source_node: bool = False
+
+    def __lt__(self, other: "WiringNodeInstance") -> bool:
+        # The last part gives potential for inconsistent ordering, a better solution would be to
+        # consider the inputs, but that may contain values which do not support ordering.
+        # So for now we use this simple hack which is sufficient for the short term.
+        return self.resolved_signature.signature < other.resolved_signature.signature or id(self) < id(other)
 
     def __eq__(self, other):
         # Rely on WiringNodeInstances to be interned data structures
@@ -105,6 +111,14 @@ class WiringNodeInstance:
 
     def set_label(self, label: str):
         super().__setattr__("label", label)
+
+    @property
+    def is_source_node(self) -> bool:
+        return self.resolved_signature.node_type in (
+            WiringNodeType.PUSH_SOURCE_NODE, WiringNodeType.PULL_SOURCE_NODE) or self._treat_as_source_node
+
+    def mark_treat_as_source_node(self):
+        super().__setattr__("_treat_as_source_node", True)
 
     @property
     def output_type(self) -> "HgTimeSeriesTypeMetaData":
