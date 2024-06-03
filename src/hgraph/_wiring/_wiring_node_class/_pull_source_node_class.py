@@ -3,17 +3,15 @@ from typing import cast, TYPE_CHECKING
 from frozendict import frozendict
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass
 from hgraph._types._scalar_types import SCALAR
-from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
-from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._decorators import pull_source_node
-
+from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
+from hgraph._wiring._wiring_node_instance import create_wiring_node_instance, WiringNodeInstanceContext
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
-
 
 __all__ = ("last_value_source_node",)
 
@@ -31,12 +29,16 @@ def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALA
         changes["args"] = tuple(["default"])
         changes["input_types"] = frozendict({"default": default_type})
         inputs["default"] = default
-    signature = cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE: tp]).resolve_signature().copy_with(**changes)
+    signature = cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE: tp]).resolve_signature().copy_with(
+        **changes)
     # Source node need to be unique, use an object instance as the fn arg to ensure uniqueness
-    return create_wiring_node_instance(node=PythonLastValuePullWiringNodeClass(signature, object()),
-                                       resolved_signature=signature,
-                                       inputs=frozendict(inputs),
-                                       rank=1)
+    from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+    return create_wiring_node_instance(
+        node=PythonLastValuePullWiringNodeClass(signature, object()),
+        resolved_signature=signature,
+        inputs=frozendict(inputs),
+        rank=1,
+        rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()))
 
 
 class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):

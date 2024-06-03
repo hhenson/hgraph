@@ -24,7 +24,8 @@ if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
 
 __all__ = ("WiringNodeClass", "BaseWiringNodeClass", "PreResolvedWiringNodeWrapper",
-           "prepare_kwargs", "extract_kwargs", "create_wiring_node_instance", "create_input_output_builders")
+           "prepare_kwargs", "extract_kwargs", "create_wiring_node_instance", "create_input_output_builders",
+           "validate_and_resolve_signature")
 
 
 class WiringNodeClass:
@@ -246,6 +247,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 __pre_resolved_types__=__pre_resolved_types__,
                 **kwargs)
 
+            rank_marker = frozendict()
             # TODO: This mechanism to work out rank may fail when using a delayed binding?
             match resolved_signature.node_type:
                 case WiringNodeType.PUSH_SOURCE_NODE:
@@ -260,6 +262,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     rank = max(upstream_rank + 1, 1024,
                                TimeSeriesContextTracker.instance().max_context_rank(
                                    WiringNodeInstanceContext.instance()) + 1)
+                    rank_marker = TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class")
@@ -269,7 +272,8 @@ class BaseWiringNodeClass(WiringNodeClass):
                     f"{self.signature.signature} is deprecated and will be removed in a future version."
                     f"{(' ' + self.signature.deprecated) if type(self.signature.deprecated) is str else ''}",
                     DeprecationWarning, stacklevel=3)
-            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank)
+            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank,
+                                                               rank_marker=rank_marker)
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
             # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 

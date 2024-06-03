@@ -1,5 +1,5 @@
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, MutableMapping
 
 from frozendict import frozendict
@@ -39,15 +39,17 @@ class WiringNodeInstanceContext:
         self._depth = depth
 
     def create_wiring_node_instance(self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                    inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
+                                    inputs: frozendict[str, Any], rank: int,
+                                    rank_marker: frozendict[str, "WiringNodeInstance"]) -> "WiringNodeInstance":
         key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
             from hgraph import WiringGraphContext
             self._node_instances[key] = node_instance = WiringNodeInstance(
                 node=node,
                 resolved_signature=resolved_signature,
-                inputs=inputs, rank=rank,
-                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name())
+                inputs=inputs, rank=rank, rank_marker=rank_marker,
+                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name()
+            )
         return node_instance
 
     @classmethod
@@ -65,8 +67,9 @@ class WiringNodeInstanceContext:
 
 
 def create_wiring_node_instance(node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
-    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
+                                inputs: frozendict[str, Any], rank: int,
+                                rank_marker: frozendict[str, "WiringNodeInstance"]) -> "WiringNodeInstance":
+    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank, rank_marker)
 
 
 @dataclass(frozen=True, eq=False)  # We will write our own equality check, but still want a hash
@@ -81,6 +84,7 @@ class WiringNodeInstance:
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
     _treat_as_source_node: bool = False
+    rank_marker: frozendict[str, "WiringNodeinstance"] = field(default_factory=frozendict)
 
     def __lt__(self, other: "WiringNodeInstance") -> bool:
         # The last part gives potential for inconsistent ordering, a better solution would be to
