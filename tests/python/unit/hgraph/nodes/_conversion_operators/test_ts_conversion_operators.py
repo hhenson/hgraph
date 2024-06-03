@@ -1,6 +1,8 @@
+from typing import Type
+
 import pytest
 
-from hgraph import TS, TSS
+from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT
 from hgraph.nodes import convert
 from hgraph.test import eval_node
 
@@ -28,3 +30,13 @@ from hgraph.test import eval_node
 )
 def test_convert_ts(from_, from_tp, to_tp, expected):
     assert eval_node(convert, from_, to_tp, resolution_dict=dict(ts=from_tp)) == expected
+
+
+def test_convert_wiring():
+    from hgraph import graph
+
+    @graph
+    def g(a: TS[SCALAR], to: Type[SCALAR_1] = DEFAULT[SCALAR_1]) -> TS[SCALAR_1]:
+        return convert[TS[to]](a)
+
+    assert eval_node(g[str], 1) == ['1']

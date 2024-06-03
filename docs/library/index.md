@@ -292,6 +292,15 @@ Str operators
 ### match
 `match` does regex pattern matching
 
+### replace
+`replace` replaces all occurrences of a pattern in a string with another string
+
+### split
+`split` splits a string into a tuple of strings based on a separator
+
+### join
+`join` joins a tuple of strings into a single string using the given separator
+
 ### format_
 `format` formats strings given the format spec
 

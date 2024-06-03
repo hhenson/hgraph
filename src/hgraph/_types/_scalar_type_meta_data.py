@@ -4,12 +4,14 @@ from abc import abstractmethod
 from collections.abc import Mapping, Set
 from datetime import date, datetime, time, timedelta
 from enum import Enum
+from functools import reduce
 from types import GenericAlias
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
 
 import numpy as np
 from frozendict import frozendict
 
+from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE, LOGGER, UnNamedCompoundScalar
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
@@ -116,9 +118,8 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         return {self.py_type}
 
     @property
-    def operator_rank(self) -> float:
-        # This is a complete wild card, so this is the weakest match (which strangely is 1.0)
-        return 1.
+    def generic_rank(self) -> dict[type, float]:
+        return {self.py_type: 1.}
 
     def constraints(self) -> Sequence[type]:
         if self.py_type.__constraints__:
@@ -191,6 +192,10 @@ class HgAtomicType(HgScalarTypeMetaData):
 
     def __hash__(self) -> int:
         return hash(self.py_type)
+
+    @property
+    def generic_rank(self) -> dict[type, float]:
+        return {self.py_type: 1e-10}
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return ((tp_ := type(tp)) is HgAtomicType and self.py_type == tp.py_type) or tp_ is HgScalarTypeVar
@@ -532,8 +537,8 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         return set().union(*(t.typevars for t in self.element_type))
 
     @property
-    def operator_rank(self) -> float:
-        return self.element_type.operator_rank / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return scale_rank(self.element_type.generic_rank, 0.01)
 
     @property
     def is_resolved(self) -> bool:
@@ -586,8 +591,8 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
         return self.element_type.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return self.element_type.operator_rank / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return scale_rank(self.element_type.generic_rank, 0.01)
 
     @property
     def is_resolved(self) -> bool:
@@ -660,8 +665,8 @@ class HgTupleFixedScalarType(HgTupleScalarType):
         return set().union(*(t.typevars for t in self.element_types))
 
     @property
-    def operator_rank(self) -> float:
-        return sum(t.operator_rank for t in self.element_types) / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return combine_ranks((e.generic_rank for e in self.element_types), 0.01)
 
     @property
     def py_type(self) -> Type:
@@ -724,8 +729,8 @@ class HgSetScalarType(HgCollectionType):
         return self.element_type.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return self.element_type.operator_rank / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return scale_rank(self.element_type.generic_rank, 0.01)
 
     @classmethod
     def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
@@ -789,8 +794,8 @@ class HgDictScalarType(HgCollectionType):
         return self.key_type.typevars | self.value_type.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return (self.key_type.operator_rank + self.value_type.operator_rank) / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return combine_ranks((self.key_type.generic_rank, self.value_type.generic_rank), 0.01)
 
     @classmethod
     def parse_type(cls, value_tp) -> "HgScalarTypeMetaData":
@@ -870,9 +875,14 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
                 | set(getattr(self.py_type, '__parameters__', ())))
 
     @property
-    def operator_rank(self) -> float:
-        return (super().operator_rank / self.py_type.__mro__.index(CompoundScalar) +
-                sum(HgScalarTypeVar.parse_type(tp).operator_rank for tp in self.typevars) / 100.)
+    def generic_rank(self) -> dict[type, float]:
+        inheritance_depth = self.py_type.__mro__.index(CompoundScalar)
+        hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
+        hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
+
+        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.typevars), 0.01)
+
+        return generic_rank | hierarchy_rank
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgCompoundScalarType and (issubclass(tp.py_type, self.py_type) or self.__eq__(tp))
@@ -965,8 +975,8 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         return self.value_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return self.value_tp.operator_rank
+    def generic_rank(self) -> dict[type, float]:
+        return self.value_tp.generic_rank
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:

@@ -5,6 +5,7 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._types._generic_rank_util import combine_ranks, scale_rank
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
@@ -44,8 +45,13 @@ class WiringNodeClass:
             item = tuple(slice(k, v) for k, v in item.items())
         elif isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
-        elif isinstance(item, type) and len(tpv := self.signature.typevars) == 1:
-            item = (slice(tuple(tpv)[0], item),)
+        elif isinstance(item, (type, _GenericAlias, HgTypeMetaData)):
+            if len(tpv := self.signature.typevars) == 1:
+                item = (slice(tuple(tpv)[0], item),)
+            elif self.signature.default_type_arg:
+                item = (slice(self.signature.default_type_arg, item),)
+            else:
+                raise WiringError(f"Can not figure out which type parameter to assign {item} to.")
 
         out = {}
         for s in item:
@@ -492,9 +498,9 @@ class OverloadedWiringNodeHelper:
 
     @staticmethod
     def _calc_rank(signature: WiringNodeSignature) -> float:
-        return sum(t.operator_rank * (0.001 if t.is_scalar else 1)
+        return sum(combine_ranks((scale_rank(t.generic_rank, 0.001) if t.is_scalar else t.generic_rank
                    for k, t in signature.input_types.items()
-                   if signature.defaults.get(k) != AUTO_RESOLVE)
+                   if signature.defaults.get(k) != AUTO_RESOLVE)).values())
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []

@@ -1,5 +1,6 @@
 from typing import Type, TypeVar, Optional, _GenericAlias
 
+from hgraph._types._generic_rank_util import scale_rank
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgSetScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -28,8 +29,8 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_scalar_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return self.value_scalar_tp.operator_rank / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return scale_rank(self.value_scalar_tp.generic_rank, 0.01)
 
     @property
     def py_type(self) -> Type:

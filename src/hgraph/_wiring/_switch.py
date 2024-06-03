@@ -4,7 +4,7 @@ from typing import Callable, Optional, cast
 
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import SCALAR, STATE
+from hgraph._types._scalar_types import SCALAR, STATE, DEFAULT
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -21,10 +21,7 @@ from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ("switch_", "DEFAULT")
-
-
-DEFAULT = object()  # a marker to indicate the default option for
+__all__ = ("switch_",)
 
 
 def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], key: TS[SCALAR], *args,

@@ -1,5 +1,6 @@
 from typing import Type, TypeVar, Optional, _GenericAlias, TYPE_CHECKING, cast
 
+from hgraph._types._generic_rank_util import combine_ranks, scale_rank
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTupleCollectionScalarType, \
     HgDictScalarType
@@ -108,8 +109,8 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return (self.value_tp.operator_rank) / 100. + self.size_tp.operator_rank / 1e10
+    def generic_rank(self) -> dict[type, float]:
+        return combine_ranks((self.value_tp.generic_rank, scale_rank(self.size_tp.generic_rank, 1e-6)), 0.01)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSLTypeMetaData and self.value_tp == o.value_tp and self.size_tp == o.size_tp
