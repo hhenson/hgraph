@@ -1,4 +1,6 @@
 import itertools
+from functools import reduce
+from statistics import fmean
 from typing import Type, TypeVar, Optional, Sequence
 
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -56,11 +58,14 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         return {self.py_type}
 
     @property
-    def operator_rank(self) -> float:
+    def generic_rank(self) -> dict[type, float]:
         # A complete wild card, will have a rank of 1. however one with constraints will have a lower rank so we can
-        # discriminate between typevar with different constraints
-        constraints_rank = sum(c.operator_rank if isinstance(c, HgTimeSeriesTypeMetaData) else 1. for c in self.constraints) / len(self.constraints)
-        return 0.9 + constraints_rank / 10
+        # discriminate between typevars with different constraints
+
+        avg_constraints_rank = fmean(itertools.chain(
+            *(c.generic_rank.values() if isinstance(c, HgTimeSeriesTypeMetaData) else [1.] for c in self.constraints)))
+
+        return {self.py_type: 0.9 + avg_constraints_rank / 10.}
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         if wired_type.is_scalar:

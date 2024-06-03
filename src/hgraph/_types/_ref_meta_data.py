@@ -1,5 +1,4 @@
-from typing import Type, TypeVar, Optional, _GenericAlias
-
+from typing import Type, TypeVar, Optional, _GenericAlias, Mapping
 
 __all__ = ("HgREFTypeMetaData", "HgREFOutTypeMetaData",)
 
@@ -69,8 +68,8 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return self.value_tp.operator_rank
+    def generic_rank(self) -> dict[type, float]:
+        return self.value_tp.generic_rank
 
     def __getitem__(self, item):
         return self.value_tp[item]

@@ -13,6 +13,7 @@ from hgraph._types._scalar_type_meta_data import HgEvaluationClockType, HgEvalua
     HgReplayType, HgLoggerType
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
     HgTypeOfTypeMetaData
+from hgraph._types._scalar_types import DEFAULT
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
@@ -65,7 +66,7 @@ def extract_scalar_type(tp: Type) -> HgScalarTypeMetaData:
     return tp_
 
 
-@dataclass(frozen=True, unsafe_hash=True, )
+@dataclass(frozen=True, unsafe_hash=True, kw_only=True)
 class WiringNodeSignature:
     """
     The wiring node signature is similar to the final node signature, but it deals with templated node instances,
@@ -94,6 +95,7 @@ class WiringNodeSignature:
     requires: Callable[[...], bool] | None = None
     var_arg: str = None
     var_kwarg: str = None
+    default_type_arg: TypeVar = None
 
     def __repr__(self):
         return self.signature
@@ -126,7 +128,8 @@ class WiringNodeSignature:
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     injectable_inputs=self.injectable_inputs, label=self.label,
                     record_and_replay_id=self.record_and_replay_id,
-                    deprecated=self.deprecated, requires=self.requires, var_arg=self.var_arg, var_kwarg=self.var_kwarg
+                    deprecated=self.deprecated, requires=self.requires, var_arg=self.var_arg, var_kwarg=self.var_kwarg,
+                    default_type_arg=self.default_type_arg
                     )
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
@@ -254,7 +257,7 @@ class WiringNodeSignature:
                 with WiringContext(current_arg=arg):
                     kwt = kwarg_types.get(arg)
                     kwarg = kwargs.get(arg)
-                    if isinstance(kwarg, TypeVar) and kwarg in self.typevars:
+                    if isinstance(kwarg, TypeVar) and (kwarg in self.typevars or kwarg in resolution_dict):
                         if kwarg in resolution_dict:
                             kwt = HgTypeOfTypeMetaData(resolution_dict[kwarg])
                             kwarg_types[arg] = kwt
@@ -436,13 +439,24 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     code = fn.__code__
     parameters = signature(fn).parameters
     args: tuple[str, ...] = tuple(parameters.keys())
-    defaults = frozendict({k: p.default for k, p in parameters.items() if p.default is not p.empty})
+    defaults = {k: p.default for k, p in parameters.items() if p.default is not p.empty}
     var_arg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_POSITIONAL), None)
     var_kwarg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_KEYWORD), None)
     if var_arg or var_kwarg:
         if wiring_node_type == WiringNodeType.OPERATOR:
             # Remove var_args from operators - they are decorative
             args = tuple(a for a in args if a not in (var_arg, var_kwarg))
+
+    if default_type_arg_name := next((k for k, v in annotations.items() if isinstance(v, DEFAULT)), None):
+        tp = annotations[default_type_arg_name].tp
+        annotations[default_type_arg_name] = tp
+        default_type_arg = tp
+    elif default_type_arg_name := next((k for k, v in defaults.items() if isinstance(v, DEFAULT)), None):
+        tp = defaults[default_type_arg_name].tp
+        defaults[default_type_arg_name] = tp
+        default_type_arg = tp
+    else:
+        default_type_arg = None
 
     filename = code.co_filename
     first_line = code.co_firstlineno
@@ -494,7 +508,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         node_type=wiring_node_type,
         name=name,
         args=args,
-        defaults=defaults,
+        defaults=frozendict(defaults),
         input_types=input_types,
         output_type=output_type,
         active_inputs=active_inputs,
@@ -510,7 +524,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         deprecated=deprecated,
         requires=requires,
         var_arg=var_arg,
-        var_kwarg=var_kwarg
+        var_kwarg=var_kwarg,
+        default_type_arg=default_type_arg
     )
 
 
