@@ -291,6 +291,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                         TimeSeriesContextTracker.instance().max_context_rank(WiringNodeInstanceContext.instance()) + 1,
                     )
                     rank_marker = TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
+                    rank_marker = TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class"
