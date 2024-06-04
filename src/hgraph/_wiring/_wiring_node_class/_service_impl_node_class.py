@@ -2,11 +2,11 @@ from typing import Callable, Mapping, Any, Sequence, TypeVar, Dict
 
 from frozendict import frozendict
 
-from hgraph import graph
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._types._scalar_type_meta_data import HgAtomicType, HgObjectType
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._wiring._decorators import graph
 from hgraph._wiring._graph_builder import create_graph_builder
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
@@ -194,7 +194,7 @@ def create_inner_graph(wiring_signature: WiringNodeSignature, fn: Callable, scal
             for path, node in context.built_services().items():
                 if node:
                     raise CustomMessageWiringError(
-                        f"Mitliservice implementations should not be registering service nodes")
+                        f"mutli-service implementations should not be registering service nodes")
 
                 s: WiringNodeClass = context.find_service_impl(path)[0]
                 match s.signature.node_type:
