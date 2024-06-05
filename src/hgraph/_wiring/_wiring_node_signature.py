@@ -370,7 +370,7 @@ class WiringNodeSignature:
                     from hgraph.nodes import const
                     kwargs[arg] = const(kwargs[arg], tp=v.py_type)
                 elif not isinstance(kwargs[arg], WiringPort) and isinstance(kwargs[arg], (tuple, list, dict, frozendict)):
-                    kwargs[arg] = v.py_type.from_ts(kwargs[arg])
+                    kwargs[arg] = v.py_type.from_ts(kwargs[arg], __type__=v)
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
@@ -445,7 +445,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     if var_arg or var_kwarg:
         if wiring_node_type == WiringNodeType.OPERATOR:
             # Remove var_args from operators - they are decorative
-            args = tuple(a for a in args if a not in (var_arg, var_kwarg))
+            args = tuple(a for a in args if a not in (var_arg, var_kwarg) or a in annotations)
 
     if default_type_arg_name := next((k for k, v in annotations.items() if isinstance(v, DEFAULT)), None):
         tp = annotations[default_type_arg_name].tp

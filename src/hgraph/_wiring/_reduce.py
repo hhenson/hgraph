@@ -17,12 +17,15 @@ from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_utils import wire_nested_graph
 
-__all__ = ("reduce",)
+__all__ = ("reduce", "ZERO")
+
+
+ZERO = object()
 
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
            ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-           zero: TIME_SERIES_TYPE = None, is_associated: bool = True) -> TIME_SERIES_TYPE:
+           zero: TIME_SERIES_TYPE = ZERO, is_associated: bool = True) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
     The zero must be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
@@ -107,9 +110,12 @@ def _reduce_tsd(func, ts, zero):
     item_tp = tp.value_tp.py_type
 
     if not isinstance(zero, WiringPort):
-        if zero is None:
+        if zero is ZERO:
             import hgraph
             zero = hgraph._operators._operators.zero(item_tp, func)
+        elif zero is None:
+            from hgraph.nodes import nothing
+            zero = nothing(item_tp)
         else:
             from hgraph.nodes import const
             zero = const(zero, item_tp)

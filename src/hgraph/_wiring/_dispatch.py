@@ -117,7 +117,7 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
         from hgraph import RequirementsNotMetWiringError
         try:
             o.resolve_signature(**stub_args)
-        except RequirementsNotMetWiringError:
+        except RequirementsNotMetWiringError as e:
             continue
 
         key = tuple(t.py_type for t in o_dispatch_types.values())

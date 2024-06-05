@@ -9,7 +9,8 @@ from frozendict.cool import deepfreeze
 
 from hgraph import graph, TimeSeriesSchema, TSB, TSD, run_graph, EvaluationMode, TS, EvaluationClock, \
     feedback, compute_node, SCHEDULER, TSL, STATE, REMOVE_IF_EXISTS, CompoundScalar
-from hgraph.nodes import const, debug_print, merge, delay
+from hgraph.nodes import const, debug_print, delay
+from hgraph._operators._control import merge
 from hgraph.adaptors.perspective._perspective import perspective_web
 from hgraph.adaptors.perspective._perspetive_publish import publish_table
 
@@ -61,7 +62,7 @@ def host_web_server():
     initial_config = const(deepfreeze(refdata()), TSD[str, TSB[Config]])
     config_updates = feedback(TSD[str, TSB[Config]])
     debug_print('config updates', config_updates())
-    config = merge(TSL.from_ts(initial_config, config_updates()))
+    config = merge(initial_config, config_updates())
     config_updates(publish_table('config', config, editable=True, index_col_name='sensor'))
 
     publish_table('data', random_data(config, 100), index_col_name='sensor', history=sys.maxsize)

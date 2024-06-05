@@ -22,7 +22,7 @@ def convert_ts_noop(
 
 
 @compute_node(overloads=convert)
-def convert_ts_generic(ts: TS[SCALAR], to: type[SCALAR_1] = DEFAULT[OUT], s1_type: type[SCALAR_1] = AUTO_RESOLVE) -> TS[SCALAR_1]:
+def convert_ts_generic(ts: TS[SCALAR], to: type[TS[SCALAR_1]] = DEFAULT[OUT], s1_type: type[SCALAR_1] = AUTO_RESOLVE) -> TS[SCALAR_1]:
     return s1_type(ts.value)
 
 

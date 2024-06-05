@@ -8,7 +8,7 @@ from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EX
     TIME_SERIES_TYPE_1
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const, nothing
-from hgraph.nodes._tsl_operators import merge
+from hgraph._operators._control import merge
 
 __all__ = (
     "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains",
@@ -194,7 +194,7 @@ def tsd_get_bundle_item(tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Typ
             if v.value.has_peer:
                 out[k] = PythonTimeSeriesReference(v.value.output[key])
             else:
-                out[k] = PythonTimeSeriesReference(v.value[_schema._schema_index_of(key)])
+                out[k] = v.value.items[_schema._schema_index_of(key)]
         else:
             out[k] = PythonTimeSeriesReference()
 

@@ -344,7 +344,8 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         This does not require all values be present, but before wiring the bundle into an input, this will be a
         requirement.
         """
-        schema: TS_SCHEMA = kwargs.pop("__schema__")
+        bundle: TSB[TS_SCHEMA] = kwargs.pop("__type__", None)
+        schema: TS_SCHEMA = kwargs.pop("__schema__") or bundle.bundle_schema_tp  # remove __schema__ once `combine` is done
         fn_details = TimeSeriesBundleInput.from_ts.__code__
 
         if arg is not None:

@@ -5,6 +5,7 @@ from collections.abc import Mapping, Set
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from functools import reduce
+from statistics import fmean
 from types import GenericAlias
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
 
@@ -119,7 +120,11 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
 
     @property
     def generic_rank(self) -> dict[type, float]:
-        return {self.py_type: 1.}
+        avg_constraints_rank = fmean(itertools.chain(
+            *(c.generic_rank.values() if isinstance(c, HgTypeMetaData)
+              else [1. / (c.__mro__.index(object) + 1.)] for c in self.constraints())))
+
+        return {self.py_type: 0.9 + avg_constraints_rank / 10.}
 
     def constraints(self) -> Sequence[type]:
         if self.py_type.__constraints__:
