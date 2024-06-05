@@ -1,8 +1,7 @@
 from datetime import datetime
 
 from hgraph import TIME_SERIES_TYPE, TS, graph, TSL, compute_node, REF, PythonTimeSeriesReference, MIN_ST, MIN_TD
-from hgraph.nodes import valid
-from hgraph.nodes._time_series_properties import last_modified_time
+from hgraph.nodes import valid, last_modified_time
 from hgraph.test import eval_node
 
 
