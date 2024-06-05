@@ -1,5 +1,8 @@
-from hgraph import TIME_SERIES_TYPE, TS, graph, TSL, compute_node, REF, PythonTimeSeriesReference
+from datetime import datetime
+
+from hgraph import TIME_SERIES_TYPE, TS, graph, TSL, compute_node, REF, PythonTimeSeriesReference, MIN_ST, MIN_TD
 from hgraph.nodes import valid
+from hgraph.nodes._time_series_properties import last_modified_time
 from hgraph.test import eval_node
 
 
@@ -20,3 +23,11 @@ def test_valid_1():
                      b=[None, None,    1, None, None],
                      i=[2,    1,    None,    0, None, 2]) == \
                        [False, False, True, False, True, False]
+
+
+def test_last_modified_time():
+    @graph
+    def g(a: TS[int]) -> TS[datetime]:
+        return last_modified_time(a)
+
+    assert eval_node(g, [1, None, 2]) == [MIN_ST, None, MIN_ST + 2*MIN_TD]
