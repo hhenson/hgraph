@@ -5,8 +5,9 @@ from typing import Generic, TypeVar
 from hg_oap.quanity.conversion import convert
 from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, \
     subscription_service, request_reply_service, service_impl, register_service
-from hgraph.nodes import merge, tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, cs_from_ts, \
+from hgraph.nodes import tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, cs_from_ts, \
     sample
+from hgraph._operators._control import merge
 from hgraph.test import eval_node
 
 from hg_oap.assets.commodities import Commodity
@@ -99,7 +100,7 @@ def submit_price(instrument: TS[INSTRUMENT_ID], price: TSB[Price[float]], path: 
 def price_service(path: str = 'price_service'):
     price_submissions = submit_price.wire_impl_inputs_stub(path)
     prices = map_(lambda i, p: make_tsd(i, p), price_submissions.instrument, price_submissions.price) \
-        .reduce(lambda x, y: merge(TSL.from_ts(x, y)))
+        .reduce(lambda x, y: merge(x, y))
     prices = sample(prices, prices)  # AB: there is a scheduling bug between the above map/reduce and the map below
                                      # that is to do with references and not identified yet. As per usual sampling in the middle works around reference problems
     get_price.wire_impl_out_stub(

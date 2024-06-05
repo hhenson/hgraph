@@ -2,7 +2,8 @@ from typing import TypeVar, Type
 
 from hg_oap.quanity.conversion import convert
 from hgraph import graph, TS, compute_node, TSB, TSL, AUTO_RESOLVE
-from hgraph.nodes import cs_from_ts, route_ref, filter_, merge
+from hgraph.nodes import cs_from_ts, route_ref, filter_
+from hgraph._operators._control import merge
 from hgraph.test import eval_node
 
 from hg_oap.units.default_unit_system import U
