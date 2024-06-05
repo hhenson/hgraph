@@ -1,4 +1,10 @@
-from hgraph import operator, TSL, TIME_SERIES_TYPE, SIZE
+from hgraph._types._scalar_types import SIZE
+from hgraph._types._tsl_type import TSL
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._wiring._decorators import operator
+
+
+__all__ = ("merge",)
 
 
 @operator

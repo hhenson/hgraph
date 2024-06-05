@@ -355,7 +355,7 @@ def tsd_flip_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, 
 
 
 @compute_node(overloads=merge)
-def merge_tsds(tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+def merge_tsds(*tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     out = {}
     removals = set()
 
@@ -375,7 +375,7 @@ def merge_tsds(tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME
 
 
 @compute_node(overloads=merge)
-def merge_nested_tsds(tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) -> TSD[
+def merge_nested_tsds(*tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) -> TSD[
     K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     out = defaultdict(dict)
     removals = set()
