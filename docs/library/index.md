@@ -317,6 +317,12 @@ never produces a tick
 ### null_sink &#10067;
 consumes a time series and does nothing
 
+### valid
+returns a bool time series that indicates if the input is valid (i.e. has a value)
+
+### last_modified_time
+returns a datetime timeseries that ticks last_modified_time of its input
+
 ### zero
 overloads of this operator provide zero value time series for the reduce_ operator
 
