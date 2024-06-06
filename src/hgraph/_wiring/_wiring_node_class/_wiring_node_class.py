@@ -119,14 +119,20 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
     kwargs = copy(kwargs)
     kwargs_ = {}
     args_offset = _args_offset
+    args_used = 0
     for i, (k, arg) in enumerate(zip(signature.args[_args_offset:], args)):
         args_offset += 1
         if k == signature.var_arg:
             kwargs_[k] = args[i:]
-            i = len(args)
+            args_used = len(args)
             break
         else:
             kwargs_[k] = arg
+            args_used += 1
+
+    if args_used < len(args):
+        raise SyntaxError(
+            f"[{signature.signature}] Too many arguments provided, expected {signature.args}, got {args}")
 
     if any(k in kwargs for k in kwargs_):
         raise SyntaxError(
@@ -137,7 +143,11 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
             kwargs_[k] = kwargs.pop(k)
         if k == signature.var_kwarg and k not in kwargs_:
             kwargs_[k] = kwargs
+            kwargs = {}
             break
+
+    if kwargs:
+        raise SyntaxError(f"[{signature.signature}] Has unexpected kwarg names {tuple(kwargs.keys())}, expected: {signature.args}")
 
     if not _ignore_defaults:
         kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults

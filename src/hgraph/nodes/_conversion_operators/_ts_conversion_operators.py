@@ -5,7 +5,7 @@ from typing import Mapping
 from hgraph import compute_node, TS, SCALAR, STATE, CompoundScalar, SCHEDULER, MIN_TD, SCALAR_1, graph, \
     AUTO_RESOLVE, TSS, OUT
 from hgraph._types._scalar_types import DEFAULT
-from hgraph.nodes._conversion_operators._conversion_operator_templates import emit, convert
+from hgraph._operators._conversion import emit, convert
 
 __all__ = ("emit_tuple", "convert_ts_generic", "convert_ts_to_tss")
 

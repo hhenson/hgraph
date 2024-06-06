@@ -1,7 +1,7 @@
 from typing import Tuple, Type, Callable
 
 from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType, HgTypeMetaData
-from hgraph._wiring._wiring_node_class import WiringNodeClass, BaseWiringNodeClass, WiringNodeSignature
+from hgraph._wiring._wiring_node_class import WiringNodeClass, BaseWiringNodeClass, WiringNodeSignature, WiringNodeType
 
 __all__ = ('dispatch', 'dispatch_')
 
@@ -17,7 +17,7 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
     from hgraph import graph, with_signature, AUTO_RESOLVE
     from hgraph._wiring._wiring_node_class._wiring_node_class import OverloadedWiringNodeHelper
 
-    if not isinstance(fn, BaseWiringNodeClass):
+    if not isinstance(fn, WiringNodeClass):
         fn: WiringNodeClass = graph(fn)
 
     @with_signature(
@@ -26,8 +26,10 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
         return_annotation=fn.signature.output_type)
     def dispatch_(**kwargs):
         if overloads := getattr(dispatch_graph, 'overload_list', None):
-            overload_list = overloads.overloads + [(fn, OverloadedWiringNodeHelper._calc_rank(fn.signature))]
-            if __resolution_dict__ := kwargs.get('__resolution_dict__', None):
+            overload_list = overloads.overloads
+            if fn.signature.node_type != WiringNodeType.OPERATOR:
+                overload_list += [(fn, OverloadedWiringNodeHelper._calc_rank(fn.signature))]
+            if __resolution_dict__ := kwargs.pop('__resolution_dict__', None):
                 args = tuple(slice(k, v) for k, v in __resolution_dict__.items())
                 overload_list = tuple((o[args], r) for o, r in overload_list)
             return _dispatch_impl(fn.signature, overload_list, __on__=on, **kwargs)
@@ -126,7 +128,7 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
 
         dispatch_map[key] = make_dispatch_graph(o, o_dispatch_types)
 
-    kwargs = extract_kwargs(signature, *args, **kwargs)  # process args and kwargs in kwargs so we can build a key
+    kwargs_ = extract_kwargs(signature, *args, **kwargs)  # process args and kwargs in kwargs so we can build a key
 
     if len(dispatch_args) == 1:
         @compute_node
@@ -145,7 +147,7 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
                 return candidates[0][0]
 
         from hgraph import type_
-        key = adjust_dispatch_key(type_(kwargs[nth(dispatch_args.keys(), 0)]), tuple(dispatch_map.keys()))
+        key = adjust_dispatch_key(type_(kwargs_[nth(dispatch_args.keys(), 0)]), tuple(dispatch_map.keys()))
     else:
         @compute_node
         def adjust_dispatch_keys(key: TS[Tuple[Type[CompoundScalar], ...]],
@@ -166,6 +168,6 @@ def _dispatch_impl(signature: WiringNodeSignature, overloads: BaseWiringNodeClas
                 return candidates[0][0]
 
         from hgraph import type_
-        key = adjust_dispatch_keys(flatten_tsl_values[SCALAR: Type[CompoundScalar]](TSL.from_ts(*[type_(kwargs[k]) for k in dispatch_args]), all_valid=True), tuple(dispatch_map.keys()))
+        key = adjust_dispatch_keys(flatten_tsl_values[SCALAR: Type[CompoundScalar]](TSL.from_ts(*[type_(kwargs_[k]) for k in dispatch_args]), all_valid=True), tuple(dispatch_map.keys()))
 
-    return switch_(dispatch_map, **kwargs, key=key)  # AB: should rename key to __key__ in the switch_ signature?
+    return switch_(dispatch_map, **kwargs_, key=key)  # AB: should rename key to __key__ in the switch_ signature?

@@ -157,6 +157,9 @@ class WiringNodeSignature:
         if not self.is_resolved:
             for arg, v in self.input_types.items():
                 typevars.update(v.typevars)
+            for k, v in self.defaults.items():
+                if isinstance(v, TypeVar):
+                    typevars.add(k)
             typevars.update(self.output_type.typevars)
         return frozenset(typevars)
 

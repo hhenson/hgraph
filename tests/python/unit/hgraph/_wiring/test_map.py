@@ -142,7 +142,7 @@ def test_tsd_map_wiring_no_key():
 def test_tsd_map_wiring_no_key_no_kwargs():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-        m = map_(add_ts, ts1, ts2, keys=keys)
+        m = map_(add_ts, ts1, ts2, __keys__=keys)
         return m
 
     _test_tsd_map(map_test)
@@ -151,7 +151,7 @@ def test_tsd_map_wiring_no_key_no_kwargs():
 def test_tsd_map_wiring_no_kwargs():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-        m = map_(add_ts, ts1, ts2, keys=keys)
+        m = map_(add_ts, ts1, ts2, __keys__=keys)
         return m
 
     _test_tsd_map(map_test)

@@ -3,7 +3,7 @@ from typing import Type
 import pytest
 
 from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT
-from hgraph.nodes import convert
+from hgraph import convert
 from hgraph.test import eval_node
 
 

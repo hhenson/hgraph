@@ -539,7 +539,7 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
 
     @property
     def typevars(self):
-        return set().union(*(t.typevars for t in self.element_type))
+        return self.element_type.typevars
 
     @property
     def generic_rank(self) -> dict[type, float]:

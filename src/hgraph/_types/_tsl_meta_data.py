@@ -106,7 +106,7 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def typevars(self):
-        return self.value_tp.typevars
+        return self.value_tp.typevars | self.size_tp.typevars
 
     @property
     def generic_rank(self) -> dict[type, float]:

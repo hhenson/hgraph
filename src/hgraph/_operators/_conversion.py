@@ -1,4 +1,5 @@
-from hgraph import TIME_SERIES_TYPE, graph, AUTO_RESOLVE, operator
+from hgraph._wiring._decorators import operator
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._scalar_types import DEFAULT
 from hgraph._types._time_series_types import OUT
 
@@ -17,7 +18,7 @@ def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = DEFAULT[OUT], **kwargs) -> OUT
 
 
 @operator
-def combine(*args: TIME_SERIES_TYPE, **kwargs) -> OUT:
+def combine(*args: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
     ...
 
 
