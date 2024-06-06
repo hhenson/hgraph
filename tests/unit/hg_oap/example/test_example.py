@@ -4,10 +4,9 @@ from typing import Generic, TypeVar
 
 from hg_oap.quanity.conversion import convert
 from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, \
-    subscription_service, request_reply_service, service_impl, register_service
-from hgraph.nodes import tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, cs_from_ts, \
-    sample
-from hgraph._operators._control import merge
+    subscription_service, request_reply_service, service_impl, register_service, combine
+from hgraph.nodes import tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, sample
+from hgraph import merge
 from hgraph.test import eval_node
 
 from hg_oap.assets.commodities import Commodity
@@ -205,7 +204,7 @@ def test_example():
 
         map_(lambda key, p: submit_price(key, p), prices)
 
-        return cs_from_ts(Quantity[float], **notional.as_dict())
+        return combine[TS[Quantity[float]]](**notional.as_dict())
 
     assert eval_node(g, __trace__=dict(start=False, stop=False), prices=[None, {
         'GBPUSD': Price[float](qty=1.25, currency_unit=U.USD, unit=U.GBP),

@@ -1,14 +1,11 @@
-from typing import TypeVar, Type
+from typing import TypeVar
 
 from hg_oap.quanity.conversion import convert
-from hgraph import graph, TS, compute_node, TSB, TSL, AUTO_RESOLVE
-from hgraph.nodes import cs_from_ts, route_ref, filter_
-from hgraph._operators._control import merge
-from hgraph.test import eval_node
-
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
-from hg_oap.units.unit import Unit, NUMBER
+from hg_oap.units.unit import Unit
+from hgraph import graph, TS, compute_node, TSB, combine
+from hgraph.test import eval_node
 
 
 def test_quantity_ts():
@@ -19,7 +16,7 @@ def test_quantity_ts():
 
     @graph
     def g(ts: TS[float], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[float]]:
-        v = cs_from_ts(Quantity[float], qty=ts, unit=u)
+        v = combine[TS[Quantity[float]]](qty=ts, unit=u)
         return convert(v, u1)
 
     assert eval_node(g, ts=[1., None, 2.], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
