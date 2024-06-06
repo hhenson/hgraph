@@ -320,26 +320,39 @@ class WiringNodeSignature:
             raise IncorrectTypeBinding(HgTSBTypeMetaData(out_type), out_type)
         return out_type
 
-    def resolve_valid_inputs(self, **kwargs) -> tuple[frozenset[str], bool]:
+    def resolve_valid_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str], bool]:
+        valid_inputs = self.valid_inputs(resolution_dict, kwargs) if isfunction(self.valid_inputs) else self.valid_inputs
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
-            if self.valid_inputs:
-                return (r := frozenset(k for k in self.valid_inputs if k not in optional_inputs)), r != self.valid_inputs
+            if valid_inputs:
+                return (r := frozenset(k for k in valid_inputs if k not in optional_inputs)), r != self.valid_inputs
             else:
                 return frozenset(k for k in self.time_series_args if k not in optional_inputs), True
         else:
-            return self.valid_inputs, False
+            return frozenset(valid_inputs) if valid_inputs is not None else None, valid_inputs != self.valid_inputs
 
-    def resolve_all_valid_inputs(self, **kwargs) -> tuple[frozenset[str] | None, bool]:
+    def resolve_all_valid_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str] | None, bool]:
+        all_valid_inputs = self.all_valid_inputs(resolution_dict, kwargs) if isfunction(self.all_valid_inputs) else self.all_valid_inputs
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
-            if self.all_valid_inputs:
+            if all_valid_inputs:
                 # Remove any optional inputs from validity requirements if not provided.
-                return (r := frozenset(k for k in self.all_valid_inputs if k not in optional_inputs)), r != self.all_valid_inputs
+                return (r := frozenset(k for k in all_valid_inputs if k not in optional_inputs)), r != self.all_valid_inputs
             else:
-                return None, False
+                return None, all_valid_inputs != self.all_valid_inputs
         else:
-            return self.all_valid_inputs, False
+            return frozenset(all_valid_inputs) if all_valid_inputs is not None else None, all_valid_inputs != self.all_valid_inputs
+
+    def resolve_active_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str], bool]:
+        active_inputs = self.active_inputs(resolution_dict, kwargs) if isfunction(self.active_inputs) else self.active_inputs
+        optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
+        if optional_inputs:
+            if active_inputs:
+                return (r := frozenset(k for k in active_inputs if k not in optional_inputs)), r != self.active_inputs
+            else:
+                return None, active_inputs != self.active_inputs
+        else:
+            return frozenset(active_inputs) if active_inputs is not None else None, active_inputs != self.active_inputs
 
     def resolve_auto_resolve_kwargs(self, resolution_dict, kwarg_types, kwargs, resolved_inputs):
         new_resolved_inputs = {}
@@ -409,8 +422,9 @@ class WiringNodeSignature:
 
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:
-            if not self.requires(resolution_dict, kwargs):
-                raise RequirementsNotMetWiringError(f"Failed requirements check with resolution dict {resolution_dict}")
+            if (err := self.requires(resolution_dict, kwargs)) is not True:
+                error = f": {err}," if err is not False else ''
+                raise RequirementsNotMetWiringError(f"Failed requirements check{error} with resolution dict {resolution_dict}")
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         with WiringContext(current_kwargs=kwargs):
@@ -490,18 +504,19 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
             f"sink node '{name}' has no time-series inputs (not a valid signature)"
         assert output_type is None, f"sink node '{name}' has an output (not a valid signature)"
 
-    if active_inputs is not None:
+    if active_inputs is not None and not isfunction(active_inputs):
         assert all(a in input_types for a in active_inputs), \
             f"active inputs {active_inputs} are not in the signature for {name}"
-    if valid_inputs is not None:
+    if valid_inputs is not None and not isfunction(valid_inputs):
         assert all(a in input_types for a in valid_inputs), \
             f"valid inputs {valid_inputs} are not in the signature for {name}"
-    if all_valid_inputs is not None:
+    if all_valid_inputs is not None and not isfunction(all_valid_inputs):
         assert all(a in input_types for a in all_valid_inputs), \
             f"all_valid inputs {all_valid_inputs} are not in signature for {name}"
-        if valid_inputs is not None:
+        if valid_inputs is not None and not isfunction(valid_inputs):
             assert len(set(all_valid_inputs).intersection(valid_inputs)) == 0, \
                 f"valid and all_valid inputs are overlapping, {all_valid_inputs}, {valid_inputs} for {name}"
+
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
 

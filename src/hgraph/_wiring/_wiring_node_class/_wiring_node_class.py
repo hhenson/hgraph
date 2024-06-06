@@ -325,15 +325,16 @@ def validate_and_resolve_signature(
         resolution_dict = signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
         resolved_inputs = signature.resolve_inputs(resolution_dict)
         resolved_output = signature.resolve_output(resolution_dict, weak=not __enforce_output_type__)
-        valid_inputs, has_valid_overrides = signature.resolve_valid_inputs(**kwargs)
-        all_valid_inputs, has_all_valid_overrides = signature.resolve_all_valid_inputs(**kwargs)
+        valid_inputs, has_valid_overrides = signature.resolve_valid_inputs(resolution_dict, **kwargs)
+        all_valid_inputs, has_all_valid_overrides = signature.resolve_all_valid_inputs(resolution_dict, **kwargs)
+        active_inputs, has_active_overrides = signature.resolve_active_inputs(resolution_dict, **kwargs)
         valid_inputs, has_valid_overrides = signature.resolve_context_kwargs(kwargs, kwarg_types,
                                                                              resolved_inputs, valid_inputs,
                                                                              has_valid_overrides)
         resolved_inputs = signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
                                                                 resolved_inputs)
 
-        if signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides:
+        if signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides and not has_active_overrides:
             signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
             signature.validate_resolved_types(kwarg_types, kwargs)
             signature.validate_requirements(resolution_dict, kwargs)
@@ -349,7 +350,7 @@ def validate_and_resolve_signature(
                 input_types=resolved_inputs,
                 output_type=resolved_output,
                 src_location=signature.src_location,
-                active_inputs=signature.active_inputs,
+                active_inputs=active_inputs,
                 valid_inputs=valid_inputs,
                 all_valid_inputs=all_valid_inputs,
                 context_inputs=signature.context_inputs,

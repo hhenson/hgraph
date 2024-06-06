@@ -6,13 +6,13 @@ from hgraph import TSB, TS_SCHEMA, TS, compute_node, TSD, TIME_SERIES_TYPE, AUTO
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
 
 
-@graph(overloads=combine)
+@graph(overloads=combine, requires=lambda m, s: OUT not in m)
 def combine_unnamed_tsb(**bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle
 
 
 @graph(overloads=combine)
-def combine_named_tsb(tp_: Type[TS_SCHEMA] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+def combine_named_tsb(tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle
 
 

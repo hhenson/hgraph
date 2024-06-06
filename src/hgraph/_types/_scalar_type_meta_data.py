@@ -529,9 +529,15 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         tp_ = type(tp)
-        return (tp_ is HgTupleCollectionScalarType and self.element_type.matches(tp.element_type)) or (
+        if tp_ is HgTupleCollectionScalarType:
+            return self.element_type.matches(tp.element_type)
+        elif tp_ is HgTupleFixedScalarType:
+            return all(self.element_type.matches(tp_) for tp_ in tp.element_types)
+        elif tp_ is HgDictScalarType:
             # Support matching a delta value as well.
-                tp_ is HgDictScalarType and self.element_type.matches(tp.value_type) and tp.key_type.py_type is int)
+            return self.element_type.matches(tp.value_type) and tp.key_type.py_type is int
+        else:
+            return False
 
     @property
     def py_type(self) -> Type:

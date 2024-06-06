@@ -30,11 +30,10 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
 
     @property
     def value(self):
-        v = {k: ts.value for k, ts in self.items() if ts.valid}
         if s := self.__schema__.scalar_type():
-            return s(**v)
+            return s(**{k: ts.value for k, ts in self.items()})
         else:
-            return v
+            return {k: ts.value for k, ts in self.items() if ts.valid}
 
     @value.setter
     def value(self, v: Mapping[str, Any] | None):

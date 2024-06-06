@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from datetime import datetime
 from itertools import zip_longest
 from typing import Any
 
@@ -13,6 +14,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
               __trace__: bool = False,
               __observers__: list[EvaluationLifeCycleObserver] = None,
               __elide__: bool = False,
+              __start_time__: datetime = None,
+              __end_time__: datetime = None,
               **kwargs):
     """
     Evaluates a node using the supplied arguments.
@@ -89,7 +92,7 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
             max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
         observers = [EvaluationTrace(**(__trace__ if type(__trace__) is dict else {}))] if __trace__ else []
         observers.extend(__observers__ if __observers__ else [])
-        run_graph(eval_node_graph, life_cycle_observers=observers)
+        run_graph(eval_node_graph, life_cycle_observers=observers, start_time=__start_time__, end_time=__end_time__)
 
         results = get_recorded_value() if node.signature.output_type is not None else []
         if results:

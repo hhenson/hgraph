@@ -206,8 +206,8 @@ class TSBWiringPort(WiringPort):
         if self.__schema__.scalar_type() is None:
             raise CustomMessageWiringError("The schema does not have a scalar type")
 
-        from hgraph.nodes import cs_from_tsb
-        return cs_from_tsb(self)
+        from hgraph import convert, CompoundScalar, TS
+        return convert[TS[CompoundScalar]](self)
 
     def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
                   dst_path: tuple[SCALAR, ...]) -> \
@@ -248,8 +248,8 @@ class TSBREFWiringPort(WiringPort):
         if self.__schema__.scalar_type() is None:
             raise CustomMessageWiringError("The schema does not have a scalar type")
 
-        from hgraph.nodes import cs_from_tsb
-        return cs_from_tsb(self)
+        from hgraph import convert, CompoundScalar, TS
+        return convert[TS[CompoundScalar]](self)
 
     def __getattr__(self, item):
         from hgraph.nodes._tsb_operators import tsb_get_item
