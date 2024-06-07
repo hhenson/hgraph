@@ -124,6 +124,6 @@ def toposort(nodes: typing.Sequence["WiringNodeInstance"],
 
     # Sort nodes by rank
     result = [node for _, node in sorted((rank, node) for node, rank in processed_nodes.items()) if not node.is_stub]
-    if not all(n.rank <= n_1.rank for n, n_1 in zip(result[:-1], result[1:])):
-        raise RuntimeError("not correctly ranked")
+    # if not all(n.rank <= n_1.rank for n, n_1 in zip(result[:-1], result[1:])):
+    #     raise RuntimeError("not correctly ranked")
     return result

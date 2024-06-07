@@ -40,7 +40,6 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
             with WiringGraphContext(self.signature) as g:
                 typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
                 full_path = self.full_path(kwargs_.get("path"))
-                g.register_service_client(self, full_path, resolution_dict or None)
 
                 from hgraph.nodes._service_utils import _request_service
                 from hgraph.nodes._service_utils import _request_reply_service
@@ -48,15 +47,18 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
 
                 ts_kwargs = {k: v for k, v in kwargs_.items() if k in resolved_signature.time_series_args}
                 if resolved_signature.output_type is not None:
-                    return _request_reply_service[TIME_SERIES_TYPE_1 : resolved_signature.output_type](
+                    port = _request_reply_service[TIME_SERIES_TYPE_1 : resolved_signature.output_type](
                         path=typed_full_path,
                         request=TSB[ts_schema(**resolved_signature.time_series_inputs)].from_ts(**ts_kwargs),
                     )
                 else:
-                    return _request_service(
+                    port = _request_service(
                         path=typed_full_path,
                         request=TSB[ts_schema(**resolved_signature.time_series_inputs)].from_ts(**ts_kwargs),
                     )
+
+                g.register_service_client(self, full_path, resolution_dict or None, port.node_instance)
+                return port
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         from hgraph.nodes import get_shared_reference_output

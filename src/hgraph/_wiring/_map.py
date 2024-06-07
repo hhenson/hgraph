@@ -81,14 +81,12 @@ def map_(func: Callable, *args, **kwargs):
     if isinstance(func, WiringNodeClass):
         with WiringContext(current_signature=STATE(signature=f"map_('{func.signature.signature}', ...)")):
             signature: WiringNodeSignature = func.signature
-            map_wiring_node, calling_kwargs = _build_map_wiring_node_and_inputs(func, signature, *args, **kwargs)
-            return map_wiring_node(**calling_kwargs)
+            return _build_map_wiring(func, signature, *args, **kwargs)
     elif isfunction(func) and func.__name__ == "<lambda>":
         graph = _deduce_signature_from_lambda_and_args(func, *args, **kwargs)
         signature: WiringNodeSignature = graph.signature
         with WiringContext(current_signature=STATE(signature=f"map_('{signature.signature}', ...)")):
-            map_wiring_node, calling_kwargs = _build_map_wiring_node_and_inputs(graph, signature, *args, **kwargs)
-        return map_wiring_node(**calling_kwargs)
+            return _build_map_wiring(graph, signature, *args, **kwargs)
     else:
         raise RuntimeError(f"The supplied function is not a graph or node function or lambda: '{func.__name__}'")
 
@@ -228,9 +226,9 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
     return graph(with_signature(func, annotations=annotations, return_annotation=output_type))
 
 
-def _build_map_wiring_node_and_inputs(
+def _build_map_wiring(
     fn: Callable, signature: WiringNodeSignature, *args, __keys__=None, __key_arg__=None, **kwargs
-) -> tuple[WiringNodeClass, dict[str, WiringPort | SCALAR]]:
+) -> WiringPort:
     """
     Build the maps wiring signature. This will process the inputs looking to work out which are multiplexed inputs,
     which are pass-through, etc. It will perform basic validation that will ensure the signature of the mapped function
@@ -280,7 +278,7 @@ def _build_map_wiring_node_and_inputs(
                     __keys__ = kwargs_[next(iter(multiplex_args))].key_set
                 kwargs_[KEYS_ARG] = __keys__
             input_types = input_types | {KEYS_ARG: __keys__.output_type.dereference()}
-            map_wiring_node = _create_tsd_map_wiring_node(
+            map_wiring_node, sc, cc  = _create_tsd_map_wiring_node(
                 fn,
                 kwargs_,
                 input_types,
@@ -292,7 +290,7 @@ def _build_map_wiring_node_and_inputs(
         case "TSL":
             from hgraph._types._scalar_type_meta_data import HgAtomicType
 
-            map_wiring_node = _create_tsl_map_signature(
+            map_wiring_node, sc, cc  = _create_tsl_map_signature(
                 fn,
                 kwargs_,
                 input_types,
@@ -307,7 +305,13 @@ def _build_map_wiring_node_and_inputs(
     for arg in chain(pass_through_args, no_key_args):
         kwargs_[arg] = kwargs_[arg].value  # Unwrap the marker inputs.
 
-    return map_wiring_node, kwargs_
+    port = map_wiring_node(**kwargs_)
+
+    from hgraph import WiringGraphContext
+    WiringGraphContext.instance().reassign_service_clients(sc, port.node_instance)
+    WiringGraphContext.instance().reassign_context_clients(cc, port.node_instance)
+
+    return port
 
 
 def _extract_map_fn_key_arg_and_type(
@@ -484,7 +488,7 @@ def _create_tsd_map_wiring_node(
     no_key_args: frozenset[str],
     input_key_tp: HgTSTypeMetaData,
     input_key_name: str | None,
-) -> TsdMapWiringNodeClass:
+) -> [TsdMapWiringNodeClass, list, list]:
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
 
     # Resolve the mapped function signature
@@ -530,27 +534,21 @@ def _create_tsd_map_wiring_node(
         label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
     )
 
+    graph, service_clients, context_clients = wire_nested_graph(fn, resolved_signature.input_types,
+                              {k: kwargs_[k] for k, v in resolved_signature.input_types.items() if
+                               not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG}, provisional_signature,
+                              input_key_name, depth=2)
+
     map_signature = TsdMapWiringSignature(
         **provisional_signature.as_dict(),
         map_fn_signature=resolved_signature,
         key_tp=input_key_tp.value_scalar_tp,
         key_arg=input_key_name,
         multiplexed_args=multiplex_args,
-        inner_graph=wire_nested_graph(
-            fn,
-            resolved_signature.input_types,
-            {
-                k: kwargs_[k]
-                for k, v in resolved_signature.input_types.items()
-                if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG
-            },
-            provisional_signature,
-            input_key_name,
-            depth=2,
-        ),
+        inner_graph=graph
     )
     wiring_node = TsdMapWiringNodeClass(map_signature, fn)
-    return wiring_node
+    return wiring_node, service_clients, context_clients
 
 
 def _create_tsl_map_signature(
@@ -599,27 +597,21 @@ def _create_tsl_map_signature(
         label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
     )
 
+    graph, service_clients, context_clients = wire_nested_graph(fn, resolved_signature.input_types,
+                              {k: kwargs_[k] for k, v in resolved_signature.input_types.items() if
+                               not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG}, provisional_signature,
+                              input_key_name, depth=2)
+
     map_signature = TslMapWiringSignature(
         **provisional_signature.as_dict(),
         map_fn_signature=resolved_signature,
         size_tp=size_tp,
         key_arg=input_key_name,
         multiplexed_args=multiplex_args,
-        inner_graph=wire_nested_graph(
-            fn,
-            resolved_signature.input_types,
-            {
-                k: kwargs_[k]
-                for k, v in resolved_signature.input_types.items()
-                if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG
-            },
-            provisional_signature,
-            input_key_name,
-            depth=2,
-        ),
+        inner_graph=graph
     )
     wiring_node = TslMapWiringNodeClass(map_signature, fn)
-    return wiring_node
+    return wiring_node, service_clients, context_clients
 
 
 def _validate_tsd_keys(kwargs_, multiplex_args, no_key_args, tsd_keys):

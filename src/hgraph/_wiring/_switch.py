@@ -140,6 +140,7 @@ def switch_(
             label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
         )
 
+        # TODO: sort out the wiring here
         nested_graphs = {
             k: wire_nested_graph(
                 v,

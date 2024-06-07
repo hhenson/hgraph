@@ -49,14 +49,16 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             with WiringGraphContext(self.signature) as g:
                 typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
                 full_path = self.full_path(kwargs_.get("path"))
-                g.register_service_client(self, full_path, resolution_dict)
 
                 from hgraph.nodes._service_utils import _subscribe
                 from hgraph import TIME_SERIES_TYPE
 
-                return _subscribe[TIME_SERIES_TYPE : resolved_signature.output_type](
+                port = _subscribe[TIME_SERIES_TYPE : resolved_signature.output_type](
                     path=typed_full_path, key=kwargs_[next(iter(resolved_signature.time_series_args))]
                 )
+
+                g.register_service_client(self, full_path, resolution_dict, port.node_inatance)
+                return port
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         from hgraph.nodes import capture_output_node_to_global_state
