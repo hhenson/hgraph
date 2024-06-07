@@ -119,7 +119,8 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
     kwargs_ = {}
     args_offset = _args_offset
     args_used = 0
-    for i, (k, arg) in enumerate(zip(signature.args[_args_offset:], args)):
+    pos_args = len(signature.args) - (len(signature.kw_only_args) if signature.kw_only_args else 0)
+    for i, (k, arg) in enumerate(zip(signature.args[_args_offset:pos_args], args)):
         args_offset += 1
         if k == signature.var_arg:
             kwargs_[k] = args[i:]
@@ -131,7 +132,7 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
 
     if args_used < len(args):
         raise SyntaxError(
-            f"[{signature.signature}] Too many arguments provided, expected {signature.args}, got {args}")
+            f"[{signature.signature}] Too many positional arguments provided, expected {signature.args}, got {args}")
 
     if any(k in kwargs for k in kwargs_):
         raise SyntaxError(

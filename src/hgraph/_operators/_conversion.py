@@ -23,7 +23,7 @@ def combine(*args: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
 
 
 @operator
-def collect(ts: TIME_SERIES_TYPE) -> OUT:
+def collect(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     Converts the `ts` value to a collection time-series. The time-series to convert to must be provided declaratively.
     This is done by setting the OUT to the desired result type, for example:

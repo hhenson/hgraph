@@ -38,7 +38,7 @@ class WiringContext:
         if current_signature := s.get('current_signature'):
             from hgraph._wiring._wiring_observer import WiringObserverContext
             from hgraph._wiring._wiring_node_signature import WiringNodeType
-            if current_signature.node_type != WiringNodeType.GRAPH:
+            if getattr(current_signature, 'node_type', None) != WiringNodeType.GRAPH:
                 WiringObserverContext.instance().notify_enter_node_wiring(current_signature)
 
         return self
@@ -48,7 +48,7 @@ class WiringContext:
         if current_signature := s.get('current_signature'):
             from hgraph._wiring._wiring_observer import WiringObserverContext
             from hgraph._wiring._wiring_node_signature import WiringNodeType
-            if current_signature.node_type != WiringNodeType.GRAPH:
+            if getattr(current_signature, 'node_type', None) != WiringNodeType.GRAPH:
                 WiringObserverContext.instance().notify_exit_node_wiring(current_signature, exc_val)
 
         WiringContext._stack.pop()

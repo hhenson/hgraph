@@ -13,7 +13,7 @@ __all__ = (
     "TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
     "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR", 'OUTPUT_TYPE', "TIME_SERIES_TYPE_1",
     "TIME_SERIES_TYPE", "K", "K_1", "K_2", "V", "TimeSeriesIterable", "SIGNAL", "TIME_SERIES_TYPE_2",
-    "OUT"
+    "OUT", "OUT_1"
 )
 
 
@@ -116,6 +116,7 @@ TIME_SERIES_TYPE = TypeVar("TIME_SERIES_TYPE", bound=TimeSeries)
 TIME_SERIES_TYPE_1 = TypeVar("TIME_SERIES_TYPE_1", bound=TimeSeries)
 TIME_SERIES_TYPE_2 = TypeVar("TIME_SERIES_TYPE_2", bound=TimeSeries)
 OUT = TypeVar("OUT", bound=TimeSeries)
+OUT_1 = TypeVar("OUT_1", bound=TimeSeries)
 DELTA_SCALAR: TypeVar = clone_typevar(SCALAR, "DELTA_SCALAR")
 OUTPUT_TYPE = TypeVar("OUTPUT_TYPE", bound="TimeSeriesOutput")
 

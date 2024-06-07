@@ -1,7 +1,7 @@
 from typing import Tuple, Callable
 
-from hgraph import TS, TSD, switch_, graph, pass_through, mesh_, contains_, TSS, TSL, Removed, REMOVE, DEFAULT
-from hgraph.nodes import match, parse, tuple_from_ts, const
+from hgraph import TS, TSD, switch_, graph, pass_through, mesh_, contains_, TSS, TSL, Removed, REMOVE, DEFAULT, combine
+from hgraph.nodes import match, parse, const
 from hgraph._operators._control import merge
 from hgraph.test import eval_node
 
@@ -58,7 +58,7 @@ def test_mesh_2():
             (False, True, False): lambda n: mesh_(operation)[n[0]],
             (False, False, True): lambda n: perform_op(n[1], mesh_(operation)[n[0]], mesh_(operation)[n[2]])
         },
-            tuple_from_ts(Tuple[bool, bool, bool], number.is_match, var.is_match, expr.is_match),
+            combine[TS[Tuple[bool, bool, bool]]](number.is_match, var.is_match, expr.is_match),
             n=merge(number.groups, var.groups, expr.groups))
 
     @graph

@@ -12,30 +12,30 @@ class WiringTracer(WiringObserver):
 
     def on_enter_graph_wiring(self, signature: "WiringNodeSignature"):
         if self.graph and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
-            print(f"Wiring graph {signature.name}")
+            print(f"Wiring graph {signature.signature}")
 
     def on_exit_graph_wiring(self, signature: "WiringNodeSignature", error):
         if self.graph and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
-            print(f"Done wiring graph {signature.name}")
+            print(f"Done wiring graph {signature.signature}")
 
     def on_enter_nested_graph_wiring(self, signature: "WiringNodeSignature"):
         if self.graph and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
-            print(f"Wiring nested graph {signature.name}")
+            print(f"Wiring nested graph {signature.signature}")
 
     def on_exit_nested_graph_wiring(self, signature: "WiringNodeSignature", error):
         if self.graph and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
-            print(f"Done wiring nested graph {signature.name}")
+            print(f"Done wiring nested graph {signature.signature}")
 
     def on_enter_node_wiring(self, signature: "WiringNodeSignature"):
         if self.node and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
-            print(f"Wiring node {signature.name}")
+            print(f"Wiring node {signature.signature}")
 
     def on_exit_node_wiring(self, signature: "WiringNodeSignature", error):
         if self.node and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
             if error:
-                print(f"Error wiring node {signature.name}: {error}")
+                print(f"Error wiring node {signature.signature}: {error}")
             else:
-                print(f"Done wiring node {signature.name}")
+                print(f"Done wiring node {signature.signature}")
 
     def on_overload_resolution(self, signature: "WiringNodeSignature", selected_overload,
                                rejected_overloads, ambiguous_overloads):

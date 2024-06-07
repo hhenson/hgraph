@@ -44,6 +44,8 @@ class WiringObserverContext:
 
     @classmethod
     def instance(cls) -> "WiringObserverContext":
+        if cls._instance is None:
+            cls._instance = cls()
         return cls._instance
 
     def add_wiring_observer(self, observer: WiringObserver):
