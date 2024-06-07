@@ -2,19 +2,16 @@ from collections import defaultdict
 from dataclasses import field, dataclass
 from typing import Type, Mapping, cast, Tuple
 
-from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, \
-    STATE, graph, contains_, not_, K, NUMBER, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, \
-    getattr_, mul_, zero, len_, AUTO_RESOLVE, map_, TSL, SIZE, TimeSeriesReferenceOutput, operator, is_empty, K_1, \
-    TIME_SERIES_TYPE_1
-from hgraph.nodes._analytical import sum_
-from hgraph.nodes._const import const, nothing
-from hgraph._operators._control import merge
+from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, STATE, graph, contains_, \
+    not_, K, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, getattr_, zero, len_, AUTO_RESOLVE, TSL, \
+    SIZE, TimeSeriesReferenceOutput, operator, is_empty, K_1, TIME_SERIES_TYPE_1, sub_, bit_or, bit_and, bit_xor, eq_, \
+    min_, max_, str_, sum_, V, merge
+from hgraph.nodes import const, nothing
 
 __all__ = (
-    "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set", "tsd_contains",
-    "tsd_not", "tsd_is_empty", "tsd_len", "sum_tsd", "mul_tsd", "tsd_get_bundle_item",
-    "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_rekey", "tsd_flip", "tsd_flip_tsd", "merge_tsds",
-    "merge_nested_tsds", "tsd_partition", "get_schema_type", "tsd_get_items")
+    "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_key_set",
+    "tsd_get_bundle_item", "tsd_collapse_keys", "tsd_uncollapse_keys", "tsd_rekey", "tsd_flip", "tsd_flip_tsd",
+    "merge_nested_tsds", "tsd_partition", "get_schema_type", "tsd_get_items", "merge_tsds")
 
 
 @operator
@@ -147,34 +144,55 @@ def tsd_get_key_set(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
 
 
 @graph(overloads=contains_)
-def tsd_contains(ts: TSD[K, TIME_SERIES_TYPE], item: TS[K]) -> TS[bool]:
-    """Contains for TSD delegates to the key-set contains"""
+def contains_tsd(ts: TSD[K, TIME_SERIES_TYPE], item: TS[K]) -> TS[bool]:
+    """
+    Contains for TSD delegates to the key-set contains
+    """
     return contains_(ts.key_set, item)
 
 
 @graph(overloads=not_)
-def tsd_not(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
+def not_tsd(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
     return not_(ts.key_set)
 
 
 @graph(overloads=is_empty)
-def tsd_is_empty(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
+def is_empty_tsd(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
     return is_empty(ts.key_set)
 
 
 @graph(overloads=len_)
-def tsd_len(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
+def len_tsd(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
     return len_(ts.key_set)
 
 
-@compute_node(overloads=sum_)
-def sum_tsd(ts: TSD[K, TS[NUMBER]]) -> TS[NUMBER]:
-    return sum(i.value for i in ts.valid_values())
+@graph(overloads=sub_)
+def sub_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+    keys = lhs.key_set - rhs.key_set
+    return tsd_get_items(lhs, keys)
 
 
-@graph(overloads=mul_)
-def mul_tsd(tsd: TSD[K, TIME_SERIES_TYPE], other: TIME_SERIES_TYPE) -> TSD[K, TIME_SERIES_TYPE]:
-    return map_(lambda x, y: x * y, tsd, other)
+@graph(overloads=bit_and)
+def bit_and_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+    keys = lhs.key_set & rhs.key_set
+    return tsd_get_items(lhs, keys)
+
+
+@graph(overloads=bit_or)
+def bit_or_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+    return merge(lhs, rhs)
+
+
+@graph(overloads=bit_xor)
+def bit_and_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+    keys = lhs.key_set ^ rhs.key_set
+    return merge(tsd_get_items(lhs, keys), tsd_get_items(rhs, keys))
+
+
+@compute_node(overloads=eq_)
+def eq_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TS[bool]:
+    # TODO - optimise this
+    return lhs.value == rhs.value
 
 
 def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]:
@@ -451,3 +469,35 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
     This is a helper generator to create a zero time-series for the reduce function.
     """
     return nothing(ts)
+
+
+@compute_node(overloads=min_)
+def min_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
+    """
+    The minimum value in the TSD
+    """
+    default = default_value.value if default_value.valid else None
+    return min(tsd.value.values(), default=default)
+
+
+@compute_node(overloads=max_)
+def max_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
+    """
+    The maximum value in the TSD
+    """
+    default = default_value.value if default_value.valid else None
+    return max(tsd.value.values(), default=default)
+
+@graph(overloads=sum_)
+def sum_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
+    return _sum_tsd_unary(tsd, zero(tp, sum_))
+
+
+@compute_node
+def _sum_tsd_unary(tsd: TSD[K, V], zero_ts: V) -> V:
+    return sum((i.value for i in tsd.valid_values()), start=zero_ts.value)
+
+
+@compute_node(overloads=str_)
+def str_tsd(tsd: TSD[K, V]) -> TS[str]:
+    return str(dict(tsd.value))

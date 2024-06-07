@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
            "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
-           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT")
+           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT", "NUMBER_2")
 
 
 class _UnSet:
@@ -152,6 +152,7 @@ KEYABLE_SCALAR = TypeVar("KEYABLE_SCALAR", bound=Hashable)
 SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
 SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
 NUMBER = TypeVar("NUMBER", int, float, Decimal)
+NUMBER_2 = clone_typevar(NUMBER, "NUMBER_2")
 
 
 class STATE(Generic[COMPOUND_SCALAR]):

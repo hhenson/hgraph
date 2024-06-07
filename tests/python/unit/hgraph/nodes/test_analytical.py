@@ -2,7 +2,7 @@ import pytest
 
 from hgraph import Size, TS, TSL, TSD, MIN_TD
 from hgraph.nodes import ewma, center_of_mass_to_alpha, span_to_alpha, mean, clip, diff, average, lag, count, \
-    accumulate, sum_
+    accumulate
 from hgraph.test import eval_node
 
 
@@ -115,12 +115,3 @@ def test_diff():
     assert eval_node(diff, [1, 2, 3, 4,]) == expected
 
 
-@pytest.mark.parametrize(
-    ["inputs", "expected"],
-    [
-        [[(1, 2), (2, 3)], [3, 5]],
-        [[(1.0, 2.0), (2.0, 3.0)], [3.0, 5.0]],
-    ]
-)
-def test_sum(inputs, expected):
-    assert eval_node(sum_, inputs) == expected

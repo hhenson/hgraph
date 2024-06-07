@@ -6,13 +6,13 @@ from hgraph import graph, TS, TSD, TSS, TSL, SIZE, map_, reduce, HgTypeMetaData,
 from hgraph._wiring._map import _build_map_wiring_node_and_inputs
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import add_ts, debug_print, const, pass_through, format_
+from hgraph.nodes import debug_print, const, pass_through, format_
 from hgraph.test import eval_node
 
 
 @graph
 def f_sum(key: TS[SCALAR], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-    a = add_ts(lhs, rhs)
+    a = add_(lhs, rhs)
     debug_print("key", key)
     debug_print("sum", a)
     return a
@@ -54,11 +54,12 @@ def test_guess_arguments_f_sum_keys():
 
 
 def test_guess_arguments_add_keys():
+    from hgraph.nodes._scalar_operators import add_scalars
     with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
         rhs = const(2)
         keys = const(frozenset({'a', 'b'}), TSS[str])
-        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_ts, add_ts.signature, lhs, rhs, __keys__=keys)
+        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_scalars, add_scalars.signature, lhs, rhs, __keys__=keys)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs', '__keys__')
         assert signature.key_tp == HgTypeMetaData.parse_type(str)
@@ -72,10 +73,11 @@ def test_guess_arguments_add_keys():
 
 
 def test_guess_arguments_add_no_keys():
+    from hgraph.nodes._scalar_operators import add_scalars
     with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(frozendict({'a': 1}), TSD[str, TS[int]])
         rhs = const(2)
-        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_ts, add_ts.signature, lhs, rhs)
+        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_scalars, add_scalars.signature, lhs, rhs)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs', '__keys__')
         assert signature.key_tp == HgTypeMetaData.parse_type(str)
@@ -107,10 +109,11 @@ def test_guess_arguments_f_sum_lhs_tsl():
 
 
 def test_guess_arguments_add_no_keys_tsl():
+    from hgraph.nodes._scalar_operators import add_scalars
     with WiringNodeInstanceContext(), WiringGraphContext(None):
         lhs = const(tuple([1, 1]), TSL[TS[int], Size[2]])
         rhs = const(2)
-        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_ts, add_ts.signature, lhs, rhs)
+        wiring_node, wiring_inputs = _build_map_wiring_node_and_inputs(add_scalars, add_scalars.signature, lhs, rhs)
         signature: TsdMapWiringSignature = wiring_node.signature
         assert signature.args == ('lhs', 'rhs')
         assert signature.output_type == HgTypeMetaData.parse_type(TSL[REF[TS[int]], Size[2]])
@@ -131,27 +134,30 @@ def test_tsd_map_wiring():
 
 
 def test_tsd_map_wiring_no_key():
+    from hgraph.nodes._scalar_operators import add_scalars
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-        m = map_(add_ts, lhs=ts1, rhs=ts2)
+        m = map_(add_scalars, lhs=ts1, rhs=ts2)
         return m
 
     _test_tsd_map(map_test)
 
 
 def test_tsd_map_wiring_no_key_no_kwargs():
+    from hgraph.nodes._scalar_operators import add_scalars
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-        m = map_(add_ts, ts1, ts2, __keys__=keys)
+        m = map_(add_scalars, ts1, ts2, __keys__=keys)
         return m
 
     _test_tsd_map(map_test)
 
 
 def test_tsd_map_wiring_no_kwargs():
+    from hgraph.nodes._scalar_operators import add_scalars
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-        m = map_(add_ts, ts1, ts2, __keys__=keys)
+        m = map_(add_scalars, ts1, ts2, __keys__=keys)
         return m
 
     _test_tsd_map(map_test)
@@ -172,9 +178,10 @@ def test_tsl_map_wiring():
 
 
 def test_tsl_map_wiring_no_key():
+    from hgraph.nodes._scalar_operators import add_scalars
     @graph
     def map_test(index: TSL[TS[bool], SIZE], ts1: TSL[TS[int], SIZE], ts2: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
-        m = map_(add_ts, lhs=ts1, rhs=ts2)
+        m = map_(add_scalars, lhs=ts1, rhs=ts2)
         return m
 
     _test_tsl_map(map_test)
@@ -212,7 +219,7 @@ def _test_tsl_map(map_test):
 def test_tsd_reduce(inputs, expected):
     @graph
     def reduce_test(tsd: TSD[str, TS[int]]) -> TS[int]:
-        return reduce(add_ts, tsd, 0)
+        return reduce(add_, tsd, 0)
 
     assert eval_node(reduce_test, inputs) == expected
 
@@ -258,7 +265,7 @@ def test_tsd_reduce_no_zero(inputs, expected):
 def test_tsl_reduce(inputs, size, expected):
     @graph
     def reduce_test(tsl: TSL[TS[int], SIZE]) -> TS[int]:
-        return reduce(add_ts, tsl, 0)
+        return reduce(add_, tsl, 0)
 
     assert eval_node(reduce_test, inputs, resolution_dict={'tsl': TSL[TS[int], size]}) == expected
 

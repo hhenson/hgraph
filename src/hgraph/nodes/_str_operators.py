@@ -1,8 +1,9 @@
 from typing import Tuple, Type
 
-from hgraph import compute_node, TS, TimeSeriesSchema, TSB, SCALAR, AUTO_RESOLVE, add_, TIME_SERIES_TYPE, str_
+from hgraph import compute_node, TS, TimeSeriesSchema, TSB, SCALAR, AUTO_RESOLVE, add_, TIME_SERIES_TYPE, str_, sub_, \
+    WiringError, graph, mul_
 
-__all__ = ('match', 'parse', 'add_str')
+__all__ = ('match_', 'parse', 'add_str')
 
 
 @compute_node(overloads=str_)
@@ -27,7 +28,7 @@ class Match(TimeSeriesSchema):
 
 
 @compute_node
-def match(pattern: TS[str], s: TS[str]) -> TSB[Match]:
+def match_(pattern: TS[str], s: TS[str]) -> TSB[Match]:
     """
     Matches the pattern in the string and returns the groups.
     """
@@ -45,3 +46,18 @@ def parse(s: TS[str], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[SCALAR]:
     Parses the string into the given type.
     """
     return tp(s.value)
+
+
+@graph(overloads=sub_)
+def sub_strs(lhs: TS[str], rhs: TS[str]) -> TS[str]:
+    raise WiringError("Cannot subtract one string from another")
+
+
+@compute_node(overloads=mul_)
+def mul_strs(lhs: TS[str], rhs: TS[int]) -> TS[str]:
+    return lhs.value * rhs.value
+
+
+@graph
+def str_str(ts: TS[str]) -> TS[str]:
+    return ts

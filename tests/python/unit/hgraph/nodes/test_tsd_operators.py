@@ -2,10 +2,11 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
-    compute_node, REF, TSS, Size, SIZE, K_1, is_empty, Removed
-from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, sum_, tsd_get_item, const, tsd_rekey, tsd_flip,
-                          merge_tsds, tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys,
-                          merge_nested_tsds, tsd_get_items)
+    compute_node, REF, TSS, Size, SIZE, K_1, is_empty, Removed, sub_, eq_, len_, min_, max_
+from hgraph._operators._control import merge
+from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, tsd_get_item, const, tsd_rekey, tsd_flip,
+                          tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys,
+                          merge_nested_tsds, tsd_get_items, str_, sum_, merge_tsds)
 from hgraph.test import eval_node
 
 
@@ -42,15 +43,9 @@ def test_not():
     assert eval_node(is_empty_test, [None, {1: 1}, {2: 2}, {1: REMOVE}, {2: REMOVE}]) == [True, False, None, None, True]
 
 
-@pytest.mark.parametrize(
-    ["inputs", "expected"],
-    [
-        [[{0: 1, 1: 2}, {0: 2, 1: 3}], [3, 5]],
-        [[{0: 1.0, 1: 2.0}, {0: 2.0, 1: 3.0}], [3.0, 5.0]],
-    ]
-)
-def test_sum(inputs, expected):
-    assert eval_node(sum_, inputs, resolution_dict={'ts': TSD[int, TS[type(inputs[0][0])]]}) == expected
+def test_sub_tsds():
+    assert eval_node(sub_, [{0: 1, 3: 2}], [{0: 2, 1: 3}],
+                     resolution_dict={'lhs': TSD[int, TS[int]], 'rhs': TSD[int, TS[int]]}) == [frozendict({3: 2})]
 
 
 def test_tsd_get_item():
@@ -193,3 +188,122 @@ def test_tsd_partition():
                {'even': {2: REMOVE}},
                {'prime': {3: 6}, 'odd': {3: REMOVE}}
            ]
+
+
+def test_sub_tsds():
+    @graph
+    def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return tsd1 - tsd2
+
+    assert eval_node(app,
+                     [{1: 1},  {2: 2}],
+                     [{2: 3},  {3: 2}]) \
+           ==        [frozendict({1: 1}), None]
+
+
+def test_sub_tsds_initial_lhs_valid_before_rhs():
+    @graph
+    def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return tsd1 - tsd2
+
+    assert eval_node(app,
+                     [{1: 1},  {2: 2}],
+                     [None, {3: 2}]) \
+           ==        [None, {1: 1, 2: 2} ]
+
+
+def test_bit_or_tsds():
+    @graph
+    def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return tsd1 | tsd2
+
+    assert eval_node(app,
+                     [{1: 1},  {2: 2}],
+                     [{2: 3},  {3: 2}]) \
+           ==        [frozendict({1: 1, 2: 3}), frozendict({2: 2, 3: 2})]
+
+
+def test_bit_and_tsds():
+    @graph
+    def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return tsd1 & tsd2
+
+    assert eval_node(app,
+                     [{1: 1},  {2: 2}],
+                     [{2: 3},  {3: 2}]) \
+           ==        [None, frozendict({2: 2})]
+
+
+def test_bit_xor_tsds():
+    @graph
+    def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return tsd1 ^ tsd2
+
+    assert eval_node(app,
+                     [{1: 1},  {2: 2}],
+                     [{2: 3},  {3: 2}]) \
+           ==        [frozendict({1: 1, 2: 3}), frozendict({3: 2, 2: REMOVE})]
+
+
+@pytest.mark.xfail(reason="== does not work because it invokes __eq__ on WiringNodeInstance, which is an identity check.  _eq() works", strict=True)
+def test_eq_tsds():
+    @graph
+    def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TS[bool]:
+        # FIXME - == does not work because it invokes __eq__ on WiringNodeInstance which is
+        # an id() equality
+        if True:
+            # This fails
+            return tsd1 == tsd2
+        else:
+            # This works
+            return eq_(tsd1, tsd2)
+
+    assert eval_node(app,
+                     [{1: 1},  {2: 2}],
+                     [{2: 2},  {1: 1}]) \
+           ==        [False, True]
+
+
+@pytest.mark.parametrize(
+    ['tp', 'expected', 'values'],
+    [
+        [TSD[int, TS[int]], [None, 1, 0], [{}, {0: 1}, {0: REMOVE}]],
+    ]
+)
+def test_len_tsd(tp, expected, values):
+    assert eval_node(len_, values, resolution_dict={'ts': tp}) == expected
+
+
+def test_min_tsd_unary():
+    @graph
+    def app(tsd: TSD[int, TS[float]]) -> TS[float]:
+        return min_(tsd)
+
+    assert eval_node(app, [{3: 2.0}]) == [2.0]
+
+
+def test_max_tsd_unary():
+    @graph
+    def app(tsd: TSD[int, TS[int]]) -> TS[int]:
+        return max_(tsd)
+
+    assert eval_node(app, [{3: 2, 100: -100}]) == [2]
+
+
+@pytest.mark.xfail(reason="Empty TSDs don't seem to tick", strict=True)
+def test_sum_tsd_unary():
+    @graph
+    def app(tsd: TSD[int, TS[int]]) -> TS[int]:
+        from hgraph.nodes import log
+        log("TSD {}", tsd)
+        return sum_(tsd)
+
+    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}]) == [0, 102]
+
+
+def test_str_tsd():
+    @graph
+    def app(tsd: TSD[int, TS[int]]) -> TS[str]:
+        return str_(tsd)
+
+    assert eval_node(app, [{3: 2}]) == ['{3: 2}']

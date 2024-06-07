@@ -3,14 +3,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TypeVar
 
-from hgraph import compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_, TSD, \
-    K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar, len_, operator
+from hgraph import (compute_node, TS, STATE, TIME_SERIES_TYPE, graph, TSL, SIZE, NUMBER, AUTO_RESOLVE, reduce, add_,
+                    TSD, K, TS_OUT, SIGNAL, SCALAR, SCHEDULER, CompoundScalar, len_, operator)
 from hgraph.nodes._operators import cast_
 
-
-__all__ = (
-    "ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "sum_", "accumulate", "lag", "diff",
-    "INT_OR_TIME_DELTA", "average", "sum_collection", "pct_change")
+__all__ = ("ewma", "center_of_mass_to_alpha", "span_to_alpha", "mean", "clip", "count", "accumulate", "lag", "diff",
+           "INT_OR_TIME_DELTA", "average", "pct_change")
 
 
 INT_OR_TIME_DELTA = TypeVar("INT_OR_TIME_DELTA", int, timedelta)
@@ -80,7 +78,7 @@ def tsl_mean(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE,
 
 
 @graph(overloads=mean)
-def tsd_mean(ts: TSD[K, TS[NUMBER]], _num_tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+def mean_tsd(ts: TSD[K, TS[NUMBER]], _num_tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     numerator = reduce(add_, ts, 0.0 if _num_tp is float else 0)
     if _num_tp is int:
         numerator = cast_(float, numerator)
@@ -102,13 +100,6 @@ def clip_start(min_: NUMBER, max_: NUMBER):
     if min_ < max_:
         return
     raise RuntimeError(f"clip given min: {min_}, max: {max_}, but min is not < max")
-
-
-@operator
-def sum_(ts: TIME_SERIES_TYPE) -> TS[NUMBER]:
-    """
-    The sum of the values in the time-series
-    """
 
 
 @compute_node
@@ -195,11 +186,6 @@ def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
     Computes the difference between the current value and the previous value in the time-series.
     """
     return ts - lag(ts, 1)
-
-
-@compute_node(overloads=sum_)
-def sum_collection(ts: TS[tuple[NUMBER, ...]]) -> TS[NUMBER]:
-    return sum(ts.value)
 
 
 @graph

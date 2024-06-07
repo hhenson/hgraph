@@ -49,7 +49,7 @@ def test_peered_to_peered_tsl():
     assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1,3), (2, 4)]
 
 
-def test_len():
+def test_len_tsl_wiring():
 
     @graph
     def l_test(tsl: TSL[TS[int], SIZE]) -> TS[int]:

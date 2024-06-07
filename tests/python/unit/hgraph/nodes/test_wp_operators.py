@@ -12,8 +12,6 @@ def test_wp_operators_wiring():
         return lhs + rhs
 
     assert eval_node(g[TIME_SERIES_TYPE: TS[int]], lhs=[1, 2, None], rhs=[2, None, 3]) == [3, 4, 5]
-    with pytest.raises(WiringError):
-        eval_node(g[TIME_SERIES_TYPE: TSL[TS[str], Size[1]]], lhs=[], rhs=[])
 
 
 def test_wp_operators_wiring_w_consts():
