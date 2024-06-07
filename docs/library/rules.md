@@ -7,7 +7,7 @@ Hgraph Library contribution
 4. Name operator overloads as `\<operator>_<type>` e.g. `add_dates`, `min_int` etc
 5. If an operator has additional inputs, provide reasonable defaults, e.g. if `eq_floats` takes `epsilon`, has `epsilon: float = 1e-9`
 6. Put overloads for a type in `_\<type>_operators.py` in hgraph.nodes (or in the library where the underlying type is defined)
-7. Operator overloads does not need to be exported unless there is a specific exception
+7. Operator overloads do not need to be exported unless there is a specific exception
 8. Once the initial library API is agreed all changes should go via a proposal process (actual process TBD)
-9. Default to stricter validity requirements in operators, eg all_valid for bundles and reuiring all inputs to be valid for sum_ etc
+9. Default to stricter validity requirements in operators, eg all_valid for bundles and requiring all inputs to be valid for sum_ etc
 10. Provide `__strict__` scalar arg to operators to allow for more lenient validity requirements when passed `False`
