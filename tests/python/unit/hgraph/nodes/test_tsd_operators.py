@@ -173,13 +173,13 @@ def test_tsd_uncollapse_keys():
 
 def test_merge_tsd():
     assert eval_node(merge_tsds[K: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
-                     [({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})]) == [
+                     tsl=[({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})]) == [
                {1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
 
 
 def test_merge_nested_tsd():
     assert eval_node(merge_nested_tsds[K: int, K_1: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
-                     [({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}), ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})]) == [
+                     tsl=[({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}), ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})]) == [
         {1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
 
 

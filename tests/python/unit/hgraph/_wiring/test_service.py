@@ -6,7 +6,8 @@ from frozendict import frozendict
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, \
     subscription_service, TSS, map_, TSL, SIZE, request_reply_service, contains_, NUMBER, AUTO_RESOLVE, KEYABLE_SCALAR, \
     SCALAR, SCALAR_1, TIME_SERIES_TYPE
-from hgraph.nodes import const, pass_through, merge, sample, tsd_flip, null_sink, format_, debug_print
+from hgraph.nodes import const, pass_through, sample, tsd_flip, null_sink, format_, debug_print
+from hgraph._operators._control import merge
 from hgraph.nodes._conditional import route_ref
 from hgraph.test import eval_node
 
@@ -101,7 +102,7 @@ def test_recursive_request_reply_service():
     @graph
     def _add_one_service_impl(ts: TS[int]) -> TS[int]:
         z, nz = route_ref(ts == 0, ts)
-        return merge(TSL.from_ts(sample(z, 1), add_one_service('default_path', nz - 1) + 1))
+        return merge(sample(z, 1), add_one_service('default_path', nz - 1) + 1)
 
     @service_impl(interfaces=add_one_service)
     def add_one_service_impl(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:

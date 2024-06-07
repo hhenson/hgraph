@@ -292,6 +292,15 @@ Str operators
 ### match
 `match` does regex pattern matching
 
+### replace
+`replace` replaces all occurrences of a pattern in a string with another string
+
+### split
+`split` splits a string into a tuple of strings based on a separator
+
+### join
+`join` joins a tuple of strings into a single string using the given separator
+
 ### format_
 `format` formats strings given the format spec
 
@@ -307,6 +316,12 @@ never produces a tick
 
 ### null_sink &#10067;
 consumes a time series and does nothing
+
+### valid
+returns a bool time series that indicates if the input is valid (i.e. has a value)
+
+### last_modified_time
+returns a datetime timeseries that ticks last_modified_time of its input
 
 ### zero
 overloads of this operator provide zero value time series for the reduce_ operator

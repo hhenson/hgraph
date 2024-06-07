@@ -1,4 +1,4 @@
-from inspect import signature
+from inspect import signature, isfunction
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
 
 from frozendict import frozendict
@@ -67,9 +67,9 @@ def operator(fn: GRAPH_SIGNATURE, deprecated: bool | str = False) -> GRAPH_SIGNA
 
 def compute_node(fn: COMPUTE_NODE_SIGNATURE = None, /,
                  node_impl=None,
-                 active: Sequence[str] = None,
-                 valid: Sequence[str] = None,
-                 all_valid: Sequence[str] = None,
+                 active: Sequence[str] | Callable = None,
+                 valid: Sequence[str] | Callable = None,
+                 all_valid: Sequence[str] | Callable = None,
                  overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
                  resolvers: Mapping[TypeVar, Callable] = None,
                  requires: Callable[[..., ...], bool] = None,
@@ -195,9 +195,9 @@ def push_source_node(fn: SOURCE_NODE_SIGNATURE = None, /, node_impl=None,
 
 def sink_node(fn: SINK_NODE_SIGNATURE = None, /,
               node_impl=None,
-              active: Sequence[str] = None,
-              valid: Sequence[str] = None,
-              all_valid: Sequence[str] = None,
+              active: Sequence[str] | Callable = None,
+              valid: Sequence[str] | Callable = None,
+              all_valid: Sequence[str] | Callable = None,
               overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None,
               resolvers: Mapping[TypeVar, Callable] = None,
               requires: Callable[[..., ...], bool] = None,
@@ -494,8 +494,8 @@ def service_adaptor(interface):
     """
 
 
-def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active: Sequence[str] = None,
-                    valid: Sequence[str] = None, all_valid: Sequence[str] = None,
+def _node_decorator(node_type: "WiringNodeType", impl_fn, node_impl=None, active: Sequence[str] | Callable = None,
+                    valid: Sequence[str] | Callable = None, all_valid: Sequence[str] | Callable = None,
                     node_class: Type["WiringNodeClass"] = None,
                     overloads: "WiringNodeClass" = None, interfaces=None,
                     resolvers: Mapping[TypeVar, Callable] = None,
@@ -581,12 +581,23 @@ def _assert_no_node_configs(label: str, kwargs):
         raise ValueError(f"{label} do not support all_valid")
 
 
+def _set_or_lambda(value):
+    if value is None:
+        return None
+    elif isfunction(value) and value.__name__ == '<lambda>':
+        return value
+    elif isinstance(value, str):
+        return frozenset({value})
+    else:
+        return frozenset(value)
+
+
 def _create_node(signature_fn, impl_fn=None,
                  node_type: "WiringNodeType" = None,
                  node_class: Type["WiringNodeClass"] = None,
-                 active: Sequence[str] = None,
-                 valid: Sequence[str] = None,
-                 all_valid: Sequence[str] = None,
+                 active: Sequence[str] | Callable = None,
+                 valid: Sequence[str] | Callable = None,
+                 all_valid: Sequence[str] | Callable = None,
                  interfaces=None,
                  deprecated: bool | str = False,
                  requires: Callable[[..., ...], bool] = None
@@ -595,13 +606,15 @@ def _create_node(signature_fn, impl_fn=None,
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
     """
-    from hgraph._wiring._wiring_node_signature import extract_signature
+    from hgraph._wiring._wiring_node_signature import WiringNodeSignature, extract_signature
+
     if impl_fn is None:
         impl_fn = signature_fn
-    from hgraph._wiring._wiring_node_signature import WiringNodeSignature
-    active_inputs = frozenset(active) if active is not None else None
-    valid_inputs = frozenset(valid) if valid is not None else None
-    all_valid_inputs = frozenset(all_valid) if all_valid is not None else None
+
+    active_inputs = _set_or_lambda(active)
+    valid_inputs = _set_or_lambda(valid)
+    all_valid_inputs = _set_or_lambda(all_valid)
+
     signature = signature_fn if isinstance(signature_fn, WiringNodeSignature) else \
         extract_signature(signature_fn, node_type, active_inputs=active_inputs, valid_inputs=valid_inputs,
                           all_valid_inputs=all_valid_inputs, deprecated=deprecated, requires=requires)

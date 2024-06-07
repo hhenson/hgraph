@@ -1,4 +1,6 @@
+import inspect
 import sys
+import types
 from copy import copy
 from graphlib import TopologicalSorter
 from typing import Optional, TypeVar, Callable, Tuple, Dict
@@ -253,6 +255,15 @@ class WiringGraphContext:
 
 
 class GraphWiringNodeClass(BaseWiringNodeClass):
+
+    def __init__(self, signature: WiringNodeSignature, fn: Callable):
+        if signature.var_arg or signature.var_kwarg:
+            co = fn.__code__
+            kw_only_code = co.replace(co_flags=co.co_flags & ~(inspect.CO_VARARGS | inspect.CO_VARKEYWORDS),
+                                       co_argcount=0, co_posonlyargcount=0, co_kwonlyargcount=len(signature.args))
+            fn = types.FunctionType(kw_only_code, fn.__globals__)
+
+        super().__init__(signature, fn)
 
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                  **kwargs) -> "WiringPort":

@@ -2,11 +2,12 @@ from typing import Type
 
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
     PythonTimeSeriesReference, len_, operator
+from hgraph._operators._control import merge
 from hgraph.nodes._analytical import sum_
 from hgraph.nodes._const import const
 
 
-__all__ = ("flatten_tsl_values", "merge", "tsl_len", "sum_tsl", "tsl_to_tsd", "tsl_get_item", "tsl_get_item_ts",
+__all__ = ("flatten_tsl_values", "tsl_len", "sum_tsl", "tsl_to_tsd", "tsl_get_item", "tsl_get_item_ts",
            "index_of")
 
 
@@ -25,17 +26,9 @@ def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool = False
     """
     return tsl.value if not all_valid or tsl.all_valid else None
 
-@operator
-def merge(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
-    """
-    Selects and returns the first of the values that tick (are modified) in the list provided.
-    If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
-    list.
-    """
-
 
 @compute_node(overloads=merge)
-def merge_default(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+def merge_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     """
     Selects and returns the first of the values that tick (are modified) in the list provided.
     If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the

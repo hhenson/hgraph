@@ -1,8 +1,7 @@
 import pytest
 from frozendict import frozendict as fd
 
-from hgraph import TimeSeriesSchema, TS, TSB, TSD, WiringError, graph
-from hgraph.nodes import convert
+from hgraph import TimeSeriesSchema, TS, TSB, TSD, WiringError, graph, TIME_SERIES_TYPE, combine, convert
 from hgraph.test import eval_node
 
 
@@ -54,3 +53,23 @@ def test_tsb_convert_to_tsd_keys():
         convert_g,
         [dict(p1=1.0)]
     ) == [fd(p1=1.0)]
+
+
+def test_combine_unnamed_tsb():
+    @graph
+    def g(a: TS[int], b: TS[str]) -> TIME_SERIES_TYPE:
+        return combine(a=a, b=b)
+
+    assert eval_node(g, 1, "a") == [dict(a=1, b="a")]
+
+
+def test_combine_named_tsb():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    @graph
+    def g(a: TS[int], b: TS[str]) -> TSB[AB]:
+        return combine[TSB[AB]](a=a, b=b)
+
+    assert eval_node(g, 1, "a") == [dict(a=1, b="a")]

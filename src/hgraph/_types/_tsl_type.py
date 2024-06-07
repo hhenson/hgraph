@@ -3,6 +3,7 @@ from typing import Any, Generic, Iterable, TYPE_CHECKING, Tuple, Generator
 
 from frozendict import frozendict
 
+from hgraph._types._scalar_type_meta_data import HgTypeMetaData
 from hgraph._types._time_series_types import K, V
 from hgraph._types._scalar_types import SIZE, Size, STATE
 from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, TIME_SERIES_TYPE, \
@@ -92,11 +93,14 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
     """
 
     @classmethod
-    def from_ts(cls, *args, tp=TIME_SERIES_TYPE, size=SIZE) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
+    def from_ts(cls, *args, tp=TIME_SERIES_TYPE, size=SIZE, __type__=None) -> "TimeSeriesList[TIME_SERIES_TYPE, SIZE]":
         """To force a Type (to ensure input types are as expected, then provide __type__ and / or __size__"""
         if len(args) == 1 and isinstance(args[0], (Generator, list, tuple)):
             args = [arg for arg in args[0]]
-        size_, tp_ = cls._validate_inputs(*args, tp_=tp, size_=size)
+        if __type__ is not None:  # remove tp and size args once `combine` is done and from_ts is not used directly
+            tp = __type__.value_tp.py_type
+            size = __type__.size_tp.py_type
+        args, size_, tp_ = cls._validate_inputs(*args, tp_=tp, size_=size)
         fn_details = TimeSeriesListInput.from_ts.__code__
         from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
             HgTimeSeriesTypeMetaData, HgAtomicType
@@ -147,21 +151,38 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
                     from hgraph._wiring._wiring_errors import CustomMessageWiringError
                     raise CustomMessageWiringError(
                         f"Incorrect number of inputs provided, declared as {size_} but received {len(args)} inputs")
-        inputs = iter(args)
+        inputs = list(args)
         if tp_ is TIME_SERIES_TYPE:  # Check the types all match, if they do we have a resolved type!
             # Try resolve the input types
-            tp_ = next(inputs).output_type.dereference()
+            tp_ = inputs[0].output_type.dereference()
         else:
             from hgraph import HgTimeSeriesTypeMetaData
             tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
-        for v in inputs:
-            if not tp_.matches(v.output_type.dereference()):
-                with _from_ts_wiring_context(tp_, size_):
-                    from hgraph._wiring._wiring_errors import CustomMessageWiringError
-                    raise CustomMessageWiringError(
-                        f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]")
+
+        for i, v in enumerate(inputs):
+            from hgraph._wiring._wiring_port import WiringPort
+            if isinstance(v, WiringPort):
+                if not tp_.matches(v.output_type.dereference()):
+                    with _from_ts_wiring_context(tp_, size_):
+                        from hgraph._wiring._wiring_errors import CustomMessageWiringError
+                        raise CustomMessageWiringError(
+                            f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]")
+            elif tp_.scalar_type().matches(HgTypeMetaData.parse_value(v)):
+                from hgraph.nodes import const
+                inputs[i] = const(v, tp=tp_.py_type)
+            elif v is None:
+                from hgraph.nodes import nothing
+                inputs[i] = nothing(tp=tp_.py_type)
+            else:
+                from hgraph import IncorrectTypeBinding
+                from hgraph import WiringContext
+                from hgraph import STATE
+                with WiringContext(current_arg=i, current_signature=STATE(
+                        signature=f"TSL[{tp_}].from_ts(...)")):
+                    raise IncorrectTypeBinding(expected_type=tp_, actual_type=v)
+
         tp_ = tp_.py_type  # This would be in HgTypeMetaData format, need to put back into python type form
-        return size_, tp_
+        return inputs, size_, tp_
 
 
 def _from_ts_wiring_context(tp_, size_) -> "WiringContext":

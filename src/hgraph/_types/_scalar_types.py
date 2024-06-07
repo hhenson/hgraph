@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
            "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
-           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2",)
+           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT")
 
 
 class _UnSet:
@@ -33,6 +33,22 @@ class _UnSet:
 
     def __repr__(self):
         return "<UnSet>"
+
+
+class Default:
+    """
+    The marker class to indicate a type parameter that is the default if provided on a generic type without a key.
+    Also doubles up as default choice in switch_
+    """
+
+    def __init__(self, tp: TypeVar):
+        self.tp = tp
+
+    def __class_getitem__(cls, item):
+        return cls(item)
+
+
+DEFAULT = Default
 
 
 __CACHED_SIZES__: dict[int, Type["Size"]] = {}

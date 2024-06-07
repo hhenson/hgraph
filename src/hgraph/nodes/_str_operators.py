@@ -1,8 +1,16 @@
 from typing import Tuple, Type
 
-from hgraph import compute_node, TS, TimeSeriesSchema, TSB, SCALAR, AUTO_RESOLVE, add_
+from hgraph import compute_node, TS, TimeSeriesSchema, TSB, SCALAR, AUTO_RESOLVE, add_, TIME_SERIES_TYPE, str_
 
 __all__ = ('match', 'parse', 'add_str')
+
+
+@compute_node(overloads=str_)
+def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
+    """
+    Returns the string representation of the time-series value.
+    """
+    return str(ts.value)
 
 
 @compute_node(overloads=add_)

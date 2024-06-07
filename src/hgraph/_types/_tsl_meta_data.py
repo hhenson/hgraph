@@ -1,5 +1,6 @@
 from typing import Type, TypeVar, Optional, _GenericAlias, TYPE_CHECKING, cast
 
+from hgraph._types._generic_rank_util import combine_ranks, scale_rank
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTupleCollectionScalarType, \
     HgDictScalarType
@@ -84,12 +85,12 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
             type_ = next((v.output_type for v in value if isinstance(v, WiringPort)), None)
             if not type_:
                 type_ = HgTypeMetaData.parse_value(next(i for i in value if i is not None))
-                if type_ is None:
+                if type_ is not None:
                     type_ = HgTSTypeMetaData(type_)
                 else:
                     return None
 
-            return HgTSLTypeMetaData(type_, HgScalarTypeMetaData.parse_value(Size[size]))
+            return HgTSLTypeMetaData(type_, HgScalarTypeMetaData.parse_type(Size[size]))
 
         return super().parse_value(value)
 
@@ -105,11 +106,11 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def typevars(self):
-        return self.value_tp.typevars
+        return self.value_tp.typevars | self.size_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return (self.value_tp.operator_rank) / 100. + self.size_tp.operator_rank / 1e10
+    def generic_rank(self) -> dict[type, float]:
+        return combine_ranks((self.value_tp.generic_rank, scale_rank(self.size_tp.generic_rank, 1e-6)), 0.01)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSLTypeMetaData and self.value_tp == o.value_tp and self.size_tp == o.size_tp

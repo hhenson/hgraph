@@ -1,8 +1,19 @@
-from hgraph import TSB, TS_SCHEMA, TS, compute_node, TSD, TIME_SERIES_TYPE, TimeSeriesSchema, AUTO_RESOLVE
-from hgraph.nodes._conversion_operators._conversion_operator_templates import convert
+from typing import Type
 
+from hgraph import TSB, TS_SCHEMA, TS, compute_node, TSD, TIME_SERIES_TYPE, AUTO_RESOLVE, graph, combine, convert, \
+    DEFAULT, OUT
 
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
+
+
+@graph(overloads=combine, requires=lambda m, s: OUT not in m)
+def combine_unnamed_tsb(**bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+    return bundle
+
+
+@graph(overloads=combine)
+def combine_named_tsb(tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+    return bundle
 
 
 @compute_node(overloads=convert)
@@ -10,7 +21,7 @@ def convert_tsb_to_bool(ts: TSB[TS_SCHEMA], to: type[TS[bool]]) -> TS[bool]:
     """
     Returns True if the ts is valid or false otherwise.
     """
-    return ts.valid
+    return ts.valid  # AB: There is a 'valid' node for that, I would not see this as conversion
 
 
 def _convert_tsb_to_tsd_requirements(mapping, scalars):

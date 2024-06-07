@@ -1,9 +1,11 @@
+from functools import reduce
 from hashlib import sha1
 from itertools import chain
 from typing import Type, Optional, TypeVar, _GenericAlias, Dict
 
 from frozendict import frozendict
 
+from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._types._typing_utils import nth
 
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
@@ -205,11 +207,11 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.bundle_schema_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
+    def generic_rank(self) -> dict[type, float]:
         if isinstance(self.bundle_schema_tp, HgTsTypeVarTypeMetaData):
-            return self.bundle_schema_tp.operator_rank / 10.
+            return scale_rank(self.bundle_schema_tp.generic_rank, 0.1)
         else:
-            return sum(t.operator_rank for t in self.bundle_schema_tp.meta_data_schema.values()) / 100.
+            return combine_ranks((t.generic_rank for t in self.bundle_schema_tp.meta_data_schema.values()), 0.01)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgTSBTypeMetaData and self.bundle_schema_tp.matches(tp.bundle_schema_tp)

@@ -1,4 +1,6 @@
 from contextlib import nullcontext
+from datetime import datetime
+from itertools import zip_longest
 from typing import Any
 
 from hgraph import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, \
@@ -12,6 +14,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
               __trace__: bool = False,
               __observers__: list[EvaluationLifeCycleObserver] = None,
               __elide__: bool = False,
+              __start_time__: datetime = None,
+              __end_time__: datetime = None,
               **kwargs):
     """
     Evaluates a node using the supplied arguments.
@@ -39,15 +43,23 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
     def eval_node_graph():
         inputs = {}
         for ts_arg in time_series_inputs:
-            if kwargs_[ts_arg] is None:
+            arg_value = kwargs_.get(ts_arg)
+            if arg_value is None:
                 continue
+            if ts_arg == node.signature.var_arg and ts_arg not in kwargs:
+                # this was collected into *arg hence needs to be transposed to be correct shape for TSL replay
+                arg_value = list(zip_longest(*(a if hasattr(a, '__iter__') else [a] for a in arg_value)))
+            if ts_arg == node.signature.var_kwarg and ts_arg not in kwargs:
+                # this was collected into **kwarg hence needs to be transposed to be correct shape for TSB replay
+                arg_value = list({k: v for k, v in zip(arg_value.keys(), i)}
+                            for i in zip_longest(*(a if hasattr(a, '__iter__') else [a] for a in arg_value.values())))
             if resolution_dict is not None and ts_arg in resolution_dict:
                 ts_type = resolution_dict[ts_arg]
             else:
                 ts_type: HgTypeMetaData = node.signature.input_types[ts_arg]
                 if not ts_type.is_resolved:
                     # Attempt auto resolve
-                    v_ = kwargs_[ts_arg]
+                    v_ = arg_value
                     if not hasattr(v_, "__iter__"):  # Dealing with scalar to time-series support
                         v_ = [v_]
                     ts_type = HgTypeMetaData.parse_value(next(i for i in v_ if i is not None))
@@ -59,6 +71,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
                     print(f"Auto resolved type for '{ts_arg}' to '{ts_type}'")
                 ts_type = ts_type.py_type if not ts_type.is_context_wired else ts_type.ts_type.py_type
             inputs[ts_arg] = replay(ts_arg, ts_type)
+            is_list = hasattr(arg_value, "__len__")
+            set_replay_values(ts_arg, SimpleArrayReplaySource(arg_value if is_list else [arg_value]))
         for scalar_args in node.signature.scalar_inputs.keys():
             inputs[scalar_args] = kwargs_[scalar_args]
 
@@ -76,10 +90,9 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
                 continue
             # Dealing with scalar to time-series support
             max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
-            set_replay_values(ts_arg, SimpleArrayReplaySource(v if is_list else [v]))
         observers = [EvaluationTrace(**(__trace__ if type(__trace__) is dict else {}))] if __trace__ else []
         observers.extend(__observers__ if __observers__ else [])
-        run_graph(eval_node_graph, life_cycle_observers=observers)
+        run_graph(eval_node_graph, life_cycle_observers=observers, start_time=__start_time__, end_time=__end_time__)
 
         results = get_recorded_value() if node.signature.output_type is not None else []
         if results:

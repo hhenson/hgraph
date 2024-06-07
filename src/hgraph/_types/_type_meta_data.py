@@ -1,4 +1,4 @@
-from typing import TypeVar, Type, Optional
+from typing import TypeVar, Type, Optional, Mapping
 
 __all__ = ('ParseError', 'HgTypeMetaData', 'AUTO_RESOLVE')
 
@@ -92,14 +92,14 @@ class HgTypeMetaData:
         return set()
 
     @property
-    def operator_rank(self) -> float:
+    def generic_rank(self) -> dict[type, float]:
         """
-        The operator rank indicates how imprecision exists in the type. The higher the rank, the more imprecise.
+        The generic rank indicates how imprecision exists in the type. The higher the rank, the more imprecise.
         With the highest rank being 1.0 and the smallest being 0.0.
         This ranking is used to determine the best match when wiring types by summing up the ranks and picking
         the lowest sum of the inputs as the best match.
         """
-        return 1e-10
+        return {}
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """

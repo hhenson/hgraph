@@ -1,5 +1,6 @@
 from typing import Type, TypeVar, Optional, _GenericAlias, Dict
 
+from hgraph._types._generic_rank_util import combine_ranks
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
@@ -83,8 +84,8 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.key_tp.typevars | self.value_tp.typevars
 
     @property
-    def operator_rank(self) -> float:
-        return (self.key_tp.operator_rank + self.value_tp.operator_rank) / 100.
+    def generic_rank(self) -> dict[type, float]:
+        return combine_ranks((self.key_tp.generic_rank, self.value_tp.generic_rank), 0.01)
 
     def __getitem__(self, item):
         if KEY_SET_ID is item:

@@ -1,7 +1,8 @@
-from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node
+from datetime import datetime
 
+from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL
 
-__all__ = ("valid",)
+__all__ = ("valid", "last_modified_time")
 
 
 @compute_node(valid=("ts",), active=('ts',))
@@ -26,3 +27,8 @@ def valid(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bo
         return True
 
     return False
+
+
+@compute_node
+def last_modified_time(ts: SIGNAL) -> TS[datetime]:
+    return ts.last_modified_time

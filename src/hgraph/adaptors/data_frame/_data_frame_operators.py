@@ -75,5 +75,6 @@ def ungroup(ts: TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]) -> TS[Frame[COM
 
 
 @compute_node
-def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, reverse: bool = False) -> TS[Frame[COMPOUND_SCALAR]]:
-    return ts.value.sort(by, reverse=reverse)
+def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, descending: bool = False) -> TS[Frame[COMPOUND_SCALAR]]:
+    if not ts.value.is_empty():
+        return ts.value.sort(by, descending=descending)

@@ -5,6 +5,7 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._types._generic_rank_util import combine_ranks, scale_rank
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
@@ -44,8 +45,13 @@ class WiringNodeClass:
             item = tuple(slice(k, v) for k, v in item.items())
         elif isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
-        elif isinstance(item, type) and len(tpv := self.signature.typevars) == 1:
-            item = (slice(tuple(tpv)[0], item),)
+        elif isinstance(item, (type, _GenericAlias, HgTypeMetaData)):
+            if len(tpv := self.signature.typevars) == 1:
+                item = (slice(tuple(tpv)[0], item),)
+            elif self.signature.default_type_arg:
+                item = (slice(self.signature.default_type_arg, item),)
+            else:
+                raise WiringError(f"Can not figure out which type parameter to assign {item} to.")
 
         out = {}
         for s in item:
@@ -113,14 +119,20 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
     kwargs = copy(kwargs)
     kwargs_ = {}
     args_offset = _args_offset
+    args_used = 0
     for i, (k, arg) in enumerate(zip(signature.args[_args_offset:], args)):
         args_offset += 1
         if k == signature.var_arg:
             kwargs_[k] = args[i:]
-            i = len(args)
+            args_used = len(args)
             break
         else:
             kwargs_[k] = arg
+            args_used += 1
+
+    if args_used < len(args):
+        raise SyntaxError(
+            f"[{signature.signature}] Too many arguments provided, expected {signature.args}, got {args}")
 
     if any(k in kwargs for k in kwargs_):
         raise SyntaxError(
@@ -131,7 +143,11 @@ def extract_kwargs(signature: WiringNodeSignature, *args,
             kwargs_[k] = kwargs.pop(k)
         if k == signature.var_kwarg and k not in kwargs_:
             kwargs_[k] = kwargs
+            kwargs = {}
             break
+
+    if kwargs:
+        raise SyntaxError(f"[{signature.signature}] Has unexpected kwarg names {tuple(kwargs.keys())}, expected: {signature.args}")
 
     if not _ignore_defaults:
         kwargs_ |= {k: v for k, v in signature.defaults.items() if k not in kwargs_}  # Add in defaults
@@ -309,15 +325,16 @@ def validate_and_resolve_signature(
         resolution_dict = signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
         resolved_inputs = signature.resolve_inputs(resolution_dict)
         resolved_output = signature.resolve_output(resolution_dict, weak=not __enforce_output_type__)
-        valid_inputs, has_valid_overrides = signature.resolve_valid_inputs(**kwargs)
-        all_valid_inputs, has_all_valid_overrides = signature.resolve_all_valid_inputs(**kwargs)
+        valid_inputs, has_valid_overrides = signature.resolve_valid_inputs(resolution_dict, **kwargs)
+        all_valid_inputs, has_all_valid_overrides = signature.resolve_all_valid_inputs(resolution_dict, **kwargs)
+        active_inputs, has_active_overrides = signature.resolve_active_inputs(resolution_dict, **kwargs)
         valid_inputs, has_valid_overrides = signature.resolve_context_kwargs(kwargs, kwarg_types,
                                                                              resolved_inputs, valid_inputs,
                                                                              has_valid_overrides)
         resolved_inputs = signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs,
                                                                 resolved_inputs)
 
-        if signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides:
+        if signature.is_resolved and not has_valid_overrides and not has_all_valid_overrides and not has_active_overrides:
             signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
             signature.validate_resolved_types(kwarg_types, kwargs)
             signature.validate_requirements(resolution_dict, kwargs)
@@ -333,7 +350,7 @@ def validate_and_resolve_signature(
                 input_types=resolved_inputs,
                 output_type=resolved_output,
                 src_location=signature.src_location,
-                active_inputs=signature.active_inputs,
+                active_inputs=active_inputs,
                 valid_inputs=valid_inputs,
                 all_valid_inputs=all_valid_inputs,
                 context_inputs=signature.context_inputs,
@@ -492,9 +509,9 @@ class OverloadedWiringNodeHelper:
 
     @staticmethod
     def _calc_rank(signature: WiringNodeSignature) -> float:
-        return sum(t.operator_rank * (0.001 if t.is_scalar else 1)
+        return sum(combine_ranks((scale_rank(t.generic_rank, 0.001) if t.is_scalar else t.generic_rank
                    for k, t in signature.input_types.items()
-                   if signature.defaults.get(k) != AUTO_RESOLVE)
+                   if signature.defaults.get(k) != AUTO_RESOLVE)).values())
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []

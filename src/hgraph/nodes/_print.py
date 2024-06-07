@@ -59,7 +59,7 @@ def print_(format_str: TS[str] | str, *args, __std_out__: bool =True, **kwargs):
     if len(args) == 0 and len(kwargs) == 0:
         return _print(format_str)
     else:
-        return _print(format_(format_str, *args, **kwargs), std_out__=__std_out__)
+        return _print(format_(format_str, *args, **kwargs), std_out=__std_out__)
 
 
 @sink_node

@@ -1,5 +1,6 @@
 from typing import Mapping, Any, TypeVar, Callable, TYPE_CHECKING, List, Tuple
 
+from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._wiring._wiring_utils import pretty_str_types
 from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_errors import WiringFailureError
@@ -108,9 +109,9 @@ class OverloadedWiringNodeHelper:
     def _calc_rank(signature: WiringNodeSignature) -> float:
         if signature.node_type == WiringNodeType.OPERATOR:
             return 1e6  # Really not a good ranking
-        return sum(t.operator_rank * (0.001 if t.is_scalar else 1)
+        return sum(combine_ranks((scale_rank(t.generic_rank, 0.001) if t.is_scalar else t.generic_rank
                    for k, t in signature.input_types.items()
-                   if signature.defaults.get(k) != AUTO_RESOLVE)
+                   if signature.defaults.get(k) != AUTO_RESOLVE)).values())
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []

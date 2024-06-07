@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 
 from hgraph import graph, TS, evaluate_graph, GraphConfiguration, MIN_TD, GlobalState, \
     compound_scalar, TSL
-from hgraph.nodes import const, merge, lag
+from hgraph.nodes import const, lag
+from hgraph._operators._control import merge
 from hgraph.nodes.analytics import recordable_feedback, register_recorder_api, PolarsRecorderAPI
 from hgraph.nodes.analytics._recorder_api import set_recording_label
 
@@ -10,7 +11,7 @@ from hgraph.nodes.analytics._recorder_api import set_recording_label
 @graph
 def g() -> TS[int]:
     fb = recordable_feedback("test", TS[int])
-    v = merge(TSL.from_ts(fb(), const(0)))
+    v = merge(fb(), const(0))
     v += 1
     fb(lag(v, period=timedelta(days=1)))
     return v

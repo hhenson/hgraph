@@ -16,7 +16,7 @@ __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_", "xor_",
     "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_", "getitem_",
     "getattr_", "min_", "max_", "zero", "len_", "and_op", "or_op", "union_op", "union", "union_tsl",
-    "intersection_op", "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty", "type_"
+    "intersection_op", "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty", "type_", "str_"
 )
 
 
@@ -832,3 +832,11 @@ def type_(ts: TIME_SERIES_TYPE) -> TS[type]:
     Returns the type of the time-series value.
     """
     return type(ts.value)
+
+
+@operator
+def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
+    """
+    Returns the string representation of the time-series value.
+    """
+    return str(ts.value)

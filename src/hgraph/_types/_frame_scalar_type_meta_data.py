@@ -1,6 +1,7 @@
 from types import GenericAlias
-from typing import Type, TypeVar, Generic, Optional, _GenericAlias, _SpecialGenericAlias
+from typing import Type, TypeVar, Generic, Optional, _GenericAlias, _SpecialGenericAlias, Mapping
 
+from hgraph._types._generic_rank_util import scale_rank
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_types import CompoundScalar, COMPOUND_SCALAR
 from hgraph._types._scalar_type_meta_data import HgCollectionType, HgCompoundScalarType, HgScalarTypeMetaData, \
@@ -39,8 +40,8 @@ try:
             return self.schema.typevars
 
         @property
-        def operator_rank(self) -> float:
-            return self.schema.operator_rank / 100.
+        def generic_rank(self) -> dict[type, float]:
+            return scale_rank(self.schema.generic_rank, 0.01)
 
         @property
         def is_resolved(self) -> bool:
@@ -112,8 +113,8 @@ try:
             return self.value_tp.typevars
 
         @property
-        def operator_rank(self) -> float:
-            return self.value_tp.operator_rank / 100.
+        def generic_rank(self) -> dict[type, float]:
+            return scale_rank(self.value_tp.generic_rank, 0.01)
 
         @property
         def is_resolved(self) -> bool:
