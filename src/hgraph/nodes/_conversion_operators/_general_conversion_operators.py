@@ -1,0 +1,11 @@
+from hgraph import OUT, DEFAULT, graph, convert
+
+__all__ = ()
+
+
+@graph(overloads=convert)
+def convert_noop(ts: OUT) -> DEFAULT[OUT]:
+    """
+    if types are the same, then return the value.
+    """
+    return ts
