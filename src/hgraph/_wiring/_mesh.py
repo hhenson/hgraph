@@ -153,19 +153,21 @@ def _create_mesh_wiring_node(
         path = TimeSeriesContextTracker.instance().enter_context(
             context_wiring_port, WiringNodeInstanceContext.instance(), STATE(f_locals={name: context_wiring_port}))
 
+        builder, ss, cc = wire_nested_graph(fn,
+                          resolved_signature.input_types,
+                          {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
+                           if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
+                          provisional_signature,
+                          input_key_name,
+                          depth=2)
+
         mesh_signature = MeshWiringSignature(
             **provisional_signature.as_dict(),
             map_fn_signature=resolved_signature,
             key_tp=input_key_tp.value_scalar_tp,
             key_arg=input_key_name,
             multiplexed_args=multiplex_args,
-            inner_graph=wire_nested_graph(fn,
-                                          resolved_signature.input_types,
-                                          {k: kwargs_[k] for k, v in resolved_signature.input_types.items()
-                                           if not isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG},
-                                          provisional_signature,
-                                          input_key_name,
-                                          depth=2),
+            inner_graph=builder,
             context_path=path
         )
 

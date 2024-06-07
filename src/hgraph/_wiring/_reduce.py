@@ -144,14 +144,16 @@ def _reduce_tsd(func, ts, zero):
         func = graph(with_signature(func, annotations={k: item_tp for k in inspect.signature(func).parameters},
                                     return_annotation=TIME_SERIES_TYPE))
 
-    reduce_signature = ReduceWiringSignature(
-        **resolved_signature.as_dict(),
-        inner_graph=wire_nested_graph(func,
+    builder, sc, cc = wire_nested_graph(func,
                                       {k: tp.value_tp for k in func.signature.input_types},
                                       {},
                                       resolved_signature,
                                       None,
                                       depth=2)
+
+    reduce_signature = ReduceWiringSignature(
+        **resolved_signature.as_dict(),
+        inner_graph=builder
     )
     wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
     return wiring_node(ts, zero)

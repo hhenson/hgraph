@@ -116,6 +116,7 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
         )
 
+        # TODO: sort out the wiring here
         nested_graphs = {
             k: wire_nested_graph(v,
                                  resolved_signature_inner.input_types,
