@@ -5,7 +5,7 @@ from typing import Generic, TypeVar
 from hg_oap.quanity.conversion import convert
 from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, \
     subscription_service, request_reply_service, service_impl, register_service, combine
-from hgraph.nodes import tuple_from_ts, drop_dups, tsd_flip, make_tsd, const, sample
+from hgraph.nodes import drop_dups, tsd_flip, make_tsd, const, sample
 from hgraph import merge
 from hgraph.test import eval_node
 
@@ -140,7 +140,7 @@ def calculate_notional_tsb(position: TSB[Position[float]], currency_unit: TS[Uni
         (True, True): lambda p, c: convert_price_to_currency_units(p, c),
         (True, False): lambda p, c: TSB[Price[float]].from_ts(qty=convert(p.qty, p.currency_unit, c), currency_unit=c, unit=p.unit),
         (False, False): lambda p, c: p
-    }, tuple_from_ts(tuple[bool, bool], requires_currency_conversion, requires_conversion), price, currency_unit)
+    }, combine[TS[tuple[bool, bool]]](requires_currency_conversion, requires_conversion), price, currency_unit)
 
     with position.instrument:
         return TSB[Quantity[float]].from_ts(
