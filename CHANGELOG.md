@@ -470,3 +470,8 @@ Version 0.2.35 (01-06-2024)
 * Update parser to handle *arg: TSL[...] -> arg: TSL[...] (with mapping the elements to the time-series value)
 * Similar change to handle **kwargs: TSB[TS_SCHEMA] -> kwargs: TSB[TS_SCHEMA] (with the provided kwargs being the 
   values making up the schema) (rough equivalent of TSB.from_ts(**kwargs) but automated.)
+
+Version 0.2.36 (07-06-2024)
+---------------------------
+
+* Updates toward new standard library definitions
