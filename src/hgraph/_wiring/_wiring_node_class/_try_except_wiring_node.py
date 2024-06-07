@@ -27,7 +27,7 @@ class TryExceptWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(self, node_signature: "NodeSignature",
                                      scalars: Mapping[str, Any]) -> "NodeBuilder":
         # create nested graphs
-        nested_graph = wire_nested_graph(self._nested_graph, self._resolved_signature_inner.input_types, scalars,
+        nested_graph, ss, cc = wire_nested_graph(self._nested_graph, self._resolved_signature_inner.input_types, scalars,
                                          self.signature, 'key')
         nested_graph_input_ids, nested_graph_output_id = \
             extract_stub_node_indices(nested_graph, self._resolved_signature_inner.time_series_args)

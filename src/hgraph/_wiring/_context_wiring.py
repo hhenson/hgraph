@@ -1,7 +1,9 @@
 import sys
 from collections import namedtuple
 from contextlib import AbstractContextManager
-from typing import Mapping, Any
+from typing import Mapping, Any, TYPE_CHECKING
+
+from frozendict import frozendict
 
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types import (TS, SCALAR, TIME_SERIES_TYPE, REF, STATE,
@@ -9,6 +11,10 @@ from hgraph._types import (TS, SCALAR, TIME_SERIES_TYPE, REF, STATE,
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_port import WiringPort
+
+if TYPE_CHECKING:
+    from hgraph import WiringNodeInstance
+
 
 __all__ = ('TimeSeriesContextTracker', 'CONTEXT_TIME_SERIES_TYPE')
 
@@ -47,7 +53,14 @@ class TimeSeriesContextTracker(AbstractContextManager):
     def exit_context(self, context, capture=True):
         details = self.contexts.pop()
         if details.inner_graph_use and capture:
-            capture_context(details.path, details.context)
+            from hgraph import WiringGraphContext
+            with WiringGraphContext(None) as wnc:
+                capture_context(details.path, details.context)
+                context_capture = wnc.pop_sink_nodes()[0]
+
+            clients = WiringGraphContext.instance().remove_context_clients(details.path, details.depth)
+            for c in clients:
+                c.add_indirect_dependency(context_capture)
 
     def _find_context_details(self, tp, graph_scope, name=None):
         for details in reversed(self.contexts):
@@ -78,10 +91,16 @@ class TimeSeriesContextTracker(AbstractContextManager):
             if graph_scope == details.scope:  # the consumer is on the same graph as the producer
                 return details.context
             else:
+
                 details.inner_graph_use[graph_scope.graph_nesting_depth()] = True
                 from hgraph import CONTEXT_TIME_SERIES_TYPE
-                return get_context_output[CONTEXT_TIME_SERIES_TYPE: details.context.output_type](
+                port = get_context_output[CONTEXT_TIME_SERIES_TYPE: details.context.output_type](
                     details.path, details.depth - 1)
+
+                from hgraph import WiringGraphContext
+                WiringGraphContext.instance().register_context_client(details.path, details.depth, port.node_instance)
+
+                return port
 
         return None
 
@@ -89,6 +108,11 @@ class TimeSeriesContextTracker(AbstractContextManager):
         # we are making an assumption here that the rank of the capture_output_to_global_state node
         # is always 1 higher than the rank of the context manager node
         return max(0, 0, *(c[0].rank + 1 for c in self.contexts if c[1] is scope))
+
+    def rank_marker(self, scope) -> frozendict[str, "WiringNodeInstance"]:
+        # Provide a stub wiring node that will allow us to ensure the marker ranks the dependants correctly
+        inputs = frozendict({c.path: c.context.node_instance for c in self.contexts if c.scope is scope})
+        return inputs
 
 
 @sink_node(active=tuple(), valid=tuple())

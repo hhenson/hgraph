@@ -128,11 +128,14 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
 
         from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
+        from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+        from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
         wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict({k: v for k, v in zip(args_, args)}),
-            rank=max(v.rank for v in args)
+            rank=max(v.rank for v in args),
+            rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
         )
         return TSLWiringPort(wiring_node_instance, tuple())
 

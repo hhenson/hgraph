@@ -24,3 +24,10 @@ class NonPeeredWiringNodeClass(StubWiringNodeClass):
 
     def __call__(self, _tsb_meta_type: HgTSBTypeMetaData, **kwargs) -> "WiringPort":
         ...
+
+
+class ContextStubWiringNodeClass(StubWiringNodeClass):
+
+    def __call__(self, *args, **kwargs) -> "WiringPort":
+        ...
+

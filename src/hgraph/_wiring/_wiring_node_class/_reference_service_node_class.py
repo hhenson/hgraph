@@ -75,7 +75,7 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
             from hgraph import WiringGraphContext
             WiringGraphContext.instance().register_service_client(self, self.full_path(kwargs_.get("path")),
-                                                                  resolution_dict or None)
+                                                                  resolution_dict or None, port.node_instance)
 
             return port
 

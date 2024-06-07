@@ -3,13 +3,13 @@ from pathlib import Path
 from frozendict import frozendict
 
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
-from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
+from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
+from hgraph._wiring._wiring_node_instance import create_wiring_node_instance, WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
 
 
 def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> WiringPort:
@@ -29,16 +29,20 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
         input_types=frozendict({'ts': ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 13),
-        active_inputs=frozenset({"ts",}),
+        active_inputs=frozenset({"ts", }),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
-        time_series_args=frozenset({'ts',}),
+        time_series_args=frozenset({'ts', }),
         label=key
     )
     node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
-    node_instance = create_wiring_node_instance(node, signature, frozendict(), 1)
+    from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+    node_instance = create_wiring_node_instance(
+        node, signature, frozendict(), 1,
+        rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()))
+    node_instance.mark_treat_as_source_node()
     return _wiring_port_for(ref_tp, node_instance, ())
 
 
@@ -57,16 +61,19 @@ def create_output_stub(output: WiringPort):
         input_types=frozendict({'ts': ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 42),
-        active_inputs=frozenset({"ts",}),
+        active_inputs=frozenset({"ts", }),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
-        time_series_args=frozenset({'ts',}),
+        time_series_args=frozenset({'ts', }),
         label="graph:out"
     )
     node = PythonWiringNodeClass(signature, _stub)
-    node_instance = create_wiring_node_instance(node, signature, frozendict({"ts": output}), output.rank + 1)
+    from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+    node_instance = create_wiring_node_instance(
+        node, signature, frozendict({"ts": output}), output.rank + 1,
+        TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()))
     WiringGraphContext.instance().add_sink_node(node_instance)  # We cheat a bit since this is not actually a sink_node.
 
 
@@ -88,6 +95,7 @@ class KeyStubEvalFn:
     """
     A callable object we can attach the key to, then during start it will inject the key into the output.
     """
+
     def __init__(self):
         self.key = None
 
