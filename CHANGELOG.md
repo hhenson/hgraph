@@ -502,3 +502,8 @@ Version 0.2.38 (08-06-2024)
 
 * Fix removal of tsl_get_item_ts
 
+Version 0.2.39 (08-06-2024)
+---------------------------
+
+* Make scalar operators use actual operators rather than the dunder methods
+
