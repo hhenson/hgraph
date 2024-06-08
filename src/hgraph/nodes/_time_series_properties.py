@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 
 from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL
 
