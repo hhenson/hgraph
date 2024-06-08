@@ -497,3 +497,8 @@ Breaking changes:
 * modified_datetime/date removed in favour of the version: hgraph.nodes._time_series_properties.last_modified_time/date
 * Removed UnSet
 
+Version 0.2.38 (08-06-2024)
+---------------------------
+
+* Fix removal of tsl_get_item_ts
+

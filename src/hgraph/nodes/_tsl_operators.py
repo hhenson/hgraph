@@ -3,11 +3,11 @@ from typing import Type
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
     union_tsl, TSS, KEYABLE_SCALAR, TSS_OUT, PythonSetDelta, add_, sub_, mul_, div_, floordiv_, mod_, pow_, lshift_, \
     rshift_, bit_and, bit_or, bit_xor, eq_, ne_, not_, neg_, pos_, invert_, abs_, min_, max_, reduce, zero, \
-    str_, PythonTimeSeriesReference, len_, operator, sum_
+    str_, PythonTimeSeriesReference, len_, operator, sum_, getitem_
 from hgraph._operators._control import merge, all_
 from hgraph.nodes import const
 
-__all__ = ("flatten_tsl_values", "tsl_to_tsd", "tsl_get_item", "index_of")
+__all__ = ("flatten_tsl_values", "tsl_to_tsd", "index_of")
 
 
 @compute_node
@@ -59,40 +59,33 @@ def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> 
     return {k: ts.value for k, ts in zip(keys, tsl) if ts.modified}
 
 
-@operator
-def tsl_get_item(tsl: TSL[TIME_SERIES_TYPE, SIZE], index: int) -> TIME_SERIES_TYPE:
-    """
-    Returns the item from the TSL that matches the index provided
-    """
-
-
-@compute_node(overloads=tsl_get_item, requires=lambda m, s: 0 <= s['index'] < m[SIZE])
-def tsl_get_item_default(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: int) -> REF[TIME_SERIES_TYPE]:
+@compute_node(overloads=getitem_, requires=lambda m, s: 0 <= s['index'] < m[SIZE])
+def tsl_get_item_default(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
     """
-    if tsl.value.valid:
-        if tsl.value.has_peer:
-            return PythonTimeSeriesReference(tsl.value.output[index])
+    if ts.value.valid:
+        if ts.value.has_peer:
+            return PythonTimeSeriesReference(ts.value.output[key])
         else:
-            return tsl.value.items[index]
+            return ts.value.items[key]
     else:
         return PythonTimeSeriesReference()
 
 
-@compute_node(overloads=tsl_get_item)
-def tsl_get_item_ts(tsl: REF[TSL[TIME_SERIES_TYPE, SIZE]], index: TS[int], size: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
+@compute_node(overloads=getitem_)
+def tsl_get_item_ts(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
     """
-    if index.value < 0 or index.value >= size.SIZE:
+    if key.value < 0 or key.value >= _sz.SIZE:
         return PythonTimeSeriesReference()
 
-    if tsl.value.valid:
-        if tsl.value.has_peer:
-            return PythonTimeSeriesReference(tsl.value.output[index.value])
+    if ts.value.valid:
+        if ts.value.has_peer:
+            return PythonTimeSeriesReference(ts.value.output[key.value])
         else:
-            return tsl.value.items[index.value]
+            return ts.value.items[key.value]
     else:
         return PythonTimeSeriesReference()
 
