@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Generic, TypeVar
 
-from hg_oap.quanity.conversion import convert
+from hg_oap.quanity.conversion import convert_units
 from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, \
     subscription_service, request_reply_service, service_impl, register_service, combine
 from hgraph.nodes import drop_dups, tsd_flip, make_tsd, const, sample
@@ -117,7 +117,7 @@ def convert_price_to_currency_units(price: TSB[Price], currency_unit: TS[Unit]) 
     # here the FXSpot instrument provides a property unit_conversion_factors which contains a Quantity
     # in units of to_currency_unit per from_currency_unit
     with get_price(fx_rate_symbol(price.currency_unit, currency_unit)):
-        return TSB[Price[float]].from_ts(qty=convert(price.qty, price.currency_unit, currency_unit), currency_unit=currency_unit, unit=price.unit)
+        return TSB[Price[float]].from_ts(qty=convert_units(price.qty, price.currency_unit, currency_unit), currency_unit=currency_unit, unit=price.unit)
 
 
 ###################################################
@@ -138,13 +138,13 @@ def calculate_notional_tsb(position: TSB[Position[float]], currency_unit: TS[Uni
     requires_currency_conversion = price.currency_unit.dimension != currency_unit.dimension
     price_in_currency = switch_({
         (True, True): lambda p, c: convert_price_to_currency_units(p, c),
-        (True, False): lambda p, c: TSB[Price[float]].from_ts(qty=convert(p.qty, p.currency_unit, c), currency_unit=c, unit=p.unit),
+        (True, False): lambda p, c: TSB[Price[float]].from_ts(qty=convert_units(p.qty, p.currency_unit, c), currency_unit=c, unit=p.unit),
         (False, False): lambda p, c: p
     }, combine[TS[tuple[bool, bool]]](requires_currency_conversion, requires_conversion), price, currency_unit)
 
     with position.instrument:
         return TSB[Quantity[float]].from_ts(
-            qty=price_in_currency.qty * convert(position.qty, position.unit, to=price.unit),
+            qty=price_in_currency.qty * convert_units(position.qty, position.unit, to=price.unit),
             unit=price_in_currency.currency_unit)
 
 

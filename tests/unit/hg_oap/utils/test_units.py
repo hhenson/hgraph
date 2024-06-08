@@ -99,7 +99,7 @@ def test_conversion_2():
         U.pint = 0.568 * U.liter
         U.add_prefixes(U.pint, ('m',))
 
-        assert (U.mpint**-1).convert(1., to=U.bushel**-1) == 1/0.000568 * 35.2391
+        assert (U.mpint**-1).convert(1., to=U.bushel ** -1) == 1 / 0.000568 * 35.2391
 
 
 def test_offset_units():

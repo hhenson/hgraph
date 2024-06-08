@@ -1,6 +1,6 @@
 from typing import TypeVar
 
-from hg_oap.quanity.conversion import convert
+from hg_oap.quanity.conversion import convert_units
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit
@@ -30,12 +30,13 @@ def test_quantity_tsb():
     @graph
     def g(ts: TS[float], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[float]]:
         v = TSB[Quantity[float]].from_ts(qty=ts, unit=u)
-        return convert(v, u1).as_scalar_ts()
+        return convert_units(v, u1).as_scalar_ts()
 
     assert eval_node(g, ts=[1.0, None, 2.0], u=[U.kg, None, None], u1=[None, U.kg, U.g]) == [None, 1.*U.kg, 2000.*U.g]
 
     assert eval_node(g,
                      ts=[274.15, None, 273.15, None],
                      u=[U.K, None, None, None],
-                     u1=[U.K, U.degC, U.degF, U.K]) == \
+                     u1=[U.K, U.degC, U.degF, U.K],
+                     __trace__=True) == \
     [274.15*U.K, 1.*U.degC, 32.*U.degF, 273.15*U.K]
