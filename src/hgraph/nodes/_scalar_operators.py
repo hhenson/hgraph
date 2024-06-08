@@ -8,7 +8,7 @@ def add_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Adds two timeseries values of scalars (which support +)
     """
-    return lhs.value.__add__(rhs.value)
+    return lhs.value + rhs.value
 
 
 @compute_node(overloads=sub_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__sub__"))
@@ -16,7 +16,7 @@ def sub_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Subtracts two timeseries values of scalars (which support -)
     """
-    return lhs.value.__sub__(rhs.value)
+    return lhs.value - rhs.value
 
 
 @compute_node(overloads=mul_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__mul__"))
@@ -24,7 +24,7 @@ def mul_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Multiples two timeseries values of scalars (which support *)
     """
-    return lhs.value.__mul__(rhs.value)
+    return lhs.value * rhs.value
 
 
 @compute_node(overloads=pow_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__pow__"))
@@ -32,7 +32,7 @@ def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Raises a timeseries value to the power of the other timeseries value
     """
-    return lhs.value.__pow__(rhs.value)
+    return lhs.value ** rhs.value
 
 
 @compute_node(overloads=lshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lshift__"))
@@ -40,7 +40,7 @@ def lshift_scalars(lhs: TS[SCALAR], rhs: TS[int]) -> TS[SCALAR]:
     """
     Shifts the values in the lhs timeseries left by the rhs value
     """
-    return lhs.value.__lshift__(rhs.value)
+    return lhs.value << rhs.value
 
 
 @compute_node(overloads=rshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__rshift__"))
@@ -48,7 +48,7 @@ def rshift_scalars(lhs: TS[SCALAR], rhs: TS[int]) -> TS[SCALAR]:
     """
     Shifts the values in the lhs timeseries right by the rhs value
     """
-    return lhs.value.__rshift__(rhs.value)
+    return lhs.value >> rhs.value
 
 
 @compute_node(overloads=bit_and, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__and__"))
@@ -56,7 +56,7 @@ def bit_and_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Timeseries equivalent of lhs & rhs
     """
-    return lhs.value.__and__(rhs.value)
+    return lhs.value & rhs.value
 
 
 @compute_node(overloads=bit_or, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__or__"))
@@ -64,7 +64,7 @@ def bit_or_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Timeseries equivalent of lhs | rhs
     """
-    return lhs.value.__or__(rhs.value)
+    return lhs.value | rhs.value
 
 
 @compute_node(overloads=bit_xor, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__xor__"))
@@ -72,7 +72,7 @@ def bit_xor_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Timeseries equivalent of lhs ^ rhs
     """
-    return lhs.value.__xor__(rhs.value)
+    return lhs.value ^ rhs.value
 
 
 @compute_node(overloads=eq_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__eq__"))
@@ -80,7 +80,7 @@ def eq_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Equality of two scalar timeseries
     """
-    return bool(lhs.value.__eq__(rhs.value))
+    return bool(lhs.value == rhs.value)
 
 
 @compute_node(overloads=ne_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__ne__"))
@@ -88,7 +88,7 @@ def ne_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Not equality of two scalar timeseries
     """
-    return bool(lhs.value.__ne__(rhs.value))
+    return bool(lhs.value != rhs.value)
 
 
 @compute_node(overloads=lt_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lt__"))
@@ -96,7 +96,7 @@ def lt_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for less than of two scalar timeseries
     """
-    return bool(lhs.value.__lt__(rhs.value))
+    return bool(lhs.value < rhs.value)
 
 
 @compute_node(overloads=le_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__le__"))
@@ -104,7 +104,7 @@ def le_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for less than or equal of two scalar timeseries
     """
-    return bool(lhs.value.__le__(rhs.value))
+    return bool(lhs.value <= rhs.value)
 
 
 @compute_node(overloads=gt_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__gt__"))
@@ -112,7 +112,7 @@ def gt_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for greater than of two scalar timeseries
     """
-    return bool(lhs.value.__gt__(rhs.value))
+    return bool(lhs.value > rhs.value)
 
 
 @compute_node(overloads=ge_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__ge__"))
@@ -120,7 +120,7 @@ def ge_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for greater than or equal of two scalar timeseries
     """
-    return bool(lhs.value.__ge__(rhs.value))
+    return bool(lhs.value >= rhs.value)
 
 
 @compute_node(overloads=neg_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__neg__"))
