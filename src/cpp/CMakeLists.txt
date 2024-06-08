@@ -7,6 +7,7 @@ set(HGRAPH_SOURCES
 
         runtime/evaluation_engine.cpp
 
+        types/graph.cpp
         types/node.cpp
         types/scalar_value.cpp
         types/schema.cpp

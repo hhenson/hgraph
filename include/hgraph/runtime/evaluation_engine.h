@@ -18,7 +18,7 @@ namespace hgraph {
     };
 
     struct HGRAPH_EXPORT EvaluationClock {
-        virtual ~EvaluationClock();
+        virtual ~EvaluationClock() = default;
 
         [[nodiscard]] virtual engine_time_t evaluation_time() = 0;
 

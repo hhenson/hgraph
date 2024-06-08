@@ -47,7 +47,7 @@ namespace hgraph {
     }
 
     bool TimeSeriesOutput::modified() const {
-        return owning_graph()->evaluation_clock()->evaluation_time() == _last_modified_time;
+        return owning_graph()->evaluation_clock().evaluation_time() == _last_modified_time;
     }
 
     bool TimeSeriesOutput::valid() const {
@@ -70,8 +70,7 @@ namespace hgraph {
     }
 
     void TimeSeriesOutput::mark_modified() {
-        auto clock{owning_graph()->evaluation_clock()};
-        auto et{clock->evaluation_time()};
+        const auto &et{owning_graph()->evaluation_clock().evaluation_time()};
         if(_last_modified_time < et) {
             _last_modified_time = et;
             if(_parent_output.has_value()) {
@@ -124,8 +123,8 @@ namespace hgraph {
         }
         auto owning_node_{owning_node()};
         if ((owning_node_->is_started() || owning_node_->is_starting())
-            && _output.transform([](auto o_) { o_->valid(); })) {
-            _sample_time = owning_node_->graph->evaluation_clock()->evaluation_time();
+            && _output.transform([](auto o_) { return o_->valid(); })) {
+            _sample_time = owning_node_->graph->evaluation_clock().evaluation_time();
             if (active()) {
                 owning_node_->notify();
             }
@@ -138,7 +137,7 @@ namespace hgraph {
         auto active_{active()};
         make_passive();
         _output = value;
-        if (active()) {
+        if (active_) {
             make_active();
         }
         return true;
@@ -155,7 +154,7 @@ namespace hgraph {
             do_un_bind_output(*_output);
 
             if (owning_node()->is_started() and valid_) {
-                _sample_time = owning_graph()->evaluation_clock()->evaluation_time();
+                _sample_time = owning_graph()->evaluation_clock().evaluation_time();
                 if (active()) {
                     owning_node()->notify();
                 }
@@ -195,6 +194,6 @@ namespace hgraph {
     }
 
     bool TimeSeriesInput::sampled() const {
-        return _sample_time != MIN_DT && _sample_time == owning_graph()->evaluation_clock()->evaluation_time();
+        return _sample_time != MIN_DT && _sample_time == owning_graph()->evaluation_clock().evaluation_time();
     }
 }
