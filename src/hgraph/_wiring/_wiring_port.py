@@ -39,7 +39,7 @@ def _wiring_port_for(tp: HgTypeMetaData, node_instance: "WiringNodeInstance", pa
         }.get(type(tp), lambda: WiringPort(node_instance, path))()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=False)
 class WiringPort:
     """
     A wiring port is the abstraction that describes the src of an edge in a wiring graph. This source is used to

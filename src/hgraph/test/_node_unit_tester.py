@@ -12,6 +12,7 @@ from hgraph.test._node_printer import EvaluationTrace
 
 def eval_node(node, *args, resolution_dict: [str, Any] = None,
               __trace__: bool = False,
+              __trace_wiring__: bool = False,
               __observers__: list[EvaluationLifeCycleObserver] = None,
               __elide__: bool = False,
               __start_time__: datetime = None,
@@ -90,9 +91,9 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
                 continue
             # Dealing with scalar to time-series support
             max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
-        observers = [EvaluationTrace(**(__trace__ if type(__trace__) is dict else {}))] if __trace__ else []
-        observers.extend(__observers__ if __observers__ else [])
-        run_graph(eval_node_graph, life_cycle_observers=observers, start_time=__start_time__, end_time=__end_time__)
+        run_graph(eval_node_graph, life_cycle_observers=__observers__,
+                  start_time=__start_time__, end_time=__end_time__,
+                  __trace__=__trace__, __trace_wiring__=__trace_wiring__)
 
         results = get_recorded_value() if node.signature.output_type is not None else []
         if results:

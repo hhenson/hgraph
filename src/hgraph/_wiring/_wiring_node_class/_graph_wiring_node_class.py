@@ -16,6 +16,7 @@ from hgraph._wiring._wiring_node_class._service_interface_node_class import Serv
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, PreResolvedWiringNodeWrapper, \
     validate_and_resolve_signature
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+from hgraph._wiring._wiring_observer import WiringObserverContext
 from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = ('WiringGraphContext', "GraphWiringNodeClass")
@@ -240,9 +241,16 @@ class WiringGraphContext:
 
     def __enter__(self):
         WiringGraphContext.__stack__.append(self)
+
+        if self._wiring_node_signature:
+            WiringObserverContext.instance().notify_enter_graph_wiring(self._wiring_node_signature)
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._wiring_node_signature:
+            WiringObserverContext.instance().notify_exit_graph_wiring(self._wiring_node_signature, exc_val)
+
         WiringGraphContext.__stack__.pop()
         if not self._temporary and WiringGraphContext.__stack__:
             # For now lets bubble the sink nodes up.

@@ -15,16 +15,21 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
         return lambda fn: dispatch(fn, on=on)
 
     from hgraph import graph, with_signature, AUTO_RESOLVE
-    from hgraph._wiring._wiring_node_class._wiring_node_class import OverloadedWiringNodeHelper
+    from hgraph._wiring._wiring_node_class._operator_wiring_node import OverloadedWiringNodeHelper
 
     if not isinstance(fn, WiringNodeClass):
         fn: WiringNodeClass = graph(fn)
 
+    non_autoresolve = fn.signature.non_autoresolve_inputs
+    pos_inputs = {k: v for k, v in fn.signature.positional_inputs.items() if k in non_autoresolve}
+    kw_inputs = {k: v for k, v in fn.signature.kw_only_inputs.items() if k in non_autoresolve}
+
     @with_signature(
-        kwargs={**fn.signature.non_autoresolve_inputs, '__resolution_dict__': HgTypeMetaData.parse_type(object)},
+        args={**pos_inputs},
+        kwargs={**kw_inputs, '__resolution_dict__': HgTypeMetaData.parse_type(object)},
         defaults={'__resolution_dict__': AUTO_RESOLVE},
         return_annotation=fn.signature.output_type)
-    def dispatch_(**kwargs):
+    def dispatch_(*args, **kwargs):
         if overloads := getattr(dispatch_graph, 'overload_list', None):
             overload_list = overloads.overloads
             if fn.signature.node_type != WiringNodeType.OPERATOR:
@@ -32,7 +37,7 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
             if __resolution_dict__ := kwargs.pop('__resolution_dict__', None):
                 args = tuple(slice(k, v) for k, v in __resolution_dict__.items())
                 overload_list = tuple((o[args], r) for o, r in overload_list)
-            return _dispatch_impl(fn.signature, overload_list, __on__=on, **kwargs)
+            return _dispatch_impl(fn.signature, overload_list, *args, __on__=on, **kwargs)
         else:
             from hgraph import CustomMessageWiringError
             raise CustomMessageWiringError(f'{fn.signature} has no overloads to dispatch to')

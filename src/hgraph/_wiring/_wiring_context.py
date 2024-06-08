@@ -33,10 +33,24 @@ class WiringContext:
         super().__setattr__('_state', dict(**kwargs))
 
     def __enter__(self):
-        WiringContext._stack.append(super().__getattribute__("_state"))
+        WiringContext._stack.append(s := super().__getattribute__("_state"))
+
+        if current_signature := s.get('current_signature'):
+            from hgraph._wiring._wiring_observer import WiringObserverContext
+            from hgraph._wiring._wiring_node_signature import WiringNodeType
+            if getattr(current_signature, 'node_type', None) != WiringNodeType.GRAPH:
+                WiringObserverContext.instance().notify_enter_node_wiring(current_signature)
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        s = super().__getattribute__("_state")
+        if current_signature := s.get('current_signature'):
+            from hgraph._wiring._wiring_observer import WiringObserverContext
+            from hgraph._wiring._wiring_node_signature import WiringNodeType
+            if getattr(current_signature, 'node_type', None) != WiringNodeType.GRAPH:
+                WiringObserverContext.instance().notify_exit_node_wiring(current_signature, exc_val)
+
         WiringContext._stack.pop()
 
     @classmethod

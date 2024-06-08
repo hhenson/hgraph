@@ -93,6 +93,7 @@ class WiringNodeSignature:
     record_and_replay_id: str | None = None
     deprecated: str | bool = False
     requires: Callable[[...], bool] | None = None
+    kw_only_args: tuple[str, ...] = None
     var_arg: str = None
     var_kwarg: str = None
     default_type_arg: TypeVar = None
@@ -128,7 +129,9 @@ class WiringNodeSignature:
                     unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
                     injectable_inputs=self.injectable_inputs, label=self.label,
                     record_and_replay_id=self.record_and_replay_id,
-                    deprecated=self.deprecated, requires=self.requires, var_arg=self.var_arg, var_kwarg=self.var_kwarg,
+                    deprecated=self.deprecated, requires=self.requires,
+                    kw_only_args=self.kw_only_args,
+                    var_arg=self.var_arg, var_kwarg=self.var_kwarg,
                     default_type_arg=self.default_type_arg
                     )
 
@@ -171,6 +174,14 @@ class WiringNodeSignature:
     @property
     def time_series_inputs(self) -> Mapping[str, HgTimeSeriesTypeMetaData]:
         return frozendict({k: v for k, v in self.input_types.items() if not v.is_scalar})
+
+    @property
+    def positional_inputs(self) -> Mapping[str, HgTypeMetaData]:
+        return frozendict({k: v for k, v in self.input_types.items() if k not in self.kw_only_args})
+
+    @property
+    def kw_only_inputs(self) -> Mapping[str, HgTypeMetaData]:
+        return frozendict({k: v for k, v in self.input_types.items() if k in self.kw_only_args})
 
     @property
     def non_autoresolve_inputs(self) -> Mapping[str, HgTypeMetaData]:
@@ -456,6 +467,8 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     code = fn.__code__
     parameters = signature(fn).parameters
     args: tuple[str, ...] = tuple(parameters.keys())
+    kw_only_args: tuple[str, ...] = tuple(k for k, p in parameters.items()
+                                          if p.kind in (Parameter.KEYWORD_ONLY, Parameter.VAR_KEYWORD))
     defaults = {k: p.default for k, p in parameters.items() if p.default is not p.empty}
     var_arg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_POSITIONAL), None)
     var_kwarg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_KEYWORD), None)
@@ -463,6 +476,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         if wiring_node_type == WiringNodeType.OPERATOR:
             # Remove var_args from operators - they are decorative
             args = tuple(a for a in args if a not in (var_arg, var_kwarg) or a in annotations)
+            kw_only_args = tuple(a for a in kw_only_args if a not in (var_arg, var_kwarg) or a in annotations)
 
     if default_type_arg_name := next((k for k, v in annotations.items() if isinstance(v, DEFAULT)), None):
         tp = annotations[default_type_arg_name].tp
@@ -541,6 +555,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         record_and_replay_id=None,
         deprecated=deprecated,
         requires=requires,
+        kw_only_args=kw_only_args,
         var_arg=var_arg,
         var_kwarg=var_kwarg,
         default_type_arg=default_type_arg
