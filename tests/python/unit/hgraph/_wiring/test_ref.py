@@ -2,8 +2,8 @@ from typing import cast
 
 from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, TSD, REMOVE, \
     Removed, K, KEYABLE_SCALAR
-from hgraph.nodes import tss_contains
 from hgraph.nodes._conditional import route_ref
+from hgraph.nodes._tss_operators import contains_tss
 from hgraph.test import eval_node
 
 
@@ -77,7 +77,7 @@ def test_merge_ref_set():
 
 
 def test_tss_ref_contains():
-    assert eval_node(tss_contains[KEYABLE_SCALAR: int],
+    assert eval_node(contains_tss[KEYABLE_SCALAR: int],
                      ts=[{1}, {2}, None, {Removed(2)}],
                      item=[2, None, None, None, 1]
                      ) == [False, True, None, False, True]

@@ -1,5 +1,6 @@
 from typing import Tuple, Callable
 
+
 from hgraph import TS, TSD, switch_, graph, pass_through, mesh_, contains_, TSS, TSL, Removed, REMOVE, DEFAULT, combine
 from hgraph.nodes import match, parse, const
 from hgraph._operators._control import merge
@@ -24,11 +25,11 @@ def test_mesh():
         }, op_name, lhs, rhs)
 
     @graph
-    def operation(i: TS[Tuple[str, str, str]], vars: TSD[str, TS[float]]) -> TS[float]:
+    def operation(i: TS[Tuple[str, ...]], vars: TSD[str, TS[float]]) -> TS[float]:
         return perform_op(i[0], get_arg(i[1], vars), get_arg(i[2], vars))
 
     @graph
-    def g(i: TSD[str, TS[Tuple[str, str, str]]], vars: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
+    def g(i: TSD[str, TS[Tuple[str, ...]]], vars: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
         return mesh_(operation, i, pass_through(vars))
 
     assert eval_node(g,
@@ -50,9 +51,9 @@ def test_mesh_2():
     @graph
     def operation(i: TS[str], vars: TS[str]) -> TS[float]:
         what = vars
-        number = match("^([0-9]+(?:\.[0-9]*)?)$", what)
-        var = match("^(\w+)$", what)
-        expr = match("^(\w+)([+\-*/])(\w+)$", what)
+        number = match_("^([0-9]+(?:\.[0-9]*)?)$", what)
+        var = match_("^(\w+)$", what)
+        expr = match_("^(\w+)([+\-*/])(\w+)$", what)
         return switch_({
             (True, False, False): lambda n: parse[float](n[0]),
             (False, True, False): lambda n: mesh_(operation)[n[0]],

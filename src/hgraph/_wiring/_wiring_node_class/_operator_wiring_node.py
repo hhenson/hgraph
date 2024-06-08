@@ -155,15 +155,14 @@ class OverloadedWiringNodeHelper:
                          kwargs.items() if not k.startswith("_")]
             _msg_part = '\n'.join(str(c) for c in rejected_candidates)
             raise WiringError(
-                f"{self.overloads[0][0].signature.name} cannot be wired with given parameters - no matching candidates found\n"
-                f"{args_tp}, {kwargs_tp}"
-                f"\nRejected candidates: {_msg_part}"
+                f"Cannot wire overload with args {args_tp}, kwargs {kwargs_tp}: no matching candidates found\n"
+                f"Rejected candidates:\n{_msg_part}"
             )
 
         if len(best_candidates) > 1 and pick is None:
             p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
             raise WiringError(
-                f"{self.overloads[0][0].signature.name} overloads are ambiguous with given parameters - more than one top candidate: "
+                f"Overloads are ambiguous with given parameters:\n "
                 f"{','.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
                 f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
 

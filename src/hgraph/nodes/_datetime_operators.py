@@ -1,10 +1,8 @@
 from datetime import datetime, date, time, timedelta
 
-from hgraph import compute_node, graph, TS, SCALAR, SIGNAL, getattr_, add_, sub_, lt_, gt_, eq_, le_, ge_
+from hgraph import compute_node, graph, TS, SCALAR, getattr_, add_, sub_, WiringError, mul_, div_, NUMBER, sum_
 
-__all__ = (
-    "datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr", "datetime_add_delta",
-    "date_add_delta", "datetime_sub_delta", "date_sub_delta", "modified_datetime", "modified_date")
+__all__ = ("datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr")
 
 _datetime_properties = {
     'year': int,
@@ -58,72 +56,63 @@ def datetime_getattr(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
         raise AttributeError(f"TS[datetime] has no property {attribute}")
 
 
+@graph(overloads=add_)
+def add_datetimes(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]:
+    # This is to avoid the add_scalars getting wired and failing at runtime
+    raise WiringError("Cannot add two datetimes together")
+
+
+@graph(overloads=add_)
+def add_dates(lhs: TS[date], rhs: TS[date]) -> TS[date]:
+    # This is to avoid the add_scalars getting wired and failing at runtime
+    raise WiringError("Cannot add two dates together")
+
+
 @compute_node(overloads=add_)
-def datetime_add_delta(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]:
+def add_datetime_timedelta(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]:
     return lhs.value + rhs.value
 
 
 @compute_node(overloads=add_)
-def date_add_delta(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
+def add_date_timedelta(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
     return lhs.value + rhs.value
 
 
 @compute_node(overloads=sub_)
-def datetime_sub_delta(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]:
+def sub_datetime_timedelta(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]:
     return lhs.value - rhs.value
 
 
 @compute_node(overloads=sub_)
-def date_sub_delta(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
-    return lhs.value - rhs.value
-
-
-@compute_node(overloads=lt_)
-def lt_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
-    return lhs.value < rhs.value
-
-
-@compute_node(overloads=le_)
-def le_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
-    return lhs.value <= rhs.value
-
-
-@compute_node(overloads=gt_)
-def gt_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
-    return lhs.value > rhs.value
-
-
-@compute_node(overloads=ge_)
-def lt_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
-    return lhs.value >= rhs.value
-
-
-@compute_node(overloads=eq_)
-def eq_date(lhs: TS[date], rhs: TS[date]) -> TS[bool]:
-    return lhs.value == rhs.value
-
-
-@compute_node(overloads=sub_)
-def sub_date(lhs: TS[date], rhs: TS[date]) -> TS[timedelta]:
+def sub_date_timedelta(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
     return lhs.value - rhs.value
 
 
 @compute_node(overloads=sub_)
-def sub_datetime(lhs: TS[datetime], rhs: TS[datetime]) -> TS[timedelta]:
+def sub_dates(lhs: TS[date], rhs: TS[date]) -> TS[timedelta]:
     return lhs.value - rhs.value
 
 
-@compute_node
-def modified_date(ts: SIGNAL) -> TS[date]:
-    """
-    The date that this ts was modified.
-    """
-    return ts.last_modified_time.date()
+@compute_node(overloads=sub_)
+def sub_datetimes(lhs: TS[datetime], rhs: TS[datetime]) -> TS[timedelta]:
+    return lhs.value - rhs.value
 
 
-@compute_node
-def modified_datetime(ts: SIGNAL) -> TS[datetime]:
-    """
-    The datetime that this time-series was modified.
-    """
-    return ts.last_modified_time
+@compute_node(overloads=mul_)
+def mul_timedelta_number(lhs: TS[timedelta], rhs: TS[NUMBER]) -> TS[timedelta]:
+    return lhs.value * rhs.value
+
+
+@compute_node(overloads=div_)
+def div_timedelta_number(lhs: TS[timedelta], rhs: TS[NUMBER]) -> TS[timedelta]:
+    return lhs.value / rhs.value
+
+
+@graph(overloads=sum_)
+def sum_date_unary(ts: TS[date]) -> TS[date]:
+    raise WiringError("Cannot sum dates")
+
+
+@graph(overloads=sum_)
+def sum_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+    raise WiringError("Cannot sum datetimes")

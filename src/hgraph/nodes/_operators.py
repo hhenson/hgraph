@@ -59,5 +59,3 @@ def take(ts: TIME_SERIES_TYPE, count: int = 1, _state: STATE[CounterState] = Non
     if c == count:
         ts.make_passive()
     return ts.delta_value
-
-

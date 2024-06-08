@@ -32,3 +32,8 @@ def valid(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bo
 @compute_node
 def last_modified_time(ts: SIGNAL) -> TS[datetime]:
     return ts.last_modified_time
+
+
+@compute_node
+def last_modified_date(ts: SIGNAL) -> TS[date]:
+    return ts.last_modified_time.date()
