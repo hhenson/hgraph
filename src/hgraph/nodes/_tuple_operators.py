@@ -8,7 +8,8 @@ from hgraph import SCALAR, TS, HgTypeMetaData, WiringContext, MissingInputsError
 from hgraph import getitem_, min_, max_, sum_, zero
 from hgraph.nodes import flatten_tsl_values
 
-__all__ = ("TUPLE", "getitem_tuple", "tuple_from_ts")
+
+__all__ = ("TUPLE", "getitem_tuple")
 
 
 TUPLE = TypeVar("TUPLE", bound=tuple)
@@ -28,33 +29,6 @@ def getitem_tuple(ts: TS[Tuple[SCALAR, ...]], key: TS[int]) -> TS[SCALAR]:
     Retrieve the tuple item indexed by key from the timeseries of scalar tuples
     """
     return ts.value[key.value]
-
-
-def tuple_from_ts(cls: Type[TUPLE], *args, all_valid: bool = True) -> TS[TUPLE]:
-    cls = HgTypeMetaData.parse_type(cls)
-    if isinstance(cls, HgTupleFixedScalarType):
-        scalar_schema = cls.element_types
-        args_schema = tuple(HgTypeMetaData.parse_value(v) for v in args)
-
-        with WiringContext(current_signature=dict(signature=f"from_ts({str(cls)}, ...)")):
-            for i, t in enumerate(scalar_schema):
-                if i >= len(args):
-                    raise MissingInputsError({i: a for i, a in enumerate(args)})
-                if (kt := args_schema[i]) is None:
-                    raise MissingInputsError({i: a for i, a in enumerate(args)})
-                elif not t.matches(kt if kt.is_scalar else kt.scalar_type()):
-                    raise IncorrectTypeBinding(t, args_schema[i])
-
-            @compute_node(valid=None if all_valid else ())
-            @with_signature(kwargs={f'_{i}': v for i, v in enumerate(args_schema)}, return_annotation=TS[cls.py_type])
-            def from_ts_node(**kwargs):
-                return cls.py_type(v if not isinstance(v, TimeSeries) else v.value for v in kwargs.values())
-
-            return from_ts_node(*args)
-    elif isinstance(cls, HgTupleCollectionScalarType):
-        return flatten_tsl_values(TSL.from_ts(*args), all_valid=all_valid)
-    else:
-        raise IncorrectTypeBinding(TUPLE, cls)
 
 
 @dataclass

@@ -18,21 +18,9 @@ if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
-__all__ = ("SCALAR", "UnSet", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
+__all__ = ("SCALAR", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
            "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
            "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT", "NUMBER_2")
-
-
-class _UnSet:
-    """
-    The marker class to indicate that value is not present.
-    """
-
-    def __str__(self):
-        return "<UnSet>"
-
-    def __repr__(self):
-        return "<UnSet>"
 
 
 class Default:
@@ -142,7 +130,6 @@ class Hashable(Protocol):
         ...
 
 
-UnSet = _UnSet()  # The marker instance to indicate the value is not set.
 SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 COMPOUND_SCALAR_1 = clone_typevar(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")

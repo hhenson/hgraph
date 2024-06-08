@@ -11,3 +11,4 @@ Hgraph Library contribution
 8. In general operators should not produce output until both/all inputs are valid.  For example, a set difference operator should not produce a result until both sets are valid (albeit potentially empty)
 9. Tests should be created for each operator implementation which exercise appropriate edge cases. 
 10. Once the initial library API is agreed all changes should go via a proposal process (actual process TBD)
+

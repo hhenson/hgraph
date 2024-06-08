@@ -10,18 +10,7 @@ from hgraph._operators._conversion import emit, convert
 __all__ = ("emit_tuple", "convert_ts_generic", "convert_ts_to_tss")
 
 
-@graph(overloads=convert)
-def convert_ts_noop(
-        ts: TS[SCALAR],
-        to: type[TS[SCALAR]] = DEFAULT[OUT],
-) -> TS[SCALAR]:
-    """
-    if types are the same, then return the value.
-    """
-    return ts
-
-
-@compute_node(overloads=convert)
+@compute_node(overloads=convert, requires=lambda m, s: m[SCALAR] != m[SCALAR_1])
 def convert_ts_generic(ts: TS[SCALAR], to: type[TS[SCALAR_1]] = DEFAULT[OUT], s1_type: type[SCALAR_1] = AUTO_RESOLVE) -> TS[SCALAR_1]:
     return s1_type(ts.value)
 

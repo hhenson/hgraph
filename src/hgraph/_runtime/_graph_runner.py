@@ -11,6 +11,8 @@ import warnings
 __all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
 from hgraph._runtime._graph_recorder import GraphRecorder
+from hgraph._wiring._wiring_observer import WiringObserver
+
 
 def _default_logger() -> Logger:
     logger = getLogger("hgraph")
@@ -43,8 +45,9 @@ class GraphConfiguration:
     end_time: datetime = MAX_ET
     trace: bool | dict = False
     profile: bool | dict = False
-    trace_mode: Dict[str, bool] = None
     life_cycle_observers: tuple[EvaluationLifeCycleObserver, ...] = tuple()
+    trace_wiring: bool | dict = False
+    wiring_observers: tuple[WiringObserver, ...] = tuple()
     graph_logger: Logger = field(default_factory=_default_logger)
     recorder: GraphRecorder | None = None
 
@@ -66,6 +69,10 @@ class GraphConfiguration:
             from hgraph.test import EvaluationProfiler
             self.life_cycle_observers = self.life_cycle_observers + (EvaluationProfiler(**(self.profile if type(self.profile) is dict else {})),)
 
+        if self.trace_wiring:
+            from hgraph.test import WiringTracer
+            self.wiring_observers = self.wiring_observers + (WiringTracer(**(self.trace_wiring if type(self.trace_wiring) is dict else {})),)
+
 
 def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs) -> list[tuple[datetime, Any]] | None:
     from hgraph._builder._graph_builder import GraphBuilder
@@ -85,7 +92,13 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
                 record(out, "__out__")
             graph = _record
         with WiringNodeInstanceContext():
-            graph_builder: GraphBuilder = wire_graph(graph, *args, **kwargs)
+            from hgraph._wiring._wiring_observer import WiringObserverContext
+            with WiringObserverContext() as wiring_observer_context:
+                for observer in config.wiring_observers:
+                    wiring_observer_context.add_wiring_observer(observer)
+
+                graph_builder: GraphBuilder = wire_graph(graph, *args, **kwargs)
+
     else:
         graph_builder = graph
 
@@ -113,7 +126,7 @@ def run_graph(graph: Callable, *args,
               life_cycle_observers: [EvaluationLifeCycleObserver] = None,
               __trace__: bool | dict = False,
               __profile__: bool | dict = False,
-              __trace_mode__: Dict[str, bool] = None,
+              __trace_wiring__: bool | dict = False,
               **kwargs):
     """
     Use this to initiate the graph engine run loop.
@@ -132,7 +145,7 @@ def run_graph(graph: Callable, *args,
     :param life_cycle_observers: A list of observers to register with the runtime engine prior to evaluation.
     :param kwargs: Any additional kwargs to pass to the graph.
     """
-    kwargs_ = {"run_mode": run_mode, "trace": __trace__, "profile": __profile__}
+    kwargs_ = {"run_mode": run_mode, "trace": __trace__, "profile": __profile__, "trace_wiring": __trace_wiring__}
     if start_time is not None:
         kwargs_["start_time"] = start_time
     if end_time is not None:

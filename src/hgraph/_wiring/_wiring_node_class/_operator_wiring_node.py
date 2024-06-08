@@ -20,7 +20,7 @@ class OperatorWiringNodeClass(WiringNodeClass):
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         super().__init__(signature, fn)
-        self._overload_helper: OverloadedWiringNodeHelper = OverloadedWiringNodeHelper()
+        self._overload_helper: OverloadedWiringNodeHelper = OverloadedWiringNodeHelper(self)
 
     def overload(self, other: "WiringNodeClass"):
         self._overload_helper.overload(other)
@@ -97,10 +97,15 @@ class OverloadedWiringNodeHelper:
     collection types. This rule applies recursively so TSL[V, 2] is less specific than TSL[TS[SCALAR], 2]
     """
 
+    base: WiringNodeClass
     overloads: List[Tuple[WiringNodeClass, float]]
 
-    def __init__(self, base: WiringNodeClass = None):
-        self.overloads = [(base, self._calc_rank(base.signature))] if base is not None else []
+    def __init__(self, base: WiringNodeClass):
+        self.base = base
+        if base.signature.node_type != WiringNodeType.OPERATOR:
+            self.overloads = [(base, self._calc_rank(base.signature))]
+        else:
+            self.overloads = []
 
     def overload(self, impl: WiringNodeClass):
         self.overloads.append((impl, self._calc_rank(impl.signature)))
@@ -134,6 +139,16 @@ class OverloadedWiringNodeHelper:
             except Exception as e:
                 raise
 
+        best_candidates = sorted(candidates, key=lambda x: x[1])
+        pick = best_candidates[0][0] if (lbc := len(best_candidates)) > 0 and (lbc == 1 or best_candidates[0][1] < best_candidates[1][1]) else None
+        from hgraph._wiring._wiring_observer import WiringObserverContext
+        WiringObserverContext.instance().notify_overload_resolution(
+            self.base.signature,
+            best_candidates[0] if pick else None,
+            [(c, r) for c, r in rejected_candidates],
+            [(c, r) for c, r in candidates if c is not pick]
+        )
+
         if not candidates:
             args_tp = [str(a.output_type) if isinstance(a, WiringPort) else str(a) for a in args]
             kwargs_tp = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(v)) for k, v in
@@ -144,12 +159,11 @@ class OverloadedWiringNodeHelper:
                 f"Rejected candidates:\n{_msg_part}"
             )
 
-        best_candidates = sorted(candidates, key=lambda x: x[1])
-        if len(best_candidates) > 1 and best_candidates[0][1] == best_candidates[1][1]:
+        if len(best_candidates) > 1 and pick is None:
             p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
             raise WiringError(
                 f"Overloads are ambiguous with given parameters:\n "
                 f"{','.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
                 f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
 
-        return best_candidates[0][0]
+        return pick

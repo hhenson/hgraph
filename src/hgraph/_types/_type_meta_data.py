@@ -56,6 +56,12 @@ class HgTypeMetaData:
         """
         return self.py_type == tp.py_type  # By default if the python types are the same, then the types match.
 
+    def matches_type(self, tp: type):
+        """
+        Helper to match a type that has not been parsed.
+        """
+        return self.matches(self.parse_type(tp))
+
     def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
         """
         If this meta data a sub-class of the other, determines convertibility. That is in a wiring context,
