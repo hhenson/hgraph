@@ -475,3 +475,25 @@ Version 0.2.36 (07-06-2024)
 ---------------------------
 
 * Updates toward new standard library definitions
+
+Version 0.2.37 (08-06-2024)
+---------------------------
+
+* Added all the operator overloads for all types where they did not exist in the required packages,
+  and added tests for each combination of type and operator.
+* Renamed all the overloads according to the document
+* Added ISSUES.md until we can add to GitHub issues
+* More converter and combines support for *args in signatures.
+* Wiring Tracer support
+* Updates to library rules.
+
+Breaking changes:
+* Moved sum_ into operators as per doc
+* _ts_operators no longer exists, as per doc. Operators in it moved to the correct packages
+* Removed (most) overloaded specific operator names from all
+* and_op renamed to bit_and (and analogies for or_op etc) as per doc
+* union_op removed (is equivalent to bit_or)
+* match renamed match_ (match is now a python keyword)
+* modified_datetime/date removed in favour of the version: hgraph.nodes._time_series_properties.last_modified_time/date
+* Removed UnSet
+
