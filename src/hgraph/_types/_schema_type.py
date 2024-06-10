@@ -50,6 +50,10 @@ class AbstractSchema:
         return not getattr(cls, '__parameters__', False)
 
     @classmethod
+    def _schema_convert_base(cls, base_py):
+        return base_py
+
+    @classmethod
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
         """
         Parse the type using the appropriate HgTypeMetaData instance.
@@ -152,6 +156,7 @@ class AbstractSchema:
             if base_py := getattr(cls, '__base_typevar__', None):
                 base = cls._parse_type(base_py)
                 if (base := base.resolve(resolution_dict, weak=True)).is_resolved:
+                    cls._schema_convert_base(base_py)
                     bases = (cls, base.py_type)
                     type_dict['__base_meta_data_schema__'] = base.py_type.__meta_data_schema__
                     type_dict['__base_resolution_meta__'] = base
