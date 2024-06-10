@@ -114,9 +114,18 @@ class OverloadedWiringNodeHelper:
     def _calc_rank(signature: WiringNodeSignature) -> float:
         if signature.node_type == WiringNodeType.OPERATOR:
             return 1e6  # Really not a good ranking
-        return sum(combine_ranks((scale_rank(t.generic_rank, 0.001) if t.is_scalar else t.generic_rank
-                   for k, t in signature.input_types.items()
-                   if signature.defaults.get(k) != AUTO_RESOLVE)).values())
+        ranks = []
+        for k, t in signature.input_types.items():
+            if signature.defaults.get(k) != AUTO_RESOLVE:
+                if t.is_scalar:
+                    rank = scale_rank(t.generic_rank, 0.001)
+                elif k in (signature.var_arg, signature.var_kwarg):
+                    rank = scale_rank(t.generic_rank, 100.0)  # FIXME - this assumes the reciprocal of the 0.01 multiplier, need a constant
+                else:
+                    rank = t.generic_rank
+                ranks.append(rank)
+        ranks = combine_ranks(ranks)
+        return sum(ranks.values())
 
     def get_best_overload(self, *args, **kwargs):
         candidates = []
@@ -163,7 +172,7 @@ class OverloadedWiringNodeHelper:
             p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
             raise WiringError(
                 f"Overloads are ambiguous with given parameters:\n "
-                f"{','.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
+                f"{'\n'.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
                 f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
 
         return pick
