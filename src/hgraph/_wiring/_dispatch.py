@@ -35,8 +35,8 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
             if fn.signature.node_type != WiringNodeType.OPERATOR:
                 overload_list += [(fn, OverloadedWiringNodeHelper._calc_rank(fn.signature))]
             if __resolution_dict__ := kwargs.pop('__resolution_dict__', None):
-                args = tuple(slice(k, v) for k, v in __resolution_dict__.items())
-                overload_list = tuple((o[args], r) for o, r in overload_list)
+                type_args = tuple(slice(k, v) for k, v in __resolution_dict__.items())
+                overload_list = tuple((o[type_args], r) for o, r in overload_list)
             return _dispatch_impl(fn.signature, overload_list, *args, __on__=on, **kwargs)
         else:
             from hgraph import CustomMessageWiringError

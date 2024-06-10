@@ -170,9 +170,10 @@ class OverloadedWiringNodeHelper:
 
         if len(best_candidates) > 1 and pick is None:
             p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
+            newline = '\n'
             raise WiringError(
                 f"Overloads are ambiguous with given parameters:\n "
-                f"{'\n'.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
+                f"{newline.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
                 f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
 
         return pick
