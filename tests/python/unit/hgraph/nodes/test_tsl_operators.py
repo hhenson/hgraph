@@ -1,9 +1,7 @@
-from operator import invert
-
 import pytest
 
-from hgraph import Size, TS, TSL, MIN_TD, SIZE, TIME_SERIES_TYPE, add_, graph, sub_, mul_, eq_, ne_, neg_, pos_, abs_, \
-    invert_, len_, min_, max_, sum_, str_, union_tsl, TSS, union
+from hgraph import Size, TS, TSL, MIN_TD, SIZE, TIME_SERIES_TYPE, add_, graph, eq_, ne_, neg_, pos_, abs_, \
+    invert_, len_, min_, max_, sum_, str_
 from hgraph._operators._control import merge
 from hgraph.nodes import lag
 from hgraph.nodes import tsl_to_tsd, index_of
@@ -125,12 +123,36 @@ def test_bit_xor_tsls():
     assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={'ts': TS[int]}) == [{0: 3, 1: 1, 2: 2}]
 
 
-def test_sum_tsls():
+@pytest.mark.parametrize(
+    ["tsl", "expected"],
+    [
+        [(20,),     20],
+        [(20, 30),  50],
+        [(3, 5, 2, 8, 10), 28],
+    ]
+)
+def test_sum_tsl_unary(tsl, expected):
     @graph
-    def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
+    def g(tsl: TSL[TS[int], Size[len(tsl)]]) -> TS[int]:
+        return sum_(tsl)
+
+    assert eval_node(g, [tsl]) == [expected]
+
+
+@pytest.mark.parametrize(
+    ["lhs", "rhs", "expected"],
+    [
+        [(1, 2),     (2, 3),     {0: 3, 1: 5}],
+        [(1.0, 2.0), (2.0, 3.0), {0: 3.0, 1: 5.0}],
+    ]
+)
+def test_sum_tsls_multi(lhs, rhs, expected):
+    tp = type(lhs[0])
+    @graph
+    def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[tp], Size[2]]:
         return sum_(lhs, rhs)
 
-    assert eval_node(app, [(1, 2)], [(2, 3)]) == [{0:3, 1:5}]
+    assert eval_node(g, [lhs], [rhs]) == [expected]
 
 
 def test_tsl_to_tsd():
@@ -220,13 +242,29 @@ def test_len_tsl(tp, expected, values):
 
 
 @pytest.mark.parametrize(
+    ["tsl", "expected"],
+    [
+        [(20,),     20],
+        [(250, 20, 30),  20],
+        [(3, 5, 2, 8, 10), 2],
+    ]
+)
+def test_min_tsl_unary(tsl, expected):
+    @graph
+    def g(ts: TSL[TS[int], Size[len(tsl)]]) -> TS[int]:
+        return min_(ts)
+
+    assert eval_node(g, [tsl]) == [expected]
+
+
+@pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [
         [(1, 2),     (2, 3),     {0: 1, 1: 2}],
         [(1.0, 2.0), (2.0, 3.0), {0: 1.0, 1: 2.0}],
     ]
 )
-def test_min_tsls(lhs, rhs, expected):
+def test_min_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[tp], Size[2]]:
@@ -242,7 +280,7 @@ def test_min_tsls(lhs, rhs, expected):
         [(1.0, 2.0), (2.0, 3.0), {0: 2.0, 1: 3.0}],
     ]
 )
-def test_max_tsls(lhs, rhs, expected):
+def test_max_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[tp], Size[2]]:
@@ -251,28 +289,20 @@ def test_max_tsls(lhs, rhs, expected):
     assert eval_node(g, [lhs], [rhs]) == [expected]
 
 
-def test_min_tsl_unary():
+@pytest.mark.parametrize(
+    ["tsl", "expected"],
+    [
+        [(20,),     20],
+        [(250, 20, 30),  250],
+        [(3, 5, 2, 8, 10), 10],
+    ]
+)
+def test_max_tsl_unary(tsl, expected):
     @graph
-    def g(ts: TSL[TS[int], Size[5]]) -> TS[int]:
-        return min_(ts)
-
-    assert eval_node(g, [(3, 5, 2, 8, 10)]) == [2]
-
-
-def test_max_tsl_unary():
-    @graph
-    def g(ts: TSL[TS[int], Size[5]]) -> TS[int]:
+    def g(ts: TSL[TS[int], Size[len(tsl)]]) -> TS[int]:
         return max_(ts)
 
-    assert eval_node(g, [(3, 5, 10, 2, 8)]) == [10]
-
-
-def test_sum_tsl_unary():
-    @graph
-    def g(ts: TSL[TS[int], Size[5]]) -> TS[int]:
-        return sum_(ts)
-
-    assert eval_node(g, [(3, 5, 2, 8, 10)]) == [28]
+    assert eval_node(g, [tsl]) == [expected]
 
 
 def test_str_tsl():
@@ -281,11 +311,3 @@ def test_str_tsl():
         return str_(ts)
 
     assert eval_node(g, [(3, 5, 2, 8, 10)]) == ['(3, 5, 2, 8, 10)']
-
-
-def test_union_tsl_unary():
-    @graph
-    def app(ts: TSL[TSS[int], Size[3]]) -> TSS[int]:
-        return union_tsl(ts)
-
-    assert eval_node(app, [({1, 2, 3}, {3, 4, 5}, {4, 5, 6})]) == [{1, 2, 3, 4, 5, 6}]

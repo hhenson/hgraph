@@ -216,14 +216,6 @@ def test_or_scalars(lhs, rhs, expected):
     assert eval_node(or_, lhs, rhs) == expected
 
 
-def test_min_scalars():
-    assert eval_node(min_, [1, 2, 3], [3, 2, 1]) == [1, 2, 1]
-
-
-def test_max_scalars():
-    assert eval_node(max_, [1, 2, 3], [3, 2, 1]) == [3, 2, 3]
-
-
 def test_min_scalars_unary():
     @graph
     def app(ts: TS[int]) -> TS[int]:
@@ -232,12 +224,36 @@ def test_min_scalars_unary():
     assert eval_node(app, [4, 5, 3, 6, 2]) == [4, None, 3, None, 2]
 
 
+def test_min_scalars_binary():
+    assert eval_node(min_, [1, 2, 3], [3, 2, 1]) == [1, 2, 1]
+
+
+def test_min_scalar_multi():
+    @graph
+    def app(i1: TS[int], i2: TS[int], i3: TS[int], i4: TS[int]) -> TS[int]:
+        return min_(i1, i2, i3, i4)
+
+    assert eval_node(app, [4], [5], [3], [6]) == [3]
+
+
 def test_max_scalars_unary():
     @graph
     def app(ts: TS[int]) -> TS[int]:
         return max_(ts)
 
     assert eval_node(app, [4, 5, 3, 6, 2]) == [4, 5, None, 6, None]
+
+
+def test_max_scalars_binary():
+    assert eval_node(max_, [1, 2, 3], [3, 2, 1]) == [3, 2, 3]
+
+
+def test_max_scalar_multi():
+    @graph
+    def app(i1: TS[int], i2: TS[int], i3: TS[int], i4: TS[int]) -> TS[int]:
+        return max_(i1, i2, i3, i4)
+
+    assert eval_node(app, [4], [9], [3], [6]) == [9]
 
 
 @pytest.mark.parametrize(
@@ -254,6 +270,14 @@ def test_sum_scalars(lhs, rhs, expected):
         return sum_(lhs, rhs)
 
     assert eval_node(app, lhs, rhs) == expected
+
+
+def test_sum_scalars_multi():
+    @graph
+    def app(ts1: TS[float], ts2: TS[float], ts3: TS[float]) -> TS[float]:
+        return sum_(ts1, ts2, ts3)
+
+    assert eval_node(app, 4.0, 5.0, 6.0) == [15.0]
 
 
 def test_str_scalars():

@@ -2,12 +2,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Type, TypeVar, Generic, Tuple
 
-from hgraph import SCALAR, TS, HgTypeMetaData, WiringContext, MissingInputsError, IncorrectTypeBinding, compute_node, \
-    with_signature, TimeSeries, HgTupleFixedScalarType, HgTupleCollectionScalarType, TSL, STATE, CompoundScalar, \
-    SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph
+from hgraph import SCALAR, TS, IncorrectTypeBinding, compute_node, HgTupleFixedScalarType, HgTupleCollectionScalarType, \
+    STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph
 from hgraph import getitem_, min_, max_, sum_, zero
-from hgraph.nodes import flatten_tsl_values
-
 
 __all__ = ("TUPLE", "getitem_tuple")
 
@@ -74,7 +71,7 @@ def min_tuple_unary(ts: TS[Tuple[SCALAR, ...]], default_value: TS[SCALAR] = None
 
 
 @compute_node(overloads=max_)
-def max_tuple(ts: TS[Tuple[SCALAR, ...]], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+def max_tuple_unary(ts: TS[Tuple[SCALAR, ...]], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
     return max(ts.value, default=default_value.value)
 
 

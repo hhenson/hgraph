@@ -1,6 +1,9 @@
+from typing import Type
+
 from hgraph import SCALAR, TS, compute_node, add_, sub_, mul_, pow_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, \
     ne_, lt_, le_, gt_, ge_, neg_, pos_, invert_, abs_, len_, and_, or_, not_, contains_, SCALAR_1, min_, max_, graph, \
-    TS_OUT, sum_, str_
+    TS_OUT, sum_, str_, TSL, SIZE, AUTO_RESOLVE, zero
+from hgraph.nodes import default
 
 
 @compute_node(overloads=add_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__add__"))
@@ -196,15 +199,25 @@ def contains_scalar(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
     return ts.value.__contains__(key.value)
 
 
-@compute_node(overloads=min_)
-def min_scalar(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
+@graph(overloads=min_)
+def min_scalar(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    if len(ts) == 1:
+        return min_scalar_unary(ts[0])
+    elif len(ts) == 2:
+        return min_scalar_binary(ts[0], ts[1])
+    else:
+        return min_scalar_multi(*ts, default_value=default_value)
+
+
+@compute_node
+def min_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Binary min()
     """
     return min(lhs.value, rhs.value)
 
 
-@compute_node(overloads=min_)
+@compute_node
 def min_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALAR]:
     """
     Unary min()
@@ -218,15 +231,25 @@ def min_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALA
         return ts.value
 
 
-@compute_node(overloads=max_)
-def max_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
+@compute_node
+def min_scalar_multi(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
     """
-    Binary max()
+    Multi-arg min()
     """
-    return max(lhs.value, rhs.value)
+    return min((arg.value for arg in ts), default=default_value.value)
 
 
-@compute_node(overloads=max_)
+@graph(overloads=max_)
+def max_scalar(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    if len(ts) == 1:
+        return max_scalar_unary(ts[0])
+    elif len(ts) == 2:
+        return max_scalar_binary(ts[0], ts[1])
+    else:
+        return max_scalar_multi(*ts, default_value=default_value)
+
+
+@compute_node
 def max_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALAR]:
     """
     Unary max()
@@ -240,15 +263,33 @@ def max_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALA
         return ts.value
 
 
+@compute_node
+def max_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
+    """
+    Binary max()
+    """
+    return max(lhs.value, rhs.value)
+
+
+@compute_node
+def max_scalar_multi(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    """
+    Multi-arg max()
+    """
+    return max((arg.value for arg in ts), default=default_value.value)
+
+
 @graph(overloads=sum_)
-def sum_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
-    """
-    Binary sum (i.e. addition)
-    """
-    return lhs + rhs
+def sum_scalars(*ts: TSL[TS[SCALAR], SIZE], tp: Type[TS[SCALAR]] = AUTO_RESOLVE) -> TS[SCALAR]:
+    if len(ts) == 1:
+        return sum_scalar_unary(ts[0])
+    elif len(ts) == 2:
+        return sum_scalars_binary(ts[0], ts[1], zero_value=zero(tp, sum_))
+    else:
+        return sum_scalars_multi(*ts, zero_value=zero(tp, sum_))
 
 
-@compute_node(overloads=sum_)
+@compute_node
 def sum_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALAR]:
     """
     Unary sum()
@@ -260,6 +301,22 @@ def sum_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALA
         return ts.value
     else:
         return ts.value + _output.value
+
+
+@graph
+def sum_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], zero_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    """
+    Binary sum (i.e. addition) with default
+    """
+    return default(lhs + rhs, zero_value)
+
+
+@compute_node
+def sum_scalars_multi(*ts: TSL[TS[SCALAR], SIZE], zero_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    """
+    Multi-arg sum()
+    """
+    return sum((arg.value for arg in ts), start=zero_value.value)
 
 
 @compute_node(overloads=str_)

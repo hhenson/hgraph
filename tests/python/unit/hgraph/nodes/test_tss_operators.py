@@ -1,7 +1,7 @@
 import pytest
 
 from hgraph import TSS, graph, TS, Removed, not_, is_empty, SetDelta, PythonSetDelta, eq_, len_, and_, or_, min_, str_, \
-    union, max_, sum_
+    union, max_, sum_, TSL, Size, union
 from hgraph.test import eval_node
 
 

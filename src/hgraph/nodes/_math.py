@@ -3,7 +3,7 @@ from typing import Type
 
 from hgraph import TS, graph, WiringNodeClass, zero
 
-__all__ = ("zero_int", "zero_float")
+__all__ = ("zero_int", "zero_float", "zero_str")
 
 
 @graph(overloads=zero)
@@ -26,5 +26,15 @@ def zero_float(tp: Type[TS[float]], op: WiringNodeClass) -> TS[float]:
         'min_': float('inf'),
         'max_': -float('inf'),
         'mul_': 1.0,
+    }
+    return mapping[op.signature.name]
+
+
+@graph(overloads=zero)
+def zero_str(tp: Type[TS[str]], op: WiringNodeClass) -> TS[str]:
+    mapping = {
+        'add_': "",
+        'sum_': "",
+        'mul_': "",
     }
     return mapping[op.signature.name]

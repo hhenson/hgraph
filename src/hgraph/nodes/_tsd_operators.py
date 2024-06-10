@@ -184,7 +184,7 @@ def bit_or_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[S
 
 
 @graph(overloads=bit_xor)
-def bit_and_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+def bit_xor_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
     keys = lhs.key_set ^ rhs.key_set
     return merge(tsd_get_items(lhs, keys), tsd_get_items(rhs, keys))
 
@@ -476,8 +476,7 @@ def min_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
     """
     The minimum value in the TSD
     """
-    default = default_value.value if default_value.valid else None
-    return min(tsd.value.values(), default=default)
+    return min(tsd.value.values(), default=default_value.value)
 
 
 @compute_node(overloads=max_)
@@ -485,8 +484,8 @@ def max_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
     """
     The maximum value in the TSD
     """
-    default = default_value.value if default_value.valid else None
-    return max(tsd.value.values(), default=default)
+    return max(tsd.value.values(), default=default_value.value)
+
 
 @graph(overloads=sum_)
 def sum_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
@@ -495,7 +494,7 @@ def sum_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
 
 @compute_node
 def _sum_tsd_unary(tsd: TSD[K, V], zero_ts: V) -> V:
-    return sum((i.value for i in tsd.valid_values()), start=zero_ts.value)
+    return sum(tsd.value.values(), start=zero_ts.value)
 
 
 @compute_node(overloads=str_)
