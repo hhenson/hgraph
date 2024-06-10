@@ -170,8 +170,8 @@ the same result.
 `filter_` suppresses ticks of a time series when the `condition` time series' value is `False`.
 
 ### throttle
-`throttle` reduces the rate of ticks in a time s eries to the given period. It works like `resample` if the rate of 
-ticks is higher than the period but unlike `resample` does not produce ticks when the source time series down not tick. 
+`throttle` reduces the rate of ticks in a time series to the given period. It works like `resample` if the rate of 
+ticks is higher than the period but unlike `resample` does not produce ticks when the source time series does not tick. 
 
 ### gate
 `gate` queues up ticks of a time series when the value of `condition` if `False`. Once it turns `True` the queued up 

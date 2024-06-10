@@ -1,4 +1,5 @@
-from hgraph.nodes import cast_, drop, take
+from hgraph import take
+from hgraph.nodes import cast_
 from hgraph.test import eval_node
 
 
@@ -10,10 +11,6 @@ def test_cast():
     ]
 
     assert eval_node(cast_, float, [1, 2, 3]) == expected
-
-
-def test_drop():
-    assert eval_node(drop, [1, 2, 3, 4, 5], 3) == [None, None, None, 4, 5]
 
 
 def test_take():

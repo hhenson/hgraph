@@ -5,6 +5,7 @@ from frozendict import frozendict
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, TSS, \
     subscription_service, map_, TSL, SIZE, request_reply_service, contains_, NUMBER, AUTO_RESOLVE, KEYABLE_SCALAR, \
     SCALAR, SCALAR_1, TIME_SERIES_TYPE, flip
+from hgraph import sample
 from hgraph._operators._control import merge
 from hgraph.nodes import const, pass_through, sample, null_sink, format_, debug_print
 from hgraph.nodes import route_ref

@@ -5,7 +5,6 @@ from hgraph.nodes._conditional import *
 from hgraph.nodes._const import *
 from hgraph.nodes._data_source_polars import *
 from hgraph.nodes._datetime_operators import *
-from hgraph.nodes._drop_dups import *
 from hgraph.nodes._frame_operators import *
 from hgraph.nodes._graph import *
 from hgraph.nodes._logical import *
