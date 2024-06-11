@@ -4,8 +4,8 @@ from typing import Tuple
 import pytest
 from frozendict import frozendict
 
-from hgraph import WiringError, add_, sub_, mul_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, neg_, pos_, \
-    abs_, TS, len_, and_, or_, min_, max_, graph, str_, invert_, sum_, lt_, gt_, le_, ge_
+from hgraph import WiringError, add_, sub_, mul_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, neg_, pos_, TS, \
+    abs_, len_, and_, or_, min_, max_, graph, str_, invert_, sum_, lt_, gt_, le_, ge_
 from hgraph.test import eval_node
 
 
