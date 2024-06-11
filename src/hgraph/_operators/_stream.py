@@ -39,11 +39,11 @@ def schedule(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.
 
 
 @operator
-def resample(ts: TIME_SERIES_TYPE, period: timedelta, max_ticks: int = sys.maxsize) -> TIME_SERIES_TYPE:
+def resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
     """
     Resamples the time series to tick at the specified period. For example, ``resample(ts, timedelta(seconds=3))`` will
-    produce a time series of ts that ticks every three seconds. The max_ticks parameter specifies the maximum number of
-    ticks to produce. This will always tick at the specified delay, even if the input time series does not tick.
+    produce a time series of ts that ticks every three seconds. This will always tick at the specified delay, even if
+    the input time series does not tick.
     """
 
 

@@ -71,9 +71,8 @@ def schedule(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.
 
 
 @graph(overloads=resample)
-def resample(ts: TIME_SERIES_TYPE, delay: timedelta, max_ticks: int = sys.maxsize) -> TIME_SERIES_TYPE:
-    """Resamples the time series to tick at the specified delay"""
-    return sample(schedule(delay, max_ticks=max_ticks), ts)
+def resample(ts: TIME_SERIES_TYPE, delay: timedelta) -> TIME_SERIES_TYPE:
+    return sample(schedule(delay), ts)
 
 
 @compute_node(overloads=drop_dups)
@@ -248,7 +247,7 @@ def step(ts: TIME_SERIES_TYPE, step_size: int = 1, _state: STATE[CounterState] =
 
 
 @graph(overloads=slice_)
-def slice_(ts: TIME_SERIES_TYPE, start: int = 0, stop: int = 1, step_size: int = 1) -> TIME_SERIES_TYPE:
+def slice_tick(ts: TIME_SERIES_TYPE, start: int = 0, stop: int = 1, step_size: int = 1) -> TIME_SERIES_TYPE:
     if start == -1:
         start = sys.maxsize
     return step(drop(take(ts, stop), start), step_size)
