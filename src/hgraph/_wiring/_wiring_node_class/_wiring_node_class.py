@@ -2,6 +2,7 @@ import inspect
 from copy import copy
 from dataclasses import replace
 from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple, List
+from types import GenericAlias
 
 from frozendict import frozendict
 
@@ -44,7 +45,7 @@ class WiringNodeClass:
             item = tuple(slice(k, v) for k, v in item.items())
         elif isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
-        elif isinstance(item, (type, _GenericAlias, HgTypeMetaData)):
+        elif isinstance(item, (type, GenericAlias, _GenericAlias, HgTypeMetaData)):
             if len(tpv := self.signature.typevars) == 1:
                 item = (slice(tuple(tpv)[0], item),)
             elif self.signature.default_type_arg:

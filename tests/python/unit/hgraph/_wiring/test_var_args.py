@@ -72,3 +72,26 @@ def test_var_args4():
 
     assert eval_node(g, 1, 2, 3) == [{0: 6, 1: -1}]
 
+
+def test_var_args_tsb():
+    @compute_node
+    def n(a: TS[int], *bundle: TSB[TS_SCHEMA]) -> TS[int]:
+        return a.value + sum(int(b.value) for b in bundle.values())
+
+    @graph
+    def g(a: TS[int], b: TS[int], c: TS[float], d: TS[str]) -> TS[int]:
+        return n(a, b, c, d)
+
+    assert eval_node(g, 1, 2, 3., "4") == [10]
+
+
+def test_var_kwarg_tsd():
+    @compute_node
+    def n(a: TS[int], **bundle: TSD[str, TS[int]]) -> TS[int]:
+        return a.value + sum(b.value for b in bundle.values())
+
+    @graph
+    def g(a: TS[int], b: TS[int], c: TS[int], d: TS[int]) -> TS[int]:
+        return n(a, b=b, c=c, d=d)
+
+    assert eval_node(g, 1, 2, 3, 4) == [10]
