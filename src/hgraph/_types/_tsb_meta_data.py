@@ -125,6 +125,14 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
 
             return HgTimeSeriesSchemaTypeMetaData(UnNamedTimeSeriesSchema.create(**types))
 
+        if isinstance(value, (tuple, list)):
+            types = {
+                f"_{k}": HgTSTypeMetaData(HgScalarTypeMetaData.parse_value(v))
+                if not isinstance(v, WiringPort) else v.output_type
+                for k, v in enumerate(value)}
+
+            return HgTimeSeriesSchemaTypeMetaData(UnNamedTimeSeriesSchema.create(**types))
+
         return super().parse_value(value)
 
     def __eq__(self, o: object) -> bool:
@@ -186,7 +194,7 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
-        if isinstance(value, dict):
+        if isinstance(value, (dict, tuple, list)):
             return HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData.parse_value(value))
 
         return super().parse_value(value)

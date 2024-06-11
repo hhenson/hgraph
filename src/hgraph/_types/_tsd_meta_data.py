@@ -1,5 +1,7 @@
 from typing import Type, TypeVar, Optional, _GenericAlias, Dict
 
+from frozendict import frozendict
+
 from hgraph._types._generic_rank_util import combine_ranks
 from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
@@ -68,6 +70,24 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
             if value_tp is None:
                 raise ParseError(f"Could not parse value type {value_tp.__args__[1]} when parsing {value_tp}")
             return HgTSDTypeMetaData(key_tp, value_tp)
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph import WiringPort, HgTSTypeMetaData
+
+        if isinstance(value, (dict, frozendict)):
+            key_tp = HgScalarTypeMetaData.parse_type(next(k for k in value.keys()))
+            value_tp = next((v.output_type for v in value.values() if isinstance(v, WiringPort)), None)
+            if not value_tp:
+                value_tp = HgTypeMetaData.parse_value(next(i for i in value.values() if i is not None))
+                if value_tp is not None:
+                    value_tp = HgTSTypeMetaData(value_tp)
+                else:
+                    return None
+
+            return HgTSDTypeMetaData(key_tp, value_tp)
+
+        return super().parse_value(value)
 
     @property
     def has_references(self) -> bool:

@@ -54,7 +54,7 @@ def collect(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
 
 
 @operator
-def emit(ts: TIME_SERIES_TYPE) -> OUT:
+def emit(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     Accepts a collection representation, for example: ``TS[tuple[int, ...]]`` and returns a time-series of the values
     as a stream of individual ticks (in the example above that would be ``TS[int]``.

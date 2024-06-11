@@ -33,7 +33,7 @@ class PythonSetDelta(SetDelta[SCALAR], Generic[SCALAR]):
             # Check the number of added and removed are the same, if not then they are not equal
             if len(self.added) + len(self.removed) != len(other):
                 return False
-            return all(i in self.added if type(i) is not Removed else i in self.removed for i in other)
+            return all(i in self.added if type(i) is not Removed else i.item in self.removed for i in other)
         return NotImplemented
 
 

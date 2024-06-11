@@ -350,9 +350,12 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         fn_details = TimeSeriesBundleInput.from_ts.__code__
 
         if arg is not None:
-            if not isinstance(arg, dict):
+            if isinstance(arg, dict):
+                kwargs.update(arg)
+            elif isinstance(arg, (tuple, list)):
+                kwargs.update({f"_{i}": v for i, v in enumerate(arg)})
+            else:
                 raise ParseError(f"Expected a dictionary of values, got {arg}")
-            kwargs.update(arg)
 
         kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
 

@@ -118,7 +118,12 @@ class OverloadedWiringNodeHelper:
         for k, t in signature.input_types.items():
             if signature.defaults.get(k) != AUTO_RESOLVE:
                 if t.is_scalar:
-                    rank = scale_rank(t.generic_rank, 0.001)
+                    from hgraph import HgTypeOfTypeMetaData
+                    if isinstance(t, HgTypeOfTypeMetaData) and t.value_tp.py_type == signature.defaults.get(k):
+                        # skip args like `tp: Type[OUT] = DEFAULT[OUT]`
+                        continue
+                    else:
+                        rank = scale_rank(t.generic_rank, 0.001)
                 elif k in (signature.var_arg, signature.var_kwarg):
                     rank = scale_rank(t.generic_rank, 100.0)  # FIXME - this assumes the reciprocal of the 0.01 multiplier, need a constant
                 else:
@@ -138,7 +143,8 @@ class OverloadedWiringNodeHelper:
                 candidates.append((c, r))
             except (WiringError, SyntaxError) as e:
                 if isinstance(e, WiringFailureError):
-                    e = e.__cause__
+                    exception = e.__cause__
+                    e = f"{exception} at {exception.__traceback__.tb_frame.f_code.co_filename}:{exception.__traceback__.tb_lineno}"
 
                 p = lambda x: pretty_str_types(x.output_type.py_type) if isinstance(x, WiringPort) else pretty_str_types(x)
                 reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
@@ -173,7 +179,7 @@ class OverloadedWiringNodeHelper:
             newline = '\n'
             raise WiringError(
                 f"Overloads are ambiguous with given parameters:\n "
-                f"{newline.join(c.signature.signature for c, r in best_candidates if r == best_candidates[0][1])}"
+                f"{newline.join(f'{c.signature.signature} with rank {r}' for c, r in best_candidates if r == best_candidates[0][1])}"
                 f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
 
         return pick

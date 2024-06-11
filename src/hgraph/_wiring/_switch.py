@@ -65,7 +65,8 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             raise CustomMessageWiringError("No key supplied to switch")
         if not isinstance(key, WiringPort) or not isinstance(cast(WiringPort, key).output_type.dereference(),
                                                              HgTSTypeMetaData):
-            raise CustomMessageWiringError("The key must be a time-series value of form TS[SCALAR]")
+            raise CustomMessageWiringError(f"The key must be a time-series value of form TS[SCALAR], "
+                                           f"received {key.output_type.dereference()}")
 
         switches = {k: v
                      if isinstance(v, WiringNodeClass)

@@ -32,9 +32,23 @@ def test_combine_tuple_relaxed():
     assert eval_node(g, [None, 1], 2) == [(None, 2), (1, 2)]
 
 
+def test_combine_tuple_nonuniform():
+    @graph
+    def g(a: TS[int], b: TS[str]) -> TIME_SERIES_TYPE:
+        return combine[TS[Tuple[int, str]]](a, b, __strict__=False)
+
+    assert eval_node(g, [None, 1], '2') == [(None, '2'), (1, '2')]
+
+
 def test_collect_tuple():
     @graph
     def g(a: TS[int], b: TS[bool]) -> TIME_SERIES_TYPE:
         return collect[TS[Tuple]](a, reset=b)
+
+    assert eval_node(g, [None, 1, 2, 3], [None, None, None, True]) == [None, (1,), (1, 2), (3,)]
+
+    @graph
+    def g(a: TS[int], b: TS[bool]) -> TIME_SERIES_TYPE:
+        return collect[TS[Tuple[int, ...]]](a, reset=b)
 
     assert eval_node(g, [None, 1, 2, 3], [None, None, None, True]) == [None, (1,), (1, 2), (3,)]
