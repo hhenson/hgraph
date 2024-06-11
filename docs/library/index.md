@@ -70,29 +70,29 @@ the time serise type to simple time series of the type of the scalar value provi
 This operation converts between different types of timeseries. Its syntax is `convert[TO_TS_TYPE](ts)`. See the 
 compatibility matrix:
 
-| from \ to              | TS[T], T is int, float | TS[bool] | TS[str] | TS[tuple] | TS[set] | TS[dict] | TSS[T]             | TSL[TST, S] | TSB[Schema]                 | TSD[K, V]                   |
-|------------------------|------------------------|----------|---------|-----------|---------|----------|--------------------|-------------|-----------------------------|-----------------------------|
-| TS[T], T is int, float | &#9989;                | &#9989;  | &#9989; |           |         |          | &#9989; set of one |             |                             |                             |
-| TS[bool]               | &#9989;                | &#9989;  | &#9989; |           |         |          |                    |             |                             |                             |
-| TS[str]                | &#9989;                | &#9989;  | &#9989; |           |         |          | &#9989; set of one |             |                             |                             |
-| TS[tuple]              | &#10060;               | &#9989;  | &#9989; | &#9989;   | &#9989; |          | &#9989;            | &#9989;     |                             |                             |
-| TS[set]                | &#10060;               | &#9989;  | &#9989; | &#9989;   | &#9989; |          | &#9989;            |             |                             | &#9989; if supplied a value |
-| TS[dict]               | &#10060;               | &#9989;  | &#9989; |           |         | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
-| TSS[T]                 | &#10060;               | &#9989;  | &#9989; | &#9989;   | &#9989; |          |                    |             |                             | &#9989; if supplied a value |
-| TSL[TST, S]            | &#10060;               | &#9989;  | &#9989; | &#9989;   |         | &#9989;  |                    | &#9989;     |                             |                             |
-| TSB[Schema]            | &#10060;               | &#9989;  | &#9989; |           |         | &#9989;  |                    |             | &#9989;                     |                             |
-| TSD[K, V]              | &#10060;               | &#9989;  | &#9989; |           |         | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
+| from \ to              | TS[T], T is int, float | TS[bool] | TS[str] | TS[tuple]            | TS[set]              | TS[dict] | TSS[T]             | TSL[TST, S] | TSB[Schema]                 | TSD[K, V]                   |
+|------------------------|------------------------|----------|---------|----------------------|----------------------|----------|--------------------|-------------|-----------------------------|-----------------------------|
+| TS[T], T is int, float | &#9989;                | &#9989;  | &#9989; | &#9989; tuple of one | &#9989; tuple of one |          | &#9989; set of one |             |                             |                             |
+| TS[bool]               | &#9989;                | &#9989;  | &#9989; | &#9989; tuple of one | &#9989; tuple of one |          |                    |             |                             |                             |
+| TS[str]                | &#9989;                | &#9989;  | &#9989; | &#9989; tuple of one | &#9989; tuple of one |          | &#9989; set of one |             |                             |                             |
+| TS[tuple]              | &#10060;               | &#9989;  | &#9989; | &#9989;              | &#9989;              |          | &#9989;            | &#9989;     |                             |                             |
+| TS[set]                | &#10060;               | &#9989;  | &#9989; | &#9989;              | &#9989;              |          | &#9989;            |             |                             | &#9989; if supplied a value |
+| TS[dict]               | &#10060;               | &#9989;  | &#9989; |                      |                      | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
+| TSS[T]                 | &#10060;               | &#9989;  | &#9989; | &#9989;              | &#9989;              |          |                    |             |                             | &#9989; if supplied a value |
+| TSL[TST, S]            | &#10060;               | &#9989;  | &#9989; | &#9989;              |                      | &#9989;  |                    | &#9989;     |                             |                             |
+| TSB[Schema]            | &#10060;               | &#9989;  | &#9989; |                      |                      | &#9989;  |                    |             | &#9989;                     |                             |
+| TSD[K, V]              | &#10060;               | &#9989;  | &#9989; |                      |                      | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
 
 ### combine &#10067;
 Combine take some time series and combines them into a collection time series. For example, `combine[TS[Tuple[int, int]]](a, b)`.
 The following types are supported:
 
-| type                  | syntax                              |
-|-----------------------|-------------------------------------|
-| TS[Tuple[T1, T2, T3]] | combine[Tuple](a, b, c)             |
-| TSL[T, SIZE]          | combine[TSL](a, b, c)               |
-| Named Schema          | combine[SchemaClass](a=a, b=b, c=c) |
-| UnNamed TS Schema     | combine[TSB](a=a, b=b, c=c)         |
+| type                  | syntax                                   |
+|-----------------------|------------------------------------------|
+| TS[Tuple[T1, T2, T3]] | combine[TS[Tuple]](a, b, c)              |
+| TSL[T, SIZE]          | combine[TSL](a, b, c)                    |
+| Named Schema          | combine[TSB[SchemaClass]](a=a, b=b, c=c) |
+| UnNamed TS Schema     | combine[TSB](a=a, b=b, c=c)              |
 
 ### collect
 This operation collects values into a collection, Syntax `collect[TSS[int]](ts)`

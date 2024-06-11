@@ -4,7 +4,7 @@ from typing import Mapping, Type, Generic
 from frozendict import frozendict
 
 from hgraph import compute_node, emit, TS, SCALAR, SCALAR_1, STATE, SCHEDULER, MIN_TD, convert, OUT, KEYABLE_SCALAR, \
-    DEFAULT, TIME_SERIES_TYPE, collect, SIGNAL, TS_OUT, TimeSeriesSchema, TSB, V
+    DEFAULT, TIME_SERIES_TYPE, collect, SIGNAL, TS_OUT, TimeSeriesSchema, TSB, V, SIZE, TSL, TSD
 from hgraph.nodes._conversion_operators._conversion_operator_util import _BufferState
 
 __all__ = ('KeyValue',)
@@ -16,6 +16,24 @@ __all__ = ('KeyValue',)
               )
 def convert_ts_to_mapping(key: TS[KEYABLE_SCALAR], ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> TS[Mapping[KEYABLE_SCALAR, SCALAR]]:
     return {key.value: ts.value}
+
+
+@compute_node(overloads=convert,
+              requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict]) or
+                                    m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
+              resolvers={KEYABLE_SCALAR: lambda m, s: int, SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
+              )
+def convert_tsl_to_mapping(ts: TSL[TIME_SERIES_TYPE, SIZE], to: Type[OUT] = DEFAULT[OUT]) -> TS[Mapping[KEYABLE_SCALAR, SCALAR]]:
+    return {k: ts.value for k, ts in enumerate(ts)}
+
+
+@compute_node(overloads=convert,
+              requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict]) or
+                                    m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
+              resolvers={SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
+              )
+def convert_tsd_to_mapping(ts: TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE], to: Type[OUT] = DEFAULT[OUT]) -> TS[Mapping[KEYABLE_SCALAR, SCALAR]]:
+    return ts.value
 
 
 @compute_node(overloads=collect,

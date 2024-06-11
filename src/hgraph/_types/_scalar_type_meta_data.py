@@ -1019,7 +1019,7 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         return type(o) is HgTypeOfTypeMetaData and self.value_tp == o.value_tp
 
     def __str__(self) -> str:
-        return self.py_type.__name__
+        return str(self.py_type)
 
     def __repr__(self) -> str:
         return f'HgTypeOfTypeMetaData({repr(self.value_tp)})'

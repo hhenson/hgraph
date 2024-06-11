@@ -1,12 +1,42 @@
 from collections import deque
-from typing import Tuple, Type
+from typing import Tuple, Type, Set
 
-from hgraph import compute_node, combine, TSL, TIME_SERIES_TYPE, SIZE, TS, SCALAR, DEFAULT, OUT, collect, TS_OUT, \
-    SIGNAL, OUT_1, HgTypeMetaData, emit, STATE, SCHEDULER, MIN_TD, TSB, TS_SCHEMA, HgTupleFixedScalarType
+from hgraph import (compute_node, combine, TSL, SIZE, TS, SCALAR, DEFAULT, OUT, collect, TS_OUT,
+                    emit, STATE, SCHEDULER, MIN_TD, TSB, TS_SCHEMA,
+                    HgTupleFixedScalarType, SIGNAL,
+                    HgTypeMetaData, convert, TSS, graph)
 
 __all__ = ()
 
 from hgraph.nodes._conversion_operators._conversion_operator_util import _BufferState
+
+
+@compute_node(overloads=convert,
+              requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+              )
+def convert_ts_to_tuple(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
+    return (ts.value,)
+
+
+@compute_node(overloads=convert,
+              requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+              )
+def convert_set_to_tuple(ts: TS[Set[SCALAR]], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
+    return tuple(ts.value)
+
+
+@compute_node(overloads=convert,
+              requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+              )
+def convert_tss_to_tuple(ts: TSS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
+    return tuple(ts.value)
+
+
+@graph(overloads=convert,
+       requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+       )
+def convert_tsl_to_tuple(ts: TSL[TS[SCALAR], SIZE], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = True) -> OUT:
+    return combine[to](tsl=ts, __strict__=__strict__)
 
 
 @compute_node(overloads=combine,
