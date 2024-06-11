@@ -84,7 +84,7 @@ compatibility matrix:
 | TSD[K, V]              | &#10060;               | &#9989;  | &#9989; |           |         | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
 
 ### combine &#10067;
-Combine take some time series and combines them into a collection time series. For example, `combine[Tuple[int, int]](a, b)`.
+Combine take some time series and combines them into a collection time series. For example, `combine[TS[Tuple[int, int]]](a, b)`.
 The following types are supported:
 
 | type                  | syntax                              |
