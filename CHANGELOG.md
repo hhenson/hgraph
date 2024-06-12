@@ -507,3 +507,10 @@ Version 0.2.39 (08-06-2024)
 
 * Make scalar operators use actual operators rather than the dunder methods
 
+Version 0.2.40 (12-06-2004)
+---------------------------
+
+* Improvements to ranking of TSL
+* Remove brute force conversion of time-series-schema parameters
+* Add more conversion and emit operator implementations
+* Corrections to docs
