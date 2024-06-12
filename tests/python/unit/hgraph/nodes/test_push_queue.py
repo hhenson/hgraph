@@ -5,8 +5,7 @@ from typing import Callable
 
 from hgraph import TS, run_graph, GlobalState, push_queue, graph
 from hgraph._runtime._evaluation_engine import EvaluationMode
-from hgraph.nodes import record, get_recorded_value, const, stop_engine
-from hgraph.nodes._conditional import if_true
+from hgraph.nodes import record, get_recorded_value, const, stop_engine, if_true
 
 
 def test_push_queue():

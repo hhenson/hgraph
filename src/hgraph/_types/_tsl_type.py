@@ -38,7 +38,7 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
             if HgTypeMetaData.parse_type(item[0]).is_scalar:
                 from hgraph import ParseError
                 raise ParseError(
-                    f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+                    f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)")
         return out
 
     def __len__(self) -> int:

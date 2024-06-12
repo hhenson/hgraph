@@ -168,11 +168,6 @@ class TimeSeriesSchema(AbstractSchema):
         """
         Resolve the class using the resolution dictionary provided.
         """
-        from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
-        resolution_dict = {
-            k: cls._parse_type(cls.from_scalar_schema(v.py_type)) if isinstance(v, HgCompoundScalarType) else v
-            for k, v in resolution_dict.items()
-        }
         return super()._resolve(resolution_dict)
 
 
@@ -230,7 +225,7 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
                     item = TimeSeriesSchema.from_scalar_schema(item)
                 else:
                     raise ParseError(
-                        f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+                        f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)")
 
             out = super(TimeSeriesBundle, cls).__class_getitem__(item)
             from_ts_with_schema = functools.partial(TimeSeriesBundleInput.from_ts, __schema__=item)

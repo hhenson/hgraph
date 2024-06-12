@@ -34,3 +34,4 @@ from hgraph.nodes._number_operators import *
 from hgraph.nodes._frozendict_operators import *
 from hgraph.nodes._scalar_operators import *
 from hgraph.nodes._bool_operators import *
+from hgraph.nodes._control_operators import *

@@ -196,32 +196,44 @@ previous values of the given size or time.
 Flow control
 ------------
 
-### if_
-`if_` allows to forward a time series based on the value of `condition` input. If `condition` is `True` then `if_`'s 
-output is the `true` input, and `false` otherwise
+### if_true
+Emits a tick with the value True when the input condition ticks with the value ```True```.  
+If `tick_once_only` is true then the node will not tick more than once.  
+Otherwise the node will tick whenever the condition ticks ```True```. 
 
-### route &#10067;
+### if_ route_conditional?
+`if_` forwards a time series to either the `true` or `false` element of the output bundle, according to whether
+`condition` is `True` or `False`.
+
+### route &#10067; route_by_index
 `route` does the inverse of `if_` and `TSL[]` - based on an index forward one input time series to one of its outputs 
 with the matching index. If hte index is `bool` then the outputs number is 2. 
 
-### if_then_else &#10067;
+### if_then_else &#10067; merge_conditional?
 `if_then_else` forwards either its `true` input or `false` input based on the value of `condition`
 
 ### TSL[]
-TSL indexing operator where index is a timeseries of `int` allows to forward a time series based on the index  therefore
+TSL indexing operator (where index is a timeseries of `int`) forwards a time series based on the index - therefore
 extending what `if_then_else` does to any number of inputs. 
 
 ### index_of
 `index_of` is useful in conjunction with the TSL indexing operator to work out the index based on a number of other 
-inputs, for example given five `TS[bool]` inputs `index_of` can be used to find one with `True` value and give its 
-index wich then can be given to `TSL[]` to pick the correct time series to forward. 
+inputs. For example, given five `TS[bool]` inputs, `index_of` can be used to find one with `True` value and give its 
+index - which then can be given to `TSL[]` to pick the correct time series to forward. 
 
 ### merge
 `merge` forwards the last ticked value from its inputs. If two inputs tick at the same time the leftmost is forwarded
 
-### race &#10067;
-`race` is like `merge` but it forwards only values form the input that becomes valid first. If it becomes invalid `race`
+### race &#10067; prefer?
+`race` is like `merge` but it forwards only values from the input that become valid first. If it becomes invalid `race`
 moves on to the next valid input.
+
+### all_
+Ticks with True when all the args are True.
+
+### any_
+Ticks with True when any of the args is True
+
 
 Stream analytical operators
 ---------------------------

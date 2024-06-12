@@ -711,7 +711,6 @@ def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_R
         return reduce(bit_or, tsl, zero(tp, bit_or))
 
 
-
 @operator
 def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
@@ -739,7 +738,7 @@ def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = A
     elif len(tsl) == 2:
         return sub_(tsl[0], tsl[1])
     else:
-        return reduce(sub_, tsl, zero(tp, sub_))
+        raise WiringError("Difference between multiple items is not supported")
 
 
 @operator

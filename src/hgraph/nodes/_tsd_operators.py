@@ -374,6 +374,10 @@ def tsd_flip_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, 
 
 @compute_node(overloads=merge)
 def merge_tsds(*tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    """
+    Merge TSDs.  If more than one TSD ticks, all items will tick to the output assuming they are on different keys.
+    If they are on the same key then the left-most item is preferred.
+    """
     out = {}
     removals = set()
 

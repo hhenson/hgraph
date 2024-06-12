@@ -5,11 +5,10 @@ from typing import Generic
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
     AUTO_RESOLVE, operator
 from hgraph.nodes._analytical import accumulate, count, lag, INT_OR_TIME_DELTA
-from hgraph.nodes._conditional import if_then_else
 from hgraph.nodes._const import default, const
+from hgraph.nodes._control_operators import if_then_else
 from hgraph.nodes._operators import cast_, take, drop
 from hgraph.nodes._stream_operators import sample
-
 
 __all__ = ("RollingWindowResult", "rolling_window", "rolling_average")
 

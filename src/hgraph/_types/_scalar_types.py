@@ -160,7 +160,7 @@ class STATE(Generic[COMPOUND_SCALAR]):
             from hgraph._types._type_meta_data import HgTypeMetaData
             if not (tp := HgTypeMetaData.parse_type(item)).is_scalar:
                 raise ParseError(
-                    f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to to CompoundScalar)")
+                    f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to CompoundScalar)")
             # if tp.is_resolved:
             #
             #     out = functools.partial(out, __schema__=item)

@@ -2,15 +2,9 @@ import pytest
 
 from hgraph import Size, TS, TSL, MIN_TD, SIZE, TIME_SERIES_TYPE, add_, graph, eq_, ne_, neg_, pos_, abs_, \
     invert_, len_, min_, max_, sum_, str_
-from hgraph._operators._control import merge
 from hgraph.nodes import lag
 from hgraph.nodes import tsl_to_tsd, index_of
 from hgraph.test import eval_node
-
-
-def test_merge():
-    assert eval_node(merge, [None, 2, None, None, 6], [1, None, 4, None, None], [None, 3, 5, None, None],
-                     resolution_dict={"tsl": TSL[TS[int], Size[3]]}) == [1, 2, 4, None, 6]
 
 
 def test_tsl_lag():

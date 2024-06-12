@@ -3,9 +3,7 @@ from typing import Type
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
     union, TSS, KEYABLE_SCALAR, TSS_OUT, PythonSetDelta, add_, sub_, mul_, div_, floordiv_, mod_, pow_, lshift_, \
     rshift_, bit_and, bit_or, bit_xor, eq_, ne_, not_, neg_, pos_, invert_, abs_, min_, max_, reduce, zero, \
-    str_, PythonTimeSeriesReference, len_, sum_, getitem_
-from hgraph._operators._control import merge, all_
-from hgraph.adaptors.data_frame._data_source_generators import SIZE_1
+    str_, PythonTimeSeriesReference, len_, sum_, getitem_, all_, clone_typevar
 from hgraph.nodes import const
 
 __all__ = ("flatten_tsl_values", "tsl_to_tsd", "index_of")
@@ -27,16 +25,6 @@ def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool = False
     return tsl.value if not all_valid or tsl.all_valid else None
 
 
-@compute_node(overloads=merge)
-def merge_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
-    """
-    Selects and returns the first of the values that tick (are modified) in the list provided.
-    If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
-    list.
-    """
-    return next(tsl.modified_values()).delta_value
-
-
 @graph(overloads=len_)
 def len_tsl(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
     return const(_sz.SIZE)
@@ -51,7 +39,7 @@ def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> 
 
 
 @compute_node(overloads=getitem_, requires=lambda m, s: 0 <= s['index'] < m[SIZE])
-def tsl_get_item_default(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TIME_SERIES_TYPE]:
+def getitem_tsl_scalar(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
     """
@@ -65,7 +53,7 @@ def tsl_get_item_default(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[
 
 
 @compute_node(overloads=getitem_)
-def tsl_get_item_ts(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
+def getitem_tsl_ts(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
     """
@@ -84,7 +72,7 @@ def tsl_get_item_ts(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Typ
 @compute_node
 def index_of(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[int]:
     """
-    Return the index of the leftmost time-series with the equal value to ts in the TSL
+    Return the index of the leftmost time-series in the TSL with value equal to ts
     """
     return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)
 
@@ -100,6 +88,9 @@ def sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], tp: Type[TS[NUMBER]] = AUTO_RESOLV
 @compute_node(overloads=sum_)
 def _sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
     return sum((t.value for t in tsl.valid_values()), start=zero_ts.value)
+
+
+SIZE_1 = clone_typevar(SIZE, "SIZE_1")
 
 
 @graph(overloads=sum_)
