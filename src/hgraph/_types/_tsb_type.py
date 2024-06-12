@@ -14,14 +14,15 @@ from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._typing_utils import nth
+from hgraph._types._typing_utils import nth, clone_typevar
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
     HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, TS, HgCompoundScalarType
 
-__all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
-           "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "ts_schema")
+__all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "TS_SCHEMA_1", "is_bundle", "TimeSeriesBundle",
+           "TimeSeriesBundleInput", "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "EmptyTimeSeriesSchema",
+           "ts_schema")
 
 
 class TimeSeriesSchema(AbstractSchema):
@@ -171,8 +172,12 @@ class TimeSeriesSchema(AbstractSchema):
         return super()._resolve(resolution_dict)
 
 
+class EmptyTimeSeriesSchema(TimeSeriesSchema):
+    pass
+
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
+TS_SCHEMA_1 = clone_typevar(TS_SCHEMA, "TS_SCHEMA_1")
 
 
 class UnNamedTimeSeriesSchema(TimeSeriesSchema):

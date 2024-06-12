@@ -194,6 +194,10 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        if value is None:
+            from hgraph import EmptyTimeSeriesSchema
+            return HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(EmptyTimeSeriesSchema))
+
         if isinstance(value, (dict, tuple, list)):
             return HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData.parse_value(value))
 

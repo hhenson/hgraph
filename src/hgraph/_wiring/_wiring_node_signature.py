@@ -3,6 +3,7 @@ from enum import Enum
 from functools import reduce
 from inspect import isfunction, signature, Parameter
 from operator import or_
+from types import NoneType
 from typing import Callable, GenericAlias, _GenericAlias
 from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 
@@ -200,7 +201,9 @@ class WiringNodeSignature:
                         kwarg_types[k] = v
                     else:
                         # We should wire in a null source
-                        if k in self.defaults:
+                        if k in (self.var_arg, self.var_kwarg):
+                            kwarg_types[k] = self.input_types[k].parse_value(arg)
+                        elif k in self.defaults:
                             kwarg_types[k] = v
                         elif _ensure_match:
                             raise CustomMessageWiringError(
@@ -494,6 +497,11 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
             # Remove var_args from operators - they are decorative
             args = tuple(a for a in args if a not in (var_arg, var_kwarg) or a in annotations)
             kw_only_args = tuple(a for a in kw_only_args if a not in (var_arg, var_kwarg) or a in annotations)
+        else: # var args and kwargs are always optional
+            if var_arg:
+                defaults[var_arg] = defaults.get(var_arg, None)
+            if var_kwarg:
+                defaults[var_kwarg] = defaults.get(var_kwarg, None)
 
     if default_type_arg_name := next((k for k, v in annotations.items() if isinstance(v, DEFAULT)), None):
         tp = annotations[default_type_arg_name].tp
