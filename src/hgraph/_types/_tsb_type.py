@@ -45,14 +45,15 @@ class TimeSeriesSchema(AbstractSchema):
             cls.__scalar_type__ = scalar_type
 
     def __class_getitem__(cls, item):
-        items = tuple(cls.from_scalar_schema(a)
-              if isinstance(a, type) and issubclass(a, CompoundScalar) else a
-              for a in (item if isinstance(item, tuple) else (item,)))
-
+        items = item if isinstance(item, tuple) else (item,)
         out = super(TimeSeriesSchema, cls).__class_getitem__(items)
         if cls.scalar_type() and item is not TS_SCHEMA:
             out.__scalar_type__ = out.to_scalar_schema()
         return out
+
+    @classmethod
+    def _schema_convert_base(cls, base_py):
+        return cls.from_scalar_schema(base_py) if isinstance(base_py, CompoundScalar) else base_py
 
     @staticmethod
     def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
@@ -349,9 +350,12 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         fn_details = TimeSeriesBundleInput.from_ts.__code__
 
         if arg is not None:
-            if not isinstance(arg, dict):
+            if isinstance(arg, dict):
+                kwargs.update(arg)
+            elif isinstance(arg, (tuple, list)):
+                kwargs.update({f"_{i}": v for i, v in enumerate(arg)})
+            else:
                 raise ParseError(f"Expected a dictionary of values, got {arg}")
-            kwargs.update(arg)
 
         kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
 

@@ -3,6 +3,7 @@ from functools import reduce
 from statistics import fmean
 from typing import Type, TypeVar, Optional, Sequence
 
+from hgraph._types._time_series_types import TimeSeries
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 
@@ -39,11 +40,13 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
                 if not s_t and not tp_t:
                     if issubclass(tp_i, s_i):
                         return True
-        else:
-            return not tp.is_scalar and any(
+        elif not tp.is_scalar:
+            return any(
                 c.matches(tp) if isinstance(c, HgTimeSeriesTypeMetaData)
                 else issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c)
                 for c in self.constraints)
+        else:
+            return any(issubclass(tp.py_type, c) for c in  self.constraints)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
@@ -68,7 +71,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         return {self.py_type: 0.9 + avg_constraints_rank / 10.}
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        if wired_type.is_scalar:
+        if wired_type.is_scalar and not issubclass(wired_type.py_type, TimeSeries):
             raise ParseError(f"TimeSeries TypeVar '{str(self)}' does not match scalar type: '{str(wired_type)}'")
         if self.py_type in resolution_dict:
             match = resolution_dict[self.py_type]

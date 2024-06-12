@@ -2,7 +2,7 @@ from typing import Type
 
 import pytest
 
-from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT
+from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT, Removed
 from hgraph import convert
 from hgraph.test import eval_node
 
@@ -17,15 +17,15 @@ from hgraph.test import eval_node
         [TS[float], [0., 1., 2.], TS[bool], [False, True, True]],
         [TS[int], [0, 1, 2], TS[str], ["0", "1", "2"]],
         [TS[float], [0., 1., 2.], TS[str], ["0.0", "1.0", "2.0"]],
-        [TS[int], [0, 1, 2], TSS[int], [frozenset({0}), frozenset({1}), frozenset({2})]],
+        [TS[int], [0, 1, 2], TSS[int], [frozenset({0}), frozenset({1, Removed(0)}), frozenset({2, Removed(1)})]],
         [TS[bool], [True, False], TS[int], [1, 0]],
         [TS[bool], [True, False], TS[float], [1.0, 0.0]],
         [TS[bool], [True, False], TS[str], ['True', 'False']],
-        [TS[bool], [True, False], TSS[bool], [frozenset({True}), frozenset({False})]],
+        [TS[bool], [True, False], TSS[bool], [frozenset({True}), frozenset({False, Removed(True)})]],
         [TS[tuple[int, ...]], [tuple(), (1,), (1, 2)], TS[bool], [False, True, True]],
         [TS[tuple[int, ...]], [tuple(), (1,), (1, 2)], TS[str], ["()", "(1,)", "(1, 2)"]],
-        [TS[tuple[int, ...]], [tuple(), (1,), (1, 2)], TSS[tuple[int, ...]], [frozenset({tuple()}), frozenset({(1,)}),
-         frozenset({(1, 2)})]],
+        [TS[tuple[int, ...]], [tuple(), (1,), (1, 2)], TSS[tuple[int, ...]], [frozenset({tuple()}), frozenset({(1,), Removed(tuple())}),
+         frozenset({(1, 2), Removed((1,))})]],
     ]
 )
 def test_convert_ts(from_, from_tp, to_tp, expected):

@@ -162,7 +162,7 @@ class WiringNodeSignature:
                 typevars.update(v.typevars)
             for k, v in self.defaults.items():
                 if isinstance(v, TypeVar):
-                    typevars.add(k)
+                    typevars.add(v)
             typevars.update(self.output_type.typevars)
         return frozenset(typevars)
 
@@ -252,10 +252,10 @@ class WiringNodeSignature:
         pre_resolved_types = pre_resolved_types or {}
         kwargs = extract_kwargs(self, _ensure_match=False)
         kwarg_types = self.convert_kwargs_to_types(**kwargs, _ensure_match=False)
-        return self.build_resolution_dict(pre_resolved_types, kwarg_types, kwargs)
+        return self.build_resolution_dict(pre_resolved_types, kwarg_types, kwargs, weak=True)
 
     def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable],
-                              kwarg_types, kwargs) -> dict[TypeVar, HgTypeMetaData]:
+                              kwarg_types, kwargs, weak=False) -> dict[TypeVar, HgTypeMetaData]:
         """Expect kwargs to be a dict of arg to type mapping / value mapping"""
         resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in pre_resolved_types.items() if
                                                           isinstance(v, HgTypeMetaData)} if pre_resolved_types else {}
@@ -263,7 +263,7 @@ class WiringNodeSignature:
                                                           isfunction(v)} if pre_resolved_types else {}
         args = self.input_types.keys()
         delayed_resolution = []
-        for _ in range(len(args) + 1):  # Limit the number of goes to try and resolve everything
+        for _1 in range(len(args) + 1):  # Limit the number of goes to try and resolve everything
             for arg in args:
                 meta_data = self.input_types[arg]
 
@@ -285,27 +285,40 @@ class WiringNodeSignature:
                         meta_data.build_resolution_dict(resolution_dict, kwt)
             # now ensures all "resolved" items are actually resolved
             out_dict = {}
-            all_resolved = True
+            all_resolved = 0
             for k, v in resolution_dict.items():
                 if v is not None:
-                    out_dict[k] = v if v.is_resolved else v.resolve(resolution_dict)
-                    all_resolved &= out_dict[k].is_resolved
+                    v_resolved = v.resolve(resolution_dict, weak=True)
+                    if v_resolved.is_resolved:
+                        out_dict[k] = v_resolved
+                        all_resolved += 1
 
-            if not delayed_resolution:
-                break
-            else:
+            if delayed_resolution:
                 args = delayed_resolution
+                for a in args:
+                    if a not in resolution_dict and (kwarg := kwargs.get(a)):
+                        resolution_dict[kwarg] = HgTypeMetaData.parse_type(kwarg)
+                delayed_resolution = []
 
-        if resolvers_dict:
-            scalars = {k: v for k, v in kwargs.items() if (kwt := kwarg_types.get(k)) and kwt.is_scalar}
-            for k, v in pre_resolved_types.items():
-                if isfunction(v) and k not in out_dict:
-                    resolved = v(resolution_dict, scalars)
-                    if isinstance(resolved, (type, GenericAlias, _GenericAlias, TypeVar)):
-                        resolved = HgTypeMetaData.parse_type(resolved)
-                    out_dict[k] = resolved
+            if resolvers_dict:
+                scalars = {k: v for k, v in kwargs.items() if (kwt := kwarg_types.get(k)) and kwt.is_scalar}
+                for k, v in resolvers_dict.items():
+                    if k not in out_dict:
+                        resolved = v(resolution_dict, scalars)
+                        if isinstance(resolved, (type, GenericAlias, _GenericAlias, TypeVar)):
+                            resolved = HgTypeMetaData.parse_type(resolved)
+                        resolution_dict[k] = resolved
+                        out_dict[k] = resolved
 
-        if not all_resolved:
+            if not delayed_resolution and all_resolved == len(resolution_dict):
+                break
+
+        all_resolved = 0
+        for k, v in resolution_dict.items():
+            if v is not None:
+                all_resolved += 1 if k in out_dict and out_dict[k].is_resolved else 0
+
+        if not weak and all_resolved < len(resolution_dict):
             raise ParseError(f"Unable to build a resolved resolution dictionary, due to:"
                              f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}")
         return out_dict
@@ -326,6 +339,10 @@ class WiringNodeSignature:
     def resolve_output(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Optional[HgTypeMetaData]:
         if self.output_type is None:
             return None
+
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in resolution_dict.items() if
+                                                          isinstance(v, HgTypeMetaData)} if resolution_dict else {}
+
         out_type = self.output_type.resolve(resolution_dict, weak)
         if type(out_type) == HgTimeSeriesSchemaTypeMetaData:
             raise IncorrectTypeBinding(HgTSBTypeMetaData(out_type), out_type)

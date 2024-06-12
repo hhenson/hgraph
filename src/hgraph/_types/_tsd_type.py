@@ -1,5 +1,5 @@
 from abc import abstractmethod, ABC
-from typing import Generic, Iterable, Union, Any, TYPE_CHECKING, Tuple
+from typing import Generic, Iterable, Union, Any, TYPE_CHECKING, Tuple, Type
 
 from frozendict import frozendict
 
@@ -9,7 +9,7 @@ from hgraph._types._typing_utils import Sentinel
 
 if TYPE_CHECKING:
     from hgraph import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData, SCALAR, TimeSeriesSet, \
-        TimeSeriesReferenceOutput, K, V
+    TimeSeriesReferenceOutput, K, V, ParseError
 
 __all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE",
            "REMOVE_IF_EXISTS", "KEY_SET_ID")
@@ -192,6 +192,22 @@ class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K,
 
     def __getitem__(self, item):
         return self._ts_values[item]
+
+    @staticmethod
+    def from_ts(arg=None, /, **kwargs) -> "TimeSeriesDictInput[K, V]":
+        """
+        Create an instance of TSD from the kwargs provided.
+        """
+        tsd: Type[TSD[K, V]] = kwargs.pop("__type__", None)
+
+        if arg is not None:
+            if isinstance(arg, dict):
+                kwargs.update(arg)
+            else:
+                raise ParseError(f"Expected a dictionary of values, got {arg}")
+
+        from hgraph import combine
+        return combine[tsd](tuple(kwargs.keys()), *kwargs.values())
 
 
 class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[K, V]):
