@@ -48,14 +48,15 @@ def test_schedule():
     assert eval_node(g, delay=MIN_TD, max_ticks=1, initial_delay=False) == [True]
 
 
-@pytest.mark.skip("Need to support timeout on tests")
 def test_resample():
     @graph
     def g(ts: TS[int], period: timedelta) -> TS[int]:
         return resample(ts, period)
 
-    assert eval_node(g, [1], 2 * MIN_TD) == [None, None, 1, None, 1, None, 1, None, 1]
-    assert eval_node(g, [1, 2, 3, 4, 5, 6], 2 * MIN_TD) == [None, None, 3, None, 5, None, 6, None, 6]
+    assert (eval_node(g, [1], 2 * MIN_TD, __end_time__=MIN_ST + 10*MIN_TD)
+            == [None, None, 1, None, 1, None, 1, None, 1])
+    assert (eval_node(g, [1, 2, 3, 4, 5, 6], 2 * MIN_TD, __end_time__=MIN_ST + 10*MIN_TD)
+            == [None, None, 3, None, 5, None, 6, None, 6])
 
 
 def test_drop_dups():
@@ -91,13 +92,13 @@ def test_filter_tsl():
             [{0: 1, 1: 1}, None, None, {0: 2, 1: 3}, {0: 5}])
 
 
-@pytest.mark.skip("Need to support timeout on tests")
 def test_throttle():
     @graph
     def g(ts: TS[int], period: timedelta) -> TS[int]:
-        return take(throttle(ts, period), 1)
+        return throttle(ts, period)
 
-    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD) == [1, 2]
+    assert (eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10*MIN_TD)
+            == [None, 1, None, 3, None, 2, None, 1])
 
 
 def test_take():
