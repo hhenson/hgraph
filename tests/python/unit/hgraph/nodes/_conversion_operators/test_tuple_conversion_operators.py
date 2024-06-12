@@ -1,6 +1,6 @@
 from typing import Tuple, Set
 
-from hgraph import TIME_SERIES_TYPE, combine, TS, graph, HgTypeMetaData, collect, convert, TSS, Removed, TSL, Size
+from hgraph import TIME_SERIES_TYPE, combine, TS, graph, HgTypeMetaData, collect, convert, TSS, Removed, TSL, Size, emit
 from hgraph.test import eval_node
 
 
@@ -108,3 +108,12 @@ def test_collect_tuple():
         return collect[TS[Tuple[int, ...]]](a, reset=b)
 
     assert eval_node(g, [None, 1, 2, 3], [None, None, None, True]) == [None, (1,), (1, 2), (3,)]
+
+
+def test_emit_tuple():
+    @graph
+    def g(m: TS[Tuple[int, ...]]) -> TS[int]:
+        return emit(m)
+
+    assert eval_node(g, [(1, 2, 3), None, (4,)]) == [1, 2, 3, 4]
+

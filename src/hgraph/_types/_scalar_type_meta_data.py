@@ -190,7 +190,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return type(o) is HgAtomicType and self.py_type is o.py_type
 
     def __str__(self) -> str:
-        return f'{self.py_type.__name__}'
+        return f'{self.py_type}'
 
     def __repr__(self) -> str:
         return f'HgAtomicType({repr(self.py_type)})'
@@ -660,6 +660,9 @@ class HgTupleFixedScalarType(HgTupleScalarType):
 
     def __init__(self, tp_s: Sequence[HgScalarTypeMetaData]):
         self.element_types: tuple[HgScalarTypeMetaData] = tuple(tp_s)
+
+    def size(self) -> int:
+        return len(self.element_types)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgTupleFixedScalarType and len(self.element_types) == len(tp.element_types) and \

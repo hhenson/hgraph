@@ -19,6 +19,14 @@ def test_convert_ts_to_mapping():
     assert eval_node(g, 'a', 1) == [{'a': 1}]
 
 
+def test_convert_tuples_to_mapping():
+    @graph
+    def g(k: TS[Tuple[str, ...]], v: TS[Tuple[int, ...]]) -> TS[Mapping[str, int]]:
+        return convert[TS[Mapping]](k, v)
+
+    assert eval_node(g, [('a', 'b'), ('b', )], [(1, 2), (3,)]) == [{'a': 1, 'b': 2}, {'b': 3}]
+
+
 def test_convert_tsl_to_mapping():
     @graph
     def g(ts: TSL[TS[str], Size[2]]) -> TS[Mapping[int, str]]:
@@ -61,6 +69,15 @@ def test_collect_mapping():
 
     assert (eval_node(g, ['a', 'b', 'c'], [1, 2, 3, 4], [None, None, True]) ==
             [{'a': 1}, {'a': 1, 'b': 2}, {'c': 3}, {'c': 4}])
+
+
+def test_collect_mapping_from_tuples():
+    @graph
+    def g(k: TS[Tuple[str, ...]], v: TS[Tuple[int, ...]], b: TS[bool]) -> TS[Mapping[str, int]]:
+        return collect[TS[Mapping]](k, v, reset=b)
+
+    assert (eval_node(g, [('a',), ('b', 'a'), ('c',)], [(1,), (2, 3), (3,), (4,)], [None, None, True]) ==
+            [{'a': 1}, {'a': 3, 'b': 2}, {'c': 3}, {'c': 4}])
 
 
 def test_emit_mapping():

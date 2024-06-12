@@ -14,7 +14,7 @@ from hgraph._types._scalar_type_meta_data import HgEvaluationClockType, HgEvalua
     HgReplayType, HgLoggerType
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
     HgTypeOfTypeMetaData
-from hgraph._types._scalar_types import DEFAULT
+from hgraph._types._scalar_types import DEFAULT, Size
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
@@ -310,6 +310,8 @@ class WiringNodeSignature:
                         resolved = v(resolution_dict, scalars)
                         if isinstance(resolved, (type, GenericAlias, _GenericAlias, TypeVar)):
                             resolved = HgTypeMetaData.parse_type(resolved)
+                        elif isinstance(resolved, Size):
+                            resolved = HgTypeMetaData.parse_value(resolved)
                         resolution_dict[k] = resolved
                         out_dict[k] = resolved
 
