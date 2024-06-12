@@ -13,5 +13,4 @@ Hgraph Library contribution
 10. Provide `__strict__` scalar arg to operators to allow for more lenient validity requirements when passed `False`
 11. Prefix all node parameters that are injected by the engine with an underscore, e.g. `_state: STATE` and `_sched: SCHEDULER`.
 12. Format code with [black](https://black.readthedocs.io/en/stable/).
-13. Use [isort](https://pycqa.github.io/isort/) to sort imports.
-14. Parameters injected by the engine should be the last in the parameter list.
+13. Parameters injected by the engine should be the last in the parameter list.
