@@ -284,7 +284,7 @@ Note: these also apply to `TS[dict]` timeseries and have same semantics
 Returns a TSS (or set) of keys in the dictionary
 
 ### values_
-Returns a tuple if the values in the dictionary. Note: does not apply to TSD as there is no suitable time series type
+Returns a tuple of the values in the dictionary. Note: does not apply to TSD as there is no suitable time series type
 
 ### rekey
 `rekey` receives a `TSD[K, V]` and a mapping `TSD[K, K1]` and remaps the keys using it so that its output is `TSD[K1, V]` 

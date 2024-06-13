@@ -1,13 +1,13 @@
 from typing import Type
 
-import pytest
 from frozendict import frozendict
 
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, \
     subscription_service, TSS, map_, TSL, SIZE, request_reply_service, contains_, NUMBER, AUTO_RESOLVE, KEYABLE_SCALAR, \
-    SCALAR, SCALAR_1, TIME_SERIES_TYPE, format_
-from hgraph.nodes import const, pass_through, sample, tsd_flip, null_sink, debug_print, route_ref
+    SCALAR, SCALAR_1, TIME_SERIES_TYPE, flip
 from hgraph._operators._control import merge
+from hgraph.nodes import const, pass_through, sample, null_sink, format_, debug_print
+from hgraph.nodes import route_ref
 from hgraph.test import eval_node
 
 
@@ -153,7 +153,7 @@ def test_multiservice():
     @service_impl(interfaces=(submit, receive, subscribe))
     def impl(path: str):
         submissions: TSD[int, TS[int]] = submit.wire_impl_inputs_stub(path).ts
-        items = tsd_flip(submissions).key_set
+        items = flip(submissions).key_set
         receive.wire_impl_out_stub(path, items)
         subscribe.wire_impl_out_stub(path, map_(lambda key, i: contains_(i, key),
                                                 __keys__=subscribe.wire_impl_inputs_stub(path).ts, i=pass_through(items)))
@@ -262,7 +262,7 @@ def test_generic_multi_service():
     @service_impl(interfaces=(submit, receive, subscribe))
     def impl(path: str, tp: Type[KEYABLE_SCALAR] = AUTO_RESOLVE):
         submissions: TSD[tp, TS[tp]] = submit[KEYABLE_SCALAR: tp].wire_impl_inputs_stub(path).ts
-        items = tsd_flip(submissions).key_set
+        items = flip(submissions).key_set
         receive[KEYABLE_SCALAR: tp].wire_impl_out_stub(path, items)
         subscribe[KEYABLE_SCALAR: tp].wire_impl_out_stub(
             path,
@@ -297,7 +297,7 @@ def test_generic_multi_service_with_non_trivial_resolve():
         submissions: TSD[tp, TS[tp]] = submit[KEYABLE_SCALAR: tp].wire_impl_inputs_stub(path).ts
         submit[KEYABLE_SCALAR: tp].wire_impl_out_stub(path, submissions)
 
-        items = map_(lambda key: format_("{}", key), __keys__=tsd_flip(submissions).key_set)
+        items = map_(lambda key: format_("{}", key), __keys__=flip(submissions).key_set)
 
         receive[KEYABLE_SCALAR: tp].wire_impl_out_stub(path, items.key_set)
         subscribe[KEYABLE_SCALAR: tp].wire_impl_out_stub(

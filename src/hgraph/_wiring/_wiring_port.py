@@ -147,8 +147,8 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     @property
     def key_set(self) -> TSS[SCALAR]:
-        from hgraph.nodes import tsd_get_key_set
-        return tsd_get_key_set(self)
+        from hgraph.nodes import keys_
+        return keys_(self)
 
     def __getitem__(self, key):
         from hgraph.nodes import tsd_get_item

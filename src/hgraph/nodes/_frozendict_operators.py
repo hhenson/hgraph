@@ -1,8 +1,13 @@
+from typing import Type, Tuple, Set
 from statistics import variance, stdev
 from typing import Type
 
 from frozendict import frozendict
 
+from hgraph import compute_node, TS, KEYABLE_SCALAR, SCALAR, sub_, getitem_, min_, max_, sum_, str_, graph, zero, \
+    AUTO_RESOLVE, values_, TSS, OUT, TS_OUT, PythonSetDelta, rekey, K, K_1, flip, partition, flip_keys, \
+    collapse_keys, uncollapse_keys
+from hgraph.nodes._tsd_operators import keys_
 from hgraph import compute_node, TS, KEYABLE_SCALAR, SCALAR, sub_, getitem_, min_, max_, sum_, str_, graph, zero, \
     AUTO_RESOLVE, TSL, SIZE, WiringError, mean, std, var
 
@@ -156,3 +161,72 @@ def _var_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[floa
 @compute_node(overloads=str_)
 def str_frozendict(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[str]:
     return str(dict(ts.value))
+
+
+@compute_node(overloads=keys_,
+              requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset]) or
+              m[OUT].matches_type(TS[Set[m[K].py_type]]))
+def keys_frozendict_as_set(ts: TS[frozendict[K, SCALAR]]) -> TS[Set[K]]:
+    return set(ts.value.keys())
+
+
+@compute_node(overloads=keys_,
+              requires=lambda m, s: m[OUT].py_type is TSS or
+              m[OUT].matches_type(TSS[m[K].py_type]),
+              valid=('ts',))
+def keys_frozendict_as_tss(ts: TS[frozendict[K, SCALAR]], _output: TS_OUT[Set[K]] = None) -> TSS[K]:
+    prev = _output.value if _output.valid else set()
+    new = set(ts.value.keys()) if ts.modified else set()
+    return PythonSetDelta(new - prev, prev - new)
+
+
+@compute_node(overloads=values_)
+def values_frozendict_as_tuple(ts: TS[frozendict[K, SCALAR]]) -> TS[Tuple[SCALAR, ...]]:
+    return tuple(ts.value.values())
+
+
+@compute_node(overloads=rekey)
+def rekey_frozendict(ts: TS[frozendict[K, SCALAR]], new_keys: TS[frozendict[K, K_1]]) -> TS[frozendict[K_1, SCALAR]]:
+    new_keys_value = new_keys.value
+    return {new_keys_value[k]: v for k, v in ts.value.items() if k in new_keys_value}
+
+
+@compute_node(overloads=flip)
+def flip_frozendict(ts: TS[frozendict[K, K_1]]) -> TS[frozendict[K_1, K]]:
+    """As values may be repeated in the original dict it is indeterminate which key will be used as the value in the
+    flipped dict"""
+    return {v: k for k, v in ts.value.items()}
+
+
+@compute_node(overloads=partition)
+def partition_frozendict(ts: TS[frozendict[K, SCALAR]],
+                         partitions: TS[frozendict[K, K_1]]) -> TS[frozendict[K_1, frozendict[K, SCALAR]]]:
+    partitions_value = partitions.value
+    out = {}
+    for k, v in ts.value.items():
+        partition_key = partitions_value.get(k)
+        if partition_key:
+            out.setdefault(partition_key, {})[k] = v
+    return out
+
+
+@compute_node(overloads=flip_keys)
+def flip_keys_frozendict(ts: TS[frozendict[K, frozendict[K_1, SCALAR]]]) -> TS[frozendict[K_1, frozendict[K, SCALAR]]]:
+    out = {}
+    for k, v in ts.value.items():
+        for k1, v1 in v.items():
+            out.setdefault(k1, {})[k] = v1
+    return out
+
+
+@compute_node(overloads=collapse_keys)
+def collapse_keys_frozendict(ts: TS[frozendict[K, frozendict[K_1, SCALAR]]]) -> TS[frozendict[Tuple[K, K_1], SCALAR]]:
+    return {(k, k1): v for k, v1 in ts.value.items() for k1, v in v1.items()}
+
+
+@compute_node(overloads=uncollapse_keys)
+def uncollapse_keys_frozendict(ts: TS[frozendict[Tuple[K, K_1], SCALAR]]) -> TS[frozendict[K, frozendict[K_1, SCALAR]]]:
+    out = {}
+    for (k, k1), v in ts.value.items():
+        out.setdefault(k, {})[k1] = v
+    return out
