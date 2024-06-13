@@ -3,7 +3,10 @@ from dataclasses import dataclass, field
 from typing import Type, Generic, Tuple
 
 from hgraph import SCALAR, TS, IncorrectTypeBinding, compute_node, HgTupleFixedScalarType, HgTupleCollectionScalarType, \
-    STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, getitem_, min_, max_, sum_, zero, \
+    STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, mean, var, std, getitem_, min_, \
+    max_, sum_, zero, TUPLE
+
+STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, getitem_, min_, max_, sum_, zero, \
     TUPLE
 
 __all__ = ("getitem_tuple",)
