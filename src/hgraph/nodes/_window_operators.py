@@ -3,15 +3,17 @@ from datetime import timedelta, datetime
 from typing import Generic
 
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
-    AUTO_RESOLVE, operator, INT_OR_TIME_DELTA, lag, take, drop
+    AUTO_RESOLVE, operator, take, drop
+from hgraph import accumulate
 from hgraph.nodes._analytical import accumulate, count
 from hgraph.nodes._conditional import if_then_else
-    AUTO_RESOLVE, operator, sum_
-from hgraph.nodes._stream_analytical_operators import count
+
+AUTO_RESOLVE, operator, sum_
 from hgraph.nodes._analytical import lag, INT_OR_TIME_DELTA
 from hgraph.nodes._const import default, const
 from hgraph.nodes._control_operators import if_then_else
 from hgraph.nodes._operators import cast_
+from hgraph.nodes._stream_analytical_operators import count
 from hgraph.nodes._stream_operators import sample
 
 __all__ = ("RollingWindowResult", "rolling_window", "rolling_average")

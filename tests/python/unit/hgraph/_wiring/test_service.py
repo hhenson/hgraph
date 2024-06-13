@@ -7,8 +7,8 @@ from hgraph import reference_service, TSD, TS, service_impl, graph, register_ser
     SCALAR, SCALAR_1, TIME_SERIES_TYPE, flip
 from hgraph import sample
 from hgraph._operators._control import merge
-from hgraph.nodes import const, pass_through, sample, null_sink, format_, debug_print
-from hgraph.nodes import route_ref
+from hgraph.nodes import const, pass_through, null_sink, debug_print, route_ref
+from hgraph.nodes import sample, format_
 from hgraph.test import eval_node
 
 

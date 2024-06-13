@@ -1,7 +1,6 @@
-from hgraph import TS, graph, NUMBER
-from hgraph import (lag)
+from hgraph import TS, graph, NUMBER, lag
 
-__all__ = ("center_of_mass_to_alpha", "span_to_alpha", "lag", "INT_OR_TIME_DELTA", "pct_change")
+__all__ = ("center_of_mass_to_alpha", "span_to_alpha", "pct_change")
 
 
 def center_of_mass_to_alpha(com: float) -> float:
@@ -24,5 +23,3 @@ def pct_change(ts: TS[NUMBER]) -> TS[NUMBER]:
     """
     l = lag(ts, period=1)
     return (ts - l) / l
-
-

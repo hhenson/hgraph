@@ -1,7 +1,6 @@
-from dataclasses import dataclass
 from typing import Type
 
-from hgraph import compute_node, SCALAR, SCALAR_1, TS, TIME_SERIES_TYPE, REF, graph, SIGNAL, STATE, CompoundScalar
+from hgraph import compute_node, SCALAR, SCALAR_1, TS, REF
 
 __all__ = ("cast_", "downcast_", "downcast_ref")
 

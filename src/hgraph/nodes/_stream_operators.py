@@ -4,18 +4,19 @@ from dataclasses import dataclass
 from datetime import timedelta, datetime
 from typing import Tuple
 
-from hgraph import (compute_node, TIME_SERIES_TYPE, STATE, SCHEDULER, SIGNAL, EvaluationClock, generator, TS, schedule,
-                    sample, lag, MIN_TD, graph, resample, drop_dups, filter_, throttle, TSL, SIZE, INT_OR_TIME_DELTA,
-                    SCALAR, take, CompoundScalar, REF, drop, window, WindowResult, TSB, gate, batch, step, slice_)
+from hgraph import (compute_node, TIME_SERIES_TYPE, STATE, SCHEDULER, SIGNAL, generator, TS, schedule,
+                    sample, MIN_TD, graph, resample, drop_dups, filter_, throttle, SCALAR, take, CompoundScalar, REF,
+                    drop, window, WindowResult, TSB, gate, batch, step, slice_, lag, TSL, SIZE, INT_OR_TIME_DELTA)
 
 __all__ = ()
 
-from hgraph.nodes import if_true, count
 
 
 @compute_node(overloads=sample, active=('signal',))
-def sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    """Samples the value from ts whenever the signal ticks."""
+def sample_default(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """
+    Samples the value from ts whenever the signal ticks
+    """
     return ts.value
 
 

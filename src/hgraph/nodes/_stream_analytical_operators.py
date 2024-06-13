@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from hgraph import graph, TS, NUMBER, compute_node, SIGNAL, TS_OUT, CompoundScalar, STATE
 
-__all__ = ("diff", "count")
+__all__ = ("diff", "count", "clip", "ewma")
 
 
 @graph
@@ -10,7 +10,7 @@ def diff(ts: TS[NUMBER]) -> TS[NUMBER]:
     """
     Computes the difference between the current value and the previous value in the time-series.
     """
-    from hgraph.nodes import lag
+    from hgraph import lag
     return ts - lag(ts, 1)
 
 

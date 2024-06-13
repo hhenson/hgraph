@@ -5,14 +5,7 @@ from hgraph.test import eval_node
 
 
 def test_diff():
-    expected = [
-        None,
-        1,
-        1,
-        1,
-    ]
-
-    assert eval_node(diff, [1, 2, 3, 4,]) == expected
+    assert eval_node(diff, [1, 2, 3, 4,]) == [None, 1, 1, 1]
 
 
 def test_ewma():
