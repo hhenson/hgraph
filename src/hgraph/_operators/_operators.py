@@ -3,17 +3,16 @@ from typing import Type
 from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
 from hgraph._types._scalar_types import Size, SIZE
 from hgraph._types._tsl_type import TSL
-from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
-from hgraph._wiring._reduce import reduce
-from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError, WiringNodeClass
+from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_",
     "bit_xor", "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_",
-    "getitem_", "getattr_", "min_", "max_", "zero", "len_", "bit_and", "bit_or", "union", "union", "intersection",
-    "difference", "symmetric_difference", "is_empty", "type_", "sum_", "and_", "or_", "str_")
+    "getitem_", "getattr_", "min_", "max_", "zero", "len_", "bit_and", "bit_or", "union", "intersection",
+    "difference", "symmetric_difference", "is_empty", "type_", "sum_", "and_", "or_", "str_", "mean", "average",
+    "accumulate", "std", "var")
 
 
 @operator
@@ -48,7 +47,6 @@ def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TIME_SERIES_TYPE_2:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator sub_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__sub__ = lambda x, y: sub_(x, y)
@@ -68,7 +66,6 @@ def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator mul_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__mul__ = lambda x, y: mul_(x, y)
@@ -88,7 +85,6 @@ def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_2:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator div_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__truediv__ = lambda x, y: div_(x, y)
@@ -108,7 +104,6 @@ def floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator floordiv_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__floordiv__ = lambda x, y: floordiv_(x, y)
@@ -128,7 +123,6 @@ def mod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator mod_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__mod__ = lambda x, y: mod_(x, y)
@@ -149,7 +143,6 @@ def divmod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_TYP
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator divmod_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__divmod__ = lambda x, y: divmod_(x, y)
@@ -169,7 +162,6 @@ def pow_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator pow_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__pow__ = lambda x, y: pow_(x, y)
@@ -189,7 +181,6 @@ def lshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator lshift_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__lshift__ = lambda x, y: lshift_(x, y)
@@ -209,7 +200,6 @@ def rshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator rshift_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__rshift__ = lambda x, y: rshift_(x, y)
@@ -221,8 +211,6 @@ def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
     """
     This represents the `&` operator for time series types.
 
-    The default implementation of this is to use ``and_(lhs, rhs)``.
-
     To implement the and_op_ operator, do:
     ::
 
@@ -232,7 +220,6 @@ def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator bit_and is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__and__ = lambda x, y: bit_and(x, y)
@@ -256,15 +243,12 @@ def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator and_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 @operator
 def bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[TIME_SERIES_TYPE_1]:
     """
     This represents the `|` operator for time series types.
-
-    By default, this returns ``or_(lhs, rhs)``.
 
     To implement the or_ operator, do:
     ::
@@ -275,7 +259,6 @@ def bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[TIME_SERIES_TYPE_
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator bit_or is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__or__ = lambda x, y: bit_or(x, y)
@@ -299,7 +282,6 @@ def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator or_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 @operator
@@ -316,7 +298,6 @@ def bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator bit_xor is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__xor__ = lambda x, y: bit_xor(x, y)
@@ -337,7 +318,6 @@ def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator eq_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 # This is currently safe to do as the wiring port needs to be immutable, but is never used as a key in a dict or
@@ -351,8 +331,6 @@ def ne_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the `!=` operator for time series types.
 
-    By default, this returns ``not_(eq_(lhs, rhs))``.
-
     To implement the ne_ operator, do:
     ::
 
@@ -362,7 +340,6 @@ def ne_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    return not_(eq_(lhs, rhs))
 
 
 WiringPort.__ne__ = lambda x, y: ne_(x, y)
@@ -381,7 +358,6 @@ def lt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator lt_ is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 WiringPort.__lt__ = lambda x, y: lt_(x, y)
@@ -392,8 +368,6 @@ def le_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the `<=` operator for time series types.
 
-    The default implementation is ``or_(le_(lhs, rhs), eq_(lhs, rhs))``.
-
     To implement the le_ operator, do:
     ::
 
@@ -403,7 +377,6 @@ def le_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    return or_(lt_(lhs, rhs), eq_(lhs, rhs))
 
 
 WiringPort.__le__ = lambda x, y: le_(x, y)
@@ -414,8 +387,6 @@ def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the `>` operator for time series types.
 
-    The default implementation is ``not_(le_(lhs, rhs))``.
-
     To implement the gt_ operator, do:
     ::
 
@@ -425,7 +396,6 @@ def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    return not_(le_(lhs, rhs))
 
 
 WiringPort.__gt__ = lambda x, y: gt_(x, y)
@@ -436,8 +406,6 @@ def ge_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the `>=` operator for time series types.
 
-    The default implementation is ``not_(lt_(lhs, rhs))``.
-
     To implement the ge_ operator, do:
     ::
 
@@ -447,7 +415,6 @@ def ge_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    return not_(lt_(lhs, rhs))
 
 
 WiringPort.__ge__ = lambda x, y: ge_(x, y)
@@ -458,8 +425,6 @@ def neg_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the unary `-` operator for time series types.
 
-    The default implementation is ``sub_(zero(ts.signature.output_type.py_type, sub_), ts)``.
-
     To implement the neg_ operator, do:
     ::
 
@@ -469,8 +434,6 @@ def neg_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    ts: WiringNodeClass  # In a graph this is the actual underlying type
-    return sub_(zero(ts.signature.output_type.py_type, sub_), ts)
 
 
 WiringPort.__neg__ = lambda x: neg_(x)
@@ -481,8 +444,6 @@ def pos_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the unary `+` operator for time series types.
 
-    The default implementation is ``add_(zero(ts.signature.output_type.py_type, add_), ts)``.
-
     To implement the pos_ operator, do:
     ::
 
@@ -492,8 +453,6 @@ def pos_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    ts: WiringNodeClass  # In a graph this is the actual underlying type
-    return add_(zero(ts.signature.output_type.py_type, add_), ts)
 
 
 WiringPort.__pos__ = lambda x: pos_(x)
@@ -513,7 +472,6 @@ def abs_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator abs_ is not implemented for {ts.output_type}")
 
 
 WiringPort.__abs__ = lambda x: abs_(x)
@@ -533,7 +491,6 @@ def invert_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator abs_ is not implemented for {ts.output_type}")
 
 
 WiringPort.__invert__ = lambda x: invert_(x)
@@ -557,11 +514,6 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator contains_ is not implemented for {ts.output_type} and {item.output_type}")
-
-
-# Can't override __contains__ as it seems to always returns a bool value.
-# WiringPort.__contains__ = lambda x, y: contains_(x, y)
 
 
 @operator
@@ -580,7 +532,6 @@ def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator not_ is not implemented for {ts.output_type}")
 
 
 @operator
@@ -599,7 +550,6 @@ def getitem_(ts: TIME_SERIES_TYPE, key: TS[SCALAR]) -> TIME_SERIES_TYPE_1:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator getitem_ is not implemented for {ts.output_type} and {key.output_type}")
 
 
 WiringPort.__getitem__ = lambda x, y: getitem_(x, y)
@@ -621,14 +571,13 @@ def getattr_(ts: TIME_SERIES_TYPE, attr: str, default_value: SCALAR = None) -> T
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator getattr_ is not implemented for {ts.output_type} and {attr}")
 
 
 WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
 
 
 @operator
-def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE:
     """
     This represents the `min` operator for time series types.
 
@@ -636,11 +585,10 @@ def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> 
     Binary or multi arg implies item-wise min over all the arguments for collection types,
     or the minimum scalar value for scalar types
     """
-    raise WiringError(f"operator min_() is not implemented for {ts.output_type}")
 
 
 @operator
-def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE:
     """
     The `max` operator for time series types.
 
@@ -648,11 +596,10 @@ def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> 
     Binary or multi arg implies item-wise max over all the arguments for collection types,
     or the maximum scalar value for scalar types
     """
-    raise WiringError(f"operator max_() is not implemented for {ts.output_type}")
 
 
 @operator
-def sum_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def sum_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE_2:
     """
     This represents the `sum` operator for time series types, either as a binary or unary operator
 
@@ -660,17 +607,48 @@ def sum_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> 
     Binary or multi arg implies item-wise sum over all the arguments for collection types,
     or the sum of the scalar value for scalar types
     """
-    raise WiringError(f"operator sum_() is not implemented for {ts.output_type}")
 
 
 @operator
-def zero(tp: Type[TIME_SERIES_TYPE], op: WiringNodeClass) -> TIME_SERIES_TYPE_2:
+def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2    :
+    """
+    This represents the `mean` operator for time series types
+
+    Unary implies the mean over the latest TS value for collection types, or running sum for non-collection types
+    Binary or multi arg implies item-wise sum over all the arguments for collection types,
+    or the sum of the scalar value for scalar types
+    """
+
+
+@operator
+def std(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+    """
+    Calculates the standard deviation for time series types
+
+    Unary implies the std over the latest TS value for collection types, or running std for non-collection types
+    Binary or multi arg implies item-wise std over all the arguments for collection types,
+    or the std of the scalar value for scalar types
+    """
+
+
+@operator
+def var(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+    """
+    Calculates the variance for time series types
+
+    Unary implies the var over the latest TS value for collection types, or running var for non-collection types
+    Binary or multi arg implies item-wise var over all the arguments for collection types,
+    or the vae of the scalar value for scalar types
+    """
+
+
+@operator
+def zero(tp: Type[TIME_SERIES_TYPE], op: WiringNodeClass) -> TIME_SERIES_TYPE:
     """
     This is a helper graph to create a zero time-series (for example, for the reduce function). The zero values are
     type and operation dependent, so both are provided. The datatype designers should overload this graph for their
     respective data types and return correct zero values for the operation.
     """
-    raise WiringError(f"operator zero is not implemented for {tp} and operation {op.signature.name}")
 
 
 @operator
@@ -678,7 +656,6 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
     """
     This represents the `len` operator for time series types.
 
-    This is the interface definition graph, by default it is not implemented.
     To implement the len_ operator, do:
     ::
 
@@ -688,72 +665,42 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
 
     Then ensure that the code is imported before performing the operation.
     """
-    raise WiringError(f"operator len_ is not implemented for {ts.output_type}")
-
-
-# SET Operators
 
 
 @operator
-def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
     """
     Performs a union of the provided time-series values.
 
-    By default, this is ``reduce(union_op, tsl)``
-
     Union is { p | p element of tsl[i] for i in range(len(tsl)) }
     """
-    if len(tsl) == 1:
-        return tsl[0]
-    elif len(tsl) == 2:
-        return bit_or(tsl[0], tsl[1])
-    else:
-        return reduce(bit_or, tsl, zero(tp, bit_or))
 
 
 @operator
-def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
     """
     Performs an intersection of the provided time-series values.
 
     Intersection is { p | p in all tsl[i] for i in range(len(tsl)) }
     """
-    if len(tsl) == 1:
-        return tsl[0]
-    elif len(tsl) == 2:
-        return bit_and(tsl[0], tsl[1])
-    else:
-        return reduce(bit_and, tsl, zero(tp, bit_and))
 
 
 @operator
-def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
     """
     Performs a difference of the provided time-series values.
 
     Difference is { p | p element of lhs and p not element of rhs }
     """
-    if len(tsl) == 1:
-        return tsl[0]
-    elif len(tsl) == 2:
-        return sub_(tsl[0], tsl[1])
-    else:
-        raise WiringError("Difference between multiple items is not supported")
 
 
 @operator
-def symmetric_difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def symmetric_difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
     """
     Performs the symmetric difference of the provided time-series values.
 
     Symmetric difference is { p | p element of union(lhs, rhs), but not element of intersection(lhs, rhs) }
     """
-    if len(tsl) == 1:
-        return tsl[0]
-    elif len(tsl) == 2:
-        return bit_xor(tsl[0], tsl[1])
-    else:
-        return reduce(bit_xor, tsl, zero(tp, bit_xor))
 
 
 @operator
@@ -761,7 +708,6 @@ def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """
     Returns True if the value of the time-series is considered empty, False otherwise.
     """
-    return eq_(len_(ts), 0)
 
 
 @operator
@@ -769,7 +715,6 @@ def type_(ts: TIME_SERIES_TYPE) -> TS[type]:
     """
     Returns the type of the time-series value.
     """
-    return ts.value.__class__
 
 
 @operator
@@ -777,4 +722,8 @@ def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
     """
     Returns the string representation of the time-series value.
     """
-    return str(ts.value)
+
+
+# For backwards compatibility.  Prefer sum_ to accumulate and mean to average
+accumulate = sum_
+average = mean

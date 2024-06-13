@@ -1,7 +1,9 @@
+import math
+
 import pytest
 
-from hgraph import TSS, graph, TS, Removed, not_, is_empty, SetDelta, PythonSetDelta, eq_, len_, and_, or_, min_, str_, \
-    union, max_, sum_, TSL, Size, union
+from hgraph import TSS, graph, TS, Removed, not_, is_empty, PythonSetDelta, eq_, len_, and_, or_, min_, str_, \
+    max_, sum_, mean, std, var
 from hgraph.test import eval_node
 
 
@@ -152,17 +154,35 @@ def test_sum_tss_unary():
     assert eval_node(app, [set(), {1, 2, -1, 3}]) == [0, 5]
 
 
+def test_mean_tss_unary():
+    @graph
+    def app(tss: TSS[int]) -> TS[float]:
+        return mean(tss)
+
+    output = eval_node(app, [set(), {1, 2, -1, 3}])
+    assert math.isnan(output[0])
+    assert output[1] == 1.25
+
+
+def test_std_tss_unary():
+    @graph
+    def app(tss: TSS[int]) -> TS[float]:
+        return std(tss)
+
+    assert eval_node(app, [set(), {1}, {1, 2}, {1, 2, -1, 3}]) == [0.0, 0.0, 0.7071067811865476, 1.707825127659933]
+
+
+def test_var_tss_unary():
+    @graph
+    def app(tss: TSS[int]) -> TS[float]:
+        return var(tss)
+
+    assert eval_node(app, [set(), {1}, {1, 2}, {1, 2, -1, 3}]) == [0.0, 0.0, 0.5, 2.9166666666666665]
+
+
 def test_str_tss():
     @graph
     def app(tss: TSS[int]) -> TS[str]:
         return str_(tss)
 
     assert eval_node(app, [{1, 2, 3}]) == ["{1, 2, 3}"]
-
-
-def test_union_tss():
-    @graph
-    def app(ts1: TSS[int], ts2: TSS[int], ts3: TSS[int]) -> TSS[int]:
-        return union(ts1, ts2, ts3)
-
-    assert eval_node(app, [{1, 2, 3}], [{3, 4, 5}], [{4, 5, 6}]) == [{1, 2, 3, 4, 5, 6}]

@@ -1,7 +1,10 @@
+import math
+
 import pytest
 from frozendict import frozendict
 
-from hgraph import sub_, getitem_, TS, and_, graph, KEYABLE_SCALAR, SCALAR, or_, min_, max_, sum_, str_, WiringError
+from hgraph import sub_, getitem_, TS, and_, graph, KEYABLE_SCALAR, SCALAR, or_, min_, max_, sum_, str_, WiringError, \
+    mean, std, var
 from hgraph.test import eval_node
 
 
@@ -88,6 +91,47 @@ def test_sum_frozendict_unary_default():
         return sum_(ts)
 
     assert eval_node(app, [frozendict({})]) == [0.0]
+
+
+def test_mean_frozendict_unary_int():
+    @graph
+    def app(ts: TS[frozendict[int, int]]) -> TS[float]:
+        return mean(ts)
+
+    assert eval_node(app, [frozendict({1: 10, 2: 20})]) == [15.0]
+
+
+def test_mean_frozendict_unary_float():
+    @graph
+    def app(ts: TS[frozendict[int, float]]) -> TS[float]:
+        return mean(ts)
+
+    assert eval_node(app, [frozendict({1: 10.0, 2: 20.0}), frozendict({1: 10.0})]) == [15.0, 10.0]
+
+
+def test_mean_frozendict_unary_default():
+    @graph
+    def app(ts: TS[frozendict[int, float]]) -> TS[float]:
+        return mean(ts)
+
+    out = eval_node(app, [frozendict({})])[0]
+    assert math.isnan(out)
+
+
+def test_std_frozendict_unary():
+    @graph
+    def app(ts: TS[frozendict[int, int]]) -> TS[float]:
+        return std(ts)
+
+    assert eval_node(app, [frozendict(), frozendict({1: 1}), frozendict({1: 10, 2: 20}), frozendict({1: 10, 2: 20, 3: 20})]) == [0.0, 0.0, 7.0710678118654755, 5.773502691896257]
+
+
+def test_var_frozendict_unary():
+    @graph
+    def app(ts: TS[frozendict[int, int]]) -> TS[float]:
+        return var(ts)
+
+    assert eval_node(app, [frozendict(), frozendict({1: 1}), frozendict({1: 10, 2: 20}), frozendict({1: 10, 2: 20, 3: 20})]) == [0.0, 0.0, 50.0, 33.333333333333336]
 
 
 def test_str_frozendict():

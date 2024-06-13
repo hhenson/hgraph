@@ -4,7 +4,7 @@ from hgraph._types._ts_type import TS
 from hgraph._types._tsl_type import TSL
 from hgraph._wiring._decorators import operator
 
-__all__ = ("merge", "all_", "any_")
+__all__ = ("merge", "all_", "any_", "race")
 
 
 @operator

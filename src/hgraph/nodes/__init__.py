@@ -36,3 +36,5 @@ from hgraph.nodes._scalar_operators import *
 from hgraph.nodes._bool_operators import *
 from hgraph.nodes._control_operators import *
 from hgraph.nodes._control_operators import *
+from hgraph.nodes._stream_analytical_operators import *
+from hgraph.nodes._set_operators import *

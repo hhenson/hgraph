@@ -1,10 +1,12 @@
+from statistics import stdev, variance
 from typing import Type
 
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
     union, TSS, KEYABLE_SCALAR, TSS_OUT, PythonSetDelta, add_, sub_, mul_, div_, floordiv_, mod_, pow_, lshift_, \
     rshift_, bit_and, bit_or, bit_xor, eq_, ne_, not_, neg_, pos_, invert_, abs_, min_, max_, reduce, zero, \
-    str_, PythonTimeSeriesReference, len_, sum_, getitem_, all_, clone_typevar
+    str_, PythonTimeSeriesReference, len_, sum_, getitem_, all_, clone_typevar, mean, std, var
 from hgraph.nodes import const
+from hgraph.nodes._number_operators import DivideByZero
 
 __all__ = ("flatten_tsl_values", "tsl_to_tsd", "index_of")
 
@@ -316,3 +318,61 @@ def union_tsl_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE
             if not to_remove:
                 break
     return PythonSetDelta(to_add, to_remove)
+
+
+@graph(overloads=mean)
+def mean_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TS[float], SIZE_1]:
+    """
+    Item-wise mean() of the TSL elements. Missing elements on either side will cause a gap in the output
+    """
+    if len(tsl) == 1:
+        return tsl[0]
+    else:
+        return TSL.from_ts(*(mean(*tsls) for tsls in tsl))
+
+
+@graph(overloads=mean)
+def mean_tsl_unary_number(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[float]:
+    return div_(sum_(ts), _sz.SIZE, divide_by_zero=DivideByZero.NAN)
+
+
+@graph(overloads=std)
+def std_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TS[float], SIZE_1]:
+    """
+    Item-wise std() of the TSL elements. Missing elements on either side will cause a gap in the output
+    """
+    if len(tsl) == 1:
+        return std(tsl[0])
+    else:
+        return TSL.from_ts(*(std(*tsls) for tsls in tsl))
+
+
+@compute_node(overloads=std)
+def std_tsl_unary_number(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[float]:
+    valid_elements = tuple(t.value for t in ts if t.valid)
+    n_valid = len(valid_elements)
+    if n_valid <= 1:
+        return 0.0
+    else:
+        return stdev(valid_elements)
+
+
+@graph(overloads=var)
+def var_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TS[float], SIZE_1]:
+    """
+    Item-wise std() of the TSL elements. Missing elements on either side will cause a gap in the output
+    """
+    if len(tsl) == 1:
+        return var(tsl[0])
+    else:
+        return TSL.from_ts(*(var(*tsls) for tsls in tsl))
+
+
+@compute_node(overloads=var)
+def var_tsl_unary_number(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[float]:
+    valid_elements = tuple(t.value for t in ts if t.valid)
+    n_valid = len(valid_elements)
+    if n_valid <= 1:
+        return 0.0
+    else:
+        return float(variance(valid_elements))

@@ -1,6 +1,7 @@
+from statistics import variance, stdev
 from typing import Type
 
-from hgraph import TS, SCALAR, min_, compute_node, max_, str_, sum_, graph, AUTO_RESOLVE, zero
+from hgraph import TS, SCALAR, min_, compute_node, max_, str_, sum_, graph, AUTO_RESOLVE, zero, mean, std, var
 
 
 @compute_node(overloads=min_)
@@ -26,6 +27,48 @@ def _sum_frozenset_unary(ts: TS[frozenset[SCALAR]], zero_ts: TS[SCALAR]) -> TS[S
     If the set is empty the typed zero is returned
     """
     return sum(ts.value, start=zero_ts.value)
+
+
+@compute_node(overloads=mean)
+def mean_frozenset_unary(ts: TS[frozenset[SCALAR]]) -> TS[float]:
+    """
+    Unary mean for frozenset
+    The mean is the mean of the latest value
+    """
+    ts = ts.value
+    len_ts = len(ts)
+    if len_ts == 0:
+        return float('NaN')
+    elif len_ts == 1:
+        return next(iter(ts))
+    else:
+        return sum(ts) / len_ts
+
+
+@compute_node(overloads=std)
+def std_frozenset_unary(ts: TS[frozenset[SCALAR]]) -> TS[float]:
+    """
+    Unary standard deviation for frozenset
+    The standard deviation is that of the latest value
+    """
+    ts = ts.value
+    if len(ts) <= 1:
+        return 0.0
+    else:
+        return float(stdev(ts))
+
+
+@compute_node(overloads=var)
+def var_frozenset_unary(ts: TS[frozenset[SCALAR]]) -> TS[float]:
+    """
+    Unary standard deviation for frozenset
+    The standard deviation is that of the latest value
+    """
+    ts = ts.value
+    if len(ts) <= 1:
+        return 0.0
+    else:
+        return float(variance(ts))
 
 
 @compute_node(overloads=str_)

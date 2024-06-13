@@ -201,15 +201,15 @@ Emits a tick with the value True when the input condition ticks with the value `
 If `tick_once_only` is true then the node will not tick more than once.  
 Otherwise the node will tick whenever the condition ticks ```True```. 
 
-### if_ route_conditional?
+### if_
 `if_` forwards a time series to either the `true` or `false` element of the output bundle, according to whether
 `condition` is `True` or `False`.
 
-### route &#10067; route_by_index
+### route_by_index
 `route` does the inverse of `if_` and `TSL[]` - based on an index forward one input time series to one of its outputs 
 with the matching index. If hte index is `bool` then the outputs number is 2. 
 
-### if_then_else &#10067; merge_conditional?
+### if_then_else
 `if_then_else` forwards either its `true` input or `false` input based on the value of `condition`
 
 ### TSL[]
@@ -224,7 +224,7 @@ index - which then can be given to `TSL[]` to pick the correct time series to fo
 ### merge
 `merge` forwards the last ticked value from its inputs. If two inputs tick at the same time the leftmost is forwarded
 
-### race &#10067; prefer?
+### race
 `race` is like `merge` but it forwards only values from the input that become valid first. If it becomes invalid `race`
 moves on to the next valid input.
 
@@ -238,11 +238,22 @@ Ticks with True when any of the args is True
 Stream analytical operators
 ---------------------------
 
-### diff
-`diff` returns a time series of difference between the previous value of a time series and the current
+Note - `mean`, `std` and `var` have the same semantics as `min`, `max` and `sum`
+* If given a single scalar argument they return a running operation on the timeseries.
+* If given a single collection argument they return the operation on the latest timeseries value
+* If given multiple arguments they calculate the operation across the latest values of the given timeseries
 
 ### mean
-`mean` returns a time series of running mean average of the values it received from its input
+Calculates the mean
+
+### std
+Calculates the standard deviation
+
+### var
+Calculates the variance
+
+### diff
+`diff` returns a time series of difference between the previous value of a time series and the current
 
 ### count
 `count` counts the number of ticks of a time series
@@ -254,17 +265,12 @@ Stream analytical operators
 `quantiles` calculates quantiles of the values from ints input and ticks the quantiles calculated when `trigger` input 
 ticks 
 
-### std
-`std` calculates standard deviation of hte values it received from its input
-
-### var
-`var` calculates variance
-
 ### ewma
 exponentially weighted mean
 
 ### ewstd
 exponentially weighted standard deviation
+
 
 TSD operators
 -------------

@@ -1,9 +1,10 @@
 from collections import deque
 from dataclasses import dataclass, field
+from statistics import stdev, variance
 from typing import Type, TypeVar, Generic, Tuple
 
 from hgraph import SCALAR, TS, IncorrectTypeBinding, compute_node, HgTupleFixedScalarType, HgTupleCollectionScalarType, \
-    STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph
+    STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, mean, var, std
 from hgraph import getitem_, min_, max_, sum_, zero
 
 __all__ = ("TUPLE", "getitem_tuple")
@@ -87,3 +88,42 @@ def _sum_tuple_unary(ts: TS[Tuple[SCALAR, ...]], zero_ts: TS[SCALAR]) -> TS[SCAL
     The sum is the sum of the latest value
     """
     return sum(ts.value, start=zero_ts.value)
+
+
+@compute_node(overloads=mean)
+def mean_tuple_unary(ts: TS[Tuple[SCALAR, ...]]) -> TS[float]:
+    """
+    Unary mean for timeseries of tuples
+    The mean is the mean of the latest value
+    """
+    ts = ts.value
+    if len(ts) > 0:
+        return float(sum(ts) / len(ts))
+    else:
+        return float('NaN')
+
+
+@compute_node(overloads=std)
+def std_tuple_unary(ts: TS[Tuple[SCALAR, ...]]) -> TS[float]:
+    """
+    Unary standard deviation for timeseries of tuples
+    The standard deviation is that of the latest value
+    """
+    ts = ts.value
+    if len(ts) <= 1:
+        return 0.0
+    else:
+        return float(stdev(ts))
+
+
+@compute_node(overloads=var)
+def var_tuple_unary(ts: TS[Tuple[SCALAR, ...]]) -> TS[float]:
+    """
+    Unary standard deviation for timeseries of tuples
+    The standard deviation is that of the latest value
+    """
+    ts = ts.value
+    if len(ts) <= 1:
+        return 0.0
+    else:
+        return float(variance(ts))

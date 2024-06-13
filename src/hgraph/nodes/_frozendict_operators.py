@@ -1,9 +1,10 @@
+from statistics import variance, stdev
 from typing import Type
 
 from frozendict import frozendict
 
-from hgraph import compute_node, add_, TS, KEYABLE_SCALAR, SCALAR, sub_, getitem_, min_, max_, sum_, str_, graph, zero, \
-    AUTO_RESOLVE, TSL, SIZE, WiringError
+from hgraph import compute_node, TS, KEYABLE_SCALAR, SCALAR, sub_, getitem_, min_, max_, sum_, str_, graph, zero, \
+    AUTO_RESOLVE, TSL, SIZE, WiringError, mean, std, var
 
 
 @compute_node
@@ -87,6 +88,69 @@ def _sum_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], zero_ts: T
     If the frozendict is empty, the default value is returned
     """
     return sum(ts.value.values(), start=zero_ts.value)
+
+
+@graph(overloads=mean)
+def mean_frozendict(*ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE]) -> TS[float]:
+    if len(ts) == 1:
+        return _mean_frozendict_unary(ts[0])
+    else:
+        raise WiringError(f"Cannot compute mean of {len(ts)} frozen dicts")
+
+
+@compute_node
+def _mean_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[float]:
+    """
+    Return the mean of values in the frozendict value of the timeseries
+    """
+    ts = ts.value
+    len_ts = len(ts)
+    if len_ts == 0:
+        return float('NaN')
+    elif len_ts == 1:
+        return next(iter(ts.values()))
+    else:
+        return sum(ts.values()) / len_ts
+
+
+@graph(overloads=std)
+def std_frozendict(*ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE]) -> TS[float]:
+    if len(ts) == 1:
+        return _std_frozendict_unary(ts[0])
+    else:
+        raise WiringError(f"Cannot compute standard deviation of {len(ts)} frozen dicts")
+
+
+@compute_node
+def _std_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[float]:
+    """
+    Return the mean of values in the frozendict value of the timeseries
+    """
+    ts = ts.value
+    if len(ts) <= 1:
+        return 0.0
+    else:
+        return float(stdev(ts.values()))
+
+
+@graph(overloads=var)
+def var_frozendict(*ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE]) -> TS[float]:
+    if len(ts) == 1:
+        return _var_frozendict_unary(ts[0])
+    else:
+        raise WiringError(f"Cannot compute standard deviation of {len(ts)} frozen dicts")
+
+
+@compute_node
+def _var_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[float]:
+    """
+    Return the variance of values in the frozendict value of the timeseries
+    """
+    ts = ts.value
+    if len(ts) <= 1:
+        return 0.0
+    else:
+        return float(variance(ts.values()))
 
 
 @compute_node(overloads=str_)

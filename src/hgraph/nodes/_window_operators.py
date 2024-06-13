@@ -3,8 +3,9 @@ from datetime import timedelta, datetime
 from typing import Generic
 
 from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
-    AUTO_RESOLVE, operator
-from hgraph.nodes._analytical import accumulate, count, lag, INT_OR_TIME_DELTA
+    AUTO_RESOLVE, operator, sum_
+from hgraph.nodes._stream_analytical_operators import count
+from hgraph.nodes._analytical import lag, INT_OR_TIME_DELTA
 from hgraph.nodes._const import default, const
 from hgraph.nodes._control_operators import if_then_else
 from hgraph.nodes._operators import cast_, take, drop
@@ -90,8 +91,8 @@ def rolling_average(ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period
 def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = None,
                           _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     lagged_ts = lag(ts, period)
-    current_value = accumulate(ts)
-    delayed_value = accumulate(lagged_ts)
+    current_value = sum_(ts)
+    delayed_value = sum_(lagged_ts)
     denom = float(period) if _tp is float else period
 
     if min_window_period:
@@ -107,8 +108,8 @@ def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = 
 def rolling_average_p_time_delta(ts: TS[NUMBER], period: timedelta, min_window_period: timedelta = None,
                                  _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     lagged_ts = lag(ts, period)
-    current_value = accumulate(ts)
-    delayed_value = accumulate(lagged_ts)
+    current_value = sum_(ts)
+    delayed_value = sum_(lagged_ts)
 
     delayed_count = count(lagged_ts)
     if min_window_period:
