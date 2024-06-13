@@ -165,7 +165,8 @@ def str_frozendict(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[str]:
 
 @compute_node(overloads=keys_,
               requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset]) or
-              m[OUT].matches_type(TS[Set[m[K].py_type]]))
+              m[OUT].matches_type(TS[Set[m[K].py_type]]),
+              resolvers={OUT: lambda m, s: TS[Set[m[K].py_type]]})
 def keys_frozendict_as_set(ts: TS[frozendict[K, SCALAR]]) -> TS[Set[K]]:
     return set(ts.value.keys())
 

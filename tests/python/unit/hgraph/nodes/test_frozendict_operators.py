@@ -1,5 +1,5 @@
 import math
-from typing import Set, Tuple
+from typing import Tuple
 
 import pytest
 from frozendict import frozendict
@@ -148,7 +148,7 @@ def test_str_frozendict():
 def test_keys_as_set():
     @graph
     def g(ts: TS[frozendict[int, int]]) -> TS[frozenset[int]]:
-        return keys_[OUT: TS[Set[int]]](ts)
+        return keys_(ts)
 
     assert eval_node(g, [frozendict({1: 10, 2: 20}), frozendict({1: 10, 3: 20})]) == [{1, 2}, {1, 3}]
 

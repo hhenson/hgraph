@@ -335,7 +335,7 @@ def test_str_tsd():
 def test_keys_as_tss():
     @graph
     def g(tsd: TSD[int, TS[int]]) -> TSS[int]:
-        return keys_[OUT: TSS[int]](tsd)
+        return keys_(tsd)
 
     assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {Removed(1)}]
 
