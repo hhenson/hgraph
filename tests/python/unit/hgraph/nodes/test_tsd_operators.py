@@ -142,7 +142,7 @@ def test_flip_keys():
            ]
 
 
-def test_tsd_collapse_keys():
+def test_collapse_keys():
     @graph
     def g(ts: TSD[int, TSD[str, TS[int]]]) -> TSD[Tuple[int, str], TS[int]]:
         return collapse_keys(ts)
@@ -162,7 +162,7 @@ def test_tsd_collapse_keys():
            ]
 
 
-def test_tsd_uncollapse_keys():
+def test_uncollapse_keys():
     @graph
     def g(ts: TSD[Tuple[int, str], TS[int]]) -> TSD[int, TSD[str, TS[int]]]:
         return uncollapse_keys(ts)
