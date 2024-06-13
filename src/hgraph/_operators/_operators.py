@@ -3,6 +3,7 @@ from typing import Type
 from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
 from hgraph._types._scalar_types import Size, SIZE
 from hgraph._types._tsl_type import TSL
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 from hgraph._wiring._reduce import reduce
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringError, WiringNodeClass
@@ -11,9 +12,8 @@ from hgraph._wiring._wiring_port import WiringPort
 __all__ = (
     "add_", "sub_", "mul_", "div_", "floordiv_", "mod_", "divmod_", "pow_", "lshift_", "rshift_", "and_", "or_",
     "bit_xor", "eq_", "ne_", "lt_", "le_", "gt_", "ge_", "neg_", "pos_", "abs_", "invert_", "contains_", "not_",
-    "getitem_", "getattr_", "min_", "max_", "zero", "len_", "bit_and", "bit_or", "union", "union_tsl",
-    "intersection_op", "intersection", "intersection_tsl", "difference", "symmetric_difference", "is_empty", "type_",
-    "sum_", "and_", "or_", "str_")
+    "getitem_", "getattr_", "min_", "max_", "zero", "len_", "bit_and", "bit_or", "union", "union", "intersection",
+    "difference", "symmetric_difference", "is_empty", "type_", "sum_", "and_", "or_", "str_")
 
 
 @operator
@@ -628,50 +628,39 @@ WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
 
 
 @operator
-def min_(lhs: TIME_SERIES_TYPE,
-         rhs: TIME_SERIES_TYPE = None,
-         default_value: TIME_SERIES_TYPE = None
-         ) -> TIME_SERIES_TYPE:
+def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     This represents the `min` operator for time series types.
 
     Unary implies the min over the latest TS value for collection types, or running min for non-collection types
-    Binary implies the min between the lhs and rhs
-    Multi arg implies the min over all the arguments
-
-    TODO - implement multi-arg signature
+    Binary or multi arg implies item-wise min over all the arguments for collection types,
+    or the minimum scalar value for scalar types
     """
-    raise WiringError(f"operator min_() is not implemented for {lhs.output_type} and {rhs.output_type}")
+    raise WiringError(f"operator min_() is not implemented for {ts.output_type}")
 
 
 @operator
-def max_(lhs: TIME_SERIES_TYPE,
-         rhs: TIME_SERIES_TYPE = None,
-         default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     The `max` operator for time series types.
 
     Unary implies the max over the latest TS value for collection types, or running max for non-collection types
-    Binary implies the max between the lhs and rhs
-    Multi arg implies the max over all the arguments
-
-    TODO - implement multi-arg signature
+    Binary or multi arg implies item-wise max over all the arguments for collection types,
+    or the maximum scalar value for scalar types
     """
-    raise WiringError(f"operator max_() is not implemented for {lhs.output_type} and {rhs.output_type}")
+    raise WiringError(f"operator max_() is not implemented for {ts.output_type}")
 
 
 @operator
-def sum_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE_2:
+def sum_(*ts: TSL[TS[SCALAR], SIZE], default_value: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     This represents the `sum` operator for time series types, either as a binary or unary operator
 
     Unary implies the sum over the latest TS value for collection types, or running sum for non-collection types
-    Binary implies the sum between the lhs and rhs
-    Multi arg implies the sum over all the arguments
-
-    TODO - implement multi-arg signature
+    Binary or multi arg implies item-wise sum over all the arguments for collection types,
+    or the sum of the scalar value for scalar types
     """
-    raise WiringError(f"operator sum_() is not implemented for {lhs.output_type} and {rhs.output_type}")
+    raise WiringError(f"operator sum_() is not implemented for {ts.output_type}")
 
 
 @operator
@@ -703,104 +692,69 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
 
 
 # SET Operators
-# TODO - these need to be merged into the binary ops we have in tss_operators
-# TODO - make this an operator and overload for #args
-
-def union(*args: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    """
-    Performs a union of a collection of time-series values.
-    Each arg must be of the same type.
-    """
-    if len(args) == 1:
-        return args[0]
-
-    return union_tsl(TSL.from_ts(*args))
 
 
-# TODO - this can be an overload of union for unary TSL?
-# Also move to _tsl_operators
 @operator
-def union_tsl(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
     Performs a union of the provided time-series values.
 
-    By default, is ``reduce(union_op, tsl)``
+    By default, this is ``reduce(union_op, tsl)``
 
     Union is { p | p element of tsl[i] for i in range(len(tsl)) }
     """
-    # TODO - this doesn't seem to work without the zero()
-    return reduce(union_op, tsl)
+    if len(tsl) == 1:
+        return tsl[0]
+    elif len(tsl) == 2:
+        return bit_or(tsl[0], tsl[1])
+    else:
+        return reduce(bit_or, tsl, zero(tp, bit_or))
 
-
-@operator
-def union_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    """
-    Performs a union of the provided time-series values.
-
-    Union is { p | p element of lhs and p element of rhs }
-    """
-    raise WiringError(
-        f"operator union_op is not implemented for {lhs.output_type} and {rhs.output_type}")
 
 
 @operator
-def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
-    """
-    Implements python ```str()```
-    """
-    raise WiringError(f"operator str is not implemented for {ts.output_type}")
-
-
-def intersection(*args: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    """
-    Performs a union of a collection of time-series values.
-    Each arg must be of the same type.
-    """
-    if len(args) == 1:
-        return args[0]
-
-    return intersection_tsl(TSL.from_ts(*args))
-
-
-@operator
-def intersection_tsl(tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
     Performs an intersection of the provided time-series values.
 
     Intersection is { p | p in all tsl[i] for i in range(len(tsl)) }
     """
-    return reduce(intersection_op, tsl)
+    if len(tsl) == 1:
+        return tsl[0]
+    elif len(tsl) == 2:
+        return bit_and(tsl[0], tsl[1])
+    else:
+        return reduce(bit_and, tsl, zero(tp, bit_and))
 
 
 @operator
-def intersection_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    """
-    Performs an intersection of the provided time-series values.
-
-    Intersection is { p | p in lhs and p in rhs }
-    """
-    raise WiringError(
-        f"operator intersection_op is not implemented for {lhs.output_type} and {rhs.output_type}")
-
-
-@operator
-def difference(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
     Performs a difference of the provided time-series values.
 
     Difference is { p | p element of lhs and p not element of rhs }
     """
-    raise WiringError(f"operator difference is not implemented for {lhs.output_type}")
+    if len(tsl) == 1:
+        return tsl[0]
+    elif len(tsl) == 2:
+        return sub_(tsl[0], tsl[1])
+    else:
+        return reduce(sub_, tsl, zero(tp, sub_))
 
 
 @operator
-def symmetric_difference(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def symmetric_difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
     Performs the symmetric difference of the provided time-series values.
 
     Symmetric difference is { p | p element of union(lhs, rhs), but not element of intersection(lhs, rhs) }
     """
-    raise WiringError(f"operator symmetric_difference is not implemented for {lhs.output_type}")
+    if len(tsl) == 1:
+        return tsl[0]
+    elif len(tsl) == 2:
+        return bit_xor(tsl[0], tsl[1])
+    else:
+        return reduce(bit_xor, tsl, zero(tp, bit_xor))
 
 
 @operator

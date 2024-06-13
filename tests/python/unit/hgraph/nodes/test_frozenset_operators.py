@@ -66,10 +66,3 @@ def test_str_frozenset():
         return str_(ts)
 
     assert eval_node(app, [frozenset({1, 2})]) == ["{1, 2}"]
-
-
-
-
-
-
-

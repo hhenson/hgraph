@@ -49,6 +49,24 @@ def test_min_tuple_unary_default():
     assert eval_node(app, [()]) == [-1]
 
 
+def test_min_tuple_binary():
+    @graph
+    def app(ts1: TS[Tuple[int, ...]], ts2: TS[Tuple[int, ...]]) -> TS[Tuple[int, ...]]:
+        return min_(ts1, ts2)
+
+    assert eval_node(app, [(10, 100)], [(999,)]) == [(10, 100)]
+
+
+def test_min_tuple_multi():
+    @graph
+    def app(ts1: TS[Tuple[int, ...]],
+            ts2: TS[Tuple[int, ...]],
+            ts3: TS[Tuple[int, ...]]) -> TS[Tuple[int, ...]]:
+        return min_(ts1, ts2, ts3)
+
+    assert eval_node(app, [(10, 100)], [(999,)], [(1, 2, 3, 4)]) == [(1, 2, 3, 4)]
+
+
 def test_max_tuple_unary():
     @graph
     def app(ts: TS[Tuple[int, ...]]) -> TS[int]:

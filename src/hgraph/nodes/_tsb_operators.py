@@ -2,9 +2,7 @@ from typing import Type
 
 from hgraph import compute_node, REF, TSB, TS_SCHEMA, TIME_SERIES_TYPE, PythonTimeSeriesReference, AUTO_RESOLVE, \
     SCALAR, operator, add_, graph, sub_, mul_, div_, floordiv_, pow_, lshift_, rshift_, bit_and, bit_xor, bit_or, \
-    eq_, TS, not_, ne_, neg_, pos_, invert_, abs_, TSL, str_
-from hgraph._operators._operators import min_, max_, sum_
-from hgraph._operators._control import all_
+    eq_, TS, not_, ne_, neg_, pos_, invert_, abs_, TSL, str_, SIZE, all_, min_, max_, sum_
 from hgraph._types._ref_type import TimeSeriesReference
 
 __all__ = ("tsb_get_item", "tsb_get_item_by_name", "tsb_get_item_by_index")
@@ -104,29 +102,20 @@ def rshift_tsbs(lhs: TSB[TS_SCHEMA], rhs: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
 
 
 @graph(overloads=min_)
-def min_tsbs(lhs: TSB[TS_SCHEMA], rhs: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
-    """
-    Item-wise min of TSB elements.
-    A missing value on either lhs or rhs causes a gap on the output
-    """
-    return _itemwise_binary_op(min_, lhs, rhs)
-
-
-@graph(overloads=min_)
 def min_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[SCALAR]:
     """
     Minimum of all the values in the TSB.  Note that all elements in the TSB must be of the same type
     """
-    return min_(TSL.from_ts(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+    return min_(*(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
 
 
-@graph(overloads=max_)
-def max_tsbs(lhs: TSB[TS_SCHEMA], rhs: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+@graph(overloads=min_)
+def min_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
     """
-    Item-wise max of TSB elements.
+    Item-wise min() of TSB elements.
     A missing value on either lhs or rhs causes a gap on the output
     """
-    return _itemwise_binary_op(max_, lhs, rhs)
+    return _itemwise_multi_op(min_, tsbs)
 
 
 @graph(overloads=max_)
@@ -134,7 +123,33 @@ def max_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[SCALAR]:
     """
     Maximum of all the values in the TSB.  Note that all elements in the TSB must be of the same type
     """
-    return max_(TSL.from_ts(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+    return max_(*(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+
+
+@graph(overloads=max_)
+def max_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
+    """
+    Item-wise max() of TSB elements.
+    A missing value on either lhs or rhs causes a gap on the output
+    """
+    return _itemwise_multi_op(max_, tsbs)
+
+
+@graph(overloads=sum_)
+def sum_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[SCALAR]:
+    """
+    Sum of all the values in the TSB.  Note that all elements in the TSB must be of the same type
+    """
+    return sum_(*(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+
+
+@graph(overloads=sum_)
+def sum_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
+    """
+    Item-wise sum of TSB elements.
+    A missing value on either lhs or rhs causes a gap on the output
+    """
+    return _itemwise_multi_op(sum_, tsbs)
 
 
 @graph(overloads=eq_)
@@ -182,16 +197,6 @@ def abs_tsb(tsb: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return _itemwise_unary_op(abs_, tsb)
 
 
-def _itemwise_binary_op(op_, lhs, rhs):
-    return {attribute: op_(lhs[attribute], rhs[attribute])
-            for attribute in lhs.__schema__.__meta_data_schema__}
-
-
-def _itemwise_unary_op(op_, tsb):
-    return {attribute: op_(tsb[attribute])
-            for attribute in tsb.__schema__.__meta_data_schema__}
-
-
 @operator
 def tsb_get_item(tsb: TSB[TS_SCHEMA], key: SCALAR) -> TIME_SERIES_TYPE:
     """
@@ -228,23 +233,24 @@ def tsb_get_item_by_index(tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_S
         return PythonTimeSeriesReference()
 
 
-@graph(overloads=sum_)
-def sum_tsbs(lhs: TSB[TS_SCHEMA], rhs: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
-    """
-    Item-wise sum of TSB elements.
-    A missing value on either lhs or rhs causes a gap on the output
-    """
-    return _itemwise_binary_op(sum_, lhs, rhs)
-
-
-@graph(overloads=sum_)
-def sum_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[SCALAR]:
-    """
-    Sum of all the values in the TSB.  Note that all elements in the TSB must be of the same type
-    """
-    return sum_(TSL.from_ts(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
-
-
 @compute_node(overloads=str_)
 def str_tsb(tsb: TSB[TS_SCHEMA]) -> TS[str]:
     return str(tsb.value)
+
+
+def _itemwise_binary_op(op_, lhs, rhs):
+    return {attribute: op_(lhs[attribute], rhs[attribute])
+            for attribute in lhs.__schema__.__meta_data_schema__}
+
+
+def _itemwise_unary_op(op_, tsb):
+    attributes = tsb.__schema__.__meta_data_schema__
+    if len(attributes) == 1:
+        return tsb
+    else:
+        return {attribute: op_(tsb[attribute]) for attribute in attributes}
+
+
+def _itemwise_multi_op(op_, tsbs):
+    return {attribute: op_(*(tsb[attribute] for tsb in tsbs))
+            for attribute in tsbs[0].__schema__.__meta_data_schema__}

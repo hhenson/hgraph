@@ -1,10 +1,11 @@
 from typing import Type
 
 from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph, AUTO_RESOLVE, NUMBER, REF, TSD, \
-    union_tsl, TSS, KEYABLE_SCALAR, TSS_OUT, PythonSetDelta, add_, sub_, mul_, div_, floordiv_, mod_, pow_, lshift_, \
+    union, TSS, KEYABLE_SCALAR, TSS_OUT, PythonSetDelta, add_, sub_, mul_, div_, floordiv_, mod_, pow_, lshift_, \
     rshift_, bit_and, bit_or, bit_xor, eq_, ne_, not_, neg_, pos_, invert_, abs_, min_, max_, reduce, zero, \
-    str_, PythonTimeSeriesReference, len_, operator, sum_, getitem_
+    str_, PythonTimeSeriesReference, len_, sum_, getitem_
 from hgraph._operators._control import merge, all_
+from hgraph.adaptors.data_frame._data_source_generators import SIZE_1
 from hgraph.nodes import const
 
 __all__ = ("flatten_tsl_values", "tsl_to_tsd", "index_of")
@@ -39,16 +40,6 @@ def merge_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
 @graph(overloads=len_)
 def len_tsl(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
     return const(_sz.SIZE)
-
-
-@graph(overloads=sum_)
-def sum_tsl_unary(ts: TSL[TS[NUMBER], SIZE], tp: Type[TS[NUMBER]] = AUTO_RESOLVE) -> TS[NUMBER]:
-    return _sum_tsl_unary(ts, zero(tp, sum_))
-
-
-@compute_node(overloads=sum_)
-def _sum_tsl_unary(ts: TSL[TS[NUMBER], SIZE], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
-    return sum((t.value for t in ts.valid_values()), start=zero_ts.value)
 
 
 @compute_node
@@ -98,20 +89,36 @@ def index_of(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[int]:
     return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)
 
 
+@graph(overloads=sum_)
+def sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], tp: Type[TS[NUMBER]] = AUTO_RESOLVE) -> TS[NUMBER]:
+    if len(tsl) == 1:
+        return tsl[0]
+    else:
+        return _sum_tsl_unary(tsl, zero(tp, sum_))
+
+
+@compute_node(overloads=sum_)
+def _sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
+    return sum((t.value for t in tsl.valid_values()), start=zero_ts.value)
+
+
+@graph(overloads=sum_)
+def sum_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TIME_SERIES_TYPE, SIZE_1]:
+    """
+    Item-wise sum() of the TSL elements. Missing elements on either side will cause a gap in the output
+    """
+    if len(tsl) == 1:
+        return tsl[0]
+    else:
+        return TSL.from_ts(*(sum_(*tsls) for tsls in tsl))
+
+
 @graph(overloads=add_)
 def add_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
     """
     Item-wise addition of TSL elements.  A missing value on either lhs or rhs causes a gap on the output
     """
     return TSL.from_ts(*(a + b for a, b in zip(lhs, rhs)))
-
-
-@graph(overloads=sum_)
-def sum_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
-    """
-    Binary sum is addition.  TODO - should not be necessary when multi-arg sum is implemented
-    """
-    return lhs + rhs
 
 
 @graph(overloads=sub_)
@@ -251,35 +258,45 @@ def abs_tsl(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
 
 
 @graph(overloads=min_)
-def min_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
+def min_tsl_unary(tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
-    Item-wise min() of the TSL elements. Missing elements on either side will cause a gap in the output
+    Minimum value in the TSL
     """
-    return TSL.from_ts(*(min_(a,  b) for a, b in zip(lhs, rhs)))
+    if len(tsl) == 1:
+        return tsl[0]
+    elif len(tsl) == 2:
+        return min_(tsl[0], tsl[1])
+    else:
+        return reduce(lambda a, b: min_(a,  b), tsl, zero(tp, min_))
 
 
 @graph(overloads=min_)
-def min_tsl_unary(ts: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
-    """
-    Minimum value in the TSB
-    """
-    return reduce(lambda a, b: min_(a,  b), ts, zero(tp, min_))
-
-
-@graph(overloads=max_)
-def max_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
+def min_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TIME_SERIES_TYPE, SIZE_1]:
     """
     Item-wise min() of the TSL elements. Missing elements on either side will cause a gap in the output
     """
-    return TSL.from_ts(*(max_(a,  b) for a, b in zip(lhs, rhs)))
+    return TSL.from_ts(*(min_(*tsls) for tsls in tsl))
 
 
 @graph(overloads=max_)
-def max_tsl_unary(ts: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def max_tsl_unary(tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
     """
-    Maximum value in the TSB
+    Maximum value in the TSL
     """
-    return reduce(lambda a, b: max_(a,  b), ts, zero(tp, max_))
+    if len(tsl) == 1:
+        return tsl[0]
+    elif len(tsl) == 2:
+        return max_(tsl[0], tsl[1])
+    else:
+        return reduce(lambda a, b: max_(a,  b), tsl, zero(tp, max_))
+
+
+@graph(overloads=max_)
+def max_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TIME_SERIES_TYPE, SIZE_1]:
+    """
+    Item-wise max() of the TSL elements. Missing elements on either side will cause a gap in the output
+    """
+    return TSL.from_ts(*(max_(*tsls) for tsls in tsl))
 
 
 @compute_node(overloads=str_)
@@ -287,8 +304,8 @@ def str_(ts: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESO
     return str(ts.value)
 
 
-@compute_node(valid=tuple(), overloads=union_tsl)
-def union_tsl_tss(tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
+@compute_node(valid=tuple(), overloads=union)
+def union_tsl_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
     tss: TSS[KEYABLE_SCALAR, SIZE]
     to_add: set[KEYABLE_SCALAR] = set()
     to_remove: set[KEYABLE_SCALAR] = set()

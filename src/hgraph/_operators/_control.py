@@ -3,7 +3,7 @@ from hgraph._types._scalar_types import SIZE
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._decorators import operator
+from hgraph._wiring._decorators import operator, graph
 from hgraph._wiring._reduce import reduce
 
 __all__ = ("merge", "all_", "any_")
@@ -18,15 +18,17 @@ def merge(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     """
 
 
-def all_(*args) -> TS[bool]:
+@graph
+def all_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `all` operator
     """
-    return reduce(bit_and, TSL.from_ts(*args), False)
+    return reduce(bit_and, args, False)
 
 
-def any_(*args) -> TS[bool]:
+@graph
+def any_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `any` operator
     """
-    return reduce(bit_or, TSL.from_ts(*args), False)
+    return reduce(bit_or, args, False)

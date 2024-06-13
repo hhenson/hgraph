@@ -264,8 +264,7 @@ def test_eq_tsb_different_bundles():
                          [False])
 
 
-
-def test_min_tsbs():
+def test_min_tsbs_multi():
     class ABSchema(TimeSeriesSchema):
         a: TS[int]
         b: TS[str]
@@ -279,7 +278,7 @@ def test_min_tsbs():
                          [{'a': 5, 'b': '8'}, {'a': 1, 'b': '100'}])
 
 
-def test_max_tsbs():
+def test_max_tsbs_multi():
     class ABSchema(TimeSeriesSchema):
         a: TS[int]
         b: TS[str]
@@ -306,6 +305,17 @@ def test_min_tsb_unary():
     assert (eval_node(g, [{'a': 7, 'b': 8, 'c': 3}])) == [3]
 
 
+def test_min_tsb_unary_single_column():
+    class ABSchema(TimeSeriesSchema):
+        a: TS[int]
+
+    @graph
+    def g(tsb: TSB[ABSchema]) -> TS[int]:
+        return min_(tsb)
+
+    assert (eval_node(g, [{'a': 7}])) == [7]
+
+
 def test_max_tsb_unary():
     class ABSchema(TimeSeriesSchema):
         a: TS[int]
@@ -319,20 +329,6 @@ def test_max_tsb_unary():
     assert (eval_node(g, [{'a': 7, 'b': 8, 'c': 3}])) == [8]
 
 
-def test_sum_tsbs():
-    class ABSchema(TimeSeriesSchema):
-        a: TS[int]
-        b: TS[str]
-
-    @graph
-    def g(lhs: TSB[ABSchema], rhs: TSB[ABSchema]) -> TSB[ABSchema]:
-        return sum_(lhs, rhs)
-
-    assert (eval_node(g, [{'a': 7, 'b': '8'}, {'a': 1, 'b': '100'}],
-                         [{'a': 5, 'b': '9'}, {'a': 1, 'b': '100'}]) ==
-                         [{'a': 12, 'b': '89'}, {'a': 2, 'b': '100100'}])
-
-
 def test_sum_tsb_unary():
     class ABSchema(TimeSeriesSchema):
         a: TS[int]
@@ -344,3 +340,17 @@ def test_sum_tsb_unary():
         return sum_(ts)
 
     assert (eval_node(g, [{'a': 7, 'b': 8, 'c': 3}])) == [18]
+
+
+def test_sum_tsbs_multi():
+    class ABSchema(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    @graph
+    def g(lhs: TSB[ABSchema], rhs: TSB[ABSchema]) -> TSB[ABSchema]:
+        return sum_(*(lhs, rhs))
+
+    assert (eval_node(g, [{'a': 7, 'b': '8'}, {'a': 1, 'b': '100'}],
+                         [{'a': 5, 'b': '9'}, {'a': 1, 'b': '100'}]) ==
+                         [{'a': 12, 'b': '89'}, {'a': 2, 'b': '100100'}])

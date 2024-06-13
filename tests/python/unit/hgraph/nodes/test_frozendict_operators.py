@@ -1,6 +1,7 @@
+import pytest
 from frozendict import frozendict
 
-from hgraph import sub_, getitem_, TS, and_, graph, KEYABLE_SCALAR, SCALAR, or_, min_, max_, sum_, str_
+from hgraph import sub_, getitem_, TS, and_, graph, KEYABLE_SCALAR, SCALAR, or_, min_, max_, sum_, str_, WiringError
 from hgraph.test import eval_node
 
 
@@ -41,9 +42,20 @@ def test_min_frozendict_unary():
 def test_min_frozendict_unary_default():
     @graph
     def app(ts: TS[frozendict[int, int]], default_value: TS[int]) -> TS[int]:
-        return min_(ts, default_value)
+        return min_(ts, default_value=default_value)
 
     assert eval_node(app, [frozendict({})], [-1]) == [-1]
+
+
+def test_min_frozendict_multi():
+    @graph
+    def app(ts1: TS[frozendict[KEYABLE_SCALAR, SCALAR]],
+            ts2: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[SCALAR]:
+        return min_(ts2, ts2)
+
+    with pytest.raises(WiringError) as e:
+        eval_node(app, [frozendict({1: 10, 2: 20})], [frozendict({99: 99})])
+    assert "Cannot compute min of 2 frozendicts" in str(e)
 
 
 def test_max_frozendict_unary():
@@ -57,7 +69,7 @@ def test_max_frozendict_unary():
 def test_max_frozendict_unary_default():
     @graph
     def app(ts: TS[frozendict[int, int]], default_value: TS[int]) -> TS[int]:
-        return max_(ts, default_value)
+        return max_(ts, default_value=default_value)
 
     assert eval_node(app, [frozendict({})], [-1]) == [-1]
 

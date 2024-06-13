@@ -3,16 +3,16 @@ from typing import Type
 from frozendict import frozendict
 
 from hgraph import compute_node, add_, TS, KEYABLE_SCALAR, SCALAR, sub_, getitem_, min_, max_, sum_, str_, graph, zero, \
-    AUTO_RESOLVE
+    AUTO_RESOLVE, TSL, SIZE, WiringError
 
 
 @compute_node
 def union_frozendicts(lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]],
-                    rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[frozendict[KEYABLE_SCALAR, SCALAR]]:
+                      rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[frozendict[KEYABLE_SCALAR, SCALAR]]:
     """
     Combine two timeseries of frozendicts
     """
-    return {**lhs.value, **rhs.value}
+    return lhs.value | rhs.value
 
 
 @compute_node(overloads=sub_)
@@ -35,7 +35,16 @@ def getitem_frozendict(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]],
     return ts.value.get(key.value, default)
 
 
-@compute_node(overloads=min_)
+@graph(overloads=min_)
+def min_frozendict(*ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE],
+                   default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    if len(ts) == 1:
+        return min_frozendict_unary(ts[0], default_value)
+    else:
+        raise WiringError(f"Cannot compute min of {len(ts)} frozendicts")
+
+
+@compute_node
 def min_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
     """
     Return the minimum value in the frozendict
@@ -44,7 +53,16 @@ def min_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], default_val
     return min(ts.value.values(), default=default_value.value)
 
 
-@compute_node(overloads=max_)
+@graph(overloads=max_)
+def max_frozendict(*ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE],
+                   default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    if len(ts) == 1:
+        return max_frozendict_unary(ts[0], default_value)
+    else:
+        raise WiringError(f"Cannot compute max of {len(ts)} frozen dicts")
+
+
+@compute_node
 def max_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
     """
     Return the maximum value in the frozendict
@@ -54,9 +72,12 @@ def max_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], default_val
 
 
 @graph(overloads=sum_)
-def sum_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]],
-                         tp: Type[TS[SCALAR]] = AUTO_RESOLVE) -> TS[SCALAR]:
-    return _sum_frozendict_unary(ts, zero(tp, sum_))
+def sum_frozendict(*ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE],
+                   tp: Type[TS[SCALAR]] = AUTO_RESOLVE) -> TS[SCALAR]:
+    if len(ts) == 1:
+        return _sum_frozendict_unary(ts[0], zero(tp, sum_))
+    else:
+        raise WiringError(f"Cannot compute sum of {len(ts)} frozen dicts")
 
 
 @compute_node
