@@ -56,6 +56,3 @@ def test_average(value, expected):
 
 def test_diff():
     assert eval_node(diff, [1, 2, 3, 4,]) == [None, 1, 1, 1]
-
-
-

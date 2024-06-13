@@ -1,5 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
+from statistics import stdev, variance
 from typing import Type, Generic, Tuple
 
 from hgraph import SCALAR, TS, IncorrectTypeBinding, compute_node, HgTupleFixedScalarType, HgTupleCollectionScalarType, \
