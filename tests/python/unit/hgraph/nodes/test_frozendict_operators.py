@@ -153,7 +153,7 @@ def test_keys_as_set():
     assert eval_node(g, [frozendict({1: 10, 2: 20}), frozendict({1: 10, 3: 20})]) == [{1, 2}, {1, 3}]
 
 
-def test_keys_as_tsst():
+def test_keys_as_tss():
     @graph
     def g(ts: TS[frozendict[int, int]]) -> TSS[int]:
         return keys_[OUT: TSS[int]](ts)
