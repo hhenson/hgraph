@@ -54,7 +54,7 @@ class TimeSeriesSchema(AbstractSchema):
 
     @classmethod
     def _schema_convert_base(cls, base_py):
-        return cls.from_scalar_schema(base_py) if isinstance(base_py, CompoundScalar) else base_py
+        return cls.from_scalar_schema(base_py) if issubclass(base_py, CompoundScalar) else base_py
 
     @staticmethod
     def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
