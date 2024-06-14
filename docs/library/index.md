@@ -84,7 +84,7 @@ compatibility matrix:
 | TSB[Schema]            | &#10060;               | &#9989;  | &#9989; | &#9989;            |                      |                      |                              |                    |             | &#9989;                     | &#9989; if the schema is uniform                             |
 | TSD[K, V]              | &#10060;               | &#9989;  | &#9989; |                    |                      |                      | &#9989;                      |                    |             | &#9989; for uniform schemas | &#9989;                                                      |
 
-### combine &#10067;
+### combine
 Combine take some time series and combines them into a collection time series. For example, `combine[TS[Tuple[int, int]]](a, b)`.
 The following types are supported:
 
@@ -161,7 +161,7 @@ This is useful to regularise time series before applying statistical functions f
 `lag` delays values of a time series by either specified time or by a number of ticks. In the latter case with lag of 1 
 it will tick the previous value of the time series every time the series tick. 
 
-### dedup &#10067;
+### dedup
 `dedup` removes duplicates form a time series - if its input ticks the same value again the new tick is not propagated. 
 This is useful to avoid processing the same value more than once if hte algorithm the graph implements would produce 
 the same result.  
@@ -267,13 +267,13 @@ Calculates the variance
 
 ### quantiles
 `quantiles` calculates quantiles of the values from ints input and ticks the quantiles calculated when `trigger` input 
-ticks 
+ticks (_not yet implemented_)
 
 ### ewma
 exponentially weighted mean
 
 ### ewstd
-exponentially weighted standard deviation
+exponentially weighted standard deviation (_not yet implemented_)
 
 
 TSD operators
@@ -335,14 +335,17 @@ ticks provided scalar value if the provided time series is not valid
 ### nothing
 never produces a tick
 
-### null_sink &#10067;
+### null_sink
 consumes a time series and does nothing
 
 ### valid
 returns a bool time series that indicates if the input is valid (i.e. has a value)
 
 ### last_modified_time
-returns a datetime timeseries that ticks last_modified_time of its input
+returns a datetime timeseries that ticks the last modified time of its input
+
+### last_modified_date
+returns a date timeseries that ticks the last modified date of its input
 
 ### zero
 overloads of this operator provide zero value time series for the reduce_ operator

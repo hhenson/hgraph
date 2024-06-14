@@ -5,11 +5,10 @@ from datetime import timedelta, datetime
 from typing import Tuple
 
 from hgraph import (compute_node, TIME_SERIES_TYPE, STATE, SCHEDULER, SIGNAL, generator, TS, schedule,
-                    sample, MIN_TD, graph, resample, drop_dups, filter_, throttle, SCALAR, take, CompoundScalar, REF,
+                    sample, MIN_TD, graph, resample, dedup, filter_, throttle, SCALAR, take, CompoundScalar, REF,
                     drop, window, WindowResult, TSB, gate, batch, step, slice_, lag, TSL, SIZE, INT_OR_TIME_DELTA)
 
 __all__ = ()
-
 
 
 @compute_node(overloads=sample, active=('signal',))
@@ -76,7 +75,7 @@ def resample(ts: TIME_SERIES_TYPE, delay: timedelta) -> TIME_SERIES_TYPE:
     return sample(schedule(delay), ts)
 
 
-@compute_node(overloads=drop_dups)
+@compute_node(overloads=dedup)
 def drop_dups_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
@@ -88,7 +87,7 @@ def drop_dups_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) ->
         return ts.value
 
 
-@compute_node(overloads=drop_dups)
+@compute_node(overloads=dedup)
 def drop_dups_float(ts: TS[float], abs_tol: float = 1e-15, _output: TS[float] = None) -> TS[float]:
     """
     Drops 'duplicate' float values from a time-series which are almost equal

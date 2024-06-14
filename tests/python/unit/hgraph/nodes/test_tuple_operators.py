@@ -1,14 +1,8 @@
 import math
 from typing import Tuple
 
-from hgraph import SCALAR, mul_, getitem_, and_, TS, graph, or_, min_, max_, contains_, sum_, mean, std, var
-from hgraph.nodes._tuple_operators import unroll
+from hgraph import mul_, getitem_, and_, TS, graph, or_, min_, max_, contains_, sum_, mean, std, var
 from hgraph.test import eval_node
-
-
-def test_unroll():
-    assert eval_node(unroll[SCALAR: int], [(1, 2, 3), (4,), None, None, (5, 6)]) == [1, 2, 3, 4, 5, 6]
-
 
 def test_mul_tuples():
     assert eval_node(mul_, [(1, 2, 3)], [2]) == [(1, 2, 3, 1, 2, 3)]

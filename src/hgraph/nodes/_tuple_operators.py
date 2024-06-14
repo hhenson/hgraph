@@ -1,7 +1,5 @@
-from collections import deque
-from dataclasses import dataclass, field
 from statistics import stdev, variance
-from typing import Type, Generic, Tuple
+from typing import Type, Tuple
 
 from hgraph import SCALAR, TS, IncorrectTypeBinding, compute_node, HgTupleFixedScalarType, HgTupleCollectionScalarType, \
     STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, mean, var, std, getitem_, min_, \
@@ -27,28 +25,6 @@ def getitem_tuple(ts: TS[Tuple[SCALAR, ...]], key: TS[int]) -> TS[SCALAR]:
     Retrieve the tuple item indexed by key from the timeseries of scalar tuples
     """
     return ts.value[key.value]
-
-
-@dataclass
-class UnrollState(CompoundScalar, Generic[SCALAR]):
-    buffer: deque[SCALAR] = field(default_factory=deque)
-
-
-@compute_node
-def unroll(ts: TS[tuple[SCALAR, ...]],
-           _state: STATE[UnrollState[SCALAR]] = None, _schedule: SCHEDULER = None) -> TS[SCALAR]:
-    """
-    The values contained in the tuple are unpacked and returned one at a time until all values are unpacked.
-    """
-    if ts.modified:
-        _state.buffer.extend(ts.value)
-
-    if _state.buffer:
-        d: deque[SCALAR] = _state.buffer
-        v = d.popleft()
-        if d:
-            _schedule.schedule(MIN_TD)
-        return v
 
 
 @compute_node(overloads=mul_)

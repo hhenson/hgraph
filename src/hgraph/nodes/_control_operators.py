@@ -2,9 +2,9 @@ from collections import defaultdict
 from typing import Generic, cast, Type
 
 from hgraph import graph, all_, TSL, TS, SIZE, reduce, bit_and, any_, bit_or, compute_node, merge, TIME_SERIES_TYPE, \
-    REF, TSB, PythonTimeSeriesReference, TimeSeriesSchema, Size, SCHEMA, AUTO_RESOLVE, STATE, EvaluationClock, MIN_DT, \
-    MAX_DT
-from hgraph._operators._control import race
+    REF, TSB, PythonTimeSeriesReference, TimeSeriesSchema, Size, AUTO_RESOLVE, STATE, EvaluationClock, MAX_DT, race
+
+__all__ = ("if_", "if_true", "if_then_else", "route_by_index", "BoolResult")
 
 
 @graph(overloads=all_)

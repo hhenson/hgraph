@@ -2,7 +2,7 @@ from typing import cast
 
 from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, TSD, REMOVE, \
     Removed, K, KEYABLE_SCALAR
-from hgraph.nodes import route_ref
+from hgraph.nodes._control_operators import route_ref
 from hgraph.nodes._tss_operators import contains_tss
 from hgraph.test import eval_node
 

@@ -5,8 +5,6 @@ from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, graph,
     union, TSS, KEYABLE_SCALAR, TSS_OUT, PythonSetDelta, add_, sub_, mul_, div_, floordiv_, mod_, pow_, lshift_, \
     rshift_, bit_and, bit_or, bit_xor, eq_, ne_, not_, neg_, pos_, invert_, abs_, min_, max_, reduce, zero, \
     str_, PythonTimeSeriesReference, len_, sum_, getitem_, all_, clone_typevar, mean, std, var
-from hgraph.nodes import const
-from hgraph.nodes._number_operators import DivideByZero
 
 __all__ = ("flatten_tsl_values", "tsl_to_tsd", "index_of")
 
@@ -29,10 +27,11 @@ def flatten_tsl_values(tsl: TSL[TIME_SERIES_TYPE, SIZE], all_valid: bool = False
 
 @graph(overloads=len_)
 def len_tsl(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
+    from hgraph import const
     return const(_sz.SIZE)
 
 
-@compute_node
+@compute_node(deprecated="Use combine(keys, tsl)")
 def tsl_to_tsd(tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], keys: tuple[str, ...]) -> TSD[str, REF[TIME_SERIES_TYPE]]:
     """
     Converts a time series into a time series dictionary with the keys provided.
@@ -333,6 +332,7 @@ def mean_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TS[flo
 
 @graph(overloads=mean)
 def mean_tsl_unary_number(ts: TSL[TS[NUMBER], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[float]:
+    from hgraph import DivideByZero
     return div_(sum_(ts), _sz.SIZE, divide_by_zero=DivideByZero.NAN)
 
 

@@ -2,7 +2,7 @@ from datetime import datetime, date
 
 from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL
 
-__all__ = ("valid", "last_modified_time")
+__all__ = ("valid", "last_modified_time", "last_modified_date")
 
 
 @compute_node(valid=("ts",), active=('ts',))

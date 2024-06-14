@@ -1,83 +1,13 @@
-from collections import deque
-from datetime import timedelta, datetime
-from typing import Generic
+from datetime import timedelta
 
-from hgraph import TS, SCALAR, TimeSeriesSchema, compute_node, STATE, graph, TSB, NUMBER, \
-    AUTO_RESOLVE, operator, take, drop
-from hgraph import accumulate, lag, INT_OR_TIME_DELTA
-from hgraph.nodes._const import default, const
-from hgraph.nodes._control_operators import if_then_else
-from hgraph.nodes._operators import cast_
-from hgraph.nodes._stream_analytical_operators import count
-from hgraph.nodes._stream_operators import sample
+from hgraph import TS, graph, NUMBER, AUTO_RESOLVE, operator, take, drop, accumulate, lag, \
+    INT_OR_TIME_DELTA, sample, window
 
-__all__ = ("RollingWindowResult", "rolling_window", "rolling_average")
+__all__ = ("rolling_window", "rolling_average")
 
 
-class RollingWindowResult(TimeSeriesSchema, Generic[SCALAR]):
-    buffer: TS[tuple[SCALAR, ...]]
-    index: TS[tuple[datetime, ...]]
-
-
-@operator
-def rolling_window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
-        -> TSB[RollingWindowResult]:
-    """
-    Buffers the time-series. Emits a tuple of values representing the elements in the buffer.
-    and a tuple of corresponding time-stamps representing the time-points at which the elements
-    in the buffer correspond.
-
-    When the window is an int, a cyclic buffer is created, if the window is a timedelta, then
-    a deque is used to buffer the elements.
-
-    Note with time-deltas the buffer will contain at most the elements that fit within the window so
-    if you have 3 ticks at 1 microsecond intervals, and a window of 3 millisecond, then the buffer will
-    not be full until the 4th tick.
-    """
-
-
-@compute_node(overloads=rolling_window)
-def cyclic_buffer_window(ts: TS[SCALAR], period: int, min_window_period: int = None, _state: STATE = None) \
-        -> TSB[RollingWindowResult]:
-    buffer: deque[SCALAR] = _state.buffer
-    index: deque[datetime] = _state.index
-    buffer.append(ts.value)
-    index.append(ts.last_modified_time)
-    l = len(buffer)
-    if l == period or (min_window_period is not None and l >= min_window_period):
-        return {'buffer': tuple(buffer), 'index': tuple(index)}
-
-
-@cyclic_buffer_window.start
-def cyclic_buffer_window_start(period: int, _state: STATE):
-    _state.buffer = deque[SCALAR](maxlen=period)
-    _state.index = deque[datetime](maxlen=period)
-
-
-@compute_node(overloads=rolling_window)
-def time_delta_window(ts: TS[SCALAR], period: timedelta,
-                      min_window_period: timedelta = None, _state: STATE = None) -> TSB[
-    RollingWindowResult]:
-    buffer: deque[SCALAR] = _state.buffer
-    index: deque[datetime] = _state.index
-    buffer.append(ts.value)
-    index.append(ts.last_modified_time)
-    delta = index[-1] - index[0]
-    is_full = delta >= period
-    while delta > period:
-        buffer.popleft()
-        index.popleft()
-        delta = index[-1] - index[0]
-    if is_full or (min_window_period is not None and delta >= min_window_period):
-        return {'buffer': tuple(buffer), 'index': tuple(index)}
-
-
-@time_delta_window.start
-def time_delta_window_start(_state: STATE):
-    _state.buffer = deque[SCALAR]()
-    _state.index = deque[datetime]()
-
-__all__ = ("rolling_average",)
+# Prefer window
+rolling_window = window
 
 
 @operator
@@ -92,6 +22,7 @@ def rolling_average(ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period
 @graph(overloads=rolling_average)
 def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = None,
                           _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+    from hgraph import if_then_else, count, cast_, default
     lagged_ts = lag(ts, period)
     current_value = accumulate(ts)
     delayed_value = accumulate(lagged_ts)
@@ -109,6 +40,7 @@ def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = 
 @graph(overloads=rolling_average)
 def rolling_average_p_time_delta(ts: TS[NUMBER], period: timedelta, min_window_period: timedelta = None,
                                  _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
+    from hgraph import if_then_else, count, cast_, const
     lagged_ts = lag(ts, period)
     current_value = accumulate(ts)
     delayed_value = accumulate(lagged_ts)

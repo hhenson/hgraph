@@ -3,7 +3,9 @@ from typing import Type
 
 from hgraph import SCALAR, TS, compute_node, add_, sub_, mul_, pow_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, \
     ne_, lt_, le_, gt_, ge_, neg_, pos_, invert_, abs_, len_, and_, or_, not_, contains_, SCALAR_1, min_, max_, graph, \
-    TS_OUT, sum_, str_, TSL, SIZE, AUTO_RESOLVE, zero, mean, std, WiringError, var
+    TS_OUT, sum_, str_, TSL, SIZE, AUTO_RESOLVE, zero, mean, std, var
+
+__all__ = ()
 
 
 @compute_node(overloads=add_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__add__"))

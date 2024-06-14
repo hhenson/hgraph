@@ -3,7 +3,7 @@ from typing import Tuple
 
 import pytest
 
-from hgraph import TS, MIN_TD, graph, schedule, SIGNAL, sample, lag, resample, drop_dups, \
+from hgraph import TS, MIN_TD, graph, schedule, SIGNAL, sample, lag, resample, dedup, \
     filter_, TSL, Size, throttle, take, drop, WindowResult, window, MIN_ST, TSB, gate, NodeException, batch, step, \
     slice_
 from hgraph.test import eval_node
@@ -62,11 +62,11 @@ def test_resample():
 def test_drop_dups():
     @graph
     def g_int(ts: TS[int]) -> TS[int]:
-        return drop_dups(ts)
+        return dedup(ts)
 
     @graph
     def g_float(ts: TS[float], abs_tol: float) -> TS[float]:
-        return drop_dups(ts, abs_tol=abs_tol)
+        return dedup(ts, abs_tol=abs_tol)
 
     assert eval_node(g_int, [1, 2, 2, 3, 3, 3, 4, 4, 4, 4]) == [1, 2, None, 3, None, None, 4, None, None, None]
 

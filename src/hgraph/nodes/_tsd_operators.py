@@ -6,14 +6,11 @@ from typing import Type, Mapping, cast, Tuple, Set
 from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, STATE, graph, contains_, \
     not_, K, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, getattr_, zero, len_, AUTO_RESOLVE, TSL, \
     SIZE, TimeSeriesReferenceOutput, operator, is_empty, K_1, TIME_SERIES_TYPE_1, sub_, bit_or, bit_and, bit_xor, eq_, \
-    keys_, OUT, rekey, flip, partition, flip_keys, collapse_keys, \
-    uncollapse_keys, min_, max_, str_, sum_, V, merge, mean, NUMBER, div_, std, var
-from hgraph.nodes import const, nothing, default
-from hgraph.nodes._number_operators import DivideByZero
+    keys_, OUT, rekey, flip, partition, flip_keys, collapse_keys, uncollapse_keys, min_, \
+    max_, str_, sum_, V, merge, mean, NUMBER, div_, std, var
 
-__all__ = (
-    "make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_bundle_item",
-    "merge_nested_tsds", "get_schema_type", "tsd_get_items", "merge_tsds")
+__all__ = ("make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_bundle_item",
+           "merge_nested_tsds", "get_schema_type", "tsd_get_items", "merge_tsds")
 
 
 @operator
@@ -49,6 +46,7 @@ def make_tsd_default(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool]
 @graph(overloads=make_tsd)
 def make_tsd_scalar(key: K_1, value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
                     ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+    from hgraph import const
     return make_tsd(const(key), value, remove_key, ts_type)
 
 
@@ -481,6 +479,7 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
     """
     This is a helper generator to create a zero time-series for the reduce function.
     """
+    from hgraph import nothing
     return nothing(ts)
 
 
@@ -513,6 +512,7 @@ def _sum_tsd_unary(tsd: TSD[K, V], zero_ts: V) -> V:
 
 @graph(overloads=mean)
 def mean_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
+    from hgraph import DivideByZero, default
     return default(div_(sum_(ts), len_(ts), divide_by_zero=DivideByZero.NAN), float('NaN'))
 
 

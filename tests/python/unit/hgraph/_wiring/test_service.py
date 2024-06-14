@@ -4,10 +4,9 @@ from frozendict import frozendict
 
 from hgraph import reference_service, TSD, TS, service_impl, graph, register_service, default_path, TSS, \
     subscription_service, map_, TSL, SIZE, request_reply_service, contains_, NUMBER, AUTO_RESOLVE, KEYABLE_SCALAR, \
-    SCALAR, SCALAR_1, TIME_SERIES_TYPE, flip, format_
-from hgraph import sample
-from hgraph._operators._control import merge
-from hgraph.nodes import const, pass_through, null_sink, debug_print, route_ref
+    SCALAR, SCALAR_1, TIME_SERIES_TYPE, flip, format_, const, null_sink, merge, sample
+from hgraph.nodes import pass_through, debug_print
+from hgraph.nodes._control_operators import route_ref
 from hgraph.test import eval_node
 
 
