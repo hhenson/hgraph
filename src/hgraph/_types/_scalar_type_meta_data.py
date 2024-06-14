@@ -562,9 +562,16 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
             return HgTupleCollectionScalarType(self.element_type.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().do_build_resolution_dict(resolution_dict, wired_type)
-        wired_type: HgTupleCollectionScalarType
-        self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
+        tp_ = type(wired_type)
+        if tp_ is HgTupleCollectionScalarType:
+            wired_type: HgTupleCollectionScalarType
+            self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
+        elif tp_ is HgTupleFixedScalarType:
+            wired_type: HgTupleFixedScalarType
+            if all(self.element_type.matches(tp_) for tp_ in wired_type.element_types):
+                self.element_type.build_resolution_dict(resolution_dict, wired_type.element_types[0])
+        else:
+            super().do_build_resolution_dict(resolution_dict, wired_type)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTupleCollectionScalarType and self.element_type == o.element_type

@@ -12,6 +12,14 @@ def test_getitem_tuples():
     assert eval_node(getitem_, [(1, 2, 3)], [1]) == [2]
 
 
+def test_getitem_fixed_tuple():
+    @graph
+    def g(a: TS[Tuple[int, int]], i: TS[int]) -> TS[int]:
+        return a[i]
+
+    assert eval_node(g, [(1, 2, 3)], [1]) == [2]
+
+
 def test_and_tuples():
     @graph
     def app(lhs: TS[Tuple[int, ...]], rhs: TS[Tuple[int, ...]]) -> TS[bool]:
