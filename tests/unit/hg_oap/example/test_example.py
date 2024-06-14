@@ -2,13 +2,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Generic, TypeVar
 
-from hg_oap.quanity.conversion import convert_units
-from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, TSL, \
-    subscription_service, request_reply_service, service_impl, register_service, combine
-from hgraph.nodes import drop_dups, tsd_flip, make_tsd, const, sample
-from hgraph import merge
-from hgraph.test import eval_node
-
 from hg_oap.assets.commodities import Commodity
 from hg_oap.assets.currency import Currencies
 from hg_oap.dates.calendar import WeekendCalendar
@@ -18,11 +11,16 @@ from hg_oap.instruments.future import Settlement, SettlementMethod, FutureContra
 from hg_oap.instruments.fx import FXSpot
 from hg_oap.instruments.instrument import Instrument, INSTRUMENT_ID
 from hg_oap.instruments.physical import PhysicalCommodity
+from hg_oap.quanity.conversion import convert_units
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import Unit, NUMBER
 from hg_oap.units.unit_system import UnitConversionContext
 from hg_oap.utils import SELF, ExprClass
+from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, subscription_service, \
+    request_reply_service, service_impl, register_service, combine, drop_dups, sample, const, merge, flip
+from hgraph.nodes import make_tsd
+from hgraph.test import eval_node
 
 
 #####################
@@ -41,8 +39,8 @@ def register_instrument(instrument: TS[Instrument], path: str = "instrument_serv
 @service_impl(interfaces=(get_instrument, register_instrument))
 def instrument_service(path: str = 'instrument_service'):
     instrument_submissions = register_instrument.wire_impl_inputs_stub(path)
-    instruments = tsd_flip(instrument_submissions.instrument).key_set
-    instrument_by_symbol = tsd_flip(map_(lambda key: key.symbol, __keys__=instruments))
+    instruments = flip(instrument_submissions.instrument).key_set
+    instrument_by_symbol = flip(map_(lambda key: key.symbol, __keys__=instruments))
     get_instrument.wire_impl_out_stub(
         path,
         map_(lambda x: x, __keys__=get_instrument.wire_impl_inputs_stub(path).instrument, x=instrument_by_symbol),

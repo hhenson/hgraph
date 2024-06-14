@@ -1,5 +1,4 @@
-from hgraph import graph, TS, TSB, compute_node, register_service, MIN_TD, SIGNAL
-from hgraph.nodes import delay, sample, debug_print
+from hgraph import graph, TS, TSB, compute_node, register_service, MIN_TD, SIGNAL, sample, debug_print, lag
 from hgraph.test import eval_node
 
 from hg_oap.assets.currency import Currencies
@@ -23,7 +22,7 @@ def simple_handler(
     Simple example
     """
     order_response = _accept_request(request)
-    delayed_result = delay(order_response, MIN_TD)
+    delayed_result = lag(order_response, MIN_TD)
     fill_signal = sample(delayed_result, bool)
     fill_event = _fill_order(order_state.confirmed, fill_signal)
     return TSB[OrderHandlerOutput].from_ts(order_response=order_response, order_event=fill_event)

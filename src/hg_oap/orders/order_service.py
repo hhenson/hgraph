@@ -3,17 +3,12 @@ from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
 
 from frozendict import frozendict
-from hgraph import request_reply_service, reference_service, TSD, TS, CompoundScalar, service_impl, feedback, TSB, \
-    compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema, graph
-from hgraph.nodes import if_then_else
-from hgraph.nodes._conditional import if_
-from hgraph.nodes._tuple_operators import unroll
 
-from hg_oap.assets.currency import Currency, Currencies
+from hg_oap.assets.currency import Currencies
 from hg_oap.orders.order import OriginatorInfo, ORDER, OrderState, SingleLegOrder, MultiLegOrder, Fill
 from hg_oap.orders.order_type import OrderType, MultiLegOrderType, SingleLegOrderType
-from hg_oap.pricing.price import Price
-from hg_oap.units.quantity import Quantity
+from hgraph import request_reply_service, reference_service, TSD, TS, CompoundScalar, service_impl, feedback, TSB, \
+    compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema, graph, emit
 
 
 @reference_service
@@ -245,7 +240,7 @@ def order_handler(fn):
 
         if needs_map:
             result: TSD[str, TSB[OrderHandlerOutputs]] = \
-                map_(lambda request_, order_state_: _to_tuple(fn(unroll(request_), order_state_)), requests,
+                map_(lambda request_, order_state_: _to_tuple(fn(emit(request_), order_state_)), requests,
                      order_state)
         else:
             requests = _flatten(requests)

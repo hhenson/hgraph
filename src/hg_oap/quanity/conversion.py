@@ -2,8 +2,8 @@ from typing import Type
 
 from hg_oap.units import Unit, Quantity, UnitConversionContext
 from hg_oap.units.unit import NUMBER
-from hgraph import graph, TS, AUTO_RESOLVE, TSL, TSB, compute_node, CONTEXT, operator
-from hgraph.nodes import route_ref, filter_, index_of, valid
+from hgraph import graph, TS, AUTO_RESOLVE, TSL, TSB, compute_node, CONTEXT, operator, filter_, index_of, valid
+from hgraph.nodes._control_operators import route_ref
 
 
 @operator
