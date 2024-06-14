@@ -1,7 +1,3 @@
-from hgraph import graph, TS, TSB, compute_node, register_service, MIN_TD, SIGNAL, sample, debug_print, lag
-from hgraph.test import eval_node
-
-from hg_oap.assets.currency import Currencies
 from hg_oap.instruments.instrument import Instrument
 from hg_oap.orders.order import OrderState, SingleLegOrder, OriginatorInfo, ORDER, Fill
 from hg_oap.orders.order_service import order_handler, OrderRequest, OrderResponse, order_client, \
@@ -10,6 +6,8 @@ from hg_oap.orders.order_type import MarketOrderType
 from hg_oap.pricing.price import Price
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit_system import UnitSystem
+from hgraph import graph, TS, TSB, compute_node, register_service, MIN_TD, SIGNAL, lag, sample, debug_print
+from hgraph.test import eval_node
 
 
 @order_handler
