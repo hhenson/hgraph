@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Mapping, Generic
 
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._types._scalar_types import SCALAR
+from hgraph._types._scalar_types import SCALAR, ZERO
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
@@ -20,7 +20,6 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if typing.TYPE_CHECKING:
     from hgraph import WiringNodeInstance
-
 
 __all__ = ("WiringPort", "ErrorWiringPort", "TSDWiringPort", "TSDREFWiringPort", "DelayedBindingWiringPort",
            "TSBWiringPort", "TSBREFWiringPort", "TSLWiringPort", "TSLREFWiringPort")
@@ -137,7 +136,7 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         from hgraph.nodes import tsd_get_item
         return tsd_get_item(self, key)
 
-    def reduce(self, fn, zero=None):
+    def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
         return reduce(fn, self, zero)
 
@@ -154,7 +153,7 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         from hgraph.nodes import tsd_get_item
         return tsd_get_item(self, key)
 
-    def reduce(self, fn, zero=None):
+    def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
         return reduce(fn, self, zero)
 

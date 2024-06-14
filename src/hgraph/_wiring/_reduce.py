@@ -1,7 +1,7 @@
 import inspect
 from typing import Callable, cast
 
-from hgraph._types._scalar_types import SIZE
+from hgraph._types._scalar_types import SIZE, ZERO
 from hgraph._types._scalar_types import STATE
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, K
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
@@ -17,10 +17,7 @@ from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_utils import wire_nested_graph
 
-__all__ = ("reduce", "ZERO")
-
-
-ZERO = object()
+__all__ = ("reduce",)
 
 
 def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],

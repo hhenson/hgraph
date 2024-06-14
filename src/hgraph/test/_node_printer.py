@@ -15,7 +15,8 @@ from hgraph import EvaluationLifeCycleObserver
 
 
 class EvaluationTrace(EvaluationLifeCycleObserver):
-    def __init__(self, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
+    def __init__(self, filter: str = None, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
+        self.filter = filter
         self.start = start
         self.eval = eval
         self.stop = stop
@@ -48,9 +49,7 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
 
     def _print_node(self, node: "Node", msg: str, add_input: bool = False, add_output: bool = False,
                     add_scheduled_time: bool = False) -> None:
-        node_signature = (f"[{node.signature.wiring_path_name}."
-                          f"{(node.signature.label + ':') if node.signature.label else ''}"
-                          f"{node.signature.name}<{', '.join(str(i) for i in node.node_id)}>(")
+        node_signature = self._node_name(node)
         if node.signature.time_series_inputs:
             if add_input:
                 inputs = node.inputs
@@ -80,42 +79,48 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         self._print(node.graph.evaluation_clock,
                     f"{self._graph_name(node.graph)} {node_signature} {msg}{scheduled_msg}")
 
+    def _node_name(self, node):
+        node_signature = (f"[{node.signature.wiring_path_name}."
+                          f"{(node.signature.label + ':') if node.signature.label else ''}"
+                          f"{node.signature.name}<{', '.join(str(i) for i in node.node_id)}>(")
+        return node_signature
+
     def on_before_start_graph(self, graph: "Graph"):
-        if self.start and self.graph:
+        if self.start and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             self._print_graph(graph, f">> {'.' * 15} Starting Graph {graph.label} {'.' * 15}")
 
     def on_after_start_graph(self, graph: "Graph"):
-        if self.start and self.graph:
+        if self.start and self.graph and (self.filter is None or self.filter in graph.label):
             self._print_graph(graph, f"<< {'.' * 15} Started Graph {'.' * 15}")
 
     def on_before_start_node(self, node: "Node"):
-        if self.start and self.node:
+        if self.start and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_signature(node)
 
     def on_after_start_node(self, node: "Node"):
-        if self.start and self.node:
+        if self.start and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_node(node, "Started node", add_output=True)
 
     def on_before_graph_evaluation(self, graph: "Graph"):
-        if self.eval and self.graph:
+        if self.eval and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             self._print_graph(graph, f"{'>' * 20} Eval Start {graph.label} {'>' * 20}")
 
     def on_before_node_evaluation(self, node: "Node"):
         if node.signature.node_type in (NodeTypeEnum.PULL_SOURCE_NODE, NodeTypeEnum.PUSH_SOURCE_NODE):
             return
-        if self.eval and self.node:
+        if self.eval and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_node(node, "[IN]", add_input=True)
 
     def on_after_node_evaluation(self, node: "Node"):
         if node.signature.node_type in (NodeTypeEnum.SINK_NODE,):
             return
-        if self.eval and self.node:
+        if self.eval and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_node(node, "[OUT]", add_output=True,
                              add_scheduled_time=node.signature.uses_scheduler and node.scheduler.next_scheduled_time ==
                                                 node.graph.schedule[node.node_ndx])
 
     def on_after_graph_evaluation(self, graph: "Graph"):
-        if self.eval and self.graph:
+        if self.eval and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             if graph.parent_node is not None and (nt := graph.parent_node.graph.schedule[
                 graph.parent_node.node_ndx]) > graph.evaluation_clock.evaluation_time and nt < MAX_ET:
                 next_scheduled = f" NEXT[{nt}]"
@@ -130,13 +135,13 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         ...
 
     def on_after_stop_node(self, node: "Node"):
-        if self.stop and self.node:
+        if self.stop and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_node(node, "Stopped node")
 
     def on_before_stop_graph(self, graph: "Graph"):
-        if self.stop and self.graph:
+        if self.stop and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             self._print_graph(graph, "vvvvvvv Graph stopping -------")
 
     def on_after_stop_graph(self, graph: "Graph"):
-        if self.stop and self.graph:
+        if self.stop and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             self._print_graph(graph, "------- Graph stopped  vvvvvvv")

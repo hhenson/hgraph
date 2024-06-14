@@ -301,3 +301,5 @@ def is_compound_scalar(value) -> bool:
 
 
 TUPLE = TypeVar("TUPLE", bound=tuple)
+
+ZERO = object()
