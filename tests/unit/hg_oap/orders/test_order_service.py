@@ -1,3 +1,4 @@
+from hg_oap.assets.currency import Currencies
 from hg_oap.instruments.instrument import Instrument
 from hg_oap.orders.order import OrderState, SingleLegOrder, OriginatorInfo, ORDER, Fill
 from hg_oap.orders.order_service import order_handler, OrderRequest, OrderResponse, order_client, \
