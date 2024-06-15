@@ -38,5 +38,6 @@ def test_quantity_tsb():
                      ts=[274.15, None, 273.15, None],
                      u=[U.K, None, None, None],
                      u1=[U.K, U.degC, U.degF, U.K],
-                     __trace__=True) == \
+                     #__trace__=True
+                     ) == \
     [274.15*U.K, 1.*U.degC, 32.*U.degF, 273.15*U.K]
