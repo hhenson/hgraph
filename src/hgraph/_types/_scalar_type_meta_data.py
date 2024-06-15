@@ -190,7 +190,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return type(o) is HgAtomicType and self.py_type is o.py_type
 
     def __str__(self) -> str:
-        return f'{self.py_type.__name__}'
+        return f'{self.py_type}'
 
     def __repr__(self) -> str:
         return f'HgAtomicType({repr(self.py_type)})'
@@ -562,9 +562,16 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
             return HgTupleCollectionScalarType(self.element_type.resolve(resolution_dict, weak))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().do_build_resolution_dict(resolution_dict, wired_type)
-        wired_type: HgTupleCollectionScalarType
-        self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
+        tp_ = type(wired_type)
+        if tp_ is HgTupleCollectionScalarType:
+            wired_type: HgTupleCollectionScalarType
+            self.element_type.build_resolution_dict(resolution_dict, wired_type.element_type)
+        elif tp_ is HgTupleFixedScalarType:
+            wired_type: HgTupleFixedScalarType
+            if all(self.element_type.matches(tp_) for tp_ in wired_type.element_types):
+                self.element_type.build_resolution_dict(resolution_dict, wired_type.element_types[0])
+        else:
+            super().do_build_resolution_dict(resolution_dict, wired_type)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTupleCollectionScalarType and self.element_type == o.element_type
@@ -660,6 +667,9 @@ class HgTupleFixedScalarType(HgTupleScalarType):
 
     def __init__(self, tp_s: Sequence[HgScalarTypeMetaData]):
         self.element_types: tuple[HgScalarTypeMetaData] = tuple(tp_s)
+
+    def size(self) -> int:
+        return len(self.element_types)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgTupleFixedScalarType and len(self.element_types) == len(tp.element_types) and \

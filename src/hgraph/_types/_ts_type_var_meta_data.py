@@ -46,7 +46,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
                 else issubclass(getattr(tp.py_type, '__origin__', tp.py_type), c)
                 for c in self.constraints)
         else:
-            return any(issubclass(tp.py_type, c) for c in  self.constraints)
+            return any(issubclass(tp.py_type, c) for c in self.constraints)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):

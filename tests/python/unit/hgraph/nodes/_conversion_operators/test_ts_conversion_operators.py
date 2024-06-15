@@ -7,6 +7,16 @@ from hgraph import convert
 from hgraph.test import eval_node
 
 
+class base_test_class:
+    def __eq__(self, other):
+        return isinstance(other, base_test_class)
+
+
+class derived_test_class(base_test_class):
+    def __eq__(self, other):
+        return isinstance(other, derived_test_class)
+
+
 @pytest.mark.parametrize(
     ["from_tp", "from_", "to_tp", "expected"],
     [
@@ -26,6 +36,8 @@ from hgraph.test import eval_node
         [TS[tuple[int, ...]], [tuple(), (1,), (1, 2)], TS[str], ["()", "(1,)", "(1, 2)"]],
         [TS[tuple[int, ...]], [tuple(), (1,), (1, 2)], TSS[tuple[int, ...]], [frozenset({tuple()}), frozenset({(1,), Removed(tuple())}),
          frozenset({(1, 2), Removed((1,))})]],
+        [TS[derived_test_class], [derived_test_class()], TS[base_test_class], [derived_test_class()]],
+        [TS[base_test_class], [derived_test_class()], TS[derived_test_class], [derived_test_class()]],
     ]
 )
 def test_convert_ts(from_, from_tp, to_tp, expected):

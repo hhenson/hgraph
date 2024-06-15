@@ -1,7 +1,7 @@
 import itertools
 from typing import TypeVar
 
-__all__ = ("clone_typevar", "nth", "take", "with_signature")
+__all__ = ("clone_typevar", "nth", "with_signature")
 
 
 def clone_typevar(tp: TypeVar, name: str) -> TypeVar:

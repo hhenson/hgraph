@@ -11,4 +11,6 @@ Hgraph Library contribution
 8. Once the initial library API is agreed all changes should go via a proposal process (actual process TBD)
 9. Default to stricter validity requirements in operators, eg all_valid for bundles and reuiring all inputs to be valid for sum_ etc
 10. Provide `__strict__` scalar arg to operators to allow for more lenient validity requirements when passed `False`
-
+11. Prefix all node parameters that are injected by the engine with an underscore, e.g. `_state: STATE` and `_sched: SCHEDULER`.
+12. Format code with [black](https://black.readthedocs.io/en/stable/).
+13. Parameters injected by the engine should be the last in the parameter list.

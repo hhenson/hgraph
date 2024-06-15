@@ -5,7 +5,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import WiringError, add_, sub_, mul_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, neg_, pos_, TS, \
-    abs_, len_, and_, or_, min_, max_, graph, str_, invert_, sum_, lt_, gt_, le_, ge_
+    abs_, len_, and_, or_, min_, max_, graph, str_, invert_, sum_, lt_, gt_, le_, ge_, mean, std, var
 from hgraph.test import eval_node
 
 
@@ -278,6 +278,84 @@ def test_sum_scalars_multi():
         return sum_(ts1, ts2, ts3)
 
     assert eval_node(app, 4.0, 5.0, 6.0) == [15.0]
+
+
+def test_mean_scalars_unary():
+    @graph
+    def app(ts: TS[int]) -> TS[float]:
+        return mean(ts)
+
+    assert eval_node(app, [1, 3, 5, 11], __trace_wiring__=True) == [1.0, 2.0, 3.0, 5.0]
+
+
+@pytest.mark.parametrize(
+["lhs", "rhs", "expected"],
+[
+    ([1, 2], [2, 3], [1.5, 2.5]),
+    ([1.0, 2.0], [2.0, 3.0], [1.5, 2.5]),
+]
+)
+def test_mean_scalars_binary(lhs, rhs, expected):
+    tp = type(lhs[0])
+    @graph
+    def app(lhs: TS[tp], rhs: TS[tp]) -> TS[float]:
+        return mean(lhs, rhs)
+
+    assert eval_node(app, lhs, rhs) == expected
+
+
+def test_mean_scalars_multi():
+    @graph
+    def app(ts1: TS[float], ts2: TS[float], ts3: TS[float]) -> TS[float]:
+        return mean(ts1, ts2, ts3)
+
+    assert eval_node(app, 4.0, 5.0, 6.0) == [5.0]
+
+
+def test_std_scalars_unary():
+    @graph
+    def app(ts: TS[int]) -> TS[float]:
+        return std(ts)
+
+    assert eval_node(app, [1, 2, 3, 5]) == [0.0, 0.5, 0.8164965809277263, 1.479019945774904]
+
+
+@pytest.mark.parametrize(
+["lhs", "rhs", "expected"],
+[
+    ([1, 2], [2, 3], [0.7071067811865476, 0.7071067811865476]),
+    ([1.0, 2.0], [2.0, 3.0], [0.7071067811865476, 0.7071067811865476]),
+])
+def test_std_scalars_binary(lhs, rhs, expected):
+    tp = type(lhs[0])
+    @graph
+    def app(lhs: TS[tp], rhs: TS[tp]) -> TS[float]:
+        return std(lhs, rhs)
+
+    assert eval_node(app, lhs, rhs) == expected
+
+
+@pytest.mark.parametrize(
+["lhs", "rhs", "expected"],
+[
+    ([1, 2], [2, 3], [0.5, 0.5]),
+    ([1.0, 2.0], [2.0, 3.0], [0.5, 0.5]),
+])
+def test_var_scalars_binary(lhs, rhs, expected):
+    tp = type(lhs[0])
+    @graph
+    def app(lhs: TS[tp], rhs: TS[tp]) -> TS[float]:
+        return var(lhs, rhs)
+
+    assert eval_node(app, lhs, rhs) == expected
+
+
+def test_std_scalars_multi():
+    @graph
+    def app(ts1: TS[float], ts2: TS[float], ts3: TS[float]) -> TS[float]:
+        return mean(ts1, ts2, ts3)
+
+    assert eval_node(app, 4.0, 5.0, 6.0) == [5.0]
 
 
 def test_str_scalars():

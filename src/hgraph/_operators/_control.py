@@ -1,12 +1,10 @@
-from hgraph._operators._operators import bit_or, bit_and
 from hgraph._types._scalar_types import SIZE
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._decorators import operator, graph
-from hgraph._wiring._reduce import reduce
+from hgraph._wiring._decorators import operator
 
-__all__ = ("merge", "all_", "any_")
+__all__ = ("merge", "all_", "any_", "race")
 
 
 @operator
@@ -18,17 +16,24 @@ def merge(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     """
 
 
-@graph
+@operator
+def race(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+    """
+    Forwards the first of the values that are valid in the list provided.  If the first item becomes invalid
+    then the next item to be valid is forwarded.
+    """
+
+
+@operator
 def all_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `all` operator
     """
-    return reduce(bit_and, args, False)
 
 
-@graph
+@operator
 def any_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `any` operator
     """
-    return reduce(bit_or, args, False)
+

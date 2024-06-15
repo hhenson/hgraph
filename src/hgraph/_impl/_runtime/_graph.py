@@ -22,7 +22,7 @@ class PythonGraph(Graph):
     Provide a reference implementation of the Graph.
     """
 
-    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None, label: str = None):
+    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None, label: str = ''):
         super().__init__()
         self._graph_id: tuple[int, ...] = graph_id
         self._nodes: list[Node] = nodes if type(nodes) is list else list(nodes)

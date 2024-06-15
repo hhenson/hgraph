@@ -54,6 +54,14 @@ def test_collect_set():
     assert eval_node(g, [1, 2, 3, 4], [None, None, True]) == [{1}, {1, 2}, {3}, {3, 4}]
 
 
+def test_collect_set_from_tuples():
+    @graph
+    def g(a: TS[Tuple[int, ...]], b: TS[bool]) -> TS[Set[int]]:
+        return collect[TS[Set]](a, reset=b)
+
+    assert eval_node(g, [(1,), (2, 3), (3,), (4, 5)], [None, None, True]) == [{1}, {1, 2, 3}, {3}, {3, 4, 5}]
+
+
 def test_emit_set():
     @graph
     def g(m: TS[Set[int]]) -> TS[int]:

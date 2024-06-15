@@ -1,6 +1,6 @@
 from typing import Tuple, Set
 
-from hgraph import graph, TS, TSS, convert, Removed, collect, emit
+from hgraph import graph, TS, TSS, convert, Removed, collect, emit, combine
 from hgraph.test import eval_node
 
 
@@ -36,6 +36,15 @@ def test_convert_set_to_tss():
             [None, {1}, {2}, {3, Removed(2), Removed(1)}])
 
 
+def test_combine_tsl():
+    @graph
+    def g(a: TS[int], b: TS[int]) -> TSS[int]:
+        return combine[TSS](a, b)
+
+    assert (eval_node(g, [None, 1, None], [None, None, 2, 1]) ==
+            [None, {1}, {2}, {Removed(2)}])
+
+
 def test_collect_tss_from_ts():
     @graph
     def g(a: TS[int], b: TS[bool]) -> TSS[int]:
@@ -51,6 +60,15 @@ def test_collect_tss_from_tuples():
         return collect[TSS](a, reset=b)
 
     assert (eval_node(g, [(1,), (2,), (3, 4)], [None, None, True], __trace_wiring__=True) ==
+            [{1}, {2}, {3, 4, Removed(2), Removed(1)}])
+
+
+def test_collect_tss_from_sets():
+    @graph
+    def g(a: TS[Set[int]], b: TS[bool]) -> TSS[int]:
+        return collect[TSS](a, reset=b)
+
+    assert (eval_node(g, [{1, }, {2, }, {3, 4}], [None, None, True], __trace_wiring__=True) ==
             [{1}, {2}, {3, 4, Removed(2), Removed(1)}])
 
 

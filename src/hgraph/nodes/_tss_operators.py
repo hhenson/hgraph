@@ -1,8 +1,9 @@
+from statistics import stdev, variance
 from typing import Type
 
 from hgraph import compute_node, contains_, REF, TSS, TS, STATE, PythonTimeSeriesReference, not_, graph, \
     KEYABLE_SCALAR, PythonSetDelta, len_, is_empty, bit_or, bit_and, sub_, bit_xor, eq_, and_, or_, min_, max_, str_, \
-    zero, AUTO_RESOLVE, sum_
+    zero, AUTO_RESOLVE, sum_, mean, std, var
 
 __all__ = ()
 
@@ -155,6 +156,45 @@ def _sum_tss_unary(tss: TSS[KEYABLE_SCALAR], zero_ts: TS[KEYABLE_SCALAR]) -> TS[
     The sum is the sum of the latest set value
     """
     return sum(tss.value, start=zero_ts.value)
+
+
+@compute_node(overloads=mean)
+def mean_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
+    """
+    Unary mean for TSS
+    The mean is the mean of the latest set value
+    """
+    tss = tss.value
+    if len(tss) > 0:
+        return float(sum(tss) / len(tss))
+    else:
+        return float('NaN')
+
+
+@compute_node(overloads=std)
+def std_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
+    """
+    Unary std for TSS
+    The standard deviation is that of the latest set value
+    """
+    tss = tss.value
+    if len(tss) <= 1:
+        return 0.0
+    else:
+        return float(stdev(tss))
+
+
+@compute_node(overloads=var)
+def std_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
+    """
+    Unary variance for TSS
+    The variance is that of the latest set value
+    """
+    tss = tss.value
+    if len(tss) <= 1:
+        return 0.0
+    else:
+        return float(variance(tss))
 
 
 @compute_node(overloads=str_)

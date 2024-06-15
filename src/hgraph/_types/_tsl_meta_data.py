@@ -80,6 +80,10 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph import WiringPort, Size, HgTSTypeMetaData
 
+        if value is None:
+            return HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(object)),
+                                     HgScalarTypeMetaData.parse_value(Size[0]))
+
         if isinstance(value, (list, tuple)):
             size = len(value)
             type_ = next((v.output_type for v in value if isinstance(v, WiringPort)), None)

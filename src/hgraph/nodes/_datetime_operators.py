@@ -1,6 +1,7 @@
 from datetime import datetime, date, time, timedelta
 
-from hgraph import compute_node, graph, TS, SCALAR, getattr_, add_, sub_, WiringError, mul_, div_, NUMBER, sum_
+from hgraph import compute_node, graph, TS, SCALAR, getattr_, add_, sub_, WiringError, mul_, div_, NUMBER, sum_, mean, \
+    std, var
 
 __all__ = ("datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr")
 
@@ -116,3 +117,33 @@ def sum_date_unary(ts: TS[date]) -> TS[date]:
 @graph(overloads=sum_)
 def sum_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
     raise WiringError("Cannot sum datetimes")
+
+
+@graph(overloads=mean)
+def mean_date_unary(ts: TS[date]) -> TS[date]:
+    raise WiringError("Cannot take the mean of dates")
+
+
+@graph(overloads=mean)
+def mean_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+    raise WiringError("Cannot take the mean of datetimes")
+
+
+@graph(overloads=std)
+def std_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+    raise WiringError("Cannot calculate the standard deviation of datetimes")
+
+
+@graph(overloads=std)
+def std_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+    raise WiringError("Cannot calculate the standard deviation of dates")
+
+
+@graph(overloads=var)
+def var_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+    raise WiringError("Cannot calculate the variance of datetimes")
+
+
+@graph(overloads=var)
+def var_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+    raise WiringError("Cannot calculate the variance of dates")

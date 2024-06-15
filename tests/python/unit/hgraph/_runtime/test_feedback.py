@@ -1,5 +1,4 @@
 from hgraph import compute_node, TS, graph, feedback
-from hgraph.nodes._drop_dups import drop_dups
 from hgraph.test import eval_node
 
 

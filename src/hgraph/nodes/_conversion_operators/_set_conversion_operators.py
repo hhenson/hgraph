@@ -44,6 +44,18 @@ def collect_set(ts: TS[SCALAR], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAUL
     return prev | new
 
 
+@compute_node(overloads=collect,
+              requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset]) or
+                                    m[OUT].matches_type(TS[Set[m[SCALAR].py_type]]),
+              valid=('ts',)
+              )
+def collect_set_from_tuples(ts: TS[Tuple[SCALAR, ...]], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAULT[OUT],
+                            _output: TS_OUT[Set[SCALAR]] = None) -> TS[Set[SCALAR]]:
+    prev = _output.value if _output.valid and not reset.modified else set()
+    new = set(ts.value) if ts.modified else set()
+    return prev | new
+
+
 @compute_node(overloads=emit)
 def emit_set(ts: TS[frozenset[SCALAR]],
              _state: STATE[_BufferState] = None,

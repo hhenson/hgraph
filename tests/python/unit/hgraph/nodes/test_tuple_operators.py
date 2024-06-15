@@ -1,13 +1,8 @@
+import math
 from typing import Tuple
 
-from hgraph import SCALAR, mul_, getitem_, and_, TIME_SERIES_TYPE, TS, graph, or_, min_, max_, contains_, sum_
-from hgraph.nodes._tuple_operators import unroll
+from hgraph import mul_, getitem_, and_, TS, graph, or_, min_, max_, contains_, sum_, mean, std, var
 from hgraph.test import eval_node
-
-
-def test_unroll():
-    assert eval_node(unroll[SCALAR: int], [(1, 2, 3), (4,), None, None, (5, 6)]) == [1, 2, 3, 4, 5, 6]
-
 
 def test_mul_tuples():
     assert eval_node(mul_, [(1, 2, 3)], [2]) == [(1, 2, 3, 1, 2, 3)]
@@ -15,6 +10,14 @@ def test_mul_tuples():
 
 def test_getitem_tuples():
     assert eval_node(getitem_, [(1, 2, 3)], [1]) == [2]
+
+
+def test_getitem_fixed_tuple():
+    @graph
+    def g(a: TS[Tuple[int, int]], i: TS[int]) -> TS[int]:
+        return a[i]
+
+    assert eval_node(g, [(1, 2, 3)], [1]) == [2]
 
 
 def test_and_tuples():
@@ -89,6 +92,32 @@ def test_sum_tuple_unary():
         return sum_(ts)
 
     assert eval_node(app, [(1, 2, 3), ()]) == [6, 0]
+
+
+def test_mean_tuple_unary():
+    @graph
+    def app(ts: TS[Tuple[int, ...]]) -> TS[float]:
+        return mean(ts)
+
+    output = eval_node(app, [(1, 2, 3), ()])
+    assert output[0] == 2.0
+    assert math.isnan(output[1])
+
+
+def test_std_tuple_unary():
+    @graph
+    def app(ts: TS[Tuple[int, ...]]) -> TS[float]:
+        return std(ts)
+
+    assert eval_node(app, [(1, 2, 3), ()]) == [1.0, 0.0]
+
+
+def test_var_tuple_unary():
+    @graph
+    def app(ts: TS[Tuple[int, ...]]) -> TS[float]:
+        return var(ts)
+
+    assert eval_node(app, [(1, 2, 3), ()]) == [1.0, 0.0]
 
 
 def test_contains_tuple():

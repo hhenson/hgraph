@@ -1,9 +1,11 @@
+from statistics import stdev, variance
 from typing import Type
 
 from hgraph import SCALAR, TS, compute_node, add_, sub_, mul_, pow_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, \
     ne_, lt_, le_, gt_, ge_, neg_, pos_, invert_, abs_, len_, and_, or_, not_, contains_, SCALAR_1, min_, max_, graph, \
-    TS_OUT, sum_, str_, TSL, SIZE, AUTO_RESOLVE, zero
-from hgraph.nodes import default
+    TS_OUT, sum_, str_, TSL, SIZE, AUTO_RESOLVE, zero, mean, std, var
+
+__all__ = ()
 
 
 @compute_node(overloads=add_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__add__"))
@@ -308,6 +310,7 @@ def sum_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], zero_value: TS[SCALAR] 
     """
     Binary sum (i.e. addition) with default
     """
+    from hgraph.nodes import default
     return default(lhs + rhs, zero_value)
 
 
@@ -317,6 +320,131 @@ def sum_scalars_multi(*ts: TSL[TS[SCALAR], SIZE], zero_value: TS[SCALAR] = None)
     Multi-arg sum()
     """
     return sum((arg.value for arg in ts), start=zero_value.value)
+
+
+@graph(overloads=mean)
+def mean_scalars(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+    if len(ts) == 1:
+        return mean_scalar_unary(ts[0])
+    elif len(ts) == 2:
+        return mean_scalars_binary(ts[0], ts[1])
+    else:
+        return mean_scalars_multi(*ts)
+
+
+@graph
+def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[float]:
+    """
+    Unary mean()
+    The default implementation (here) is a running mean
+    Unary mean for scalar collections return the mean of the current collection value.
+    These are overloaded separately
+    """
+    from hgraph.nodes import count, cast_
+    if tp is float:
+        return sum_(ts) / count(ts)
+    else:
+        return cast_(float, sum_(ts)) / count(ts)
+
+
+@graph
+def mean_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[float]:
+    """
+    Binary mean
+    """
+    from hgraph.nodes import default
+    return default((lhs + rhs) / 2.0, float('NaN'))
+
+
+@compute_node
+def mean_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+    """
+    Multi-arg mean()
+    """
+    valid_elements = tuple(arg.value for arg in ts if arg.valid)
+    n_valid = len(valid_elements)
+    if n_valid == 0:
+        return float('NaN')
+    elif n_valid == 1:
+        return float(valid_elements[0])
+    else:
+        return float(sum(valid_elements) / n_valid)
+
+
+@graph(overloads=std)
+def std_scalars(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+    if len(ts) == 1:
+        return std_scalar_unary(ts[0])
+    else:
+        return std_scalars_multi(*ts)
+
+
+@graph
+def std_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[float]:
+    """
+    Unary std()
+    The default implementation (here) is a running std
+    Unary std for scalar collections return the std of the current collection value.
+    These are overloaded separately
+    """
+    from hgraph.nodes import count
+
+    # TODO - this is a naive implementation.  See Welford's algorithm
+    count_x = count(ts)
+    sum_x = sum_(ts)
+    mean_x = sum_x / count_x
+    sum_x2 = sum_(ts * ts)
+    return pow_((sum_x2 / count_x - mean_x * mean_x), 0.5)
+
+
+@compute_node
+def std_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+    """
+    Multi-arg std()
+    """
+    valid_elements = tuple(arg.value for arg in ts if arg.valid)
+    if len(valid_elements) <= 1:
+        return 0.0
+    else:
+        return float(stdev(valid_elements))
+
+
+@graph(overloads=var)
+def var_scalars(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+    if len(ts) == 1:
+        return var_scalar_unary(ts[0])
+    else:
+        return var_scalars_multi(*ts)
+
+
+@graph
+def var_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[float]:
+    """
+    Unary variance
+    The default implementation (here) is a running variance
+    Unary variance for scalar collections return the variance of the current collection value.
+    These are overloaded separately
+    """
+    from hgraph.nodes import count
+
+    # TODO - this is a naive implementation.  See Welford's algorithm
+    count_x = count(ts)
+    sum_x = sum_(ts)
+    mean_x = sum_x / count_x
+    sum_x2 = sum_(ts * ts)
+    return sum_x2 / count_x - mean_x * mean_x
+
+
+@compute_node
+def var_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+    """
+    Multi-arg variance
+    """
+    valid_elements = tuple(arg.value for arg in ts if arg.valid)
+    if len(valid_elements) <= 1:
+        return 0.0
+    else:
+        return float(variance(valid_elements))
 
 
 @compute_node(overloads=str_)

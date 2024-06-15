@@ -1,12 +1,12 @@
+from typing import Set, Tuple
+
 import pytest
 from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
-    compute_node, REF, TSS, Size, SIZE, K_1, is_empty, Removed, sub_, eq_, len_, min_, max_
-from hgraph._operators._control import merge
-from hgraph.nodes import (make_tsd, extract_tsd, flatten_tsd, tsd_get_item, const, tsd_rekey, tsd_flip,
-                          tsd_partition, tsd_flip_tsd, tsd_collapse_keys, tsd_uncollapse_keys,
-                          merge_nested_tsds, tsd_get_items, str_, sum_, merge_tsds)
+    compute_node, REF, TSS, Size, SIZE, K_1, is_empty, Removed, sub_, eq_, len_, min_, max_, keys_, OUT, rekey, flip, \
+    partition, flip_keys, collapse_keys, uncollapse_keys, str_, sum_, const
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, tsd_get_item, merge_nested_tsds, tsd_get_items, merge_tsds
 from hgraph.test import eval_node
 
 
@@ -86,13 +86,16 @@ def test_ref_tsd_key_set():
     assert eval_node(main) == [frozenset(['a', 'b'])]
 
 
-def test_tsd_rekey():
+def test_rekey():
+    @graph
+    def g(ts: TSD[int, TS[int]], new_keys: TSD[int, TS[str]]) -> TSD[str, TS[int]]:
+        return rekey(ts, new_keys)
+
     fd = frozendict
     assert eval_node(
-        tsd_rekey,
-        [None, {1: 1}, {2: 2}, None, {2: REMOVE}],
-        [{1: "a", 2: "b"}, None, None, {1: "c"}],
-        resolution_dict={"ts": TSD[int, TS[int]], "new_keys": TSD[int, TS[str]]}
+        g,
+        [None, {1: 1, 3: 3}, {2: 2}, None, {2: REMOVE}],
+        [{1: "a", 2: "b"}, None, None, {1: "c"}]
     ) == [
                None,
                fd({"a": 1}),
@@ -102,12 +105,15 @@ def test_tsd_rekey():
            ]
 
 
-def test_tsd_flip():
+def test_flip():
+    @graph
+    def g(ts: TSD[int, TS[str]]) -> TSD[str, TS[int]]:
+        return flip(ts)
+
     fd = frozendict
     assert eval_node(
-        tsd_flip,
-        [{1: "a", 2: "b"}, {1: "c"}, {2: REMOVE}],
-        resolution_dict={"ts": TSD[int, TS[str]]}
+        g,
+        [{1: "a", 2: "b"}, {1: "c"}, {2: REMOVE}]
     ) == [
                fd({"a": 1, "b": 2}),
                fd({"c": 1, "a": REMOVE}),
@@ -115,33 +121,39 @@ def test_tsd_flip():
            ]
 
 
-def test_tsd_flip_tsd():
+def test_flip_keys():
+    @graph
+    def g(ts: TSD[int, TSD[str, TS[int]]]) -> TSD[str, TSD[int, TS[int]]]:
+        return flip_keys(ts)
+
     fd = frozendict
     assert eval_node(
-        tsd_flip_tsd,
+        g,
         [
-            {1: {"a": 5}, 2: {"b": 6}},
+            {1: {"a": 5, "d": 4}, 2: {"b": 6}},
             {1: {"c": 5, "a": REMOVE}},
             {2: REMOVE}
-        ],
-        resolution_dict={"ts": TSD[int, TSD[str, TS[int]]]}
+        ]
     ) == [
-               fd({"a": fd({1: 5}), "b": fd({2: 6})}),
+               fd({"a": fd({1: 5}), "d": fd({1: 4}), "b": fd({2: 6})}),
                fd({"c": fd({1: 5}), "a": REMOVE}),
                fd({"b": REMOVE})
            ]
 
 
-def test_tsd_collapse_keys():
+def test_collapse_keys():
+    @graph
+    def g(ts: TSD[int, TSD[str, TS[int]]]) -> TSD[Tuple[int, str], TS[int]]:
+        return collapse_keys(ts)
+
     fd = frozendict
     assert eval_node(
-        tsd_collapse_keys,
+        g,
         [
             {1: {"a": 5}, 2: {"b": 6}},
             {1: {"c": 5, "a": REMOVE}},
             {2: REMOVE}
-        ],
-        resolution_dict={"ts": TSD[int, TSD[str, TS[int]]]}
+        ]
     ) == [
                fd({(1, "a"): 5, (2, "b"): 6}),
                fd({(1, "c"): 5, (1, "a"): REMOVE}),
@@ -149,16 +161,19 @@ def test_tsd_collapse_keys():
            ]
 
 
-def test_tsd_uncollapse_keys():
+def test_uncollapse_keys():
+    @graph
+    def g(ts: TSD[Tuple[int, str], TS[int]]) -> TSD[int, TSD[str, TS[int]]]:
+        return uncollapse_keys(ts)
+
     fd = frozendict
     assert eval_node(
-        tsd_uncollapse_keys,
+        g,
         [
             {(1, "a"): 5, (2, "b"): 6},
             {(1, "c"): 5, (1, "a"): REMOVE},
             {(2, "b"): REMOVE}
-        ],
-        resolution_dict={"ts": TSD[tuple[int, str], TS[int]]}
+        ]
     ) == [
                fd({1: fd({"a": 5}), 2: fd({"b": 6})}, ),
                fd({1: fd({"c": 5, "a": REMOVE})}),
@@ -174,12 +189,17 @@ def test_merge_tsd():
 
 def test_merge_nested_tsd():
     assert eval_node(merge_nested_tsds[K: int, K_1: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
-                     tsl=[({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}), ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})]) == [
-        {1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
+                     tsl=[({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}),
+                          ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})]) == [
+               {1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
 
 
 def test_tsd_partition():
-    assert eval_node(tsd_partition[K: int, K_1: str, TIME_SERIES_TYPE: TS[int]],
+    @graph
+    def g(ts: TSD[int, TS[int]], partitions: TSD[int, TS[str]]) -> TSD[str, TSD[int, TS[int]]]:
+        return partition[K: int, K_1: str, TIME_SERIES_TYPE: TS[int]](ts, partitions)
+
+    assert eval_node(g,
                      [{1: 1, 2: 2, 3: 3}, {1: 4, 2: 5, 3: 6}, {1: REMOVE}],
                      [{1: 'odd'}, {2: 'even', 3: 'odd'}, None, {2: REMOVE}, {3: 'prime'}]) == [
                {'odd': {1: 1}},
@@ -196,9 +216,9 @@ def test_sub_tsds():
         return tsd1 - tsd2
 
     assert eval_node(app,
-                     [{1: 1},  {2: 2}],
-                     [{2: 3},  {3: 2}]) \
-           ==        [frozendict({1: 1}), None]
+                     [{1: 1}, {2: 2}],
+                     [{2: 3}, {3: 2}]) \
+           == [frozendict({1: 1}), None]
 
 
 def test_sub_tsds_initial_lhs_valid_before_rhs():
@@ -207,9 +227,9 @@ def test_sub_tsds_initial_lhs_valid_before_rhs():
         return tsd1 - tsd2
 
     assert eval_node(app,
-                     [{1: 1},  {2: 2}],
+                     [{1: 1}, {2: 2}],
                      [None, {3: 2}]) \
-           ==        [None, {1: 1, 2: 2} ]
+           == [None, {1: 1, 2: 2}]
 
 
 def test_bit_or_tsds():
@@ -218,9 +238,9 @@ def test_bit_or_tsds():
         return tsd1 | tsd2
 
     assert eval_node(app,
-                     [{1: 1},  {2: 2}],
-                     [{2: 3},  {3: 2}]) \
-           ==        [frozendict({1: 1, 2: 3}), frozendict({2: 2, 3: 2})]
+                     [{1: 1}, {2: 2}],
+                     [{2: 3}, {3: 2}]) \
+           == [frozendict({1: 1, 2: 3}), frozendict({2: 2, 3: 2})]
 
 
 def test_bit_and_tsds():
@@ -229,9 +249,9 @@ def test_bit_and_tsds():
         return tsd1 & tsd2
 
     assert eval_node(app,
-                     [{1: 1},  {2: 2}],
-                     [{2: 3},  {3: 2}]) \
-           ==        [None, frozendict({2: 2})]
+                     [{1: 1}, {2: 2}],
+                     [{2: 3}, {3: 2}]) \
+           == [None, frozendict({2: 2})]
 
 
 def test_bit_xor_tsds():
@@ -240,12 +260,14 @@ def test_bit_xor_tsds():
         return tsd1 ^ tsd2
 
     assert eval_node(app,
-                     [{1: 1},  {2: 2}],
-                     [{2: 3},  {3: 2}]) \
-           ==        [frozendict({1: 1, 2: 3}), frozendict({3: 2, 2: REMOVE})]
+                     [{1: 1}, {2: 2}],
+                     [{2: 3}, {3: 2}]) \
+           == [frozendict({1: 1, 2: 3}), frozendict({3: 2, 2: REMOVE})]
 
 
-@pytest.mark.xfail(reason="== does not work because it invokes __eq__ on WiringNodeInstance, which is an identity check.  _eq() works", strict=True)
+@pytest.mark.xfail(
+    reason="== does not work because it invokes __eq__ on WiringNodeInstance, which is an identity check.  _eq() works",
+    strict=True)
 def test_eq_tsds():
     @graph
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TS[bool]:
@@ -259,9 +281,9 @@ def test_eq_tsds():
             return eq_(tsd1, tsd2)
 
     assert eval_node(app,
-                     [{1: 1},  {2: 2}],
-                     [{2: 2},  {1: 1}]) \
-           ==        [False, True]
+                     [{1: 1}, {2: 2}],
+                     [{2: 2}, {1: 1}]) \
+           == [False, True]
 
 
 @pytest.mark.parametrize(
@@ -307,3 +329,19 @@ def test_str_tsd():
         return str_(tsd)
 
     assert eval_node(app, [{3: 2}]) == ['{3: 2}']
+
+
+def test_keys_as_tss():
+    @graph
+    def g(tsd: TSD[int, TS[int]]) -> TSS[int]:
+        return keys_(tsd)
+
+    assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {Removed(1)}]
+
+
+def test_keys_as_set():
+    @graph
+    def g(tsd: TSD[int, TS[int]]) -> TS[Set[int]]:
+        return keys_[OUT: TS[Set[int]]](tsd)
+
+    assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {2, 3}]

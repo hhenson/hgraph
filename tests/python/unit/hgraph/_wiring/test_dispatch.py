@@ -1,6 +1,6 @@
 from hgraph import graph, TS, CompoundScalar
-from hgraph import dispatch_, dispatch
-from hgraph.nodes import format_, cast_
+from hgraph import dispatch_, dispatch, format_
+from hgraph.nodes import cast_
 from hgraph.test import eval_node
 
 

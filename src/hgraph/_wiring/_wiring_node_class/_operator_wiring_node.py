@@ -144,7 +144,10 @@ class OverloadedWiringNodeHelper:
             except (WiringError, SyntaxError) as e:
                 if isinstance(e, WiringFailureError):
                     exception = e.__cause__
-                    e = f"{exception} at {exception.__traceback__.tb_frame.f_code.co_filename}:{exception.__traceback__.tb_lineno}"
+                    traceback = exception.__traceback__
+                    while traceback.tb_next:
+                        traceback = traceback.tb_next
+                    e = f"{exception} at {traceback.tb_frame.f_code.co_filename}:{traceback.tb_lineno}"
 
                 p = lambda x: pretty_str_types(x.output_type.py_type) if isinstance(x, WiringPort) else pretty_str_types(x)
                 reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "

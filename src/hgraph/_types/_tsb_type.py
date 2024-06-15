@@ -14,14 +14,15 @@ from hgraph._types._schema_type import AbstractSchema
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, DELTA_SCALAR, \
     TimeSeriesDeltaValue, TimeSeries
 from hgraph._types._type_meta_data import ParseError
-from hgraph._types._typing_utils import nth
+from hgraph._types._typing_utils import nth, clone_typevar
 
 if TYPE_CHECKING:
     from hgraph import Node, Graph, HgTimeSeriesTypeMetaData, HgTypeMetaData, WiringNodeSignature, WiringNodeType, \
     HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData, SourceCodeDetails, TS, HgCompoundScalarType
 
-__all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "is_bundle", "TimeSeriesBundle", "TimeSeriesBundleInput",
-           "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "ts_schema")
+__all__ = ("TimeSeriesSchema", "TSB", "TSB_OUT", "TS_SCHEMA", "TS_SCHEMA_1", "is_bundle", "TimeSeriesBundle",
+           "TimeSeriesBundleInput", "TimeSeriesBundleOutput", "UnNamedTimeSeriesSchema", "EmptyTimeSeriesSchema",
+           "ts_schema")
 
 
 class TimeSeriesSchema(AbstractSchema):
@@ -53,7 +54,7 @@ class TimeSeriesSchema(AbstractSchema):
 
     @classmethod
     def _schema_convert_base(cls, base_py):
-        return cls.from_scalar_schema(base_py) if isinstance(base_py, CompoundScalar) else base_py
+        return cls.from_scalar_schema(base_py) if issubclass(base_py, CompoundScalar) else base_py
 
     @staticmethod
     def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
@@ -168,16 +169,15 @@ class TimeSeriesSchema(AbstractSchema):
         """
         Resolve the class using the resolution dictionary provided.
         """
-        from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
-        resolution_dict = {
-            k: cls._parse_type(cls.from_scalar_schema(v.py_type)) if isinstance(v, HgCompoundScalarType) else v
-            for k, v in resolution_dict.items()
-        }
         return super()._resolve(resolution_dict)
 
 
+class EmptyTimeSeriesSchema(TimeSeriesSchema):
+    pass
+
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
+TS_SCHEMA_1 = clone_typevar(TS_SCHEMA, "TS_SCHEMA_1")
 
 
 class UnNamedTimeSeriesSchema(TimeSeriesSchema):
@@ -230,7 +230,7 @@ class TimeSeriesBundle(TimeSeriesDeltaValue[Union[TS_SCHEMA, dict[str, Any]], Un
                     item = TimeSeriesSchema.from_scalar_schema(item)
                 else:
                     raise ParseError(
-                        f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to to TimeSeriesSchema)")
+                        f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)")
 
             out = super(TimeSeriesBundle, cls).__class_getitem__(item)
             from_ts_with_schema = functools.partial(TimeSeriesBundleInput.from_ts, __schema__=item)

@@ -14,8 +14,7 @@ from hgraph._types._tsd_type import TSD, K
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringNodeClass, TsdMapWiringSignature, \
-    TslMapWiringSignature, \
-    TslMapWiringNodeClass
+    TslMapWiringSignature, TslMapWiringNodeClass
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import WiringPort

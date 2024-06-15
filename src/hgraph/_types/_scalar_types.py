@@ -5,7 +5,7 @@ from enum import Enum
 from logging import Logger
 from types import GenericAlias
 from typing import TYPE_CHECKING, runtime_checkable, Protocol, Generic, Any, KeysView, ItemsView, ValuesView, Union, \
-    _GenericAlias, Mapping
+    _GenericAlias, Mapping, TypeVar
 from typing import TypeVar, Type
 
 from frozendict import frozendict
@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 
 __all__ = ("SCALAR", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
            "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
-           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT", "NUMBER_2")
+           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT", "NUMBER_2",
+           "TUPLE")
 
 
 class Default:
@@ -160,7 +161,7 @@ class STATE(Generic[COMPOUND_SCALAR]):
             from hgraph._types._type_meta_data import HgTypeMetaData
             if not (tp := HgTypeMetaData.parse_type(item)).is_scalar:
                 raise ParseError(
-                    f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to to CompoundScalar)")
+                    f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to CompoundScalar)")
             # if tp.is_resolved:
             #
             #     out = functools.partial(out, __schema__=item)
@@ -297,3 +298,8 @@ def is_keyable_scalar(value) -> bool:
 def is_compound_scalar(value) -> bool:
     """Is the value an instance of CompoundScalar or is a type which is a subclass of CompoundScalar"""
     return isinstance(value, CompoundScalar) or (isinstance(value, type) and issubclass(value, CompoundScalar))
+
+
+TUPLE = TypeVar("TUPLE", bound=tuple)
+
+ZERO = object()

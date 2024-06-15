@@ -2,7 +2,7 @@ from typing import Type
 
 from hgraph import compute_node, REF, TSB, TS_SCHEMA, TIME_SERIES_TYPE, PythonTimeSeriesReference, AUTO_RESOLVE, \
     SCALAR, operator, add_, graph, sub_, mul_, div_, floordiv_, pow_, lshift_, rshift_, bit_and, bit_xor, bit_or, \
-    eq_, TS, not_, ne_, neg_, pos_, invert_, abs_, TSL, str_, SIZE, all_, min_, max_, sum_
+    eq_, TS, not_, ne_, neg_, pos_, invert_, abs_, TSL, str_, SIZE, all_, min_, max_, sum_, mean, std, var
 from hgraph._types._ref_type import TimeSeriesReference
 
 __all__ = ("tsb_get_item", "tsb_get_item_by_name", "tsb_get_item_by_index")
@@ -150,6 +150,57 @@ def sum_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
     A missing value on either lhs or rhs causes a gap on the output
     """
     return _itemwise_multi_op(sum_, tsbs)
+
+
+@graph(overloads=mean)
+def mean_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[float]:
+    """
+    Mean of all the values in the TSB.  Note that all elements in the TSB must be of the same type
+    """
+    return mean(*(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+
+
+@graph(overloads=mean)
+def mean_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
+    """
+    Item-wise mean of TSB elements.
+    A missing value on either lhs or rhs causes a gap on the output
+    """
+    return _itemwise_multi_op(mean, tsbs)
+
+
+@graph(overloads=std)
+def std_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[float]:
+    """
+    Standard deviation of all the values in the TSB.  Note that all elements in the TSB must be of the same type
+    """
+    return std(*(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+
+
+@graph(overloads=std)
+def std_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
+    """
+    Item-wise standard deviation of TSB elements.
+    A missing value on either lhs or rhs causes a gap on the output
+    """
+    return _itemwise_multi_op(std, tsbs)
+
+
+@graph(overloads=var)
+def var_tsb_unary(ts: TSB[TS_SCHEMA]) -> TS[float]:
+    """
+    Variance of all the values in the TSB.  Note that all elements in the TSB must be of the same type
+    """
+    return std(*(ts[attribute] for attribute in ts.__schema__.__meta_data_schema__))
+
+
+@graph(overloads=var)
+def var_tsbs_multi(*tsbs: TSL[TSB[TS_SCHEMA], SIZE]) -> TSB[TS_SCHEMA]:
+    """
+    Item-wise variance of TSB elements.
+    A missing value on either lhs or rhs causes a gap on the output
+    """
+    return _itemwise_multi_op(var, tsbs)
 
 
 @graph(overloads=eq_)

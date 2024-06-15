@@ -70,29 +70,33 @@ the time serise type to simple time series of the type of the scalar value provi
 This operation converts between different types of timeseries. Its syntax is `convert[TO_TS_TYPE](ts)`. See the 
 compatibility matrix:
 
-| from \ to              | TS[T], T is int, float | TS[bool] | TS[str] | TS[tuple]            | TS[set]              | TS[dict] | TSS[T]             | TSL[TST, S] | TSB[Schema]                 | TSD[K, V]                   |
-|------------------------|------------------------|----------|---------|----------------------|----------------------|----------|--------------------|-------------|-----------------------------|-----------------------------|
-| TS[T], T is int, float | &#9989;                | &#9989;  | &#9989; | &#9989; tuple of one | &#9989; tuple of one |          | &#9989; set of one |             |                             |                             |
-| TS[bool]               | &#9989;                | &#9989;  | &#9989; | &#9989; tuple of one | &#9989; tuple of one |          |                    |             |                             |                             |
-| TS[str]                | &#9989;                | &#9989;  | &#9989; | &#9989; tuple of one | &#9989; tuple of one |          | &#9989; set of one |             |                             |                             |
-| TS[tuple]              | &#10060;               | &#9989;  | &#9989; | &#9989;              | &#9989;              |          | &#9989;            | &#9989;     |                             |                             |
-| TS[set]                | &#10060;               | &#9989;  | &#9989; | &#9989;              | &#9989;              |          | &#9989;            |             |                             | &#9989; if supplied a value |
-| TS[dict]               | &#10060;               | &#9989;  | &#9989; |                      |                      | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
-| TSS[T]                 | &#10060;               | &#9989;  | &#9989; | &#9989;              | &#9989;              |          |                    |             |                             | &#9989; if supplied a value |
-| TSL[TST, S]            | &#10060;               | &#9989;  | &#9989; | &#9989;              |                      | &#9989;  |                    | &#9989;     |                             |                             |
-| TSB[Schema]            | &#10060;               | &#9989;  | &#9989; |                      |                      | &#9989;  |                    |             | &#9989;                     |                             |
-| TSD[K, V]              | &#10060;               | &#9989;  | &#9989; |                      |                      | &#9989;  |                    |             | &#9989; for uniform schemas | &#9989;                     |
+| from \ to              | TS[T], T is int, float | TS[bool] | TS[str] | TS[CompoundScalar] | TS[tuple]            | TS[set]              | TS[dict]                     | TSS[T]             | TSL[TST, S] | TSB[Schema]                 | TSD[K, V]                                                    |
+|------------------------|------------------------|----------|---------|--------------------|----------------------|----------------------|------------------------------|--------------------|-------------|-----------------------------|--------------------------------------------------------------|
+| TS[T], T is int, float | &#9989;                | &#9989;  | &#9989; |                    | &#9989; tuple of one | &#9989; tuple of one | &#9989; key and value inputs | &#9989; set of one |             |                             |                                                              |
+| TS[bool]               | &#9989;                | &#9989;  | &#9989; |                    | &#9989; tuple of one | &#9989; tuple of one |                              |                    |             |                             |                                                              |
+| TS[str]                | &#9989;                | &#9989;  | &#9989; |                    | &#9989; tuple of one | &#9989; tuple of one |                              | &#9989; set of one |             |                             |                                                              |
+| TS[CompoundScalar]     | &#10060;               | &#9989;  | &#9989; | &#9989;            |                      |                      |                              |                    |             | &#9989;                     |                                                              |
+| TS[tuple]              | &#10060;               | &#9989;  | &#9989; |                    | &#9989;              | &#9989;              | &#9989; key and value tuples | &#9989;            | &#9989;     |                             |                                                              |
+| TS[set]                | &#10060;               | &#9989;  | &#9989; |                    | &#9989;              | &#9989;              |                              | &#9989;            |             |                             | &#9989; if supplied a value                                  |
+| TS[dict]               | &#10060;               | &#9989;  | &#9989; |                    |                      |                      | &#9989;                      |                    |             | &#9989; for uniform schemas | &#9989;                                                      |
+| TSS[T]                 | &#10060;               | &#9989;  | &#9989; |                    | &#9989;              | &#9989;              |                              |                    |             |                             | &#9989; if supplied a value                                  |
+| TSL[TST, S]            | &#10060;               | &#9989;  | &#9989; |                    | &#9989;              |                      | &#9989; ints for keys        |                    | &#9989;     |                             | &#9989; with int keys, or use combine with a tuple of keys |
+| TSB[Schema]            | &#10060;               | &#9989;  | &#9989; | &#9989;            |                      |                      |                              |                    |             | &#9989;                     | &#9989; if the schema is uniform                             |
+| TSD[K, V]              | &#10060;               | &#9989;  | &#9989; |                    |                      |                      | &#9989;                      |                    |             | &#9989; for uniform schemas | &#9989;                                                      |
 
-### combine &#10067;
+### combine
 Combine take some time series and combines them into a collection time series. For example, `combine[TS[Tuple[int, int]]](a, b)`.
 The following types are supported:
 
-| type                  | syntax                                   |
-|-----------------------|------------------------------------------|
-| TS[Tuple[T1, T2, T3]] | combine[TS[Tuple]](a, b, c)              |
-| TSL[T, SIZE]          | combine[TSL](a, b, c)                    |
-| Named Schema          | combine[TSB[SchemaClass]](a=a, b=b, c=c) |
-| UnNamed TS Schema     | combine[TSB](a=a, b=b, c=c)              |
+| type              | syntax                                   |
+|-------------------|------------------------------------------|
+| TS[Tuple[T, ...]] | combine[TS[Tuple]](a, b, c)              |
+| TS[Tuple[T1, T2]] | combine[TS[Tuple[T1, T2]]](a, b, c)      |
+| TSL[T, SIZE]      | combine[TSL](a, b, c)                    |
+| TSS[T]            | combine[TSS](a, b, c)                    |
+| Named Schema      | combine[TSB[SchemaClass]](a=a, b=b, c=c) |
+| Unnamed TS Schema | combine[TSB](a=a, b=b, c=c)              |
+| TSD[K, V]         | combine[TSD](keys=<tuple of 3>, a, b, c) |
 
 ### collect
 This operation collects values into a collection, Syntax `collect[TSS[int]](ts)`
@@ -157,7 +161,7 @@ This is useful to regularise time series before applying statistical functions f
 `lag` delays values of a time series by either specified time or by a number of ticks. In the latter case with lag of 1 
 it will tick the previous value of the time series every time the series tick. 
 
-### dedup &#10067;
+### dedup
 `dedup` removes duplicates form a time series - if its input ticks the same value again the new tick is not propagated. 
 This is useful to avoid processing the same value more than once if hte algorithm the graph implements would produce 
 the same result.  
@@ -166,8 +170,8 @@ the same result.
 `filter_` suppresses ticks of a time series when the `condition` time series' value is `False`.
 
 ### throttle
-`throttle` reduces the rate of ticks in a time s eries to the given period. It works like `resample` if the rate of 
-ticks is higher than the period but unlike `resample` does not produce ticks when the source time series down not tick. 
+`throttle` reduces the rate of ticks in a time series to the given period. It works like `resample` if the rate of 
+ticks is higher than the period but unlike `resample` does not produce ticks when the source time series does not tick. 
 
 ### gate
 `gate` queues up ticks of a time series when the value of `condition` if `False`. Once it turns `True` the queued up 
@@ -196,41 +200,64 @@ previous values of the given size or time.
 Flow control
 ------------
 
-### if_
-`if_` allows to forward a time series based on the value of `condition` input. If `condition` is `True` then `if_`'s 
-output is the `true` input, and `false` otherwise
+### if_true
+Emits a tick with the value True when the input condition ticks with the value ```True```.  
+If `tick_once_only` is true then the node will not tick more than once.  
+Otherwise the node will tick whenever the condition ticks ```True```. 
 
-### route &#10067;
+### if_
+`if_` forwards a time series to either the `true` or `false` element of the output bundle, according to whether
+`condition` is `True` or `False`.
+
+### route_by_index
 `route` does the inverse of `if_` and `TSL[]` - based on an index forward one input time series to one of its outputs 
 with the matching index. If hte index is `bool` then the outputs number is 2. 
 
-### if_then_else &#10067;
+### if_then_else
 `if_then_else` forwards either its `true` input or `false` input based on the value of `condition`
 
 ### TSL[]
-TSL indexing operator where index is a timeseries of `int` allows to forward a time series based on the index  therefore
+TSL indexing operator (where index is a timeseries of `int`) forwards a time series based on the index - therefore
 extending what `if_then_else` does to any number of inputs. 
 
 ### index_of
 `index_of` is useful in conjunction with the TSL indexing operator to work out the index based on a number of other 
-inputs, for example given five `TS[bool]` inputs `index_of` can be used to find one with `True` value and give its 
-index wich then can be given to `TSL[]` to pick the correct time series to forward. 
+inputs. For example, given five `TS[bool]` inputs, `index_of` can be used to find one with `True` value and give its 
+index - which then can be given to `TSL[]` to pick the correct time series to forward. 
 
 ### merge
 `merge` forwards the last ticked value from its inputs. If two inputs tick at the same time the leftmost is forwarded
 
-### race &#10067;
-`race` is like `merge` but it forwards only values form the input that becomes valid first. If it becomes invalid `race`
+### race
+`race` is like `merge` but it forwards only values from the input that become valid first. If it becomes invalid `race`
 moves on to the next valid input.
+
+### all_
+Ticks with True when all the args are True.
+
+### any_
+Ticks with True when any of the args is True
+
 
 Stream analytical operators
 ---------------------------
 
-### diff
-`diff` returns a time series of difference between the previous value of a time series and the current
+Note - `mean`, `std` and `var` have the same semantics as `min`, `max` and `sum`
+* If given a single scalar argument they return a running operation on the timeseries.
+* If given a single collection argument they return the operation on the latest timeseries value
+* If given multiple arguments they calculate the operation across the latest values of the given timeseries
 
 ### mean
-`mean` returns a time series of running mean average of the values it received from its input
+Calculates the mean
+
+### std
+Calculates the standard deviation
+
+### var
+Calculates the variance
+
+### diff
+`diff` returns a time series of difference between the previous value of a time series and the current
 
 ### count
 `count` counts the number of ticks of a time series
@@ -240,19 +267,14 @@ Stream analytical operators
 
 ### quantiles
 `quantiles` calculates quantiles of the values from ints input and ticks the quantiles calculated when `trigger` input 
-ticks 
-
-### std
-`std` calculates standard deviation of hte values it received from its input
-
-### var
-`var` calculates variance
+ticks (_not yet implemented_)
 
 ### ewma
 exponentially weighted mean
 
 ### ewstd
-exponentially weighted standard deviation
+exponentially weighted standard deviation (_not yet implemented_)
+
 
 TSD operators
 -------------
@@ -262,7 +284,7 @@ Note: these also apply to `TS[dict]` timeseries and have same semantics
 Returns a TSS (or set) of keys in the dictionary
 
 ### values_
-Returns a tuple if the values in the dictionary. Note: does not apply to TSD as there is no suitable time series type
+Returns a tuple of the values in the dictionary. Note: does not apply to TSD as there is no suitable time series type
 
 ### rekey
 `rekey` receives a `TSD[K, V]` and a mapping `TSD[K, K1]` and remaps the keys using it so that its output is `TSD[K1, V]` 
@@ -313,14 +335,17 @@ ticks provided scalar value if the provided time series is not valid
 ### nothing
 never produces a tick
 
-### null_sink &#10067;
+### null_sink
 consumes a time series and does nothing
 
 ### valid
 returns a bool time series that indicates if the input is valid (i.e. has a value)
 
 ### last_modified_time
-returns a datetime timeseries that ticks last_modified_time of its input
+returns a datetime timeseries that ticks the last modified time of its input
+
+### last_modified_date
+returns a date timeseries that ticks the last modified date of its input
 
 ### zero
 overloads of this operator provide zero value time series for the reduce_ operator

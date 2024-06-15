@@ -1,8 +1,11 @@
 from enum import Enum, auto
+from statistics import stdev
 
 from hgraph import add_, TS, compute_node, sub_, div_, NUMBER, mul_, floordiv_, mod_, divmod_, TSL, Size, pow_, \
-    eq_
-from hgraph._types._scalar_types import NUMBER_2
+    eq_, mean, std
+from hgraph._types._scalar_types import NUMBER_2, SIZE
+
+__all__ = ("DivideByZero",)
 
 
 @compute_node(overloads=add_)
