@@ -518,4 +518,20 @@ Version 0.2.40 (12-06-2024)
 Version 0.2.41 (13-06-2024)
 ---------------------------
 
-* Clean-ups on min, max, sum
+* Cleanups on min, max, sum
+
+
+Version 0.2.42 (15-06-2024)
+---------------------------
+
+* Standardised flow control operators (if_, merge etc)
+* Added stream_analytical operators. 
+* string library 
+* final batch of converts, combines, collects and emits. small bug fixe… 
+* Add operators for tsds and mappings with implementations for tsd and …
+* Implement stream operators
+* Change resample API
+* Add __end_time__ to resample and throttle tests
+* fix schema base generic test 
+* fix getitem for fixed tuples 
+* fix reduce on the TSDWiringPort and add filter to the tracer
