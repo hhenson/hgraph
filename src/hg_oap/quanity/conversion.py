@@ -2,8 +2,7 @@ from typing import Type
 
 from hg_oap.units import Unit, Quantity, UnitConversionContext
 from hg_oap.units.unit import NUMBER
-from hgraph import graph, TS, AUTO_RESOLVE, TSL, TSB, compute_node, CONTEXT, operator
-from hgraph.nodes import route_ref, filter_, index_of, valid
+from hgraph import graph, TS, AUTO_RESOLVE, TSL, TSB, compute_node, CONTEXT, operator, index_of, filter_, valid, if_
 
 
 @operator
@@ -25,9 +24,9 @@ def convert_units_default(qty: TS[NUMBER], fr: TS[Unit], to: TS[Unit], tp: Type[
         - One of both units are offset
     """
 
-    pass_through, to_convert = route_ref(fr == to, qty)
+    pass_through, to_convert = if_(fr == to, qty)
     calc_ratio = has_conversion_ratio(fr, to)
-    ratio_convert, offset_convert = route_ref(calc_ratio, to_convert)
+    ratio_convert, offset_convert = if_(calc_ratio, to_convert)
     ratio = conversion_ratio[NUMBER:tp](filter_(calc_ratio, fr), filter_(calc_ratio, to))
     ratio_converted = ratio_convert * ratio
     offset_converted = _convert_units(offset_convert, fr, to)
