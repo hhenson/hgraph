@@ -1,8 +1,10 @@
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Generic, cast, Type
 
 from hgraph import graph, all_, TSL, TS, SIZE, reduce, bit_and, any_, bit_or, compute_node, merge, TIME_SERIES_TYPE, \
-    REF, TSB, PythonTimeSeriesReference, TimeSeriesSchema, Size, AUTO_RESOLVE, STATE, EvaluationClock, MAX_DT, race
+    REF, TSB, PythonTimeSeriesReference, TimeSeriesSchema, Size, AUTO_RESOLVE, STATE, EvaluationClock, MAX_DT, race, \
+    CompoundScalar
 
 __all__ = ("if_", "if_true", "if_then_else", "route_by_index", "BoolResult")
 
@@ -30,37 +32,37 @@ def merge_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     return next(tsl.modified_values()).delta_value
 
 
+@dataclass
+class _RaceState(CompoundScalar):
+    first_valid_times: dict = field(default_factory=lambda : defaultdict(lambda: MAX_DT))
+    winner: REF[TIME_SERIES_TYPE] = None
+
+
 @compute_node(overloads=race)
 def race_default(*tsl: TSL[REF[TIME_SERIES_TYPE], SIZE],
-                 state: STATE = None,
-                 ec: EvaluationClock = None,
-                 sz: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
+                 _state: STATE[_RaceState] = None,
+                 _ec: EvaluationClock = None,
+                 _sz: Type[SIZE] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
 
     # Keep track of the first time each input goes valid (and invalid)
-    for i in range(sz.SIZE):
+    for i in range(_sz.SIZE):
         if _tsl_ref_item_valid(tsl, i):
-            if i not in state.first_valid_times:
-                state.first_valid_times[i] = ec.now
+            if i not in _state.first_valid_times:
+                _state.first_valid_times[i] = _ec.now
         else:
-            state.first_valid_times.pop(i, None)
+            _state.first_valid_times.pop(i, None)
 
     # Forward the input with the earliest valid time
-    winner = state.winner
-    if winner not in state.first_valid_times:
+    winner = _state.winner
+    if winner not in _state.first_valid_times:
         # Find a new winner - old one has gone invalid
-        winner = min(state.first_valid_times.items(), default=None, key=lambda item: item[1])
+        winner = min(_state.first_valid_times.items(), default=None, key=lambda item: item[1])
         if winner is not None:
-            state.winner = winner[0]
-            return tsl[state.winner].value
-    elif tsl[state.winner].modified:
+            _state.winner = winner[0]
+            return tsl[_state.winner].value
+    elif tsl[_state.winner].modified:
         # Forward the winning value
-        return tsl[state.winner].delta_value
-
-
-@race_default.start
-def _(state: STATE):
-    state.first_valid_times = defaultdict(lambda: MAX_DT)  # time the item in the TSL first went valid, by list index
-    state.winner = None  # index of item which so far has gone valid first
+        return tsl[_state.winner].delta_value
 
 
 def _tsl_ref_item_valid(tsl, i):
