@@ -163,7 +163,7 @@ it will tick the previous value of the time series every time the series tick.
 
 ### dedup
 `dedup` removes duplicates form a time series - if its input ticks the same value again the new tick is not propagated. 
-This is useful to avoid processing the same value more than once if hte algorithm the graph implements would produce 
+This is useful to avoid processing the same value more than once if the algorithm the graph implements would produce 
 the same result.  
 
 ### filter_
@@ -211,7 +211,7 @@ Otherwise the node will tick whenever the condition ticks ```True```.
 
 ### route_by_index
 `route` does the inverse of `if_` and `TSL[]` - based on an index forward one input time series to one of its outputs 
-with the matching index. If hte index is `bool` then the outputs number is 2. 
+with the matching index. If the index is `bool` then the outputs number is 2. 
 
 ### if_then_else
 `if_then_else` forwards either its `true` input or `false` input based on the value of `condition`
