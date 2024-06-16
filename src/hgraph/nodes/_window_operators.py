@@ -1,7 +1,8 @@
 from datetime import timedelta
 
-from hgraph import TS, graph, NUMBER, AUTO_RESOLVE, operator, take, drop, accumulate, lag, \
-    INT_OR_TIME_DELTA, sample, window
+from hgraph import TS, graph, NUMBER, AUTO_RESOLVE, operator, take, drop, lag, \
+    INT_OR_TIME_DELTA, sample, window, sum_
+from hgraph.nodes._const import default
 
 __all__ = ("rolling_window", "rolling_average")
 
@@ -24,8 +25,8 @@ def rolling_average_p_int(ts: TS[NUMBER], period: int, min_window_period: int = 
                           _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     from hgraph import if_then_else, count, cast_, default
     lagged_ts = lag(ts, period)
-    current_value = accumulate(ts)
-    delayed_value = accumulate(lagged_ts)
+    current_value = sum_(ts)
+    delayed_value = sum_(lagged_ts)
     denom = float(period) if _tp is float else period
 
     if min_window_period:
@@ -42,8 +43,8 @@ def rolling_average_p_time_delta(ts: TS[NUMBER], period: timedelta, min_window_p
                                  _tp: type[NUMBER] = AUTO_RESOLVE) -> TS[float]:
     from hgraph import if_then_else, count, cast_, const
     lagged_ts = lag(ts, period)
-    current_value = accumulate(ts)
-    delayed_value = accumulate(lagged_ts)
+    current_value = sum_(ts)
+    delayed_value = sum_(lagged_ts)
 
     delayed_count = count(lagged_ts)
     if min_window_period:
