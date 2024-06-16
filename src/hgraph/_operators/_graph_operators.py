@@ -1,10 +1,10 @@
 from hgraph._types._scalar_types import DEFAULT
-from hgraph._types._time_series_types import OUT
+from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
 
-__all__ = ("default", "nothing")
+__all__ = ("default", "nothing", "null_sink")
 
 
 @operator
@@ -47,4 +47,12 @@ def nothing(tp: type[OUT] = AUTO_RESOLVE) -> OUT:
     ```
 
     This is equivalent to None for time-series inputs.
+    """
+
+
+@operator
+def null_sink(ts: TIME_SERIES_TYPE):
+    """
+    A sink node that will consume the time-series and do nothing with it.
+    This is useful when you want to consume a time-series but do not want to do anything with it.
     """

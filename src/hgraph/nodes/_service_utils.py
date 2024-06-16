@@ -21,6 +21,7 @@ from hgraph import (
     TS_OUT,
     REMOVE_IF_EXISTS,
     TIME_SERIES_TYPE_1,
+    null_sink
 )
 
 __all__ = (
@@ -31,8 +32,6 @@ __all__ = (
     "get_shared_reference_output",
     "write_service_replies",
 )
-
-from hgraph.nodes import null_sink
 
 
 @sink_node(active=tuple(), valid=tuple())
@@ -110,17 +109,17 @@ def write_subscription_key_stop(path: str, _state: STATE):
 
 @graph
 def _subscribe(
-    path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE, _ts_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE
+        path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE, _ts_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE
 ) -> TIME_SERIES_TYPE:
     """Implement the stub for subscription"""
     write_subscription_key(path, key)
-    out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[_s_tp, _ts_tp]](f"{path}/out")
+    out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[_s_tp, _ts_tp]](f"{path}/out")
     return out[key]
 
 
 @compute_node
 def write_service_request(
-    path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None
+        path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None
 ) -> TS[int]:
     """
     Updates TSDs attached to the path with the data provided.
@@ -164,18 +163,18 @@ def _request_service(path: str, request: TIME_SERIES_TYPE):
 
 @graph
 def _request_reply_service(
-    path: str, request: TIME_SERIES_TYPE, tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE
+        path: str, request: TIME_SERIES_TYPE, tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE
 ) -> TIME_SERIES_TYPE_1:
     requestor_id = write_service_request(path, request)
     if tp_out:
-        out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[int, tp_out]](f"{path}/replies")
+        out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[int, tp_out]](f"{path}/replies")
         return out[requestor_id]
 
 
 class SharedReferenceNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+            self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
     ) -> "NodeBuilder":
         output_type = node_signature.time_series_output
         if type(output_type) is not HgREFTypeMetaData:

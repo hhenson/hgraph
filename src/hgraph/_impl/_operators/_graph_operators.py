@@ -1,8 +1,8 @@
-from hgraph._operators._graph_operators import default, nothing
+from hgraph._operators._graph_operators import default, nothing, null_sink
 from hgraph._types._ref_type import REF
-from hgraph._types._time_series_types import OUT
+from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._wiring._decorators import generator, graph, compute_node
+from hgraph._wiring._decorators import generator, graph, compute_node, sink_node
 
 __all__ = tuple()
 
@@ -39,3 +39,11 @@ def nothing_impl(tp: type[OUT] = AUTO_RESOLVE) -> OUT:
     :return: A time series that will never tick
     """
     yield from ()
+
+
+@sink_node(overloads=null_sink)
+def null_sink_impl(ts: TIME_SERIES_TYPE):
+    """
+    A sink node that will consume the time-series and do nothing with it.
+    This is useful when you want to consume a time-series but do not want to do anything with it.
+    """
