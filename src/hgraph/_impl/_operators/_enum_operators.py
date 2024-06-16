@@ -1,12 +1,10 @@
-from enum import Enum
-from typing import TypeVar
+from hgraph._operators._operators import min_, max_, eq_, lt_, gt_, le_, ge_
+from hgraph._types._ts_type import TS, TS_OUT
+from hgraph._types._scalar_types import ENUM
+from hgraph._types._tsl_type import TSL, SIZE
+from hgraph._wiring._decorators import graph, compute_node
 
-from hgraph import compute_node, min_, TS, lt_, gt_, le_, ge_, TS_OUT, eq_, TSL, SIZE, graph, max_
-
-__all__ = ("ENUM",)
-
-
-ENUM = TypeVar("ENUM", bound=Enum)
+__all__ = tuple()
 
 
 @graph(overloads=min_)

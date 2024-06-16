@@ -10,7 +10,7 @@ from frozendict.cool import deepfreeze
 from hgraph import graph, TimeSeriesSchema, TSB, TSD, run_graph, EvaluationMode, TS, EvaluationClock, \
     feedback, compute_node, SCHEDULER, TSL, STATE, REMOVE_IF_EXISTS, CompoundScalar
 from hgraph.nodes import const, debug_print, delay
-from hgraph._operators._control import merge
+from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective._perspective import perspective_web
 from hgraph.adaptors.perspective._perspetive_publish import publish_table
 

@@ -3,7 +3,7 @@ from typing import Tuple, Callable
 
 from hgraph import (TS, TSD, switch_, graph, pass_through, mesh_, contains_, TSS, TSL, Removed, REMOVE, DEFAULT,
                     combine, match_, convert, const)
-from hgraph._operators._control import merge
+from hgraph._operators._flow_control import merge
 from hgraph.test import eval_node
 
 

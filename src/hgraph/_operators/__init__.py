@@ -1,4 +1,4 @@
-from hgraph._operators._control import *
+from hgraph._operators._flow_control import *
 from hgraph._operators._graph_operators import *
 from hgraph._operators._operators import *
 from hgraph._operators._stream import *

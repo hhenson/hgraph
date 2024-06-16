@@ -53,6 +53,7 @@ __all__ = (
     "DEFAULT",
     "NUMBER_2",
     "TUPLE",
+    "ENUM"
 )
 
 
@@ -355,3 +356,5 @@ def is_compound_scalar(value) -> bool:
 TUPLE = TypeVar("TUPLE", bound=tuple)
 
 ZERO = object()
+
+ENUM = TypeVar("ENUM", bound=Enum)

@@ -7,7 +7,6 @@ from hgraph._impl import *
 
 # These imports bring in the nodes described in the library document index.md so that they can be imported
 # directly from hgraph
-from hgraph.nodes._control_operators import *
 from hgraph.nodes._null_sink import *
 from hgraph.nodes._number_operators import *
 from hgraph.nodes._operators import *

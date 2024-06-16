@@ -21,11 +21,8 @@ from hgraph.nodes._tuple_operators import *
 from hgraph.nodes._window_operators import *
 from hgraph.nodes._str_operators import *
 from hgraph.nodes._time_series_properties import *
-from hgraph.nodes._enum_operators import *
 from hgraph.nodes._number_operators import *
 from hgraph.nodes._frozendict_operators import *
 from hgraph.nodes._scalar_operators import *
-from hgraph.nodes._control_operators import *
-from hgraph.nodes._control_operators import *
 from hgraph.nodes._stream_analytical_operators import *
 from hgraph.nodes._set_operators import *

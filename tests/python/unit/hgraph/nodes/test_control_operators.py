@@ -1,8 +1,7 @@
 import pytest
 
-from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const
-from hgraph._operators._control import race
-from hgraph.nodes import if_then_else, if_true, BoolResult, if_, route_by_index
+from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const, BoolResult, if_, \
+    route_by_index, race, if_true, if_then_else
 from hgraph.test import eval_node
 
 
@@ -71,12 +70,11 @@ def test_if_():
 
 
 def test_route_by_index():
-
     @graph
     def g(index: TS[int], ts: TS[str]) -> TSL[TS[str], Size[4]]:
         return route_by_index[SIZE: Size[4]](index, ts)
 
-    assert eval_node(g, [1,  2, 0, 4], ["1", "2", "2", "2"]) == [{1: "1"}, {2: "2"}, {0: "2"}, None]
+    assert eval_node(g, [1, 2, 0, 4], ["1", "2", "2", "2"]) == [{1: "1"}, {2: "2"}, {0: "2"}, None]
 
 
 def test_merge():

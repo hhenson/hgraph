@@ -1,7 +1,6 @@
 from enum import Enum
 
-from hgraph import TS, graph, min_, max_
-from hgraph.nodes import ENUM
+from hgraph import TS, graph, min_, max_, ENUM
 from hgraph.test import eval_node
 
 

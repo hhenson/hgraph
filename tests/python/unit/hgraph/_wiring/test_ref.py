@@ -1,8 +1,7 @@
 from typing import cast
 
 from hgraph import TIME_SERIES_TYPE, compute_node, REF, TS, TSL, Size, SIZE, graph, TSS, TSD, REMOVE, \
-    Removed, K, KEYABLE_SCALAR
-from hgraph.nodes._control_operators import route_ref
+    Removed, K, KEYABLE_SCALAR, if_
 from hgraph.nodes._tss_operators import contains_tss
 from hgraph.test import eval_node
 
@@ -17,8 +16,8 @@ def test_ref():
 
 
 def test_route_ref():
-    assert eval_node(route_ref[TIME_SERIES_TYPE: TS[int]], condition=[True, None, False, None], ts=[1, 2, None, 4]) == [
-        {0: 1}, {0: 2}, {1: 2}, {1: 4}]
+    assert eval_node(if_[TIME_SERIES_TYPE: TS[int]], condition=[True, None, False, None], ts=[1, 2, None, 4]) == [
+        {'true': 1}, {'true': 2}, {'false': 2}, {'false': 4}]
 
 
 @compute_node
