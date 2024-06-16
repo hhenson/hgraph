@@ -4,14 +4,29 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Generic, Any, TypeVar, Union
 
-from hgraph import TIME_SERIES_TYPE, Frame, COMPOUND_SCALAR, TS, SCALAR, compound_scalar, HgTSTypeMetaData, \
-    CompoundScalar, sink_node, STATE, AUTO_RESOLVE, SCALAR_1, TSD, HgTimeSeriesTypeMetaData, HgTSSTypeMetaData, \
-    HgTSLTypeMetaData, HgTSBTypeMetaData
+from hgraph import (
+    TIME_SERIES_TYPE,
+    Frame,
+    COMPOUND_SCALAR,
+    TS,
+    SCALAR,
+    compound_scalar,
+    HgTSTypeMetaData,
+    CompoundScalar,
+    sink_node,
+    STATE,
+    AUTO_RESOLVE,
+    SCALAR_1,
+    TSD,
+    HgTimeSeriesTypeMetaData,
+    HgTSSTypeMetaData,
+    HgTSLTypeMetaData,
+    HgTSBTypeMetaData,
+)
 
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 
-from hgraph.nodes.analytics._recorder_api import get_recorder_api, TableWriterAPI, \
-    get_recording_label
+from hgraph.nodes.analytics._recorder_api import get_recorder_api, TableWriterAPI, get_recording_label
 
 __all__ = ("get_converter_for", "register_converter")
 
@@ -55,8 +70,9 @@ class RecordTsState(CompoundScalar):
 
 
 @sink_node
-def record_to_table_api(table_id: str, ts: TIME_SERIES_TYPE, tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-              _state: STATE[RecordTsState] = None):
+def record_to_table_api(
+    table_id: str, ts: TIME_SERIES_TYPE, tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE, _state: STATE[RecordTsState] = None
+):
     """
     Records a single value. The value name will be the name of the column in the table (that is not the date columns)
     """
@@ -85,11 +101,11 @@ def record_to_table_api_stop(_state: STATE[RecordTsState]):
 class RecordableConverter(Generic[TIME_SERIES_TYPE, COMPOUND_SCALAR]):
 
     def __init__(
-            self,
-            time_series_tp: type[TIME_SERIES_TYPE],
-            table_schema_tp: type[COMPOUND_SCALAR],
-            date_column: tuple[str, type[Union[date, datetime]]] = ("date", date),
-            multi_row: bool = False,
+        self,
+        time_series_tp: type[TIME_SERIES_TYPE],
+        table_schema_tp: type[COMPOUND_SCALAR],
+        date_column: tuple[str, type[Union[date, datetime]]] = ("date", date),
+        multi_row: bool = False,
     ):
         self.time_series_tp = time_series_tp
         self.table_schema_tp = table_schema_tp
@@ -123,8 +139,12 @@ TS_FRAME_SCHEMA = compound_scalar(value=SCALAR)
 
 class TsRecordableConverter(RecordableConverter[TS[SCALAR], TS_FRAME_SCHEMA]):
 
-    def __init__(self, time_series_tp: type[TIME_SERIES_TYPE], value_key: str = 'value',
-                 date_column: tuple[str, type[Union[date, datetime]]] = ("date", date)):
+    def __init__(
+        self,
+        time_series_tp: type[TIME_SERIES_TYPE],
+        value_key: str = "value",
+        date_column: tuple[str, type[Union[date, datetime]]] = ("date", date),
+    ):
         tp: HgTSTypeMetaData = HgTSTypeMetaData.parse_type(time_series_tp)
         super().__init__(time_series_tp, compound_scalar(**{value_key: tp.value_scalar_tp.py_type}), date_column)
         self._value_key = value_key
@@ -142,13 +162,20 @@ register_converter(TS[SCALAR], TsRecordableConverter)
 
 class TsdTsRecordableConverter(RecordableConverter[TSD[SCALAR, TS[SCALAR_1]], TS_FRAME_SCHEMA]):
 
-    def __init__(self,
-                 time_series_tp: type[TIME_SERIES_TYPE], key_column: str = 'key', value_column: str = 'value',
-                 date_column: tuple[str, type[Union[date, datetime]]] = ("date", date)):
+    def __init__(
+        self,
+        time_series_tp: type[TIME_SERIES_TYPE],
+        key_column: str = "key",
+        value_column: str = "value",
+        date_column: tuple[str, type[Union[date, datetime]]] = ("date", date),
+    ):
         tp: HgTSDTypeMetaData = HgTSDTypeMetaData.parse_type(time_series_tp)
-        super().__init__(time_series_tp,
-                         compound_scalar(**{key_column: tp.key_tp.py_type, value_column: tp.value_tp.py_type}),
-                         date_column, True)
+        super().__init__(
+            time_series_tp,
+            compound_scalar(**{key_column: tp.key_tp.py_type, value_column: tp.value_tp.py_type}),
+            date_column,
+            True,
+        )
         self.key_column = key_column
         self.value_column = value_column
 

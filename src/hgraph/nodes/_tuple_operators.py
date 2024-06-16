@@ -1,12 +1,34 @@
 from statistics import stdev, variance
 from typing import Type, Tuple
 
-from hgraph import SCALAR, TS, IncorrectTypeBinding, compute_node, HgTupleFixedScalarType, HgTupleCollectionScalarType, \
-    STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, mean, var, std, getitem_, min_, \
-    max_, sum_, zero, TUPLE
+from hgraph import (
+    SCALAR,
+    TS,
+    IncorrectTypeBinding,
+    compute_node,
+    HgTupleFixedScalarType,
+    HgTupleCollectionScalarType,
+    STATE,
+    CompoundScalar,
+    SCHEDULER,
+    MIN_TD,
+    mul_,
+    and_,
+    or_,
+    AUTO_RESOLVE,
+    graph,
+    mean,
+    var,
+    std,
+    getitem_,
+    min_,
+    max_,
+    sum_,
+    zero,
+    TUPLE,
+)
 
-STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, getitem_, min_, max_, sum_, zero, \
-    TUPLE
+STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, getitem_, min_, max_, sum_, zero, TUPLE
 
 __all__ = ("getitem_tuple",)
 
@@ -76,7 +98,7 @@ def mean_tuple_unary(ts: TS[Tuple[SCALAR, ...]]) -> TS[float]:
     if len(ts) > 0:
         return float(sum(ts) / len(ts))
     else:
-        return float('NaN')
+        return float("NaN")
 
 
 @compute_node(overloads=std)

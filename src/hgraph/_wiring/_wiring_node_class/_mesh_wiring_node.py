@@ -19,16 +19,18 @@ class MeshWiringSignature(TsdMapWiringSignature):
 class MeshWiringNodeClass(BaseWiringNodeClass):
     signature: MeshWiringSignature
 
-    def create_node_builder_instance(self, node_signature: "MeshWiringSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, node_signature: "MeshWiringSignature", scalars: Mapping[str, Any]
+    ) -> "NodeBuilder":
         from hgraph._impl._builder._mesh_builder import PythonMeshNodeBuilder
+
         inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
-            inner_graph,
-            set(node_signature.time_series_inputs.keys()) | {self.signature.key_arg}
+            inner_graph, set(node_signature.time_series_inputs.keys()) | {self.signature.key_arg}
         )
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
-                                                                                    self.error_output_type)
+        input_builder, output_builder, error_builder = create_input_output_builders(
+            node_signature, self.error_output_type
+        )
         return PythonMeshNodeBuilder(
             node_signature,
             scalars,
@@ -40,5 +42,5 @@ class MeshWiringNodeClass(BaseWiringNodeClass):
             output_node_id,
             self.signature.multiplexed_args,
             self.signature.key_arg,
-            self.signature.context_path
+            self.signature.context_path,
         )

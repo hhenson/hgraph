@@ -6,8 +6,13 @@ from frozendict import frozendict
 from hgraph._types._scalar_type_meta_data import HgTypeMetaData
 from hgraph._types._time_series_types import K, V
 from hgraph._types._scalar_types import SIZE, Size, STATE
-from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, TIME_SERIES_TYPE, \
-    TimeSeriesDeltaValue
+from hgraph._types._time_series_types import (
+    TimeSeriesIterable,
+    TimeSeriesInput,
+    TimeSeriesOutput,
+    TIME_SERIES_TYPE,
+    TimeSeriesDeltaValue,
+)
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_context import WiringContext
@@ -15,8 +20,11 @@ if TYPE_CHECKING:
 __all__ = ("TSL", "TSL_OUT", "TimeSeriesList", "TimeSeriesListInput", "TimeSeriesListOutput")
 
 
-class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaValue[tuple, dict[int, Any]],
-                     Generic[TIME_SERIES_TYPE, SIZE]):
+class TimeSeriesList(
+    TimeSeriesIterable[int, TIME_SERIES_TYPE],
+    TimeSeriesDeltaValue[tuple, dict[int, Any]],
+    Generic[TIME_SERIES_TYPE, SIZE],
+):
     """
     Represents a linear collection of time-series inputs.
     Think of this as a list of time-series values.
@@ -35,10 +43,13 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
         out = super(TimeSeriesList, cls).__class_getitem__(item)
         if item != (TIME_SERIES_TYPE, SIZE):
             from hgraph._types._type_meta_data import HgTypeMetaData
+
             if HgTypeMetaData.parse_type(item[0]).is_scalar:
                 from hgraph import ParseError
+
                 raise ParseError(
-                    f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)")
+                    f"Type '{item[0]}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)"
+                )
         return out
 
     def __len__(self) -> int:
@@ -87,7 +98,9 @@ class TimeSeriesList(TimeSeriesIterable[int, TIME_SERIES_TYPE], TimeSeriesDeltaV
         return ((i, v) for i, v in self.items() if v.valid)
 
 
-class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):
+class TimeSeriesListInput(
+    TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInput, ABC, Generic[TIME_SERIES_TYPE, SIZE]
+):
     """
     The input of a time series list.
     """
@@ -102,11 +115,18 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
             size = __type__.size_tp.py_type
         args, size_, tp_ = cls._validate_inputs(*args, tp_=tp, size_=size)
         fn_details = TimeSeriesListInput.from_ts.__code__
-        from hgraph import WiringNodeSignature, WiringNodeType, SourceCodeDetails, HgTSLTypeMetaData, \
-            HgTimeSeriesTypeMetaData, HgAtomicType
+        from hgraph import (
+            WiringNodeSignature,
+            WiringNodeType,
+            SourceCodeDetails,
+            HgTSLTypeMetaData,
+            HgTimeSeriesTypeMetaData,
+            HgAtomicType,
+        )
         from hgraph import WiringNodeInstance
+
         hg_tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
-        args_ = tuple(f'ts_{i}' for i in range(size_.SIZE))
+        args_ = tuple(f"ts_{i}" for i in range(size_.SIZE))
 
         wiring_node_signature = WiringNodeSignature(
             node_type=WiringNodeType.STUB,
@@ -125,14 +145,16 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         )
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
         from hgraph._wiring._wiring_port import TSLWiringPort
+
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
 
         from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
+
         wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict({k: v for k, v in zip(args_, args)}),
-            rank=max(v.rank for v in args)
+            rank=max(v.rank for v in args),
         )
         return TSLWiringPort(wiring_node_instance, tuple())
 
@@ -141,44 +163,54 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
         if not args:
             with _from_ts_wiring_context(tp_, size_):
                 from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
+
                 raise NoTimeSeriesInputsError()
         if size_ is SIZE:
             size_ = Size[len(args)]
         else:
             if size_.FIXED_SIZE and len(args) != size_.SIZE:
                 from hgraph import ParseError
+
                 with _from_ts_wiring_context(tp_, size_):
                     from hgraph._wiring._wiring_errors import CustomMessageWiringError
+
                     raise CustomMessageWiringError(
-                        f"Incorrect number of inputs provided, declared as {size_} but received {len(args)} inputs")
+                        f"Incorrect number of inputs provided, declared as {size_} but received {len(args)} inputs"
+                    )
         inputs = list(args)
         if tp_ is TIME_SERIES_TYPE:  # Check the types all match, if they do we have a resolved type!
             # Try resolve the input types
             tp_ = inputs[0].output_type.dereference()
         else:
             from hgraph import HgTimeSeriesTypeMetaData
+
             tp_ = HgTimeSeriesTypeMetaData.parse_type(tp_)
 
         for i, v in enumerate(inputs):
             from hgraph._wiring._wiring_port import WiringPort
+
             if isinstance(v, WiringPort):
                 if not tp_.matches(v.output_type.dereference()):
                     with _from_ts_wiring_context(tp_, size_):
                         from hgraph._wiring._wiring_errors import CustomMessageWiringError
+
                         raise CustomMessageWiringError(
-                            f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]")
+                            f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]"
+                        )
             elif tp_.scalar_type().matches(HgTypeMetaData.parse_value(v)):
                 from hgraph.nodes import const
+
                 inputs[i] = const(v, tp=tp_.py_type)
             elif v is None:
                 from hgraph.nodes import nothing
+
                 inputs[i] = nothing(tp=tp_.py_type)
             else:
                 from hgraph import IncorrectTypeBinding
                 from hgraph import WiringContext
                 from hgraph import STATE
-                with WiringContext(current_arg=i, current_signature=STATE(
-                        signature=f"TSL[{tp_}].from_ts(...)")):
+
+                with WiringContext(current_arg=i, current_signature=STATE(signature=f"TSL[{tp_}].from_ts(...)")):
                     raise IncorrectTypeBinding(expected_type=tp_, actual_type=v)
 
         tp_ = tp_.py_type  # This would be in HgTypeMetaData format, need to put back into python type form
@@ -187,11 +219,15 @@ class TimeSeriesListInput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesInpu
 
 def _from_ts_wiring_context(tp_, size_) -> "WiringContext":
     from hgraph._wiring._wiring_context import WiringContext
+
     return WiringContext(
-        current_signature=STATE(signature=f"TSL[{tp_}, {size_}].from_ts(**kwargs) -> TSL[{tp_}, {size_}]"))
+        current_signature=STATE(signature=f"TSL[{tp_}, {size_}].from_ts(**kwargs) -> TSL[{tp_}, {size_}]")
+    )
 
 
-class TimeSeriesListOutput(TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, ABC, Generic[TIME_SERIES_TYPE, SIZE]):
+class TimeSeriesListOutput(
+    TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, ABC, Generic[TIME_SERIES_TYPE, SIZE]
+):
     """
     The output type of a time series list
     """

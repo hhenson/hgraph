@@ -6,7 +6,7 @@ if typing.TYPE_CHECKING:
     from hgraph._types._time_series_types import TimeSeriesInput
     from hgraph._runtime._node import Node
 
-__all__ = ('InputBuilder',)
+__all__ = ("InputBuilder",)
 
 
 class InputBuilder(Builder["TimeSeriesInput"]):

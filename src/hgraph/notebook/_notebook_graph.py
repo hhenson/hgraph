@@ -1,23 +1,35 @@
 from datetime import datetime
 from typing import Sequence, Any
 
-from hgraph import GlobalState, WiringGraphContext, GraphConfiguration, evaluate_graph, create_graph_builder, MIN_ST, \
-    MAX_ET
+from hgraph import (
+    GlobalState,
+    WiringGraphContext,
+    GraphConfiguration,
+    evaluate_graph,
+    create_graph_builder,
+    MIN_ST,
+    MAX_ET,
+)
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph.nodes import record, get_recorded_value
 
-__all__ = ("start_wiring_graph", "notebook_evaluate_graph",)
+__all__ = (
+    "start_wiring_graph",
+    "notebook_evaluate_graph",
+)
 
 
 _START_TIME: datetime = None
 _END_TIME: datetime = None
 
 
-def start_wiring_graph(name: str = 'notebook-graph', start_time: datetime = MIN_ST, end_time: datetime = MAX_ET):
+def start_wiring_graph(name: str = "notebook-graph", start_time: datetime = MIN_ST, end_time: datetime = MAX_ET):
     global _START_TIME, _END_TIME
     from hgraph import WiringPort, WiringGraphContext
+
     WiringPort.eval = notebook_eval_node
     from hgraph._builder._ts_builder import TimeSeriesBuilderFactory
+
     if not TimeSeriesBuilderFactory.has_instance():
         TimeSeriesBuilderFactory.declare_default_factory()
     # Prepare the contexts required for evaluation
@@ -47,4 +59,3 @@ def notebook_eval_node(self) -> Sequence[tuple[datetime, Any]]:
     record(self)
     notebook_evaluate_graph()
     return get_recorded_value()
-

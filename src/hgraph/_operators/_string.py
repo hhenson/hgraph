@@ -8,7 +8,7 @@ from hgraph._types._tsb_type import TimeSeriesSchema, TSB, TS_SCHEMA, TS_SCHEMA_
 
 from hgraph._wiring._decorators import operator
 
-__all__ = ('str_', 'match_', 'Match', 'replace', 'split', 'join', 'format_')
+__all__ = ("str_", "match_", "Match", "replace", "split", "join", "format_")
 
 
 @operator
@@ -55,7 +55,9 @@ def join(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
 
 
 @operator
-def format_(fmt: TS[str], *__pos_args__: TSB[TS_SCHEMA], __sample__: int = -1, **__kw_args__: TSB[TS_SCHEMA_1]) -> TS[str]:
+def format_(
+    fmt: TS[str], *__pos_args__: TSB[TS_SCHEMA], __sample__: int = -1, **__kw_args__: TSB[TS_SCHEMA_1]
+) -> TS[str]:
     """
     Writes the contents of the time-series values provided (in args / kwargs) to a string using the format string
     provided. The kwargs will be used as named inputs to the format string and args as enumerated args.

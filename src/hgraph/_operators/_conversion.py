@@ -18,8 +18,7 @@ def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = DEFAULT[OUT], **kwargs) -> OUT
 
 
 @operator
-def combine(*args: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
-    ...
+def combine(*args: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]: ...
 
 
 @operator

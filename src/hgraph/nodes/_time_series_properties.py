@@ -5,7 +5,7 @@ from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL
 __all__ = ("valid", "last_modified_time", "last_modified_date")
 
 
-@compute_node(valid=("ts",), active=('ts',))
+@compute_node(valid=("ts",), active=("ts",))
 def valid(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bool]:
     if ts.modified:
         if ts_value.bound:

@@ -21,8 +21,17 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError
 if typing.TYPE_CHECKING:
     from hgraph import WiringNodeInstance
 
-__all__ = ("WiringPort", "ErrorWiringPort", "TSDWiringPort", "TSDREFWiringPort", "DelayedBindingWiringPort",
-           "TSBWiringPort", "TSBREFWiringPort", "TSLWiringPort", "TSLREFWiringPort")
+__all__ = (
+    "WiringPort",
+    "ErrorWiringPort",
+    "TSDWiringPort",
+    "TSDREFWiringPort",
+    "DelayedBindingWiringPort",
+    "TSBWiringPort",
+    "TSBREFWiringPort",
+    "TSLWiringPort",
+    "TSLREFWiringPort",
+)
 
 
 def _wiring_port_for(tp: HgTypeMetaData, node_instance: "WiringNodeInstance", path: [int, ...]) -> "WiringPort":
@@ -31,11 +40,11 @@ def _wiring_port_for(tp: HgTypeMetaData, node_instance: "WiringNodeInstance", pa
         HgTSBTypeMetaData: lambda: TSBWiringPort(node_instance, path),
         HgTSLTypeMetaData: lambda: TSLWiringPort(node_instance, path),
         HgREFTypeMetaData: lambda: {
-                   HgTSDTypeMetaData: lambda: TSDREFWiringPort(node_instance, path),
-                   HgTSBTypeMetaData: lambda: TSBREFWiringPort(node_instance, path),
-                   HgTSLTypeMetaData: lambda: TSLREFWiringPort(node_instance, path),
-                }.get(type(tp.value_tp), lambda: WiringPort(node_instance, path))()
-        }.get(type(tp), lambda: WiringPort(node_instance, path))()
+            HgTSDTypeMetaData: lambda: TSDREFWiringPort(node_instance, path),
+            HgTSBTypeMetaData: lambda: TSBREFWiringPort(node_instance, path),
+            HgTSLTypeMetaData: lambda: TSLREFWiringPort(node_instance, path),
+        }.get(type(tp.value_tp), lambda: WiringPort(node_instance, path))(),
+    }.get(type(tp), lambda: WiringPort(node_instance, path))()
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=False)
@@ -52,21 +61,26 @@ class WiringPort:
 
     For example, node.output[p1][p2][p3] for a path of (p1, p2, p3).
     """
+
     node_instance: "WiringNodeInstance"
     path: tuple[SCALAR, ...] = tuple()  # The path from out () to the time-series to be bound.
 
     @property
     def has_peer(self) -> bool:
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
+
         return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]) \
-            -> set["Edge"]:
+    def edges_for(
+        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+    ) -> set["Edge"]:
         """Return the edges required to bind this output to the dst_node"""
-        assert self.has_peer, \
-            "Can not bind a non-peered node, the WiringPort must be sub-classed and override this method"
+        assert (
+            self.has_peer
+        ), "Can not bind a non-peered node, the WiringPort must be sub-classed and override this method"
 
         from hgraph._builder._graph_builder import Edge
+
         return {Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path)}
 
     @property
@@ -84,7 +98,14 @@ class WiringPort:
     def __error__(self, trace_back_depth: int = 1, capture_values: bool = False) -> "WiringPort":
         if self.path == tuple():
             self.node_instance.mark_error_handler_registered(trace_back_depth, capture_values)
-            return ErrorWiringPort(self.node_instance, tuple([-1, ]))
+            return ErrorWiringPort(
+                self.node_instance,
+                tuple(
+                    [
+                        -1,
+                    ]
+                ),
+            )
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
 
@@ -106,6 +127,7 @@ class DelayedBindingWiringPort(WiringPort):
     A wiring port that is not yet bound to a node. This is used in the graph builder to create a placeholder for
     a wiring port that will be bound later.
     """
+
     node_instance: "WiringNodeInstance" = None
     output_type: HgTimeSeriesTypeMetaData = None
 
@@ -118,8 +140,9 @@ class DelayedBindingWiringPort(WiringPort):
 
     def bind(self, wiring_port: WiringPort):
         if self.output_type != wiring_port.output_type:
-            raise CustomMessageWiringError("The output type of the delayed binding port does not match the output type "
-                                           "of the port being bound")
+            raise CustomMessageWiringError(
+                "The output type of the delayed binding port does not match the output type " "of the port being bound"
+            )
 
         object.__setattr__(self, "node_instance", wiring_port.node_instance)
         object.__setattr__(self, "path", wiring_port.path)
@@ -134,10 +157,12 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     def __getitem__(self, key):
         from hgraph.nodes import tsd_get_item
+
         return tsd_get_item(self, key)
 
     def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
+
         return reduce(fn, self, zero)
 
 
@@ -147,14 +172,17 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
     @property
     def key_set(self) -> TSS[SCALAR]:
         from hgraph import keys_
+
         return keys_(self)
 
     def __getitem__(self, key):
         from hgraph.nodes import tsd_get_item
+
         return tsd_get_item(self, key)
 
     def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
+
         return reduce(fn, self, zero)
 
 
@@ -206,14 +234,16 @@ class TSBWiringPort(WiringPort):
             raise CustomMessageWiringError("The schema does not have a scalar type")
 
         from hgraph import convert, CompoundScalar, TS
+
         return convert[TS[CompoundScalar]](self)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
-                  dst_path: tuple[SCALAR, ...]) -> \
-            set["Edge"]:
+    def edges_for(
+        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+    ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
             from hgraph._builder._graph_builder import Edge
+
             edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
         else:
             for ndx, arg in enumerate(self.__schema__.__meta_data_schema__):
@@ -248,14 +278,17 @@ class TSBREFWiringPort(WiringPort):
             raise CustomMessageWiringError("The schema does not have a scalar type")
 
         from hgraph import convert, CompoundScalar, TS
+
         return convert[TS[CompoundScalar]](self)
 
     def __getattr__(self, item):
         from hgraph.nodes._tsb_operators import tsb_get_item
+
         return tsb_get_item(self, item)
 
     def __getitem__(self, item):
         from hgraph.nodes._tsb_operators import tsb_get_item
+
         return tsb_get_item(self, item)
 
     def as_dict(self):
@@ -290,6 +323,7 @@ class TSLWiringPort(WiringPort):
         """Return the wiring port for an individual TSL element"""
         if isinstance(item, WiringPort):
             from hgraph import getitem_
+
             return getitem_(self, item)
 
         output_type: HgTSLTypeMetaData = self.output_type
@@ -297,7 +331,8 @@ class TSLWiringPort(WiringPort):
         size_ = output_type.size
         if not size_.FIXED_SIZE:
             raise CustomMessageWiringError(
-                "Currently we are unable to select a time-series element from an unbounded TSL")
+                "Currently we are unable to select a time-series element from an unbounded TSL"
+            )
         elif item >= size_.SIZE:
             # Unfortunately, zip seems to depend on an IndexError being raised, so try and provide
             # as much useful context in the error message as possible
@@ -321,12 +356,13 @@ class TSLWiringPort(WiringPort):
             path = input_wiring_port.path
         return _wiring_port_for(tp_, node_instance, path)
 
-    def edges_for(self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int,
-                  dst_path: tuple[SCALAR, ...]) -> \
-            set["Edge"]:
+    def edges_for(
+        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+    ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
             from hgraph._builder._graph_builder import Edge
+
             edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
         else:
             # This should work as we don't support unbounded TSLs as non-peered nodes at the moment.
@@ -353,4 +389,5 @@ class TSLREFWiringPort(WiringPort):
 
     def __getitem__(self, item):
         from hgraph import getitem_
+
         return getitem_(self, item)

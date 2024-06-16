@@ -4,8 +4,13 @@ from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._wiring._wiring_utils import pretty_str_types
 from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_errors import WiringFailureError
-from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, HgTypeMetaData, WiringNodeSignature, \
-    PreResolvedWiringNodeWrapper, validate_and_resolve_signature
+from hgraph._wiring._wiring_node_class._wiring_node_class import (
+    WiringNodeClass,
+    HgTypeMetaData,
+    WiringNodeSignature,
+    PreResolvedWiringNodeWrapper,
+    validate_and_resolve_signature,
+)
 from hgraph._wiring._wiring_node_signature import WiringNodeType, AUTO_RESOLVE
 from hgraph._wiring._wiring_port import WiringPort
 
@@ -33,8 +38,9 @@ class OperatorWiringNodeClass(WiringNodeClass):
         else:
             return False, None
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
-                 **kwargs) -> "WiringNodeInstance":
+    def __call__(
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs
+    ) -> "WiringNodeInstance":
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
         if found_overload:
             return r
@@ -44,29 +50,27 @@ class OperatorWiringNodeClass(WiringNodeClass):
     def __getitem__(self, item) -> "WiringNodeClass":
         if item:
             return PreResolvedWiringNodeWrapper(
-                signature=self.signature,
-                fn=self.fn,
-                underlying_node=self,
-                resolved_types=self._convert_item(item)
+                signature=self.signature, fn=self.fn, underlying_node=self, resolved_types=self._convert_item(item)
             )
         else:
             return self
 
-    def resolve_signature(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
-                          **kwargs) -> "WiringNodeSignature":
+    def resolve_signature(
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
+    ) -> "WiringNodeSignature":
         _, resolved_signature, _ = validate_and_resolve_signature(
-            self.signature,
-            *args,
-            __pre_resolved_types__=__pre_resolved_types__,
-            **kwargs)
+            self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
+        )
         return resolved_signature
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+    ) -> "NodeBuilder":
         raise RuntimeError("Should not be instantiating an operator definition")
 
     def __repr__(self):
         from inspect import signature
+
         s = signature(self.fn)
         return f"{self.fn.__name__}{str(s)}"
 
@@ -119,13 +123,16 @@ class OverloadedWiringNodeHelper:
             if signature.defaults.get(k) != AUTO_RESOLVE:
                 if t.is_scalar:
                     from hgraph import HgTypeOfTypeMetaData
+
                     if isinstance(t, HgTypeOfTypeMetaData) and t.value_tp.py_type == signature.defaults.get(k):
                         # skip args like `tp: Type[OUT] = DEFAULT[OUT]`
                         continue
                     else:
                         rank = scale_rank(t.generic_rank, 0.001)
                 elif k in (signature.var_arg, signature.var_kwarg):
-                    rank = scale_rank(t.generic_rank, 100.0)  # FIXME - this assumes the reciprocal of the 0.01 multiplier, need a constant
+                    rank = scale_rank(
+                        t.generic_rank, 100.0
+                    )  # FIXME - this assumes the reciprocal of the 0.01 multiplier, need a constant
                 else:
                     rank = t.generic_rank
                 ranks.append(rank)
@@ -138,8 +145,9 @@ class OverloadedWiringNodeHelper:
         for c, r in self.overloads:
             try:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
-                c.resolve_signature(*args, **kwargs,
-                                    __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH)
+                c.resolve_signature(
+                    *args, **kwargs, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH
+                )
                 candidates.append((c, r))
             except (WiringError, SyntaxError) as e:
                 if isinstance(e, WiringFailureError):
@@ -149,29 +157,41 @@ class OverloadedWiringNodeHelper:
                         traceback = traceback.tb_next
                     e = f"{exception} at {traceback.tb_frame.f_code.co_filename}:{traceback.tb_lineno}"
 
-                p = lambda x: pretty_str_types(x.output_type.py_type) if isinstance(x, WiringPort) else pretty_str_types(x)
-                reject_reason = (f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
-                                 f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}")
+                p = lambda x: (
+                    pretty_str_types(x.output_type.py_type) if isinstance(x, WiringPort) else pretty_str_types(x)
+                )
+                reject_reason = (
+                    f"Did not resolve {c.signature.name} with {','.join(p(i) for i in args)}, "
+                    f"{','.join(f'{k}:{p(v)}' for k, v in kwargs.items())} : {e}"
+                )
 
                 rejected_candidates.append((c.signature.signature, reject_reason))
             except Exception as e:
                 raise
 
         best_candidates = sorted(candidates, key=lambda x: x[1])
-        pick = best_candidates[0][0] if (lbc := len(best_candidates)) > 0 and (lbc == 1 or best_candidates[0][1] < best_candidates[1][1]) else None
+        pick = (
+            best_candidates[0][0]
+            if (lbc := len(best_candidates)) > 0 and (lbc == 1 or best_candidates[0][1] < best_candidates[1][1])
+            else None
+        )
         from hgraph._wiring._wiring_observer import WiringObserverContext
+
         WiringObserverContext.instance().notify_overload_resolution(
             self.base.signature,
             best_candidates[0] if pick else None,
             [(c, r) for c, r in rejected_candidates],
-            [(c, r) for c, r in candidates if c is not pick]
+            [(c, r) for c, r in candidates if c is not pick],
         )
 
         if not candidates:
             args_tp = [str(a.output_type) if isinstance(a, WiringPort) else str(a) for a in args]
-            kwargs_tp = [(str(k), str(v.output_type) if isinstance(v, WiringPort) else str(v)) for k, v in
-                         kwargs.items() if not k.startswith("_")]
-            _msg_part = '\n'.join(str(c) for c in rejected_candidates)
+            kwargs_tp = [
+                (str(k), str(v.output_type) if isinstance(v, WiringPort) else str(v))
+                for k, v in kwargs.items()
+                if not k.startswith("_")
+            ]
+            _msg_part = "\n".join(str(c) for c in rejected_candidates)
             raise WiringError(
                 f"Cannot wire overload with args {args_tp}, kwargs {kwargs_tp}: no matching candidates found\n"
                 f"Rejected candidates:\n{_msg_part}"
@@ -179,10 +199,11 @@ class OverloadedWiringNodeHelper:
 
         if len(best_candidates) > 1 and pick is None:
             p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
-            newline = '\n'
+            newline = "\n"
             raise WiringError(
                 f"Overloads are ambiguous with given parameters:\n "
                 f"{newline.join(f'{c.signature.signature} with rank {r}' for c, r in best_candidates if r == best_candidates[0][1])}"
-                f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}")
+                f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}"
+            )
 
         return pick

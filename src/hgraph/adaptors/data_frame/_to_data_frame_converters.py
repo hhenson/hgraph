@@ -1,13 +1,29 @@
 """
 Tooling to convert to a dataframe from variable time-series types.
 """
+
 from datetime import date, datetime
 
 import polars as pl
 from frozendict import frozendict
 
-from hgraph import graph, TIME_SERIES_TYPE, TS, Frame, COMPOUND_SCALAR, compute_node, SCALAR, STATE, AUTO_RESOLVE, TSB, \
-    TS_SCHEMA, SCALAR_1, TSD, compound_scalar, operator
+from hgraph import (
+    graph,
+    TIME_SERIES_TYPE,
+    TS,
+    Frame,
+    COMPOUND_SCALAR,
+    compute_node,
+    SCALAR,
+    STATE,
+    AUTO_RESOLVE,
+    TSB,
+    TS_SCHEMA,
+    SCALAR_1,
+    TSD,
+    compound_scalar,
+    operator,
+)
 
 
 @operator
@@ -29,21 +45,26 @@ def to_frame(ts: TIME_SERIES_TYPE) -> TS[Frame[COMPOUND_SCALAR]]:
 
 
 def _ts_frame_cs_resolver(mapping, scalars):
-    value_col = scalars['value_col']
+    value_col = scalars["value_col"]
     if value_col is None:
         raise ValueError("value_col cannot be None")
     schema = {value_col: mapping[SCALAR].py_type}
-    dt_col = scalars['dt_col']
+    dt_col = scalars["dt_col"]
     if dt_col is not None:
-        schema = {dt_col: date if scalars['dt_is_date'] else datetime} | schema
+        schema = {dt_col: date if scalars["dt_is_date"] else datetime} | schema
     return compound_scalar(**schema)
 
 
 @compute_node(overloads=to_frame, resolvers={COMPOUND_SCALAR: _ts_frame_cs_resolver})
-def to_frame_ts(ts: TS[SCALAR], value_col: str = None, dt_col: str = None, dt_is_date: bool = False,
-                _state: STATE = None,
-                _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-                _s_tp: type[SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
+def to_frame_ts(
+    ts: TS[SCALAR],
+    value_col: str = None,
+    dt_col: str = None,
+    dt_is_date: bool = False,
+    _state: STATE = None,
+    _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _s_tp: type[SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
     return _state.to_frame(ts)
 
 
@@ -75,7 +96,8 @@ def _start_to_frame_ts(value_col: str, dt_col: str, _state: STATE, _tp: type[COM
         dt_col_tp = schema[dt_col].py_type
         if dt_col_tp not in (date, datetime):
             raise RuntimeError(
-                f"to_frame_ts type of dt_col('{dt_col}') is {dt_col_tp}, which is not date or datetime as required")
+                f"to_frame_ts type of dt_col('{dt_col}') is {dt_col_tp}, which is not date or datetime as required"
+            )
 
         if dt_col_tp is datetime:
             _state.to_frame = lambda ts: pl.DataFrame({dt_col: [ts.last_modified_time], value_col: [ts.value]})
@@ -88,29 +110,32 @@ def _start_to_frame_ts(value_col: str, dt_col: str, _state: STATE, _tp: type[COM
 def _extract_tsb_schema(mapping, scalars):
     _tsb_tp = mapping[TS_SCHEMA]
     tsb_schema = {k: v.scalar_type().py_type for k, v in _tsb_tp.py_type.__meta_data_schema__.items()}
-    map_ = scalars['map_']
+    map_ = scalars["map_"]
     if map_:
         tsb_schema = {map_.get(k, k): v for k, v in tsb_schema.items()}
-    dt_col = scalars['dt_col']
+    dt_col = scalars["dt_col"]
     if dt_col:
-        tsb_schema = {dt_col: date if scalars['dt_is_date'] else datetime} | tsb_schema
+        tsb_schema = {dt_col: date if scalars["dt_is_date"] else datetime} | tsb_schema
     return compound_scalar(**tsb_schema)
 
 
 @compute_node(overloads=to_frame, resolvers={COMPOUND_SCALAR: _extract_tsb_schema})
-def to_frame_tsb(ts: TSB[TS_SCHEMA],
-                 dt_col: str = None, map_: frozendict[str, str] = None, dt_is_date: bool = False,
-                 _state: STATE = None,
-                 _tsb_tp: type[TS_SCHEMA] = AUTO_RESOLVE,
-                 _frame_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[Frame[COMPOUND_SCALAR]]:
+def to_frame_tsb(
+    ts: TSB[TS_SCHEMA],
+    dt_col: str = None,
+    map_: frozendict[str, str] = None,
+    dt_is_date: bool = False,
+    _state: STATE = None,
+    _tsb_tp: type[TS_SCHEMA] = AUTO_RESOLVE,
+    _frame_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
     return _state.to_frame(ts)
 
 
 @to_frame_tsb.start
-def _start_to_frame_tsb(dt_col: str, map_: frozendict[str, str],
-                        _state: STATE,
-                        _tsb_tp: type[TS_SCHEMA],
-                        _frame_tp: type[COMPOUND_SCALAR]):
+def _start_to_frame_tsb(
+    dt_col: str, map_: frozendict[str, str], _state: STATE, _tsb_tp: type[TS_SCHEMA], _frame_tp: type[COMPOUND_SCALAR]
+):
     tsb_schema = {k: v.scalar_type().py_type for k, v in _tsb_tp.__meta_data_schema__.items()}
     frame_schema = {k: v.py_type for k, v in _frame_tp.__meta_data_schema__.items()}
     df_schema = dict(frame_schema)
@@ -126,28 +151,33 @@ def _start_to_frame_tsb(dt_col: str, map_: frozendict[str, str],
         if tsb_schema == df_schema:
             if dt_col is None:
                 _state.to_frame = lambda ts: pl.DataFrame(
-                    {k: [t.value if (t := ts[k]).valid else None] for k in tsb_schema.keys()}, schema=frame_schema)
+                    {k: [t.value if (t := ts[k]).valid else None] for k in tsb_schema.keys()}, schema=frame_schema
+                )
             else:
                 _state.to_frame = lambda ts: pl.DataFrame(
-                    {k: [t.value if (t := ts[k]).valid else None] for k in tsb_schema.keys()} | {
-                        dt_col: [ts.last_modified_time if is_dt else ts.last_modified_time.date()]},
-                    schema=frame_schema)
+                    {k: [t.value if (t := ts[k]).valid else None] for k in tsb_schema.keys()}
+                    | {dt_col: [ts.last_modified_time if is_dt else ts.last_modified_time.date()]},
+                    schema=frame_schema,
+                )
         elif map_:
             if {map_.get(k, k): v for k, v in tsb_schema.items()} == df_schema:
                 if dt_col is None:
                     _state.to_frame = lambda ts: pl.DataFrame(
                         {map_.get(k, k): t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()},
-                        schema=frame_schema)
+                        schema=frame_schema,
+                    )
                 else:
                     _state.to_frame = lambda ts: pl.DataFrame(
-                        {map_.get(k, k): t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()} | {
-                            dt_col: [ts.last_modified_time if is_dt else ts.last_modified_time.date()]},
-                        schema=frame_schema)
+                        {map_.get(k, k): t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()}
+                        | {dt_col: [ts.last_modified_time if is_dt else ts.last_modified_time.date()]},
+                        schema=frame_schema,
+                    )
         else:
             raise RuntimeError(f"Unable to map from {tsb_schema} to {frame_schema} using the mapping {map_}")
     else:
         raise RuntimeError(
-            f"to_frame unable to map from {tsb_schema} to {frame_schema} {'using the mapping ' if map_ else ''}{map_ if map_ else ''}")
+            f"to_frame unable to map from {tsb_schema} to {frame_schema} {'using the mapping ' if map_ else ''}{map_ if map_ else ''}"
+        )
 
 
 # @compute_node(overloads=to_frame)

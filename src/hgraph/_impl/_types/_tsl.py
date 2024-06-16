@@ -12,8 +12,9 @@ from hgraph._types._tsl_type import TimeSeriesListInput, TimeSeriesListOutput
 __all__ = ("PythonTimeSeriesListOutput", "PythonTimeSeriesListInput")
 
 
-class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TIME_SERIES_TYPE, SIZE],
-                                 Generic[TIME_SERIES_TYPE, SIZE]):
+class PythonTimeSeriesListOutput(
+    PythonTimeSeriesOutput, TimeSeriesListOutput[TIME_SERIES_TYPE, SIZE], Generic[TIME_SERIES_TYPE, SIZE]
+):
 
     def __init__(self, __type__: TIME_SERIES_TYPE, __size__: SIZE, *args, **kwargs):
         Generic.__init__(self)
@@ -72,11 +73,17 @@ class PythonTimeSeriesListOutput(PythonTimeSeriesOutput, TimeSeriesListOutput[TI
         return all(ts.valid for ts in self.values())
 
 
-class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[TIME_SERIES_TYPE, SIZE],
-                                Generic[TIME_SERIES_TYPE, SIZE]):
+class PythonTimeSeriesListInput(
+    PythonBoundTimeSeriesInput, TimeSeriesListInput[TIME_SERIES_TYPE, SIZE], Generic[TIME_SERIES_TYPE, SIZE]
+):
 
-    def __init__(self, __type__: TIME_SERIES_TYPE, __size__: SIZE, _owning_node: "Node" = None,
-                 _parent_input: "TimeSeriesInput" = None):
+    def __init__(
+        self,
+        __type__: TIME_SERIES_TYPE,
+        __size__: SIZE,
+        _owning_node: "Node" = None,
+        _parent_input: "TimeSeriesInput" = None,
+    ):
         Generic.__init__(self)
         TimeSeriesListInput.__init__(self, __type__, __size__)
         PythonBoundTimeSeriesInput.__init__(self, _owning_node=_owning_node, _parent_input=_parent_input)
@@ -95,7 +102,9 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
     def do_bind_output(self, output: TimeSeriesOutput):
         output: PythonTimeSeriesListOutput
         peer = True
-        for ts_input, ts_output in zip(self.values(), output.values() if output is not None else [None] * len(self.values())):
+        for ts_input, ts_output in zip(
+            self.values(), output.values() if output is not None else [None] * len(self.values())
+        ):
             peer &= ts_input.bind_output(ts_output)
 
         super().do_bind_output(output if peer else None)
@@ -171,5 +180,3 @@ class PythonTimeSeriesListInput(PythonBoundTimeSeriesInput, TimeSeriesListInput[
             return super().last_modified_time
         else:
             return max(ts.last_modified_time for ts in self.values())
-
-

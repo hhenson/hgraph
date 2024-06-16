@@ -9,7 +9,10 @@ from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictSca
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
 
-__all__ = ("HgTSDTypeMetaData", "HgTSDOutTypeMetaData",)
+__all__ = (
+    "HgTSDTypeMetaData",
+    "HgTSDOutTypeMetaData",
+)
 
 
 class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
@@ -22,7 +25,9 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         self.key_tp = key_tp
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return isinstance(tp, HgTSDTypeMetaData) and self.key_tp.matches(tp.key_tp) and self.value_tp.matches(tp.value_tp)
+        return (
+            isinstance(tp, HgTSDTypeMetaData) and self.key_tp.matches(tp.key_tp) and self.value_tp.matches(tp.value_tp)
+        )
 
     @property
     def is_resolved(self) -> bool:
@@ -31,6 +36,7 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
     @property
     def py_type(self) -> Type:
         from hgraph._types._tsd_type import TSD
+
         return TSD[self.key_tp.py_type, self.value_tp.py_type]
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
@@ -45,8 +51,9 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
         self.key_tp.build_resolution_dict(resolution_dict, wired_type.key_tp)
 
-    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                          wired_type: "HgTypeMetaData", value: object):
+    def build_resolution_dict_from_scalar(
+        self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
+    ):
         if isinstance(wired_type, HgDictScalarType):
             value: Dict
             k, v = next(iter(value.items()))
@@ -62,6 +69,7 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsd_type import TimeSeriesDictInput
         from hgraph._types._type_meta_data import ParseError
+
         if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesDictInput:
             key_tp = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if key_tp is None:
@@ -117,13 +125,14 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
         return type(o) is HgTSDTypeMetaData and self.key_tp == o.key_tp and self.value_tp == o.value_tp
 
     def __str__(self) -> str:
-        return f'TSD[{str(self.key_tp)}, {str(self.value_tp)}]'
+        return f"TSD[{str(self.key_tp)}, {str(self.value_tp)}]"
 
     def __repr__(self) -> str:
-        return f'HgTSDTypeMetaData({repr(self.key_tp)}, {repr(self.value_tp)})'
+        return f"HgTSDTypeMetaData({repr(self.key_tp)}, {repr(self.value_tp)})"
 
     def __hash__(self) -> int:
         from hgraph._types._tsd_type import TSD
+
         return hash(TSD) ^ hash(self.value_tp) ^ hash(self.key_tp)
 
 
@@ -132,15 +141,18 @@ class HgTSDOutTypeMetaData(HgTSDTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._tsd_type import TimeSeriesDictOutput
+
         if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesDictOutput:
-            return HgTSDOutTypeMetaData(HgScalarTypeMetaData.parse_type(value_tp.__args__[0]),
-                                        HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[1]))
+            return HgTSDOutTypeMetaData(
+                HgScalarTypeMetaData.parse_type(value_tp.__args__[0]),
+                HgTimeSeriesTypeMetaData.parse_type(value_tp.__args__[1]),
+            )
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSDOutTypeMetaData and self.key_tp == o.key_tp and self.value_tp == o.value_tp
 
     def __str__(self) -> str:
-        return f'TSD_OUT[{str(self.key_tp)}, {str(self.value_tp)}]'
+        return f"TSD_OUT[{str(self.key_tp)}, {str(self.value_tp)}]"
 
     def __repr__(self) -> str:
-        return f'HgTSDOutTypeMetaData({repr(self.key_tp)}, {repr(self.value_tp)})'
+        return f"HgTSDOutTypeMetaData({repr(self.key_tp)}, {repr(self.value_tp)})"

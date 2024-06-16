@@ -20,6 +20,7 @@ class AbstractSchema:
     There are two key implementations, namely the ``CompoundScalar`` and the ``TimeSeriesSchema``. These provide
     a scalar and time-series aggregated type information.
     """
+
     __meta_data_schema__: frozendict[str, "HgTypeMetaData"] = {}
     __resolved__: dict[str, Type["AbstractSchema"]] = {}  # Cache of resolved classes
     __partial_resolution__: frozendict[TypeVar, Type]
@@ -47,7 +48,7 @@ class AbstractSchema:
 
     @classmethod
     def _schema_is_resolved(cls):
-        return not getattr(cls, '__parameters__', False)
+        return not getattr(cls, "__parameters__", False)
 
     @classmethod
     def _schema_convert_base(cls, base_py):
@@ -60,6 +61,7 @@ class AbstractSchema:
         By default, we use the top level parser.
         """
         from hgraph._types._type_meta_data import HgTypeMetaData
+
         return HgTypeMetaData.parse_type(tp)
 
     @classmethod
@@ -70,15 +72,15 @@ class AbstractSchema:
         for k, v in cls.__meta_data_schema__.items():
             if r := resolved._schema_get(k):
                 v.do_build_resolution_dict(resolution_dict, r)
-        if (base := getattr(cls, '__base_typevar_meta__', None)) is not None:
-            if r := getattr(resolved, '__base_resolution_meta__', None):
+        if (base := getattr(cls, "__base_typevar_meta__", None)) is not None:
+            if r := getattr(resolved, "__base_resolution_meta__", None):
                 base.do_build_resolution_dict(resolution_dict, r)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         from hgraph._types._type_meta_data import ParseError
 
-        schema = getattr(cls, '__base_meta_data_schema__', {}) | dict(cls.__meta_data_schema__)
+        schema = getattr(cls, "__base_meta_data_schema__", {}) | dict(cls.__meta_data_schema__)
         for k, v in get_annotations(cls, eval_str=True).items():
             if getattr(v, "__origin__", None) == ClassVar:
                 continue
@@ -97,15 +99,17 @@ class AbstractSchema:
             if s is None:
                 raise ParseError(f"When parsing '{cls}', unable to parse item {k} with value {v}")
             if k in schema and not (s_p := schema[k]).matches(s):
-                raise ParseError(f"Attribute: '{k}' in '{cls}' is already defined in a parent as '{str(s_p)}'"
-                                 f" but attempted to be redefined as '{str(s)}")
+                raise ParseError(
+                    f"Attribute: '{k}' in '{cls}' is already defined in a parent as '{str(s_p)}'"
+                    f" but attempted to be redefined as '{str(s)}"
+                )
 
             schema[k] = s
 
-        if getattr(cls, '__build_meta_data__', True):
+        if getattr(cls, "__build_meta_data__", True):
             cls.__meta_data_schema__ = frozendict(schema)
 
-        if (params := getattr(cls, '__parameters__', None)) is not None:
+        if (params := getattr(cls, "__parameters__", None)) is not None:
             cls.__parameters_meta_data__ = {v: cls._parse_type(v) for v in params}
         elif any(not v.is_resolved for v in schema.values()):
             raise ParseError(f"Schema '{cls}' has unresolved types while not being generic class")
@@ -118,7 +122,7 @@ class AbstractSchema:
     @classmethod
     def _create_resolved_class(cls, schema: dict[str, "HgTypeMetaData"]) -> Type["AbstractSchema"]:
         """Create a 'resolved' instance class and cache as appropriate"""
-        suffix = ','.join(f"{k}:{str(schema[k])}" for k in sorted(schema))
+        suffix = ",".join(f"{k}:{str(schema[k])}" for k in sorted(schema))
         root_cls = cls._root_cls()
         cls_name = f"{root_cls.__name__}_{shake_256(bytes(suffix, 'utf8')).hexdigest(6)}"
         r_cls: Type["AbstractSchema"]
@@ -132,7 +136,7 @@ class AbstractSchema:
 
     @classmethod
     def _create_partial_resolved_class(cls, resolution_dict) -> Type["AbstractSchema"]:
-        suffix = ','.join(f"{str(resolution_dict.get(k, k))}" for k in cls.__parameters__)
+        suffix = ",".join(f"{str(resolution_dict.get(k, k))}" for k in cls.__parameters__)
         cls_name = f"{cls._root_cls().__qualname__}[{suffix}]"
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
@@ -146,23 +150,23 @@ class AbstractSchema:
 
     @classmethod
     def _resolve(cls, resolution_dict) -> Type["AbstractSchema"]:
-        suffix = ','.join(f"{str(resolution_dict.get(k, k))}" for k in cls.__parameters__)
+        suffix = ",".join(f"{str(resolution_dict.get(k, k))}" for k in cls.__parameters__)
         cls_name = f"{cls._root_cls().__qualname__}[{suffix}]"
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
             bases = (cls,)
             type_dict = {}
 
-            if base_py := getattr(cls, '__base_typevar__', None):
+            if base_py := getattr(cls, "__base_typevar__", None):
                 base = cls._parse_type(base_py)
                 if (base := base.resolve(resolution_dict, weak=True)).is_resolved:
                     base_py = cls._schema_convert_base(base.py_type)
                     bases = (cls, base_py)
-                    type_dict['__base_meta_data_schema__'] = base_py.__meta_data_schema__
-                    type_dict['__base_resolution_meta__'] = cls._parse_type(base_py)
+                    type_dict["__base_meta_data_schema__"] = base_py.__meta_data_schema__
+                    type_dict["__base_resolution_meta__"] = cls._parse_type(base_py)
                 else:
-                    type_dict['__base_typevar_meta__'] = base
-                    type_dict['__base_typevar__'] = base.py_type
+                    type_dict["__base_typevar_meta__"] = base
+                    type_dict["__base_typevar__"] = base.py_type
 
             parameters = []
             for p in cls.__parameters__:
@@ -175,9 +179,10 @@ class AbstractSchema:
             r_cls.__parameters__ = tuple(parameters)
             r_cls.__parameters_meta_data__ = {p: cls._parse_type(p) for p in parameters}
             r_cls.__meta_data_schema__ = frozendict(
-                {k: v.resolve(resolution_dict, weak=True) for k, v in r_cls.__meta_data_schema__.items()})
+                {k: v.resolve(resolution_dict, weak=True) for k, v in r_cls.__meta_data_schema__.items()}
+            )
 
-            if base_py and hasattr(r_cls, '__dataclass_fields__'):
+            if base_py and hasattr(r_cls, "__dataclass_fields__"):
                 p = r_cls.__dataclass_params__
                 r_cls = dataclass(r_cls, frozen=p.frozen, init=p.init, eq=p.eq, repr=p.repr)
 
@@ -190,14 +195,15 @@ class AbstractSchema:
 
     @classmethod
     def _matches_schema(cls, other):
-        return (
-                len(cls._schema_keys() - other._schema_keys()) == 0 and
-                all(cls._schema_get(k).matches(other._schema_get(k)) for k in cls._schema_keys()))
+        return len(cls._schema_keys() - other._schema_keys()) == 0 and all(
+            cls._schema_get(k).matches(other._schema_get(k)) for k in cls._schema_keys()
+        )
 
     @classmethod
     def __class_getitem__(cls, items):
         from hgraph._types._type_meta_data import ParseError
-        resolution_dict = dict(getattr(cls, '__partial_resolution__', {}))
+
+        resolution_dict = dict(getattr(cls, "__partial_resolution__", {}))
         if type(items) is not tuple:
             items = (items,)
         if len(items) > len(cls.__parameters__):
@@ -209,8 +215,9 @@ class AbstractSchema:
                 k = item.start
                 v = item.stop
             elif has_slice:
-                raise ParseError(f"'{cls}' has supplied slice parameters already, "
-                                 f"non-slice parameters are no longer accepted")
+                raise ParseError(
+                    f"'{cls}' has supplied slice parameters already, " f"non-slice parameters are no longer accepted"
+                )
             else:
                 k = parm
                 v = item
@@ -257,7 +264,4 @@ class Base:
             return super().__class_getitem__(item)
 
     def __mro_entries__(self, bases):
-        return (
-            type(f"Base_{self.item.__name__}", (Base,), {'__base_typevar__': self.item}),
-            Base,
-            self.item.__bound__)
+        return (type(f"Base_{self.item.__name__}", (Base,), {"__base_typevar__": self.item}), Base, self.item.__bound__)

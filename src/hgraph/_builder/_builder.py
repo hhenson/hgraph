@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar, Generic
 
-ITEM = TypeVar('ITEM')
+ITEM = TypeVar("ITEM")
 
 __all__ = ("Builder",)
 
@@ -26,4 +26,3 @@ class Builder(ABC, Generic[ITEM]):
         """
         Release the item and it's resources.
         """
-

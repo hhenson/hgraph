@@ -36,4 +36,3 @@ def any_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `any` operator
     """
-

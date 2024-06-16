@@ -4,8 +4,22 @@ from typing import Generic
 
 import numpy as np
 
-from hgraph import compute_node, TS, TSB, SCALAR, TimeSeriesSchema, Array, SIZE, STATE, AUTO_RESOLVE, MIN_DT, NUMBER, \
-    COMPOUND_SCALAR, Frame, Size
+from hgraph import (
+    compute_node,
+    TS,
+    TSB,
+    SCALAR,
+    TimeSeriesSchema,
+    Array,
+    SIZE,
+    STATE,
+    AUTO_RESOLVE,
+    MIN_DT,
+    NUMBER,
+    COMPOUND_SCALAR,
+    Frame,
+    Size,
+)
 
 
 __all__ = ("NpRollingWindowResult", "NpRollingWindowState", "np_rolling_window", "np_quantile", "np_std")
@@ -27,9 +41,14 @@ class NpRollingWindowState:
 
 
 @compute_node
-def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = None, _sz: type[SIZE] = AUTO_RESOLVE,
-                      _scalar: type[SCALAR] = AUTO_RESOLVE, _state: STATE[NpRollingWindowState] = None) \
-        -> TSB[NpRollingWindowResult]:
+def np_rolling_window(
+    ts: TS[SCALAR],
+    period: SIZE,
+    min_window_period: int = None,
+    _sz: type[SIZE] = AUTO_RESOLVE,
+    _scalar: type[SCALAR] = AUTO_RESOLVE,
+    _state: STATE[NpRollingWindowState] = None,
+) -> TSB[NpRollingWindowResult]:
     buffer: Array[SCALAR] = _state.buffer
     index: Array[datetime] = _state.index
     capacity: int = _state.capacity
@@ -51,20 +70,20 @@ def np_rolling_window(ts: TS[SCALAR], period: SIZE, min_window_period: int = Non
         if length != capacity:
             b = b[:length]
             i = i[:length]
-        return {'buffer': b, 'index': i}
+        return {"buffer": b, "index": i}
 
 
 @np_rolling_window.start
 def np_rolling_window_start(_sz: type[SIZE], _scalar: type[SCALAR], _state: STATE[NpRollingWindowState]):
     _state.capacity = _sz.SIZE
     if _state.capacity < 1:
-        raise RuntimeError('Period must be at least 1')
+        raise RuntimeError("Period must be at least 1")
     _state.buffer = np.array([_scalar()] * _sz.SIZE)
     _state.index = np.array([MIN_DT] * _sz.SIZE)
 
 
 @compute_node
-def np_quantile(ts: TS[Array[NUMBER, SIZE]], q: float, method: str = 'linear') -> TS[float]:
+def np_quantile(ts: TS[Array[NUMBER, SIZE]], q: float, method: str = "linear") -> TS[float]:
     """The np.quantile function, limited to a single axis"""
     return np.quantile(ts.value, q, method=method)
 
@@ -80,7 +99,7 @@ def _compute_size(compound_type: COMPOUND_SCALAR) -> type:
     values = iter(schema.values())
     v = next(values)
     if not all(v != v_ for v_ in values):
-        raise ValueError('Not all values of the frame are the same')
+        raise ValueError("Not all values of the frame are the same")
     return Size[len(schema.values())]
 
 
@@ -91,8 +110,12 @@ def _compute_data_tp(compound_type: COMPOUND_SCALAR) -> type:
     return v.py_type
 
 
-@compute_node(resolvers={SIZE: lambda mapping, scalars: _compute_size(mapping[COMPOUND_SCALAR]),
-                         NUMBER: lambda mapping, scalars: _compute_data_tp(mapping[COMPOUND_SCALAR])})
-def frame_to_1d_array(frame: TS[Frame[COMPOUND_SCALAR]], _sz: type[SIZE] = Size, _tp: SCALAR = float) \
-        -> TS[Array[SCALAR, SIZE]]:
-    ...
+@compute_node(
+    resolvers={
+        SIZE: lambda mapping, scalars: _compute_size(mapping[COMPOUND_SCALAR]),
+        NUMBER: lambda mapping, scalars: _compute_data_tp(mapping[COMPOUND_SCALAR]),
+    }
+)
+def frame_to_1d_array(
+    frame: TS[Frame[COMPOUND_SCALAR]], _sz: type[SIZE] = Size, _tp: SCALAR = float
+) -> TS[Array[SCALAR, SIZE]]: ...

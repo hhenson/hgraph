@@ -4,18 +4,17 @@ from contextlib import AbstractContextManager
 from typing import Mapping, Any
 
 from hgraph._runtime._global_state import GlobalState
-from hgraph._types import (TS, SCALAR, TIME_SERIES_TYPE, REF, STATE,
-                           HgREFTypeMetaData, clone_typevar)
+from hgraph._types import TS, SCALAR, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData, clone_typevar
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ('TimeSeriesContextTracker', 'CONTEXT_TIME_SERIES_TYPE')
+__all__ = ("TimeSeriesContextTracker", "CONTEXT_TIME_SERIES_TYPE")
 
 
 CONTEXT_TIME_SERIES_TYPE = clone_typevar(TIME_SERIES_TYPE, name="CONTEXT_TIME_SERIES_TYPE")
 
-ContextInfo = namedtuple('ContextInfo', ['context', 'scope', 'depth', 'path', 'frame', 'inner_graph_use'])
+ContextInfo = namedtuple("ContextInfo", ["context", "scope", "depth", "path", "frame", "inner_graph_use"])
 
 
 class TimeSeriesContextTracker(AbstractContextManager):
@@ -80,8 +79,10 @@ class TimeSeriesContextTracker(AbstractContextManager):
             else:
                 details.inner_graph_use[graph_scope.graph_nesting_depth()] = True
                 from hgraph import CONTEXT_TIME_SERIES_TYPE
-                return get_context_output[CONTEXT_TIME_SERIES_TYPE: details.context.output_type](
-                    details.path, details.depth - 1)
+
+                return get_context_output[CONTEXT_TIME_SERIES_TYPE : details.context.output_type](
+                    details.path, details.depth - 1
+                )
 
         return None
 
@@ -115,15 +116,18 @@ def capture_context_stop(path: str, state: STATE):
 
 class ContextNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+    ) -> "NodeBuilder":
         output_type = node_signature.time_series_output
         if type(output_type) is not HgREFTypeMetaData:
             node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
 
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
-                                                                                    self.error_output_type)
+
+        input_builder, output_builder, error_builder = create_input_output_builders(
+            node_signature, self.error_output_type
+        )
 
         from hgraph._impl._runtime._node import BaseNodeImpl
 
@@ -131,10 +135,12 @@ class ContextNodeClass(BaseWiringNodeClass):
             def do_eval(self):
                 """The service must be available by now, so we can retrieve the output reference."""
                 from hgraph._runtime._global_state import GlobalState
+
                 path = f'context-{self.owning_graph_id[:self.scalars["depth"]]}-{self.scalars["path"]}'
                 shared = GlobalState.instance().get(path)
 
                 from hgraph import TimeSeriesOutput
+
                 if shared is None:
                     raise RuntimeError(f"Missing shared output for path: {path}")
                 elif isinstance(shared, TimeSeriesOutput):
@@ -168,7 +174,7 @@ class ContextNodeClass(BaseWiringNodeClass):
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
-            node_impl=_PythonContextStubSourceNode
+            node_impl=_PythonContextStubSourceNode,
         )
 
 
@@ -195,6 +201,3 @@ def exit_ts_context(context: TIME_SERIES_TYPE):
 
 
 WiringPort.__exit__ = lambda s, exc_type, exc_val, exc_tb: exit_ts_context(s)
-
-
-

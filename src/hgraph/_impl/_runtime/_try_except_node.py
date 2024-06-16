@@ -3,8 +3,11 @@ from typing import Mapping, Any
 
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._builder._graph_builder import GraphBuilder
-from hgraph._impl._runtime._nested_evaluation_engine import PythonNestedNodeImpl, NestedEvaluationEngine, \
-    NestedEngineEvaluationClock
+from hgraph._impl._runtime._nested_evaluation_engine import (
+    PythonNestedNodeImpl,
+    NestedEvaluationEngine,
+    NestedEngineEvaluationClock,
+)
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature, Node
@@ -12,15 +15,16 @@ from hgraph._runtime._node import NodeSignature, Node
 
 class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
 
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 nested_graph_builder: GraphBuilder = None,
-                 input_node_ids: Mapping[str, int] = None,
-                 output_node_id: int = None
-                 ):
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        nested_graph_builder: GraphBuilder = None,
+        input_node_ids: Mapping[str, int] = None,
+        output_node_id: int = None,
+    ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars)
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_ids: Mapping[str, int] = input_node_ids
@@ -46,10 +50,8 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
     def initialise(self):
         self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self)
         self._active_graph.evaluation_engine = NestedEvaluationEngine(
-            self.graph.evaluation_engine,
-            NestedEngineEvaluationClock(
-                self.graph.engine_evaluation_clock,
-                self))
+            self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
+        )
         self._active_graph.initialise()
         self._wire_graph()
 
@@ -69,9 +71,9 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
             self._active_graph.evaluate_graph()
         except Exception as e:
             from hgraph._types._error_type import NodeError
+
             err = NodeError.capture_error(e, self)
             if type(self.signature.time_series_output) is HgTSBTypeMetaData:
                 self.output.exception.value = err
             else:
                 self.output.value = err
-

@@ -7,9 +7,17 @@ from hgraph._wiring._wiring_context import WIRING_CONTEXT
 if typing.TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData
 
-__all__ = ("WiringError", "ArgumentBindingErrors", "IncorrectTypeBinding", "TemplateTypeIncompatibleResolution",
-           "MissingInputsError", "NoTimeSeriesInputsError", "InvalidArgumentsProvided", "CustomMessageWiringError",
-           "RequirementsNotMetWiringError")
+__all__ = (
+    "WiringError",
+    "ArgumentBindingErrors",
+    "IncorrectTypeBinding",
+    "TemplateTypeIncompatibleResolution",
+    "MissingInputsError",
+    "NoTimeSeriesInputsError",
+    "InvalidArgumentsProvided",
+    "CustomMessageWiringError",
+    "RequirementsNotMetWiringError",
+)
 
 
 class WiringError(RuntimeError, ABC):
@@ -21,11 +29,8 @@ class WiringError(RuntimeError, ABC):
 
     def _print_error(self, msg):
         import sys
-        print(f"\n"
-              f"Wiring Error\n"
-              f"============\n"
-              f"\n"
-              f"{msg}", file=sys.stderr)
+
+        print(f"\n" f"Wiring Error\n" f"============\n" f"\n" f"{msg}", file=sys.stderr)
 
     @abstractmethod
     def print_error(self):
@@ -36,6 +41,7 @@ class WiringFailureError(WiringError):
     """
     Indicates that the wiring process failed with non-wiring specific exception which can be found in __cause__
     """
+
     pass
 
 
@@ -57,12 +63,14 @@ class ArgumentBindingErrors(WiringError, ABC):
         if not hasattr(self, "arg"):
             raise ValueError(
                 "Children of ArgumentBindingErrors must have __pre_init__ called in their __init__ method "
-                "prior to calling super")
+                "prior to calling super"
+            )
 
     @property
     def input_value(self):
         inp_value = self.kwargs.get(self.arg)
         from hgraph import WiringPort
+
         if isinstance(inp_value, WiringPort) and inp_value.node_instance:
             inp_value = inp_value.node_instance.resolved_signature.signature
         else:
@@ -80,30 +88,35 @@ class IncorrectTypeBinding(ArgumentBindingErrors):
 
     def print_error(self):
         inp_value = self.input_value
-        msg = f"When resolving '{self.signature.signature}' \n" \
-              f"Argument '{self.arg}: {self.expected_type}' <- '{self.actual_type}' from '{inp_value}'"
+        msg = (
+            f"When resolving '{self.signature.signature}' \n"
+            f"Argument '{self.arg}: {self.expected_type}' <- '{self.actual_type}' from '{inp_value}'"
+        )
         self._print_error(msg)
 
 
 class TemplateTypeIncompatibleResolution(ArgumentBindingErrors):
 
-    def __init__(self,
-                 template_type: "HgTypeMetaData",
-                 existing_resolution: "HgTypeMetaData",
-                 new_resolution: "HgTypeMetaData"):
+    def __init__(
+        self, template_type: "HgTypeMetaData", existing_resolution: "HgTypeMetaData", new_resolution: "HgTypeMetaData"
+    ):
         self.__pre_init__()
         self.template_type = template_type  # The type expected by the signature
         self.existing_resolution = existing_resolution  # The currently resolved type
         self.new_resolution = new_resolution  # The new resolved type
-        super().__init__(f"TypeVar '{str(template_type)}' has already been resolved to "
-                         f"'{str(existing_resolution)}' which does not match the type '{self.arg}: {new_resolution}'")
+        super().__init__(
+            f"TypeVar '{str(template_type)}' has already been resolved to "
+            f"'{str(existing_resolution)}' which does not match the type '{self.arg}: {new_resolution}'"
+        )
 
     def print_error(self):
-        msg = f"When resolving '{self.signature.signature}' \n" \
-              f"Template: '{self.template_type}' <- '{self.existing_resolution}'\n" \
-              f"Argument '{self.arg}: {self.signature.input_types[self.arg]}' " \
-              f" <- '{self.input_value}'\n" \
-              f"Redefines template to '{self.new_resolution}'"
+        msg = (
+            f"When resolving '{self.signature.signature}' \n"
+            f"Template: '{self.template_type}' <- '{self.existing_resolution}'\n"
+            f"Argument '{self.arg}: {self.signature.input_types[self.arg]}' "
+            f" <- '{self.input_value}'\n"
+            f"Redefines template to '{self.new_resolution}'"
+        )
         self._print_error(msg)
 
 
@@ -117,10 +130,15 @@ class MissingInputsError(WiringError):
 
     def print_error(self):
         from hgraph import WiringPort
-        provided_inputs = {k: str(v.output_type) if isinstance(v, WiringPort) else str(v) for k, v in self.kwargs.items()}
-        msg = f"When resolving '{self.signature.signature}' \n" \
-              f"Missing Inputs: {self.missing_inputs}\n" \
-              f"Provided Inputs: {provided_inputs}"
+
+        provided_inputs = {
+            k: str(v.output_type) if isinstance(v, WiringPort) else str(v) for k, v in self.kwargs.items()
+        }
+        msg = (
+            f"When resolving '{self.signature.signature}' \n"
+            f"Missing Inputs: {self.missing_inputs}\n"
+            f"Provided Inputs: {provided_inputs}"
+        )
         self._print_error(msg)
 
 
@@ -131,8 +149,7 @@ class NoTimeSeriesInputsError(WiringError):
         super().__init__("No time-series inputs provided")
 
     def print_error(self):
-        msg = f"When resolving '{self.signature.signature}' \n" \
-              "No time-series inputs provided"
+        msg = f"When resolving '{self.signature.signature}' \n" "No time-series inputs provided"
         self._print_error(msg)
 
 
@@ -144,8 +161,7 @@ class InvalidArgumentsProvided(WiringError):
         super().__init__(f"Invalid arguments: {self.bad_arguments}")
 
     def print_error(self):
-        msg = f"When resolving '{self.signature.signature}' \n" \
-              f"Invalid inputs provided: {self.bad_arguments}"
+        msg = f"When resolving '{self.signature.signature}' \n" f"Invalid inputs provided: {self.bad_arguments}"
         self._print_error(msg)
 
 
@@ -171,4 +187,3 @@ class RequirementsNotMetWiringError(WiringError):
         signature = self.signature.signature if self.signature else "unnamed graph"
         msg = f"Requirements not met for '{signature}' \n{self.message}"
         self._print_error(msg)
-

@@ -59,9 +59,12 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     Also for the Python implementation we can just drop the typing on the properties for value and delta_value
     and these can be supported directly.
     """
+
     _output: TimeSeriesOutput | None = None
 
-    _reference_output: TimeSeriesOutput | None = None  # TODO: This might be refactored into a generic binding observer pattern
+    _reference_output: TimeSeriesOutput | None = (
+        None  # TODO: This might be refactored into a generic binding observer pattern
+    )
     # however there is no guarantee that if there were other types of observers they would not clash with the
     # references, so probably this is required to be this way. I am just a little annoyed with the growth of the object
 
@@ -98,7 +101,11 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def notify(self, modified_time: datetime):
         if self._notify_time != modified_time:
             self._notify_time = modified_time
-            self.parent_input.notify_parent(self, modified_time) if self.parent_input else self.owning_node.notify(modified_time)
+            (
+                self.parent_input.notify_parent(self, modified_time)
+                if self.parent_input
+                else self.owning_node.notify(modified_time)
+            )
 
     @property
     def output(self) -> TimeSeriesOutput:
@@ -106,6 +113,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     def bind_output(self, output: TimeSeriesOutput) -> bool:
         from hgraph import TimeSeriesReferenceOutput
+
         if isinstance(output, TimeSeriesReferenceOutput):
             if output.value:
                 output.value.bind_input(self)
@@ -121,7 +129,9 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
         if (self.owning_node.is_started or self.owning_node.is_starting) and self._output and self._output.valid:
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
-                self.notify(self._sample_time)  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
+                self.notify(
+                    self._sample_time
+                )  # TODO: This might belong to make_active, or not? THere is a race with setting sample time too
 
         return peer
 
@@ -129,6 +139,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
         valid = self.valid
         if self.bound:
             from hgraph import TimeSeriesReferenceOutput
+
             output = self._output
             if isinstance(output, TimeSeriesReferenceOutput):
                 output.stop_observing_reference(self)

@@ -3,21 +3,36 @@ from datetime import datetime
 from itertools import zip_longest
 from typing import Any
 
-from hgraph import graph, run_graph, GlobalState, MIN_TD, HgTypeMetaData, HgTSTypeMetaData, prepare_kwargs, MIN_ST, \
-    MIN_DT, \
-    WiringContext, WiringError, EvaluationLifeCycleObserver
+from hgraph import (
+    graph,
+    run_graph,
+    GlobalState,
+    MIN_TD,
+    HgTypeMetaData,
+    HgTSTypeMetaData,
+    prepare_kwargs,
+    MIN_ST,
+    MIN_DT,
+    WiringContext,
+    WiringError,
+    EvaluationLifeCycleObserver,
+)
 from hgraph.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
 from hgraph.test._node_printer import EvaluationTrace
 
 
-def eval_node(node, *args, resolution_dict: [str, Any] = None,
-              __trace__: bool = False,
-              __trace_wiring__: bool = False,
-              __observers__: list[EvaluationLifeCycleObserver] = None,
-              __elide__: bool = False,
-              __start_time__: datetime = None,
-              __end_time__: datetime = None,
-              **kwargs):
+def eval_node(
+    node,
+    *args,
+    resolution_dict: [str, Any] = None,
+    __trace__: bool = False,
+    __trace_wiring__: bool = False,
+    __observers__: list[EvaluationLifeCycleObserver] = None,
+    __elide__: bool = False,
+    __start_time__: datetime = None,
+    __end_time__: datetime = None,
+    **kwargs,
+):
     """
     Evaluates a node using the supplied arguments.
     This will detect time-series inputs in the node and will convert array inputs into time-series inputs.
@@ -61,11 +76,13 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
                 continue
             if ts_arg == node.signature.var_arg and ts_arg not in kwargs:
                 # this was collected into *arg hence needs to be transposed to be correct shape for TSL replay
-                arg_value = list(zip_longest(*(a if hasattr(a, '__iter__') else [a] for a in arg_value)))
+                arg_value = list(zip_longest(*(a if hasattr(a, "__iter__") else [a] for a in arg_value)))
             if ts_arg == node.signature.var_kwarg and ts_arg not in kwargs:
                 # this was collected into **kwarg hence needs to be transposed to be correct shape for TSB replay
-                arg_value = list({k: v for k, v in zip(arg_value.keys(), i)}
-                            for i in zip_longest(*(a if hasattr(a, '__iter__') else [a] for a in arg_value.values())))
+                arg_value = list(
+                    {k: v for k, v in zip(arg_value.keys(), i)}
+                    for i in zip_longest(*(a if hasattr(a, "__iter__") else [a] for a in arg_value.values()))
+                )
             if resolution_dict is not None and ts_arg in resolution_dict:
                 ts_type = resolution_dict[ts_arg]
             else:
@@ -79,7 +96,8 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
                     if ts_type is None or not ts_type.is_resolved:
                         raise RuntimeError(
                             f"Unable to auto resolve type for '{ts_arg}', "
-                            f"signature type is '{node.signature.input_types[ts_arg]}'")
+                            f"signature type is '{node.signature.input_types[ts_arg]}'"
+                        )
                     ts_type = HgTSTypeMetaData(ts_type)
                     print(f"Auto resolved type for '{ts_arg}' to '{ts_type}'")
                 ts_type = ts_type.py_type if not ts_type.is_context_wired else ts_type.ts_type.py_type
@@ -103,9 +121,14 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
                 continue
             # Dealing with scalar to time-series support
             max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
-        run_graph(eval_node_graph, life_cycle_observers=__observers__,
-                  start_time=__start_time__, end_time=__end_time__,
-                  __trace__=__trace__, __trace_wiring__=__trace_wiring__)
+        run_graph(
+            eval_node_graph,
+            life_cycle_observers=__observers__,
+            start_time=__start_time__,
+            end_time=__end_time__,
+            __trace__=__trace__,
+            __trace_wiring__=__trace_wiring__,
+        )
 
         results = get_recorded_value() if node.signature.output_type is not None else []
         if results:

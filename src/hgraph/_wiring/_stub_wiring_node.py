@@ -26,16 +26,24 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
         name=f"stub:{key}",
         args=("ts",),
         defaults=frozendict(),
-        input_types=frozendict({'ts': ref_tp}),
+        input_types=frozendict({"ts": ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 13),
-        active_inputs=frozenset({"ts",}),
+        active_inputs=frozenset(
+            {
+                "ts",
+            }
+        ),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
-        time_series_args=frozenset({'ts',}),
-        label=key
+        time_series_args=frozenset(
+            {
+                "ts",
+            }
+        ),
+        label=key,
     )
     node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
     node_instance = create_wiring_node_instance(node, signature, frozendict(), 1)
@@ -52,18 +60,26 @@ def create_output_stub(output: WiringPort):
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
         name="stub:__out__",
-        args=('ts',),
+        args=("ts",),
         defaults=frozendict(),
-        input_types=frozendict({'ts': ref_tp}),
+        input_types=frozendict({"ts": ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 42),
-        active_inputs=frozenset({"ts",}),
+        active_inputs=frozenset(
+            {
+                "ts",
+            }
+        ),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
-        time_series_args=frozenset({'ts',}),
-        label="graph:out"
+        time_series_args=frozenset(
+            {
+                "ts",
+            }
+        ),
+        label="graph:out",
     )
     node = PythonWiringNodeClass(signature, _stub)
     node_instance = create_wiring_node_instance(node, signature, frozendict({"ts": output}), output.rank + 1)
@@ -88,6 +104,7 @@ class KeyStubEvalFn:
     """
     A callable object we can attach the key to, then during start it will inject the key into the output.
     """
+
     def __init__(self):
         self.key = None
 

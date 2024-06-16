@@ -10,29 +10,41 @@ if TYPE_CHECKING:
     from hgraph._runtime._node import Node
 
 __all__ = (
-    "TimeSeries", "TimeSeriesDeltaValue", "TimeSeriesPushQueue", "TimeSeriesPullQueue", "TimeSeriesOutput",
-    "TimeSeriesInput", "TimeSeriesSignalInput", "DELTA_SCALAR", 'OUTPUT_TYPE', "TIME_SERIES_TYPE_1",
-    "TIME_SERIES_TYPE", "K", "K_1", "K_2", "V", "TimeSeriesIterable", "SIGNAL", "TIME_SERIES_TYPE_2",
-    "OUT", "OUT_1"
+    "TimeSeries",
+    "TimeSeriesDeltaValue",
+    "TimeSeriesPushQueue",
+    "TimeSeriesPullQueue",
+    "TimeSeriesOutput",
+    "TimeSeriesInput",
+    "TimeSeriesSignalInput",
+    "DELTA_SCALAR",
+    "OUTPUT_TYPE",
+    "TIME_SERIES_TYPE_1",
+    "TIME_SERIES_TYPE",
+    "K",
+    "K_1",
+    "K_2",
+    "V",
+    "TimeSeriesIterable",
+    "SIGNAL",
+    "TIME_SERIES_TYPE_2",
+    "OUT",
+    "OUT_1",
 )
 
 
 class TimeSeriesPushQueue(Protocol):
 
-    def __lock__(self):
-        ...
+    def __lock__(self): ...
 
-    def __unlock__(self):
-        ...
+    def __unlock__(self): ...
 
-    def send_pyobj(self, value: object):
-        ...
+    def send_pyobj(self, value: object): ...
 
 
 class TimeSeriesPullQueue(Protocol):
 
-    def send_pyobj(self, value: object, when: Union[datetime, timedelta]):
-        ...
+    def send_pyobj(self, value: object, when: Union[datetime, timedelta]): ...
 
 
 class TimeSeries(ABC):

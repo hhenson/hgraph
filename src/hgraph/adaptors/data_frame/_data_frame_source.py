@@ -6,8 +6,12 @@ from typing import Iterator, TypeVar, Optional, OrderedDict, Any
 import polars as pl
 
 __all__ = (
-    'DataFrameSource', 'DataStore', 'DATA_FRAME_SOURCE', 'DataConnectionStore',
-    'SqlDataFrameSource', 'PolarsDataFrameSource',
+    "DataFrameSource",
+    "DataStore",
+    "DATA_FRAME_SOURCE",
+    "DataConnectionStore",
+    "SqlDataFrameSource",
+    "PolarsDataFrameSource",
 )
 
 
@@ -172,11 +176,7 @@ class SqlDataFrameSource(DataFrameSource):
     @property
     def data_frame(self) -> pl.DataFrame:
         if self._df is None:
-            self._df = pl.read_database(
-                self._query,
-                self.connection,
-                **self._kwargs
-            )
+            self._df = pl.read_database(self._query, self.connection, **self._kwargs)
         return self._df
 
     def iter_frames(self) -> Iterator[pl.DataFrame]:
@@ -189,7 +189,7 @@ class SqlDataFrameSource(DataFrameSource):
                     self.connection,
                     iter_batches=True,
                     batch_size=self._batch_size,
-                    execute_options=self._kwargs
+                    execute_options=self._kwargs,
                 )
                 if isinstance(df, pl.DataFrame):
                     return iter([self.data_frame])
@@ -201,8 +201,5 @@ class SqlDataFrameSource(DataFrameSource):
 
     @cached_property
     def schema(self) -> OrderedDict[str, pl.DataType]:
-        df = pl.read_database(
-            self._query + " LIMIT 1",
-            self.connection
-        )
+        df = pl.read_database(self._query + " LIMIT 1", self.connection)
         return df.schema

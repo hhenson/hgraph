@@ -21,7 +21,7 @@ from hgraph import EvaluationLifeCycleObserver
 
 
 class EvaluationProfiler(EvaluationLifeCycleObserver):
-    def  __init__(self, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
+    def __init__(self, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
         self.start = start
         self.eval = eval
         self.stop = stop
@@ -41,8 +41,9 @@ class EvaluationProfiler(EvaluationLifeCycleObserver):
         while graph:
             if graph.parent_node:
                 graph_str.append(
-                    f"{(graph.parent_node.signature.label + ':') if graph.parent_node.signature.label else ''}" +
-                    f"{graph.parent_node.signature.name}<{', '.join(str(i) for i in graph.graph_id)}>")
+                    f"{(graph.parent_node.signature.label + ':') if graph.parent_node.signature.label else ''}"
+                    + f"{graph.parent_node.signature.name}<{', '.join(str(i) for i in graph.graph_id)}>"
+                )
                 graph = graph.parent_node.graph
             else:
                 graph = None
@@ -54,15 +55,15 @@ class EvaluationProfiler(EvaluationLifeCycleObserver):
 
     def _print_signature(self, node: "Node"):
         node_signature = f"{node.signature.signature}"
-        self._print(node.graph.evaluation_clock,
-                    f"{self._graph_name(node.graph)} Starting: {node_signature}")
+        self._print(node.graph.evaluation_clock, f"{self._graph_name(node.graph)} Starting: {node_signature}")
 
     def _print_node(self, node: "Node", msg: str) -> None:
-        node_signature = (f"[{node.signature.wiring_path_name}."
-                          f"{(node.signature.label + ':') if node.signature.label else ''}"
-                          f"{node.signature.name}<{', '.join(str(i) for i in node.node_id)}>(")
-        self._print(node.graph.evaluation_clock,
-                    f"{self._graph_name(node.graph)} {node_signature} {msg}")
+        node_signature = (
+            f"[{node.signature.wiring_path_name}."
+            f"{(node.signature.label + ':') if node.signature.label else ''}"
+            f"{node.signature.name}<{', '.join(str(i) for i in node.node_id)}>("
+        )
+        self._print(node.graph.evaluation_clock, f"{self._graph_name(node.graph)} {node_signature} {msg}")
 
     def on_before_start_graph(self, graph: "Graph"):
         if self.start and self.graph:
@@ -86,19 +87,23 @@ class EvaluationProfiler(EvaluationLifeCycleObserver):
 
     def on_before_node_evaluation(self, node: "Node"):
         if self.eval and self.node and self.process:
-            self.mem = self.process.memory_info().rss / 1024 ** 2
+            self.mem = self.process.memory_info().rss / 1024**2
             # self._print_node(node, f"[{self.mem}]")
 
     def on_after_node_evaluation(self, node: "Node"):
         if self.eval and self.node and self.process:
-            new_mem = self.process.memory_info().rss / 1024 ** 2
+            new_mem = self.process.memory_info().rss / 1024**2
             if new_mem - self.mem > 0.1:
                 self._print_node(node, f"[{new_mem - self.mem}, {new_mem}]")
 
     def on_after_graph_evaluation(self, graph: "Graph"):
         if self.eval and self.graph:
-            if graph.parent_node is not None and (nt := graph.parent_node.graph.schedule[
-                graph.parent_node.node_ndx]) > graph.evaluation_clock.evaluation_time and nt < MAX_ET:
+            if (
+                graph.parent_node is not None
+                and (nt := graph.parent_node.graph.schedule[graph.parent_node.node_ndx])
+                > graph.evaluation_clock.evaluation_time
+                and nt < MAX_ET
+            ):
                 next_scheduled = f" NEXT[{nt}]"
             elif graph.parent_node is None:
                 next_scheduled = f" NEXT[{graph.evaluation_clock.next_scheduled_evaluation_time}]"

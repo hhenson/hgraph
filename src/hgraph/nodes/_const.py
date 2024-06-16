@@ -1,15 +1,18 @@
 from datetime import timedelta
 from typing import Type
 
-from hgraph import generator, SCALAR, TIME_SERIES_TYPE, TS, compute_node, graph, REF, AUTO_RESOLVE, \
-    EvaluationEngineApi
+from hgraph import generator, SCALAR, TIME_SERIES_TYPE, TS, compute_node, graph, REF, AUTO_RESOLVE, EvaluationEngineApi
 
 __all__ = ("const", "default", "nothing")
 
 
 @generator
-def const(value: SCALAR, tp: Type[TIME_SERIES_TYPE] = TS[SCALAR], delay: timedelta = timedelta(),
-          _api: EvaluationEngineApi = None) -> TIME_SERIES_TYPE:
+def const(
+    value: SCALAR,
+    tp: Type[TIME_SERIES_TYPE] = TS[SCALAR],
+    delay: timedelta = timedelta(),
+    _api: EvaluationEngineApi = None,
+) -> TIME_SERIES_TYPE:
     """
     Produces a single tick at the start of the graph evaluation after which this node does nothing.
 
@@ -50,7 +53,9 @@ def default(ts: TIME_SERIES_TYPE, default_value: TIME_SERIES_TYPE) -> TIME_SERIE
 
 
 @compute_node(valid=tuple())
-def _default(ts_ref: REF[TIME_SERIES_TYPE], ts: TIME_SERIES_TYPE, default_value: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
+def _default(
+    ts_ref: REF[TIME_SERIES_TYPE], ts: TIME_SERIES_TYPE, default_value: REF[TIME_SERIES_TYPE]
+) -> REF[TIME_SERIES_TYPE]:
     if not ts.valid:
         # In case this has become invalid, we need to make sure we detect a tick from the real value.
         ts.make_active()

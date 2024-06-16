@@ -22,7 +22,7 @@ class PythonGraph(Graph):
     Provide a reference implementation of the Graph.
     """
 
-    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None, label: str = ''):
+    def __init__(self, graph_id: tuple[int, ...], nodes: Iterable[Node], parent_node: Node = None, label: str = ""):
         super().__init__()
         self._graph_id: tuple[int, ...] = graph_id
         self._nodes: list[Node] = nodes if type(nodes) is list else list(nodes)
@@ -81,7 +81,7 @@ class PythonGraph(Graph):
 
     @functools.cached_property
     def push_source_nodes_end(self) -> int:
-        """ The index of the first compute node """
+        """The index of the first compute node"""
         for i in range(len(self.nodes)):
             if self.nodes[i].signature.node_type != NodeTypeEnum.PUSH_SOURCE_NODE:
                 return i
@@ -95,10 +95,10 @@ class PythonGraph(Graph):
         first_node_ndx = len(self._nodes)
         sz = len(graph_builder.node_builders)
         self._nodes.extend(graph_builder.make_and_connect_nodes(self.graph_id, first_node_ndx))
-        self._schedule.extend([MIN_DT]*sz)
-        self.initialise_subgraph(first_node_ndx, first_node_ndx+sz)
+        self._schedule.extend([MIN_DT] * sz)
+        self.initialise_subgraph(first_node_ndx, first_node_ndx + sz)
         if not delay_start and self.is_started:
-            self.start_subgraph(first_node_ndx, first_node_ndx+sz)
+            self.start_subgraph(first_node_ndx, first_node_ndx + sz)
 
     def reduce_graph(self, start_node: int) -> None:
         end = len(self._nodes)
@@ -129,7 +129,8 @@ class PythonGraph(Graph):
         if when < (et := clock.evaluation_time):
             raise RuntimeError(
                 f"Graph[{self.graph_id}] Trying to schedule node: {self.nodes[node_ndx].signature.signature}[{node_ndx}]"
-                f" for {when} but current time is {self.evaluation_clock.evaluation_time}")
+                f" for {when} but current time is {self.evaluation_clock.evaluation_time}"
+            )
         st = self.schedule[node_ndx]
         if force_set or st <= et or st > when:
             self.schedule[node_ndx] = when
@@ -200,12 +201,13 @@ class PythonGraph(Graph):
             if scheduled_time == now:
                 self._evaluation_engine.notify_before_node_evaluation(node)
                 from hgraph._types._error_type import NodeException
+
                 try:
                     node.eval()
                 except NodeException as e:
                     raise e
                 except Exception as e:
-                    raise NodeException.capture_error(e, node, 'During evaluation') from e
+                    raise NodeException.capture_error(e, node, "During evaluation") from e
                 self._evaluation_engine.notify_after_node_evaluation(node)
             elif scheduled_time > now:
                 # If the node has a scheduled time in the future, we need to let the execution context know.

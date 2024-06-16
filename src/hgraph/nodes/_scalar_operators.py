@@ -1,9 +1,49 @@
 from statistics import stdev, variance
 from typing import Type
 
-from hgraph import SCALAR, TS, compute_node, add_, sub_, mul_, pow_, lshift_, rshift_, bit_and, bit_or, bit_xor, eq_, \
-    ne_, lt_, le_, gt_, ge_, neg_, pos_, invert_, abs_, len_, and_, or_, not_, contains_, SCALAR_1, min_, max_, graph, \
-    TS_OUT, sum_, str_, TSL, SIZE, AUTO_RESOLVE, zero, mean, std, var
+from hgraph import (
+    SCALAR,
+    TS,
+    compute_node,
+    add_,
+    sub_,
+    mul_,
+    pow_,
+    lshift_,
+    rshift_,
+    bit_and,
+    bit_or,
+    bit_xor,
+    eq_,
+    ne_,
+    lt_,
+    le_,
+    gt_,
+    ge_,
+    neg_,
+    pos_,
+    invert_,
+    abs_,
+    len_,
+    and_,
+    or_,
+    not_,
+    contains_,
+    SCALAR_1,
+    min_,
+    max_,
+    graph,
+    TS_OUT,
+    sum_,
+    str_,
+    TSL,
+    SIZE,
+    AUTO_RESOLVE,
+    zero,
+    mean,
+    std,
+    var,
+)
 
 __all__ = ()
 
@@ -37,7 +77,7 @@ def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Raises a timeseries value to the power of the other timeseries value
     """
-    return lhs.value ** rhs.value
+    return lhs.value**rhs.value
 
 
 @compute_node(overloads=lshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lshift__"))
@@ -311,6 +351,7 @@ def sum_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], zero_value: TS[SCALAR] 
     Binary sum (i.e. addition) with default
     """
     from hgraph.nodes import default
+
     return default(lhs + rhs, zero_value)
 
 
@@ -341,6 +382,7 @@ def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[flo
     These are overloaded separately
     """
     from hgraph.nodes import count, cast_
+
     if tp is float:
         return sum_(ts) / count(ts)
     else:
@@ -353,7 +395,8 @@ def mean_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[float]:
     Binary mean
     """
     from hgraph.nodes import default
-    return default((lhs + rhs) / 2.0, float('NaN'))
+
+    return default((lhs + rhs) / 2.0, float("NaN"))
 
 
 @compute_node
@@ -364,7 +407,7 @@ def mean_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
     valid_elements = tuple(arg.value for arg in ts if arg.valid)
     n_valid = len(valid_elements)
     if n_valid == 0:
-        return float('NaN')
+        return float("NaN")
     elif n_valid == 1:
         return float(valid_elements[0])
     else:

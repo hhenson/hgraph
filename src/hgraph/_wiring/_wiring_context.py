@@ -1,5 +1,4 @@
-
-__all__ = ['WiringContext', "StrictWiringContext", "WIRING_CONTEXT"]
+__all__ = ["WiringContext", "StrictWiringContext", "WIRING_CONTEXT"]
 
 
 class StrictWiringContext:
@@ -10,12 +9,17 @@ class StrictWiringContext:
     def __getattr__(self, item):
         if not WiringContext.is_active():
             raise RuntimeError("No wiring context is active")
-        return WiringContext.__getattr__(item, )
+        return WiringContext.__getattr__(
+            item,
+        )
 
     def __setattr__(self, key, value):
         if not WiringContext.is_active():
             raise RuntimeError("No wiring context is active")
-        WiringContext.__setattr__(key, value, )
+        WiringContext.__setattr__(
+            key,
+            value,
+        )
 
 
 class WiringContext:
@@ -25,30 +29,33 @@ class WiringContext:
     value will be restored.
     This is used during the wiring phase to track useful state to assist with raising errors with better context.
     """
-    __slots__ = ('_state',)
+
+    __slots__ = ("_state",)
     _stack: [dict] = []
 
     def __init__(self, **kwargs):
         super().__init__()
-        super().__setattr__('_state', dict(**kwargs))
+        super().__setattr__("_state", dict(**kwargs))
 
     def __enter__(self):
         WiringContext._stack.append(s := super().__getattribute__("_state"))
 
-        if current_signature := s.get('current_signature'):
+        if current_signature := s.get("current_signature"):
             from hgraph._wiring._wiring_observer import WiringObserverContext
             from hgraph._wiring._wiring_node_signature import WiringNodeType
-            if getattr(current_signature, 'node_type', None) != WiringNodeType.GRAPH:
+
+            if getattr(current_signature, "node_type", None) != WiringNodeType.GRAPH:
                 WiringObserverContext.instance().notify_enter_node_wiring(current_signature)
 
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         s = super().__getattribute__("_state")
-        if current_signature := s.get('current_signature'):
+        if current_signature := s.get("current_signature"):
             from hgraph._wiring._wiring_observer import WiringObserverContext
             from hgraph._wiring._wiring_node_signature import WiringNodeType
-            if getattr(current_signature, 'node_type', None) != WiringNodeType.GRAPH:
+
+            if getattr(current_signature, "node_type", None) != WiringNodeType.GRAPH:
                 WiringObserverContext.instance().notify_exit_node_wiring(current_signature, exc_val)
 
         WiringContext._stack.pop()

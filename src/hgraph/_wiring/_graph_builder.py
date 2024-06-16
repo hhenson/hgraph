@@ -70,14 +70,14 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
             rank = 0 if node.resolved_signature.node_type is NodeTypeEnum.PUSH_SOURCE_NODE else 1
             if not supports_push_nodes and rank == 0:
                 raise CustomMessageWiringError(
-                    f'Node: {node.resolved_signature} is a pull source node, '
-                    f'but this graph does not support push nodes.')
+                    f"Node: {node.resolved_signature} is a pull source node, "
+                    f"but this graph does not support push nodes."
+                )
         if node.resolved_signature.node_type is NodeTypeEnum.SINK_NODE:
             # Put all sink nodes at max_rank
             rank = max_rank
         ranked_nodes[rank].add(node)
-        for arg in filter(lambda k_: k_ in node.resolved_signature.time_series_inputs,
-                          node.resolved_signature.args):
+        for arg in filter(lambda k_: k_ in node.resolved_signature.time_series_inputs, node.resolved_signature.args):
             if (input_ := node.inputs.get(arg)) and (next_node := input_.node_instance) not in processed_nodes:
                 processed_nodes.add(next_node)
                 pending_nodes.append(next_node)
@@ -97,8 +97,7 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
             edges.update(input_edges)
             node_map[wiring_node] = ndx
 
-    return GraphBuilderFactory.make(node_builders=tuple[NodeBuilder, ...](node_builders),
-                                    edges=tuple[Edge, ...](
-                                        sorted(edges,
-                                               key=lambda e: (
-                                                   e.src_node, e.dst_node, e.output_path, e.input_path))))
+    return GraphBuilderFactory.make(
+        node_builders=tuple[NodeBuilder, ...](node_builders),
+        edges=tuple[Edge, ...](sorted(edges, key=lambda e: (e.src_node, e.dst_node, e.output_path, e.input_path))),
+    )

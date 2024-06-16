@@ -22,7 +22,9 @@ class TimeSeriesReference:
         """The output associated to this reference"""
 
 
-class TimeSeriesReferenceOutput(TimeSeriesOutput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], Generic[TIME_SERIES_TYPE]):
+class TimeSeriesReferenceOutput(
+    TimeSeriesOutput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], Generic[TIME_SERIES_TYPE]
+):
     """
     The time-series output that manages and atomic value.
     """
@@ -46,7 +48,9 @@ class TimeSeriesReferenceOutput(TimeSeriesOutput, TimeSeriesDeltaValue[TimeSerie
         """Unregisters an input as observing the reference value"""
 
 
-class TimeSeriesReferenceInput(TimeSeriesInput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], ABC, Generic[TIME_SERIES_TYPE]):
+class TimeSeriesReferenceInput(
+    TimeSeriesInput, TimeSeriesDeltaValue[TimeSeriesReference, TimeSeriesReference], ABC, Generic[TIME_SERIES_TYPE]
+):
     """
     This is the wrapper class of the TimeSeriesValueOutput. It is not able to modify
     the value. It also supports the input behaviours of the TimeSeriesInput

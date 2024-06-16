@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from hgraph._types._scalar_value import ScalarValue
 
 
-__all__ = ('ScalarValueBuilder',)
+__all__ = ("ScalarValueBuilder",)
 
 
 class ScalarValueBuilder(Builder["ScalarValue"]):

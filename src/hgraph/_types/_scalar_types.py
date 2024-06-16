@@ -4,8 +4,20 @@ from decimal import Decimal
 from enum import Enum
 from logging import Logger
 from types import GenericAlias
-from typing import TYPE_CHECKING, runtime_checkable, Protocol, Generic, Any, KeysView, ItemsView, ValuesView, Union, \
-    _GenericAlias, Mapping, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    runtime_checkable,
+    Protocol,
+    Generic,
+    Any,
+    KeysView,
+    ItemsView,
+    ValuesView,
+    Union,
+    _GenericAlias,
+    Mapping,
+    TypeVar,
+)
 from typing import TypeVar, Type
 
 from frozendict import frozendict
@@ -18,10 +30,30 @@ if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
-__all__ = ("SCALAR", "Size", "SIZE", "COMPOUND_SCALAR", "SCALAR", "CompoundScalar", "is_keyable_scalar",
-           "is_compound_scalar", "STATE", "SCALAR_1", "SCALAR_2", "NUMBER", "KEYABLE_SCALAR", "LOGGER", "REPLAY_STATE",
-           "compound_scalar", "UnNamedCompoundScalar", "COMPOUND_SCALAR_1", "COMPOUND_SCALAR_2", "DEFAULT", "NUMBER_2",
-           "TUPLE")
+__all__ = (
+    "SCALAR",
+    "Size",
+    "SIZE",
+    "COMPOUND_SCALAR",
+    "SCALAR",
+    "CompoundScalar",
+    "is_keyable_scalar",
+    "is_compound_scalar",
+    "STATE",
+    "SCALAR_1",
+    "SCALAR_2",
+    "NUMBER",
+    "KEYABLE_SCALAR",
+    "LOGGER",
+    "REPLAY_STATE",
+    "compound_scalar",
+    "UnNamedCompoundScalar",
+    "COMPOUND_SCALAR_1",
+    "COMPOUND_SCALAR_2",
+    "DEFAULT",
+    "NUMBER_2",
+    "TUPLE",
+)
 
 
 class Default:
@@ -50,6 +82,7 @@ class Size:
 
     Use this as Size[n] where n is the size represented as an integer value.
     """
+
     SIZE: int = -1  # NOSONAR
     FIXED_SIZE: bool = False
 
@@ -59,7 +92,7 @@ class Size:
         global __CACHED_SIZES__
         tp = __CACHED_SIZES__.get(item)
         if tp is None:
-            tp = type(f"Size_{item}", (Size,), {'SIZE': item, 'FIXED_SIZE': True})
+            tp = type(f"Size_{item}", (Size,), {"SIZE": item, "FIXED_SIZE": True})
             __CACHED_SIZES__[item] = tp
         return tp
 
@@ -72,6 +105,7 @@ class CompoundScalar(AbstractSchema):
     @classmethod
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
         return HgScalarTypeMetaData.parse_type(tp)
 
     def to_dict(self):
@@ -100,16 +134,17 @@ class UnNamedCompoundScalar(CompoundScalar):
     def create(cls, **kwargs) -> Type["UnNamedCompoundScalar"]:
         """Creates a type instance with root class UnNamedCompoundScalar using the kwargs provided"""
         from hgraph._types._time_series_meta_data import HgScalarTypeMetaData
+
         schema = {k: HgScalarTypeMetaData.parse_type(v) for k, v in kwargs.items()}
         if any(v is None for v in schema.values()):
             bad_inputs = {k: v for k, v in kwargs.items() if schema[k] is None}
             from hgraph._wiring._wiring_errors import CustomMessageWiringError
+
             raise CustomMessageWiringError(f"The following inputs are not valid scalar types: {bad_inputs}")
         return cls.create_resolved_schema(schema)
 
     @classmethod
-    def create_resolved_schema(cls, schema: Mapping[str, "HgScalarTypeMetaData"]) \
-            -> Type["UnNamedCompoundScalar"]:
+    def create_resolved_schema(cls, schema: Mapping[str, "HgScalarTypeMetaData"]) -> Type["UnNamedCompoundScalar"]:
         """Creates a type instance with root class UnNamedCompoundSchema using the schema provided"""
         return cls._create_resolved_class(schema)
 
@@ -124,11 +159,9 @@ def compound_scalar(**kwargs) -> Type["CompoundScalar"]:
 @runtime_checkable
 class Hashable(Protocol):
 
-    def __eq__(self, other):
-        ...
+    def __eq__(self, other): ...
 
-    def __hash__(self):
-        ...
+    def __hash__(self): ...
 
 
 SIZE = TypeVar("SIZE", bound=Size)
@@ -151,7 +184,7 @@ class STATE(Generic[COMPOUND_SCALAR]):
 
     def __init__(self, __schema__: type[COMPOUND_SCALAR] = None, **kwargs):
         self.__schema__: type[COMPOUND_SCALAR] = __schema__
-        self._updated: bool = False # Dirty flag, useful for tracking updates when persisting.
+        self._updated: bool = False  # Dirty flag, useful for tracking updates when persisting.
         self._value: COMPOUND_SCALAR = dict(**kwargs) if __schema__ is None else __schema__(**kwargs)
 
     def __class_getitem__(cls, item) -> Any:
@@ -159,9 +192,9 @@ class STATE(Generic[COMPOUND_SCALAR]):
         out = super(STATE, cls).__class_getitem__(item)
         if item is not COMPOUND_SCALAR:
             from hgraph._types._type_meta_data import HgTypeMetaData
+
             if not (tp := HgTypeMetaData.parse_type(item)).is_scalar:
-                raise ParseError(
-                    f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to CompoundScalar)")
+                raise ParseError(f"Type '{item}' must be a CompoundScalar or a valid TypeVar (bound to CompoundScalar)")
             # if tp.is_resolved:
             #
             #     out = functools.partial(out, __schema__=item)
@@ -277,21 +310,40 @@ def is_keyable_scalar(value) -> bool:
     This is not a substitute for HgScalarType.parse.
     """
     return (
-            isinstance(value, (bool, int, float, date, datetime, time, timedelta, str, tuple, frozenset, frozendict,
-                              CompoundScalar, Size, Enum))
-            or
-            (isinstance(value, type) and (
-                    value in (bool, int, float, date, datetime, time, timedelta, str)
-                    or
-                    issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum))))
-            or
-            (isinstance(value, TypeVar) and (
-                        is_keyable_scalar(value.__bound__) or all(is_keyable_scalar(v) for v in value.__constraints__)
-                        ))
-            or
-            (isinstance(value, (GenericAlias, _GenericAlias)) and (
-                        is_keyable_scalar(value.__origin__) and all(is_keyable_scalar(v) for v in value.__args__)
-                        ))
+        isinstance(
+            value,
+            (
+                bool,
+                int,
+                float,
+                date,
+                datetime,
+                time,
+                timedelta,
+                str,
+                tuple,
+                frozenset,
+                frozendict,
+                CompoundScalar,
+                Size,
+                Enum,
+            ),
+        )
+        or (
+            isinstance(value, type)
+            and (
+                value in (bool, int, float, date, datetime, time, timedelta, str)
+                or issubclass(value, (tuple, frozenset, frozendict, CompoundScalar, Size, Enum))
+            )
+        )
+        or (
+            isinstance(value, TypeVar)
+            and (is_keyable_scalar(value.__bound__) or all(is_keyable_scalar(v) for v in value.__constraints__))
+        )
+        or (
+            isinstance(value, (GenericAlias, _GenericAlias))
+            and (is_keyable_scalar(value.__origin__) and all(is_keyable_scalar(v) for v in value.__args__))
+        )
     )
 
 

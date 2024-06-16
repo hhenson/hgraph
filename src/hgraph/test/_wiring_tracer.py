@@ -37,13 +37,14 @@ class WiringTracer(WiringObserver):
             else:
                 print(f"Done wiring node {signature.signature}")
 
-    def on_overload_resolution(self, signature: "WiringNodeSignature", selected_overload,
-                               rejected_overloads, ambiguous_overloads):
+    def on_overload_resolution(
+        self, signature: "WiringNodeSignature", selected_overload, rejected_overloads, ambiguous_overloads
+    ):
         if self.node and (self.filter is None or self.filter in WiringGraphContext.wiring_path_name()):
-            print(f"Overload resolution for {signature.name} " + 'successful' if selected_overload else 'failed')
+            print(f"Overload resolution for {signature.name} " + "successful" if selected_overload else "failed")
             if selected_overload:
                 print(f"Selected overload: {selected_overload[0]}, rank {selected_overload[1]}")
             if ambiguous_overloads:
-                print(f"Candidate overloads: \n" + '\n\t'.join(f"{o}: {r}" for o, r in ambiguous_overloads))
+                print(f"Candidate overloads: \n" + "\n\t".join(f"{o}: {r}" for o, r in ambiguous_overloads))
             if rejected_overloads:
-                print(f"Rejected overloads: \n\t" + '\n\t'.join(f"{o}: {e}" for o, e in rejected_overloads))
+                print(f"Rejected overloads: \n\t" + "\n\t".join(f"{o}: {e}" for o, e in rejected_overloads))

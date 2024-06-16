@@ -19,8 +19,7 @@ __all__ = ("last_value_source_node",)
 
 
 @pull_source_node
-def _source_node_signature() -> TIME_SERIES_TYPE:
-    ...
+def _source_node_signature() -> TIME_SERIES_TYPE: ...
 
 
 def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALAR = None) -> TIME_SERIES_TYPE:
@@ -31,12 +30,16 @@ def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALA
         changes["args"] = tuple(["default"])
         changes["input_types"] = frozendict({"default": default_type})
         inputs["default"] = default
-    signature = cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE: tp]).resolve_signature().copy_with(**changes)
+    signature = (
+        cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE:tp]).resolve_signature().copy_with(**changes)
+    )
     # Source node need to be unique, use an object instance as the fn arg to ensure uniqueness
-    return create_wiring_node_instance(node=PythonLastValuePullWiringNodeClass(signature, object()),
-                                       resolved_signature=signature,
-                                       inputs=frozendict(inputs),
-                                       rank=1)
+    return create_wiring_node_instance(
+        node=PythonLastValuePullWiringNodeClass(signature, object()),
+        resolved_signature=signature,
+        inputs=frozendict(inputs),
+        rank=1,
+    )
 
 
 class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
@@ -44,6 +47,7 @@ class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
         from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
+
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonLastValuePullWiringNodeClass must have a time series output"

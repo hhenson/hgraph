@@ -1,8 +1,46 @@
 from typing import Type
 
-from hgraph import compute_node, REF, TSB, TS_SCHEMA, TIME_SERIES_TYPE, PythonTimeSeriesReference, AUTO_RESOLVE, \
-    SCALAR, operator, add_, graph, sub_, mul_, div_, floordiv_, pow_, lshift_, rshift_, bit_and, bit_xor, bit_or, \
-    eq_, TS, not_, ne_, neg_, pos_, invert_, abs_, TSL, str_, SIZE, all_, min_, max_, sum_, mean, std, var
+from hgraph import (
+    compute_node,
+    REF,
+    TSB,
+    TS_SCHEMA,
+    TIME_SERIES_TYPE,
+    PythonTimeSeriesReference,
+    AUTO_RESOLVE,
+    SCALAR,
+    operator,
+    add_,
+    graph,
+    sub_,
+    mul_,
+    div_,
+    floordiv_,
+    pow_,
+    lshift_,
+    rshift_,
+    bit_and,
+    bit_xor,
+    bit_or,
+    eq_,
+    TS,
+    not_,
+    ne_,
+    neg_,
+    pos_,
+    invert_,
+    abs_,
+    TSL,
+    str_,
+    SIZE,
+    all_,
+    min_,
+    max_,
+    sum_,
+    mean,
+    std,
+    var,
+)
 from hgraph._types._ref_type import TimeSeriesReference
 
 __all__ = ("tsb_get_item", "tsb_get_item_by_name", "tsb_get_item_by_index")
@@ -209,8 +247,7 @@ def eq_tsbs(lhs: TSB[TS_SCHEMA], rhs: TSB[TS_SCHEMA]) -> TS[bool]:
     Equality of TSBs.
     An asymmetric missing value causes False to be returned
     """
-    return all_(*(eq_(lhs[attribute], rhs[attribute])
-                  for attribute in lhs.__schema__.__meta_data_schema__))
+    return all_(*(eq_(lhs[attribute], rhs[attribute]) for attribute in lhs.__schema__.__meta_data_schema__))
 
 
 @graph(overloads=eq_)
@@ -255,8 +292,12 @@ def tsb_get_item(tsb: TSB[TS_SCHEMA], key: SCALAR) -> TIME_SERIES_TYPE:
     """
 
 
-@compute_node(overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars['key']]})
-def tsb_get_item_by_name(tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
+@compute_node(
+    overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
+)
+def tsb_get_item_by_name(
+    tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSB referenced, by its name
     """
@@ -270,8 +311,12 @@ def tsb_get_item_by_name(tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SC
         return PythonTimeSeriesReference()
 
 
-@compute_node(overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars['key']]})
-def tsb_get_item_by_index(tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE) -> REF[TIME_SERIES_TYPE]:
+@compute_node(
+    overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
+)
+def tsb_get_item_by_index(
+    tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSB referenced, by its name
     """
@@ -290,8 +335,7 @@ def str_tsb(tsb: TSB[TS_SCHEMA]) -> TS[str]:
 
 
 def _itemwise_binary_op(op_, lhs, rhs):
-    return {attribute: op_(lhs[attribute], rhs[attribute])
-            for attribute in lhs.__schema__.__meta_data_schema__}
+    return {attribute: op_(lhs[attribute], rhs[attribute]) for attribute in lhs.__schema__.__meta_data_schema__}
 
 
 def _itemwise_unary_op(op_, tsb):
@@ -303,5 +347,4 @@ def _itemwise_unary_op(op_, tsb):
 
 
 def _itemwise_multi_op(op_, tsbs):
-    return {attribute: op_(*(tsb[attribute] for tsb in tsbs))
-            for attribute in tsbs[0].__schema__.__meta_data_schema__}
+    return {attribute: op_(*(tsb[attribute] for tsb in tsbs)) for attribute in tsbs[0].__schema__.__meta_data_schema__}

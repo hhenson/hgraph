@@ -15,7 +15,11 @@ __all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "Pyth
 
 
 class PythonTimeSeriesReference(TimeSeriesReference):
-    def __init__(self, ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None, from_items: typing.Iterable[TimeSeriesReference] = None):
+    def __init__(
+        self,
+        ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
+        from_items: typing.Iterable[TimeSeriesReference] = None,
+    ):
         self._output = None
 
         if from_items is not None:  # Put this first to make it clearer that
@@ -34,7 +38,9 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             self._output = ts
             tp = type(ts)
             has_peer = True
-        elif isinstance(ts, TimeSeriesReferenceInput):  # reference input gets the value from a ref output, copy construct
+        elif isinstance(
+            ts, TimeSeriesReferenceInput
+        ):  # reference input gets the value from a ref output, copy construct
             ref = ts.value
             if has_peer := ref.has_peer:
                 self._output = ref.output
@@ -78,8 +84,10 @@ class PythonTimeSeriesReference(TimeSeriesReference):
 
     def __str__(self) -> str:
         if self.output is not None:
-            return (f"REF[{self.output.owning_node.signature.name}"
-                    f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]")
+            return (
+                f"REF[{self.output.owning_node.signature.name}"
+                f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]"
+            )
         elif self.valid and not self.has_peer and self.items:
             return f"REF[{', '.join(str(i) for i in self.items)}]"
         else:
@@ -126,7 +134,9 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
     def observe_reference(self, input_: TimeSeriesInput):
         self._reference_observers[id(input_)] = input_
 
-    def stop_observing_reference(self, input_: TimeSeriesInput):  # TODO: this would only be called from nested graphs but there is no stop() on inputs. How do we clean these up?
+    def stop_observing_reference(
+        self, input_: TimeSeriesInput
+    ):  # TODO: this would only be called from nested graphs but there is no stop() on inputs. How do we clean these up?
         self._reference_observers.pop(id(input_), None)
 
     def invalidate(self):
@@ -179,7 +189,9 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         if self._value is not None:
             self._value = None
             # TODO: Do we need to notify here? should we not only notify if the input is active?
-            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST
+            self._sample_time = (
+                self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST
+            )
 
     def start(self):
         # if the input was scheduled for start it means it wanted to be sampled on node start

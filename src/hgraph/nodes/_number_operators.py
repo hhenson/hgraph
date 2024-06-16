@@ -1,8 +1,24 @@
 from enum import Enum, auto
 from statistics import stdev
 
-from hgraph import add_, TS, compute_node, sub_, div_, NUMBER, mul_, floordiv_, mod_, divmod_, TSL, Size, pow_, \
-    eq_, mean, std
+from hgraph import (
+    add_,
+    TS,
+    compute_node,
+    sub_,
+    div_,
+    NUMBER,
+    mul_,
+    floordiv_,
+    mod_,
+    divmod_,
+    TSL,
+    Size,
+    pow_,
+    eq_,
+    mean,
+    std,
+)
 from hgraph._types._scalar_types import NUMBER_2, SIZE
 
 __all__ = ("DivideByZero",)
@@ -72,9 +88,9 @@ def div_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
         return lhs.value / rhs.value
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
-            return float('NaN')
+            return float("NaN")
         elif divide_by_zero is DivideByZero.INF:
-            return float('inf')
+            return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
         else:
@@ -82,7 +98,9 @@ def div_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
 
 
 @compute_node(overloads=floordiv_)
-def floordiv_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TS[float]:
+def floordiv_numbers(
+    lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR
+) -> TS[float]:
     """
     Floor divides a numeric timeseries by another
     """
@@ -90,9 +108,9 @@ def floordiv_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideB
         return lhs.value // rhs.value
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
-            return float('NaN')
+            return float("NaN")
         elif divide_by_zero is DivideByZero.INF:
-            return float('inf')
+            return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
         else:
@@ -122,9 +140,9 @@ def mod_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
         return lhs.value % rhs.value
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
-            return float('NaN')
+            return float("NaN")
         elif divide_by_zero is DivideByZero.INF:
-            return float('inf')
+            return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
         else:
@@ -146,18 +164,21 @@ def mod_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = DivideBy
 
 
 @compute_node(overloads=divmod_)
-def divmod_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TSL[TS[float], Size[2]]:
+def divmod_numbers(
+    lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR
+) -> TSL[TS[float], Size[2]]:
     try:
         return divmod(lhs.value, rhs.value)
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
-            return float('NaN')
+            return float("NaN")
         elif divide_by_zero is DivideByZero.INF:
-            return float('inf')
+            return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
         else:
             raise
+
 
 @compute_node(overloads=divmod_)
 def divmod_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TSL[TS[int], Size[2]]:
@@ -175,7 +196,7 @@ def pow_int_float(lhs: TS[int], rhs: TS[float]) -> TS[float]:
     """
     Raises an int time-series value to the power of a float time-series value
     """
-    return lhs.value ** rhs.value
+    return lhs.value**rhs.value
 
 
 @compute_node(overloads=pow_)
@@ -183,7 +204,7 @@ def pow_float_int(lhs: TS[float], rhs: TS[int]) -> TS[float]:
     """
     Raises a float time-series value to the power of an int time-series value
     """
-    return lhs.value ** rhs.value
+    return lhs.value**rhs.value
 
 
 EPSILON = 1e-10

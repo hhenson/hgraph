@@ -14,7 +14,7 @@ __all__ = ("Graph",)
 
 
 class Graph(ComponentLifeCycle):
-    """ The runtime graph """
+    """The runtime graph"""
 
     @property
     @abstractmethod
@@ -28,17 +28,17 @@ class Graph(ComponentLifeCycle):
     @property
     @abstractmethod
     def graph_id(self) -> tuple[int, ...]:
-        """ The graph id """
+        """The graph id"""
 
     @property
     @abstractmethod
     def label(self) -> str:
-        """ The graph label/name """
+        """The graph label/name"""
 
     @property
     @abstractmethod
     def nodes(self) -> tuple["Node", ...]:
-        """ The nodes of the graph """
+        """The nodes of the graph"""
 
     @property
     @abstractmethod
@@ -53,7 +53,7 @@ class Graph(ComponentLifeCycle):
     @property
     @abstractmethod
     def evaluation_engine_api(self) -> "EvaluationEngineApi":
-        """ The evaluation engine api """
+        """The evaluation engine api"""
 
     @property
     @abstractmethod
@@ -66,12 +66,12 @@ class Graph(ComponentLifeCycle):
     @evaluation_engine.setter
     @abstractmethod
     def evaluation_engine(self, value: "EvaluationEngine"):
-        """ Set the evaluation engine """
+        """Set the evaluation engine"""
 
     @property
     @abstractmethod
     def push_source_nodes_end(self) -> int:
-        """ The index of the first compute node """
+        """The index of the first compute node"""
 
     @abstractmethod
     def schedule_node(self, node_ndx, when):

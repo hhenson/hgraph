@@ -22,5 +22,4 @@ class StubWiringNodeClass(BaseWiringNodeClass):
 class NonPeeredWiringNodeClass(StubWiringNodeClass):
     """Used to represent Non-graph nodes to use when creating non-peered wiring ports"""
 
-    def __call__(self, _tsb_meta_type: HgTSBTypeMetaData, **kwargs) -> "WiringPort":
-        ...
+    def __call__(self, _tsb_meta_type: HgTSBTypeMetaData, **kwargs) -> "WiringPort": ...

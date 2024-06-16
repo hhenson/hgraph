@@ -33,7 +33,7 @@ class PythonGraphBuilder(GraphBuilder):
             input_ = input_[item]
         return input_
 
-    def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None, label: str = '') -> Graph:
+    def make_instance(self, graph_id: tuple[int, ...], parent_node: Node = None, label: str = "") -> Graph:
         nodes = self.make_and_connect_nodes(graph_id, 0)
         # The nodes are initialised within the context of the graph
         return PythonGraph(graph_id=graph_id, nodes=nodes, parent_node=parent_node, label=label)
@@ -49,8 +49,9 @@ class PythonGraphBuilder(GraphBuilder):
                 # This is an error handler
                 output = src_node.error_output
             else:
-                output = src_node.output if edge.output_path == tuple() else self._extract_output(src_node,
-                                                                                              edge.output_path)
+                output = (
+                    src_node.output if edge.output_path == tuple() else self._extract_output(src_node, edge.output_path)
+                )
             input_ = self._extract_input(dst_node, edge.input_path)
             input_.bind_output(output)
         return nodes
@@ -62,6 +63,3 @@ class PythonGraphBuilder(GraphBuilder):
 
     def __hash__(self):
         return hash(id(self))
-
-
-    

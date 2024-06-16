@@ -6,8 +6,11 @@ from typing import Mapping, Any, Callable, cast, Iterable, Sequence
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
-from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \
-    PythonNestedNodeImpl
+from hgraph._impl._runtime._nested_evaluation_engine import (
+    NestedEngineEvaluationClock,
+    NestedEvaluationEngine,
+    PythonNestedNodeImpl,
+)
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._node import Node, NodeSignature
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, K
@@ -28,21 +31,21 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
     reduction of the tree when the tree has shrunk sufficiently.
     """
 
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 eval_fn: Callable = None,
-                 start_fn: Callable = None,
-                 stop_fn: Callable = None,
-                 nested_graph_builder: GraphBuilder = None,
-                 input_node_ids: tuple[int, int] = None,
-                 output_node_id: int = None,
-                 ):
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        eval_fn: Callable = None,
+        start_fn: Callable = None,
+        stop_fn: Callable = None,
+        nested_graph_builder: GraphBuilder = None,
+        input_node_ids: tuple[int, int] = None,
+        output_node_id: int = None,
+    ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
-        self._nested_graph: PythonGraph = PythonGraph(self.node_id, nodes=[],
-                                                      parent_node=self)
+        self._nested_graph: PythonGraph = PythonGraph(self.node_id, nodes=[], parent_node=self)
 
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_ids: tuple[int, int] = input_node_ids  # LHS index, RHS index
@@ -53,8 +56,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     def initialise(self):
         self._nested_graph.evaluation_engine = NestedEvaluationEngine(
-            self.graph.evaluation_engine,
-            NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
+            self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
         )
 
     @start_guard
@@ -100,12 +102,12 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     @property
     def _zero(self) -> TIME_SERIES_TYPE:
-        return self._input['zero']
+        return self._input["zero"]
 
     @property
     def _tsd(self) -> TSD[K, TIME_SERIES_TYPE]:
         # noinspection PyTypeChecker
-        return self._input['ts']
+        return self._input["ts"]
 
     def _add_nodes(self, keys: Iterable[K]):
         """
@@ -149,7 +151,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         dst_node.notify()
 
     def _re_balance_nodes(self):
-        if self._node_count > 8 and (len(self._free_node_indexes) * .75) > len(self._bound_node_indexes):
+        if self._node_count > 8 and (len(self._free_node_indexes) * 0.75) > len(self._bound_node_indexes):
             # We can shrink the tree.
             self._shrink_tree()
 
@@ -171,7 +173,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """
         Returns a view of the nodes at the level and column.
         """
-        return self._nested_graph.nodes[ndx * self._node_size: (ndx + 1) * self._node_size]
+        return self._nested_graph.nodes[ndx * self._node_size : (ndx + 1) * self._node_size]
 
     def _bind_key_to_node(self, key: K, ndx: tuple[int, int]):
         """Bind a key to a node"""
@@ -194,8 +196,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         """Grow the tree by doubling the capacity"""
         # The tree will double in size, so we need to add 2n+1 nodes where n is the current number of nodes.
         count = self._node_count
-        end = (2 * count + 1) # Not inclusive
-        top_layer_length = int((end+1)/4)  # The half-length of the full top row
+        end = 2 * count + 1  # Not inclusive
+        top_layer_length = int((end + 1) / 4)  # The half-length of the full top row
         top_layer_end = max(count + top_layer_length, 1)
         last_node = end - 1
         un_bound_outputs = deque(maxlen=end - count)
@@ -213,7 +215,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
                 if i < last_node:
                     # Connect the new nodes together
                     left_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
-                    right_parent= self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
+                    right_parent = self._get_node(un_bound_outputs.popleft())[self.output_node_id].output
                 else:
                     old_root = self._get_node(count - 1)[self.output_node_id]
                     left_parent = old_root.output  # The last of the old series
@@ -243,9 +245,9 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         halved_capacity = capacity // 2  # Halved capacity gives number of top nodes
         if halved_capacity < active_count:
             return  # Should not be, but best to ensure
-        last_node = (self._node_count - 1) // 2 # Reverse out the size calc to get correct starting point for deletion
+        last_node = (self._node_count - 1) // 2  # Reverse out the size calc to get correct starting point for deletion
         start = last_node
-        self._nested_graph.reduce_graph(start*self._node_size)
+        self._nested_graph.reduce_graph(start * self._node_size)
         # Now remove from free list
-        free_nodes = list(take((halved_capacity-active_count), sorted(self._free_node_indexes)))
+        free_nodes = list(take((halved_capacity - active_count), sorted(self._free_node_indexes)))
         self._free_node_indexes = sorted(free_nodes, reverse=True)

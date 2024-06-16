@@ -3,21 +3,43 @@ from typing import Generic, Iterable, Union, Any, TYPE_CHECKING, Tuple, Type
 
 from frozendict import frozendict
 
-from hgraph._types._time_series_types import TimeSeriesIterable, TimeSeriesInput, TimeSeriesOutput, K, V, \
-    TimeSeriesDeltaValue
+from hgraph._types._time_series_types import (
+    TimeSeriesIterable,
+    TimeSeriesInput,
+    TimeSeriesOutput,
+    K,
+    V,
+    TimeSeriesDeltaValue,
+)
 from hgraph._types._typing_utils import Sentinel
 
 if TYPE_CHECKING:
-    from hgraph import HgScalarTypeMetaData, HgTimeSeriesTypeMetaData, SCALAR, TimeSeriesSet, \
-    TimeSeriesReferenceOutput, K, V, ParseError
+    from hgraph import (
+        HgScalarTypeMetaData,
+        HgTimeSeriesTypeMetaData,
+        SCALAR,
+        TimeSeriesSet,
+        TimeSeriesReferenceOutput,
+        K,
+        V,
+        ParseError,
+    )
 
-__all__ = ("TSD", "TSD_OUT", "TimeSeriesDict", "TimeSeriesDictInput", "TimeSeriesDictOutput", "REMOVE",
-           "REMOVE_IF_EXISTS", "KEY_SET_ID")
+__all__ = (
+    "TSD",
+    "TSD_OUT",
+    "TimeSeriesDict",
+    "TimeSeriesDictInput",
+    "TimeSeriesDictOutput",
+    "REMOVE",
+    "REMOVE_IF_EXISTS",
+    "KEY_SET_ID",
+)
 
 REMOVE = Sentinel("REMOVE")
 REMOVE_IF_EXISTS = Sentinel("REMOVE_IF_EXISTS")
 
-KEY_SET_ID = '__key_set__'
+KEY_SET_ID = "__key_set__"
 
 
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):
@@ -25,8 +47,9 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
     A TSD is a collection of time-series values keyed off of a scalar key K.
     """
 
-    def __init__(self, __key_set__: "TimeSeriesSet", __key_tp__: "HgScalarTypeMetaData",
-                 __value_tp__: "HgTimeSeriesTypeMetaData"):
+    def __init__(
+        self, __key_set__: "TimeSeriesSet", __key_tp__: "HgScalarTypeMetaData", __value_tp__: "HgTimeSeriesTypeMetaData"
+    ):
         Generic.__init__(self)
         TimeSeriesDeltaValue.__init__(self)
         TimeSeriesIterable.__init__(self)
@@ -42,16 +65,21 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             return out
         if item != (K, V):
             from hgraph._types._type_meta_data import HgTypeMetaData
+
             __key_tp__ = HgTypeMetaData.parse_type(item[0])
             __value_tp__ = HgTypeMetaData.parse_type(item[1])
             if not __key_tp__.is_scalar:
                 from hgraph import ParseError
+
                 raise ParseError(
-                    f"For TSD[{__key_tp__}][{__value_tp__}], '{__value_tp__}', '{__key_tp__}' must be a SCALAR type")
+                    f"For TSD[{__key_tp__}][{__value_tp__}], '{__value_tp__}', '{__key_tp__}' must be a SCALAR type"
+                )
             if __value_tp__.is_scalar:
                 from hgraph import ParseError
+
                 raise ParseError(
-                    f"For TSD[{__key_tp__}, {__value_tp__}], '{__value_tp__}' must be a TIME_SERIES_TYPE type")
+                    f"For TSD[{__key_tp__}, {__value_tp__}], '{__value_tp__}' must be a TIME_SERIES_TYPE type"
+                )
             out.__key_tp__ = __key_tp__
             out.__value_tp__ = __value_tp__
             _init = out.__init__
@@ -91,7 +119,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
 
     @abstractmethod
     def _create(self, key: K):
-        """ Implemented by subclasses to create a new time series at this index position"""
+        """Implemented by subclasses to create a new time series at this index position"""
 
     def __iter__(self) -> Iterable[K]:
         """
@@ -207,6 +235,7 @@ class TimeSeriesDictInput(TimeSeriesInput, TimeSeriesDict[K, V], ABC, Generic[K,
                 raise ParseError(f"Expected a dictionary of values, got {arg}")
 
         from hgraph import combine
+
         return combine[tsd](tuple(kwargs.keys()), *kwargs.values())
 
 

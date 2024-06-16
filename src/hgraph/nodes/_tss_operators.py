@@ -1,9 +1,37 @@
 from statistics import stdev, variance
 from typing import Type
 
-from hgraph import compute_node, contains_, REF, TSS, TS, STATE, PythonTimeSeriesReference, not_, graph, \
-    KEYABLE_SCALAR, PythonSetDelta, len_, is_empty, bit_or, bit_and, sub_, bit_xor, eq_, and_, or_, min_, max_, str_, \
-    zero, AUTO_RESOLVE, sum_, mean, std, var
+from hgraph import (
+    compute_node,
+    contains_,
+    REF,
+    TSS,
+    TS,
+    STATE,
+    PythonTimeSeriesReference,
+    not_,
+    graph,
+    KEYABLE_SCALAR,
+    PythonSetDelta,
+    len_,
+    is_empty,
+    bit_or,
+    bit_and,
+    sub_,
+    bit_xor,
+    eq_,
+    and_,
+    or_,
+    min_,
+    max_,
+    str_,
+    zero,
+    AUTO_RESOLVE,
+    sum_,
+    mean,
+    std,
+    var,
+)
 
 __all__ = ()
 
@@ -19,7 +47,8 @@ def contains_tss(ts: REF[TSS[KEYABLE_SCALAR]], item: TS[KEYABLE_SCALAR], _state:
     _state.tss = ts.value.output
     _state.item = item.value
     return PythonTimeSeriesReference(
-        None if _state.tss is None else _state.tss.get_contains_output(_state.item, _state.requester))
+        None if _state.tss is None else _state.tss.get_contains_output(_state.item, _state.requester)
+    )
 
 
 @contains_tss.start
@@ -168,7 +197,7 @@ def mean_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
     if len(tss) > 0:
         return float(sum(tss) / len(tss))
     else:
-        return float('NaN')
+        return float("NaN")
 
 
 @compute_node(overloads=std)

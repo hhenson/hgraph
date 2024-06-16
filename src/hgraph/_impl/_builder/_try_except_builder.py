@@ -17,6 +17,7 @@ class PythonTryExceptNodeBuilder(PythonBaseNodeBuilder):
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> "PythonTryExceptNodeImpl":
         from hgraph._impl._runtime._try_except_node import PythonTryExceptNodeImpl
+
         node = PythonTryExceptNodeImpl(
             node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,

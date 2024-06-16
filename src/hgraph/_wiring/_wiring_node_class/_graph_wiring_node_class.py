@@ -13,13 +13,16 @@ from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
-from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, PreResolvedWiringNodeWrapper, \
-    validate_and_resolve_signature
+from hgraph._wiring._wiring_node_class._wiring_node_class import (
+    BaseWiringNodeClass,
+    PreResolvedWiringNodeWrapper,
+    validate_and_resolve_signature,
+)
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_observer import WiringObserverContext
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ('WiringGraphContext', "GraphWiringNodeClass")
+__all__ = ("WiringGraphContext", "GraphWiringNodeClass")
 
 
 class WiringGraphContext:
@@ -59,14 +62,16 @@ class WiringGraphContext:
         """Return a graph call stack"""
         # TODO: Look into how this could be improved to include call site information.
         # The first entry is the root node of the graph stack
-        return [graph.wiring_node_signature.src_location for graph in reversed(cls.__stack__[1:])
-                if graph.wiring_node_signature]
+        return [
+            graph.wiring_node_signature.src_location
+            for graph in reversed(cls.__stack__[1:])
+            if graph.wiring_node_signature
+        ]
 
     @classmethod
     def wiring_path_name(cls) -> str:
         """Return a graph call stack in names of graphs"""
-        return '.'.join(graph.wiring_node_signature.name for graph in cls.__stack__[1:]
-                        if graph.wiring_node_signature)
+        return ".".join(graph.wiring_node_signature.name for graph in cls.__stack__[1:] if graph.wiring_node_signature)
 
     @classmethod
     def instance(cls) -> "WiringGraphContext":
@@ -115,7 +120,8 @@ class WiringGraphContext:
         i = 1
         prev_f = None
         while self._current_frame != (f := sys._getframe(i)):
-            if i > 20: return
+            if i > 20:
+                return
             prev_f = f
             i += 1
 
@@ -136,8 +142,14 @@ class WiringGraphContext:
         """
         self._service_clients.append((service, path, frozendict(type_map) if type_map else frozendict()))
 
-    def register_service_impl(self, service: "ServiceInterfaceNodeClass", path: str, impl: "ServiceImplNodeClass",
-                              kwargs, resolution_dict=None):
+    def register_service_impl(
+        self,
+        service: "ServiceInterfaceNodeClass",
+        path: str,
+        impl: "ServiceImplNodeClass",
+        kwargs,
+        resolution_dict=None,
+    ):
         """
         Register a service client with the graph context
         """
@@ -148,15 +160,17 @@ class WiringGraphContext:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
 
         if prev_impl := self._service_implementations.get(path):
-            CustomMessageWiringError(f"Service implementation already registered for service at path: {path}: "
-                                     f"{prev_impl[0].signature.signature} with {prev_impl[1]}")
+            CustomMessageWiringError(
+                f"Service implementation already registered for service at path: {path}: "
+                f"{prev_impl[0].signature.signature} with {prev_impl[1]}"
+            )
 
         self._service_implementations[path] = (service, impl, kwargs)
 
     def find_service_impl(self, path, resolution_dict=None, quiet=False):
-        if path.endswith(']'):
+        if path.endswith("]"):
             typed_path = path
-            path = path.split('[', 1)[0]
+            path = path.split("[", 1)[0]
         elif resolution_dict:
             typed_path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
         else:
@@ -171,7 +185,7 @@ class WiringGraphContext:
             return item
         elif item := find_impl(path):
             return item
-        elif item := find_impl(path.split('/')[-1]):
+        elif item := find_impl(path.split("/")[-1]):
             return item
         else:
             if not quiet:
@@ -207,15 +221,18 @@ class WiringGraphContext:
                     interface, impl, kwargs = item
                 else:
                     raise CustomMessageWiringError(
-                        f'No implementation found for service: {service.signature.name} at path: {path}')
+                        f"No implementation found for service: {service.signature.name} at path: {path}"
+                    )
 
                 if isinstance(interface, PreResolvedWiringNodeWrapper):
                     interface = interface.underlying_node
 
                 if interface != service:
-                    raise CustomMessageWiringError(f"service implementation for path {path} implements "
-                                                   f"{interface.signature.signature} which does not match the client "
-                                                   f"expecting {service.signature.signature}")
+                    raise CustomMessageWiringError(
+                        f"service implementation for path {path} implements "
+                        f"{interface.signature.signature} which does not match the client "
+                        f"expecting {service.signature.signature}"
+                    )
 
                 services_to_build[typed_path] = (service, path, impl, kwargs, type_map)
 
@@ -227,8 +244,15 @@ class WiringGraphContext:
                     impl(path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
 
                     new_clients = self._service_clients[clients_before:]
-                    dependencies.update({typed_path: set(s.typed_full_path(p, t) for s, p, t in new_clients
-                                                         if s.signature.node_type != WiringNodeType.REQ_REP_SVC)})
+                    dependencies.update(
+                        {
+                            typed_path: set(
+                                s.typed_full_path(p, t)
+                                for s, p, t in new_clients
+                                if s.signature.node_type != WiringNodeType.REQ_REP_SVC
+                            )
+                        }
+                    )
 
             if self._service_clients == service_clients:
                 break
@@ -237,7 +261,7 @@ class WiringGraphContext:
 
         ordered = list(TopologicalSorter(dependencies).static_order())
         for i, path in enumerate(ordered):
-            object.__setattr__(self._built_services[path], 'rank', i + 2)
+            object.__setattr__(self._built_services[path], "rank", i + 2)
 
     def __enter__(self):
         WiringGraphContext.__stack__.append(self)
@@ -267,21 +291,29 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         if signature.var_arg or signature.var_kwarg:
             co = fn.__code__
-            kw_only_code = co.replace(co_flags=co.co_flags & ~(inspect.CO_VARARGS | inspect.CO_VARKEYWORDS),
-                                       co_argcount=0, co_posonlyargcount=0, co_kwonlyargcount=len(signature.args))
+            kw_only_code = co.replace(
+                co_flags=co.co_flags & ~(inspect.CO_VARARGS | inspect.CO_VARKEYWORDS),
+                co_argcount=0,
+                co_posonlyargcount=0,
+                co_kwonlyargcount=len(signature.args),
+            )
             fn = types.FunctionType(kw_only_code, fn.__globals__)
 
         super().__init__(signature, fn)
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
-                 **kwargs) -> "WiringPort":
+    def __call__(
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
+    ) -> "WiringPort":
 
         if self.signature.deprecated:
             import warnings
+
             warnings.warn(
                 f"{self.signature.signature} is deprecated and will be removed in a future version."
                 f"{(' ' + self.signature.deprecated) if type(self.signature.deprecated) is str else ''}",
-                DeprecationWarning, stacklevel=3)
+                DeprecationWarning,
+                stacklevel=3,
+            )
 
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
         if found_overload:
@@ -296,7 +328,8 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 *args,
                 __pre_resolved_types__=__pre_resolved_types__,
                 __enforce_output_type__=False,
-                **kwargs)
+                **kwargs,
+            )
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
@@ -304,33 +337,41 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 WiringGraphContext.instance().label_nodes()
                 if output_type := resolved_signature.output_type:
                     from hgraph import HgTSBTypeMetaData
+
                     if not isinstance(out, WiringPort):
                         if isinstance(out, dict) and isinstance(output_type, HgTSBTypeMetaData):
                             out = output_type.py_type.from_ts(**out)
                         elif isinstance(out, dict) and isinstance(output_type, HgTsTypeVarTypeMetaData):
                             for c in output_type.constraints:
-                                if isinstance(c, HgTSBTypeMetaData) and \
-                                        all((t := c.bundle_schema_tp.meta_data_schema.get(k)) and t.matches(
-                                            v.output_type.dereference()) for k, v in out.items()):
+                                if isinstance(c, HgTSBTypeMetaData) and all(
+                                    (t := c.bundle_schema_tp.meta_data_schema.get(k))
+                                    and t.matches(v.output_type.dereference())
+                                    for k, v in out.items()
+                                ):
                                     out = c.py_type.from_ts(**out)
                                     break
                             else:
                                 raise WiringError(
                                     f"Expected a time series of type '{str(output_type)}' but got a dict of "
-                                    f"{{{', '.join(f'{k}:{str(v.output_type)}' for k, v in out.items())}}}")
+                                    f"{{{', '.join(f'{k}:{str(v.output_type)}' for k, v in out.items())}}}"
+                                )
                         else:
                             try:
                                 # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
                                 output_type.build_resolution_dict_from_scalar({}, HgTypeMetaData.parse_value(out), out)
                                 from hgraph.nodes import const
+
                                 out = const(out, tp=output_type.py_type)
                             except Exception as e:
                                 raise WiringError(
-                                    f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'") from e
+                                    f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'"
+                                ) from e
 
                     if not output_type.dereference().matches(out.output_type.dereference()):
-                        raise WiringError(f"'{self.signature.name}' declares its output as '{str(output_type)}' but "
-                                          f"'{str(out.output_type)}' was returned from the graph")
+                        raise WiringError(
+                            f"'{self.signature.name}' declares its output as '{str(output_type)}' but "
+                            f"'{str(out.output_type)}' was returned from the graph"
+                        )
                 elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
                     raise WiringError(f"'{self.signature.name}' does not seem to do anything")
                 return out

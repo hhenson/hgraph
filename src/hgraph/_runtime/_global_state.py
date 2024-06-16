@@ -73,7 +73,9 @@ class GlobalState(object):
             return len(self._state) + len(self._previous)
 
     def __repr__(self):
-        return f"GlobalState({self._state}{(', previous=' + repr(self._previous)) if self._previous is not None else ''})"
+        return (
+            f"GlobalState({self._state}{(', previous=' + repr(self._previous)) if self._previous is not None else ''})"
+        )
 
     def __str__(self):
         return str(self._get_combined_dict())

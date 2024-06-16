@@ -12,15 +12,20 @@ class NodeImplWiringNodeClass(BaseWiringNodeClass):
     def __init__(self, signature: WiringNodeSignature, fn: "Node"):
         super().__init__(signature, fn)
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+    ) -> "NodeBuilder":
         from hgraph._impl._builder._node_impl_builder import PythonNodeImplNodeBuilder
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
-                                                                                    self.error_output_type)
 
-        return PythonNodeImplNodeBuilder(signature=node_signature,
-                                 scalars=scalars,
-                                 input_builder=input_builder,
-                                 output_builder=output_builder,
-                                 error_builder=error_builder,
-                                 node_impl=self.fn)
+        input_builder, output_builder, error_builder = create_input_output_builders(
+            node_signature, self.error_output_type
+        )
+
+        return PythonNodeImplNodeBuilder(
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            node_impl=self.fn,
+        )

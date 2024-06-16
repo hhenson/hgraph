@@ -26,18 +26,21 @@ if TYPE_CHECKING:
     from hgraph._types._scalar_types import SCALAR
 
 
-__all__ = ("NodeImpl", "NodeSchedulerImpl", "GeneratorNodeImpl", "PythonPushQueueNodeImpl",
-           "PythonLastValuePullNodeImpl", "BaseNodeImpl")
+__all__ = (
+    "NodeImpl",
+    "NodeSchedulerImpl",
+    "GeneratorNodeImpl",
+    "PythonPushQueueNodeImpl",
+    "PythonLastValuePullNodeImpl",
+    "BaseNodeImpl",
+)
 
 
 class BaseNodeImpl(Node, ABC):
 
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any]
-                 ):
+    def __init__(
+        self, node_ndx: int, owning_graph_id: tuple[int, ...], signature: NodeSignature, scalars: Mapping[str, Any]
+    ):
         super().__init__()
         self._node_ndx: int = node_ndx
         self._owning_graph_id: tuple[int, ...] = owning_graph_id
@@ -69,7 +72,7 @@ class BaseNodeImpl(Node, ABC):
 
     @functools.cached_property
     def node_id(self) -> tuple[int, ...]:
-        """ Computed once and then cached """
+        """Computed once and then cached"""
         return self.owning_graph_id + tuple([self.node_ndx])
 
     @property
@@ -129,12 +132,14 @@ class BaseNodeImpl(Node, ABC):
 
     def _initialise_kwargs(self):
         from hgraph._types._scalar_type_meta_data import Injector
+
         extras = {}
         for k, s in self.scalars.items():
             if isinstance(s, Injector):
                 extras[k] = s(self)
-        self._kwargs = {k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if
-                            k in self.signature.args}
+        self._kwargs = {
+            k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if k in self.signature.args
+        }
 
     def _initialise_inputs(self):
         if self.input:
@@ -145,14 +150,17 @@ class BaseNodeImpl(Node, ABC):
                 if self.signature.active_inputs is None or k in self.signature.active_inputs:
                     ts.make_active()
 
-    def do_eval(self):
-        ...
+    def do_eval(self): ...
 
     def eval(self):
         scheduled = False if self._scheduler is None else self._scheduler.is_scheduled_now
         if self.input:
             # Perform validity check of inputs
-            args = self.signature.valid_inputs if self.signature.valid_inputs is not None else self.signature.time_series_inputs.keys()
+            args = (
+                self.signature.valid_inputs
+                if self.signature.valid_inputs is not None
+                else self.signature.time_series_inputs.keys()
+            )
             if not all(self.input[k].valid for k in args):
                 return  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
@@ -177,6 +185,7 @@ class BaseNodeImpl(Node, ABC):
                 except Exception as e:
                     out = None
                     from hgraph._types._error_type import NodeError
+
                     self.error_output.apply_result(NodeError.capture_error(e, self))
             else:
                 self.do_eval()
@@ -187,8 +196,7 @@ class BaseNodeImpl(Node, ABC):
             self.graph.schedule_node(self.node_ndx, self.scheduler.next_scheduled_time)
 
     @abstractmethod
-    def do_start(self):
-        ...
+    def do_start(self): ...
 
     @start_guard
     def start(self):
@@ -204,8 +212,7 @@ class BaseNodeImpl(Node, ABC):
                 self._scheduler.advance()
 
     @abstractmethod
-    def do_stop(self):
-        ...
+    def do_stop(self): ...
 
     @stop_guard
     def stop(self):
@@ -219,10 +226,10 @@ class BaseNodeImpl(Node, ABC):
     def notify(self, modified_time: datetime = None):
         """Notify the graph that this node needs to be evaluated."""
         if self.is_started or self.is_starting:
-            self.graph.schedule_node(self.node_ndx,
-                                     modified_time
-                                     if modified_time is not None
-                                     else self.graph.evaluation_clock.evaluation_time)
+            self.graph.schedule_node(
+                self.node_ndx,
+                modified_time if modified_time is not None else self.graph.evaluation_clock.evaluation_time,
+            )
         else:
             self.scheduler.schedule(when=MIN_ST, tag="start")
 
@@ -254,15 +261,16 @@ class NodeImpl(BaseNodeImpl):
     Provide a basic implementation of the Node as a reference implementation.
     """
 
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 eval_fn: Callable = None,
-                 start_fn: Callable = None,
-                 stop_fn: Callable = None
-                 ):
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        eval_fn: Callable = None,
+        start_fn: Callable = None,
+        stop_fn: Callable = None,
+    ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars)
         self.eval_fn: Callable = eval_fn
         self.start_fn: Callable = start_fn
@@ -276,10 +284,12 @@ class NodeImpl(BaseNodeImpl):
     def do_start(self):
         if self.start_fn is not None:
             from inspect import signature
+
             self.start_fn(**{k: self._kwargs[k] for k in (signature(self.start_fn).parameters.keys())})
 
     def do_stop(self):
         from inspect import signature
+
         if self.stop_fn is not None:
             self.stop_fn(**{k: self._kwargs[k] for k in (signature(self.stop_fn).parameters.keys())})
 
@@ -307,8 +317,9 @@ class NodeSchedulerImpl(NodeScheduler):
 
     @property
     def is_scheduled_now(self) -> bool:
-        return bool(self._scheduled_events and \
-            self._scheduled_events[0][0] == self._node.graph.evaluation_clock.evaluation_time)
+        return bool(
+            self._scheduled_events and self._scheduled_events[0][0] == self._node.graph.evaluation_clock.evaluation_time
+        )
 
     def has_tag(self, tag: str) -> bool:
         return tag in self._tags
@@ -329,7 +340,8 @@ class NodeSchedulerImpl(NodeScheduler):
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
         if when > (
-                self._node.graph.evaluation_clock.evaluation_time if (is_stated := self._node.is_started) else MIN_DT):
+            self._node.graph.evaluation_clock.evaluation_time if (is_stated := self._node.is_started) else MIN_DT
+        ):
             self._tags[tag] = when
             current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
             self._scheduled_events.add((when, "" if tag is None else tag))
@@ -412,8 +424,9 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
     @start_guard
     def start(self):
         self._initialise_kwargs()
-        self.receiver = _SenderReceiverState(lock=threading.RLock(), queue=deque(),
-                                             evaluation_evaluation_clock=self.graph.engine_evaluation_clock)
+        self.receiver = _SenderReceiverState(
+            lock=threading.RLock(), queue=deque(), evaluation_evaluation_clock=self.graph.engine_evaluation_clock
+        )
         self.eval_fn(self.receiver, **self._kwargs)
 
     def eval(self):
@@ -477,13 +490,17 @@ class PythonLastValuePullNodeImpl(NodeImpl):
             self.notify()
 
     def copy_from_input(self, output: "TimeSeriesOutput"):
-        self._delta_value = output.delta_value if self._delta_value is None else \
-            self._delta_combine_fn(self._delta_value, output.delta_value)
+        self._delta_value = (
+            output.delta_value
+            if self._delta_value is None
+            else self._delta_combine_fn(self._delta_value, output.delta_value)
+        )
         self.notify_next_cycle()  # If we are copying the value now, then we expect it to be used in the next cycle
 
     def apply_value(self, new_value: "SCALAR"):
-        self._delta_value = new_value if self._delta_value is None else \
-            self._delta_combine_fn(self._delta_value, new_value)
+        self._delta_value = (
+            new_value if self._delta_value is None else self._delta_combine_fn(self._delta_value, new_value)
+        )
         self.notify_next_cycle()
 
     def eval(self):
@@ -501,14 +518,16 @@ class PythonLastValuePullNodeImpl(NodeImpl):
         if isinstance(old_delta, set):
             old_delta = PythonSetDelta(
                 added={i for i in old_delta if type(i) is not Removed},
-                removed={i for i in old_delta if type(i) is Removed})
+                removed={i for i in old_delta if type(i) is Removed},
+            )
         if isinstance(new_delta, set):
             new_delta = PythonSetDelta(
                 added={i for i in new_delta if type(i) is not Removed},
-                removed={i for i in new_delta if type(i) is Removed})
+                removed={i for i in new_delta if type(i) is Removed},
+            )
 
         # Only addd items that have not subsequently been removed plus the new added items less the "re-added elements"
-        added = (old_delta.added - new_delta.removed) | (new_delta.added -  old_delta.removed)
+        added = (old_delta.added - new_delta.removed) | (new_delta.added - old_delta.removed)
         removed = (old_delta.removed - new_delta.added) | (new_delta.removed - old_delta.added)
         # Only remove elements that have not been recently added and don't remove old removes that have been re-added
         return PythonSetDelta(added=added, removed=removed)

@@ -1,12 +1,36 @@
 from collections import defaultdict
 from typing import Mapping, Any, Type
 
-from hgraph import sink_node, REF, TIME_SERIES_TYPE, GlobalState, compute_node, SCALAR, TS, STATE, Removed, \
-    pull_source_node, BaseWiringNodeClass, HgREFTypeMetaData, create_input_output_builders, \
-    graph, AUTO_RESOLVE, TSD, TS_OUT, REMOVE_IF_EXISTS, TIME_SERIES_TYPE_1
+from hgraph import (
+    sink_node,
+    REF,
+    TIME_SERIES_TYPE,
+    GlobalState,
+    compute_node,
+    SCALAR,
+    TS,
+    STATE,
+    Removed,
+    pull_source_node,
+    BaseWiringNodeClass,
+    HgREFTypeMetaData,
+    create_input_output_builders,
+    graph,
+    AUTO_RESOLVE,
+    TSD,
+    TS_OUT,
+    REMOVE_IF_EXISTS,
+    TIME_SERIES_TYPE_1,
+)
 
-__all__ = ("capture_output_to_global_state", "capture_output_node_to_global_state", "write_subscription_key",
-           "write_service_request", "get_shared_reference_output", "write_service_replies")
+__all__ = (
+    "capture_output_to_global_state",
+    "capture_output_node_to_global_state",
+    "write_subscription_key",
+    "write_service_request",
+    "get_shared_reference_output",
+    "write_service_replies",
+)
 
 from hgraph.nodes import null_sink
 
@@ -85,17 +109,19 @@ def write_subscription_key_stop(path: str, _state: STATE):
 
 
 @graph
-def _subscribe(path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE,
-               _ts_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def _subscribe(
+    path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE, _ts_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE
+) -> TIME_SERIES_TYPE:
     """Implement the stub for subscription"""
     write_subscription_key(path, key)
-    out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[_s_tp, _ts_tp]](f"{path}/out")
+    out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[_s_tp, _ts_tp]](f"{path}/out")
     return out[key]
 
 
 @compute_node
-def write_service_request(path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None) -> \
-        TS[int]:
+def write_service_request(
+    path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None
+) -> TS[int]:
     """
     Updates TSDs attached to the path with the data provided.
     """
@@ -137,25 +163,29 @@ def _request_service(path: str, request: TIME_SERIES_TYPE):
 
 
 @graph
-def _request_reply_service(path: str, request: TIME_SERIES_TYPE,
-                     tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE) -> TIME_SERIES_TYPE_1:
+def _request_reply_service(
+    path: str, request: TIME_SERIES_TYPE, tp_out: Type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE
+) -> TIME_SERIES_TYPE_1:
     requestor_id = write_service_request(path, request)
     if tp_out:
-        out = get_shared_reference_output[TIME_SERIES_TYPE: TSD[int, tp_out]](f"{path}/replies")
+        out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[int, tp_out]](f"{path}/replies")
         return out[requestor_id]
 
 
 class SharedReferenceNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+    ) -> "NodeBuilder":
         output_type = node_signature.time_series_output
         if type(output_type) is not HgREFTypeMetaData:
             node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
 
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
-                                                                                    self.error_output_type)
+
+        input_builder, output_builder, error_builder = create_input_output_builders(
+            node_signature, self.error_output_type
+        )
 
         from hgraph._impl._runtime._node import BaseNodeImpl
 
@@ -164,6 +194,7 @@ class SharedReferenceNodeClass(BaseWiringNodeClass):
             def do_eval(self):
                 """The service must be available by now, so we can retrieve the output reference."""
                 from hgraph._runtime._global_state import GlobalState
+
                 shared_output = GlobalState.instance().get(self.scalars["path"])
                 if shared_output is None:
                     raise RuntimeError(f"Missing shared output for path: {self.scalars['path']}")
@@ -183,7 +214,7 @@ class SharedReferenceNodeClass(BaseWiringNodeClass):
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
-            node_impl=_PythonSharedReferenceStubSourceNode
+            node_impl=_PythonSharedReferenceStubSourceNode,
         )
 
 

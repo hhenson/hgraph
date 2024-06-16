@@ -166,4 +166,3 @@ class EngineEvaluationClockDelegate(EngineEvaluationClock):
     @property
     def next_cycle_evaluation_time(self) -> datetime:
         return self._engine_evaluation_clock.next_cycle_evaluation_time
-

@@ -21,8 +21,9 @@ class WiringObserver:
     def on_exit_node_wiring(self, signature: "WiringNodeSignature", error):
         pass
 
-    def on_overload_resolution(self, signature: "WiringNodeSignature", selected_overload,
-                               rejected_overloads, ambiguous_overloads):
+    def on_overload_resolution(
+        self, signature: "WiringNodeSignature", selected_overload, rejected_overloads, ambiguous_overloads
+    ):
         pass
 
 
@@ -30,6 +31,7 @@ class WiringObserverContext:
     """
     Context manager for wiring observer.
     """
+
     _instance = None
 
     def __init__(self):
@@ -78,8 +80,8 @@ class WiringObserverContext:
         for observer in self._observers:
             observer.on_exit_node_wiring(signature, error)
 
-    def notify_overload_resolution(self, signature: "WiringNodeSignature", selected_overload,
-                                   rejected_overloads, ambiguous_overloads):
+    def notify_overload_resolution(
+        self, signature: "WiringNodeSignature", selected_overload, rejected_overloads, ambiguous_overloads
+    ):
         for observer in self._observers:
-            observer.on_overload_resolution(signature, selected_overload,
-                                            rejected_overloads, ambiguous_overloads)
+            observer.on_overload_resolution(signature, selected_overload, rejected_overloads, ambiguous_overloads)

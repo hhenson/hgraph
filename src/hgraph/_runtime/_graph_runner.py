@@ -23,7 +23,7 @@ def _default_logger() -> Logger:
         ch = StreamHandler()
         ch.setLevel(DEBUG)
         # create formatter
-        formatter = Formatter('%(asctime)s [%(name)s][%(levelname)s] %(message)s')
+        formatter = Formatter("%(asctime)s [%(name)s][%(levelname)s] %(message)s")
         # add formatter to ch
         ch.setFormatter(formatter)
         # add ch to logger
@@ -63,15 +63,24 @@ class GraphConfiguration:
 
         if self.trace:
             from hgraph.test import EvaluationTrace
-            self.life_cycle_observers = self.life_cycle_observers + (EvaluationTrace(**(self.trace if type(self.trace) is dict else {})),)
+
+            self.life_cycle_observers = self.life_cycle_observers + (
+                EvaluationTrace(**(self.trace if type(self.trace) is dict else {})),
+            )
 
         if self.profile:
             from hgraph.test import EvaluationProfiler
-            self.life_cycle_observers = self.life_cycle_observers + (EvaluationProfiler(**(self.profile if type(self.profile) is dict else {})),)
+
+            self.life_cycle_observers = self.life_cycle_observers + (
+                EvaluationProfiler(**(self.profile if type(self.profile) is dict else {})),
+            )
 
         if self.trace_wiring:
             from hgraph.test import WiringTracer
-            self.wiring_observers = self.wiring_observers + (WiringTracer(**(self.trace_wiring if type(self.trace_wiring) is dict else {})),)
+
+            self.wiring_observers = self.wiring_observers + (
+                WiringTracer(**(self.trace_wiring if type(self.trace_wiring) is dict else {})),
+            )
 
 
 def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs) -> list[tuple[datetime, Any]] | None:
@@ -87,12 +96,15 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
         signature = graph.signature
         if signature.output_type:
             graph_ = graph
+
             def _record(*args, **kwargs):
                 out = graph_(*args, **kwargs)
                 record(out, "__out__")
+
             graph = _record
         with WiringNodeInstanceContext():
             from hgraph._wiring._wiring_observer import WiringObserverContext
+
             with WiringObserverContext() as wiring_observer_context:
                 for observer in config.wiring_observers:
                     wiring_observer_context.add_wiring_observer(observer)
@@ -103,10 +115,10 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
         graph_builder = graph
 
     config.graph_logger.debug("Creating graph engine: %s", config.run_mode)
-    engine = GraphEngineFactory.make(graph=graph_builder.make_instance(tuple()), run_mode=config.run_mode,
-                                     observers=config.life_cycle_observers)
-    config.graph_logger.debug("Starting to run graph from: %s to %s", config.start_time,
-                              config.end_time)
+    engine = GraphEngineFactory.make(
+        graph=graph_builder.make_instance(tuple()), run_mode=config.run_mode, observers=config.life_cycle_observers
+    )
+    config.graph_logger.debug("Starting to run graph from: %s to %s", config.start_time, config.end_time)
     try:
         engine.run(config.start_time, config.end_time)
         if signature is not None and signature.output_type:
@@ -118,16 +130,19 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
         config.graph_logger.debug("Finished running graph")
 
 
-def run_graph(graph: Callable, *args,
-              run_mode: EvaluationMode = EvaluationMode.SIMULATION,
-              start_time: datetime = None,
-              end_time: datetime = None,
-              print_progress: bool = True,
-              life_cycle_observers: [EvaluationLifeCycleObserver] = None,
-              __trace__: bool | dict = False,
-              __profile__: bool | dict = False,
-              __trace_wiring__: bool | dict = False,
-              **kwargs):
+def run_graph(
+    graph: Callable,
+    *args,
+    run_mode: EvaluationMode = EvaluationMode.SIMULATION,
+    start_time: datetime = None,
+    end_time: datetime = None,
+    print_progress: bool = True,
+    life_cycle_observers: [EvaluationLifeCycleObserver] = None,
+    __trace__: bool | dict = False,
+    __profile__: bool | dict = False,
+    __trace_wiring__: bool | dict = False,
+    **kwargs,
+):
     """
     Use this to initiate the graph engine run loop.
 

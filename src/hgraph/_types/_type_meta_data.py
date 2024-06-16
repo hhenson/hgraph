@@ -1,13 +1,12 @@
 from typing import TypeVar, Type, Optional, Mapping
 
-__all__ = ('ParseError', 'HgTypeMetaData', 'AUTO_RESOLVE')
+__all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE")
 
 
 AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
 
 
-class ParseError(RuntimeError):
-    ...
+class ParseError(RuntimeError): ...
 
 
 class HgTypeMetaData:
@@ -25,6 +24,7 @@ class HgTypeMetaData:
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+
         parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
         if isinstance(value_tp, parse_order):
             return value_tp
@@ -37,6 +37,7 @@ class HgTypeMetaData:
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
         parse_order = (HgTimeSeriesTypeMetaData, HgScalarTypeMetaData)
         if isinstance(value, HgTypeMetaData):
             raise ParseError(f"Parse value was passed a type meta instead '{value}'")
@@ -131,4 +132,5 @@ class HgTypeMetaData:
         """
         if wired_type is not None and type(self) != type(wired_type):
             from hgraph._wiring._wiring_errors import IncorrectTypeBinding
+
             raise IncorrectTypeBinding(self, wired_type)

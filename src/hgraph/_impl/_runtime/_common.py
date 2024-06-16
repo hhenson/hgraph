@@ -20,7 +20,9 @@ class TimeSeriesSubscriber:
     A reference counted subscription collection.
     """
 
-    _subscriber_count: dict[tuple[int, ...], int] = field(default_factory=lambda :defaultdict[tuple[int, ...], int](int))
+    _subscriber_count: dict[tuple[int, ...], int] = field(
+        default_factory=lambda: defaultdict[tuple[int, ...], int](int)
+    )
     _subscribers: list[SUBSCRIBER] = field(default_factory=list)
 
     def subscribe(self, subscriber: SUBSCRIBER):

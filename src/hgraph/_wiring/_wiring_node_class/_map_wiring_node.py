@@ -40,16 +40,18 @@ class TslMapWiringSignature(WiringNodeSignature):
 class TsdMapWiringNodeClass(BaseWiringNodeClass):
     signature: TsdMapWiringSignature
 
-    def create_node_builder_instance(self, node_signature: "TsdMapWiringSignature",
-                                     scalars: Mapping[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, node_signature: "TsdMapWiringSignature", scalars: Mapping[str, Any]
+    ) -> "NodeBuilder":
         from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
+
         inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
-            inner_graph,
-            set(node_signature.time_series_inputs.keys()) | {self.signature.key_arg}
+            inner_graph, set(node_signature.time_series_inputs.keys()) | {self.signature.key_arg}
         )
-        input_builder, output_builder, error_builder = create_input_output_builders(node_signature,
-                                                                                    self.error_output_type)
+        input_builder, output_builder, error_builder = create_input_output_builders(
+            node_signature, self.error_output_type
+        )
         return PythonTsdMapNodeBuilder(
             node_signature,
             scalars,
@@ -60,20 +62,23 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             input_node_ids,
             output_node_id,
             self.signature.multiplexed_args,
-            self.signature.key_arg
+            self.signature.key_arg,
         )
 
     @property
     def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
         from hgraph import NodeError, TS, TSD
         from hgraph import HgTimeSeriesTypeMetaData
+
         return HgTimeSeriesTypeMetaData.parse_type(TSD[self.signature.key_tp.py_type, TS[NodeError]])
 
 
 class TslMapWiringNodeClass(BaseWiringNodeClass):
     signature: TslMapWiringSignature
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs) -> "WiringPort":
+    def __call__(
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
+    ) -> "WiringPort":
         # This should be pre-resolved in previous steps.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             if not self.signature.is_resolved:
@@ -86,14 +91,14 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
                 # Since we did lots of checking before creating this, I imaged we should be safe to just let it all out
                 return out
 
-    def _map_with_index(self, **kwargs) -> "WiringPort":
-        ...
+    def _map_with_index(self, **kwargs) -> "WiringPort": ...
 
     def _map_no_index(self, **kwargs) -> "WiringPort":
         """In this scenario, we can just map the nodes using the max size"""
         from hgraph._types._scalar_types import Size
         from hgraph.nodes._const import const
         from hgraph._types._tsl_type import TSL
+
         out = []
 
         for i in range(cast(Size, self.signature.size_tp.py_type).SIZE):

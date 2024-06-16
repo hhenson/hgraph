@@ -16,6 +16,7 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
     @property
     def py_type(self) -> Type:
         from hgraph._types._time_series_types import SIGNAL
+
         return SIGNAL
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
@@ -27,8 +28,9 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         pass  # SIGNAL has no possible validation or resolution logic
 
-    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                          wired_type: "HgTypeMetaData", value: object):
+    def build_resolution_dict_from_scalar(
+        self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
+    ):
         """A signal has no meaningful scalar resolution"""
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
@@ -37,6 +39,7 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._time_series_types import SIGNAL
+
         if value_tp is SIGNAL:
             return HgSignalMetaData()
 
@@ -44,11 +47,12 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
         return type(o) is HgSignalMetaData
 
     def __str__(self) -> str:
-        return 'SIGNAL'
+        return "SIGNAL"
 
     def __repr__(self) -> str:
-        return 'HgSignalMetaData()'
+        return "HgSignalMetaData()"
 
     def __hash__(self) -> int:
         from hgraph._types._time_series_types import SIGNAL
+
         return hash(SIGNAL)

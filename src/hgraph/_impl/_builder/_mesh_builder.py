@@ -28,7 +28,7 @@ class PythonMeshNodeBuilder(PythonBaseNodeBuilder):
             output_node_id=self.output_node_id,
             multiplexed_args=self.multiplexed_args,
             key_arg=self.key_arg,
-            context_path=self.context_path
+            context_path=self.context_path,
         )
         return self._build_inputs_and_outputs(node)
 

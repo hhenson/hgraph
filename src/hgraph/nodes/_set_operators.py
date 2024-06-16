@@ -1,7 +1,23 @@
 from typing import Type
 
-from hgraph import intersection, graph, TSL, TIME_SERIES_TYPE, SIZE, AUTO_RESOLVE, bit_and, reduce, zero, difference, \
-    sub_, WiringError, symmetric_difference, bit_xor, union, bit_or
+from hgraph import (
+    intersection,
+    graph,
+    TSL,
+    TIME_SERIES_TYPE,
+    SIZE,
+    AUTO_RESOLVE,
+    bit_and,
+    reduce,
+    zero,
+    difference,
+    sub_,
+    WiringError,
+    symmetric_difference,
+    bit_xor,
+    union,
+    bit_or,
+)
 
 __all__ = ()
 
@@ -22,8 +38,9 @@ def union_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] 
 
 
 @graph(overloads=intersection)
-def intersection_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE],
-                         tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def intersection_default(
+    *tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
+) -> TIME_SERIES_TYPE:
     if len(tsl) == 1:
         return tsl[0]
     elif len(tsl) == 2:
@@ -48,8 +65,9 @@ def difference_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
 
 
 @graph(overloads=symmetric_difference)
-def symmetric_difference_default(*tsl: TSL[TIME_SERIES_TYPE, SIZE],
-                                 tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+def symmetric_difference_default(
+    *tsl: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
+) -> TIME_SERIES_TYPE:
     """
     Performs the symmetric difference of the provided time-series values.
 

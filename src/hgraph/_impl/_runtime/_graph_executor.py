@@ -25,9 +25,13 @@ class PythonGraphExecutor(GraphExecutor):
     A graph engine that runs the graph in python.
     """
 
-    def __init__(self, graph: Graph, run_mode: EvaluationMode,
-                 observers: Iterable[EvaluationLifeCycleObserver] = None,
-                 recorder: GraphRecorder = None):
+    def __init__(
+        self,
+        graph: Graph,
+        run_mode: EvaluationMode,
+        observers: Iterable[EvaluationLifeCycleObserver] = None,
+        recorder: GraphRecorder = None,
+    ):
         self._graph = graph
         self._run_mode = run_mode
         self.observers = observers or []
@@ -89,6 +93,7 @@ class PythonGraphExecutor(GraphExecutor):
         sink nodes are replaced with a skip node so that no side effects are generated during replay.
         Nodes that are replay aware are skipped.
         """
+
         def _match_replay(node: Node) -> bool:
             return node.signature.is_source_node and not node.signature.uses_replay_state
 
@@ -97,8 +102,9 @@ class PythonGraphExecutor(GraphExecutor):
             return node.signature.is_sink_node and not node.signature.uses_replay_state
 
         nodes = tuple(
-            recorder.replay_node(node) if _match_replay(node) else SkipEvalDelegate(node) if _match_sink(node) else node for
-            node in graph.nodes)
+            recorder.replay_node(node) if _match_replay(node) else SkipEvalDelegate(node) if _match_sink(node) else node
+            for node in graph.nodes
+        )
         return graph.copy_with(nodes)
 
     @staticmethod

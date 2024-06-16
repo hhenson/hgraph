@@ -9,7 +9,7 @@ __all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", 
 
 
 @runtime_checkable
-class SetDelta(Protocol[KEYABLE_SCALAR],Generic[KEYABLE_SCALAR]):
+class SetDelta(Protocol[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
 
     @property
     @abstractmethod
@@ -91,13 +91,11 @@ class TimeSeriesSetOutput(TimeSeriesOutput, TimeSeriesSet[KEYABLE_SCALAR], Gener
 
     @property
     @abstractmethod
-    def value(self) -> Set[KEYABLE_SCALAR]:
-        ...
+    def value(self) -> Set[KEYABLE_SCALAR]: ...
 
     @property
     @abstractmethod
-    def delta_value(self) -> SetDelta[KEYABLE_SCALAR]:
-        ...
+    def delta_value(self) -> SetDelta[KEYABLE_SCALAR]: ...
 
     def add(self, element: KEYABLE_SCALAR):
         """Add an element to the set"""

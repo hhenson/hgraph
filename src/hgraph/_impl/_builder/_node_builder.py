@@ -5,14 +5,23 @@ from inspect import isfunction
 from typing import Callable, TypeVar
 
 from hgraph._builder._node_builder import NodeBuilder
-from hgraph._impl._runtime._node import BaseNodeImpl, NodeImpl, GeneratorNodeImpl, PythonPushQueueNodeImpl, \
-    PythonLastValuePullNodeImpl
+from hgraph._impl._runtime._node import (
+    BaseNodeImpl,
+    NodeImpl,
+    GeneratorNodeImpl,
+    PythonPushQueueNodeImpl,
+    PythonLastValuePullNodeImpl,
+)
 from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._types._tsb_type import TimeSeriesBundleInput
 
 __all__ = (
-    "PythonNodeBuilder", "PythonGeneratorNodeBuilder", "PythonPushQueueNodeBuilder", "PythonLastValuePullNodeImpl",
-    "PythonBaseNodeBuilder")
+    "PythonNodeBuilder",
+    "PythonGeneratorNodeBuilder",
+    "PythonPushQueueNodeBuilder",
+    "PythonLastValuePullNodeImpl",
+    "PythonBaseNodeBuilder",
+)
 
 
 NODE = TypeVar("NODE", bound=BaseNodeImpl)
@@ -50,7 +59,7 @@ class PythonNodeBuilder(PythonBaseNodeBuilder):
             scalars=self.scalars,
             eval_fn=self.eval_fn if isfunction(self.eval_fn) else copy(self.eval_fn),
             start_fn=self.start_fn,
-            stop_fn=self.stop_fn
+            stop_fn=self.stop_fn,
         )
 
         return self._build_inputs_and_outputs(node)
@@ -69,7 +78,7 @@ class PythonGeneratorNodeBuilder(PythonBaseNodeBuilder):
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
-            eval_fn=self.eval_fn
+            eval_fn=self.eval_fn,
         )
 
         return self._build_inputs_and_outputs(node)
@@ -88,7 +97,7 @@ class PythonPushQueueNodeBuilder(PythonBaseNodeBuilder):
             owning_graph_id=owning_graph_id,
             signature=self.signature,
             scalars=self.scalars,
-            eval_fn=self.eval_fn
+            eval_fn=self.eval_fn,
         )
 
         return self._build_inputs_and_outputs(node)

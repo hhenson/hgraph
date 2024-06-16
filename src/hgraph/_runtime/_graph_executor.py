@@ -55,6 +55,7 @@ class GraphEngineFactory:
     @staticmethod
     def default():
         from hgraph._impl._runtime._graph_executor import PythonGraphExecutor
+
         return PythonGraphExecutor
 
     @staticmethod
@@ -78,8 +79,9 @@ class GraphEngineFactory:
         GraphEngineFactory._graph_engine_class = None
 
     @staticmethod
-    def make(graph: Graph, run_mode: EvaluationMode,
-             observers: Iterable[EvaluationLifeCycleObserver] = None) -> GraphExecutor:
+    def make(
+        graph: Graph, run_mode: EvaluationMode, observers: Iterable[EvaluationLifeCycleObserver] = None
+    ) -> GraphExecutor:
         """
         Make a new graph engine. If no engine is declared, the default engine will be used.
         :param graph: The graph to make the engine for

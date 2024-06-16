@@ -4,8 +4,12 @@ from typing import Type, TypeVar, Generic, Optional, _GenericAlias, _SpecialGene
 from hgraph._types._generic_rank_util import scale_rank
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_types import CompoundScalar, COMPOUND_SCALAR
-from hgraph._types._scalar_type_meta_data import HgCollectionType, HgCompoundScalarType, HgScalarTypeMetaData, \
-    HgScalarTypeVar
+from hgraph._types._scalar_type_meta_data import (
+    HgCollectionType,
+    HgCompoundScalarType,
+    HgScalarTypeMetaData,
+    HgScalarTypeVar,
+)
 
 try:
     import polars as pl
@@ -14,13 +18,9 @@ try:
 
     SCHEMA = TypeVar("SCHEMA", bound=CompoundScalar)
 
+    class _FrameTypeclass(_SpecialGenericAlias, _root=True): ...
 
-    class _FrameTypeclass(_SpecialGenericAlias, _root=True):
-        ...
-
-
-    Frame = _FrameTypeclass(pl.DataFrame, 1, inst=False, name='Frame')
-
+    Frame = _FrameTypeclass(pl.DataFrame, 1, inst=False, name="Frame")
 
     class HgDataFrameScalarTypeMetaData(HgCollectionType):
         schema: HgCompoundScalarType  # The schema of the frame
@@ -53,8 +53,9 @@ try:
             else:
                 return HgDataFrameScalarTypeMetaData(self.schema.resolve(resolution_dict, weak))
 
-        def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                     wired_type: "HgTypeMetaData"):
+        def do_build_resolution_dict(
+            self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"
+        ):
             super().do_build_resolution_dict(resolution_dict, wired_type)
             wired_type: HgDataFrameScalarTypeMetaData
             self.schema.build_resolution_dict(resolution_dict, wired_type.schema)
@@ -76,24 +77,19 @@ try:
             return type(o) is HgDataFrameScalarTypeMetaData and self.schema == o.schema
 
         def __str__(self) -> str:
-            return f'Frame[{str(self.schema)}]'
+            return f"Frame[{str(self.schema)}]"
 
         def __repr__(self) -> str:
-            return f'HgDataFrameScalarTypeMetaData({repr(self.schema)})'
+            return f"HgDataFrameScalarTypeMetaData({repr(self.schema)})"
 
         def __hash__(self) -> int:
             return hash(tuple) ^ hash(self.schema)
 
     HgScalarTypeMetaData.register_parser(HgDataFrameScalarTypeMetaData)
 
+    class _SeriesTypeclass(_SpecialGenericAlias, _root=True): ...
 
-
-    class _SeriesTypeclass(_SpecialGenericAlias, _root=True):
-        ...
-
-
-    Series = _SeriesTypeclass(pl.Series, 1, inst=False, name='Series')
-
+    Series = _SeriesTypeclass(pl.Series, 1, inst=False, name="Series")
 
     class HgSeriesScalarTypeMetaData(HgCollectionType):
         value_tp: HgScalarTypeMetaData
@@ -126,8 +122,9 @@ try:
             else:
                 return HgSeriesScalarTypeMetaData(self.value_tp.resolve(resolution_dict, weak))
 
-        def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                     wired_type: "HgTypeMetaData"):
+        def do_build_resolution_dict(
+            self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"
+        ):
             super().do_build_resolution_dict(resolution_dict, wired_type)
             wired_type: HgSeriesScalarTypeMetaData
             self.value_tp.build_resolution_dict(resolution_dict, wired_type.value_tp)
@@ -148,10 +145,10 @@ try:
             return type(o) is HgSeriesScalarTypeMetaData and self.value_tp == o.value_tp
 
         def __str__(self) -> str:
-            return f'Series[{str(self.value_tp)}]'
+            return f"Series[{str(self.value_tp)}]"
 
         def __repr__(self) -> str:
-            return f'HgSeriesScalarTypeMetaData({repr(self.value_tp)})'
+            return f"HgSeriesScalarTypeMetaData({repr(self.value_tp)})"
 
         def __hash__(self) -> int:
             return hash(tuple) ^ hash(self.value_tp)

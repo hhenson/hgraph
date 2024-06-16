@@ -34,11 +34,13 @@ class TryExceptTsdMapResult(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
     out: TIME_SERIES_TYPE
 
 
-def try_except(func: Callable[..., TIME_SERIES_TYPE],
-               *args,
-               __trace_back_depth__: int = 1,
-               __capture_values__: bool = False,
-               **kwargs) -> Union[TSB[TryExceptResult], TS[NodeError], TSB[TryExceptTsdMapResult]]:
+def try_except(
+    func: Callable[..., TIME_SERIES_TYPE],
+    *args,
+    __trace_back_depth__: int = 1,
+    __capture_values__: bool = False,
+    **kwargs,
+) -> Union[TSB[TryExceptResult], TS[NodeError], TSB[TryExceptTsdMapResult]]:
     """
     Wrap a graph with a try/except wrapper. This will catch an exception in the graph and report it as
     a time-series result (on the "exception" ts of the TryExceptResult). Do not wrap single nodes, this
@@ -60,9 +62,13 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
             is_special_node = True
 
     if is_special_node or func.signature.node_type in (
-            WiringNodeType.COMPUTE_NODE, WiringNodeType.PULL_SOURCE_NODE, WiringNodeType.PUSH_SOURCE_NODE):
-        return _try_except_node(func, *args, __trace_back_depth__=__trace_back_depth__,
-                                __capture_values__=__capture_values__, **kwargs)
+        WiringNodeType.COMPUTE_NODE,
+        WiringNodeType.PULL_SOURCE_NODE,
+        WiringNodeType.PUSH_SOURCE_NODE,
+    ):
+        return _try_except_node(
+            func, *args, __trace_back_depth__=__trace_back_depth__, __capture_values__=__capture_values__, **kwargs
+        )
 
     with WiringContext(current_signature=STATE(signature=f"try_except('{func.signature.signature}', ...)")):
         func: WiringNodeClass
@@ -70,17 +76,22 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
         kwargs_ = extract_kwargs(signature, *args, **kwargs)
         resolved_signature = func.resolve_signature(**kwargs_)
         inner_output = as_reference(resolved_signature.output_type) if resolved_signature.output_type else None
-        output_type = HgTimeSeriesTypeMetaData.parse_type(
-            TSB[TryExceptResult[inner_output.py_type]]) if inner_output else \
-            HgTimeSeriesTypeMetaData.parse_type(TS[NodeError])
-        input_types = {k: as_reference(v) if isinstance(v, HgTimeSeriesTypeMetaData) else v for k, v in
-                       resolved_signature.input_types.items()}
+        output_type = (
+            HgTimeSeriesTypeMetaData.parse_type(TSB[TryExceptResult[inner_output.py_type]])
+            if inner_output
+            else HgTimeSeriesTypeMetaData.parse_type(TS[NodeError])
+        )
+        input_types = {
+            k: as_reference(v) if isinstance(v, HgTimeSeriesTypeMetaData) else v
+            for k, v in resolved_signature.input_types.items()
+        }
         time_series_args = resolved_signature.time_series_args
 
         has_ts_inputs = bool(time_series_args)
 
-        node_type = WiringNodeType.COMPUTE_NODE if has_ts_inputs else \
-            WiringNodeType.PULL_SOURCE_NODE  # Since we do not support PUSH nodes in nested graphs
+        node_type = (
+            WiringNodeType.COMPUTE_NODE if has_ts_inputs else WiringNodeType.PULL_SOURCE_NODE
+        )  # Since we do not support PUSH nodes in nested graphs
 
         resolved_signature_outer = WiringNodeSignature(
             node_type=node_type,
@@ -101,6 +112,7 @@ def try_except(func: Callable[..., TIME_SERIES_TYPE],
             label=f"try_except({resolved_signature.signature}, {', '.join(resolved_signature.args)})",
         )
         from hgraph import TryExceptWiringNodeClass
+
         # noinspection PyTypeChecker
         return TryExceptWiringNodeClass(resolved_signature_outer, func, resolved_signature)(**kwargs_)
 
@@ -112,7 +124,9 @@ def _try_except_node(func, *args, __trace_back_depth__: int = 1, __capture_value
     if func is map_:
         if type(out.output_type) is HgTSDTypeMetaData:
             signature: TsdMapWiringSignature = out.node_instance.resolved_signature
-            return TSB[TryExceptTsdMapResult[signature.key_tp.py_type, signature.output_type.py_type]].from_ts(out=out, exception=err)
+            return TSB[TryExceptTsdMapResult[signature.key_tp.py_type, signature.output_type.py_type]].from_ts(
+                out=out, exception=err
+            )
         else:
             # Currently don't have a good way to process TSL exceptions as these are actually hard-wired.
             raise NotImplementedError("A TSL based map is not currently supported for exceptions")
@@ -120,8 +134,9 @@ def _try_except_node(func, *args, __trace_back_depth__: int = 1, __capture_value
         return TSB[TryExceptResult[out.output_type.py_type]].from_ts(out=out, exception=err)
 
 
-def exception_time_series(ts: TIME_SERIES_TYPE, trace_back_depth: int = 1, capture_values: bool = False) \
-        -> Union[TSL[TS[NodeError], SIZE], TSD[K, TS[NodeError]], TS[NodeError]]:
+def exception_time_series(
+    ts: TIME_SERIES_TYPE, trace_back_depth: int = 1, capture_values: bool = False
+) -> Union[TSL[TS[NodeError], SIZE], TSD[K, TS[NodeError]], TS[NodeError]]:
     """
     A light-weight wrapper to extract the error time-series from a single node.
     Depending on the nature of the node this will potentially return different results, for a normal node,

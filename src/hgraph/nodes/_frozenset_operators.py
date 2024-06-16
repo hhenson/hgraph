@@ -40,7 +40,7 @@ def mean_frozenset_unary(ts: TS[frozenset[SCALAR]]) -> TS[float]:
     ts = ts.value
     len_ts = len(ts)
     if len_ts == 0:
-        return float('NaN')
+        return float("NaN")
     elif len_ts == 1:
         return next(iter(ts))
     else:

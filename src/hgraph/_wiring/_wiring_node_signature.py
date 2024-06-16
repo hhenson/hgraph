@@ -10,10 +10,19 @@ from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 from frozendict import frozendict
 
 from hgraph._runtime._node import InjectableTypes
-from hgraph._types._scalar_type_meta_data import HgEvaluationClockType, HgEvaluationEngineApiType, HgStateType, \
-    HgReplayType, HgLoggerType
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgOutputType, HgSchedulerType, \
-    HgTypeOfTypeMetaData
+from hgraph._types._scalar_type_meta_data import (
+    HgEvaluationClockType,
+    HgEvaluationEngineApiType,
+    HgStateType,
+    HgReplayType,
+    HgLoggerType,
+)
+from hgraph._types._scalar_type_meta_data import (
+    HgScalarTypeMetaData,
+    HgOutputType,
+    HgSchedulerType,
+    HgTypeOfTypeMetaData,
+)
 from hgraph._types._scalar_types import DEFAULT, Size
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -24,8 +33,15 @@ from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import IncorrectTypeBinding, CustomMessageWiringError, RequirementsNotMetWiringError
 
-__all__ = ("extract_signature", "WiringNodeType", "WiringNodeSignature", "extract_hg_type",
-           "extract_hg_time_series_type", "extract_scalar_type", "extract_injectable_inputs")
+__all__ = (
+    "extract_signature",
+    "WiringNodeType",
+    "WiringNodeSignature",
+    "extract_hg_type",
+    "extract_hg_time_series_type",
+    "extract_scalar_type",
+    "extract_injectable_inputs",
+)
 
 
 class WiringNodeType(Enum):
@@ -74,6 +90,7 @@ class WiringNodeSignature:
     which are only partially specified, one we build the final data structure then we will convert to formally
     specified signatures.
     """
+
     node_type: WiringNodeType
     name: str  # This will come from the function
     args: tuple[str, ...]  # Require in order enumeration.
@@ -123,18 +140,30 @@ class WiringNodeSignature:
         return InjectableTypes.OUTPUT in self.injectable_inputs
 
     def as_dict(self) -> dict:
-        return dict(node_type=self.node_type, name=self.name, args=self.args, defaults=self.defaults,
-                    input_types=self.input_types, output_type=self.output_type, src_location=self.src_location,
-                    active_inputs=self.active_inputs, valid_inputs=self.valid_inputs,
-                    all_valid_inputs=self.all_valid_inputs, context_inputs=self.context_inputs,
-                    unresolved_args=self.unresolved_args, time_series_args=self.time_series_args,
-                    injectable_inputs=self.injectable_inputs, label=self.label,
-                    record_and_replay_id=self.record_and_replay_id,
-                    deprecated=self.deprecated, requires=self.requires,
-                    kw_only_args=self.kw_only_args,
-                    var_arg=self.var_arg, var_kwarg=self.var_kwarg,
-                    default_type_arg=self.default_type_arg
-                    )
+        return dict(
+            node_type=self.node_type,
+            name=self.name,
+            args=self.args,
+            defaults=self.defaults,
+            input_types=self.input_types,
+            output_type=self.output_type,
+            src_location=self.src_location,
+            active_inputs=self.active_inputs,
+            valid_inputs=self.valid_inputs,
+            all_valid_inputs=self.all_valid_inputs,
+            context_inputs=self.context_inputs,
+            unresolved_args=self.unresolved_args,
+            time_series_args=self.time_series_args,
+            injectable_inputs=self.injectable_inputs,
+            label=self.label,
+            record_and_replay_id=self.record_and_replay_id,
+            deprecated=self.deprecated,
+            requires=self.requires,
+            kw_only_args=self.kw_only_args,
+            var_arg=self.var_arg,
+            var_kwarg=self.var_kwarg,
+            default_type_arg=self.default_type_arg,
+        )
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
         kwargs_ = self.as_dict() | kwargs
@@ -142,9 +171,8 @@ class WiringNodeSignature:
 
     @property
     def signature(self) -> str:
-        args = (f'{arg}: {str(self.input_types[arg])}'
-                for arg in self.args)
-        return_ = '' if self.output_type is None else f" -> {str(self.output_type)}"
+        args = (f"{arg}: {str(self.input_types[arg])}" for arg in self.args)
+        return_ = "" if self.output_type is None else f" -> {str(self.output_type)}"
         return f"{self.name}({', '.join(args)}){return_}"
 
     @property
@@ -169,7 +197,7 @@ class WiringNodeSignature:
 
     @property
     def scalar_inputs(self) -> Mapping[str, HgScalarTypeMetaData]:
-        """Split out scalar inputs from time-series inputs """
+        """Split out scalar inputs from time-series inputs"""
         return frozendict({k: v for k, v in self.input_types.items() if v.is_scalar})
 
     @property
@@ -207,13 +235,15 @@ class WiringNodeSignature:
                             kwarg_types[k] = v
                         elif _ensure_match:
                             raise CustomMessageWiringError(
-                                f"Argument '{k}' is not marked as optional, but no value was supplied")
+                                f"Argument '{k}' is not marked as optional, but no value was supplied"
+                            )
                 if k in self.time_series_args:
                     # This should then get a wiring node, and we would like to extract the output type,
                     # But this is optional, so we should ensure that the type is present
                     if arg is None:
                         continue  # We will wire in a null source later
                     from hgraph import WiringPort
+
                     if not isinstance(arg, WiringPort):
                         if k == self.var_arg and isinstance(arg, (list, tuple)):
                             tp = self.input_types[k].parse_value(arg)
@@ -226,7 +256,8 @@ class WiringNodeSignature:
                         kwarg_types[k] = arg.output_type
                     elif _ensure_match:
                         raise ParseError(
-                            f'{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output')
+                            f"{k}: {v} = {arg}, argument supplied is not a valid source or compute_node output"
+                        )
                 elif type(v) is HgTypeOfTypeMetaData:
                     if not isinstance(arg, (type, GenericAlias, _GenericAlias, TypeVar)) and arg is not AUTO_RESOLVE:
                         # This is not a type of something (Have seen this as being an instance of HgTypeMetaData)
@@ -242,8 +273,10 @@ class WiringNodeSignature:
                         if tp is None:
                             if k in self.unresolved_args:
                                 if _ensure_match:
-                                    raise ParseError(f"In {self.name}, {k}: {v} = {arg}; arg is not parsable, "
-                                                     f"but we require type resolution")
+                                    raise ParseError(
+                                        f"In {self.name}, {k}: {v} = {arg}; arg is not parsable, "
+                                        f"but we require type resolution"
+                                    )
                             else:
                                 # If the signature was not unresolved, then we can use the signature, but the input value
                                 # May yet be incorrectly typed.
@@ -252,18 +285,22 @@ class WiringNodeSignature:
 
     def try_build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable]):
         from hgraph._wiring._wiring_node_class import extract_kwargs
+
         pre_resolved_types = pre_resolved_types or {}
         kwargs = extract_kwargs(self, _ensure_match=False)
         kwarg_types = self.convert_kwargs_to_types(**kwargs, _ensure_match=False)
         return self.build_resolution_dict(pre_resolved_types, kwarg_types, kwargs, weak=True)
 
-    def build_resolution_dict(self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable],
-                              kwarg_types, kwargs, weak=False) -> dict[TypeVar, HgTypeMetaData]:
+    def build_resolution_dict(
+        self, pre_resolved_types: dict[TypeVar, HgTypeMetaData | Callable], kwarg_types, kwargs, weak=False
+    ) -> dict[TypeVar, HgTypeMetaData]:
         """Expect kwargs to be a dict of arg to type mapping / value mapping"""
-        resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in pre_resolved_types.items() if
-                                                          isinstance(v, HgTypeMetaData)} if pre_resolved_types else {}
-        resolvers_dict: dict[TypeVar, Callable] = {k: v for k, v in pre_resolved_types.items() if
-                                                          isfunction(v)} if pre_resolved_types else {}
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = (
+            {k: v for k, v in pre_resolved_types.items() if isinstance(v, HgTypeMetaData)} if pre_resolved_types else {}
+        )
+        resolvers_dict: dict[TypeVar, Callable] = (
+            {k: v for k, v in pre_resolved_types.items() if isfunction(v)} if pre_resolved_types else {}
+        )
         args = self.input_types.keys()
         delayed_resolution = []
         for _1 in range(len(args) + 1):  # Limit the number of goes to try and resolve everything
@@ -324,17 +361,21 @@ class WiringNodeSignature:
                 all_resolved += 1 if k in out_dict and out_dict[k].is_resolved else 0
 
         if not weak and all_resolved < len(resolution_dict):
-            raise ParseError(f"Unable to build a resolved resolution dictionary, due to:"
-                             f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}")
+            raise ParseError(
+                f"Unable to build a resolved resolution dictionary, due to:"
+                f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}"
+            )
         return out_dict
 
-    def resolve_inputs(self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False) -> Mapping[
-        str, HgTypeMetaData]:
+    def resolve_inputs(
+        self, resolution_dict: dict[TypeVar, HgTypeMetaData], weak=False
+    ) -> Mapping[str, HgTypeMetaData]:
         if self.is_resolved:
             return self.input_types
 
-        resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in resolution_dict.items() if
-                                                          isinstance(v, HgTypeMetaData)} if resolution_dict else {}
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = (
+            {k: v for k, v in resolution_dict.items() if isinstance(v, HgTypeMetaData)} if resolution_dict else {}
+        )
 
         input_types = {}
         for arg, meta_data in self.input_types.items():
@@ -345,8 +386,9 @@ class WiringNodeSignature:
         if self.output_type is None:
             return None
 
-        resolution_dict: dict[TypeVar, HgTypeMetaData] = {k: v for k, v in resolution_dict.items() if
-                                                          isinstance(v, HgTypeMetaData)} if resolution_dict else {}
+        resolution_dict: dict[TypeVar, HgTypeMetaData] = (
+            {k: v for k, v in resolution_dict.items() if isinstance(v, HgTypeMetaData)} if resolution_dict else {}
+        )
 
         out_type = self.output_type.resolve(resolution_dict, weak)
         if type(out_type) == HgTimeSeriesSchemaTypeMetaData:
@@ -354,7 +396,9 @@ class WiringNodeSignature:
         return out_type
 
     def resolve_valid_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str], bool]:
-        valid_inputs = self.valid_inputs(resolution_dict, kwargs) if isfunction(self.valid_inputs) else self.valid_inputs
+        valid_inputs = (
+            self.valid_inputs(resolution_dict, kwargs) if isfunction(self.valid_inputs) else self.valid_inputs
+        )
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if valid_inputs:
@@ -365,19 +409,29 @@ class WiringNodeSignature:
             return frozenset(valid_inputs) if valid_inputs is not None else None, valid_inputs != self.valid_inputs
 
     def resolve_all_valid_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str] | None, bool]:
-        all_valid_inputs = self.all_valid_inputs(resolution_dict, kwargs) if isfunction(self.all_valid_inputs) else self.all_valid_inputs
+        all_valid_inputs = (
+            self.all_valid_inputs(resolution_dict, kwargs)
+            if isfunction(self.all_valid_inputs)
+            else self.all_valid_inputs
+        )
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if all_valid_inputs:
                 # Remove any optional inputs from validity requirements if not provided.
-                return (r := frozenset(k for k in all_valid_inputs if k not in optional_inputs)), r != self.all_valid_inputs
+                return (
+                    r := frozenset(k for k in all_valid_inputs if k not in optional_inputs)
+                ), r != self.all_valid_inputs
             else:
                 return None, all_valid_inputs != self.all_valid_inputs
         else:
-            return frozenset(all_valid_inputs) if all_valid_inputs is not None else None, all_valid_inputs != self.all_valid_inputs
+            return (
+                frozenset(all_valid_inputs) if all_valid_inputs is not None else None
+            ), all_valid_inputs != self.all_valid_inputs
 
     def resolve_active_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str], bool]:
-        active_inputs = self.active_inputs(resolution_dict, kwargs) if isfunction(self.active_inputs) else self.active_inputs
+        active_inputs = (
+            self.active_inputs(resolution_dict, kwargs) if isfunction(self.active_inputs) else self.active_inputs
+        )
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if active_inputs:
@@ -391,7 +445,7 @@ class WiringNodeSignature:
         new_resolved_inputs = {}
         for arg, v in self.defaults.items():
             if v is AUTO_RESOLVE:
-                if arg == '__resolution_dict__':
+                if arg == "__resolution_dict__":
                     kwargs[arg] = resolution_dict
                 else:
                     kwargs[arg] = kwarg_types[arg].value_tp.resolve(resolution_dict).py_type
@@ -417,8 +471,11 @@ class WiringNodeSignature:
                     if not v.scalar_type().matches(kwarg_types[arg]):
                         raise IncorrectTypeBinding(v, kwarg_types[arg])
                     from hgraph.nodes import const
+
                     kwargs[arg] = const(kwargs[arg], tp=v.py_type)
-                elif not isinstance(kwargs[arg], WiringPort) and isinstance(kwargs[arg], (tuple, list, dict, frozendict)):
+                elif not isinstance(kwargs[arg], WiringPort) and isinstance(
+                    kwargs[arg], (tuple, list, dict, frozendict)
+                ):
                     kwargs[arg] = v.py_type.from_ts(kwargs[arg], __type__=v)
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
@@ -427,26 +484,32 @@ class WiringNodeSignature:
         for arg, tp in self.time_series_inputs.items():
             if tp.is_context_wired:
                 from hgraph import REQUIRED
+
                 if (v := kwargs.get(arg, None)) is None or v is REQUIRED or isinstance(v, (REQUIRED, str)):
                     from hgraph import TimeSeriesContextTracker
                     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+
                     if c := TimeSeriesContextTracker.instance().get_context(
-                            self.input_types[arg].value_tp,
-                            WiringNodeInstanceContext.instance(),
-                            name=str(v) if isinstance(v, (REQUIRED, str)) else None):
+                        self.input_types[arg].value_tp,
+                        WiringNodeInstanceContext.instance(),
+                        name=str(v) if isinstance(v, (REQUIRED, str)) else None,
+                    ):
                         kwargs[arg] = c
                         kwarg_types[arg] = c.output_type
                         valid_inputs = frozenset((valid_inputs or set()) | {arg})
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
                     elif v is REQUIRED:
-                        raise CustomMessageWiringError(f"Context of type {tp} for argument '{arg}' is required, "
-                                                       f"but not found")
+                        raise CustomMessageWiringError(
+                            f"Context of type {tp} for argument '{arg}' is required, " f"but not found"
+                        )
                     elif type(v) is REQUIRED:
-                        raise CustomMessageWiringError(f"Context of type {tp} with name {v} for argument '{arg}' "
-                                                       f"is required, but not found")
+                        raise CustomMessageWiringError(
+                            f"Context of type {tp} with name {v} for argument '{arg}' " f"is required, but not found"
+                        )
                     else:
                         from hgraph.nodes import nothing
-                        kwargs[arg] = nothing[TIME_SERIES_TYPE: tp.ts_type]()
+
+                        kwargs[arg] = nothing[TIME_SERIES_TYPE : tp.ts_type]()
                         kwarg_types[arg] = tp.ts_type
                         valid_inputs = frozenset((valid_inputs or set(self.time_series_inputs.keys())) - {arg})
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
@@ -456,13 +519,16 @@ class WiringNodeSignature:
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:
             if (err := self.requires(resolution_dict, kwargs)) is not True:
-                error = f": {err}," if err is not False else ''
-                raise RequirementsNotMetWiringError(f"Failed requirements check{error} with resolution dict {resolution_dict}")
+                error = f": {err}," if err is not False else ""
+                raise RequirementsNotMetWiringError(
+                    f"Failed requirements check{error} with resolution dict {resolution_dict}"
+                )
 
     def validate_resolved_types(self, kwarg_types, kwargs):
         with WiringContext(current_kwargs=kwargs):
             for k, v in self.input_types.items():
                 from hgraph._wiring._wiring_port import WiringPort
+
                 with WiringContext(current_arg=k):
                     if isinstance(kwargs[k], WiringPort):
                         if not v.dereference().matches(kwargs[k].output_type.dereference()):
@@ -472,13 +538,15 @@ class WiringNodeSignature:
                             raise IncorrectTypeBinding(v, kwarg_types[k])
 
 
-def extract_signature(fn, wiring_node_type: WiringNodeType,
-                      active_inputs: frozenset[str] | None = None,
-                      valid_inputs: frozenset[str] | None = None,
-                      all_valid_inputs: frozenset[str] | None = None,
-                      deprecated: bool = False,
-                      requires: Callable[[...], bool] | None = None
-                      ) -> WiringNodeSignature:
+def extract_signature(
+    fn,
+    wiring_node_type: WiringNodeType,
+    active_inputs: frozenset[str] | None = None,
+    valid_inputs: frozenset[str] | None = None,
+    all_valid_inputs: frozenset[str] | None = None,
+    deprecated: bool = False,
+    requires: Callable[[...], bool] | None = None,
+) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
     :param fn:
@@ -489,8 +557,9 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     code = fn.__code__
     parameters = signature(fn).parameters
     args: tuple[str, ...] = tuple(parameters.keys())
-    kw_only_args: tuple[str, ...] = tuple(k for k, p in parameters.items()
-                                          if p.kind in (Parameter.KEYWORD_ONLY, Parameter.VAR_KEYWORD))
+    kw_only_args: tuple[str, ...] = tuple(
+        k for k, p in parameters.items() if p.kind in (Parameter.KEYWORD_ONLY, Parameter.VAR_KEYWORD)
+    )
     defaults = {k: p.default for k, p in parameters.items() if p.default is not p.empty}
     var_arg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_POSITIONAL), None)
     var_kwarg = next((p.name for p in parameters.values() if p.kind == Parameter.VAR_KEYWORD), None)
@@ -499,7 +568,7 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
             # Remove var_args from operators - they are decorative
             args = tuple(a for a in args if a not in (var_arg, var_kwarg) or a in annotations)
             kw_only_args = tuple(a for a in kw_only_args if a not in (var_arg, var_kwarg) or a in annotations)
-        else: # var args and kwargs are always optional
+        else:  # var args and kwargs are always optional
             if var_arg:
                 defaults[var_arg] = defaults.get(var_arg, None)
             if var_kwarg:
@@ -522,8 +591,9 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
     # to know where to apply the defaults.
     input_types: frozendict[str, HgTypeMetaData] = frozendict(
         (k, extract_hg_type(v) if (k != "_output" or defaults.get("_output", True) is not None) else HgOutputType(v))
-        for
-        k, v in annotations.items() if k != "return")
+        for k, v in annotations.items()
+        if k != "return"
+    )
     output_type = extract_hg_time_series_type(annotations.get("return", None))
     if output_type is not None and type(output_type) is HgTimeSeriesSchemaTypeMetaData:
         raise ParseError(f"The output type is not valid, did you mean TSB[{output_type.py_type.__name__}]")
@@ -533,30 +603,33 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
 
     # Validations to ensure the signature matches the node type
     if wiring_node_type in (WiringNodeType.PULL_SOURCE_NODE, WiringNodeType.PUSH_SOURCE_NODE):
-        assert len(time_series_inputs) == 0, \
-            f"source node '{name}' has time-series inputs ({time_series_inputs}) (not a valid signature)"
+        assert (
+            len(time_series_inputs) == 0
+        ), f"source node '{name}' has time-series inputs ({time_series_inputs}) (not a valid signature)"
         assert output_type is not None, f"source node '{name}' has no output (not a valid signature)"
     elif wiring_node_type is WiringNodeType.COMPUTE_NODE:
-        assert len(time_series_inputs) > 0, \
-            f"compute node '{name}' has no time-series inputs (not a valid signature)"
+        assert len(time_series_inputs) > 0, f"compute node '{name}' has no time-series inputs (not a valid signature)"
         assert output_type is not None, f"compute node '{name}' has no output (not a valid signature)"
     elif wiring_node_type is WiringNodeType.SINK_NODE:
-        assert len(time_series_inputs) > 0, \
-            f"sink node '{name}' has no time-series inputs (not a valid signature)"
+        assert len(time_series_inputs) > 0, f"sink node '{name}' has no time-series inputs (not a valid signature)"
         assert output_type is None, f"sink node '{name}' has an output (not a valid signature)"
 
     if active_inputs is not None and not isfunction(active_inputs):
-        assert all(a in input_types for a in active_inputs), \
-            f"active inputs {active_inputs} are not in the signature for {name}"
+        assert all(
+            a in input_types for a in active_inputs
+        ), f"active inputs {active_inputs} are not in the signature for {name}"
     if valid_inputs is not None and not isfunction(valid_inputs):
-        assert all(a in input_types for a in valid_inputs), \
-            f"valid inputs {valid_inputs} are not in the signature for {name}"
+        assert all(
+            a in input_types for a in valid_inputs
+        ), f"valid inputs {valid_inputs} are not in the signature for {name}"
     if all_valid_inputs is not None and not isfunction(all_valid_inputs):
-        assert all(a in input_types for a in all_valid_inputs), \
-            f"all_valid inputs {all_valid_inputs} are not in signature for {name}"
+        assert all(
+            a in input_types for a in all_valid_inputs
+        ), f"all_valid inputs {all_valid_inputs} are not in signature for {name}"
         if valid_inputs is not None and not isfunction(valid_inputs):
-            assert len(set(all_valid_inputs).intersection(valid_inputs)) == 0, \
-                f"valid and all_valid inputs are overlapping, {all_valid_inputs}, {valid_inputs} for {name}"
+            assert (
+                len(set(all_valid_inputs).intersection(valid_inputs)) == 0
+            ), f"valid and all_valid inputs are overlapping, {all_valid_inputs}, {valid_inputs} for {name}"
 
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
@@ -585,20 +658,24 @@ def extract_signature(fn, wiring_node_type: WiringNodeType,
         kw_only_args=kw_only_args,
         var_arg=var_arg,
         var_kwarg=var_kwarg,
-        default_type_arg=default_type_arg
+        default_type_arg=default_type_arg,
     )
 
 
 def extract_injectable_inputs(**kwargs) -> InjectableTypes:
-    return reduce(or_,
-                  ({
-                       HgSchedulerType: InjectableTypes.SCHEDULER,
-                       HgEvaluationClockType: InjectableTypes.CLOCK,
-                       HgEvaluationEngineApiType: InjectableTypes.ENGINE_API,
-                       HgStateType: InjectableTypes.STATE,
-                       HgOutputType: InjectableTypes.OUTPUT,
-                       HgReplayType: InjectableTypes.REPLAY_STATE,
-                       HgLoggerType: InjectableTypes.LOGGER,
-                   }.get(type(v), InjectableTypes(0)) for v in kwargs.values()),
-                  InjectableTypes(0)
-                  )
+    return reduce(
+        or_,
+        (
+            {
+                HgSchedulerType: InjectableTypes.SCHEDULER,
+                HgEvaluationClockType: InjectableTypes.CLOCK,
+                HgEvaluationEngineApiType: InjectableTypes.ENGINE_API,
+                HgStateType: InjectableTypes.STATE,
+                HgOutputType: InjectableTypes.OUTPUT,
+                HgReplayType: InjectableTypes.REPLAY_STATE,
+                HgLoggerType: InjectableTypes.LOGGER,
+            }.get(type(v), InjectableTypes(0))
+            for v in kwargs.values()
+        ),
+        InjectableTypes(0),
+    )

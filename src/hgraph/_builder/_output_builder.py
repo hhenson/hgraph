@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from hgraph._types._time_series_types import TimeSeriesOutput
 
 
-__all__ = ('OutputBuilder',)
+__all__ = ("OutputBuilder",)
 
 
 class OutputBuilder(Builder["TimeSeriesOutput"]):
@@ -18,4 +18,3 @@ class OutputBuilder(Builder["TimeSeriesOutput"]):
 
     def release_instance(self, item: "TimeSeriesOutput"):
         raise NotImplementedError()
-

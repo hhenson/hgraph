@@ -1,6 +1,9 @@
 from typing import Type, TypeVar, Optional, _GenericAlias
 
-__all__ = ("HgTSTypeMetaData", "HgTSOutTypeMetaData",)
+__all__ = (
+    "HgTSTypeMetaData",
+    "HgTSOutTypeMetaData",
+)
 
 from hgraph._types._generic_rank_util import scale_rank
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
@@ -32,6 +35,7 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
     @property
     def py_type(self) -> Type:
         from hgraph._types._ts_type import TS
+
         return TS[self.value_scalar_tp.py_type]
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
@@ -45,8 +49,9 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
         wired_type: HgTSTypeMetaData
         self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type.value_scalar_tp if wired_type else None)
 
-    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                          wired_type: "HgTypeMetaData", value: object):
+    def build_resolution_dict_from_scalar(
+        self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
+    ):
         self.value_scalar_tp.build_resolution_dict(resolution_dict, wired_type)
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
@@ -55,29 +60,33 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ts_type import TimeSeriesValueInput
+
         if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesValueInput:
             scalar = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if scalar is None:
                 raise ParseError(
-                    f"While parsing 'TS[{str(value_tp.__args__[0])}]' unable to parse scalar type from '{str(value_tp.__args__[0])}'")
+                    f"While parsing 'TS[{str(value_tp.__args__[0])}]' unable to parse scalar type from '{str(value_tp.__args__[0])}'"
+                )
             return HgTSTypeMetaData(scalar)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         # TODO: If we loose the TS_OUT type we can return to an is, which is much faster.
-        return (issubclass((tp_ := type(tp)), HgTSTypeMetaData) and self.value_scalar_tp.matches(
-            tp.value_scalar_tp)) or tp_ in (HgTimeSeriesTypeMetaData, HgTsTypeVarTypeMetaData)
+        return (
+            issubclass((tp_ := type(tp)), HgTSTypeMetaData) and self.value_scalar_tp.matches(tp.value_scalar_tp)
+        ) or tp_ in (HgTimeSeriesTypeMetaData, HgTsTypeVarTypeMetaData)
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTSTypeMetaData and self.value_scalar_tp == o.value_scalar_tp
 
     def __str__(self) -> str:
-        return f'TS[{str(self.value_scalar_tp)}]'
+        return f"TS[{str(self.value_scalar_tp)}]"
 
     def __repr__(self) -> str:
-        return f'HgTSTypeMetaData({repr(self.value_scalar_tp)})'
+        return f"HgTSTypeMetaData({repr(self.value_scalar_tp)})"
 
     def __hash__(self) -> int:
         from hgraph._types._ts_type import TS
+
         return hash(TS) ^ hash(self.value_scalar_tp)
 
 
@@ -87,6 +96,7 @@ class HgTSOutTypeMetaData(HgTSTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._ts_type import TimeSeriesValueOutput
+
         if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesValueOutput:
             return HgTSOutTypeMetaData(HgScalarTypeMetaData.parse_type(value_tp.__args__[0]))
 
@@ -94,10 +104,10 @@ class HgTSOutTypeMetaData(HgTSTypeMetaData):
         return type(o) is HgTSOutTypeMetaData and self.value_scalar_tp == o.value_scalar_tp
 
     def __str__(self) -> str:
-        return f'TS_OUT[{str(self.value_scalar_tp)}]'
+        return f"TS_OUT[{str(self.value_scalar_tp)}]"
 
     def __repr__(self) -> str:
-        return f'HgTSOutTypeMetaData({repr(self.value_scalar_tp)})'
+        return f"HgTSOutTypeMetaData({repr(self.value_scalar_tp)})"
 
     def __hash__(self):
         return super().__hash__()

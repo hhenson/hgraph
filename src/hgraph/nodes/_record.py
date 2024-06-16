@@ -8,13 +8,17 @@ __all__ = ("record", "get_recorded_value")
 
 
 @sink_node
-def record(ts: TIME_SERIES_TYPE, label: str = "out", record_delta_values: bool = True,
-           _clock: EvaluationClock = None, _state: STATE = None):
+def record(
+    ts: TIME_SERIES_TYPE,
+    label: str = "out",
+    record_delta_values: bool = True,
+    _clock: EvaluationClock = None,
+    _state: STATE = None,
+):
     """
     This node will record the values of the time series into the provided list.
     """
-    _state.record_value.append((_clock.evaluation_time,
-                                ts.delta_value if record_delta_values else ts.value))
+    _state.record_value.append((_clock.evaluation_time, ts.delta_value if record_delta_values else ts.value))
 
 
 @record.start

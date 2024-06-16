@@ -1,15 +1,28 @@
-from hgraph import compute_node, TIME_SERIES_TYPE, SCALAR, TSD, REF, TS, TS_OUT, STATE, TimeSeriesDictOutput, SCHEDULER, \
-    MIN_TD
+from hgraph import (
+    compute_node,
+    TIME_SERIES_TYPE,
+    SCALAR,
+    TSD,
+    REF,
+    TS,
+    TS_OUT,
+    STATE,
+    TimeSeriesDictOutput,
+    SCHEDULER,
+    MIN_TD,
+)
 
 __all__ = ("mesh_subscribe_node",)
 
 
 @compute_node
-def mesh_subscribe_node(mesh: REF[TSD[SCALAR, TIME_SERIES_TYPE]], item: TS[SCALAR],
-                        _output: TS_OUT[TIME_SERIES_TYPE] = None,
-                        state: STATE = None,
-                        scheduler: SCHEDULER = None
-                        ) -> REF[TSD[SCALAR, TIME_SERIES_TYPE]]:
+def mesh_subscribe_node(
+    mesh: REF[TSD[SCALAR, TIME_SERIES_TYPE]],
+    item: TS[SCALAR],
+    _output: TS_OUT[TIME_SERIES_TYPE] = None,
+    state: STATE = None,
+    scheduler: SCHEDULER = None,
+) -> REF[TSD[SCALAR, TIME_SERIES_TYPE]]:
     """
     Subscribes to the mesh with the given item
     """
@@ -43,8 +56,7 @@ def _find_mesh_key(self_node, mesh_node):
 
 
 @mesh_subscribe_node.stop
-def mesh_subscribe_node_stop(mesh: REF[TSD[SCALAR, TIME_SERIES_TYPE]],
-                             _output: TS_OUT[TIME_SERIES_TYPE], state: STATE):
+def mesh_subscribe_node_stop(mesh: REF[TSD[SCALAR, TIME_SERIES_TYPE]], _output: TS_OUT[TIME_SERIES_TYPE], state: STATE):
     from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
     mesh_node: PythonMeshNodeImpl = mesh.value.output.owning_node

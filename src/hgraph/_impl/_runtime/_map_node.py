@@ -3,8 +3,11 @@ from typing import Mapping, Any, Callable, cast
 
 from hgraph import MAX_DT
 from hgraph._builder._graph_builder import GraphBuilder
-from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \
-    PythonNestedNodeImpl
+from hgraph._impl._runtime._nested_evaluation_engine import (
+    NestedEngineEvaluationClock,
+    NestedEvaluationEngine,
+    PythonNestedNodeImpl,
+)
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
@@ -38,20 +41,21 @@ class MapNestedEngineEvaluationClock(NestedEngineEvaluationClock):
 
 class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
 
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 eval_fn: Callable = None,
-                 start_fn: Callable = None,
-                 stop_fn: Callable = None,
-                 nested_graph_builder: GraphBuilder = None,
-                 input_node_ids: Mapping[str, int] = None,
-                 output_node_id: int = None,
-                 multiplexed_args: frozenset[str] = None,
-                 key_arg: str = None,
-                 ):
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        eval_fn: Callable = None,
+        start_fn: Callable = None,
+        stop_fn: Callable = None,
+        nested_graph_builder: GraphBuilder = None,
+        input_node_ids: Mapping[str, int] = None,
+        output_node_id: int = None,
+        multiplexed_args: frozenset[str] = None,
+        key_arg: str = None,
+    ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_ids: Mapping[str, int] = input_node_ids
@@ -80,7 +84,8 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             if dt < self.last_evaluation_time:
                 raise RuntimeError(
                     f"Scheduled time is in the past; last evaluation time: {self.last_evaluation_time}, "
-                    f"scheduled time: {dt}, evaluation time: {self.graph.evaluation_clock.evaluation_time}")
+                    f"scheduled time: {dt}, evaluation time: {self.graph.evaluation_clock.evaluation_time}"
+                )
             elif dt == self.last_evaluation_time:
                 dt = self._evaluate_graph(k)
 
@@ -94,8 +99,10 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self, str(key))
         self._count += 1
         self._active_graphs[key] = graph
-        graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, MapNestedEngineEvaluationClock(
-            self.graph.evaluation_engine.engine_evaluation_clock, key, self))
+        graph.evaluation_engine = NestedEvaluationEngine(
+            self.graph.evaluation_engine,
+            MapNestedEngineEvaluationClock(self.graph.evaluation_engine.engine_evaluation_clock, key, self),
+        )
         graph.initialise()
         self._wire_graph(key, graph)
         graph.start()
@@ -141,6 +148,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             if arg == self.key_arg:
                 # The key should be a const node, then we can adjust the scalar values.
                 from hgraph._wiring._stub_wiring_node import KeyStubEvalFn
+
                 cast(KeyStubEvalFn, node.eval_fn).key = key
             else:
                 if arg in self.multiplexed_args:  # Is this a multiplexed input?
@@ -151,11 +159,12 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                     ts.re_parent(node.input)
                 else:
                     from hgraph import TimeSeriesReferenceInput
+
                     ts: TimeSeriesReferenceInput = self.input[arg]
                     if ts.output:
-                        node.input['ts'].bind_output(ts.output)
+                        node.input["ts"].bind_output(ts.output)
                     else:
-                        ts.value.bind_input(node.input['ts'])
+                        ts.value.bind_input(node.input["ts"])
 
         if self.output_node_id:
             node: Node = graph.nodes[self.output_node_id]

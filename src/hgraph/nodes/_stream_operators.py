@@ -4,14 +4,44 @@ from dataclasses import dataclass
 from datetime import timedelta, datetime
 from typing import Tuple
 
-from hgraph import (compute_node, TIME_SERIES_TYPE, STATE, SCHEDULER, SIGNAL, generator, TS, schedule,
-                    sample, MIN_TD, graph, resample, dedup, filter_, throttle, SCALAR, take, CompoundScalar, REF,
-                    drop, window, WindowResult, TSB, gate, batch, step, slice_, lag, TSL, SIZE, INT_OR_TIME_DELTA)
+from hgraph import (
+    compute_node,
+    TIME_SERIES_TYPE,
+    STATE,
+    SCHEDULER,
+    SIGNAL,
+    generator,
+    TS,
+    schedule,
+    sample,
+    MIN_TD,
+    graph,
+    resample,
+    dedup,
+    filter_,
+    throttle,
+    SCALAR,
+    take,
+    CompoundScalar,
+    REF,
+    drop,
+    window,
+    WindowResult,
+    TSB,
+    gate,
+    batch,
+    step,
+    slice_,
+    lag,
+    TSL,
+    SIZE,
+    INT_OR_TIME_DELTA,
+)
 
 __all__ = ()
 
 
-@compute_node(overloads=sample, active=('signal',))
+@compute_node(overloads=sample, active=("signal",))
 def sample_default(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Samples the value from ts whenever the signal ticks
@@ -45,8 +75,9 @@ def lag_tick_start(period: int, _state: STATE[LagState]):
 
 
 @compute_node(overloads=lag)
-def lag_timedelta(ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None,
-                  _state: STATE[LagState] = None) -> TS[SCALAR]:
+def lag_timedelta(
+    ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None, _state: STATE[LagState] = None
+) -> TS[SCALAR]:
     # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
     buffer: deque[SCALAR] = _state.buffer
     if ts.modified:
@@ -147,8 +178,9 @@ def drop(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
 
 
 @compute_node(active=("ts_counter",))
-def _drop(ts: REF[TIME_SERIES_TYPE], ts_counter: SIGNAL, count: int = 1,
-          state: STATE[CounterState] = None) -> REF[TIME_SERIES_TYPE]:
+def _drop(
+    ts: REF[TIME_SERIES_TYPE], ts_counter: SIGNAL, count: int = 1, state: STATE[CounterState] = None
+) -> REF[TIME_SERIES_TYPE]:
     state.count += 1
     if state.count > count:
         ts_counter.make_passive()
@@ -156,15 +188,16 @@ def _drop(ts: REF[TIME_SERIES_TYPE], ts_counter: SIGNAL, count: int = 1,
 
 
 @compute_node(overloads=window)
-def window_cyclic_buffer(ts: TS[SCALAR], period: int, min_window_period: int = None,
-                         _state: STATE = None) -> TSB[WindowResult]:
+def window_cyclic_buffer(
+    ts: TS[SCALAR], period: int, min_window_period: int = None, _state: STATE = None
+) -> TSB[WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
     index.append(ts.last_modified_time)
     l = len(buffer)
     if l == period or (min_window_period is not None and l >= min_window_period):
-        return {'buffer': tuple(buffer), 'index': tuple(index)}
+        return {"buffer": tuple(buffer), "index": tuple(index)}
 
 
 @window_cyclic_buffer.start
@@ -174,8 +207,9 @@ def window_cyclic_buffer_start(period: int, _state: STATE):
 
 
 @compute_node(overloads=window)
-def window_timedelta(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = None,
-                     _state: STATE = None) -> TSB[WindowResult]:
+def window_timedelta(
+    ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = None, _state: STATE = None
+) -> TSB[WindowResult]:
     buffer: deque[SCALAR] = _state.buffer
     index: deque[datetime] = _state.index
     buffer.append(ts.value)
@@ -187,7 +221,7 @@ def window_timedelta(ts: TS[SCALAR], period: timedelta, min_window_period: timed
         index.popleft()
         delta = index[-1] - index[0]
     if is_full or (min_window_period is not None and delta >= min_window_period):
-        return {'buffer': tuple(buffer), 'index': tuple(index)}
+        return {"buffer": tuple(buffer), "index": tuple(index)}
 
 
 @window_timedelta.start
@@ -197,8 +231,14 @@ def window_timedelta_start(_state: STATE):
 
 
 @compute_node(overloads=gate)
-def gate(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta = MIN_TD,
-         buffer_length: int = sys.maxsize, _state: STATE = None, _sched: SCHEDULER = None) -> TIME_SERIES_TYPE:
+def gate(
+    condition: TS[bool],
+    ts: TIME_SERIES_TYPE,
+    delay: timedelta = MIN_TD,
+    buffer_length: int = sys.maxsize,
+    _state: STATE = None,
+    _sched: SCHEDULER = None,
+) -> TIME_SERIES_TYPE:
     if ts.modified:
         if len(_state.buffer) < buffer_length:
             _state.buffer.append(ts.delta_value)
@@ -218,8 +258,14 @@ def gate_start(_state: STATE):
 
 
 @compute_node(overloads=batch)
-def batch(condition: TS[bool], ts: TS[SCALAR], delay: timedelta = MIN_TD, buffer_length: int = sys.maxsize,
-          _state: STATE = None, _sched: SCHEDULER = None) -> TS[Tuple[SCALAR, ...]]:
+def batch(
+    condition: TS[bool],
+    ts: TS[SCALAR],
+    delay: timedelta = MIN_TD,
+    buffer_length: int = sys.maxsize,
+    _state: STATE = None,
+    _sched: SCHEDULER = None,
+) -> TS[Tuple[SCALAR, ...]]:
     if ts.modified:
         if len(_state.buffer) < buffer_length:
             _state.buffer.append(ts.delta_value)
@@ -234,7 +280,7 @@ def batch(condition: TS[bool], ts: TS[SCALAR], delay: timedelta = MIN_TD, buffer
 
 @batch.start
 def batch_start(_state: STATE):
-    _state.buffer = []#
+    _state.buffer = []  #
 
 
 @compute_node(overloads=step)

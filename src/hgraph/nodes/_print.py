@@ -15,12 +15,12 @@ class _DebugPrintState(CompoundScalar):
 
 @sink_node
 def debug_print(
-        label: str,
-        ts: TIME_SERIES_TYPE,
-        print_delta: bool = True,
-        sample: int = -1,
-        _clock: EvaluationClock = None,
-        _state: STATE[_DebugPrintState] = None
+    label: str,
+    ts: TIME_SERIES_TYPE,
+    print_delta: bool = True,
+    sample: int = -1,
+    _clock: EvaluationClock = None,
+    _state: STATE[_DebugPrintState] = None,
 ):
     """
     Use this to help debug code, this will print the value of the supplied time-series to the standard out.
@@ -45,7 +45,7 @@ def debug_print(
         print(f"[{_clock.now}][{_clock.evaluation_time}]{count} {label}: {value}")
 
 
-def print_(format_str: TS[str] | str, *args, __std_out__: bool =True, **kwargs):
+def print_(format_str: TS[str] | str, *args, __std_out__: bool = True, **kwargs):
     """
     A sink node that will write the formatted string to the std out.
     This should be generally be used for debugging purposes and not be present in production code, instead use the

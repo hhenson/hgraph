@@ -3,10 +3,10 @@ from typing import TypeVar
 
 from hgraph import compute_node, min_, TS, lt_, gt_, le_, ge_, TS_OUT, eq_, TSL, SIZE, graph, max_
 
-__all__ = ('ENUM',)
+__all__ = ("ENUM",)
 
 
-ENUM = TypeVar('ENUM', bound=Enum)
+ENUM = TypeVar("ENUM", bound=Enum)
 
 
 @graph(overloads=min_)

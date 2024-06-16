@@ -5,7 +5,11 @@ import numpy as np
 
 from hgraph._types._scalar_types import Size
 
-__all__ = ("ScalarValue", "KeyableScalarValue", "Array",)
+__all__ = (
+    "ScalarValue",
+    "KeyableScalarValue",
+    "Array",
+)
 
 
 class ScalarValue(ABC):
@@ -75,4 +79,4 @@ class _ArrayTypeclass(_SpecialGenericAlias, _root=True):
         return self.copy_with(params)
 
 
-Array = _ArrayTypeclass(np.ndarray, -1, inst=False, name='Array')
+Array = _ArrayTypeclass(np.ndarray, -1, inst=False, name="Array")

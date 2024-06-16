@@ -12,11 +12,11 @@ class ServiceInterfaceNodeClass(BaseWiringNodeClass):
         """The full path of the service interface"""
 
     def is_full_path(self, path: str) -> bool:
-        return path.startswith(self.full_path('|').split('|')[0]) if path else False
+        return path.startswith(self.full_path("|").split("|")[0]) if path else False
 
     def path_from_full_path(self, path: str) -> str:
-        split = self.full_path('|').split('|', 1)
-        return path[len(split[0]):-len(split[1])]
+        split = self.full_path("|").split("|", 1)
+        return path[len(split[0]) : -len(split[1])]
 
     def typed_full_path(self, path, type_map):
         if not self.is_full_path(path):

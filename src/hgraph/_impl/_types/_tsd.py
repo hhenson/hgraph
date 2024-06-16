@@ -39,23 +39,32 @@ class TSDKeyObserver:
 
 class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K, V], Generic[K, V]):
 
-    def __init__(self, __key_set__, __key_tp__, __value_tp__, __value_output_builder__, __value_reference_builder__,
-                 *args, **kwargs):
+    def __init__(
+        self,
+        __key_set__,
+        __key_tp__,
+        __value_tp__,
+        __value_output_builder__,
+        __value_reference_builder__,
+        *args,
+        **kwargs,
+    ):
         Generic.__init__(self)
         __key_set__: TimeSeriesSetOutput
-        __key_set__._owning_node = kwargs['_owning_node']
+        __key_set__._owning_node = kwargs["_owning_node"]
         __key_set__._parent_output = self
         TimeSeriesDictOutput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         super().__init__(*args, **kwargs)
         self._key_observers: list[TSDKeyObserver] = []
         from hgraph._builder._ts_builder import TSOutputBuilder
+
         self._ts_builder: TSOutputBuilder = __value_output_builder__
         self._ts_ref_builder: TSOutputBuilder = __value_reference_builder__
         self._removed_items: dict[K, V] = {}
         self._added_keys: set[str] = set()
         self._ref_ts_feature: FeatureOutputExtension = FeatureOutputExtension(
-            self, self._ts_ref_builder,
-            lambda output, key: PythonTimeSeriesReference(output.get(key)))
+            self, self._ts_ref_builder, lambda output, key: PythonTimeSeriesReference(output.get(key))
+        )
         self._ts_values_to_keys: dict[int, K] = {}
         self._modified_items: list[Tuple[K, V]] = []
 
@@ -71,9 +80,11 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     @property
     def delta_value(self):
-        return frozendict(chain(
-            ((k, v.delta_value) for k, v in self.items() if v.modified),
-            ((k, REMOVE) for k in self.removed_keys())))
+        return frozendict(
+            chain(
+                ((k, v.delta_value) for k, v in self.items() if v.modified), ((k, REMOVE) for k in self.removed_keys())
+            )
+        )
 
     @value.setter
     def value(self, v: frozendict | dict | Iterable[tuple[K, SCALAR]] | None):
@@ -195,12 +206,13 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)
         __key_set__: TimeSeriesOutput
-        __key_set__._owning_node = kwargs['_owning_node']
+        __key_set__._owning_node = kwargs["_owning_node"]
         __key_set__._parent_input = self
         TimeSeriesDictInput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         PythonBoundTimeSeriesInput.__init__(self, *args, **kwargs)
         from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hgraph._builder._ts_builder import TSInputBuilder
+
         self._ts_builder: TSInputBuilder = PythonTimeSeriesBuilderFactory.instance().make_input_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
         self._has_peer: bool = False
@@ -218,7 +230,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         key_set.bind_output(output.key_set)
 
         if output.__value_tp__ != self.__value_tp__ and (
-                output.__value_tp__.has_references or self.__value_tp__.has_references):
+            output.__value_tp__.has_references or self.__value_tp__.has_references
+        ):
             # TODO: there might be a corner case where the above check is not sufficient, like a bundle on both sides
             #  that contains REFs but there are other items that are of different but compatible non-REF types.
             #  It would be very esoteric and I cannot think of an example so will leave the check as is
@@ -319,9 +332,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     @property
     def delta_value(self):
-        return frozendict(chain(
-            ((k, v.delta_value) for k, v in self.modified_items()),
-            ((k, REMOVE) for k in self.removed_keys())))
+        return frozendict(
+            chain(((k, v.delta_value) for k, v in self.modified_items()), ((k, REMOVE) for k in self.removed_keys()))
+        )
 
     def __contains__(self, item):
         return item in self._ts_values

@@ -1,26 +1,43 @@
 """
 Tools to extract data and write data to data frames and data bases.
 """
+
 from datetime import date, datetime, time, timedelta
 
 import polars as pl
 
-from hgraph import TS_SCHEMA, TSB, TIME_SERIES_TYPE, TSD, HgScalarTypeMetaData, UnNamedTimeSeriesSchema, \
-    generator, HgTSTypeMetaData, graph, sink_node, GlobalState, CustomMessageWiringError, AUTO_RESOLVE, K
+from hgraph import (
+    TS_SCHEMA,
+    TSB,
+    TIME_SERIES_TYPE,
+    TSD,
+    HgScalarTypeMetaData,
+    UnNamedTimeSeriesSchema,
+    generator,
+    HgTSTypeMetaData,
+    graph,
+    sink_node,
+    GlobalState,
+    CustomMessageWiringError,
+    AUTO_RESOLVE,
+    K,
+)
 from hgraph.nodes._record import record, get_recorded_value
 
 __all__ = ("from_polars", "to_polars", "get_polars_df")
 
 
-def from_polars(df: pl.DataFrame, time_col: str, as_bundle: bool = True, include_time_in_bundle: bool = False) \
-        -> TSB[TS_SCHEMA] | TSD[K, TIME_SERIES_TYPE]:
+def from_polars(
+    df: pl.DataFrame, time_col: str, as_bundle: bool = True, include_time_in_bundle: bool = False
+) -> TSB[TS_SCHEMA] | TSD[K, TIME_SERIES_TYPE]:
     """
     Create a data source from a Polars data frame.
     """
     schema = df.schema
     include_time = as_bundle and include_time_in_bundle
-    hg_types = {k: HgTSTypeMetaData(_polars_type_to_hgraph_type(v)) for k, v in schema.items() if
-                include_time or k != time_col}
+    hg_types = {
+        k: HgTSTypeMetaData(_polars_type_to_hgraph_type(v)) for k, v in schema.items() if include_time or k != time_col
+    }
     if as_bundle:
         hg_schema = UnNamedTimeSeriesSchema.create_resolved_schema(hg_types)
         output_type = TSB[hg_schema]
@@ -61,8 +78,9 @@ def _polars_type_to_hgraph_type(tp: pl.datatypes.PolarsDataType) -> HgScalarType
 
 
 @graph
-def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polars.df",
-              schema: type[TS_SCHEMA] = AUTO_RESOLVE):
+def to_polars(
+    ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polars.df", schema: type[TS_SCHEMA] = AUTO_RESOLVE
+):
     """
     Create a Polars data frame from a time series.
     """
@@ -75,7 +93,8 @@ def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polar
     for k, v in schema._schema_items():
         if type(v) is not HgTSTypeMetaData:
             raise CustomMessageWiringError(
-                f"Schema '{ts.schema}' is not suitable for polars conversion as it is not a simple structure")
+                f"Schema '{ts.schema}' is not suitable for polars conversion as it is not a simple structure"
+            )
         record(ts[k], label=f"{location}::{k}")
 
     @sink_node(valid=(), active=())
@@ -84,7 +103,10 @@ def to_polars(ts: TSB[TS_SCHEMA], time_col: str = "time", location: str = "polar
 
     @_stub.stop
     def _stub_stop(location: str, schema: type[TS_SCHEMA]):
-        df_s = [pl.DataFrame(get_recorded_value(label=f"{location}::{k}"), schema=[time_col, k]) for k in schema._schema_keys()]
+        df_s = [
+            pl.DataFrame(get_recorded_value(label=f"{location}::{k}"), schema=[time_col, k])
+            for k in schema._schema_keys()
+        ]
         df = df_s[0]
         for df_other in df_s[1:]:
             df = df.join(df_other, on=time_col, how="outer_coalesce")

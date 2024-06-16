@@ -36,14 +36,14 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             user_path = f"{self.fn.__module__}"
         return f"subs_svc://{user_path}/{self.fn.__name__}"
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
-                 **kwargs) -> "WiringPort":
+    def __call__(
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
+    ) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
-                self.signature, *args,
-                __pre_resolved_types__=__pre_resolved_types__,
-                **kwargs)
+                self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
+            )
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
@@ -53,9 +53,10 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
                 from hgraph.nodes._service_utils import _subscribe
                 from hgraph import TIME_SERIES_TYPE
-                return _subscribe[TIME_SERIES_TYPE: resolved_signature.output_type](
-                    path=typed_full_path,
-                    key=kwargs_[next(iter(resolved_signature.time_series_args))])
+
+                return _subscribe[TIME_SERIES_TYPE : resolved_signature.output_type](
+                    path=typed_full_path, key=kwargs_[next(iter(resolved_signature.time_series_args))]
+                )
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         from hgraph.nodes import capture_output_node_to_global_state
@@ -65,9 +66,10 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
         typed_path = self.typed_full_path(path, resolution_dict)
 
         arg = next(iter(self.signature.time_series_args))
-        subscriptions = last_value_source_node(f"{self.signature.name}_{arg}",
-                                               (tp := TSS[self.signature.input_types[arg].resolve(
-                                                   resolution_dict).scalar_type().py_type]))
+        subscriptions = last_value_source_node(
+            f"{self.signature.name}_{arg}",
+            (tp := TSS[self.signature.input_types[arg].resolve(resolution_dict).scalar_type().py_type]),
+        )
         subscriptions.set_label(f"{typed_path}/inputs/{arg}")
         subscriptions = _wiring_port_for(tp, subscriptions, tuple())
         capture_output_node_to_global_state(f"{typed_path}/subs", subscriptions)
@@ -78,10 +80,14 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
     def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None):
         from hgraph.nodes import capture_output_to_global_state
-        capture_output_to_global_state(
-            f"{self.typed_full_path(path, self.signature.try_build_resolution_dict(__pre_resolved_types__))}/out", out)
 
-    def register_impl(self, path: str, impl: "NodeBuilder",
-                      __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None):
+        capture_output_to_global_state(
+            f"{self.typed_full_path(path, self.signature.try_build_resolution_dict(__pre_resolved_types__))}/out", out
+        )
+
+    def register_impl(
+        self, path: str, impl: "NodeBuilder", __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None
+    ):
         from hgraph import register_service
+
         register_service(path, impl, self.signature.try_build_resolution_dict(__pre_resolved_types__))

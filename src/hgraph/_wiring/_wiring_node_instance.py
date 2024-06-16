@@ -8,8 +8,15 @@ from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 if typing.TYPE_CHECKING:
-    from hgraph import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, NodeSignature, NodeBuilder, Edge, \
-        WiringPort
+    from hgraph import (
+        WiringNodeClass,
+        WiringNodeSignature,
+        HgTimeSeriesTypeMetaData,
+        NodeSignature,
+        NodeBuilder,
+        Edge,
+        WiringPort,
+    )
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
 
@@ -20,8 +27,10 @@ class InputsKey:
         self._inputs = inputs
 
     def __eq__(self, other: Any) -> bool:
-        return all(v.__orig_eq__(other._inputs[k]) if hasattr(v, '__orig_eq__') else v == other._inputs[k]
-                   for k, v in self._inputs.items())
+        return all(
+            v.__orig_eq__(other._inputs[k]) if hasattr(v, "__orig_eq__") else v == other._inputs[k]
+            for k, v in self._inputs.items()
+        )
 
     def __hash__(self) -> int:
         return hash(self._inputs)
@@ -32,22 +41,31 @@ class WiringNodeInstanceContext:
     This must exist when wiring and is used to cache the WiringNodeInstances created during the
     graph building process.
     """
+
     __stack__: ["WiringNodeInstanceContext"] = []
 
     def __init__(self, depth=1):
         self._node_instances: dict[tuple, WiringNodeInstance] = {}
         self._depth = depth
 
-    def create_wiring_node_instance(self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                    inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
+    def create_wiring_node_instance(
+        self,
+        node: "WiringNodeClass",
+        resolved_signature: "WiringNodeSignature",
+        inputs: frozendict[str, Any],
+        rank: int,
+    ) -> "WiringNodeInstance":
         key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
             from hgraph import WiringGraphContext
+
             self._node_instances[key] = node_instance = WiringNodeInstance(
                 node=node,
                 resolved_signature=resolved_signature,
-                inputs=inputs, rank=rank,
-                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name())
+                inputs=inputs,
+                rank=rank,
+                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name(),
+            )
         return node_instance
 
     @classmethod
@@ -64,8 +82,9 @@ class WiringNodeInstanceContext:
         self.__stack__.pop()
 
 
-def create_wiring_node_instance(node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                inputs: frozendict[str, Any], rank: int) -> "WiringNodeInstance":
+def create_wiring_node_instance(
+    node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any], rank: int
+) -> "WiringNodeInstance":
     return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
 
 
@@ -107,6 +126,7 @@ class WiringNodeInstance:
     @property
     def is_stub(self) -> bool:
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import StubWiringNodeClass
+
         return isinstance(self.node, StubWiringNodeClass)
 
     def set_label(self, label: str):
@@ -114,8 +134,10 @@ class WiringNodeInstance:
 
     @property
     def is_source_node(self) -> bool:
-        return self.resolved_signature.node_type in (
-            WiringNodeType.PUSH_SOURCE_NODE, WiringNodeType.PULL_SOURCE_NODE) or self._treat_as_source_node
+        return (
+            self.resolved_signature.node_type in (WiringNodeType.PUSH_SOURCE_NODE, WiringNodeType.PULL_SOURCE_NODE)
+            or self._treat_as_source_node
+        )
 
     def mark_treat_as_source_node(self):
         super().__setattr__("_treat_as_source_node", True)
@@ -127,6 +149,7 @@ class WiringNodeInstance:
     @property
     def node_signature(self) -> "NodeSignature":
         from hgraph._runtime import NodeSignature, NodeTypeEnum
+
         node_type: NodeTypeEnum
         match self.resolved_signature.node_type:
             case WiringNodeType.SINK_NODE:
@@ -158,29 +181,35 @@ class WiringNodeInstance:
             wiring_path_name=self.wiring_path_name,
             label=self.label,
             capture_values=self.capture_values,
-            record_replay_id=self.resolved_signature.record_and_replay_id
+            record_replay_id=self.resolved_signature.record_and_replay_id,
         )
 
     @property
     def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
         return self.node.error_output_type
 
-    def create_node_builder_and_edges(self, node_map: MutableMapping["WiringNodeInstance", int],
-                                      nodes: ["NodeBuilder"]) -> tuple["NodeBuilder", set["Edge"]]:
+    def create_node_builder_and_edges(
+        self, node_map: MutableMapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]
+    ) -> tuple["NodeBuilder", set["Edge"]]:
         """Create an runtime node instance"""
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
         node_map[self] = node_index  # Update this wiring nodes index in the graph
 
-        scalars = frozendict({k: t.injector if t.is_injectable else self.inputs[k] for k, t in
-                              self.resolved_signature.scalar_inputs.items()})
+        scalars = frozendict(
+            {
+                k: t.injector if t.is_injectable else self.inputs[k]
+                for k, t in self.resolved_signature.scalar_inputs.items()
+            }
+        )
 
         node_builder = self.node.create_node_builder_instance(self.node_signature, scalars)
         # Extract out edges
 
         edges = set()
-        for ndx, arg in enumerate(raw_arg for raw_arg in self.resolved_signature.args if
-                                  raw_arg in self.resolved_signature.time_series_args):
+        for ndx, arg in enumerate(
+            raw_arg for raw_arg in self.resolved_signature.args if raw_arg in self.resolved_signature.time_series_args
+        ):
             input_: WiringPort = self.inputs.get(arg)
             if input_ is not None:
                 edges.update(input_.edges_for(node_map, node_index, (ndx,)))

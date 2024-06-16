@@ -26,11 +26,17 @@ class FeatureOutputExtension:
         tracker = self._outputs.get(key, None)
         if tracker is None:
             # Features are bound to the node, but not the output they are associated to.
-            tracker = FeatureOutputRequestTracker(output=self.output_builder.make_instance(owning_node=self.owning_output.owning_node))
+            tracker = FeatureOutputRequestTracker(
+                output=self.output_builder.make_instance(owning_node=self.owning_output.owning_node)
+            )
             self._outputs[key] = tracker
-            if (value := self.value_getter(self.owning_output, key) \
-                    if self.initial_value_getter is None else \
-                    self.initial_value_getter(self.owning_output, key)) is not None:
+            if (
+                value := (
+                    self.value_getter(self.owning_output, key)
+                    if self.initial_value_getter is None
+                    else self.initial_value_getter(self.owning_output, key)
+                )
+            ) is not None:
                 tracker.output.value = value
         tracker.requesters.add(requester)
         return tracker.output

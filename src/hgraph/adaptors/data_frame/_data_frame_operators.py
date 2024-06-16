@@ -13,8 +13,8 @@ ON_TYPE = TypeVar("ON_TYPE", str, tuple[str, ...], pl.Expr)
 def _compute_fields(mapping, scalars):
     lhs: CompoundScalar = mapping[COMPOUND_SCALAR].py_type
     rhs = mapping[COMPOUND_SCALAR_1].py_type
-    suffix = scalars['suffix']
-    on = scalars['on']
+    suffix = scalars["suffix"]
+    on = scalars["on"]
     if type(on) is str:
         on = [on]
 
@@ -33,11 +33,11 @@ def _compute_fields(mapping, scalars):
 
 @compute_node(resolvers={COMPOUND_SCALAR_2: _compute_fields})
 def join(
-        lhs: TS[Frame[COMPOUND_SCALAR]],
-        rhs: TS[Frame[COMPOUND_SCALAR_1]],
-        on: ON_TYPE,
-        how: str = "inner",
-        suffix: str = "_right"
+    lhs: TS[Frame[COMPOUND_SCALAR]],
+    rhs: TS[Frame[COMPOUND_SCALAR_1]],
+    on: ON_TYPE,
+    how: str = "inner",
+    suffix: str = "_right",
 ) -> TS[Frame[COMPOUND_SCALAR_2]]:
     """
     Join two data frames together.

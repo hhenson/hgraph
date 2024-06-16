@@ -8,7 +8,7 @@ from polars import DataFrame
 from hgraph import COMPOUND_SCALAR, Frame
 from ._recorder_api import RecorderAPI, TableAPI, TableReaderAPI, TableWriterAPI
 
-__all__ = ('PolarsRecorderAPI',)
+__all__ = ("PolarsRecorderAPI",)
 
 
 class PolarsRecorderAPI(RecorderAPI):
@@ -21,9 +21,13 @@ class PolarsRecorderAPI(RecorderAPI):
     def has_table_definition(self, table_name: str) -> bool:
         return table_name in self._table_definitions
 
-    def create_or_update_table_definition(self, table_name: str, definition: type[COMPOUND_SCALAR],
-                                          date_column: tuple[str, type[date | datetime]] = ('date', date),
-                                          renamed_fields: dict[str, str] = None) -> None:
+    def create_or_update_table_definition(
+        self,
+        table_name: str,
+        definition: type[COMPOUND_SCALAR],
+        date_column: tuple[str, type[date | datetime]] = ("date", date),
+        renamed_fields: dict[str, str] = None,
+    ) -> None:
         """For now this just registers the definition."""
         self._table_definitions[table_name] = (definition, date_column)
 
@@ -35,32 +39,32 @@ class PolarsRecorderAPI(RecorderAPI):
             del self._tables[table_name]
 
     def drop_table(self, table_name: str, variant=None):
-        variant = '__default__' if variant is None else variant
+        variant = "__default__" if variant is None else variant
         self._table_definitions.pop(table_name, None)
         self._tables[table_name].pop(table_name, None)
 
     def reset_table(self, table_name: str, variant: str = None):
-        variant = '__default__' if variant is None else variant
+        variant = "__default__" if variant is None else variant
         self._tables[table_name][variant] = self._tables[table_name][variant].filter(pl.lit(False))
 
     def _get_or_create_table(self, table_name: str, variant: str = None) -> pl.DataFrame:
-        variant = '__default__' if variant is None else variant
+        variant = "__default__" if variant is None else variant
         if defn := self._table_definitions.get(table_name):
             if variant not in self._tables[table_name]:
                 self._tables[table_name][variant] = pl.DataFrame(
                     [],
-                    schema={defn[1][0]: defn[1][1]} | {k: v.py_type for k, v in defn[0].__meta_data_schema__.items()}
+                    schema={defn[1][0]: defn[1][1]} | {k: v.py_type for k, v in defn[0].__meta_data_schema__.items()},
                 )
         return self._tables[table_name][variant]
 
     def get_table_writer(self, table_name: str, variant: str = None):
-        variant = '__default__' if variant is None else variant
+        variant = "__default__" if variant is None else variant
         defn = self._table_definitions[table_name]
         tbl = self._get_or_create_table(table_name, variant)
         return PolarsTableWriterAPI(defn[0], defn[1], self._as_of, table_name, variant, self)
 
     def get_table_reader(self, table_name: str, variant: str = None):
-        variant = '__default__' if variant is None else variant
+        variant = "__default__" if variant is None else variant
         defn = self._table_definitions[table_name]
         tbl = self._get_or_create_table(table_name, variant)
         return PolarsTableReaderAPI(tbl, defn[0], defn[1], self._as_of)
@@ -68,10 +72,7 @@ class PolarsRecorderAPI(RecorderAPI):
 
 class PolarsTableAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 
-    def __init__(self,
-                 schema: COMPOUND_SCALAR,
-                 date_column: tuple[str, type[date | datetime]],
-                 as_of: datetime):
+    def __init__(self, schema: COMPOUND_SCALAR, date_column: tuple[str, type[date | datetime]], as_of: datetime):
         self._schema: COMPOUND_SCALAR = schema
         self._date_column = date_column
         self._as_of = as_of
@@ -101,13 +102,13 @@ class PolarsTableAPI(TableAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 class PolarsTableWriterAPI(PolarsTableAPI[COMPOUND_SCALAR], TableWriterAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 
     def __init__(
-            self,
-            schema: COMPOUND_SCALAR,
-            date_column: tuple[str, type[date | datetime]],
-            as_of: datetime,
-            table_name: str,
-            variant: str,
-            recorder_api: PolarsRecorderAPI
+        self,
+        schema: COMPOUND_SCALAR,
+        date_column: tuple[str, type[date | datetime]],
+        as_of: datetime,
+        table_name: str,
+        variant: str,
+        recorder_api: PolarsRecorderAPI,
     ):
         super().__init__(schema, date_column, as_of)
         self._table_name = table_name
@@ -158,11 +159,11 @@ class PolarsTableWriterAPI(PolarsTableAPI[COMPOUND_SCALAR], TableWriterAPI[COMPO
 class PolarsTableReaderAPI(PolarsTableAPI[COMPOUND_SCALAR], TableReaderAPI[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
 
     def __init__(
-            self,
-            existing_table: pl.DataFrame,
-            schema: COMPOUND_SCALAR,
-            date_column: tuple[str, type[date | datetime]],
-            as_of: datetime
+        self,
+        existing_table: pl.DataFrame,
+        schema: COMPOUND_SCALAR,
+        date_column: tuple[str, type[date | datetime]],
+        as_of: datetime,
     ):
         super().__init__(schema, date_column, as_of)
         self._table = existing_table

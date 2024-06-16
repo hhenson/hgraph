@@ -55,6 +55,7 @@ class GraphBuilderFactory:
     @staticmethod
     def default():
         from hgraph._impl._builder._graph_builder import PythonGraphBuilder
+
         return PythonGraphBuilder
 
     @staticmethod

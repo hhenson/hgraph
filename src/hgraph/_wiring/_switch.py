@@ -24,8 +24,13 @@ from hgraph._wiring._wiring_port import WiringPort
 __all__ = ("switch_",)
 
 
-def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], key: TS[SCALAR], *args,
-            reload_on_ticked: bool = False, **kwargs) -> Optional[TIME_SERIES_TYPE]:
+def switch_(
+    switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
+    key: TS[SCALAR],
+    *args,
+    reload_on_ticked: bool = False,
+    **kwargs,
+) -> Optional[TIME_SERIES_TYPE]:
     """
     The ability to select and instantiate a graph based on the value of the key time-series input.
     By default, when the key changes, a new instance of graph is created and run.
@@ -55,7 +60,8 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
     """
     # Create a nifty simplified signature for the switch node.
     with WiringContext(
-            current_signature=STATE(signature=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)")):
+        current_signature=STATE(signature=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)")
+    ):
         from hgraph._wiring._wiring_node_class._wiring_node_class import WiringPort
 
         # Perform basic validations fo the inputs
@@ -63,52 +69,69 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
             raise CustomMessageWiringError("No components supplied to switch")
         if key is None:
             raise CustomMessageWiringError("No key supplied to switch")
-        if not isinstance(key, WiringPort) or not isinstance(cast(WiringPort, key).output_type.dereference(),
-                                                             HgTSTypeMetaData):
-            raise CustomMessageWiringError(f"The key must be a time-series value of form TS[SCALAR], "
-                                           f"received {key.output_type.dereference()}")
+        if not isinstance(key, WiringPort) or not isinstance(
+            cast(WiringPort, key).output_type.dereference(), HgTSTypeMetaData
+        ):
+            raise CustomMessageWiringError(
+                f"The key must be a time-series value of form TS[SCALAR], " f"received {key.output_type.dereference()}"
+            )
 
-        switches = {k: v
-                     if isinstance(v, WiringNodeClass)
-                     else _deduce_signature_from_lambda_and_args(v, key, *args, **kwargs)
-                  for k, v in switches.items()}
+        switches = {
+            k: v if isinstance(v, WiringNodeClass) else _deduce_signature_from_lambda_and_args(v, key, *args, **kwargs)
+            for k, v in switches.items()
+        }
 
         # Assume that the switch items are correctly typed to start with, then we can take the first signature and
         # use it to create a signature for the outer switch node.
         a_signature = cast(WiringNodeClass, next(iter(switches.values()))).signature
 
-        input_has_key_arg = bool(a_signature.args and a_signature.args[0] == 'key' and \
-                            a_signature.input_types['key'] == cast(WiringPort, key).output_type)
+        input_has_key_arg = bool(
+            a_signature.args
+            and a_signature.args[0] == "key"
+            and a_signature.input_types["key"] == cast(WiringPort, key).output_type
+        )
 
         # We add the key to the inputs if the internal component has a key argument.
-        kwargs_ = extract_kwargs(a_signature, *args,
-                                 **(kwargs | dict(key=key) if input_has_key_arg else kwargs))
+        kwargs_ = extract_kwargs(a_signature, *args, **(kwargs | dict(key=key) if input_has_key_arg else kwargs))
 
         # Now create a resolved signature for the inner graph, then for the outer switch node.
         resolved_signature_inner = _validate_signature(switches, **kwargs_)
 
-        input_types = {k: as_reference(v) if k != 'key' and isinstance(v, HgTimeSeriesTypeMetaData) else v.dereference()
-                       for k, v in resolved_signature_inner.input_types.items()}
+        input_types = {
+            k: as_reference(v) if k != "key" and isinstance(v, HgTimeSeriesTypeMetaData) else v.dereference()
+            for k, v in resolved_signature_inner.input_types.items()
+        }
         time_series_args = resolved_signature_inner.time_series_args
         if not input_has_key_arg:
-            input_types['key'] = cast(WiringPort, key).output_type.dereference()
-            time_series_args = time_series_args | {'key', }
+            input_types["key"] = cast(WiringPort, key).output_type.dereference()
+            time_series_args = time_series_args | {
+                "key",
+            }
 
-        output_type = as_reference(
-            resolved_signature_inner.output_type) if resolved_signature_inner.output_type else None
+        output_type = (
+            as_reference(resolved_signature_inner.output_type) if resolved_signature_inner.output_type else None
+        )
 
         resolved_signature_outer = WiringNodeSignature(
             # QUESTION: Can we support a switch on a SOURCE_NODE?
             node_type=WiringNodeType.COMPUTE_NODE if time_series_args and output_type else WiringNodeType.SINK_NODE,
             name="switch",
             # All actual inputs are encoded in the input_types, so we just need to add the keys if present.
-            args=resolved_signature_inner.args if input_has_key_arg else ('key',) + resolved_signature_inner.args,
+            args=resolved_signature_inner.args if input_has_key_arg else ("key",) + resolved_signature_inner.args,
             defaults=frozendict(),  # Defaults would have already been applied.
             input_types=frozendict(input_types),
             output_type=output_type,
             src_location=SourceCodeDetails(Path(__file__), 25),
-            active_inputs=frozenset({'key', }),
-            valid_inputs=frozenset({'key', }),
+            active_inputs=frozenset(
+                {
+                    "key",
+                }
+            ),
+            valid_inputs=frozenset(
+                {
+                    "key",
+                }
+            ),
             all_valid_inputs=None,
             context_inputs=None,
             # We have constructed the map so that the key are is always present.
@@ -118,29 +141,37 @@ def switch_(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
         )
 
         nested_graphs = {
-            k: wire_nested_graph(v,
-                                 resolved_signature_inner.input_types,
-                                 {k: kwargs_[k] for k, v in resolved_signature_inner.input_types.items()
-                                  if not isinstance(v, HgTimeSeriesTypeMetaData) and k != 'key'},
-                                 resolved_signature_outer, 'key', depth=2)
-            for k, v in
-            switches.items()}
+            k: wire_nested_graph(
+                v,
+                resolved_signature_inner.input_types,
+                {
+                    k: kwargs_[k]
+                    for k, v in resolved_signature_inner.input_types.items()
+                    if not isinstance(v, HgTimeSeriesTypeMetaData) and k != "key"
+                },
+                resolved_signature_outer,
+                "key",
+                depth=2,
+            )
+            for k, v in switches.items()
+        }
 
         switch_signature = SwitchWiringSignature(
-            **resolved_signature_outer.as_dict(),
-            inner_graphs=frozendict(nested_graphs)
+            **resolved_signature_outer.as_dict(), inner_graphs=frozendict(nested_graphs)
         )
 
         # Create the outer wiring node, and call it with the inputs
         from hgraph._wiring._wiring_node_class._switch_wiring_node import SwitchWiringNodeClass
+
         # noinspection PyTypeChecker
-        return SwitchWiringNodeClass(
-            switch_signature, switches, resolved_signature_inner, reload_on_ticked
-        )(**(kwargs_ | ({} if input_has_key_arg else dict(key=key))))
+        return SwitchWiringNodeClass(switch_signature, switches, resolved_signature_inner, reload_on_ticked)(
+            **(kwargs_ | ({} if input_has_key_arg else dict(key=key)))
+        )
 
 
-def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
-                        **kwargs) -> WiringNodeSignature:
+def _validate_signature(
+    switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]], **kwargs
+) -> WiringNodeSignature:
     check_signature: WiringNodeSignature | None = None
     for k, v in switches.items():
         if check_signature is None:
@@ -148,22 +179,26 @@ def _validate_signature(switches: dict[SCALAR, Callable[[...], Optional[TIME_SER
         else:
             this_signature = cast(WiringNodeClass, v).resolve_signature(**kwargs)
             same_arg_no = this_signature.args == check_signature.args
-            same_arg_types = same_arg_no and \
-                    all(check_signature.input_types[arg].matches(this_signature.input_types[arg]) for arg in
-                        check_signature.args)
-            same_output = this_signature.output_type.dereference().matches(check_signature.output_type.dereference()) \
-                if check_signature.output_type is not None \
+            same_arg_types = same_arg_no and all(
+                check_signature.input_types[arg].matches(this_signature.input_types[arg])
+                for arg in check_signature.args
+            )
+            same_output = (
+                this_signature.output_type.dereference().matches(check_signature.output_type.dereference())
+                if check_signature.output_type is not None
                 else this_signature.output_type is None
+            )
             if not (same_arg_no and same_arg_types and same_output):
                 # If the signatures do not match, then we cannot wire the switch.
                 # We ensure the arguments and their types match, as well as the output type.
                 raise CustomMessageWiringError(
                     f"The signature of the switch nodes do not match: "
-                    f"{check_signature.signature} != {k}: {this_signature.signature}")
+                    f"{check_signature.signature} != {k}: {this_signature.signature}"
+                )
     return check_signature
 
 
-def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', **kwargs) -> WiringNodeClass:
+def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__="key", **kwargs) -> WiringNodeClass:
     """
     A lambda was provided for map_ so it will not have a signature to be used. This function will try to work out the
     signature from the names of the lambda arguments and the incoming arguments and their types. The logic here
@@ -172,7 +207,7 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', 
     """
     from inspect import signature, Parameter
 
-    if not isfunction(func) or func.__name__ != '<lambda>':
+    if not isfunction(func) or func.__name__ != "<lambda>":
         raise CustomMessageWiringError("Only graphs, nodes or lambda functions are supported for switch_")
 
     sig = signature(func)
@@ -210,7 +245,7 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', 
             values[n] = args[i]
             continue
 
-        if n in kwargs: # provided as keyword
+        if n in kwargs:  # provided as keyword
             if isinstance(kwargs[n], WiringPort):
                 tp = kwargs[n].output_type
                 annotations[n] = tp
@@ -236,9 +271,11 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', 
             inputs_[k] = values[k]
         else:
             from hgraph import create_input_stub
+
             inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == input_key_name)
 
     from hgraph import WiringGraphContext
+
     with WiringGraphContext(temporary=True):
         out = func(**inputs_)
         if out is not None:
@@ -248,4 +285,5 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__='key', 
 
     # 4. Now create a graph with the signature we worked out and return
     from hgraph import with_signature, graph
+
     return graph(with_signature(func, annotations=annotations, return_annotation=output_type))

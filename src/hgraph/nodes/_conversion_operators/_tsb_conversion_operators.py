@@ -1,7 +1,19 @@
 from typing import Type
 
-from hgraph import TSB, TS_SCHEMA, TS, compute_node, TSD, TIME_SERIES_TYPE, AUTO_RESOLVE, graph, combine, convert, \
-    DEFAULT, OUT
+from hgraph import (
+    TSB,
+    TS_SCHEMA,
+    TS,
+    compute_node,
+    TSD,
+    TIME_SERIES_TYPE,
+    AUTO_RESOLVE,
+    graph,
+    combine,
+    convert,
+    DEFAULT,
+    OUT,
+)
 
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
 
@@ -26,7 +38,7 @@ def convert_tsb_to_bool(ts: TSB[TS_SCHEMA], to: type[TS[bool]]) -> TS[bool]:
 
 def _convert_tsb_to_tsd_requirements(mapping, scalars):
     schema = mapping[TS_SCHEMA].py_type.__meta_data_schema__
-    keys = scalars['keys']
+    keys = scalars["keys"]
     if keys is None:
         keys = schema.keys()
     value_types = set(schema[k] for k in keys)
@@ -34,9 +46,12 @@ def _convert_tsb_to_tsd_requirements(mapping, scalars):
 
 
 @compute_node(overloads=convert, requires=_convert_tsb_to_tsd_requirements)
-def convert_tsb_to_tsd(ts: TSB[TS_SCHEMA], to: type[TSD[str, TIME_SERIES_TYPE]],
-                       keys: tuple[str, ...] = None,
-                       _schema_tp: type[TS_SCHEMA] = AUTO_RESOLVE) -> TSD[str, TIME_SERIES_TYPE]:
+def convert_tsb_to_tsd(
+    ts: TSB[TS_SCHEMA],
+    to: type[TSD[str, TIME_SERIES_TYPE]],
+    keys: tuple[str, ...] = None,
+    _schema_tp: type[TS_SCHEMA] = AUTO_RESOLVE,
+) -> TSD[str, TIME_SERIES_TYPE]:
     """
     Converts a suitable TSB into a TSD of TIME_SERIES_TYPE values. This requires the
     items of the `TSB` all have the same type.
@@ -44,9 +59,6 @@ def convert_tsb_to_tsd(ts: TSB[TS_SCHEMA], to: type[TSD[str, TIME_SERIES_TYPE]],
     """
     if keys is None:
         keys = _schema_tp.__meta_data_schema__.keys()
-    out = {
-        k: v.delta_value for k in keys if (v := ts[k]).modified
-    }
+    out = {k: v.delta_value for k in keys if (v := ts[k]).modified}
     if out:
         return out
-

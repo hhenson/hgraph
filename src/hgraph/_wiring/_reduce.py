@@ -20,9 +20,12 @@ from hgraph._wiring._wiring_utils import wire_nested_graph
 __all__ = ("reduce",)
 
 
-def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
-           ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-           zero: TIME_SERIES_TYPE = ZERO, is_associated: bool = True) -> TIME_SERIES_TYPE:
+def reduce(
+    func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
+    ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
+    zero: TIME_SERIES_TYPE = ZERO,
+    is_associated: bool = True,
+) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
     The zero must be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
@@ -65,6 +68,7 @@ def reduce(func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TY
 def _reduce_tsl(func, ts, zero, is_associated):
     """For the moment, we only support fixed size TSLs. So we can lay out the reduction in the graph statically"""
     from hgraph.nodes import default
+
     tp_ = ts.output_type
     if (sz := tp_.size_tp.py_type.SIZE) == 0:
         return zero
@@ -95,11 +99,11 @@ def _reduce_tsl(func, ts, zero, is_associated):
 
 def _reduce_tsd(func, ts, zero):
     from hgraph._types._ref_type import REF
+
     # We need to ensure that the reduction graph contains no push nodes. (We should be able to support pull nodes)
 
     @compute_node
-    def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) \
-            -> REF[TIME_SERIES_TYPE]:
+    def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
         ...
         # Used to create a WiringNodeClass template
 
@@ -109,19 +113,22 @@ def _reduce_tsd(func, ts, zero):
     if not isinstance(zero, WiringPort):
         if zero is ZERO:
             import hgraph
+
             zero = hgraph._operators._operators.zero(item_tp, func)
         elif zero is None:
             from hgraph.nodes import nothing
+
             zero = nothing(item_tp)
         else:
             from hgraph.nodes import const
+
             zero = const(zero, item_tp)
 
     wp = _reduce_tsd_signature(ts, zero)
     resolved_signature = cast(WiringPort, wp).node_instance.resolved_signature
     resolved_signature = WiringNodeSignature(
         node_type=resolved_signature.node_type,
-        name='reduce',
+        name="reduce",
         args=resolved_signature.args,
         defaults=resolved_signature.defaults,
         input_types=resolved_signature.input_types,
@@ -138,19 +145,19 @@ def _reduce_tsd(func, ts, zero):
     )
 
     if not isinstance(func, WiringNodeClass):
-        func = graph(with_signature(func, annotations={k: item_tp for k in inspect.signature(func).parameters},
-                                    return_annotation=TIME_SERIES_TYPE))
+        func = graph(
+            with_signature(
+                func,
+                annotations={k: item_tp for k in inspect.signature(func).parameters},
+                return_annotation=TIME_SERIES_TYPE,
+            )
+        )
 
     reduce_signature = ReduceWiringSignature(
         **resolved_signature.as_dict(),
-        inner_graph=wire_nested_graph(func,
-                                      {k: tp.value_tp for k in func.signature.input_types},
-                                      {},
-                                      resolved_signature,
-                                      None,
-                                      depth=2)
+        inner_graph=wire_nested_graph(
+            func, {k: tp.value_tp for k in func.signature.input_types}, {}, resolved_signature, None, depth=2
+        ),
     )
     wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
     return wiring_node(ts, zero)
-
-

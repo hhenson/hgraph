@@ -3,19 +3,82 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type, Mapping, cast, Tuple, Set
 
-from hgraph import TS, SCALAR, TIME_SERIES_TYPE, TSD, compute_node, REMOVE_IF_EXISTS, REF, STATE, graph, contains_, \
-    not_, K, TSS, PythonTimeSeriesReference, CompoundScalar, TS_SCHEMA, TSB, getattr_, zero, len_, AUTO_RESOLVE, TSL, \
-    SIZE, TimeSeriesReferenceOutput, operator, is_empty, K_1, TIME_SERIES_TYPE_1, sub_, bit_or, bit_and, bit_xor, eq_, \
-    keys_, OUT, rekey, flip, partition, flip_keys, collapse_keys, uncollapse_keys, min_, \
-    max_, str_, sum_, V, merge, mean, NUMBER, div_, std, var
+from hgraph import (
+    TS,
+    SCALAR,
+    TIME_SERIES_TYPE,
+    TSD,
+    compute_node,
+    REMOVE_IF_EXISTS,
+    REF,
+    STATE,
+    graph,
+    contains_,
+    not_,
+    K,
+    TSS,
+    PythonTimeSeriesReference,
+    CompoundScalar,
+    TS_SCHEMA,
+    TSB,
+    getattr_,
+    zero,
+    len_,
+    AUTO_RESOLVE,
+    TSL,
+    SIZE,
+    TimeSeriesReferenceOutput,
+    operator,
+    is_empty,
+    K_1,
+    TIME_SERIES_TYPE_1,
+    sub_,
+    bit_or,
+    bit_and,
+    bit_xor,
+    eq_,
+    keys_,
+    OUT,
+    rekey,
+    flip,
+    partition,
+    flip_keys,
+    collapse_keys,
+    uncollapse_keys,
+    min_,
+    max_,
+    str_,
+    sum_,
+    V,
+    merge,
+    mean,
+    NUMBER,
+    div_,
+    std,
+    var,
+)
 
-__all__ = ("make_tsd", "make_tsd_scalar", "flatten_tsd", "extract_tsd", "tsd_get_item", "tsd_get_bundle_item",
-           "merge_nested_tsds", "get_schema_type", "tsd_get_items", "merge_tsds")
+__all__ = (
+    "make_tsd",
+    "make_tsd_scalar",
+    "flatten_tsd",
+    "extract_tsd",
+    "tsd_get_item",
+    "tsd_get_bundle_item",
+    "merge_nested_tsds",
+    "get_schema_type",
+    "tsd_get_items",
+    "merge_tsds",
+)
 
 
 @operator
-def make_tsd(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
-             ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+def make_tsd(
+    key: TS[K_1],
+    value: TIME_SERIES_TYPE,
+    remove_key: TS[bool] = None,
+    ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE,
+) -> TSD[K_1, TIME_SERIES_TYPE_1]:
     """
     Make a TSD from a time-series of key and value, if either key or value ticks an entry in the TSD will be
     created / update. It is also possible to remove a key by setting remove_key to True.
@@ -25,8 +88,12 @@ def make_tsd(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
 
 
 @compute_node(overloads=make_tsd, valid=("key",))
-def make_tsd_default(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
-                     ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+def make_tsd_default(
+    key: TS[K_1],
+    value: TIME_SERIES_TYPE,
+    remove_key: TS[bool] = None,
+    ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE,
+) -> TSD[K_1, TIME_SERIES_TYPE_1]:
     """
     Make a TSD from a time-series of key and value, if either key or value ticks an entry in the TSD will be
     created / update. It is also possible to remove a key by setting remove_key to True.
@@ -44,9 +111,11 @@ def make_tsd_default(key: TS[K_1], value: TIME_SERIES_TYPE, remove_key: TS[bool]
 
 
 @graph(overloads=make_tsd)
-def make_tsd_scalar(key: K_1, value: TIME_SERIES_TYPE, remove_key: TS[bool] = None,
-                    ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE) -> TSD[K_1, TIME_SERIES_TYPE_1]:
+def make_tsd_scalar(
+    key: K_1, value: TIME_SERIES_TYPE, remove_key: TS[bool] = None, ts_type: Type[TIME_SERIES_TYPE_1] = TIME_SERIES_TYPE
+) -> TSD[K_1, TIME_SERIES_TYPE_1]:
     from hgraph import const
+
     return make_tsd(const(key), value, remove_key, ts_type)
 
 
@@ -81,11 +150,14 @@ def tsd_get_item(tsd: TSD[K, TIME_SERIES_TYPE], key: TS[K]) -> TIME_SERIES_TYPE:
 
 
 @compute_node(overloads=tsd_get_item, valid=("key",))
-def tsd_get_item_default(tsd: REF[TSD[K, TIME_SERIES_TYPE]], key: TS[K],
-                         _ref: REF[TIME_SERIES_TYPE] = None,
-                         _ref_ref: REF[TIME_SERIES_TYPE] = None,
-                         _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-                         _state: STATE[KeyValueRefState] = None) -> REF[TIME_SERIES_TYPE]:
+def tsd_get_item_default(
+    tsd: REF[TSD[K, TIME_SERIES_TYPE]],
+    key: TS[K],
+    _ref: REF[TIME_SERIES_TYPE] = None,
+    _ref_ref: REF[TIME_SERIES_TYPE] = None,
+    _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _state: STATE[KeyValueRefState] = None,
+) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
     """
@@ -126,14 +198,15 @@ def tsd_get_items(tsd: TSD[K, REF[TIME_SERIES_TYPE]], keys: TSS[K]) -> TSD[K, RE
         **{k: v.value for k, v in tsd.modified_items() if k in keys},
         **{k: REMOVE_IF_EXISTS for k in tsd.removed_keys()},
         **{k: tsd[k].value for k in keys.added() if k in tsd},
-        **{k: REMOVE_IF_EXISTS for k in keys.removed()}
+        **{k: REMOVE_IF_EXISTS for k in keys.removed()},
     }
 
 
-@compute_node(overloads=keys_,
-              requires=lambda m, s: m[OUT].py_type is TSS or
-              m[OUT].matches_type(TSS[m[K].py_type]),
-              resolvers={OUT: lambda m, s: TSS[m[K].py_type]})
+@compute_node(
+    overloads=keys_,
+    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[K].py_type]),
+    resolvers={OUT: lambda m, s: TSS[m[K].py_type]},
+)
 def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
     # Use tsd as a reference to avoid the cost of the input wrapper
     # If we got here the TSD got rebound so get the key set and return
@@ -143,9 +216,11 @@ def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
         return cast(REF, PythonTimeSeriesReference())
 
 
-@compute_node(overloads=keys_,
-              requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset]) or
-              m[OUT].matches_type(TS[Set[m[K].py_type]]))
+@compute_node(
+    overloads=keys_,
+    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    or m[OUT].matches_type(TS[Set[m[K].py_type]]),
+)
 def keys_tsd_as_set(tsd: TSD[K, TIME_SERIES_TYPE]) -> TS[Set[K]]:
     return set(tsd.keys())
 
@@ -206,10 +281,13 @@ def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]
     return schema[key].py_type
 
 
-@compute_node(overloads=getattr_, resolvers={
-    TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars['key'])})
-def tsd_get_bundle_item(tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE) \
-        -> TSD[K, REF[TIME_SERIES_TYPE]]:
+@compute_node(
+    overloads=getattr_,
+    resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
+)
+def tsd_get_bundle_item(
+    tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Returns a TSD of the given items from the bundles in the original TSD
     """
@@ -247,9 +325,9 @@ def collapse_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
 
 
 @compute_node(overloads=uncollapse_keys)
-def uncollapse_keys_tsd(ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]],
-                        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None) \
-        -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+def uncollapse_keys_tsd(
+    ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]], _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None
+) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
     Un-Collapse the nested TSDs to a TSD with a tuple key.
     """
@@ -281,8 +359,9 @@ class TsdRekeyState(CompoundScalar):
 
 
 @compute_node(overloads=rekey, valid=("new_keys",))
-def rekey_tsd(ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]],
-              _state: STATE[TsdRekeyState] = None) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
+def rekey_tsd(
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
     Rekey a TSD to the new keys.
 
@@ -346,8 +425,9 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
 
 @compute_node(overloads=flip_keys)
-def flip_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None) \
-        -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
+def flip_keys_tsd(
+    ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None
+) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Switch the keys on a TSD of TSD's. This can be considered as a pivot.
     """
@@ -404,8 +484,9 @@ def merge_tsds(*tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIM
 
 
 @compute_node(overloads=merge)
-def merge_nested_tsds(*tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) -> TSD[
-    K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+def merge_nested_tsds(
+    *tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]
+) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     out = defaultdict(dict)
     removals = set()
     nested_removals = defaultdict(set)
@@ -438,8 +519,9 @@ def merge_nested_tsds(*tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]) 
 
 
 @compute_node(overloads=partition)
-def partition_tsd(ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]],
-                  _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
+def partition_tsd(
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Partition a TSD into partitions by the given mapping.
     """
@@ -480,6 +562,7 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
     This is a helper generator to create a zero time-series for the reduce function.
     """
     from hgraph import nothing
+
     return nothing(ts)
 
 
@@ -499,7 +582,6 @@ def max_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
     return max(tsd.value.values(), default=default_value.value)
 
 
-
 @graph(overloads=sum_)
 def sum_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
     return _sum_tsd_unary(tsd, zero(tp, sum_))
@@ -513,7 +595,8 @@ def _sum_tsd_unary(tsd: TSD[K, V], zero_ts: V) -> V:
 @graph(overloads=mean)
 def mean_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
     from hgraph import DivideByZero, default
-    return default(div_(sum_(ts), len_(ts), divide_by_zero=DivideByZero.NAN), float('NaN'))
+
+    return default(div_(sum_(ts), len_(ts), divide_by_zero=DivideByZero.NAN), float("NaN"))
 
 
 @compute_node(overloads=std)

@@ -1,26 +1,41 @@
 from datetime import datetime, date, time, timedelta
 
-from hgraph import compute_node, graph, TS, SCALAR, getattr_, add_, sub_, WiringError, mul_, div_, NUMBER, sum_, mean, \
-    std, var
+from hgraph import (
+    compute_node,
+    graph,
+    TS,
+    SCALAR,
+    getattr_,
+    add_,
+    sub_,
+    WiringError,
+    mul_,
+    div_,
+    NUMBER,
+    sum_,
+    mean,
+    std,
+    var,
+)
 
 __all__ = ("datetime_date_as_datetime", "datetime_properties", "datetime_methods", "datetime_getattr")
 
 _datetime_properties = {
-    'year': int,
-    'month': int,
-    'day': int,
-    'hour': int,
-    'minute': int,
-    'second': int,
-    'microsecond': int,
+    "year": int,
+    "month": int,
+    "day": int,
+    "hour": int,
+    "minute": int,
+    "second": int,
+    "microsecond": int,
 }
 
 _datetime_methods = {
-    'weekday': int,
-    'isoweekday': int,
-    'timestamp': int,
-    'date': date,
-    'time': time,
+    "weekday": int,
+    "isoweekday": int,
+    "timestamp": int,
+    "date": date,
+    "time": time,
 }
 
 
@@ -31,16 +46,16 @@ def datetime_date_as_datetime(ts: TS[datetime]) -> TS[datetime]:
 
 
 _datetime_custom = {
-    'datepart': datetime_date_as_datetime,
+    "datepart": datetime_date_as_datetime,
 }
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _datetime_properties[s['attribute']]})
+@compute_node(resolvers={SCALAR: lambda m, s: _datetime_properties[s["attribute"]]})
 def datetime_properties(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _datetime_methods[s['attribute']]})
+@compute_node(resolvers={SCALAR: lambda m, s: _datetime_methods[s["attribute"]]})
 def datetime_methods(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)()
 

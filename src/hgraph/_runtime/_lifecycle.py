@@ -26,7 +26,7 @@ class ComponentLifeCycle:
     """
 
     def __init__(self):
-        self._started : bool= False
+        self._started: bool = False
         self._transitioning: bool = False
 
     def initialise(self):
@@ -86,6 +86,7 @@ def start_guard(fn):
     Use this to decorate the start method, ensures that the component is not started before calling and then
     sets the is_stated property once started.
     """
+
     @wraps(fn)
     def _start(self: ComponentLifeCycle):
         if self._started:

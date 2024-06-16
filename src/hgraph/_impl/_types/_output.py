@@ -94,4 +94,3 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
 
     def _notify(self, modified_time):
         self._subscribers.notify(modified_time)
-

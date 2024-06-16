@@ -22,6 +22,4 @@ class InMemoryDataReader(DataReader):
     def read(self, size: int) -> bytes:
         offset: int = self._index
         self._index += size
-        return self._data[offset:self._index]
-
-
+        return self._data[offset : self._index]

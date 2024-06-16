@@ -44,9 +44,13 @@ class RecorderAPI:
         """Is there a table definition for this table_name?"""
 
     @abstractmethod
-    def create_or_update_table_definition(self, table_name: str, definition: type[COMPOUND_SCALAR],
-                                          date_column: tuple[str, date | datetime] = ('date', date),
-                                          renamed_fields: dict[str, str] = None) -> None:
+    def create_or_update_table_definition(
+        self,
+        table_name: str,
+        definition: type[COMPOUND_SCALAR],
+        date_column: tuple[str, date | datetime] = ("date", date),
+        renamed_fields: dict[str, str] = None,
+    ) -> None:
         """
         Defines a table definition for a table. This is used for validation and can perform operations such
         as creating a database tables etc. If we are re-defining a table, then any new columns should have a default
@@ -209,5 +213,3 @@ def record_frame(table_id: str, frame: TS[Frame[COMPOUND_SCALAR]], _state: STATE
     """
     table_writer = _state.recorder_api.get_table_writer(table_id, _state.label)
     table_writer.record_frame(frame.value)
-
-

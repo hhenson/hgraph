@@ -8,7 +8,11 @@ from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngin
 from hgraph._runtime._node import NodeSignature
 
 
-__all__ = ("PythonNestedNodeImpl", "NestedEvaluationEngine", "NestedEngineEvaluationClock",)
+__all__ = (
+    "PythonNestedNodeImpl",
+    "NestedEvaluationEngine",
+    "NestedEngineEvaluationClock",
+)
 
 
 class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
@@ -56,15 +60,16 @@ class NestedEvaluationEngine(EvaluationEngineDelegate):
 
 class PythonNestedNodeImpl(NodeImpl):
 
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 eval_fn: Callable = None,
-                 start_fn: Callable = None,
-                 stop_fn: Callable = None,
-                 ):
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        eval_fn: Callable = None,
+        start_fn: Callable = None,
+        stop_fn: Callable = None,
+    ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
         self._last_evaluation_time = MIN_DT
 

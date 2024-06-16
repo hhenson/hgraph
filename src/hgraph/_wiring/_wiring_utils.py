@@ -27,8 +27,12 @@ if TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
 
 __all__ = (
-    "stub_wiring_port", "StubWiringPort", "as_reference", "wire_nested_graph",
-    "extract_stub_node_indices", "pretty_str_types"
+    "stub_wiring_port",
+    "StubWiringPort",
+    "as_reference",
+    "wire_nested_graph",
+    "extract_stub_node_indices",
+    "pretty_str_types",
 )
 
 
@@ -57,26 +61,30 @@ def as_reference(tp_: HgTimeSeriesTypeMetaData, is_multiplexed: bool = False) ->
         # If multiplexed type, we want references to the values not the whole output.
         if type(tp_) is HgTSDTypeMetaData:
             tp_: HgTSDTypeMetaData
-            return HgTSDTypeMetaData(tp_.key_tp, HgREFTypeMetaData(tp_.value_tp) if type(
-                tp_.value_tp) is not HgREFTypeMetaData else tp_.value_tp)
+            return HgTSDTypeMetaData(
+                tp_.key_tp,
+                HgREFTypeMetaData(tp_.value_tp) if type(tp_.value_tp) is not HgREFTypeMetaData else tp_.value_tp,
+            )
         elif type(tp_) is HgTSLTypeMetaData:
             tp_: HgTSLTypeMetaData
             return HgTSLTypeMetaData(
                 HgREFTypeMetaData(tp_.value_tp) if type(tp_.value_tp) is not HgREFTypeMetaData else tp_.value_tp,
-                tp_.size_tp)
+                tp_.size_tp,
+            )
         else:
             raise CustomMessageWiringError(f"Unable to create reference for multiplexed type: {tp_}")
     else:
         return HgREFTypeMetaData(tp_) if type(tp_) is not HgREFTypeMetaData else tp_
 
 
-def wire_nested_graph(fn: WiringNodeClass,
-                      input_types: Mapping[str, HgTypeMetaData],
-                      scalars: Mapping[str, Any],
-                      outer_wiring_node_signature: WiringNodeSignature,
-                      key_arg: str,
-                      depth: int = 1
-                      ) -> "GraphBuilder":
+def wire_nested_graph(
+    fn: WiringNodeClass,
+    input_types: Mapping[str, HgTypeMetaData],
+    scalars: Mapping[str, Any],
+    outer_wiring_node_signature: WiringNodeSignature,
+    key_arg: str,
+    depth: int = 1,
+) -> "GraphBuilder":
     """
     Wire the inner function using stub inputs and wrap stub outputs.
     The outer wiring node signature is used to supply to the wiring graph context, this is for error and stack trace
@@ -108,8 +116,7 @@ def wire_nested_graph(fn: WiringNodeClass,
     return builder
 
 
-def extract_stub_node_indices(inner_graph, input_args: Set[str]) \
-        -> tuple[frozendict[str, int], int]:
+def extract_stub_node_indices(inner_graph, input_args: Set[str]) -> tuple[frozendict[str, int], int]:
     """Process the stub graph identifying the input and output nodes for the associated stubs."""
 
     input_node_ids = {}
@@ -132,12 +139,12 @@ def pretty_str_types(value: Any) -> str:
 
     if isinstance(value, type):
         return {
-            TS: 'TS',
-            TSL: 'TSL',
-            TSD: 'TSD',
-            TSB: 'TSB',
-            TSS: 'TSS',
-            Size: 'Size',
+            TS: "TS",
+            TSL: "TSL",
+            TSD: "TSD",
+            TSB: "TSB",
+            TSS: "TSS",
+            Size: "Size",
         }.get(value, value.__name__)
 
     return str(value)

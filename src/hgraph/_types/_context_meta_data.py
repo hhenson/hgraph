@@ -22,7 +22,9 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             scalar_py_type = value_type.scalar_type().py_type if value_type.is_resolved else NoneType
 
-        self.is_context_manager = getattr(scalar_py_type, '__enter__', None) and getattr(scalar_py_type, '__exit__', None)
+        self.is_context_manager = getattr(scalar_py_type, "__enter__", None) and getattr(
+            scalar_py_type, "__exit__", None
+        )
 
     @property
     def is_resolved(self) -> bool:
@@ -31,11 +33,13 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
     @property
     def py_type(self) -> Type:
         from hgraph._types._context_type import CONTEXT
+
         return CONTEXT[self.value_tp.py_type]
 
     @property
     def ts_type(self):
         from hgraph import HgTSTypeMetaData
+
         return HgTSTypeMetaData(self.value_tp) if self.value_tp.is_scalar else self.value_tp
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
@@ -65,8 +69,9 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
         else:
             self.value_tp.build_resolution_dict(resolution_dict, wired_type if wired_type else None)
 
-    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                          wired_type: "HgTypeMetaData", value: object):
+    def build_resolution_dict_from_scalar(
+        self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
+    ):
         if not self.value_tp.is_scalar:
             self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
         else:
@@ -78,12 +83,17 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._context_type import TimeSeriesContextInput
+
         if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is TimeSeriesContextInput:
             value_tp = HgTypeMetaData.parse_type(value_tp.__args__[0])
             if value_tp is None:
-                raise ParseError(f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]' unable to parse time series type from '{str(value_tp.__args__[0])}'")
+                raise ParseError(
+                    f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]' unable to parse time series type from '{str(value_tp.__args__[0])}'"
+                )
             if value_tp.has_references:
-                raise ParseError(f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]': time series type must not have references")
+                raise ParseError(
+                    f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]': time series type must not have references"
+                )
             return HgCONTEXTTypeMetaData(value_tp)
 
     @property
@@ -108,11 +118,12 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
         return type(o) is HgCONTEXTTypeMetaData and self.value_tp == o.value_tp
 
     def __str__(self) -> str:
-        return f'CONTEXT[{str(self.value_tp)}]'
+        return f"CONTEXT[{str(self.value_tp)}]"
 
     def __repr__(self) -> str:
-        return f'HgCONTEXTTypeMetaData({repr(self.value_tp)})'
+        return f"HgCONTEXTTypeMetaData({repr(self.value_tp)})"
 
     def __hash__(self) -> int:
         from hgraph._types._ref_type import REF
+
         return hash(REF) ^ hash(self.value_tp)

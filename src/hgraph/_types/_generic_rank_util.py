@@ -1,6 +1,10 @@
 from functools import reduce
 
-__all__ = ("scale_rank", "combine_ranks", "compare_ranks",)
+__all__ = (
+    "scale_rank",
+    "combine_ranks",
+    "compare_ranks",
+)
 
 from typing import Iterable
 
@@ -32,4 +36,4 @@ def compare_ranks(rank1: dict[type, float], rank2: dict[type, float]) -> bool:
     """
     Comparison of ranks is done by comparing the sum of ranks by all type parameters and combining them
     """
-    return sum(rank1.values(), 0.) < sum(rank2.values(), 0.)
+    return sum(rank1.values(), 0.0) < sum(rank2.values(), 0.0)

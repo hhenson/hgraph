@@ -5,7 +5,12 @@ from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
 if TYPE_CHECKING:
-    from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesPushQueue, TimeSeriesPullQueue, TimeSeriesOutput
+    from hgraph._types._time_series_types import (
+        TimeSeriesInput,
+        TimeSeriesPushQueue,
+        TimeSeriesPullQueue,
+        TimeSeriesOutput,
+    )
 
 
 __all__ = ("HgTimeSeriesTypeMetaData",)
@@ -43,10 +48,23 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         from hgraph._types._ts_signal_meta_data import HgSignalMetaData
         from hgraph._types._context_meta_data import HgCONTEXTTypeMetaData
 
-        parsers = (HgTSTypeMetaData, HgTSOutTypeMetaData, HgTSLTypeMetaData, HgTSLOutTypeMetaData, HgTSSTypeMetaData,
-                   HgTSSOutTypeMetaData, HgTSDTypeMetaData, HgTSDOutTypeMetaData, HgTimeSeriesSchemaTypeMetaData,
-                   HgTSBTypeMetaData, HgTsTypeVarTypeMetaData, HgREFTypeMetaData, HgREFOutTypeMetaData,
-                   HgSignalMetaData, HgCONTEXTTypeMetaData)
+        parsers = (
+            HgTSTypeMetaData,
+            HgTSOutTypeMetaData,
+            HgTSLTypeMetaData,
+            HgTSLOutTypeMetaData,
+            HgTSSTypeMetaData,
+            HgTSSOutTypeMetaData,
+            HgTSDTypeMetaData,
+            HgTSDOutTypeMetaData,
+            HgTimeSeriesSchemaTypeMetaData,
+            HgTSBTypeMetaData,
+            HgTsTypeVarTypeMetaData,
+            HgREFTypeMetaData,
+            HgREFOutTypeMetaData,
+            HgSignalMetaData,
+            HgCONTEXTTypeMetaData,
+        )
 
         if isinstance(value_tp, parsers):
             return value_tp
@@ -58,6 +76,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph._wiring._wiring_port import WiringPort
+
         if isinstance(value, WiringPort):
             return value.output_type
 
@@ -68,14 +87,15 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     def dereference(self) -> "HgTimeSeriesTypeMetaData":
         return self
 
-    def build_resolution_dict_from_scalar(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"],
-                                          wired_type: "HgTypeMetaData", value: object):
+    def build_resolution_dict_from_scalar(
+        self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
+    ):
         """
         To be override by derived classes
         """
         from hgraph._wiring._wiring_errors import IncorrectTypeBinding
+
         raise IncorrectTypeBinding(self, wired_type)
 
     @abstractmethod
-    def scalar_type(self) -> "HgScalarTypeMetaData":
-        ...
+    def scalar_type(self) -> "HgScalarTypeMetaData": ...

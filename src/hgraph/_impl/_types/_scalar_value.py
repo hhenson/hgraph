@@ -1,7 +1,7 @@
 from hgraph._types._scalar_value import ScalarValue
 
 
-__all__ = ('PythonScalarValue', 'PythonKeyableScalarValue')
+__all__ = ("PythonScalarValue", "PythonKeyableScalarValue")
 
 
 class PythonScalarValue(ScalarValue):

@@ -64,6 +64,7 @@ class EvaluationMode(Enum):
         restored, these nodes will not be evaluated in the snap restore process.
         Any nodes supporting SCHEDULED inputs will have their next evaluation time updated to the next scheduled time.
     """
+
     REAL_TIME = 0
     SIMULATION = 1
     RECORDING = 2
@@ -389,6 +390,3 @@ class EvaluationEngineDelegate(EvaluationEngine):
 
     def notify_after_stop_node(self, node: "Node"):
         self._engine.notify_after_stop_node(node)
-
-
-

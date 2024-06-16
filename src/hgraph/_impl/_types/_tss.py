@@ -61,11 +61,12 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hgraph import TS
         from hgraph import HgTimeSeriesTypeMetaData
+
         factory = PythonTimeSeriesBuilderFactory.instance()
-        bool_ts_builder = factory.make_output_builder(
-            HgTimeSeriesTypeMetaData.parse_type(TS[bool]))
+        bool_ts_builder = factory.make_output_builder(HgTimeSeriesTypeMetaData.parse_type(TS[bool]))
         self._contains_ref_outputs = FeatureOutputExtension(
-            self, bool_ts_builder, lambda output, key: key in output.value)
+            self, bool_ts_builder, lambda output, key: key in output.value
+        )
         # Use owning output as the empty state will only occur if this output is going change anyhow and it
         # Deals with state not being fully ready on construction when creating a TSD key_set.
         self._is_empty_ref_output = bool_ts_builder.make_instance(owning_output=self)
@@ -92,8 +93,11 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         else:
             # Assume that the result is a set, and then we are adding all the elements that are not marked Removed
             self._added = {r for r in v if type(r) is not Removed and r not in self._value}
-            self._removed = {r.item for r in v if type(r) is Removed and r.item in self._value} \
-                if len(self._added) != len(v) else set()
+            self._removed = (
+                {r.item for r in v if type(r) is Removed and r.item in self._value}
+                if len(self._added) != len(v)
+                else set()
+            )
             self._value.update(self._added)
             self._value.difference_update(self._removed)
         self._post_modify()
@@ -236,16 +240,23 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
         return self.output.values()
 
     def added(self) -> Iterable[SCALAR]:
-        return self.output.added() if self._prev_output is None \
+        return (
+            self.output.added()
+            if self._prev_output is None
             else cast(set, self.output.added()) | (cast(set, self.values()) - cast(set, self._prev_output.values()))
+        )
 
     def was_added(self, item: SCALAR) -> bool:
         return self.output.was_added(item) and (self._prev_output is None or item not in self._prev_output.values())
 
     def removed(self) -> Iterable[SCALAR]:
-        return self.output.removed() if self._prev_output is None \
+        return (
+            self.output.removed()
+            if self._prev_output is None
             else (cast(set, self._prev_output.values()) - cast(set, self.values()))
+        )
 
     def was_removed(self, item: SCALAR) -> bool:
         return self.output.was_removed(item) and (
-                self._prev_output is None or item in self._prev_output.values() and item not in self.values())
+            self._prev_output is None or item in self._prev_output.values() and item not in self.values()
+        )

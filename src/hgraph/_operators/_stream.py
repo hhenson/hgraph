@@ -5,8 +5,25 @@ from typing import TypeVar, Generic, Tuple
 from hgraph._types import TS, TIME_SERIES_TYPE, SIGNAL, SCALAR, TSB, TimeSeriesSchema
 from hgraph._wiring._decorators import operator
 
-__all__ = ("sample", "lag", "schedule", "resample", "dedup", "filter_", "throttle", "INT_OR_TIME_DELTA", "take",
-           "drop", "window", "WindowResult", "gate", "batch", "step", "slice_", "drop_dups")
+__all__ = (
+    "sample",
+    "lag",
+    "schedule",
+    "resample",
+    "dedup",
+    "filter_",
+    "throttle",
+    "INT_OR_TIME_DELTA",
+    "take",
+    "drop",
+    "window",
+    "WindowResult",
+    "gate",
+    "batch",
+    "step",
+    "slice_",
+    "drop_dups",
+)
 
 INT_OR_TIME_DELTA = TypeVar("INT_OR_TIME_DELTA", int, timedelta)
 
@@ -52,6 +69,7 @@ def dedup(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES
     """
     Drops duplicate values from a time-series.
     """
+
 
 # For backwards compatibility.  Prefer dedup
 drop_dups = dedup

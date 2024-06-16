@@ -4,8 +4,11 @@ from typing import Mapping, Any, Callable, cast
 
 from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD
 from hgraph._builder._graph_builder import GraphBuilder
-from hgraph._impl._runtime._nested_evaluation_engine import NestedEngineEvaluationClock, NestedEvaluationEngine, \
-    PythonNestedNodeImpl
+from hgraph._impl._runtime._nested_evaluation_engine import (
+    NestedEngineEvaluationClock,
+    NestedEvaluationEngine,
+    PythonNestedNodeImpl,
+)
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
@@ -39,7 +42,8 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
 
         rank = node._active_graphs_rank[self._key]
         if next_time == node.last_evaluation_time and (
-                rank == node.current_eval_rank or self.key == node.current_eval_graph):
+            rank == node.current_eval_rank or self.key == node.current_eval_graph
+        ):
             return
 
         tm = node._scheduled_keys_by_rank[rank].get(self._key)
@@ -51,23 +55,36 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
 
 
 class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
-    def __init__(self,
-                 node_ndx: int,
-                 owning_graph_id: tuple[int, ...],
-                 signature: NodeSignature,
-                 scalars: Mapping[str, Any],
-                 eval_fn: Callable = None,
-                 start_fn: Callable = None,
-                 stop_fn: Callable = None,
-                 nested_graph_builder: GraphBuilder = None,
-                 input_node_ids: Mapping[str, int] = None,
-                 output_node_id: int = None,
-                 multiplexed_args: frozenset[str] = None,
-                 key_arg: str = None,
-                 context_path: str = None
-                 ):
-        super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn, nested_graph_builder,
-                         input_node_ids, output_node_id, multiplexed_args, key_arg)
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        eval_fn: Callable = None,
+        start_fn: Callable = None,
+        stop_fn: Callable = None,
+        nested_graph_builder: GraphBuilder = None,
+        input_node_ids: Mapping[str, int] = None,
+        output_node_id: int = None,
+        multiplexed_args: frozenset[str] = None,
+        key_arg: str = None,
+        context_path: str = None,
+    ):
+        super().__init__(
+            node_ndx,
+            owning_graph_id,
+            signature,
+            scalars,
+            eval_fn,
+            start_fn,
+            stop_fn,
+            nested_graph_builder,
+            input_node_ids,
+            output_node_id,
+            multiplexed_args,
+            key_arg,
+        )
 
         self._full_context_path = f"context-{self.owning_graph_id}-{context_path}"
         self._scheduled_ranks: dict[int, datetime] = {}
@@ -80,9 +97,9 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
 
     def start(self):
         super().start()
-        self.output['ref'].value = PythonTimeSeriesReference(self.output['out'])
-        GlobalState.instance()[self._full_context_path] = self.output['ref']
-        self._output = self.output['out']
+        self.output["ref"].value = PythonTimeSeriesReference(self.output["out"])
+        GlobalState.instance()[self._full_context_path] = self.output["ref"]
+        self._output = self.output["out"]
 
     def stop(self):
         del GlobalState.instance()[self._full_context_path]
@@ -138,8 +155,10 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self._count += 1
         self._active_graphs[key] = graph
         self._active_graphs_rank[key] = self.max_rank if rank is None else rank
-        graph.evaluation_engine = NestedEvaluationEngine(self.graph.evaluation_engine, MeshNestedEngineEvaluationClock(
-            self.graph.evaluation_engine.engine_evaluation_clock, key, self))
+        graph.evaluation_engine = NestedEvaluationEngine(
+            self.graph.evaluation_engine,
+            MeshNestedEngineEvaluationClock(self.graph.evaluation_engine.engine_evaluation_clock, key, self),
+        )
         graph.initialise()
         self._wire_graph(key, graph)
         self.current_eval_graph = key
