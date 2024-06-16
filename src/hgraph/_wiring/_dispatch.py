@@ -98,7 +98,8 @@ def _dispatch_impl(
         CompoundScalar,
         extract_kwargs,
     )
-    from hgraph.nodes import flatten_tsl_values, downcast_ref
+    from hgraph import downcast_ref
+    from hgraph.nodes import flatten_tsl_values
 
     dispatch_args = {}
     if __on__ is None:

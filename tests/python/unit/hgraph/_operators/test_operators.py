@@ -1,5 +1,4 @@
-from hgraph import take
-from hgraph.nodes import cast_
+from hgraph import take, cast_
 from hgraph.test import eval_node
 
 

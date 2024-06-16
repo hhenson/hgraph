@@ -381,7 +381,8 @@ def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[flo
     Unary mean for scalar collections return the mean of the current collection value.
     These are overloaded separately
     """
-    from hgraph.nodes import count, cast_
+    from hgraph import cast_
+    from hgraph.nodes import count
 
     if tp is float:
         return sum_(ts) / count(ts)
