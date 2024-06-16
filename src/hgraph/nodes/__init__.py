@@ -14,7 +14,6 @@ from hgraph.nodes._tsb_operators import *
 from hgraph.nodes._tsd_operators import *
 from hgraph.nodes._tsl_operators import *
 from hgraph.nodes._window_operators import *
-from hgraph.nodes._time_series_properties import *
 from hgraph.nodes._number_operators import *
 from hgraph.nodes._frozendict_operators import *
 from hgraph.nodes._stream_analytical_operators import *

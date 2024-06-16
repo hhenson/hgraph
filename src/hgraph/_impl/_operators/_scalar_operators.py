@@ -45,7 +45,7 @@ from hgraph import (
     var,
 )
 
-__all__ = ()
+__all__ = tuple()
 
 
 @compute_node(overloads=add_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__add__"))

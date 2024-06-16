@@ -9,6 +9,7 @@ from hgraph._impl._operators._set_operators import *
 from hgraph._impl._operators._stream_operators import *
 from hgraph._impl._operators._str_operators import *
 from hgraph._impl._operators._time_series_conversion import *
+from hgraph._impl._operators._time_series_properties import *
 from hgraph._impl._operators._tss_operators import *
 from hgraph._impl._operators._tuple_operators import *
 from hgraph._impl._operators._type import *

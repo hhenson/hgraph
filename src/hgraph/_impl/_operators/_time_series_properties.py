@@ -1,12 +1,12 @@
 from datetime import datetime, date
 
-from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL
+from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL, valid, last_modified_date, last_modified_time
 
-__all__ = ("valid", "last_modified_time", "last_modified_date")
+__all__ = tuple()
 
 
-@compute_node(valid=("ts",), active=("ts",))
-def valid(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bool]:
+@compute_node(valid=("ts",), active=("ts",), overloads=valid)
+def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bool]:
     if ts.modified:
         if ts_value.bound:
             ts_value.make_passive()
@@ -29,11 +29,11 @@ def valid(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bo
     return False
 
 
-@compute_node
-def last_modified_time(ts: SIGNAL) -> TS[datetime]:
+@compute_node(overloads=last_modified_time)
+def last_modified_time_impl(ts: SIGNAL) -> TS[datetime]:
     return ts.last_modified_time
 
 
-@compute_node
-def last_modified_date(ts: SIGNAL) -> TS[date]:
+@compute_node(overloads=last_modified_date)
+def last_modified_date_impl(ts: SIGNAL) -> TS[date]:
     return ts.last_modified_time.date()
