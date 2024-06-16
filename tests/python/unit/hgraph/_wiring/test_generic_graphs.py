@@ -5,7 +5,7 @@ from polars.testing import assert_frame_equal
 
 from hgraph import CompoundScalar, Frame, graph, compute_node, TS, generator, MIN_DT, MIN_ST, TimeSeriesSchema, TSB, \
     operator
-from hgraph.nodes import const
+from hgraph import const
 from hgraph.test import eval_node
 
 

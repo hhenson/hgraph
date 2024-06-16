@@ -14,7 +14,7 @@ start_wiring_graph()
 Then you can build the graph cell by cell. For example:
 
 ```python
-from hgraph.nodes import const
+from hgraph import const
 c = const("Hello World")
 ```
 

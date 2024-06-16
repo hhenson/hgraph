@@ -19,7 +19,7 @@ from hgraph import (
     OUT,
 )
 from hgraph._types._scalar_types import DEFAULT
-from hgraph._operators._conversion import emit, convert
+from hgraph._operators._time_series_conversion import emit, convert
 
 __all__ = ()
 

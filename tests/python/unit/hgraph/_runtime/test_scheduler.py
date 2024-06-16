@@ -3,7 +3,7 @@ from datetime import timedelta
 from frozendict import frozendict
 
 from hgraph import compute_node, TS, SCHEDULER, MIN_TD, graph, TSD, map_
-from hgraph.nodes import const
+from hgraph import const
 from hgraph.test import eval_node
 
 

@@ -120,7 +120,7 @@ def _reduce_tsd(func, ts, zero):
 
             zero = nothing(item_tp)
         else:
-            from hgraph.nodes import const
+            from hgraph import const
 
             zero = const(zero, item_tp)
 

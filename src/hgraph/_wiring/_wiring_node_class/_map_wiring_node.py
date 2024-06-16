@@ -96,7 +96,7 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
     def _map_no_index(self, **kwargs) -> "WiringPort":
         """In this scenario, we can just map the nodes using the max size"""
         from hgraph._types._scalar_types import Size
-        from hgraph.nodes._const import const
+        from hgraph._operators._time_series_conversion import const
         from hgraph._types._tsl_type import TSL
 
         out = []

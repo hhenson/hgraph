@@ -470,7 +470,7 @@ class WiringNodeSignature:
                 if kwarg_types[arg].is_scalar:
                     if not v.scalar_type().matches(kwarg_types[arg]):
                         raise IncorrectTypeBinding(v, kwarg_types[arg])
-                    from hgraph.nodes import const
+                    from hgraph import const
 
                     kwargs[arg] = const(kwargs[arg], tp=v.py_type)
                 elif not isinstance(kwargs[arg], WiringPort) and isinstance(

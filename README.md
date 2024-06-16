@@ -8,8 +8,8 @@ The language is function based, and promotes composition to extend behaviour.
 Here is a simple example:
 
 ```python
-from hgraph import graph, run_graph
-from hgraph.nodes import const, debug_print
+from hgraph import graph, run_graph, const
+from hgraph.nodes import debug_print
 
 @graph
 def main():

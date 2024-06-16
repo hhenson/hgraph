@@ -198,7 +198,7 @@ class TimeSeriesListInput(
                             f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]"
                         )
             elif tp_.scalar_type().matches(HgTypeMetaData.parse_value(v)):
-                from hgraph.nodes import const
+                from hgraph import const
 
                 inputs[i] = const(v, tp=tp_.py_type)
             elif v is None:

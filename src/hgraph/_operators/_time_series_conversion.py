@@ -1,10 +1,29 @@
-from hgraph._wiring._decorators import operator
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
-from hgraph._types._scalar_types import DEFAULT
+from datetime import timedelta
+
+from hgraph._types._ts_type import TS
+from hgraph._types._scalar_types import DEFAULT, SCALAR
 from hgraph._types._time_series_types import OUT
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._wiring._decorators import operator
+
+__all__ = ("const", "convert", "combine", "collect", "emit")
 
 
-__all__ = ("convert", "combine", "collect", "emit")
+@operator
+def const(
+    value: SCALAR,
+    tp: type[OUT] = TS[SCALAR],
+    delay: timedelta = timedelta(),
+) -> DEFAULT[OUT]:
+    """
+    Produces a single tick at the start of the graph evaluation after which this node does nothing.
+
+    :param value: The value in appropriate form to be applied to the time-series type specified in tp.
+    :param tp: Used to resolve the correct type for the output, by default this is TS[SCALAR] where SCALAR is the type
+               of the value.
+    :param delay: The amount of time to delay the value by. The default is 0.
+    :return: A single tick of the value supplied.
+    """
 
 
 @operator

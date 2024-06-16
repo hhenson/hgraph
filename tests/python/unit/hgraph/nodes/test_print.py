@@ -1,10 +1,9 @@
 import logging
-import time
 
 import pytest
 
-from hgraph import graph, TSL, SIZE, TS, Size
-from hgraph.nodes import debug_print, const, log, print_
+from hgraph import graph, TSL, TS, Size
+from hgraph.nodes import debug_print, log, print_
 from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 

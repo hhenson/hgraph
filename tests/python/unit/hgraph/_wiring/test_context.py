@@ -1,8 +1,7 @@
 import pytest
 
 from hgraph import compute_node, CONTEXT, TS, graph, switch_, REQUIRED, TSD, map_, pass_through, WiringError, \
-    TIME_SERIES_TYPE, format_
-from hgraph.nodes import const
+    TIME_SERIES_TYPE, format_, const
 from hgraph.test import eval_node
 
 

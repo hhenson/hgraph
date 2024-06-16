@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from hgraph import add_, sub_, div_, exception_time_series, TS, graph, mod_, divmod_, pow_, eq_
-from hgraph.nodes import DivideByZero, const
+from hgraph import add_, sub_, div_, exception_time_series, TS, graph, mod_, divmod_, pow_, eq_, const
+from hgraph.nodes import DivideByZero
 from hgraph.nodes._number_operators import div_numbers
 from hgraph.test import eval_node
 

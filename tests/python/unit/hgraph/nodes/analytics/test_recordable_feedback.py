@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
 
 from hgraph import graph, TS, evaluate_graph, GraphConfiguration, MIN_TD, GlobalState, \
-    compound_scalar, TSL, lag
-from hgraph.nodes import const
+    compound_scalar, lag, const
 from hgraph._operators._control import merge
 from hgraph.nodes.analytics import recordable_feedback, register_recorder_api, PolarsRecorderAPI
 from hgraph.nodes.analytics._recorder_api import set_recording_label

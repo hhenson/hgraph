@@ -1,5 +1,5 @@
-from hgraph import graph, run_graph, EvaluationMode
-from hgraph.nodes import const, debug_print
+from hgraph import graph, run_graph, EvaluationMode, const
+from hgraph.nodes import debug_print
 
 
 @graph

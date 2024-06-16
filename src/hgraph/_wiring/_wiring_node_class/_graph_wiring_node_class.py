@@ -359,7 +359,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                             try:
                                 # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
                                 output_type.build_resolution_dict_from_scalar({}, HgTypeMetaData.parse_value(out), out)
-                                from hgraph.nodes import const
+                                from hgraph import const
 
                                 out = const(out, tp=output_type.py_type)
                             except Exception as e:

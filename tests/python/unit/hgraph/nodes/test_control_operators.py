@@ -1,8 +1,8 @@
 import pytest
 
-from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF
+from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const
 from hgraph._operators._control import race
-from hgraph.nodes import const, if_then_else, if_true, BoolResult, if_, route_by_index
+from hgraph.nodes import if_then_else, if_true, BoolResult, if_, route_by_index
 from hgraph.test import eval_node
 
 

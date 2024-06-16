@@ -1,15 +1,14 @@
-from hgraph import TS, MIN_TD
+from hgraph import MIN_TD, const, OperatorWiringNodeClass
 from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
-from hgraph.nodes import const, default
+from hgraph.nodes import default
 from hgraph.test import eval_node
 
 
 def test_const_wiring():
 
-    assert type(const) is PythonGeneratorWiringNodeClass
+    assert type(const) is OperatorWiringNodeClass
     const_: PythonGeneratorWiringNodeClass = const
-    assert const_.signature.args == ("value", "tp", "delay", "_api")
-    assert const_.signature.input_types['_api'].is_injectable
+    assert const_.signature.args == ("value", "tp", "delay",)
 
 
 def test_const():

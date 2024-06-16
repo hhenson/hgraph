@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from hgraph import graph, run_graph, compute_node, TS, TIME_SERIES_TYPE, evaluate_graph, GraphConfiguration
+from hgraph import graph, run_graph, compute_node, TS, TIME_SERIES_TYPE, evaluate_graph, GraphConfiguration, const
 from hgraph._runtime._evaluation_engine import EvaluationMode
-from hgraph.nodes import const, print_
+from hgraph.nodes import print_
 from hgraph.nodes._print import debug_print
 
 

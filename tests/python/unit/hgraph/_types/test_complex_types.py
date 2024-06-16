@@ -31,7 +31,7 @@ def test_matches_un_named_type():
 def test_simple_bundle():
     assert is_bundle(TSB[SimpleSchema])
     assert is_bundle(TSB[LessSimpleBundle])
-    from hgraph.nodes import const
+    from hgraph import const
     with WiringNodeInstanceContext(), WiringGraphContext(None):
         p1 = const(1)
         b1 = TSB[SimpleSchema].from_ts(p1=p1)

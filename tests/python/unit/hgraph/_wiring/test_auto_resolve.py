@@ -1,7 +1,7 @@
 from typing import Callable
 
 from hgraph import graph, TSL, TS, SIZE, Size, AUTO_RESOLVE, SCALAR, SCALAR_1, compute_node
-from hgraph.nodes import const
+from hgraph import const
 from hgraph.test import eval_node
 
 

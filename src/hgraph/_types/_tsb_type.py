@@ -383,7 +383,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             elif isinstance(v, TimeSeriesInput):
                 pass
             elif meta_data_schema[k].scalar_type().matches(HgTypeMetaData.parse_value(v)):
-                from hgraph.nodes import const
+                from hgraph import const
 
                 kwargs[k] = const(v, tp=meta_data_schema[k].py_type)
             elif v is None:

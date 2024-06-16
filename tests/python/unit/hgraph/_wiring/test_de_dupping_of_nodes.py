@@ -1,5 +1,5 @@
 from hgraph import graph, GraphBuilder, wire_graph
-from hgraph.nodes import const, debug_print
+from hgraph import const, debug_print
 
 
 def test_node_de_duping():
