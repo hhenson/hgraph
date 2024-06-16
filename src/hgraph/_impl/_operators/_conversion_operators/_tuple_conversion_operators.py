@@ -28,7 +28,7 @@ from hgraph import (
 
 __all__ = ()
 
-from hgraph.nodes._conversion_operators._conversion_operator_util import _BufferState
+from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState
 
 
 @compute_node(

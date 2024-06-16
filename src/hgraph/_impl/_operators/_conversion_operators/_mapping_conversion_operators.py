@@ -25,7 +25,7 @@ from hgraph import (
     TSL,
     TSD,
 )
-from hgraph.nodes._conversion_operators._conversion_operator_util import _BufferState, KeyValue
+from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState, KeyValue
 
 __all__ = ()
 

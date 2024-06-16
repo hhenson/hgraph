@@ -19,7 +19,7 @@ from hgraph import (
     MIN_TD,
 )
 from hgraph._types._scalar_types import TUPLE, STATE
-from hgraph.nodes._conversion_operators._conversion_operator_util import _BufferState
+from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState
 
 
 @graph(overloads=combine, requires=lambda m, s: OUT not in m or m[OUT].py_type == TSL)

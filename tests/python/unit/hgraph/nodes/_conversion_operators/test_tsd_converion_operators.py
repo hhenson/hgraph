@@ -1,7 +1,6 @@
 from typing import Mapping, Set, Tuple
 
-from hgraph import TS, combine, TSD, graph, convert, REMOVE, Size, TSL, collect, TSS, Removed, TSB, emit
-from hgraph.nodes import KeyValue
+from hgraph import TS, combine, TSD, graph, convert, REMOVE, Size, TSL, collect, TSS, Removed, TSB, emit, KeyValue
 from hgraph.test import eval_node
 
 

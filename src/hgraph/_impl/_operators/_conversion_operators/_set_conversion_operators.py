@@ -15,11 +15,9 @@ from hgraph import (
     OUT,
     SIGNAL,
     TS_OUT,
-    PythonSetDelta,
     convert,
-    SCALAR_1,
 )
-from hgraph.nodes._conversion_operators._conversion_operator_util import _BufferState
+from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState
 
 __all__ = ()
 
