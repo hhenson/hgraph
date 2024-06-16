@@ -25,6 +25,18 @@ def eval_node(node, *args, resolution_dict: [str, Any] = None,
 
     For nodes that require resolution, it is possible to supply a resolution dictionary to assist
     in resolving correct types when setting up the replay nodes.
+
+    :param node: The node to evaluate
+    :param args: Arguments to pass to the node
+    :param kwargs: Keyword arguments to pass to the node
+    :param resolution_dict: Dictionary of resolution keys and values to pass to the node (this should be at the input parameter level)
+    :param __trace__: If True, the trace will be printed to the console.
+    :param __trace_wiring__: If True, the wiring trace will be printed to the console.
+    :param __observers__: If not None, the observers will be added to the evaluation results.
+    :param __elide__: If True, only the ticked values will be returned if the value is False every potential
+                      engine cycle will have a result (None if it did not tick).
+    :param __start_time__: If not None, the time at which to start evaluation.
+    :param __end_time__: If not None, the time at which to end evaluation.
     """
     if not hasattr(node, "signature"):
         if callable(node):

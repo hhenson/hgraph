@@ -3,7 +3,7 @@ from typing import Type
 from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
 from hgraph._types._scalar_types import Size, SIZE
 from hgraph._types._tsl_type import TSL
-from hgraph._wiring._decorators import operator
+from hgraph._wiring._decorators import operator, graph
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_port import WiringPort
 
@@ -599,7 +599,7 @@ def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_S
 
 
 @operator
-def sum_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE_2:
+def sum_(*ts: TSL[TS[SCALAR], SIZE]) -> TIME_SERIES_TYPE_2:
     """
     This represents the `sum` operator for time series types, either as a binary or unary operator
 
@@ -610,7 +610,7 @@ def sum_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_S
 
 
 @operator
-def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2    :
+def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
     """
     This represents the `mean` operator for time series types
 
@@ -725,5 +725,13 @@ def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
 
 
 # For backwards compatibility.  Prefer sum_ to accumulate and mean to average
-accumulate = sum_
-average = mean
+@graph(deprecated="Prefer sum_")
+def accumulate(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE_2:
+    if default_value is not None:
+        raise NotImplementedError(f"Accumulate is not implemented for {type(default_value)}")
+    return sum_(*ts)
+
+
+@graph(deprecated="Prefer mean")
+def average(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+    return mean(*ts)

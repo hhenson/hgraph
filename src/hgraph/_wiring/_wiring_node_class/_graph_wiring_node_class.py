@@ -276,6 +276,13 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
                  **kwargs) -> "WiringPort":
 
+        if self.signature.deprecated:
+            import warnings
+            warnings.warn(
+                f"{self.signature.signature} is deprecated and will be removed in a future version."
+                f"{(' ' + self.signature.deprecated) if type(self.signature.deprecated) is str else ''}",
+                DeprecationWarning, stacklevel=3)
+
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
         if found_overload:
             return r

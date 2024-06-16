@@ -235,6 +235,7 @@ def graph(fn: GRAPH_SIGNATURE = None,
           overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
           resolvers: Mapping[TypeVar, Callable] = None,
           requires: Callable[[..., ...], bool] = None,
+          deprecated: bool | str = False
           ) -> GRAPH_SIGNATURE:
     """
     The `graph` decorator represents a function that contains wiring logic. Wiring logic is only evaluated once
@@ -273,7 +274,8 @@ def graph(fn: GRAPH_SIGNATURE = None,
     node functions.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
-    return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires)
+    return _node_decorator(WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires,
+                           deprecated=deprecated)
 
 
 def generator(fn: SOURCE_NODE_SIGNATURE = None,
