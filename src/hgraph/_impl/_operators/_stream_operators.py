@@ -2,7 +2,6 @@ import sys
 from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta, datetime
-from typing import Tuple
 
 from hgraph import (
     compute_node,
@@ -265,7 +264,7 @@ def batch(
     buffer_length: int = sys.maxsize,
     _state: STATE = None,
     _sched: SCHEDULER = None,
-) -> TS[Tuple[SCALAR, ...]]:
+) -> TS[tuple[SCALAR, ...]]:
     if ts.modified:
         if len(_state.buffer) < buffer_length:
             _state.buffer.append(ts.delta_value)

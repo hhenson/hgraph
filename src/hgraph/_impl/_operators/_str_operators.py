@@ -28,7 +28,7 @@ from hgraph import (
     STATE,
 )
 
-__all__ = ()
+__all__ = tuple()
 
 
 @compute_node(overloads=add_)

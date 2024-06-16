@@ -30,7 +30,7 @@ from hgraph import (
 
 STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, getitem_, min_, max_, sum_, zero, TUPLE
 
-__all__ = ("getitem_tuple",)
+__all__ = tuple()
 
 
 def _item_type(tuple_tp: Type[TUPLE], index: int) -> Type:
