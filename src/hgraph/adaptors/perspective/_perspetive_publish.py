@@ -20,10 +20,9 @@ from hgraph import (
     HgTSTypeMetaData,
     HgCompoundScalarType,
     HgDataFrameScalarTypeMetaData,
-    push_queue,
+    push_queue, OUT,
 )
 from hgraph.nodes import nothing
-
 from ._perspective import PerspectiveTablesManager
 
 __all__ = ("publish_table",)
@@ -44,7 +43,7 @@ def publish_table(
     if editable:
         return _receive_table_edits(name=name, type=ts.output_type.dereference().py_type, **kwargs)
     else:
-        return nothing[TIME_SERIES_TYPE : ts.output_type]()
+        return nothing[OUT : ts.output_type]()
 
 
 @sink_node

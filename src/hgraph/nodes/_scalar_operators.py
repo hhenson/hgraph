@@ -350,7 +350,7 @@ def sum_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], zero_value: TS[SCALAR] 
     """
     Binary sum (i.e. addition) with default
     """
-    from hgraph.nodes import default
+    from hgraph import default
 
     return default(lhs + rhs, zero_value)
 
@@ -394,7 +394,7 @@ def mean_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[float]:
     """
     Binary mean
     """
-    from hgraph.nodes import default
+    from hgraph import default
 
     return default((lhs + rhs) / 2.0, float("NaN"))
 

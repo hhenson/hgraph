@@ -1,6 +1,5 @@
-from hgraph import MIN_TD, const, OperatorWiringNodeClass
+from hgraph import MIN_TD, const, OperatorWiringNodeClass, default
 from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonGeneratorWiringNodeClass
-from hgraph.nodes import default
 from hgraph.test import eval_node
 
 

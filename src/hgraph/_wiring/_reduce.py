@@ -67,7 +67,7 @@ def reduce(
 
 def _reduce_tsl(func, ts, zero, is_associated):
     """For the moment, we only support fixed size TSLs. So we can lay out the reduction in the graph statically"""
-    from hgraph.nodes import default
+    from hgraph import default
 
     tp_ = ts.output_type
     if (sz := tp_.size_tp.py_type.SIZE) == 0:

@@ -3,7 +3,6 @@ from enum import Enum
 from functools import reduce
 from inspect import isfunction, signature, Parameter
 from operator import or_
-from types import NoneType
 from typing import Callable, GenericAlias, _GenericAlias
 from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 
@@ -25,7 +24,7 @@ from hgraph._types._scalar_type_meta_data import (
 )
 from hgraph._types._scalar_types import DEFAULT, Size
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._time_series_types import OUT
 from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
 from hgraph._types._type_meta_data import ParseError
@@ -507,9 +506,9 @@ class WiringNodeSignature:
                             f"Context of type {tp} with name {v} for argument '{arg}' " f"is required, but not found"
                         )
                     else:
-                        from hgraph.nodes import nothing
+                        from hgraph import nothing
 
-                        kwargs[arg] = nothing[TIME_SERIES_TYPE : tp.ts_type]()
+                        kwargs[arg] = nothing[OUT : tp.ts_type]()
                         kwarg_types[arg] = tp.ts_type
                         valid_inputs = frozenset((valid_inputs or set(self.time_series_inputs.keys())) - {arg})
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs

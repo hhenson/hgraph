@@ -387,7 +387,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
 
                 kwargs[k] = const(v, tp=meta_data_schema[k].py_type)
             elif v is None:
-                from hgraph.nodes import nothing
+                from hgraph import nothing
 
                 kwargs[k] = nothing(tp=meta_data_schema[k].py_type)
             else:
