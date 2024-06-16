@@ -10,5 +10,4 @@ from hgraph._impl import *
 from hgraph.nodes._number_operators import *
 from hgraph.nodes._print import *
 from hgraph.nodes._stream_analytical_operators import *
-from hgraph._impl._operators._time_series_properties import *
 from hgraph.nodes._tsl_operators import index_of
