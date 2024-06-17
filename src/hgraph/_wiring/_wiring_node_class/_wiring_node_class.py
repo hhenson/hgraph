@@ -258,7 +258,8 @@ class BaseWiringNodeClass(WiringNodeClass):
 
         return False, None
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
+    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+                 __return_sink_wp__: bool = False, **kwargs) -> "WiringPort":
 
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
         if found_overload:
@@ -314,6 +315,9 @@ class BaseWiringNodeClass(WiringNodeClass):
                 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
                 WiringGraphContext.instance().add_sink_node(wiring_node_instance)
+
+                if __return_sink_wp__:
+                    return _wiring_port_for(None, wiring_node_instance, tuple())
             else:
                 # Whilst a graph could represent a sink signature, it is not a node, we return the wiring port
                 # as it is used by the GraphWiringNodeClass to validate the resolved signature with that of the returned

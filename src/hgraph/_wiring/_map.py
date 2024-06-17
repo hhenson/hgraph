@@ -278,7 +278,7 @@ def _build_map_wiring(
                     __keys__ = kwargs_[next(iter(multiplex_args))].key_set
                 kwargs_[KEYS_ARG] = __keys__
             input_types = input_types | {KEYS_ARG: __keys__.output_type.dereference()}
-            map_wiring_node, sc, cc  = _create_tsd_map_wiring_node(
+            map_wiring_node, sc, cc = _create_tsd_map_wiring_node(
                 fn,
                 kwargs_,
                 input_types,

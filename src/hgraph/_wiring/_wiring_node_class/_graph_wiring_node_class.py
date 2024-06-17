@@ -251,8 +251,8 @@ class WiringGraphContext:
                     new_clients = self._service_clients[clients_before:]
                     # dependencies.update({typed_path: set(s.typed_full_path(p, t) for s, p, t in new_clients
                     #                                      if s.signature.node_type != WiringNodeType.REQ_REP_SVC)
-                        }
-                    )
+                    #     }
+                    # )
 
             if self._service_clients == service_clients:
                 break

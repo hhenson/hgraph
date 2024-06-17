@@ -48,7 +48,6 @@ class WiringNodeInstanceContext:
         self._node_instances: dict[tuple, WiringNodeInstance] = {}
         self._depth = depth
 
-<<<<<<< HEAD
     def create_wiring_node_instance(
         self,
         node: "WiringNodeClass",
@@ -57,11 +56,6 @@ class WiringNodeInstanceContext:
         rank: int,
         rank_marker: frozendict[str, "WiringNodeInstance"],
     ) -> "WiringNodeInstance":
-=======
-    def create_wiring_node_instance(self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                    inputs: frozendict[str, Any], rank: int,
-                                    rank_marker: frozendict[str, "WiringNodeInstance"]) -> "WiringNodeInstance":
->>>>>>> f8920c9 (Work on ranking using dependencies)
         key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
             from hgraph import WiringGraphContext
@@ -71,10 +65,7 @@ class WiringNodeInstanceContext:
                 resolved_signature=resolved_signature,
                 inputs=inputs, rank=rank, rank_marker=rank_marker,
                 wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name()
-<<<<<<< HEAD
             ,
-=======
->>>>>>> f8920c9 (Work on ranking using dependencies)
             )
         return node_instance
 
@@ -92,14 +83,9 @@ class WiringNodeInstanceContext:
         self.__stack__.pop()
 
 
-<<<<<<< HEAD
 def create_wiring_node_instance(
     node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any], rank: int
 ,
-=======
-def create_wiring_node_instance(node: "WiringNodeClass", resolved_signature: "WiringNodeSignature",
-                                inputs: frozendict[str, Any], rank: int,
->>>>>>> f8920c9 (Work on ranking using dependencies)
                                 rank_marker: frozendict[str, "WiringNodeInstance"]) -> "WiringNodeInstance":
     return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank, rank_marker)
 
@@ -151,15 +137,10 @@ class WiringNodeInstance:
 
     @property
     def is_source_node(self) -> bool:
-<<<<<<< HEAD
         return (
             self.resolved_signature.node_type in (WiringNodeType.PUSH_SOURCE_NODE, WiringNodeType.PULL_SOURCE_NODE)
             or self._treat_as_source_node
         )
-=======
-        return self.resolved_signature.node_type in (
-            WiringNodeType.PUSH_SOURCE_NODE, WiringNodeType.PULL_SOURCE_NODE) or self._treat_as_source_node
->>>>>>> f8920c9 (Work on ranking using dependencies)
 
     def mark_treat_as_source_node(self):
         super().__setattr__("_treat_as_source_node", True)
