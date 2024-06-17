@@ -535,3 +535,8 @@ Version 0.2.42 (15-06-2024)
 * fix schema base generic test 
 * fix getitem for fixed tuples 
 * fix reduce on the TSDWiringPort and add filter to the tracer
+
+Version 0.2.43 (17-06-2024)
+---------------------------
+
+* Clean up operators
