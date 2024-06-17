@@ -2,14 +2,14 @@ import logging
 import sys
 from dataclasses import dataclass
 
-from hgraph._types._tsb_type import TSB, TS_SCHEMA
 from hgraph._operators._graph_operators import default, nothing, null_sink, debug_print, print_, log_
 from hgraph._operators._string import format_
 from hgraph._runtime._evaluation_clock import EvaluationClock
-from hgraph._types._scalar_types import CompoundScalar, STATE, LOGGER
-from hgraph._types._ts_type import TS
 from hgraph._types._ref_type import REF
+from hgraph._types._scalar_types import CompoundScalar, STATE, LOGGER
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE
+from hgraph._types._ts_type import TS
+from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import generator, graph, compute_node, sink_node
 
@@ -65,12 +65,12 @@ class _DebugPrintState(CompoundScalar):
 
 @sink_node(overloads=debug_print)
 def debug_print_impl(
-    label: str,
-    ts: TIME_SERIES_TYPE,
-    print_delta: bool = True,
-    sample: int = -1,
-    _clock: EvaluationClock = None,
-    _state: STATE[_DebugPrintState] = None,
+        label: str,
+        ts: TIME_SERIES_TYPE,
+        print_delta: bool = True,
+        sample: int = -1,
+        _clock: EvaluationClock = None,
+        _state: STATE[_DebugPrintState] = None,
 ):
     """
     Use this to help debug code, this will print the value of the supplied time-series to the standard out.
@@ -96,7 +96,7 @@ def debug_print_impl(
 
 
 @graph(overloads=print_)
-def print_impl(format_str: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = True, **kwargs: TSB[TS_SCHEMA]):
+def print_impl(format_str: TS[str], *args: TSB[TS_SCHEMA], __std_out__: bool = True, **kwargs: TSB[TS_SCHEMA_1]):
     """
     A sink node that will write the formatted string to the std out.
     This should be generally be used for debugging purposes and not be present in production code, instead use the
@@ -106,10 +106,23 @@ def print_impl(format_str: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool =
     :param args: The time-series enumerated inputs
     :param kwargs: The named time-series inputs
     """
-    if len(args) == 0 and len(kwargs) == 0:
+    if kwargs is None:
+        kwargs = dict()
+    else:
+        kwargs = kwargs.as_dict()
+    if args is None and len(kwargs) == 0:
         return _print(format_str)
     else:
-        return _print(format_(format_str, *args, **kwargs), std_out=__std_out__)
+        if args is None:
+            args = tuple()
+        return _print(
+            format_(
+                format_str,
+                *[a.value for a in args],
+                **kwargs,
+                std_out=__std_out__
+            )
+        )
 
 
 @sink_node
@@ -124,7 +137,7 @@ def _print(ts: TS[str], std_out: bool = True):
 
 
 @graph(overloads=log_)
-def log_impl(format_str: TS[str], *args: TIME_SERIES_TYPE, level: int = logging.INFO, **kwargs: TSB[TS_SCHEMA]):
+def log_impl(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.INFO, **kwargs: TSB[TS_SCHEMA_1]):
     """
     A sink node that will log the formatted string to the system logger.
 
@@ -133,10 +146,16 @@ def log_impl(format_str: TS[str], *args: TIME_SERIES_TYPE, level: int = logging.
     :param args: The time-series enumerated inputs
     :param kwargs: The named time-series inputs
     """
-    if len(args) == 0 and len(kwargs) == 0:
+    if kwargs is None:
+        kwargs = dict()
+    else:
+        kwargs = kwargs.as_dict()
+    if args is None and len(kwargs) == 0:
         return _log(format_str, level)
     else:
-        return _log(format_(format_str, *args, **kwargs), level)
+        if args is None:
+            args = tuple()
+        return _log(format_(format_str, *[a.value for a in args], **kwargs), level)
 
 
 @sink_node

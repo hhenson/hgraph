@@ -2,8 +2,7 @@ import logging
 
 import pytest
 
-from hgraph import graph, TSL, TS, Size
-from hgraph.nodes import debug_print, log, print_
+from hgraph import graph, TSL, TS, Size, debug_print, log_, print_
 from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 
@@ -33,8 +32,8 @@ def test_print_(capsys):
 def test_log(capsys):
     @graph
     def main(ts1: TS[str], ts2: TS[int]):
-        log("Error output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.ERROR)
-        log("Info output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.INFO)
+        log_("Error output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.ERROR)
+        log_("Info output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.INFO)
 
     eval_node(main, ["Test"], [1])
     stderr = capsys.readouterr().err

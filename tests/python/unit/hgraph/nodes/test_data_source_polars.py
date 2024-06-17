@@ -1,8 +1,8 @@
 import polars as pl
 
-from hgraph import MIN_ST, MIN_TD, graph, TSB, TS, ts_schema, TSD, TS_SCHEMA, GlobalState
+from hgraph import MIN_ST, MIN_TD, graph, TSB, TS, ts_schema, TSD, TS_SCHEMA, GlobalState, debug_print
 from hgraph.test import eval_node
-from hgraph.nodes import from_polars, debug_print, to_polars, get_polars_df
+from hgraph.nodes import from_polars, to_polars, get_polars_df
 
 
 def test_from_polars_as_data_frame():

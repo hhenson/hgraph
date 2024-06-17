@@ -2,13 +2,13 @@ import logging
 
 from hgraph._types._scalar_types import DEFAULT
 from hgraph._types._ts_type import TS
-from hgraph._types._tsb_type import TSB, TS_SCHEMA
+from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
 
-__all__ = ("default", "nothing", "null_sink", "debug_print", "print_")
+__all__ = ("default", "nothing", "null_sink", "debug_print", "print_", "log_")
 
 
 @operator
@@ -81,7 +81,7 @@ def debug_print(
 
 
 @operator
-def print_(format_str: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = True, **kwargs:TSB[TS_SCHEMA]):
+def print_(format_str: TS[str], *args: TSB[TS_SCHEMA], __std_out__: bool = True, **kwargs:TSB[TS_SCHEMA_1]):
     """
     A sink node that will write the formatted string to the std out.
     This should be generally be used for debugging purposes and not be present in production code, instead use the
@@ -94,7 +94,7 @@ def print_(format_str: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = Tru
 
 
 @operator
-def log_(format_str: TS[str], *args: TIME_SERIES_TYPE, level: int = logging.INFO, **kwargs: TSB[TS_SCHEMA]):
+def log_(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.INFO, **kwargs: TSB[TS_SCHEMA_1]):
     """
     A sink node that will log the formatted string to the system logger.
 

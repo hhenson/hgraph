@@ -5,7 +5,6 @@ from hgraph.nodes._frame_operators import *
 from hgraph.nodes._graph import *
 from hgraph.nodes._numpy import *
 from hgraph.nodes._pass_through import *
-from hgraph.nodes._print import *
 from hgraph.nodes._record import *
 from hgraph.nodes._replay import *
 from hgraph.nodes._service_utils import *

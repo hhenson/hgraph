@@ -3,9 +3,8 @@ from datetime import datetime, timedelta
 import pytest
 
 from hgraph import generator, TS, MIN_TD, graph, EvaluationClock, evaluate_graph, GraphConfiguration, EvaluationMode, \
-    GraphRecorder, DataWriterGraphRecorder
+    GraphRecorder, DataWriterGraphRecorder, debug_print
 from hgraph._impl._runtime._data_writer import InMemoryDataWriter, InMemoryDataReader
-from hgraph.nodes import debug_print
 
 
 @generator

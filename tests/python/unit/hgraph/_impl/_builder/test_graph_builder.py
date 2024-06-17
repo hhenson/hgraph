@@ -1,9 +1,7 @@
-from hgraph import graph, wire_graph, Edge, const
-from hgraph.nodes import print_
+from hgraph import graph, wire_graph, Edge, const, print_
 
 
 def test_build_graph():
-
     @graph
     def hello_world():
         c = const("Hello World")
