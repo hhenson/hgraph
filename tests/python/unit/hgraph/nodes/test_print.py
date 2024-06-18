@@ -19,7 +19,7 @@ def test_debug_print(capsys):
     assert "tsd" in capsys.readouterr().out
 
 
-def test_print_(capsys):
+def test_print_kwargs(capsys):
     @graph
     def main(ts: TS[str]):
         print_("Test output {c}", c=ts)
@@ -28,8 +28,35 @@ def test_print_(capsys):
     assert "Contents" in capsys.readouterr().out
 
 
-@pytest.mark.xfail(reason="This passes in debug mode, but not when run property, it is probably a timing issue")
-def test_log(capsys):
+def test_print_args(capsys):
+    @graph
+    def main(ts: TS[str]):
+        print_("Test output {}", ts)
+
+    eval_node(main, ["Contents"])
+    assert "Contents" in capsys.readouterr().out
+
+
+def test_print_no_args_or_kwargs(capsys):
+    @graph
+    def main():
+        print_("Test output Contents")
+
+    eval_node(main)
+    assert "Contents" in capsys.readouterr().out
+
+
+def test_print_stderr(capsys):
+    @graph
+    def main():
+        print_("Test output Contents", __std_out__=False)
+
+    eval_node(main)
+    assert "Contents" in capsys.readouterr().err
+
+
+@pytest.mark.xfail(reason="This passes when run on its own but not part of a suite. Something not cleaned up")
+def test_log_kwargs(capsys):
     @graph
     def main(ts1: TS[str], ts2: TS[int]):
         log_("Error output {ts1} {ts2}", ts1=ts1, ts2=ts2, level=logging.ERROR)
@@ -39,6 +66,28 @@ def test_log(capsys):
     stderr = capsys.readouterr().err
     assert "[ERROR] Error output Test 1" in stderr
     assert "[INFO] Info output Test 1" in stderr
+
+
+@pytest.mark.xfail(reason="This passes when run on its own but not part of a suite. Something not cleaned up")
+def test_log_args(capsys):
+    @graph
+    def main(ts1: TS[str], ts2: TS[int]):
+        log_("Error output {} {}", ts1, ts2, level=logging.ERROR)
+
+    eval_node(main, ["Test"], [1])
+    stderr = capsys.readouterr().err
+    assert "[ERROR] Error output Test 1" in stderr
+
+
+@pytest.mark.xfail(reason="This passes when run on its own but not part of a suite. Something not cleaned up")
+def test_log_no_args_or_kwargs(capsys):
+    @graph
+    def main():
+        log_("Error output Test 1", level=logging.ERROR)
+
+    eval_node(main)
+    stderr = capsys.readouterr().err
+    assert "[ERROR] Error output Test 1" in stderr
 
 
 def test_debug_print_sample(capsys):

@@ -489,11 +489,3 @@ def var_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
         return 0.0
     else:
         return float(variance(valid_elements))
-
-
-@compute_node(overloads=str_)
-def str_scalar(ts: TS[SCALAR]) -> TS[str]:
-    """
-    Implements python str() for scalars
-    """
-    return str(ts.value)

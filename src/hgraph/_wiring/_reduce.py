@@ -116,8 +116,7 @@ def _reduce_tsd(func, ts, zero):
 
             zero = hgraph._operators._operators.zero(item_tp, func)
         elif zero is None:
-            from hgraph.nodes import nothing
-
+            from hgraph import nothing
             zero = nothing(item_tp)
         else:
             from hgraph import const

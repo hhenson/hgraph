@@ -48,7 +48,7 @@ def eval_node(
     :param __trace__: If True, the trace will be printed to the console.
     :param __trace_wiring__: If True, the wiring trace will be printed to the console.
     :param __observers__: If not None, the observers will be added to the evaluation results.
-    :param __elide__: If True, only the ticked values will be returned if the value is False every potential
+    :param __elide__: If True, only the ticked values will be returned. If the value is False every potential
                       engine cycle will have a result (None if it did not tick).
     :param __start_time__: If not None, the time at which to start evaluation.
     :param __end_time__: If not None, the time at which to end evaluation.

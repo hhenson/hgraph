@@ -106,23 +106,18 @@ def print_impl(format_str: TS[str], *args: TSB[TS_SCHEMA], __std_out__: bool = T
     :param args: The time-series enumerated inputs
     :param kwargs: The named time-series inputs
     """
-    if kwargs is None:
-        kwargs = dict()
-    else:
+    if kwargs is not None:
         kwargs = kwargs.as_dict()
-    if args is None and len(kwargs) == 0:
-        return _print(format_str)
+    if args is None:
+        if kwargs:
+            return _print(format_(format_str, **kwargs), std_out=__std_out__)
+        else:
+            return _print(format_str, std_out=__std_out__)
     else:
-        if args is None:
-            args = tuple()
-        return _print(
-            format_(
-                format_str,
-                *[a.value for a in args],
-                **kwargs,
-                std_out=__std_out__
-            )
-        )
+        if kwargs:
+            return _print(format_(format_str, *args, **kwargs), std_out=__std_out__)
+        else:
+            return _print(format_(format_str, *args), std_out=__std_out__)
 
 
 @sink_node
@@ -133,7 +128,10 @@ def _print(ts: TS[str], std_out: bool = True):
     :param ts: The string to write to the std out.
     :param std_out: If true, print to std out else std err.
     """
-    print(ts.value) if std_out else print(ts.value, file=sys.stderr)
+    if std_out:
+        print(ts.value)
+    else:
+        print(ts.value, file=sys.stderr)
 
 
 @graph(overloads=log_)
@@ -146,16 +144,18 @@ def log_impl(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.IN
     :param args: The time-series enumerated inputs
     :param kwargs: The named time-series inputs
     """
-    if kwargs is None:
-        kwargs = dict()
-    else:
+    if kwargs is not None:
         kwargs = kwargs.as_dict()
-    if args is None and len(kwargs) == 0:
-        return _log(format_str, level)
+    if args is None:
+        if kwargs:
+            return _log(format_(format_str, **kwargs), level)
+        else:
+            return _log(format_str, level)
     else:
-        if args is None:
-            args = tuple()
-        return _log(format_(format_str, *[a.value for a in args], **kwargs), level)
+        if kwargs:
+            return _log(format_(format_str, *args, **kwargs), level)
+        else:
+            return _log(format_(format_str, *args), level)
 
 
 @sink_node
