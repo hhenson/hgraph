@@ -50,10 +50,10 @@ from hgraph import (
     clone_typevar,
     mean,
     std,
-    var,
+    var
 )
 
-__all__ = ("flatten_tsl_values", "tsl_to_tsd", "index_of")
+__all__ = ("flatten_tsl_values", "tsl_to_tsd",)
 
 
 @compute_node
@@ -103,7 +103,7 @@ def getitem_tsl_scalar(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TI
 
 @compute_node(overloads=getitem_)
 def getitem_tsl_ts(
-    ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE
+        ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
@@ -119,13 +119,6 @@ def getitem_tsl_ts(
     else:
         return PythonTimeSeriesReference()
 
-
-@compute_node
-def index_of(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[int]:
-    """
-    Return the index of the leftmost time-series in the TSL with value equal to ts
-    """
-    return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)
 
 
 @graph(overloads=sum_)
@@ -208,7 +201,7 @@ def pow_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE])
     """
     Item-wise lhs ** rhs of the elements.  A missing value on either lhs or rhs causes a gap on the output
     """
-    return TSL.from_ts(*(a**b for a, b in zip(lhs, rhs)))
+    return TSL.from_ts(*(a ** b for a, b in zip(lhs, rhs)))
 
 
 @graph(overloads=lshift_)

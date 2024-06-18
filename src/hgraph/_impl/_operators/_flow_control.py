@@ -2,7 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from hgraph._impl._types._ref import PythonTimeSeriesReference
-from hgraph._operators._flow_control import all_, any_, merge
+from hgraph._operators._flow_control import all_, any_, merge, index_of
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
 from hgraph._operators._operators import bit_and, bit_or
 from hgraph._runtime._constants import MAX_DT
@@ -152,4 +152,12 @@ def if_then_else_impl(
 
     if not condition_value and false_value.modified:
         return false_value.value
+
+
+@compute_node(overloads=index_of)
+def index_of_impl(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[int]:
+    """
+    Return the index of the leftmost time-series in the TSL with value equal to ts
+    """
+    return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)
 
