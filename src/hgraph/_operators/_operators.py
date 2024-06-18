@@ -1,3 +1,4 @@
+from enum import Enum, auto
 from typing import Type
 
 from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
@@ -56,6 +57,7 @@ __all__ = (
     "accumulate",
     "std",
     "var",
+    "DivideByZero"
 )
 
 
@@ -116,8 +118,16 @@ WiringPort.__mul__ = lambda x, y: mul_(x, y)
 WiringPort.__rmul__ = lambda x, y: mul_(y, x)
 
 
+class DivideByZero(Enum):
+    """For numeric division set the divide_by_zero property"""
+    ERROR = auto()
+    NAN = auto()
+    INF = auto()
+    NONE = auto()
+
+
 @operator
-def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_2:
+def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_TYPE_2:
     """
     This represents the `/` operator for time series types.
     To implement the div_ operator, do:
@@ -136,7 +146,7 @@ WiringPort.__rtruediv__ = lambda x, y: div_(y, x)
 
 
 @operator
-def floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_TYPE:
     """
     This represents the `//` operator for time series types.
     To implement the floordiv_ operator, do:

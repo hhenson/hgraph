@@ -1,6 +1,5 @@
-from hgraph import graph, TSD, TS, mean
-from hgraph.nodes import diff, count
-from hgraph.nodes._stream_analytical_operators import ewma
+from hgraph import graph, TSD, TS, mean, diff, count
+from hgraph._impl._operators._stream_analytical_operators import ewma
 from hgraph.test import eval_node
 
 

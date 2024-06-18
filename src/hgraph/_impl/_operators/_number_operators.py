@@ -1,6 +1,3 @@
-from enum import Enum, auto
-from statistics import stdev
-
 from hgraph import (
     add_,
     TS,
@@ -16,12 +13,11 @@ from hgraph import (
     Size,
     pow_,
     eq_,
-    mean,
-    std,
+    DivideByZero,
 )
-from hgraph._types._scalar_types import NUMBER_2, SIZE
+from hgraph._types._scalar_types import NUMBER_2
 
-__all__ = ("DivideByZero",)
+__all__ = tuple()
 
 
 @compute_node(overloads=add_)
@@ -70,13 +66,6 @@ def mul_int_and_float(lhs: TS[int], rhs: TS[float]) -> TS[float]:
     Multiplies a timeseries of float with a timeseries of int
     """
     return lhs.value * rhs.value
-
-
-class DivideByZero(Enum):
-    ERROR = auto()
-    NAN = auto()
-    INF = auto()
-    NONE = auto()
 
 
 @compute_node(overloads=div_)
