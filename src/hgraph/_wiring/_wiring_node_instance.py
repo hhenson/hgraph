@@ -54,7 +54,6 @@ class WiringNodeInstanceContext:
         resolved_signature: "WiringNodeSignature",
         inputs: frozendict[str, Any],
         rank: int,
-        rank_marker: frozendict[str, "WiringNodeInstance"],
     ) -> "WiringNodeInstance":
         key = (rank, InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
@@ -63,7 +62,7 @@ class WiringNodeInstanceContext:
             self._node_instances[key] = node_instance = WiringNodeInstance(
                 node=node,
                 resolved_signature=resolved_signature,
-                inputs=inputs, rank=rank, rank_marker=rank_marker,
+                inputs=inputs, rank=rank,
                 wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name()
             ,
             )
@@ -84,10 +83,9 @@ class WiringNodeInstanceContext:
 
 
 def create_wiring_node_instance(
-    node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any], rank: int
-,
-                                rank_marker: frozendict[str, "WiringNodeInstance"]) -> "WiringNodeInstance":
-    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank, rank_marker)
+        node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any], rank: int,
+) -> "WiringNodeInstance":
+    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
 
 
 @dataclass  # We will write our own equality check, but still want a hash
@@ -102,7 +100,8 @@ class WiringNodeInstance:
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
     _treat_as_source_node: bool = False
-    non_input_dependencies: typing.Mapping[str, "WiringPort"] = field(default_factory=dict)
+    non_input_dependencies: list["WiringPort"] = field(default_factory=list)
+    ranking_alternatives: list["WiringPort"] = field(default_factory=list)
 
     def __lt__(self, other: "WiringNodeInstance") -> bool:
         # The last part gives potential for inconsistent ordering, a better solution would be to
@@ -140,7 +139,13 @@ class WiringNodeInstance:
         )
 
     def mark_treat_as_source_node(self):
-        super().__setattr__("_treat_as_source_node", True)
+        self._treat_as_source_node = True
+
+    def add_ranking_alternative(self, wp: "WiringPort"):
+        self.ranking_alternatives.append(wp)
+
+    def add_indirect_dependency(self, wp: "WiringPort"):
+        self.non_input_dependencies.append(wp)
 
     @property
     def output_type(self) -> "HgTimeSeriesTypeMetaData":

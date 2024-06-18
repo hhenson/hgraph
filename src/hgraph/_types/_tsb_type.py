@@ -464,7 +464,6 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             resolved_signature=wiring_node_signature,
             inputs=frozendict(kwargs),
             rank=max((v.rank for k, v in kwargs.items() if isinstance(v, WiringPort)), default=1),
-            rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()),
         )
         return TSBWiringPort(wiring_node_instance, tuple())
 

@@ -158,7 +158,7 @@ def write_service_replies(path: str, response: TIME_SERIES_TYPE):
 
 @graph
 def _request_service(path: str, request: TIME_SERIES_TYPE):
-    null_sink(write_service_request(path, request))
+    return null_sink(write_service_request(path, request), __return_sink_wp__=True)
 
 
 @graph

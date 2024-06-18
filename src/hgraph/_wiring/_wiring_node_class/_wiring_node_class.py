@@ -272,7 +272,6 @@ class BaseWiringNodeClass(WiringNodeClass):
                 self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
             )
 
-            rank_marker = frozendict()
             # TODO: This mechanism to work out rank may fail when using a delayed binding?
             match resolved_signature.node_type:
                 case WiringNodeType.PUSH_SOURCE_NODE:
@@ -291,8 +290,6 @@ class BaseWiringNodeClass(WiringNodeClass):
                         1024,
                         TimeSeriesContextTracker.instance().max_context_rank(WiringNodeInstanceContext.instance()) + 1,
                     )
-                    rank_marker = TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
-                    rank_marker = TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance())
                 case _:
                     raise CustomMessageWiringError(
                         f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class"
@@ -306,8 +303,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     DeprecationWarning,
                     stacklevel=3,
                 )
-            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank,
-                                                               rank_marker=rank_marker)
+            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank)
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
             # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 

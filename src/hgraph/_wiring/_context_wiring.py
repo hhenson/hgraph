@@ -110,11 +110,6 @@ class TimeSeriesContextTracker(AbstractContextManager):
         # is always 1 higher than the rank of the context manager node
         return max(0, 0, *(c[0].rank + 1 for c in self.contexts if c[1] is scope))
 
-    def rank_marker(self, scope) -> frozendict[str, "WiringNodeInstance"]:
-        # Provide a stub wiring node that will allow us to ensure the marker ranks the dependants correctly
-        inputs = frozendict({c.path: c.context.node_instance for c in self.contexts if c.scope is scope})
-        return inputs
-
 
 @sink_node(active=tuple(), valid=tuple())
 def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None):

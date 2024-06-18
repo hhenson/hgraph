@@ -39,7 +39,6 @@ def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALA
         resolved_signature=signature,
         inputs=frozendict(inputs),
         rank=1,
-        rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()),
     )
 
 

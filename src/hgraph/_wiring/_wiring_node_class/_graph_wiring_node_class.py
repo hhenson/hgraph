@@ -262,7 +262,7 @@ class WiringGraphContext:
         for service, path, type_map, node in self._service_clients:
             node: "WiringNodeInstance"
             if node.is_source_node:
-                node.add_alternative_dependency(self._built_services[service_full_paths[(service, path, type_map)]])
+                node.add_ranking_alternative(self._built_services[service_full_paths[(service, path, type_map)]])
             else:
                 node.add_indirect_dependency(self._built_services[service_full_paths[(service, path, type_map)]])
 

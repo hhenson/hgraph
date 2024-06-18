@@ -43,7 +43,7 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
     from hgraph._wiring._context_wiring import TimeSeriesContextTracker
     node_instance = create_wiring_node_instance(
         node, signature, frozendict(), 1,
-        rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()))
+    )
     node_instance.mark_treat_as_source_node()
     return _wiring_port_for(ref_tp, node_instance, ())
 
@@ -74,10 +74,9 @@ def create_output_stub(output: WiringPort):
         label="graph:out",
     )
     node = PythonWiringNodeClass(signature, _stub)
-    from hgraph._wiring._context_wiring import TimeSeriesContextTracker
     node_instance = create_wiring_node_instance(
         node, signature, frozendict({"ts": output}), output.rank + 1,
-        TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()))
+    )
     WiringGraphContext.instance().add_sink_node(node_instance)  # We cheat a bit since this is not actually a sink_node.
 
 

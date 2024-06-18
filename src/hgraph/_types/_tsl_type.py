@@ -157,7 +157,6 @@ class TimeSeriesListInput(
             resolved_signature=wiring_node_signature,
             inputs=frozendict({k: v for k, v in zip(args_, args)}),
             rank=max(v.rank for v in args),
-            rank_marker=TimeSeriesContextTracker.instance().rank_marker(WiringNodeInstanceContext.instance()),
         )
         return TSLWiringPort(wiring_node_instance, tuple())
 
