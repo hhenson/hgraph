@@ -282,14 +282,12 @@ class TSBREFWiringPort(WiringPort):
         return convert[TS[CompoundScalar]](self)
 
     def __getattr__(self, item):
-        from hgraph.nodes._tsb_operators import tsb_get_item
-
-        return tsb_get_item(self, item)
+        from hgraph._operators import getitem_
+        return getitem_(self, item)
 
     def __getitem__(self, item):
-        from hgraph.nodes._tsb_operators import tsb_get_item
-
-        return tsb_get_item(self, item)
+        from hgraph._operators import getitem_
+        return getitem_(self, item)
 
     def as_dict(self):
         return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}
