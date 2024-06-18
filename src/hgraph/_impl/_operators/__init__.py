@@ -2,6 +2,8 @@ from hgraph._impl._operators._bool_operators import *
 from hgraph._impl._operators._date_time_operators import *
 from hgraph._impl._operators._enum_operators import *
 from hgraph._impl._operators._flow_control import *
+from hgraph._impl._operators._frame_operators import *
+from hgraph._impl._operators._frozendict_operators import *
 from hgraph._impl._operators._getattr import *
 from hgraph._impl._operators._conversion_operators import *
 from hgraph._impl._operators._graph_operators import *
