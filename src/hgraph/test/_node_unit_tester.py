@@ -18,7 +18,6 @@ from hgraph import (
     EvaluationLifeCycleObserver,
 )
 from hgraph.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
-from hgraph.test._node_printer import EvaluationTrace
 
 
 def eval_node(

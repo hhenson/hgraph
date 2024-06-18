@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple, Type
+from typing import Tuple
 
 from hgraph import (
     compute_node,
@@ -160,4 +160,4 @@ def format_(
         if _state.count % __sample__ != 0:
             return None
 
-    return fmt.value.format(*[a.value for a in __pos_args__], **{k: v.value for k, v in __kw_args__.items()})
+    return fmt.value.format(*(a.value for a in __pos_args__), **{k: v.value for k, v in __kw_args__.items()})
