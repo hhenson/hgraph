@@ -14,6 +14,8 @@ from hgraph._impl._operators._str_operators import *
 from hgraph._impl._operators._time_series_conversion import *
 from hgraph._impl._operators._time_series_properties import *
 from hgraph._impl._operators._tsb_operators import *
+from hgraph._impl._operators._tsd_operators import *
+from hgraph._impl._operators._tsl_operators import *
 from hgraph._impl._operators._tss_operators import *
 from hgraph._impl._operators._tuple_operators import *
 from hgraph._impl._operators._type import *
