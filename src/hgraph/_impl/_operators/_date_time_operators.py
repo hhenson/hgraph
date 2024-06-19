@@ -162,3 +162,4 @@ def var_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
 @graph(overloads=var)
 def var_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
     raise WiringError("Cannot calculate the variance of dates")
+
