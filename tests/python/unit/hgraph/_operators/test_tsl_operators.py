@@ -1,8 +1,8 @@
 import pytest
 
 from hgraph import Size, TS, TSL, MIN_TD, SIZE, TIME_SERIES_TYPE, add_, graph, eq_, ne_, neg_, pos_, abs_, \
-    invert_, len_, min_, max_, sum_, str_, lag, mean, std
-from hgraph.nodes import tsl_to_tsd, index_of
+    invert_, len_, min_, max_, sum_, str_, lag, mean, std, index_of
+from hgraph.nodes import tsl_to_tsd
 from hgraph.test import eval_node
 
 

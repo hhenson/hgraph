@@ -30,40 +30,9 @@ from hgraph import (
 )
 
 __all__ = (
-    "get_frame_col",
-    "get_frame_item_",
-    "get_frame_item_ts_",
     "frame_from_tsd_items",
     "frame_from_columns",
-    "min_of_series",
 )
-
-
-@compute_node(
-    overloads=getitem_,
-    resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars["key"]].py_type]},
-)
-def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
-    return ts.value[key]
-
-
-@compute_node(
-    overloads=getattr_,
-    resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars["key"]].py_type]},
-)
-def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
-    if not ts.value.is_empty():
-        return ts.value[key]
-
-
-@compute_node(overloads=getitem_)
-def get_frame_item_(ts: TS[Frame[SCHEMA]], key: int, _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
-    return _tp(**ts.value[key].to_dicts()[0])
-
-
-@compute_node(overloads=getitem_)
-def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
-    return _tp(**ts.value[key].to_dicts()[0])
 
 
 @compute_node
@@ -101,13 +70,3 @@ def frame_from_columns(cls: Type[COMPOUND_SCALAR], **kwargs) -> TS[SCALAR]:
             return cls(**{k: v if not isinstance(v, TimeSeries) else v.value for k, v in kwargs.items()})
 
         return from_ts_node(**kwargs)
-
-
-@compute_node(overloads=min_)
-def min_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
-    return series.value.min()
-
-
-@compute_node(overloads=max_)
-def max_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
-    return series.value.max()

@@ -540,3 +540,8 @@ Version 0.2.43 (17-06-2024)
 ---------------------------
 
 * Clean up operators
+
+Version 0.2.44 (18-06-2024)
+---------------------------
+
+* Move remaining operators to _operators, clean up tests, etc.

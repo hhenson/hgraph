@@ -1,49 +1,18 @@
 from typing import Type
 
-from hgraph import (
-    compute_node,
-    REF,
-    TSB,
-    TS_SCHEMA,
-    TIME_SERIES_TYPE,
-    PythonTimeSeriesReference,
-    AUTO_RESOLVE,
-    SCALAR,
-    operator,
-    add_,
-    graph,
-    sub_,
-    mul_,
-    div_,
-    floordiv_,
-    pow_,
-    lshift_,
-    rshift_,
-    bit_and,
-    bit_xor,
-    bit_or,
-    eq_,
-    TS,
-    not_,
-    ne_,
-    neg_,
-    pos_,
-    invert_,
-    abs_,
-    TSL,
-    str_,
-    SIZE,
-    all_,
-    min_,
-    max_,
-    sum_,
-    mean,
-    std,
-    var,
-)
-from hgraph._types._ref_type import TimeSeriesReference
+from hgraph._impl._types._ref import PythonTimeSeriesReference
+from hgraph._operators import sub_, getitem_, min_, max_, sum_, mean, var, str_, std, add_, mul_, div_, floordiv_, pow_, \
+    lshift_, rshift_, bit_and, bit_or, bit_xor, ne_, not_, neg_, pos_, invert_, eq_, all_, abs_
+from hgraph._types._ref_type import TimeSeriesReference, REF
+from hgraph._types._scalar_types import SCALAR
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._ts_type import TS
+from hgraph._types._tsb_type import TSB, TS_SCHEMA
+from hgraph._types._tsl_type import TSL, SIZE
+from hgraph._types._type_meta_data import AUTO_RESOLVE
+from hgraph._wiring._decorators import compute_node, graph
 
-__all__ = ("tsb_get_item", "tsb_get_item_by_name", "tsb_get_item_by_index")
+__all__ = tuple()
 
 
 @graph(overloads=add_)
@@ -285,18 +254,11 @@ def abs_tsb(tsb: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return _itemwise_unary_op(abs_, tsb)
 
 
-@operator
-def tsb_get_item(tsb: TSB[TS_SCHEMA], key: SCALAR) -> TIME_SERIES_TYPE:
-    """
-    return the item from the tsb that matches the key provided.
-    """
-
-
 @compute_node(
-    overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
+    overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
 )
 def tsb_get_item_by_name(
-    tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+        tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSB referenced, by its name
@@ -312,10 +274,10 @@ def tsb_get_item_by_name(
 
 
 @compute_node(
-    overloads=tsb_get_item, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
+    overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
 )
 def tsb_get_item_by_index(
-    tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+        tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSB referenced, by its name

@@ -380,8 +380,7 @@ def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[flo
     Unary mean for scalar collections return the mean of the current collection value.
     These are overloaded separately
     """
-    from hgraph import cast_
-    from hgraph.nodes import count
+    from hgraph import cast_, count
 
     if tp is float:
         return sum_(ts) / count(ts)
@@ -430,7 +429,7 @@ def std_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[floa
     Unary std for scalar collections return the std of the current collection value.
     These are overloaded separately
     """
-    from hgraph.nodes import count
+    from hgraph import count
 
     # TODO - this is a naive implementation.  See Welford's algorithm
     count_x = count(ts)

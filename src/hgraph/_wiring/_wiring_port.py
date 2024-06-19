@@ -156,9 +156,9 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         return WiringPort(self.node_instance, self.path + (KEY_SET_ID,))
 
     def __getitem__(self, key):
-        from hgraph.nodes import tsd_get_item
+        from hgraph import getitem_
 
-        return tsd_get_item(self, key)
+        return getitem_(self, key)
 
     def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
@@ -176,9 +176,8 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         return keys_(self)
 
     def __getitem__(self, key):
-        from hgraph.nodes import tsd_get_item
-
-        return tsd_get_item(self, key)
+        from hgraph import getitem_
+        return getitem_(self, key)
 
     def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
@@ -282,14 +281,12 @@ class TSBREFWiringPort(WiringPort):
         return convert[TS[CompoundScalar]](self)
 
     def __getattr__(self, item):
-        from hgraph.nodes._tsb_operators import tsb_get_item
-
-        return tsb_get_item(self, item)
+        from hgraph._operators import getitem_
+        return getitem_(self, item)
 
     def __getitem__(self, item):
-        from hgraph.nodes._tsb_operators import tsb_get_item
-
-        return tsb_get_item(self, item)
+        from hgraph._operators import getitem_
+        return getitem_(self, item)
 
     def as_dict(self):
         return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}

@@ -1,7 +1,6 @@
 import pytest
 
-from hgraph import TS, average, accumulate, graph
-from hgraph.nodes import center_of_mass_to_alpha, span_to_alpha, diff, count, clip
+from hgraph import TS, average, accumulate, graph, diff, count, clip,  center_of_mass_to_alpha, span_to_alpha
 from hgraph.test import eval_node
 
 
