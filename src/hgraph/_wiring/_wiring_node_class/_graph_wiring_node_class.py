@@ -88,6 +88,7 @@ class WiringGraphContext:
         self._sink_nodes: ["WiringNodeInstance"] = []
         self._other_nodes: [Tuple["WiringPort", dict]] = []
         self._service_clients: [Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
+        self._service_stubs: [Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
         self._context_clients: [Tuple[str, int, "WiringNOdeInstance"]] = []
         self._service_implementations: Dict[str, Tuple["WiringNodeClass", "ServiceImplNodeClass", dict]] = {}
         self._built_services = {}
@@ -135,14 +136,23 @@ class WiringGraphContext:
         for port, locals in self._other_nodes:
             varname = next((k for k, v in locals.items() if v is port), None)
             if varname and port.path == ():
-                port.node_instance.label=varname
+                port.node_instance.label = varname
 
-    def register_service_client(self, service: "ServiceInterfaceNodeClass", path: str, type_map: dict = None,
-                                node: "WiringNodeInstance" = None):
+    def register_service_client(
+        self, service: "ServiceInterfaceNodeClass", path: str, type_map: dict = None, node: "WiringNodeInstance" = None
+    ):
         """
         Register a service client with the graph context
         """
         self._service_clients.append((service, path, (frozendict(type_map) if type_map else frozendict()), node))
+
+    def register_service_stub(
+        self, service: "ServiceInterfaceNodeClass", full_typed_path: str, node: "WiringNodeInstance" = None
+    ):
+        """
+        Register a service stub with the graph context
+        """
+        self._service_stubs.append((service, full_typed_path, node))
 
     def register_service_impl(
         self,
@@ -212,7 +222,7 @@ class WiringGraphContext:
         """
         Build the service implementations for the graph
         """
-        #TODO: Since we are looking to delay ranking until wiring, we can do think in tandem with the fully ranking
+        # TODO: Since we are looking to delay ranking until wiring, we can do think in tandem with the fully ranking
         service_clients = [(service, path, type_map) for service, path, type_map, _ in self._service_clients]
         service_full_paths = {}
         dependencies = {}
@@ -254,10 +264,10 @@ class WiringGraphContext:
                     #     }
                     # )
 
-            if self._service_clients == service_clients:
+            if len(self._service_clients) == len(service_clients):
                 break
             else:
-                service_clients = copy(self._service_clients)
+                service_clients = [(service, path, type_map) for service, path, type_map, _ in self._service_clients]
 
         for service, path, type_map, node in self._service_clients:
             node: "WiringNodeInstance"
@@ -265,6 +275,10 @@ class WiringGraphContext:
                 node.add_ranking_alternative(self._built_services[service_full_paths[(service, path, type_map)]])
             else:
                 node.add_indirect_dependency(self._built_services[service_full_paths[(service, path, type_map)]])
+
+        for service, full_path, node in self._service_stubs:
+            node: "WiringNodeInstance"
+            self._built_services[full_path].add_indirect_dependency(node)
 
         # ordered = list(TopologicalSorter(dependencies).static_order())
         # for i, path in enumerate(ordered):
@@ -278,7 +292,11 @@ class WiringGraphContext:
 
     def remove_context_clients(self, path, depth):
         clients = [node for c_path, c_depth, node in self._context_clients if c_path == path and c_depth == depth]
-        self._context_clients = [(c_path, c_depth, node) for c_path, c_depth, node in self._context_clients if not(c_path == path and c_depth == depth)]
+        self._context_clients = [
+            (c_path, c_depth, node)
+            for c_path, c_depth, node in self._context_clients
+            if not (c_path == path and c_depth == depth)
+        ]
         return clients
 
     def pop_context_clients(self):
@@ -313,6 +331,7 @@ class WiringGraphContext:
             # The alternative would be to track them only on the root node.
             WiringGraphContext.__stack__[-1]._sink_nodes.extend(self._sink_nodes)
             WiringGraphContext.__stack__[-1]._service_clients.extend(self._service_clients)
+            WiringGraphContext.__stack__[-1]._service_stubs.extend(self._service_stubs)
             WiringGraphContext.__stack__[-1]._context_clients.extend(self._context_clients)
             WiringGraphContext.__stack__[-1]._service_implementations.update(self._service_implementations)
             WiringGraphContext.__stack__[-1]._built_services.update(self._built_services)
@@ -350,6 +369,8 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
         if found_overload:
             return r
+
+        kwargs.pop("__return_sink_wp__", None)  # not applicable to graphs
 
         # We don't want graph and node signatures to operate under different rules as this would make
         # moving between node and graph implementations problematic, so resolution rules of the signature

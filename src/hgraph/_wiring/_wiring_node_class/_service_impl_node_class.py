@@ -111,9 +111,12 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
 
             # We pass in rank of -1 because service implementations are ranked at the end of the graph build
             from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+
             wiring_node_instance = create_wiring_node_instance(
-                self, resolved_signature,
-                frozendict(kwargs_), rank=-1,
+                self,
+                resolved_signature,
+                frozendict(kwargs_),
+                rank=-1,
             )
 
             for p in paths:
@@ -297,8 +300,9 @@ def wire_request_reply_service_stubs(
         tp = wiring_signature.input_types[arg]
         request_node = last_value_source_node(f"{typed_full_path}/request_{arg}", tp.resolve(resolution_dict))
         request = _wiring_port_for(tp, request_node, tuple())
-        capture_output_node_to_global_state(f"{typed_full_path}/request_{arg}", request)
-        capture_output_to_global_state(f"{typed_full_path}/request_{arg}_out", request)
+        capture_output_node_to_global_state(f"{typed_full_path}/request_{arg}", request, __return_sink_wp__=True)
+        capture_output_to_global_state(f"{typed_full_path}/request_{arg}_out", request, __return_sink_wp__=True)
+        WiringGraphContext.instance().register_service_stub(interface, typed_full_path, request_node)
 
     if wiring_signature.output_type is not None:
         replies_node = last_value_source_node(
@@ -307,6 +311,7 @@ def wire_request_reply_service_stubs(
         replies = _wiring_port_for(wiring_signature.output_type, replies_node, tuple())
         capture_output_node_to_global_state(f"{typed_full_path}/replies_fb", replies)
         capture_output_to_global_state(f"{typed_full_path}/replies", replies)
+        WiringGraphContext.instance().register_service_stub(interface, typed_full_path, replies_node)
 
 
 def wire_request_reply_service(

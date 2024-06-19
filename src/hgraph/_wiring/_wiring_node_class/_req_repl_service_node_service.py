@@ -28,8 +28,7 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
         return f"reqrepl_svc://{user_path}/{self.fn.__name__}"
 
     def __call__(
-        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
-                 **kwargs
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
     ) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
@@ -48,7 +47,7 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
 
                 ts_kwargs = {k: v for k, v in kwargs_.items() if k in resolved_signature.time_series_args}
                 if resolved_signature.output_type is not None:
-                    port = _request_reply_service[TIME_SERIES_TYPE_1: resolved_signature.output_type](
+                    port = _request_reply_service[TIME_SERIES_TYPE_1 : resolved_signature.output_type](
                         path=typed_full_path,
                         request=TSB[ts_schema(**resolved_signature.time_series_inputs)].from_ts(**ts_kwargs),
                     )
@@ -92,14 +91,12 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
             input_types=frozendict(
                 {
                     k: HgTypeMetaData.parse_type(TSD[int, v.resolve(resolution_dict)])
-                    for k, v in
-                 self.signature.time_series_inputs.items()
+                    for k, v in self.signature.time_series_inputs.items()
                 }
                 | self.signature.scalar_inputs
             ),
             output_type=(
-                HgTypeMetaData.parse_type(TSD[int, self.signature.output_type.resolve(
-                    resolution_dict).py_type])
+                HgTypeMetaData.parse_type(TSD[int, self.signature.output_type.resolve(resolution_dict).py_type])
                 if self.signature.output_type
                 else None
             ),

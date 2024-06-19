@@ -62,9 +62,9 @@ class WiringNodeInstanceContext:
             self._node_instances[key] = node_instance = WiringNodeInstance(
                 node=node,
                 resolved_signature=resolved_signature,
-                inputs=inputs, rank=rank,
-                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name()
-            ,
+                inputs=inputs,
+                rank=rank,
+                wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name(),
             )
         return node_instance
 
@@ -83,7 +83,10 @@ class WiringNodeInstanceContext:
 
 
 def create_wiring_node_instance(
-        node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any], rank: int,
+    node: "WiringNodeClass",
+    resolved_signature: "WiringNodeSignature",
+    inputs: frozendict[str, Any],
+    rank: int,
 ) -> "WiringNodeInstance":
     return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
 
@@ -100,8 +103,8 @@ class WiringNodeInstance:
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
     _treat_as_source_node: bool = False
-    non_input_dependencies: list["WiringPort"] = field(default_factory=list)
-    ranking_alternatives: list["WiringPort"] = field(default_factory=list)
+    non_input_dependencies: list["WiringNodeInstance"] = field(default_factory=list)
+    ranking_alternatives: list["WiringNodeInstance"] = field(default_factory=list)
 
     def __lt__(self, other: "WiringNodeInstance") -> bool:
         # The last part gives potential for inconsistent ordering, a better solution would be to
@@ -141,10 +144,10 @@ class WiringNodeInstance:
     def mark_treat_as_source_node(self):
         self._treat_as_source_node = True
 
-    def add_ranking_alternative(self, wp: "WiringPort"):
+    def add_ranking_alternative(self, wp: "WiringNodeInstance"):
         self.ranking_alternatives.append(wp)
 
-    def add_indirect_dependency(self, wp: "WiringPort"):
+    def add_indirect_dependency(self, wp: "WiringNodeInstance"):
         self.non_input_dependencies.append(wp)
 
     @property

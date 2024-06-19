@@ -1,7 +1,20 @@
 import pytest
 
-from hgraph import compute_node, CONTEXT, TS, graph, switch_, REQUIRED, TSD, map_, pass_through, WiringError, \
-    TIME_SERIES_TYPE, format_, const
+from hgraph import (
+    compute_node,
+    CONTEXT,
+    TS,
+    graph,
+    switch_,
+    REQUIRED,
+    TSD,
+    map_,
+    pass_through,
+    WiringError,
+    TIME_SERIES_TYPE,
+    format_,
+    const,
+)
 from hgraph.test import eval_node
 
 
@@ -14,7 +27,7 @@ class TestContext:
     @classmethod
     def instance(cls):
         if cls.__instance__ is None:
-            return TestContext('default')
+            return TestContext("default")
         return cls.__instance__
 
     def __enter__(self):
@@ -62,6 +75,7 @@ def test_no_context_but_required():
         return use_context(ts)
 
     from hgraph import WiringError
+
     with pytest.raises(WiringError):
         eval_node(g, [True, None, False])
 
@@ -81,7 +95,7 @@ def test_context_scalar():
 
 def test_context_scalar_named():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = REQUIRED['a']) -> TS[str]:
+    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = REQUIRED["a"]) -> TS[str]:
         return f"{TestContext.instance().msg}"
 
     @graph
@@ -90,7 +104,7 @@ def test_context_scalar_named():
             with const(TestContext("Hello_Z")) as z:
                 return format_("{} {}", use_context(ts), use_context(ts, context="z"))
 
-    assert eval_node(g, [True, None, False]) == ["Hello_A Hello_Z", None, "Hello_A Hello_Z"]
+    assert eval_node(g, [True, None, False], __trace__=True) == ["Hello_A Hello_Z", None, "Hello_A Hello_Z"]
 
 
 def test_context_scalar_named_required():
@@ -102,7 +116,7 @@ def test_context_scalar_named_required():
     def g(ts: TS[bool]) -> TS[str]:
         return use_context(ts, context=REQUIRED["B"])
 
-    with pytest.raises(WiringError, match='with name B'):
+    with pytest.raises(WiringError, match="with name B"):
         eval_node(g, [True, None, False])
 
 
@@ -129,10 +143,12 @@ def test_context_ranking():
 
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
-        with create_context(format_("{}_", s)):  # Now the context node would rank lower than use_context if they were not linked
+        with create_context(
+            format_("{}_", s)
+        ):  # Now the context node would rank lower than use_context if they were not linked
             return use_context(ts)
 
-    assert eval_node(g, ts=[True, None, False], s=['Hello', None, 'Hulla']) == ["Hello_ True", None, "Hulla_ False"]
+    assert eval_node(g, ts=[True, None, False], s=["Hello", None, "Hulla"]) == ["Hello_ True", None, "Hulla_ False"]
 
 
 def test_context_over_switch():
@@ -147,9 +163,13 @@ def test_context_over_switch():
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
         with create_context(format_("{}_", s)):
-            return switch_({True: lambda t: use_context(t), False: lambda t: format_('Chao {}', t)}, ts, ts)
+            return switch_({True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts, ts)
 
-    assert eval_node(g, ts=[True, None, False], s=['Hello', None, 'Hulla']) == ["Hello_ True", None, "Chao False"]
+    assert eval_node(g, ts=[True, None, False], s=["Hello", None, "Hulla"], __trace__=True) == [
+        "Hello_ True",
+        None,
+        "Chao False",
+    ]
 
 
 def test_context_over_witch_inside_map():
@@ -164,7 +184,7 @@ def test_context_over_witch_inside_map():
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
         with create_context(format_("{}_", s)):
-            return switch_({True: lambda t: use_context(t), False: lambda t: format_('Chao {}', t)}, ts, ts)
+            return switch_({True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts, ts)
 
     @graph
     def f(ts: TSD[int, TS[bool]], s: TSD[int, TS[str]]) -> TSD[int, TS[str]]:
@@ -174,14 +194,17 @@ def test_context_over_witch_inside_map():
     def h(ts: TSD[int, TSD[int, TS[bool]]], s: TSD[int, TS[str]]) -> TSD[int, TSD[int, TS[str]]]:
         return map_(f, ts, pass_through(s))
 
-    assert eval_node(h, ts=[{1: {1: True}, 2: {2: True}}, {1: {1: False}}, None], s=[{1: 'Hello', 2: "Chao"}, None, {2: "Ho"}],
-                     __trace__={'start': False}) \
-            == [{1: {1: "Hello_ True"}, 2: {2: "Chao_ True"}}, {1: {1: "Chao False"}}, {2: {2: "Ho_ True"}}]
+    assert eval_node(
+        h,
+        ts=[{1: {1: True}, 2: {2: True}}, {1: {1: False}}, None],
+        s=[{1: "Hello", 2: "Chao"}, None, {2: "Ho"}],
+        __trace__={"start": False},
+    ) == [{1: {1: "Hello_ True"}, 2: {2: "Chao_ True"}}, {1: {1: "Chao False"}}, {2: {2: "Ho_ True"}}]
 
 
 def test_context_not_context_manager():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TIME_SERIES_TYPE] = REQUIRED['context']) -> TS[str]:
+    def use_context(ts: TS[bool], context: CONTEXT[TIME_SERIES_TYPE] = REQUIRED["context"]) -> TS[str]:
         return f"{dict(context.value)} {ts.value}"
 
     @graph
@@ -193,13 +216,16 @@ def test_context_not_context_manager():
         with c as context:
             return f(ts)
 
-    assert eval_node(g, [True, None, False], [{1: 1}, {2: 2}, None]) == \
-           ["{1: 1} True", "{1: 1, 2: 2} True", "{1: 1, 2: 2} False"]
+    assert eval_node(g, [True, None, False], [{1: 1}, {2: 2}, None]) == [
+        "{1: 1} True",
+        "{1: 1, 2: 2} True",
+        "{1: 1, 2: 2} False",
+    ]
 
 
 def test_two_contexts():
     @compute_node
-    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = 'a', b: CONTEXT[TIME_SERIES_TYPE] = 'b') -> TS[str]:
+    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = "a", b: CONTEXT[TIME_SERIES_TYPE] = "b") -> TS[str]:
         return f"{a.value} {b.value}"
 
     @graph
@@ -207,25 +233,25 @@ def test_two_contexts():
         with ts1 as a, ts2 as b:
             return use_context()
 
-    assert eval_node(g, ['Hello', None], [None, 'World']) == [None, "Hello World"]
+    assert eval_node(g, ["Hello", None], [None, "World"]) == [None, "Hello World"]
 
 
 def test_context_wired_explicitly():
     @compute_node
-    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = REQUIRED['a']) -> TS[str]:
+    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = REQUIRED["a"]) -> TS[str]:
         return f"{a.value}"
 
     @graph
     def g(ts1: TS[str]) -> TS[str]:
         return use_context(ts1)
 
-    assert eval_node(g, ['Hello', None]) == ["Hello", None]
+    assert eval_node(g, ["Hello", None]) == ["Hello", None]
 
 
 def test_graph_contexts():
     @graph
-    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = 'a', b: CONTEXT[TIME_SERIES_TYPE] = 'b') -> TS[str]:
-        return format_("{} {}",a, b)
+    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = "a", b: CONTEXT[TIME_SERIES_TYPE] = "b") -> TS[str]:
+        return format_("{} {}", a, b)
 
     @graph
     def f() -> TS[str]:
@@ -236,4 +262,4 @@ def test_graph_contexts():
         with ts1 as a, ts2 as b:
             return f()
 
-    assert eval_node(g, ['Hello', None], [None, 'World']) == ["Hello None", "Hello World"]
+    assert eval_node(g, ["Hello", None], [None, "World"]) == ["Hello None", "Hello World"]

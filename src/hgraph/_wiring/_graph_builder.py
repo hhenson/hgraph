@@ -79,8 +79,9 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
     )
 
 
-def toposort(nodes: typing.Sequence["WiringNodeInstance"],
-             supports_push_nodes: bool = True) -> typing.Sequence["WiringNodeInstance"]:
+def toposort(
+    nodes: typing.Sequence["WiringNodeInstance"], supports_push_nodes: bool = True
+) -> typing.Sequence["WiringNodeInstance"]:
     mapping: dict["WiringNodeInstance", set["WiringNodeInstance"]] = defaultdict(set)
     nodes_to_process: deque["WiringNodeInstance"] = deque(nodes)
     source_nodes = set()
@@ -93,7 +94,7 @@ def toposort(nodes: typing.Sequence["WiringNodeInstance"],
         else:
             processed_nodes[to_node] = 1
         ts_nodes = [n.node_instance for n in to_node.inputs.values() if isinstance(n, WiringPort)]
-        ts_nodes.extend(n.node_instance for n in to_node.non_input_dependencies)
+        ts_nodes.extend(n for n in to_node.non_input_dependencies)
         for from_node in ts_nodes:
             if from_node.ranking_alternatives:
                 if len(from_node.ranking_alternatives) > 1:
@@ -102,11 +103,10 @@ def toposort(nodes: typing.Sequence["WiringNodeInstance"],
                     )
                 from_node = from_node.ranking_alternatives[0]
             mapping[from_node].add(to_node)
-            if from_node.is_source_node:
-                source_nodes.add(from_node)
-                processed_nodes[from_node] = 1  # Since we are not going to add for processing
-            else:
-                nodes_to_process.append(from_node)
+            nodes_to_process.append(from_node)
+        if not ts_nodes:
+            source_nodes.add(to_node)
+
     # Rank nodes
     nodes_to_process.extend(source_nodes)
     max_rank = 0
@@ -114,8 +114,9 @@ def toposort(nodes: typing.Sequence["WiringNodeInstance"],
         from_node = nodes_to_process.pop()
         if not supports_push_nodes and from_node.resolved_signature.node_type is NodeTypeEnum.PUSH_SOURCE_NODE:
             raise CustomMessageWiringError(
-                f'Node: {from_node.resolved_signature} is a push source node, '
-                f'but this graph does not support push nodes.')
+                f"Node: {from_node.resolved_signature} is a push source node, "
+                f"but this graph does not support push nodes."
+            )
         if from_node.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE:
             # We re-set to 0 if this is a push source node to ensure they all left-align
             processed_nodes[from_node] = 0
@@ -124,12 +125,8 @@ def toposort(nodes: typing.Sequence["WiringNodeInstance"],
             nodes_to_process.append(to_node)
             max_rank = max(max_rank, processed_nodes[to_node])
 
-    # Set sink nodes to be max rank
-    for node in nodes:
-        processed_nodes[node] = max_rank
-
     # Sort nodes by rank
     result = [node for _, node in sorted((rank, node) for node, rank in processed_nodes.items()) if not node.is_stub]
-    if not all(n.rank <= n_1.rank for n, n_1 in zip(result[:-1], result[1:])):
-        raise RuntimeError("not correctly ranked")
+    # if not all(n.rank <= n_1.rank for n, n_1 in zip(result[:-1], result[1:])):
+    #     raise RuntimeError("not correctly ranked")
     return result

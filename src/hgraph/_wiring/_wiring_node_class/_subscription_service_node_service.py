@@ -57,7 +57,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
                     path=typed_full_path, key=kwargs_[next(iter(resolved_signature.time_series_args))]
                 )
 
-                g.register_service_client(self, full_path, resolution_dict, port.node_inatance)
+                g.register_service_client(self, full_path, resolution_dict, port.node_instance)
                 return port
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
@@ -76,6 +76,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
         subscriptions = _wiring_port_for(tp, subscriptions, tuple())
         capture_output_node_to_global_state(f"{typed_path}/subs", subscriptions)
 
+        WiringGraphContext.instance().register_service_stub(self, typed_path, subscriptions.node_instance)
         WiringGraphContext.instance().add_built_service_impl(typed_path, None)
 
         return TSB[ts_schema(**{arg: HgTypeMetaData.parse_type(tp)})].from_ts(**{arg: subscriptions})
