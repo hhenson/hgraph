@@ -29,16 +29,15 @@ def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALA
         changes["input_types"] = frozendict({"default": default_type})
         inputs["default"] = default
     signature = (
-        cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE:tp]).resolve_signature().copy_with(
-        **changes)
+        cast(WiringNodeClass, _source_node_signature[TIME_SERIES_TYPE:tp]).resolve_signature().copy_with(**changes)
     )
     # Source node need to be unique, use an object instance as the fn arg to ensure uniqueness
     from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+
     return create_wiring_node_instance(
         node=PythonLastValuePullWiringNodeClass(signature, object()),
         resolved_signature=signature,
         inputs=frozendict(inputs),
-        rank=1,
     )
 
 

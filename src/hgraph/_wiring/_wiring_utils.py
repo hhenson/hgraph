@@ -105,7 +105,7 @@ def wire_nested_graph(
                 inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == key_arg)
 
         out = fn(**inputs_)
-        if out is not None:
+        if out is not None and out.output_type is not None:
             create_output_stub(cast(WiringPort, out))
         sink_nodes = context.pop_sink_nodes()
         service_clients = context.pop_service_clients()

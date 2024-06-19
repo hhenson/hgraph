@@ -156,7 +156,6 @@ class TimeSeriesListInput(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict({k: v for k, v in zip(args_, args)}),
-            rank=max(v.rank for v in args),
         )
         return TSLWiringPort(wiring_node_instance, tuple())
 

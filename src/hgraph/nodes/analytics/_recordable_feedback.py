@@ -80,7 +80,6 @@ def _recorded_source_node(recordable_id: str, tp: type[TIME_SERIES_TYPE], defaul
         node=PythonRecordedSourceNodeWiringNodeClass(signature, object()),
         resolved_signature=signature,
         inputs=frozendict(inputs),
-        rank=1,
     )
 
 

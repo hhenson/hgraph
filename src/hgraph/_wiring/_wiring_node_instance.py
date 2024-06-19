@@ -49,13 +49,9 @@ class WiringNodeInstanceContext:
         self._depth = depth
 
     def create_wiring_node_instance(
-        self,
-        node: "WiringNodeClass",
-        resolved_signature: "WiringNodeSignature",
-        inputs: frozendict[str, Any],
-        rank: int,
+        self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any]
     ) -> "WiringNodeInstance":
-        key = (rank, InputsKey(inputs), resolved_signature, node)
+        key = (InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
             from hgraph import WiringGraphContext
 
@@ -63,7 +59,6 @@ class WiringNodeInstanceContext:
                 node=node,
                 resolved_signature=resolved_signature,
                 inputs=inputs,
-                rank=rank,
                 wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name(),
             )
         return node_instance
@@ -86,9 +81,8 @@ def create_wiring_node_instance(
     node: "WiringNodeClass",
     resolved_signature: "WiringNodeSignature",
     inputs: frozendict[str, Any],
-    rank: int,
 ) -> "WiringNodeInstance":
-    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
+    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs)
 
 
 @dataclass  # We will write our own equality check, but still want a hash
@@ -96,7 +90,6 @@ class WiringNodeInstance:
     node: "WiringNodeClass"
     resolved_signature: "WiringNodeSignature"
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
-    rank: int
     wiring_path_name: str
     label: str = ""
     error_handler_registered: bool = False

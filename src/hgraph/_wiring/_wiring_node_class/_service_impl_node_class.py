@@ -116,7 +116,6 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
                 self,
                 resolved_signature,
                 frozendict(kwargs_),
-                rank=-1,
             )
 
             for p in paths:
@@ -300,8 +299,8 @@ def wire_request_reply_service_stubs(
         tp = wiring_signature.input_types[arg]
         request_node = last_value_source_node(f"{typed_full_path}/request_{arg}", tp.resolve(resolution_dict))
         request = _wiring_port_for(tp, request_node, tuple())
-        capture_output_node_to_global_state(f"{typed_full_path}/request_{arg}", request, __return_sink_wp__=True)
-        capture_output_to_global_state(f"{typed_full_path}/request_{arg}_out", request, __return_sink_wp__=True)
+        capture_output_node_to_global_state(f"{typed_full_path}/request_{arg}", request)
+        capture_output_to_global_state(f"{typed_full_path}/request_{arg}_out", request)
         WiringGraphContext.instance().register_service_stub(interface, typed_full_path, request_node)
 
     if wiring_signature.output_type is not None:

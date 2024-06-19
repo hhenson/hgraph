@@ -222,10 +222,8 @@ class WiringGraphContext:
         """
         Build the service implementations for the graph
         """
-        # TODO: Since we are looking to delay ranking until wiring, we can do think in tandem with the fully ranking
         service_clients = [(service, path, type_map) for service, path, type_map, _ in self._service_clients]
         service_full_paths = {}
-        dependencies = {}
         while True:
             services_to_build = dict()
             for service, path, type_map in set(service_clients):
@@ -253,16 +251,8 @@ class WiringGraphContext:
 
             for typed_path in services_to_build:
                 if typed_path not in self._built_services:
-                    clients_before = len(self._service_clients)
-
                     service, path, impl, kwargs, type_map = services_to_build[typed_path]
                     impl(path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
-
-                    new_clients = self._service_clients[clients_before:]
-                    # dependencies.update({typed_path: set(s.typed_full_path(p, t) for s, p, t in new_clients
-                    #                                      if s.signature.node_type != WiringNodeType.REQ_REP_SVC)
-                    #     }
-                    # )
 
             if len(self._service_clients) == len(service_clients):
                 break
@@ -279,10 +269,6 @@ class WiringGraphContext:
         for service, full_path, node in self._service_stubs:
             node: "WiringNodeInstance"
             self._built_services[full_path].add_indirect_dependency(node)
-
-        # ordered = list(TopologicalSorter(dependencies).static_order())
-        # for i, path in enumerate(ordered):
-        #     object.__setattr__(self._built_services[path], "rank", i + 2)
 
     def register_context_client(self, path, depth, node):
         self._context_clients.append((path, depth, node))
@@ -305,7 +291,7 @@ class WiringGraphContext:
         return r
 
     def reassign_service_clients(self, clients, node):
-        self._service_clients = [(service, path, type_map, node) for service, path, type_map, _ in clients]
+        self._service_clients.extend([(service, path, type_map, node) for service, path, type_map, _ in clients])
 
     def pop_service_clients(self):
         r = self._service_clients
@@ -324,7 +310,7 @@ class WiringGraphContext:
         if self._wiring_node_signature:
             WiringObserverContext.instance().notify_exit_graph_wiring(self._wiring_node_signature, exc_val)
 
-        WiringGraphContext.__stack__.pop()
+        assert WiringGraphContext.__stack__.pop() is self
         if not self._temporary and WiringGraphContext.__stack__:
             # For now lets bubble the sink nodes up.
             # It may be useful to track the sink nodes in the graph they are produced.

@@ -258,8 +258,13 @@ class BaseWiringNodeClass(WiringNodeClass):
 
         return False, None
 
-    def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
-                 __return_sink_wp__: bool = False, **kwargs) -> "WiringPort":
+    def __call__(
+        self,
+        *args,
+        __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+        __return_sink_wp__: bool = False,
+        **kwargs,
+    ) -> "WiringPort":
 
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
         if found_overload:
@@ -272,28 +277,6 @@ class BaseWiringNodeClass(WiringNodeClass):
                 self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
             )
 
-            # TODO: This mechanism to work out rank may fail when using a delayed binding?
-            match resolved_signature.node_type:
-                case WiringNodeType.PUSH_SOURCE_NODE:
-                    rank = 0
-                case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC:
-                    rank = 1
-                case WiringNodeType.COMPUTE_NODE | WiringNodeType.SINK_NODE | WiringNodeType.SUBS_SVC:
-                    upstream_rank = max(
-                        v.rank for k, v in kwargs_.items() if v is not None and k in self.signature.time_series_args
-                    )
-
-                    from hgraph import TimeSeriesContextTracker
-
-                    rank = max(
-                        upstream_rank + 1,
-                        1024,
-                        TimeSeriesContextTracker.instance().max_context_rank(WiringNodeInstanceContext.instance()) + 1,
-                    )
-                case _:
-                    raise CustomMessageWiringError(
-                        f"Wiring type: {resolved_signature.node_type} is not supported as a wiring node class"
-                    )
             if self.signature.deprecated:
                 import warnings
 
@@ -303,7 +286,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                     DeprecationWarning,
                     stacklevel=3,
                 )
-            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_), rank=rank)
+            wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_))
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
             # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 

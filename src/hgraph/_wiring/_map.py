@@ -314,14 +314,14 @@ def _build_and_wire_map(
     map_wiring_node, kwargs_, sc, cc = _build_map_wiring(
         fn, signature, *args, __keys__=__keys__, __key_arg__=__key_arg__, **kwargs
     )
-    port = map_wiring_node(**kwargs_)
+    port = map_wiring_node(**kwargs_, __return_sink_wp__=True)
 
     from hgraph import WiringGraphContext
 
     WiringGraphContext.instance().reassign_service_clients(sc, port.node_instance)
     WiringGraphContext.instance().reassign_context_clients(cc, port.node_instance)
 
-    return port
+    return port if port.output_type else None
 
 
 def _extract_map_fn_key_arg_and_type(
