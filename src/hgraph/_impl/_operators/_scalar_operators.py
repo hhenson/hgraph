@@ -35,7 +35,6 @@ from hgraph import (
     graph,
     TS_OUT,
     sum_,
-    str_,
     TSL,
     SIZE,
     AUTO_RESOLVE,
@@ -488,11 +487,3 @@ def var_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
         return 0.0
     else:
         return float(variance(valid_elements))
-
-
-@compute_node(overloads=str_)
-def str_scalar(ts: TS[SCALAR]) -> TS[str]:
-    """
-    Implements python str() for scalars
-    """
-    return str(ts.value)

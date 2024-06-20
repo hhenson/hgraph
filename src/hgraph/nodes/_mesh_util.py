@@ -7,7 +7,6 @@ from hgraph import (
     TS,
     TS_OUT,
     STATE,
-    TimeSeriesDictOutput,
     SCHEDULER,
     MIN_TD,
 )

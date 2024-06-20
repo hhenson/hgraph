@@ -65,7 +65,7 @@ def resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
 
 
 @operator
-def dedup(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def dedup(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
     """

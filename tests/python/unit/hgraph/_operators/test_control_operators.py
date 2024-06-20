@@ -21,6 +21,15 @@ def test_all_true():
     assert eval_node(app) == [True]
 
 
+def test_all_invalid():
+    @graph
+    def app() -> TS[bool]:
+        invalid = if_(True, True).false
+        return all_(const(True), const(True), const(True), invalid)
+
+    assert eval_node(app) == [False]
+
+
 def test_any_false():
     @graph
     def app() -> TS[bool]:
@@ -33,6 +42,15 @@ def test_any_true():
     @graph
     def app() -> TS[bool]:
         return any_(const(True), const(False), const(True))
+
+    assert eval_node(app) == [True]
+
+
+def test_any_invalid():
+    @graph
+    def app() -> TS[bool]:
+        invalid = if_(True, True).false
+        return any_(const(True), invalid, const(True), const(True))
 
     assert eval_node(app) == [True]
 

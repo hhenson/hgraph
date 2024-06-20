@@ -5,8 +5,8 @@ from frozendict import frozendict
 
 from hgraph import TS, graph, TIME_SERIES_TYPE, TSD, REMOVE, not_, SCALAR, K, TimeSeriesSchema, TSB, \
     compute_node, REF, TSS, Size, SIZE, K_1, is_empty, Removed, sub_, eq_, len_, min_, max_, keys_, OUT, rekey, flip, \
-    partition, flip_keys, collapse_keys, uncollapse_keys, str_, sum_, const
-from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd, tsd_get_item, merge_nested_tsds, tsd_get_items, merge_tsds
+    partition, flip_keys, collapse_keys, uncollapse_keys, str_, sum_, const, getitem_, merge, TSL
+from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
 
 
@@ -49,14 +49,24 @@ def test_sub_tsds():
 
 
 def test_tsd_get_item():
-    assert (eval_node(tsd_get_item[K: int, TIME_SERIES_TYPE: TS[int]],
-                      [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}], [None, 1, None, None, 2])
+    assert (
+            eval_node(
+                getitem_,
+                [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}],
+                [None, 1, None, None, 2],
+                resolution_dict={'ts': TSD[int, TS[int]], 'key': TS[int]}
+            )
             == [None, 3, 4, None, -2])
 
 
 def test_tsd_get_items():
-    assert (eval_node(tsd_get_items[K: int, TIME_SERIES_TYPE: TS[int]],
-                      [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}], [None, {1}, {2}, {Removed(2)}, None])
+    assert (
+            eval_node(
+                getitem_,
+                [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
+                [None, {1}, {2}, {Removed(2)}, None],
+                resolution_dict={'ts': TSD[int, TS[int]], 'key': TSS[int]}
+            )
             == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None])
 
 
@@ -182,16 +192,25 @@ def test_uncollapse_keys():
 
 
 def test_merge_tsd():
-    assert eval_node(merge_tsds[K: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
-                     tsl=[({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})]) == [
-               {1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
+    assert (
+            eval_node(
+                merge[K: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
+                tsl=[({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})],
+                resolution_dict={'tsl': TSL[TSD[int, TS[int]], Size[2]]}
+            ) == [{1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
+    )
 
 
 def test_merge_nested_tsd():
-    assert eval_node(merge_nested_tsds[K: int, K_1: int, TIME_SERIES_TYPE: TS[int], SIZE: Size[2]],
-                     tsl=[({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}),
-                          ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})]) == [
-               {1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
+    assert (
+            eval_node(
+                merge,
+                tsl=[({1: {1: 1}, 2: {2: 2}}, {1: {1: 5}, 3: {3: 6}}), ({2: {2: 4}}, {3: {3: 8}}),
+                     ({1: REMOVE, 2: {2: REMOVE}}, {}), ({}, {1: REMOVE})],
+                resolution_dict={'tsl': TSL[TSD[int, TSD[int, TS[int]]], Size[2]]}
+            ) == [
+                {1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
+    )
 
 
 def test_tsd_partition():
@@ -316,8 +335,8 @@ def test_max_tsd_unary():
 def test_sum_tsd_unary():
     @graph
     def app(tsd: TSD[int, TS[int]]) -> TS[int]:
-        from hgraph.nodes import log
-        log("TSD {}", tsd)
+        from hgraph import log_
+        log_("TSD {}", tsd)
         return sum_(tsd)
 
     assert eval_node(app, [frozendict({}), {3: 2, 1: 100}]) == [0, 102]
