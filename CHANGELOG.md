@@ -545,3 +545,8 @@ Version 0.2.44 (18-06-2024)
 ---------------------------
 
 * Move remaining operators to _operators, clean up tests, etc.
+
+Version 0.2.45 (20-06-2024)
+---------------------------
+
+* Re-work ranking logic in preparation for delayed binding
