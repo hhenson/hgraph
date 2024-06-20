@@ -7,6 +7,7 @@ from hgraph._impl._operators._frozendict_operators import *
 from hgraph._impl._operators._getattr import *
 from hgraph._impl._operators._conversion_operators import *
 from hgraph._impl._operators._graph_operators import *
+from hgraph._impl._operators._number_operators import *
 from hgraph._impl._operators._scalar_operators import *
 from hgraph._impl._operators._set_operators import *
 from hgraph._impl._operators._stream_operators import *
