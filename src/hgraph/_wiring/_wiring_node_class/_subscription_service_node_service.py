@@ -49,14 +49,16 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             with WiringGraphContext(self.signature) as g:
                 typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
                 full_path = self.full_path(kwargs_.get("path"))
-                g.register_service_client(self, full_path, resolution_dict)
 
                 from hgraph.nodes._service_utils import _subscribe
                 from hgraph import TIME_SERIES_TYPE
 
-                return _subscribe[TIME_SERIES_TYPE : resolved_signature.output_type](
+                port = _subscribe[TIME_SERIES_TYPE : resolved_signature.output_type](
                     path=typed_full_path, key=kwargs_[next(iter(resolved_signature.time_series_args))]
                 )
+
+                g.register_service_client(self, full_path, resolution_dict, port.node_instance)
+                return port
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         from hgraph.nodes import capture_output_node_to_global_state
@@ -70,10 +72,11 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
             f"{self.signature.name}_{arg}",
             (tp := TSS[self.signature.input_types[arg].resolve(resolution_dict).scalar_type().py_type]),
         )
-        subscriptions.set_label(f"{typed_path}/inputs/{arg}")
+        subscriptions.label = f"{typed_path}/inputs/{arg}"
         subscriptions = _wiring_port_for(tp, subscriptions, tuple())
         capture_output_node_to_global_state(f"{typed_path}/subs", subscriptions)
 
+        WiringGraphContext.instance().register_service_stub(self, typed_path, subscriptions.node_instance)
         WiringGraphContext.instance().add_built_service_impl(typed_path, None)
 
         return TSB[ts_schema(**{arg: HgTypeMetaData.parse_type(tp)})].from_ts(**{arg: subscriptions})

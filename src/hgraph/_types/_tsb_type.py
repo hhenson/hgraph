@@ -47,7 +47,6 @@ if TYPE_CHECKING:
         HgTimeSeriesSchemaTypeMetaData,
         SourceCodeDetails,
         TS,
-        HgCompoundScalarType,
     )
 
 __all__ = (
@@ -452,7 +451,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             time_series_args=frozenset(kwargs.keys()),
         )
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import NonPeeredWiringNodeClass
-        from hgraph._wiring._wiring_port import TSBWiringPort, WiringPort
+        from hgraph._wiring._wiring_port import TSBWiringPort
 
         wiring_node = NonPeeredWiringNodeClass(wiring_node_signature, lambda *args, **kwargs: None)
         from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
@@ -461,7 +460,6 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             node=wiring_node,
             resolved_signature=wiring_node_signature,
             inputs=frozendict(kwargs),
-            rank=max((v.rank for k, v in kwargs.items() if isinstance(v, WiringPort)), default=1),
         )
         return TSBWiringPort(wiring_node_instance, tuple())
 

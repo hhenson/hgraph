@@ -39,9 +39,15 @@ class OperatorWiringNodeClass(WiringNodeClass):
             return False, None
 
     def __call__(
-        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs
+        self,
+        *args,
+        __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
+        __return_sink_wp__: bool = False,
+        **kwargs,
     ) -> "WiringNodeInstance":
-        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
+        found_overload, r = self._check_overloads(
+            *args, **kwargs, __pre_resolved_types__=__pre_resolved_types__, __return_sink_wp__=__return_sink_wp__
+        )
         if found_overload:
             return r
         else:
@@ -139,7 +145,7 @@ class OverloadedWiringNodeHelper:
         ranks = combine_ranks(ranks)
         return sum(ranks.values())
 
-    def get_best_overload(self, *args, **kwargs):
+    def get_best_overload(self, *args, __return_sink_wp__: bool = False, **kwargs):
         candidates = []
         rejected_candidates = []
         for c, r in self.overloads:

@@ -1,5 +1,5 @@
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, MutableMapping
 
 from frozendict import frozendict
@@ -49,13 +49,9 @@ class WiringNodeInstanceContext:
         self._depth = depth
 
     def create_wiring_node_instance(
-        self,
-        node: "WiringNodeClass",
-        resolved_signature: "WiringNodeSignature",
-        inputs: frozendict[str, Any],
-        rank: int,
+        self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any]
     ) -> "WiringNodeInstance":
-        key = (rank, InputsKey(inputs), resolved_signature, node)
+        key = (InputsKey(inputs), resolved_signature, node)
         if (node_instance := self._node_instances.get(key, None)) is None:
             from hgraph import WiringGraphContext
 
@@ -63,7 +59,6 @@ class WiringNodeInstanceContext:
                 node=node,
                 resolved_signature=resolved_signature,
                 inputs=inputs,
-                rank=rank,
                 wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name(),
             )
         return node_instance
@@ -83,23 +78,26 @@ class WiringNodeInstanceContext:
 
 
 def create_wiring_node_instance(
-    node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any], rank: int
+    node: "WiringNodeClass",
+    resolved_signature: "WiringNodeSignature",
+    inputs: frozendict[str, Any],
 ) -> "WiringNodeInstance":
-    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs, rank)
+    return WiringNodeInstanceContext.instance().create_wiring_node_instance(node, resolved_signature, inputs)
 
 
-@dataclass(frozen=True, eq=False)  # We will write our own equality check, but still want a hash
+@dataclass  # We will write our own equality check, but still want a hash
 class WiringNodeInstance:
     node: "WiringNodeClass"
     resolved_signature: "WiringNodeSignature"
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
-    rank: int
     wiring_path_name: str
     label: str = ""
     error_handler_registered: bool = False
     trace_back_depth: int = 1  # TODO: decide how to pick this up, probably via the error context?
     capture_values: bool = False
     _treat_as_source_node: bool = False
+    non_input_dependencies: list["WiringNodeInstance"] = field(default_factory=list)
+    ranking_alternatives: list["WiringNodeInstance"] = field(default_factory=list)
 
     def __lt__(self, other: "WiringNodeInstance") -> bool:
         # The last part gives potential for inconsistent ordering, a better solution would be to
@@ -119,18 +117,15 @@ class WiringNodeInstance:
         return self.resolved_signature.signature
 
     def mark_error_handler_registered(self, trace_back_depth: int = 1, capture_values: bool = False):
-        super().__setattr__("error_handler_registered", True)
-        super().__setattr__("trace_back_depth", trace_back_depth)
-        super().__setattr__("capture_values", capture_values)
+        self.error_handler_registered = True
+        self.trace_back_depth = trace_back_depth
+        self.capture_values = capture_values
 
     @property
     def is_stub(self) -> bool:
         from hgraph._wiring._wiring_node_class._stub_wiring_node_class import StubWiringNodeClass
 
         return isinstance(self.node, StubWiringNodeClass)
-
-    def set_label(self, label: str):
-        super().__setattr__("label", label)
 
     @property
     def is_source_node(self) -> bool:
@@ -140,7 +135,13 @@ class WiringNodeInstance:
         )
 
     def mark_treat_as_source_node(self):
-        super().__setattr__("_treat_as_source_node", True)
+        self._treat_as_source_node = True
+
+    def add_ranking_alternative(self, wp: "WiringNodeInstance"):
+        self.ranking_alternatives.append(wp)
+
+    def add_indirect_dependency(self, wp: "WiringNodeInstance"):
+        self.non_input_dependencies.append(wp)
 
     @property
     def output_type(self) -> "HgTimeSeriesTypeMetaData":

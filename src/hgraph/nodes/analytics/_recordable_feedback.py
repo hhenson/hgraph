@@ -18,7 +18,6 @@ from hgraph import (
 from hgraph.nodes.analytics._recordable_converters import record_to_table_api, get_converter_for, RecordableConverter
 from hgraph.nodes.analytics._recorder_api import get_recorder_api, get_recording_label, TableReaderAPI
 
-
 __all__ = ("recordable_feedback",)
 
 
@@ -81,14 +80,12 @@ def _recorded_source_node(recordable_id: str, tp: type[TIME_SERIES_TYPE], defaul
         node=PythonRecordedSourceNodeWiringNodeClass(signature, object()),
         resolved_signature=signature,
         inputs=frozendict(inputs),
-        rank=1,
     )
 
 
 class PythonRecordedSourceNodeWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
-        from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
 
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()

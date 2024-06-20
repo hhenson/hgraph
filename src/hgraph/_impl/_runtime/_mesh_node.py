@@ -91,6 +91,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self._scheduled_keys_by_rank: dict[int, dict[K, datetime]] = defaultdict(dict)
         self._active_graphs_rank: dict[K, int] = {}
         self._active_graphs_dependencies: dict[K, set[K]] = defaultdict(set)
+        self._re_rank_requests: list[tuple[K, K]] = []
         self.current_eval_rank = None
         self.current_eval_graph = None
         self.max_rank = 0
@@ -119,9 +120,9 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         if self._pending_keys:
             for k in self._pending_keys:
                 self._create_new_graph(k, rank=0)
+                for d in self._active_graphs_dependencies[k]:
+                    self._re_rank(d, k)
             self._pending_keys = set()
-            for d in self._active_graphs_dependencies[k]:
-                self._re_rank(d, k)
 
         # 2. or one of the nested graphs has been scheduled for evaluation.
         next_time = MAX_DT
@@ -145,6 +146,11 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             rank += 1
 
         self.current_eval_rank = None
+
+        if self._re_rank_requests:
+            for k, d in self._re_rank_requests:
+                self._re_rank(k, d)
+            self._re_rank_requests = []
 
         if next_time < MAX_DT:
             self.graph.schedule_node(self.node_ndx, next_time)
@@ -192,10 +198,17 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             self.graph.schedule_node(self.node_ndx, self.last_evaluation_time + MIN_TD)
             return False
         else:
-            return self._re_rank(key, depends_on)
+            return self._request_re_rank(key, depends_on)
 
-    def _re_rank(self, key: K, dependes_on: K):
-        if (prev_rank := self._active_graphs_rank[key]) <= (below := self._active_graphs_rank[dependes_on]):
+    def _request_re_rank(self, key: K, depends_on: K):
+        if (self._active_graphs_rank[key]) <= (self._active_graphs_rank[depends_on]):
+            self._re_rank_requests.append((key, depends_on))
+            return False
+        else:
+            return True
+
+    def _re_rank(self, key: K, depends_on: K):
+        if (prev_rank := self._active_graphs_rank[key]) <= (below := self._active_graphs_rank[depends_on]):
             schedule = self._scheduled_keys_by_rank[prev_rank].pop(key, None)
             new_rank = below + 1
             self.max_rank = max(self.max_rank, new_rank)
@@ -204,13 +217,6 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
                 self.schedule_graph(key, schedule)
             for k in self._active_graphs_dependencies[key]:
                 self._re_rank(k, key)
-
-            # the value in the new dependency graph might not be up to date or to be calculated later in this cycle
-            # return False to delay binding the output until the next cycle so that evaluation is done in the correct
-            # ranking order
-            return False
-        else:
-            return True
 
     def _remove_graph_dependency(self, key: K, depends_on: K):
         self._active_graphs_dependencies[depends_on].remove(key)

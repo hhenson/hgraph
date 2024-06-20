@@ -122,16 +122,8 @@ def switch_(
             input_types=frozendict(input_types),
             output_type=output_type,
             src_location=SourceCodeDetails(Path(__file__), 25),
-            active_inputs=frozenset(
-                {
-                    "key",
-                }
-            ),
-            valid_inputs=frozenset(
-                {
-                    "key",
-                }
-            ),
+            active_inputs=frozenset({"key", }),
+            valid_inputs=frozenset({"key", }),
             all_valid_inputs=None,
             context_inputs=None,
             # We have constructed the map so that the key are is always present.
@@ -140,8 +132,11 @@ def switch_(
             label=f"switch_({{{', '.join(f'{k}: ...' for k in switches)}}}, ...)",
         )
 
-        nested_graphs = {
-            k: wire_nested_graph(
+        nested_graphs = {}
+        service_clients = []
+        context_clients = []
+        for k, v in switches.items():
+            graph, sc, cc = wire_nested_graph(
                 v,
                 resolved_signature_inner.input_types,
                 {
@@ -153,8 +148,9 @@ def switch_(
                 "key",
                 depth=2,
             )
-            for k, v in switches.items()
-        }
+            nested_graphs[k] = graph
+            service_clients.extend(sc)
+            context_clients.extend(cc)
 
         switch_signature = SwitchWiringSignature(
             **resolved_signature_outer.as_dict(), inner_graphs=frozendict(nested_graphs)
@@ -164,9 +160,15 @@ def switch_(
         from hgraph._wiring._wiring_node_class._switch_wiring_node import SwitchWiringNodeClass
 
         # noinspection PyTypeChecker
-        return SwitchWiringNodeClass(switch_signature, switches, resolved_signature_inner, reload_on_ticked)(
-            **(kwargs_ | ({} if input_has_key_arg else dict(key=key)))
+        port = SwitchWiringNodeClass(switch_signature, switches, resolved_signature_inner, reload_on_ticked)(
+            **(kwargs_ | ({} if input_has_key_arg else dict(key=key))), __return_sink_wp__=True
         )
+
+        from hgraph import WiringGraphContext
+        WiringGraphContext.instance().reassign_service_clients(service_clients, port.node_instance)
+        WiringGraphContext.instance().reassign_context_clients(context_clients, port.node_instance)
+
+        return port if port.output_type is not None else None
 
 
 def _validate_signature(

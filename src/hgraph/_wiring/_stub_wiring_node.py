@@ -3,13 +3,13 @@ from pathlib import Path
 from frozendict import frozendict
 
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
-from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
-from hgraph._wiring._wiring_node_instance import WiringNodeInstance, create_wiring_node_instance
-from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
+from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
+from hgraph._wiring._wiring_node_instance import create_wiring_node_instance
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
+from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
 
 
 def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> WiringPort:
@@ -46,7 +46,12 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
         label=key,
     )
     node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
-    node_instance = create_wiring_node_instance(node, signature, frozendict(), 1)
+    node_instance = create_wiring_node_instance(
+        node,
+        signature,
+        frozendict(),
+    )
+    node_instance.mark_treat_as_source_node()
     return _wiring_port_for(ref_tp, node_instance, ())
 
 
@@ -82,7 +87,11 @@ def create_output_stub(output: WiringPort):
         label="graph:out",
     )
     node = PythonWiringNodeClass(signature, _stub)
-    node_instance = create_wiring_node_instance(node, signature, frozendict({"ts": output}), output.rank + 1)
+    node_instance = create_wiring_node_instance(
+        node,
+        signature,
+        frozendict({"ts": output}),
+    )
     WiringGraphContext.instance().add_sink_node(node_instance)  # We cheat a bit since this is not actually a sink_node.
 
 
