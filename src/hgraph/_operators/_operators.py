@@ -265,7 +265,7 @@ def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
     """
     This represents the `&` operator for time series types.
 
-    To implement the and_op_ operator, do:
+    To implement the & operator, do:
     ::
 
         @compute_node(overloads=bit_and)
