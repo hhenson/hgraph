@@ -550,3 +550,8 @@ Version 0.2.45 (20-06-2024)
 ---------------------------
 
 * Re-work ranking logic in preparation for delayed binding
+
+Version 0.2.46 (21-06-2024)
+---------------------------
+
+* Add delayed_binding
