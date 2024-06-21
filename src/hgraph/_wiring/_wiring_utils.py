@@ -44,10 +44,6 @@ class StubWiringPort(WiringPort):
     def output_type(self) -> HgTypeMetaData:
         return self._value_tp
 
-    @property
-    def rank(self) -> int:
-        return 1
-
 
 def stub_wiring_port(value_tp: HgTimeSeriesTypeMetaData) -> WiringPort:
     return StubWiringPort(node_instance=None, _value_tp=value_tp)

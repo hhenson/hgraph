@@ -91,10 +91,6 @@ class WiringPort:
             output_type = output_type[p]
         return output_type
 
-    @property
-    def rank(self) -> int:
-        return self.node_instance.rank
-
     def __error__(self, trace_back_depth: int = 1, capture_values: bool = False) -> "WiringPort":
         if self.path == tuple():
             self.node_instance.mark_error_handler_registered(trace_back_depth, capture_values)
@@ -130,13 +126,6 @@ class DelayedBindingWiringPort(WiringPort):
 
     node_instance: "WiringNodeInstance" = None
     output_type: HgTimeSeriesTypeMetaData = None
-
-    @property
-    def rank(self) -> int:
-        if self.node_instance:
-            return self.node_instance.rank
-        else:
-            raise CustomMessageWiringError("The rank of a delayed binding port is not known until it is bound")
 
     def bind(self, wiring_port: WiringPort):
         if self.output_type != wiring_port.output_type:
