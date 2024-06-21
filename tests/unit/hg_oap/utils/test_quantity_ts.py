@@ -1,5 +1,3 @@
-from typing import TypeVar
-
 from hg_oap.quanity.conversion import convert_units
 from hg_oap.units.default_unit_system import U
 from hg_oap.units.quantity import Quantity
@@ -24,9 +22,6 @@ def test_quantity_ts():
 
 def test_quantity_tsb():
 
-    UNIT_1 = TypeVar("UNIT_1", bound=Unit)
-    UNIT_2 = TypeVar("UNIT_2", bound=Unit)
-
     @graph
     def g(ts: TS[float], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[float]]:
         v = TSB[Quantity[float]].from_ts(qty=ts, unit=u)
@@ -41,3 +36,17 @@ def test_quantity_tsb():
                      #__trace__=True
                      ) == \
     [274.15*U.K, 1.*U.degC, 32.*U.degF, 273.15*U.K]
+
+
+def test_mwh_to_therm():
+    @compute_node
+    def convert(ts: TS[Quantity[float]], units: TS[Unit]) -> TS[Quantity[float]]:
+        return ts.value.as_(units.value)
+
+    @graph
+    def g(ts: TS[float], u: TS[Unit], u1: TS[Unit]) -> TS[Quantity[float]]:
+        v = combine[TS[Quantity[float]]](qty=ts, unit=u)
+        return convert(v, u1)
+
+    assert eval_node(g, ts=[1.0], u=[U.MWh], u1=[U.therm]) == [34.12141633127942*U.therm]
+

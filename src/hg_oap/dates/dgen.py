@@ -889,7 +889,7 @@ class RollFwdDGen(DGen):
 
 def roll_fwd(x, calendar=None):
     if is_op(x) or is_op(calendar):
-        return lazy(roll_bwd)(x, calendar)
+        return lazy(roll_fwd)(x, calendar)
     else:
         return RollFwdDGen(x, calendar)
 
