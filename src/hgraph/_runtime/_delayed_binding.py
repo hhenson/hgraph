@@ -1,26 +1,22 @@
 from dataclasses import dataclass
-from typing import Generic, TYPE_CHECKING
+from typing import Generic
 
-from hgraph import HgTimeSeriesTypeMetaData, CustomMessageWiringError
-from hgraph._types._scalar_types import SCALAR
+from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
-from hgraph._wiring._decorators import sink_node
-
-if TYPE_CHECKING:
-    from hgraph._wiring._wiring_port import WiringPort
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
+from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = ("delayed_binding",)
 
 
 @dataclass
 class DelayedRanking:
-    _previous_ranks: tuple[WiringPort,...]
+    _previous_ranks: tuple[WiringPort, ...]
     _self: WiringPort
 
 
 @dataclass
 class DelayedBindingWiringPort(Generic[TIME_SERIES_TYPE]):
-
     _delegate: "_DelayedBindingWiringPort[TIME_SERIES_TYPE]"
     _bound: bool = False
 
@@ -43,13 +39,6 @@ class _DelayedBindingWiringPort(WiringPort, Generic[TIME_SERIES_TYPE]):
     """
     node_instance: "WiringNodeInstance" = None
     output_type: HgTimeSeriesTypeMetaData = None
-
-    @property
-    def rank(self) -> int:
-        if self.node_instance:
-            return self.node_instance.rank
-        else:
-            raise CustomMessageWiringError("The rank of a delayed binding port is not known until it is bound")
 
     def bind(self, ts: TIME_SERIES_TYPE):
         if self.output_type != ts.output_type:
@@ -76,8 +65,4 @@ def delayed_binding(tp_: type[TIME_SERIES_TYPE]) -> DelayedBindingWiringPort[TIM
     binding(out)  # Bind the value of the delayed_binding
     ```
     """
-    return DelayedBindingWiringPort(_delegate=_DelayedBindingWiringPort(tp_))
-
-
-
-
+    return DelayedBindingWiringPort(_delegate=_DelayedBindingWiringPort(output_type=HgTimeSeriesTypeMetaData.parse_type(tp_)),)
