@@ -219,3 +219,17 @@ def test_dgen_parameter():
 
     c = _0 <= months.fri <= _1
     assert list(c(_0='2020-01-01', _1='2020-02-01')) == [date(2020, 1, 3), date(2020, 1, 10), date(2020, 1, 17), date(2020, 1, 24), date(2020, 1, 31)]
+
+
+def test_weekdays_in_month():
+    c = '2024-01-01' <= months.weekdays < '2024-01-31'
+    assert len(list((c()))) == 22
+
+
+def test_roll_fwd():
+    calendar = HolidayCalendar(holidays=(date(2023, 5, 1), date(2024, 1, 1)))
+    days = '2023-04-28' <= years.days <= '2023-05-02'
+    assert list(roll_fwd(days, calendar)()) == [date(2023, 4, 28), date(2023, 5, 2), date(2023, 5, 2), date(2023, 5, 2), date(2023, 5, 2)]
+
+    days = '2023-12-29' <= years.days <= '2024-01-02'
+    assert list(roll_fwd(days, calendar)()) == [date(2023, 12, 29), date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 2)]
