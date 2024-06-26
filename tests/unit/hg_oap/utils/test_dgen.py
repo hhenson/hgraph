@@ -240,7 +240,7 @@ def test_roll_bwd():
     assert list(roll_bwd(days, calendar)()) == [date(2024, 6, 21), date(2024, 6, 21), date(2024, 6, 21), date(2024, 6, 24)]
 
 
-def test_quarters():
+def test_quarters_dgen():
     qs = '2024-02-01' < quarters < '2024-11-02'
     assert list(qs()) == [date(2024, 4, 1), date(2024, 7, 1), date(2024, 10, 1)]
 
