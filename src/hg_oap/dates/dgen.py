@@ -7,7 +7,7 @@ from hg_oap.utils.op import Item, Op, lazy, is_op
 from hg_oap.dates.tenor import Tenor
 
 __all__ = ('is_dgen', 'make_date', 'make_dgen', 'years', 'months', 'weeks', 'weekdays', 'weekends', 'days',
-           'business_days', 'roll_fwd', 'roll_bwd', 'DGen', 'retain', 'DGenParameter')
+           'business_days', 'quarters', 'roll_fwd', 'roll_bwd', 'DGen', 'retain', 'DGenParameter')
 
 
 def is_dgen(obj):
@@ -739,6 +739,54 @@ class DaysOfMonthDGen(DGen):
 
     def __repr__(self):
         return f'{self.months}.{self.days}'
+
+
+class QuartersDGen(DGen):
+    def cadence(self):
+        return Tenor('3m')
+
+    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
+                   calendar: Calendar = None, **kwargs):
+        start = start if start is not date.min else after
+        end = end if end is not date.max else before
+
+        first = date(start.year, 1, 1)
+        while first <= end:
+            yield first
+            if first.month in (1, 4, 7):
+                first = date(first.year, first.month + 3, 1)
+            else:
+                first = date(first.year + 1, 1, 1)
+
+    @property
+    def end(self):
+        return quarters - '1d'
+
+    @property
+    def months(self):
+        return SubSequenceDGen(self, months)
+
+    @property
+    def weeks(self):
+        return SubSequenceDGen(self, weeks)
+
+    @property
+    def days(self):
+        return SubSequenceDGen(self, days)
+
+    @property
+    def weekdays(self):
+        return SubSequenceDGen(self, weekdays)
+
+    @property
+    def weekends(self):
+        return SubSequenceDGen(self, weekends)
+
+    def __repr__(self):
+        return 'quarters'
+
+
+quarters = QuartersDGen()
 
 
 class YearsDGen(DGen):

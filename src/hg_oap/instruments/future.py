@@ -16,7 +16,7 @@ from hg_oap.utils.op import lazy
 from hgraph import CompoundScalar
 
 __all__ = ("SettlementMethod", "Settlement", "FutureContractSpec", "FutureContractSeries", "Future",
-           "CONTRACT_BASE_DATE", "month_code", "month_from_code")
+           "CONTRACT_BASE_DATE", "month_code", "month_from_code", "MONTH_CODES")
 
 
 class SettlementMethod(Enum):
@@ -44,7 +44,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     currency: Currency
 
     trading_calendar: Calendar  # TODO - we also need settlement calendar and reset calendar?  To get the expiry dates
-    settlement: Settlement
+    settlement: Settlement  # TODO - why is the enum wrapped up in an object?
 
     quotation_currency_unit: Unit
     quotation_unit: Unit

@@ -5,10 +5,9 @@ import pytest
 
 from hg_oap.dates.calendar import WeekendCalendar, HolidayCalendar
 from hg_oap.dates.dgen import make_date, make_dgen, days, weeks, weekdays, weekends, months, years, business_days, \
-    roll_fwd, \
-    roll_bwd, DGenParameter
-from hg_oap.utils.op import Expression
+    roll_fwd, roll_bwd, DGenParameter, quarters
 from hg_oap.dates.tenor import Tenor
+from hg_oap.utils.op import Expression
 
 
 @pytest.mark.parametrize(['s', 'valid'], [
@@ -233,3 +232,20 @@ def test_roll_fwd():
 
     days = '2023-12-29' <= years.days <= '2024-01-02'
     assert list(roll_fwd(days, calendar)()) == [date(2023, 12, 29), date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 2)]
+
+
+def test_roll_bwd():
+    calendar = WeekendCalendar()
+    days = '2024-06-21' <= years.days <= '2024-06-24'  # Fri to Mon
+    assert list(roll_bwd(days, calendar)()) == [date(2024, 6, 21), date(2024, 6, 21), date(2024, 6, 21), date(2024, 6, 24)]
+
+
+def test_quarters():
+    qs = '2024-02-01' < quarters < '2024-11-02'
+    assert list(qs()) == [date(2024, 4, 1), date(2024, 7, 1), date(2024, 10, 1)]
+
+    days = '2024-01-01' <= quarters.days <= '2025-01-01'
+    assert len(list(days())) == 367
+
+    m = '2024-01-01' <= quarters.months <= '2025-01-01'
+    assert len(list(m())) == 13
