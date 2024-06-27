@@ -69,6 +69,9 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
             continue
         ndx = len(node_builders)
         node_builder, input_edges = wiring_node.create_node_builder_and_edges(node_map, node_builders)
+        for edge in input_edges:
+            if edge.src_node >= edge.dst_node:
+                raise RuntimeError(f"Cycle detected at node: {wiring_node.resolved_signature.signature} on input: {wiring_node.resolved_signature.args[edge.input_path[0]]}")
         node_builders.append(node_builder)
         edges.update(input_edges)
         node_map[wiring_node] = ndx
