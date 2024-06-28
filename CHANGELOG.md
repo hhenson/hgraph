@@ -560,3 +560,8 @@ Version 0.2.47 (27-06-2024)
 ---------------------------
 
 * Added cycle check
+
+Version 0.2.48 (28-06-2024)
+---------------------------
+
+* Further cleanups of node locations and removing items that are no longer used.
