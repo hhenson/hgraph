@@ -44,20 +44,26 @@ class Quantity(CompoundScalar, Generic[NUMBER]):
         return NotImplemented
 
     def __mul__(self, other):
-        if isinstance(other, Quantity):
-            return Quantity[type(self.qty)](self.qty * other.qty, self.unit * other.unit)
-        elif isinstance(other, type(self.qty)):
-            return Quantity[type(self.qty)](self.qty * other, self.unit)
+        tp = self.qty.__class__
+        if tp is float and other.__class__ in (int, float):
+            return Quantity[float](self.qty * other, self.unit)
+        elif isinstance(other, Quantity):
+            return Quantity[tp](self.qty * other.qty, self.unit * other.unit)
+        elif isinstance(other, tp):
+            return Quantity[tp](self.qty * other, self.unit)
 
         return NotImplemented
 
     __rmul__ = __mul__
 
     def __truediv__(self, other):
-        if isinstance(other, Quantity) and type(other.qty) is type(self.qty) and other.qty != 0:
-            return Quantity[type(self.qty)](self.qty / other.qty, self.unit / other.unit)
+        tp = self.qty.__class__
+        if tp is float and other.__class__ in (int, float):
+            return Quantity[tp](self.qty / other, self.unit)
+        elif isinstance(other, Quantity) and type(other.qty) is tp:
+            return Quantity[tp](self.qty / other.qty, self.unit / other.unit)
         elif isinstance(other, type(self.qty)):
-            return Quantity[type(self.qty)](self.qty / other, self.unit)
+            return Quantity[tp](self.qty / other, self.unit)
 
         return NotImplemented
 

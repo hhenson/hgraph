@@ -2,13 +2,12 @@ from dataclasses import dataclass
 
 import pytest
 
-import hg_oap.quanity.conversion
-from hg_oap.units.unit import Unit
-from hg_oap.units.dimension import PrimaryDimension, DerivedDimension, Dimension
-from hg_oap.utils.exprclass import ExprClass
+from hg_oap.units.dimension import PrimaryDimension, DerivedDimension
 from hg_oap.units.quantity import Quantity
 from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit
+from hg_oap.units.unit import Unit
 from hg_oap.units.unit_system import UnitSystem, UnitConversionContext
+from hg_oap.utils.exprclass import ExprClass
 from hgraph import CompoundScalar
 
 
