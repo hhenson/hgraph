@@ -5,6 +5,7 @@ from hgraph._impl._operators._enum_operators import *
 from hgraph._impl._operators._flow_control import *
 from hgraph._impl._operators._frame_operators import *
 from hgraph._impl._operators._frozendict_operators import *
+from hgraph._impl._operators._frozenset_operators import *
 from hgraph._impl._operators._getattr import *
 from hgraph._impl._operators._graph_operators import *
 from hgraph._impl._operators._number_operators import *
