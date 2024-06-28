@@ -1,158 +1,18 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from frozendict import frozendict
-
-from hg_oap.assets.currency import Currencies
-from hg_oap.orders.order import OriginatorInfo, ORDER, OrderState, SingleLegOrder, MultiLegOrder, Fill
-from hg_oap.orders.order_type import OrderType, MultiLegOrderType, SingleLegOrderType
-from hgraph import request_reply_service, reference_service, TSD, TS, CompoundScalar, service_impl, feedback, TSB, \
+from hgraph import request_reply_service, TSD, TS, service_impl, feedback, TSB, \
     compute_node, map_, TSB_OUT, HgTSTypeMetaData, STATE, TimeSeriesSchema, graph, emit
 
+from hg_oap.assets.currency import Currencies
+from hg_oap.orders.order import ORDER, OrderState, SingleLegOrder, MultiLegOrder, order_states
+from hg_oap.orders.order_request_response_events import OrderRequest, CreateOrderRequest, OrderResponse, OrderEvent, \
+    FillEvent
+from hg_oap.orders.order_type import MultiLegOrderType, SingleLegOrderType
 
-@reference_service
-def order_states(path: str = None) -> TSD[str, TSB[OrderState[ORDER]]]:
-    """
-    The order states associated to an order end-point.
-    """
-
-
-ORDER_REQUEST = TypeVar('ORDER_REQUEST', bound="OrderRequest")
-
-
-@dataclass(frozen=True)
-class OrderRequest(CompoundScalar):
-    order_id: str
-    version: int
-
-    # The below is used for sequence validation
-    user_id: str  # Who is updating
-    prev_version: int  # The previous version
-    prev_user_id: str  # The previous user id
-
-    @staticmethod
-    def create_request(
-            tp: type[ORDER_REQUEST],
-            current_request: TSB[ORDER] | None,
-            user_id: str,
-            **kwargs
-    ) -> ORDER_REQUEST:
-        current_request = None if current_request is None else current_request.value
-        order_id = kwargs.pop('order_id') if current_request is None else current_request.order_id
-        prev_version = -1 if current_request is None else current_request.version
-        prev_user_id = "" if current_request is None else current_request.user_id
-        return tp(
-            order_id=order_id,
-            version=prev_version + 1,
-            user_id=user_id,
-            prev_version=prev_version,
-            prev_user_id=prev_user_id,
-            **kwargs
-        )
-
-
-@dataclass(frozen=True)
-class CreateOrderRequest(OrderRequest):
-    order_type: OrderType
-    originator_info: OriginatorInfo
-
-
-@dataclass(frozen=True)
-class AmendOrderRequest(OrderRequest):
-    order_type_details: frozendict[str, Any]
-    originator_info_details: frozendict[str, Any]
-
-
-@dataclass(frozen=True)
-class SuspendOrderRequest(OrderRequest):
-    suspension_key: str
-
-
-@dataclass(frozen=True)
-class ResumeOrderRequest(OrderRequest):
-    suspension_key: str
-
-
-@dataclass(frozen=True)
-class CancelOrderRequest(OrderRequest):
-    """
-    Cancel an order, use force=True to cancel an order without waiting for
-    a response when the order has children or validation logic.
-    """
-    reason: str
-    force: bool = False
-
-
-@dataclass(frozen=True)
-class OrderResponse(CompoundScalar):
-    order_id: str
-    version: int
-    original_request: OrderRequest
-
-    @staticmethod
-    def accept(request: OrderRequest) -> "OrderAcceptResponse":
-        """Create an accept message"""
-        return OrderAcceptResponse(
-            order_id=request.order_id,
-            version=request.version,
-            original_request=request
-        )
-
-    @staticmethod
-    def reject(request: OrderRequest, reason: str) -> "OrderRejectResponse":
-        """Create a reject message"""
-        return OrderReject(
-            order_id=request.order_id,
-            version=request.version,
-            original_request=request,
-            reason=reason
-        )
-
-
-@dataclass(frozen=True)
-class OrderAcceptResponse(OrderResponse):
-    """Indicates the request was accepted"""
-
-
-@dataclass(frozen=True)
-class OrderReject(OrderResponse):
-    """Indicates the request was rejected, the reason is also provided"""
-    reason: str
-
-
-@dataclass(frozen=True)
-class OrderEvent(CompoundScalar):
-    """
-    Order events are created by order handlers, they can interact order state and make changes that are not as a direct
-    response to a request. These include Fills, UnsolicitedCancels, UnsolicitedSuspend and UnsolicitedResume events.
-    """
-    order_id: str
-
-    @staticmethod
-    def create_fill(confirmed: dict, fill: Fill) -> "FillEvent":
-        return FillEvent(order_id=confirmed['order_id'], fill=fill)
-
-
-@dataclass(frozen=True)
-class FillEvent(OrderEvent):
-    fill: Fill
-
-
-@dataclass(frozen=True)
-class UnsolicitedCancelEvent(OrderEvent):
-    """Cancelled from the server side"""
-    reason: str
-
-
-@dataclass(frozen=True)
-class UnsolicitedSuspendEvent(OrderEvent):
-    key: str
-
-
-@dataclass(frozen=True)
-class UnsolicitedResumeEvent(OrderEvent):
-    key: str
+__all__ = ("order_client", "order_handler", "OrderHandlerOutputs", "OrderHandlerOutput")
 
 
 @request_reply_service
@@ -315,8 +175,8 @@ class PendingRequests:
 
 @graph
 def _compute_order_state_single(
-    requests: TS[tuple[OrderRequest, ...]],
-    responses: TSB[OrderHandlerOutputs]
+        requests: TS[tuple[OrderRequest, ...]],
+        responses: TSB[OrderHandlerOutputs]
 ) -> TSB[OrderState[SingleLegOrder]]:
     out = __compute_order_state_single(requests, responses)
     confirmed = out.confirmed
@@ -347,7 +207,8 @@ def __compute_order_state_single(
         if responses.order_responses.modified:
             order_responses = responses.order_responses.value
             order_responses = {response.version: response for response in order_responses}
-            _state.pending_requests = [request for request in _state.pending_requests if request.version not in responses]
+            _state.pending_requests = [request for request in _state.pending_requests if
+                                       request.version not in responses]
             # Apply responses to confirmed state
             for response in order_responses.values():
                 confirmed, delta = apply_confirmation(confirmed, response)
@@ -397,7 +258,7 @@ def apply_confirmation(confirmed: dict, response: OrderResponse) -> tuple[Any, d
             last_updated_by=request.user_id,
             order_type=request.order_type,
             originator_info=request.originator_info,
-            is_done=False,
+            is_complete=False,
             suspension_keys=frozenset(),
             is_suspended=False,
             remaining_qty=order_type.quantity,
@@ -417,7 +278,7 @@ def apply_requested_single_leg(requested: dict, request: OrderRequest) -> tuple[
             last_updated_by=request.user_id,
             order_type=request.order_type,
             originator_info=request.originator_info,
-            is_done=False,
+            is_complete=False,
             suspension_keys=frozenset(),
             is_suspended=False,
             remaining_qty=order_type.quantity,

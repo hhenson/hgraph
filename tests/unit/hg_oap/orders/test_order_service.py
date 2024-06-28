@@ -1,8 +1,9 @@
 from hg_oap.assets.currency import Currencies
 from hg_oap.instruments.instrument import Instrument
-from hg_oap.orders.order import OrderState, SingleLegOrder, OriginatorInfo, ORDER, Fill
-from hg_oap.orders.order_service import order_handler, OrderRequest, OrderResponse, order_client, \
-    CreateOrderRequest, OrderHandlerOutput, OrderEvent, order_states
+from hg_oap.orders.order import OrderState, SingleLegOrder, OriginatorInfo, ORDER, Fill, order_states
+from hg_oap.orders.order_service import order_handler, order_client, \
+    OrderHandlerOutput
+from hg_oap.orders.order_request_response_events import OrderRequest, CreateOrderRequest, OrderResponse, OrderEvent
 from hg_oap.orders.order_type import MarketOrderType
 from hg_oap.pricing.price import Price
 from hg_oap.units.quantity import Quantity
