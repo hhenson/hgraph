@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import date, timedelta
 from itertools import islice
 from typing import cast
@@ -6,8 +7,28 @@ from hg_oap.dates.calendar import Calendar
 from hg_oap.utils.op import Item, Op, lazy, is_op
 from hg_oap.dates.tenor import Tenor
 
-__all__ = ('is_dgen', 'make_date', 'make_dgen', 'years', 'months', 'weeks', 'weekdays', 'weekends', 'days',
-           'business_days', 'quarters', 'roll_fwd', 'roll_bwd', 'DGen', 'retain', 'DGenParameter')
+__all__ = (
+    "is_dgen",
+    "make_date",
+    "make_dgen",
+    "years",
+    "months",
+    "weeks",
+    "weekdays",
+    "weekends",
+    "days",
+    "business_days",
+    "quarters",
+    "roll_fwd",
+    "roll_bwd",
+    "DGen",
+    "retain",
+    "DGenParameter",
+    "month_end",
+    "month_start",
+    "month_last_bday",
+    "month_first_bday",
+)
 
 
 def is_dgen(obj):
@@ -38,18 +59,45 @@ def make_dgen(obj):
 
 
 def is_negative_slice(item):
-    return item.start is not None and item.start < 0 \
-        or item.stop is not None and item.stop < 0 \
-        or item.step is not None and item.step < 0
+    return (
+        item.start is not None
+        and item.start < 0
+        or item.stop is not None
+        and item.stop < 0
+        or item.step is not None
+        and item.step < 0
+    )
 
 
 class DGen(Item):
-    def __call__(self, input_date=None, start: date = date.min, end: date = date.max, after: date = date.min,
-                 before: date = date.max, calendar: Calendar = None, **kwargs):
-        return self.__invoke__(make_date(start), make_date(end), make_date(after), make_date(before), calendar, **kwargs)
+    def __call__(
+        self,
+        input_date=None,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        return self.__invoke__(
+            make_date(start),
+            make_date(end),
+            make_date(after),
+            make_date(before),
+            calendar,
+            **kwargs,
+        )
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         raise StopIteration
 
     def is_single_date_gen(self):
@@ -93,7 +141,7 @@ class DGen(Item):
         elif other.is_single_date_gen():
             return AfterDGen(self, other)
         else:
-            raise ValueError('Comparing two date generators is not supported')
+            raise ValueError("Comparing two date generators is not supported")
 
     def __lt__(self, other):
         if is_op(other):
@@ -115,7 +163,7 @@ class DGen(Item):
         elif other.is_single_date_gen():
             return AfterOrOnDGen(self, other)
         else:
-            raise ValueError('Comparing two dage generators is not supported')
+            raise ValueError("Comparing two dage generators is not supported")
 
     def __le__(self, other):
         if is_op(other):
@@ -151,7 +199,7 @@ class DGen(Item):
         except:
             pass
 
-        raise ValueError(f'{other} is not a tenor or date generator')
+        raise ValueError(f"{other} is not a tenor or date generator")
 
     def __rsub__(self, other):
         if is_op(other):
@@ -165,10 +213,14 @@ class DGen(Item):
             if item >= 0:
                 return SliceDGen(self, slice(item, item + 1))
             else:
-                raise ValueError(f"{type(self)} date generator does not support negative indices")
+                raise ValueError(
+                    f"{type(self)} date generator does not support negative indices"
+                )
         elif isinstance(item, slice):
             if is_negative_slice(item):
-                raise ValueError(f"{type(self)} date generator does not support negative indices")
+                raise ValueError(
+                    f"{type(self)} date generator does not support negative indices"
+                )
             return SliceDGen(self, item)
         elif is_op(item):
             return lazy(self)[item]
@@ -187,8 +239,15 @@ class ConstDGen(DGen):
     def is_single_date_gen(self):
         return True
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         yield self.date
 
     def __repr__(self):
@@ -199,12 +258,19 @@ class SequenceDGen(DGen):
     def __init__(self, dates):
         self.dates = dates
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         yield from self.dates
 
     def __repr__(self):
-        dates = ','.join(f"'{d}'" for d in self.dates)
+        dates = ",".join(f"'{d}'" for d in self.dates)
         return f"[{dates}]"
 
 
@@ -216,16 +282,29 @@ class AfterDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         if is_dgen(self.date):
-            after = next(self.date.__invoke__(start, end, after, before, calendar, **kwargs))
+            after = next(
+                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+            )
         else:
             after = self.date
 
         after = after + timedelta(days=1)
 
-        yield from (d for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs) if d >= after)
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if d >= after
+        )
 
     def __bool__(self):
         if is_dgen(self.date):
@@ -245,14 +324,27 @@ class AfterOrOnDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         if is_dgen(self.date):
-            after = next(self.date.__invoke__(start, end, after, before, calendar, **kwargs))
+            after = next(
+                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+            )
         else:
             after = self.date
 
-        yield from (d for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs) if d >= after)
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if d >= after
+        )
 
     def __bool__(self):
         if is_dgen(self.date):
@@ -272,14 +364,27 @@ class BeforeDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         if is_dgen(self.date):
-            before = next(self.date.__invoke__(start, end, after, before, calendar, **kwargs))
+            before = next(
+                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+            )
         else:
             before = self.date
 
-        yield from (d for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs) if d < before)
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if d < before
+        )
 
     def __repr__(self):
         return f"'{self.gen}' < {self.date}"
@@ -293,16 +398,29 @@ class BeforeOrOnDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         if is_dgen(self.date):
-            before = next(self.date.__invoke__(start, end, after, before, calendar, **kwargs))
+            before = next(
+                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+            )
         else:
             before = self.date
 
         before = before + timedelta(days=1)
 
-        yield from (d for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs) if d < before)
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if d < before
+        )
 
     def __repr__(self):
         return f"'{self.gen}' <= {self.date}"
@@ -310,10 +428,17 @@ class BeforeOrOnDGen(DGen):
 
 class EveryDayDGen(DGen):
     def cadence(self):
-        return Tenor('1d')
+        return Tenor("1d")
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         start = start if start is not date.min else after
         end = end if end is not date.max else before
 
@@ -322,7 +447,7 @@ class EveryDayDGen(DGen):
             start += timedelta(days=1)
 
     def __repr__(self):
-        return 'days'
+        return "days"
 
 
 days = EveryDayDGen()
@@ -335,15 +460,24 @@ class WeekdaysDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         we = calendar.weekend_days() if calendar else (5, 6)
-        yield from (d for d in
-                    self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
-                    if d.weekday() not in we)
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if d.weekday() not in we
+        )
 
     def __repr__(self):
-        return 'weekdays'
+        return "weekdays"
 
 
 weekdays = WeekdaysDGen(days)
@@ -356,15 +490,24 @@ class WeekendsDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         we = calendar.weekend_days() if calendar else (5, 6)
-        yield from (d for d in
-                    self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
-                    if d.weekday() in we)
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if d.weekday() in we
+        )
 
     def __repr__(self):
-        return 'weekends'
+        return "weekends"
 
 
 weekends = WeekendsDGen(EveryDayDGen())
@@ -377,15 +520,24 @@ class BusinessDaysDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
-        assert calendar, 'Business days calculation requires a calendar'
-        yield from (d for d in
-                    self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
-                    if not calendar.is_holiday_or_weekend(d))
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        assert calendar, "Business days calculation requires a calendar"
+        yield from (
+            d
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            if not calendar.is_holiday_or_weekend(d)
+        )
 
     def __repr__(self):
-        return 'business_days'
+        return "business_days"
 
 
 business_days = BusinessDaysDGen(EveryDayDGen())
@@ -393,14 +545,25 @@ business_days = BusinessDaysDGen(EveryDayDGen())
 
 class WeeksDGen(DGen):
     def cadence(self):
-        return Tenor('1w')
+        return Tenor("1w")
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         start = start if start is not date.min else after
         end = end if end is not date.max else before
 
-        monday = start + timedelta(days=7 - start.weekday()) if start.weekday() > 0 else start
+        monday = (
+            start + timedelta(days=7 - start.weekday())
+            if start.weekday() > 0
+            else start
+        )
         while monday <= end:
             yield monday
             monday += timedelta(days=7)
@@ -434,7 +597,7 @@ class WeeksDGen(DGen):
         return DayOfWeekDGen(6, self)
 
     def __repr__(self):
-        return 'weeks'
+        return "weeks"
 
 
 weeks = WeeksDGen()
@@ -446,10 +609,17 @@ class DayOfWeekDGen(DGen):
         self.weekday = weekday
 
     def cadence(self):
-        return Tenor('1w')
+        return Tenor("1w")
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         if self.gen is None:
             d = after + timedelta(days=(self.weekday - after.weekday()) % 7)
             while d < before:
@@ -463,9 +633,9 @@ class DayOfWeekDGen(DGen):
                     yield d_
 
     def __repr__(self):
-        weekday_name = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')[self.weekday]
+        weekday_name = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[self.weekday]
         if self.gen is not None:
-            return f'{self.gen}.{weekday_name}'
+            return f"{self.gen}.{weekday_name}"
         else:
             return weekday_name
 
@@ -481,14 +651,28 @@ class AddTenorDGen(DGen):
     def is_single_date_gen(self):
         return self.gen.is_single_date_gen()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         start = start if start is not date.min else after
-        start = self.tenor.sub_from(start, calendar) if not self.tenor.is_neg() and start is not date.min else start
-        yield from (self.tenor.add_to(d, calendar) for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs))
+        start = (
+            self.tenor.sub_from(start, calendar)
+            if not self.tenor.is_neg() and start is not date.min
+            else start
+        )
+        yield from (
+            self.tenor.add_to(d, calendar)
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+        )
 
     def __repr__(self):
-        return f'{self.gen} + {self.tenor}'
+        return f"{self.gen} + {self.tenor}"
 
 
 class SubTenorDGen(DGen):
@@ -502,15 +686,25 @@ class SubTenorDGen(DGen):
     def is_single_date_gen(self):
         return self.gen.is_single_date_gen()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         end = end if end is not date.max else before
         if end is not date.max:
             end = self.tenor.add_to(end, calendar) if not self.tenor.is_neg() else end
-        yield from (self.tenor.sub_from(d, calendar) for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs))
+        yield from (
+            self.tenor.sub_from(d, calendar)
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+        )
 
     def __repr__(self):
-        return f'{self.gen} - {self.tenor}'
+        return f"{self.gen} - {self.tenor}"
 
 
 class JoinDGen(DGen):
@@ -518,8 +712,15 @@ class JoinDGen(DGen):
         self.gen1 = gen1
         self.gen2 = gen2
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         g1 = self.gen1.__invoke__(start, end, after, before, calendar, **kwargs)
         g2 = self.gen2.__invoke__(start, end, after, before, calendar, **kwargs)
 
@@ -546,7 +747,7 @@ class JoinDGen(DGen):
                 d2 = next(g2, None)
 
     def __repr__(self):
-        return f'{self.gen1} | {self.gen2}'
+        return f"{self.gen1} | {self.gen2}"
 
 
 class CommonDatesDGen(DGen):
@@ -554,8 +755,15 @@ class CommonDatesDGen(DGen):
         self.gen1 = gen1
         self.gen2 = gen2
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         g1 = self.gen1.__invoke__(start, end, after, before, calendar, **kwargs)
         g2 = self.gen2.__invoke__(start, end, after, before, calendar, **kwargs)
 
@@ -572,7 +780,7 @@ class CommonDatesDGen(DGen):
                 d2 = next(g2, None)
 
     def __repr__(self):
-        return f'{self.gen1} & {self.gen2}'
+        return f"{self.gen1} & {self.gen2}"
 
 
 class RemoveDatesDGen(DGen):
@@ -580,8 +788,15 @@ class RemoveDatesDGen(DGen):
         self.gen1 = gen1
         self.gen2 = gen2
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         g1 = self.gen1.__invoke__(start, end, after, before, calendar, **kwargs)
         g2 = self.gen2.__invoke__(start, end, after, before, calendar, **kwargs)
 
@@ -602,15 +817,22 @@ class RemoveDatesDGen(DGen):
                 d1 = next(g1, None)
 
     def __repr__(self):
-        return f'{self.gen1} - {self.gen2}'
+        return f"{self.gen1} - {self.gen2}"
 
 
 class MonthsDGen(DGen):
     def cadence(self):
-        return Tenor('1m')
+        return Tenor("1m")
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         start = start if start is not date.min else after
         end = end if end is not date.max else before
 
@@ -623,7 +845,7 @@ class MonthsDGen(DGen):
 
     @property
     def end(self):
-        return months - '1d'
+        return months - "1d"
 
     @property
     def weeks(self):
@@ -670,31 +892,42 @@ class MonthsDGen(DGen):
         return SubSequenceDGen(self, DayOfWeekDGen(6))
 
     def __repr__(self):
-        return 'months'
+        return "months"
 
 
 months = MonthsDGen()
 
 
 class SubSequenceDGen(DGen):
-    def __init__(self, main_sequence, sub_sequence, slice = None):
-        if main_sequence.cadence() in (None, Tenor('1d')):
-            raise ValueError(f'cannot generate sub sequences from main sequence with cadence of {main_sequence.cadence()}')
+    def __init__(self, main_sequence, sub_sequence, slice=None):
+        if main_sequence.cadence() in (None, Tenor("1d")):
+            raise ValueError(
+                f"cannot generate sub sequences from main sequence with cadence of {main_sequence.cadence()}"
+            )
 
         self.main_sequence = main_sequence
         self.sub_sequence = sub_sequence
         self.slice = slice
 
     def __getattr__(self, name):
-        if isinstance(pr := getattr(type(self.sub_sequence),name),property):
+        if isinstance(pr := getattr(type(self.sub_sequence), name), property):
             return pr.fget(self)
 
     def cadence(self):
         return self.sub_sequence.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
-        for begin in self.main_sequence.__invoke__(start, end, after, before, calendar, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        for begin in self.main_sequence.__invoke__(
+            start, end, after, before, calendar, **kwargs
+        ):
             end = self.main_sequence.cadence().add_to(begin)
             sub_sequence = cast(DGen, begin <= self.sub_sequence < end)
             if self.slice is None:
@@ -703,11 +936,22 @@ class SubSequenceDGen(DGen):
                 if is_negative_slice(self.slice):
                     yield from [d for d in sub_sequence() if d < before][self.slice]
                 else:
-                    yield from (d for d in islice(sub_sequence(), self.slice.start, self.slice.stop, self.slice.step) if d < before)
+                    yield from (
+                        d
+                        for d in islice(
+                            sub_sequence(),
+                            self.slice.start,
+                            self.slice.stop,
+                            self.slice.step,
+                        )
+                        if d < before
+                    )
 
     def __getitem__(self, item):
         if isinstance(item, int):
-            return SubSequenceDGen(self.main_sequence, self.sub_sequence, slice(item, item + 1))
+            return SubSequenceDGen(
+                self.main_sequence, self.sub_sequence, slice(item, item + 1)
+            )
         if isinstance(item, slice):
             return SubSequenceDGen(self.main_sequence, self.sub_sequence, item)
         if isinstance(item, Op):
@@ -723,7 +967,7 @@ class SubSequenceDGen(DGen):
                 sl_str = f"[{self.slice.start}:{self.slice.stop}]"
             else:
                 sl_str = f"[{self.slice.start}:{self.slice.stop}:{self.slice.step}]"
-        return f'{self.main_sequence}.{self.sub_sequence}{sl_str}'
+        return f"{self.main_sequence}.{self.sub_sequence}{sl_str}"
 
 
 class DaysOfMonthDGen(DGen):
@@ -731,14 +975,23 @@ class DaysOfMonthDGen(DGen):
         self.months = months
         self.days = days
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
-        for month in self.months.__invoke__(start, end, after, before, calendar, **kwargs):
-            next_month = Tenor('1m').add_to(month)
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        for month in self.months.__invoke__(
+            start, end, after, before, calendar, **kwargs
+        ):
+            next_month = Tenor("1m").add_to(month)
             yield from (month <= self.days < next_month)()
 
     def __repr__(self):
-        return f'{self.months}.{self.days}'
+        return f"{self.months}.{self.days}"
 
 
 class QuartersDGen(DGen):
@@ -791,10 +1044,17 @@ quarters = QuartersDGen()
 
 class YearsDGen(DGen):
     def cadence(self):
-        return Tenor('1y')
+        return Tenor("1y")
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         start = start if start is not date.min else after
         end = end if end is not date.max else before
 
@@ -805,7 +1065,7 @@ class YearsDGen(DGen):
 
     @property
     def end(self):
-        return years - '1d'
+        return years - "1d"
 
     @property
     def months(self):
@@ -876,7 +1136,7 @@ class YearsDGen(DGen):
         return SubSequenceDGen(self, weekends)
 
     def __repr__(self):
-        return 'years'
+        return "years"
 
 
 years = YearsDGen()
@@ -890,12 +1150,24 @@ class SliceDGen(DGen):
     def cadence(self):
         return self.gen.cadence()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
-        yield from islice(self.gen.__invoke__(start, end, after, before, calendar, **kwargs), self.slice.start, self.slice.stop, self.slice.step)
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        yield from islice(
+            self.gen.__invoke__(start, end, after, before, calendar, **kwargs),
+            self.slice.start,
+            self.slice.stop,
+            self.slice.step,
+        )
 
     def __repr__(self):
-        return f'{self.gen}[{self.slice}]'
+        return f"{self.gen}[{self.slice}]"
 
 
 class WithCalendarDGen(DGen):
@@ -906,12 +1178,21 @@ class WithCalendarDGen(DGen):
     def cadence(self):
         return self.gen.cadence
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
-        yield from (d for d in self.gen.__invoke__(start, end, after, before, self.calendar))
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        yield from (
+            d for d in self.gen.__invoke__(start, end, after, before, self.calendar)
+        )
 
     def __repr__(self):
-        return f'{self.gen}.over({self.calendar})'
+        return f"{self.gen}.over({self.calendar})"
 
 
 class RollFwdDGen(DGen):
@@ -925,14 +1206,28 @@ class RollFwdDGen(DGen):
     def is_single_date_gen(self):
         return self.gen.is_single_date_gen()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         c = self.calendar or calendar
-        assert c, 'Business days calculation requires a calendar'
-        yield from (c.add_business_days(d, 0) for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs))
+        assert c, "Business days calculation requires a calendar"
+        yield from (
+            c.add_business_days(d, 0)
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+        )
 
     def __repr__(self):
-        return f'roll_fwd({self.gen})' if self.calendar is None else f'roll_fwd({self.gen}, {self.calendar})'
+        return (
+            f"roll_fwd({self.gen})"
+            if self.calendar is None
+            else f"roll_fwd({self.gen}, {self.calendar})"
+        )
 
 
 def roll_fwd(x, calendar=None):
@@ -953,14 +1248,28 @@ class RollBwdDGen(DGen):
     def is_single_date_gen(self):
         return self.gen.is_single_date_gen()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         c = self.calendar or calendar
-        assert c, 'Business days calculation requires a calendar'
-        yield from (c.sub_business_days(d, 0) for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs))
+        assert c, "Business days calculation requires a calendar"
+        yield from (
+            c.sub_business_days(d, 0)
+            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+        )
 
     def __repr__(self):
-        return f'roll_bwd({self.gen})' if self.calendar is None else f'roll_bwd({self.gen}, {self.calendar})'
+        return (
+            f"roll_bwd({self.gen})"
+            if self.calendar is None
+            else f"roll_bwd({self.gen}, {self.calendar})"
+        )
 
 
 def roll_bwd(x, calendar=None):
@@ -982,15 +1291,22 @@ class DGenRetain(DGen):
     def is_single_date_gen(self):
         return self.gen.is_single_date_gen()
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
             self.last = d
             self.all.append(d)
             yield d
 
     def __repr__(self):
-        return f'retain({self.gen})'
+        return f"retain({self.gen})"
 
 
 def retain(x):
@@ -1007,12 +1323,99 @@ class DGenParameter(DGen):
     def is_single_date_gen(self):
         return True
 
-    def __invoke__(self, start: date = date.min, end: date = date.max, after: date = date.min, before: date = date.max,
-                   calendar: Calendar = None, **kwargs):
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
         if v := kwargs.get(self.name, None):
             yield make_date(v)
         else:
-            raise ValueError(f'Parameter {self.name} is not provided')
+            raise ValueError(f"Parameter {self.name} is not provided")
 
     def __repr__(self):
         return self.name
+
+
+class MonthEndDgen(DGen):
+    def __init__(self, gen):
+        self.gen = gen
+
+    def cadence(self):
+        return self.gen.cadence()
+
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
+
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+            yield date(d.year, d.month, monthrange(d.year, d.month)[1])
+
+    def __repr__(self):
+        return f"month_end({self.gen})"
+
+
+def month_end(x):
+    if is_op(x):
+        return lazy(month_end)(x)
+    else:
+        return MonthEndDgen(x)
+
+
+def month_last_bday(x, calendar=None):
+    if is_op(x) or is_op(calendar):
+        return lazy(month_last_bday)(x, calendar)
+    else:
+        return roll_bwd(month_end(x), calendar)
+
+
+class MonthStartDgen(DGen):
+    def __init__(self, gen):
+        self.gen = gen
+
+    def cadence(self):
+        return self.gen.cadence()
+
+    def is_single_date_gen(self):
+        return self.gen.is_single_date_gen()
+
+    def __invoke__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+            yield date(d.year, d.month, 1)
+
+    def __repr__(self):
+        return f"month_start({self.gen})"
+
+
+def month_start(x):
+    if is_op(x):
+        return lazy(month_start)(x)
+    else:
+        return MonthStartDgen(x)
+
+
+def month_first_bday(x, calendar=None):
+    if is_op(x) or is_op(calendar):
+        return lazy(month_first_bday)(x, calendar)
+    else:
+        return roll_fwd(month_start(x), calendar)
