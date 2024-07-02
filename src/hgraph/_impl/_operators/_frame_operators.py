@@ -44,6 +44,16 @@ def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = 
     return _tp(**ts.value[key].to_dicts()[0])
 
 
+@compute_node(overloads=getitem_)
+def get_item_series(series: TS[Series[SCALAR]], key: int) -> TS[SCALAR]:
+    return series.value[key]
+
+
+@compute_node(overloads=getitem_)
+def get_item_series_ts(series: TS[Series[SCALAR]], key: TS[int]) -> TS[SCALAR]:
+    return series.value[key.value]
+
+
 @compute_node(overloads=min_)
 def min_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
     return series.value.min()
