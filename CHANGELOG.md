@@ -565,3 +565,8 @@ Version 0.2.48 (28-06-2024)
 ---------------------------
 
 * Further cleanups of node locations and removing items that are no longer used.
+
+Version 0.2.49 (04-07-2024)
+---------------------------
+
+* Upgrade to Polars 1.0, fixes due to API changes

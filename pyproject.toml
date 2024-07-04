@@ -10,7 +10,7 @@ dependencies = [
     "sortedcontainers>=2.4.0",
     "ordered-set>=4.1.0",
     "numpy>=1.23",
-    "polars>=0.20.18",
+    "polars>=1.0",
     "sqlalchemy",
     "duckdb",
     "pyarrow",

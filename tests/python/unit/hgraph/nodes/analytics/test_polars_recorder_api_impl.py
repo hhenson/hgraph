@@ -103,4 +103,4 @@ def test_record_to_table_api(input, tp, schema: CompoundScalar, expected):
         eval_node(g, input)
         import polars as pl
         df: pl.DataFrame = polars_api.get_table_reader("test", "test_label").raw_table
-        assert df.select(schema.__meta_data_schema__.keys()).to_dict(False) == expected
+        assert df.select(schema.__meta_data_schema__.keys()).to_dict(as_series=False) == expected

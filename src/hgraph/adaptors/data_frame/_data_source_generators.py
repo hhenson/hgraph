@@ -127,7 +127,7 @@ def tsd_k_v_from_data_source(
     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     for df_1 in dfs_instance.iter_frames():
-        for dt, df in df_1.group_by(dt_col, maintain_order=True):
+        for (dt,), df in df_1.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             yield dt + offset, {k: v for k, v in df.select(key_col, value_col).iter_rows()}
 
@@ -171,10 +171,10 @@ def tsd_k_tsd_from_data_source(
     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col, pivot_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     for df_all in dfs_instance.iter_frames():
-        for dt, df_1 in df_all.group_by(dt_col, maintain_order=True):
+        for (dt,), df_1 in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             out = {}
-            for key, df in df_1.group_by(key_col, maintain_order=True):
+            for (key,), df in df_1.group_by(key_col, maintain_order=True):
                 out[key] = {k: v for k, v in df.select(pivot_col, value_col).iter_rows()}
             yield dt + offset, out
 
@@ -204,7 +204,7 @@ def tsd_k_b_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
     for df_all in dfs_instance.iter_frames():
-        for dt, df in df_all.group_by(dt_col, maintain_order=True):
+        for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             key_df = df[key_col]
             value_df = df.select(*value_keys)
@@ -240,7 +240,7 @@ def tsd_k_a_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
     for df_all in dfs_instance.iter_frames():
-        for dt, df in df_all.group_by(dt_col, maintain_order=True):
+        for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             out = {k: np.array(v) for k, v in zip(df[key_col], df.select(*value_keys).iter_rows())}
             yield dt + offset, out
@@ -312,7 +312,7 @@ def ts_of_matrix_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
     for df_all in dfs_instance.iter_frames():
-        for dt, df in df_all.group_by(dt_col, maintain_order=True):
+        for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             df_values = df.select(*value_keys)
             yield dt + offset, df_values.to_numpy()
@@ -340,7 +340,7 @@ def ts_of_frames_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if not remove_dt_col or k != dt_col)
     for df_all in dfs_instance.iter_frames():
-        for dt, df in df_all.group_by(dt_col, maintain_order=True):
+        for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             df_values = df.select(*value_keys)
             yield dt + offset, df_values
