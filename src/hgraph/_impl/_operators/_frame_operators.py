@@ -9,9 +9,7 @@ from hgraph import (
     AUTO_RESOLVE,
     Series,
     getitem_,
-    getattr_,
-    max_,
-    min_,
+    getattr_
 )
 
 __all__ = tuple()
@@ -42,23 +40,3 @@ def get_frame_item_(ts: TS[Frame[SCHEMA]], key: int, _tp: Type[SCHEMA] = AUTO_RE
 @compute_node(overloads=getitem_)
 def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
     return _tp(**ts.value[key].to_dicts()[0])
-
-
-@compute_node(overloads=getitem_)
-def get_item_series(series: TS[Series[SCALAR]], key: int) -> TS[SCALAR]:
-    return series.value[key]
-
-
-@compute_node(overloads=getitem_)
-def get_item_series_ts(series: TS[Series[SCALAR]], key: TS[int]) -> TS[SCALAR]:
-    return series.value[key.value]
-
-
-@compute_node(overloads=min_)
-def min_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
-    return series.value.min()
-
-
-@compute_node(overloads=max_)
-def max_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
-    return series.value.max()

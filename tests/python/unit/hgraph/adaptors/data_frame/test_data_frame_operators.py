@@ -56,28 +56,3 @@ def test_ungroup():
 
     result = eval_node(g, [frozendict({'a': df_1, 'b': df_3})])
     assert len(result[0]) == 3
-
-
-def test_get_item_series():
-    s = pl.Series("a", [1, 2, 3])
-
-    @graph
-    def g(ts: TS[Series[int]], index: int) -> TS[int]:
-        return ts[index]
-
-    assert eval_node(g, [s], 0) == [1]
-    assert eval_node(g, [s], 2) == [3]
-    with pytest.raises(NodeException):
-        assert eval_node(g, [s], 4)
-
-
-def test_get_item_series_ts():
-    s = pl.Series("a", [1, 2, 3])
-
-    @graph
-    def g(ts: TS[Series[int]], index: TS[int]) -> TS[int]:
-        return ts[index]
-
-    assert eval_node(g, [s], [0, 2]) == [1, 3]
-    with pytest.raises(NodeException):
-        assert eval_node(g, [s], [4])
