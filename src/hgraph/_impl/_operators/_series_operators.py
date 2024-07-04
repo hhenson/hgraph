@@ -50,18 +50,8 @@ def div_series_number(lhs: TS[Series[NUMBER]], rhs: TS[NUMBER_2]) -> TS[Series[f
 
 
 @compute_node(overloads=mul_)
-def mul_series_int_series_int(lhs: TS[Series[int]], rhs: TS[Series[int]]) -> TS[Series[int]]:
+def mul_series_float_series_float(lhs: TS[Series[NUMBER]], rhs: TS[Series[NUMBER_2]]) -> TS[Series[NUMBER_2]]:
     return lhs.value * rhs.value
-
-
-@compute_node(overloads=mul_)
-def mul_series_float_series_float(lhs: TS[Series[float]], rhs: TS[Series[float]]) -> TS[Series[float]]:
-    return lhs.value * rhs.value
-
-
-@graph(overloads=mul_)
-def mul_series_int_series_float(lhs: TS[Series[int]], rhs: TS[Series[float]]) -> TS[Series[float]]:
-    return rhs * lhs
 
 
 @compute_node(overloads=mul_)
@@ -70,7 +60,7 @@ def mul_series_float_series_int(lhs: TS[Series[float]], rhs: TS[Series[int]]) ->
 
 
 @compute_node(overloads=mul_)
-def mul_series_int_float(lhs: TS[Series[int]], rhs: TS[float]) -> TS[Series[float]]:
+def mul_series_int_float(lhs: TS[Series[NUMBER]], rhs: TS[NUMBER_2]) -> TS[Series[NUMBER_2]]:
     return lhs.value * rhs.value
 
 
@@ -79,18 +69,8 @@ def mul_series_float_int(lhs: TS[Series[float]], rhs: TS[int]) -> TS[Series[floa
     return lhs * cast_(float, rhs)
 
 
-@compute_node(overloads=mul_)
-def mul_series_float_float(lhs: TS[Series[float]], rhs: TS[float]) -> TS[Series[float]]:
-    return lhs.value * rhs.value
-
-
-@compute_node(overloads=mul_)
-def mul_series_int_int(lhs: TS[Series[int]], rhs: TS[int]) -> TS[Series[int]]:
-    return lhs.value * rhs.value
-
-
 @compute_node(overloads=sub_)
-def sub_series_float_float(lhs: TS[Series[float]], rhs: TS[float]) -> TS[Series[float]]:
+def sub_series_float_float(lhs: TS[Series[NUMBER]], rhs: TS[NUMBER_2]) -> TS[Series[NUMBER_2]]:
     return lhs.value - rhs.value
 
 
@@ -100,27 +80,7 @@ def sub_series_float_int(lhs: TS[Series[float]], rhs: TS[int]) -> TS[Series[floa
 
 
 @compute_node(overloads=sub_)
-def sub_series_int_int(lhs: TS[Series[int]], rhs: TS[int]) -> TS[Series[int]]:
-    return lhs.value - rhs.value
-
-
-@compute_node(overloads=sub_)
-def sub_series_int_float(lhs: TS[Series[int]], rhs: TS[float]) -> TS[Series[float]]:
-    return lhs.value - rhs.value
-
-
-@compute_node(overloads=sub_)
-def sub_series_int_series_int(lhs: TS[Series[int]], rhs: TS[Series[int]]) -> TS[Series[int]]:
-    return lhs.value - rhs.value
-
-
-@compute_node(overloads=sub_)
-def sub_series_int_series_float(lhs: TS[Series[int]], rhs: TS[Series[float]]) -> TS[Series[float]]:
-    return lhs.value - rhs.value
-
-
-@compute_node(overloads=sub_)
-def sub_series_float_series_float(lhs: TS[Series[float]], rhs: TS[Series[float]]) -> TS[Series[float]]:
+def sub_series_int_series_int(lhs: TS[Series[NUMBER]], rhs: TS[Series[NUMBER_2]]) -> TS[Series[NUMBER_2]]:
     return lhs.value - rhs.value
 
 
@@ -130,7 +90,7 @@ def sub_series_float_series_int(lhs: TS[Series[float]], rhs: TS[Series[int]]) ->
 
 
 @compute_node(overloads=add_)
-def add_series_float_float(lhs: TS[Series[float]], rhs: TS[float]) -> TS[Series[float]]:
+def add_series_float_float(lhs: TS[Series[NUMBER]], rhs: TS[NUMBER_2]) -> TS[Series[NUMBER_2]]:
     return lhs.value + rhs.value
 
 
@@ -140,27 +100,7 @@ def add_series_float_int(lhs: TS[Series[float]], rhs: TS[int]) -> TS[Series[floa
 
 
 @compute_node(overloads=add_)
-def add_series_int_int(lhs: TS[Series[int]], rhs: TS[int]) -> TS[Series[int]]:
-    return lhs.value + rhs.value
-
-
-@compute_node(overloads=add_)
-def add_series_int_float(lhs: TS[Series[int]], rhs: TS[float]) -> TS[Series[float]]:
-    return lhs.value + rhs.value
-
-
-@compute_node(overloads=add_)
-def add_series_int_series_int(lhs: TS[Series[int]], rhs: TS[Series[int]]) -> TS[Series[int]]:
-    return lhs.value + rhs.value
-
-
-@compute_node(overloads=add_)
-def add_series_int_series_float(lhs: TS[Series[int]], rhs: TS[Series[float]]) -> TS[Series[float]]:
-    return lhs.value + rhs.value
-
-
-@compute_node(overloads=add_)
-def add_series_float_series_float(lhs: TS[Series[float]], rhs: TS[Series[float]]) -> TS[Series[float]]:
+def add_series_int_series_int(lhs: TS[Series[NUMBER]], rhs: TS[Series[NUMBER_2]]) -> TS[Series[NUMBER_2]]:
     return lhs.value + rhs.value
 
 
