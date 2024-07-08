@@ -31,6 +31,7 @@ from hgraph import (
     sample,
     if_,
     debug_print,
+    mesh_,
 )
 from hgraph.nodes import pass_through
 from hgraph.test import eval_node
@@ -370,3 +371,19 @@ def test_resolution_of_service_vs_impl_with_additional_template_params():
         return receive[KEYABLE_SCALAR:str]()
 
     assert eval_node(g_test) == [""]
+
+
+def test_service_in_a_mesh():
+    @reference_service
+    def receive(path: str = default_path) -> TS[KEYABLE_SCALAR]: ...
+
+    @service_impl(interfaces=(receive,))
+    def impl(tp: type[SCALAR]) -> TS[KEYABLE_SCALAR]:
+        return const(tp(), TS[str])
+
+    @graph
+    def g_test() -> TSD[int, TS[str]]:
+        receive[KEYABLE_SCALAR:str].register_impl(default_path, impl, tp=str)
+        return mesh_(lambda key: receive[KEYABLE_SCALAR:str](), __keys__=const(frozenset({1, 2}), TSS[int]))
+
+    assert eval_node(g_test) == [{1: "", 2: ""}]
