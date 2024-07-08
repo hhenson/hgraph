@@ -161,10 +161,8 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                     from hgraph import TimeSeriesReferenceInput
 
                     ts: TimeSeriesReferenceInput = self.input[arg]
-                    if ts.output:
-                        node.input["ts"].bind_output(ts.output)
-                    else:
-                        ts.value.bind_input(node.input["ts"])
+                    inner_input: TimeSeriesReferenceInput = node.input["ts"]
+                    inner_input.clone_binding(ts)
 
         if self.output_node_id:
             node: Node = graph.nodes[self.output_node_id]

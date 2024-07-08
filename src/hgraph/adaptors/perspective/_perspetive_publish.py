@@ -20,9 +20,10 @@ from hgraph import (
     HgTSTypeMetaData,
     HgCompoundScalarType,
     HgDataFrameScalarTypeMetaData,
-    push_queue, OUT,
+    push_queue,
+    OUT,
+    nothing,
 )
-from hgraph.nodes import nothing
 from ._perspective import PerspectiveTablesManager
 
 __all__ = ("publish_table",)

@@ -39,4 +39,4 @@ def get_frame_item_(ts: TS[Frame[SCHEMA]], key: int, _tp: Type[SCHEMA] = AUTO_RE
 
 @compute_node(overloads=getitem_)
 def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
-    return _tp(**ts.value[key].to_dicts()[0])
+    return _tp(**ts.value[key.value].to_dicts()[0])

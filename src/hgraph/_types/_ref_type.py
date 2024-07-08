@@ -56,6 +56,10 @@ class TimeSeriesReferenceInput(
     the value. It also supports the input behaviours of the TimeSeriesInput
     """
 
+    @abstractmethod
+    def clone_binding(self, other: "TimeSeriesReferenceInput"):
+        """Duplicate binding of another input"""
+
 
 # Shorthand for a TimeSeriesValueInput
 REF = TimeSeriesReferenceInput
