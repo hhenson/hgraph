@@ -92,3 +92,9 @@ def test_holiday_calendar_sub_business_days_1(d, t, r):
     all_mondays = '1997-01-01' <= weeks.mon <= '1999-01-01'
     calendar = HolidayCalendar(tuple(all_mondays()))
     assert calendar.sub_business_days(d, t) == r
+
+
+def test_holiday_calendar_is_holiday():
+    calendar = HolidayCalendar((date(2024, 3, 29), date(2024, 4, 1)))
+    assert calendar.is_holiday(date(2024, 3, 29))
+    assert not calendar.is_holiday(date(2024, 3, 28))
