@@ -50,15 +50,23 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
                 typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
                 full_path = self.full_path(kwargs_.get("path"))
 
-                from hgraph.nodes._service_utils import _subscribe
-                from hgraph import TIME_SERIES_TYPE
+                from hgraph import TIME_SERIES_TYPE, TSD
+                from hgraph.nodes import write_subscription_key, get_shared_reference_output
 
-                port = _subscribe[TIME_SERIES_TYPE : resolved_signature.output_type](
-                    path=typed_full_path, key=kwargs_[next(iter(resolved_signature.time_series_args))]
+                key = kwargs_[next(iter(resolved_signature.time_series_args))]
+                key_type = key.output_type.dereference().value_scalar_tp
+                value_type = resolved_signature.output_type
+
+                client = write_subscription_key(typed_full_path, key, __return_sink_wp__=True)
+                g.register_service_client(self, full_path, resolution_dict, client.node_instance)
+
+                out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[key_type, value_type]](
+                    f"{typed_full_path}/out"
                 )
 
-                g.register_service_client(self, full_path, resolution_dict, port.node_instance)
-                return port
+                result = out[key]
+                g.register_service_client(self, full_path, resolution_dict, result.node_instance)
+                return result
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         from hgraph.nodes import capture_output_node_to_global_state
