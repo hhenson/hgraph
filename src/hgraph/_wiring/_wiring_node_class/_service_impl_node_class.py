@@ -37,15 +37,13 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
             signature.copy_with(
                 args=(("path",) if not has_path else ())
                 + tuple(arg for arg in signature.args if arg not in time_series_args),
-                input_types=frozendict(
-                    {
-                        k: v
-                        for k, v in (
-                            signature.input_types | ({"path": HgAtomicType.parse_type(str)} if not has_path else {})
-                        ).items()
-                        if k not in time_series_args
-                    }
-                ),
+                input_types=frozendict({
+                    k: v
+                    for k, v in (
+                        signature.input_types | ({"path": HgAtomicType.parse_type(str)} if not has_path else {})
+                    ).items()
+                    if k not in time_series_args
+                }),
                 time_series_args=tuple(),
             ),
             fn,
@@ -104,7 +102,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
             )
 
             with WiringContext(current_wiring_node=self, current_signature=self.signature):
-                inner_graph, paths = create_inner_graph(
+                inner_graph, sc, cc, paths = create_inner_graph(
                     self._original_signature, self.fn, kwargs_, self.interfaces, resolution_dict, path_types
                 )
                 kwargs_["inner_graph"] = inner_graph
@@ -118,9 +116,11 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
                 frozendict(kwargs_),
             )
 
-            for p in paths:
-                from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
+            from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
+            WiringGraphContext.instance().reassign_service_clients(sc, wiring_node_instance)
+            WiringGraphContext.instance().reassign_context_clients(cc, wiring_node_instance)
+            for p in paths:
                 WiringGraphContext.instance().add_built_service_impl(p, wiring_node_instance)
 
     def create_node_builder_instance(self, node_signature: "NodeSignature", scalars: Dict[str, Any]) -> "NodeBuilder":
@@ -226,7 +226,7 @@ def create_inner_graph(
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
     else:
         with WiringGraphContext(None) as context:
-            graph, final_resolution_dict = wire_multi_service(fn, scalars)
+            graph, final_resolution_dict, sc, cc = wire_multi_service(fn, scalars)
             for path, node in context.built_services().items():
                 if node:
                     raise CustomMessageWiringError(
@@ -246,7 +246,7 @@ def create_inner_graph(
                     case _:
                         raise CustomMessageWiringError(f"Unknown service type: {s.signature.node_type}")
 
-            return graph, list(context.built_services().keys())
+            return graph, sc, cc, list(context.built_services().keys())
 
 
 def wire_multi_service(fn: Callable, scalars: Mapping[str, Any], resolution_dict: dict[TypeVar, HgTypeMetaData] = None):
@@ -257,7 +257,11 @@ def wire_multi_service(fn: Callable, scalars: Mapping[str, Any], resolution_dict
         )
         g[resolution_dict](**scalars)
         sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes, False), final_resolution_dict
+        service_clients = context.pop_service_clients()
+        context_clients = context.pop_context_clients()
+        builder = create_graph_builder(sink_nodes, False)
+
+    return builder, final_resolution_dict, service_clients, context_clients
 
 
 def wire_subscription_service(
@@ -287,7 +291,11 @@ def wire_subscription_service(
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         subscription_service()
         sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes, False), [typed_full_path]
+        service_clients = context.pop_service_clients()
+        context_clients = context.pop_context_clients()
+        builder = create_graph_builder(sink_nodes, False)
+
+    return builder, service_clients, context_clients, [typed_full_path]
 
 
 def wire_request_reply_service_stubs(
@@ -342,7 +350,11 @@ def wire_request_reply_service(
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         request_reply_service()
         sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes, False), [typed_full_path]
+        service_clients = context.pop_service_clients()
+        context_clients = context.pop_context_clients()
+        builder = create_graph_builder(sink_nodes, False)
+
+    return builder, service_clients, context_clients, [typed_full_path]
 
 
 def wire_reference_data_service(
@@ -374,4 +386,8 @@ def wire_reference_data_service(
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         ref_svc_inner_graph()
         sink_nodes = context.pop_sink_nodes()
-        return create_graph_builder(sink_nodes, False), [typed_full_path]
+        service_clients = context.pop_service_clients()
+        context_clients = context.pop_context_clients()
+        builder = create_graph_builder(sink_nodes, False)
+
+    return builder, service_clients, context_clients, [typed_full_path]
