@@ -90,11 +90,11 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
 
                 cast(KeyStubEvalFn, node.eval_fn).key = self._active_key
             else:
+                from hgraph import TimeSeriesReferenceInput
+
                 ts = self.input[arg]
-                if ts.output:
-                    node.input["ts"].bind_output(ts.output)
-                else:
-                    ts.value.bind_input(node.input["ts"])
+                inner_input: TimeSeriesReferenceInput = node.input["ts"]
+                inner_input.clone_binding(ts)
 
         if self.output_node_ids:
             node: Node = graph.nodes[self.output_node_ids[graph_key]]

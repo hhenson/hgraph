@@ -193,10 +193,31 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
                 self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST
             )
 
+    def clone_binding(self, other: TimeSeriesReferenceInput):
+        if other.output:
+            self.bind_output(other.output)
+        elif other._items:
+            for o, s in zip(other._items, self):
+                s.clone_binding(o)
+        elif other.value:
+            self._value = other.value
+
     def start(self):
         # if the input was scheduled for start it means it wanted to be sampled on node start
         self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
         self.notify(self._sample_time)
+
+    def make_active(self):
+        super().make_active()
+        if self._items:
+            for item in self._items:
+                item.make_active()
+
+    def make_passive(self):
+        super().make_passive()
+        if self._items:
+            for item in self._items:
+                item.make_passive()
 
     def __getitem__(self, item):
         if self._items is None:
@@ -204,7 +225,6 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         while item > len(self._items) - 1:
             new_item = PythonTimeSeriesReferenceInput(_owning_node=self._owning_node, _parent_input=self)
             new_item.set_subscribe_method(subscribe_input=True)
-            new_item.make_active()
             self._items.append(new_item)
         return self._items[item]
 

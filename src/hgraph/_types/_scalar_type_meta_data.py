@@ -146,16 +146,10 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
     @property
     def generic_rank(self) -> dict[type, float]:
         avg_constraints_rank = fmean(
-            itertools.chain(
-                *(
-                    (
-                        c.generic_rank.values()
-                        if isinstance(c, HgTypeMetaData)
-                        else [1.0 / (c.__mro__.index(object) + 1.0)]
-                    )
-                    for c in self.constraints()
-                )
-            )
+            itertools.chain(*(
+                (c.generic_rank.values() if isinstance(c, HgTypeMetaData) else [1.0 / (c.__mro__.index(object) + 1.0)])
+                for c in self.constraints()
+            ))
         )
 
         return {self.py_type: 0.9 + avg_constraints_rank / 10.0}
@@ -716,8 +710,8 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
     def __repr__(self) -> str:
         return (
             f"HgArrayScalarTypeMetaData({repr(self.element_type)}"
-            f'{", " if self.shape_types else ""}'
-            f'{", ".join(map(repr(s) for s in self.shape_types))})'
+            f"{', ' if self.shape_types else ''}"
+            f"{', '.join(map(repr(s) for s in self.shape_types))})"
         )
 
     def __hash__(self) -> int:
@@ -869,7 +863,9 @@ class HgDictScalarType(HgCollectionType):
             type(tp) is HgDictScalarType
             and self.key_type.matches(tp.key_type)
             and self.value_type.matches(tp.value_type)
-        )
+        ) or (
+            type(tp) is HgObjectType and tp.py_type == frozendict
+        )  # accept empty dicts
 
     @property
     def py_type(self) -> Type:
