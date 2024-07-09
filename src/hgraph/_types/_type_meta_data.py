@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import TypeVar, Type, Optional, Mapping
 
 __all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE")
@@ -21,6 +22,7 @@ class HgTypeMetaData:
     py_type: Type  # The python type that represents this type
 
     @classmethod
+    @lru_cache(maxsize=None)
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
