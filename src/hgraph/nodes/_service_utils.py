@@ -107,16 +107,6 @@ def write_subscription_key_stop(path: str, _state: STATE):
                 subs_in.apply_value(Removed(key))
 
 
-@graph
-def _subscribe(
-    path: str, key: TS[SCALAR], _s_tp: type[SCALAR] = AUTO_RESOLVE, _ts_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE
-) -> TIME_SERIES_TYPE:
-    """Implement the stub for subscription"""
-    write_subscription_key(path, key)
-    out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[_s_tp, _ts_tp]](f"{path}/out")
-    return out[key]
-
-
 @compute_node
 def write_service_request(
     path: str, request: TIME_SERIES_TYPE, _output: TS_OUT[int] = None, _state: STATE = None
