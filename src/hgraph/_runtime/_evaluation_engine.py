@@ -63,12 +63,16 @@ class EvaluationMode(Enum):
         time of the inputs. Note, ANY node that has state or relies on _output will have it's output recorded and
         restored, these nodes will not be evaluated in the snap restore process.
         Any nodes supporting SCHEDULED inputs will have their next evaluation time updated to the next scheduled time.
+
+    COMPARISON
+        Used for back-testing recorded graphs, it runs the code and compares the results produced.
     """
 
     REAL_TIME = 0
     SIMULATION = 1
     RECORDING = 2
     REPLAY = 3
+    COMPARISON = 4
 
 
 class EvaluationLifeCycleObserver:
