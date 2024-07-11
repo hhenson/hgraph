@@ -101,7 +101,7 @@ class DGen(Item):
         if is_dgen(other) and self.is_single_date_gen():
             return other.__gt__(self)
         else:
-            if lhs := getattr(self, '__compared__', None):
+            if lhs := self.__compared__:
                 return BeforeDGen(lhs, make_date(other))
             if self.__expression__ is not None:
                 return self.__expression__ < other
@@ -123,7 +123,7 @@ class DGen(Item):
         if is_dgen(other) and self.is_single_date_gen():
             return other.__ge__(self)
         else:
-            if lhs := getattr(self, '__compared__', None):
+            if lhs := self.__compared__:
                 return BeforeOrOnDGen(lhs, make_date(other))
             if self.__expression__ is not None:
                 return self.__expression__ <= other
