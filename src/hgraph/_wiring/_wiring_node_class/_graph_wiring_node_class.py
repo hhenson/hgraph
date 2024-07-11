@@ -168,6 +168,9 @@ class WiringGraphContext:
         if path is None:
             path = service.signature.name
 
+        if not service.is_full_path(path):
+            path = service.full_path(path)
+
         if resolution_dict:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
 
@@ -292,10 +295,12 @@ class WiringGraphContext:
         return r
 
     def reassign_service_clients(self, clients, node):
+        print(f"graph {self._wiring_node_signature or '?'} got reassigned {len(clients)} service clients")
         self._service_clients.extend([(service, path, type_map, node) for service, path, type_map, _ in clients])
 
     def pop_service_clients(self):
         r = self._service_clients
+        print(f"graph {self._wiring_node_signature or '?'} popped {len(r)} service clients")
         self._service_clients = []
         return r
 
@@ -312,6 +317,7 @@ class WiringGraphContext:
             WiringObserverContext.instance().notify_exit_graph_wiring(self._wiring_node_signature, exc_val)
 
         assert WiringGraphContext.__stack__.pop() is self
+        print(f"graph {self._wiring_node_signature or '?'} will bubble {len(self._service_clients)} service clients")
         if not self._temporary and WiringGraphContext.__stack__:
             # For now lets bubble the sink nodes up.
             # It may be useful to track the sink nodes in the graph they are produced.
