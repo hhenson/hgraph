@@ -96,17 +96,15 @@ class WiringPort:
             self.node_instance.mark_error_handler_registered(trace_back_depth, capture_values)
             return ErrorWiringPort(
                 self.node_instance,
-                tuple(
-                    [
-                        -1,
-                    ]
-                ),
+                tuple([
+                    -1,
+                ]),
             )
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
 class ErrorWiringPort(WiringPort):
 
     def __error__(self, *args, **kwargs) -> "WiringPort":
@@ -117,7 +115,7 @@ class ErrorWiringPort(WiringPort):
         return self.node_instance.error_output_type
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
 class DelayedBindingWiringPort(WiringPort):
     """
     A wiring port that is not yet bound to a node. This is used in the graph builder to create a placeholder for
@@ -130,14 +128,14 @@ class DelayedBindingWiringPort(WiringPort):
     def bind(self, wiring_port: WiringPort):
         if self.output_type != wiring_port.output_type:
             raise CustomMessageWiringError(
-                "The output type of the delayed binding port does not match the output type " "of the port being bound"
+                "The output type of the delayed binding port does not match the output type of the port being bound"
             )
 
         object.__setattr__(self, "node_instance", wiring_port.node_instance)
         object.__setattr__(self, "path", wiring_port.path)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=False)
 class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     @property
@@ -155,7 +153,7 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         return reduce(fn, self, zero)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=False)
 class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     @property
@@ -166,6 +164,7 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     def __getitem__(self, key):
         from hgraph import getitem_
+
         return getitem_(self, key)
 
     def reduce(self, fn, zero=ZERO):
@@ -174,7 +173,7 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
         return reduce(fn, self, zero)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
 class TSBWiringPort(WiringPort):
 
     @cached_property
@@ -249,7 +248,7 @@ class TSBWiringPort(WiringPort):
         return tsb
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
 class TSBREFWiringPort(WiringPort):
 
     @cached_property
@@ -271,10 +270,12 @@ class TSBREFWiringPort(WiringPort):
 
     def __getattr__(self, item):
         from hgraph._operators import getitem_
+
         return getitem_(self, item)
 
     def __getitem__(self, item):
         from hgraph._operators import getitem_
+
         return getitem_(self, item)
 
     def as_dict(self):
@@ -290,7 +291,7 @@ class TSBREFWiringPort(WiringPort):
         return tsb
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
 class TSLWiringPort(WiringPort):
 
     def __len__(self):
@@ -358,7 +359,7 @@ class TSLWiringPort(WiringPort):
         return edges
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
 class TSLREFWiringPort(WiringPort):
 
     def __len__(self):
