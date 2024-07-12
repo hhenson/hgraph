@@ -40,13 +40,3 @@ def get_frame_item_(ts: TS[Frame[SCHEMA]], key: int, _tp: Type[SCHEMA] = AUTO_RE
 @compute_node(overloads=getitem_)
 def get_frame_item_ts_(ts: TS[Frame[SCHEMA]], key: TS[int], _tp: Type[SCHEMA] = AUTO_RESOLVE) -> TS[SCHEMA]:
     return _tp(**ts.value[key.value].to_dicts()[0])
-
-
-@compute_node(overloads=min_)
-def min_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
-    return series.value.min()
-
-
-@compute_node(overloads=max_)
-def max_of_series(series: TS[Series[SCALAR]]) -> TS[SCALAR]:
-    return series.value.max()

@@ -38,8 +38,9 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
-                typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
-                full_path = self.full_path(kwargs_.get("path"))
+                path = kwargs_.get("path") or self.signature.name
+                full_path = self.full_path(path)
+                typed_full_path = self.typed_full_path(path, resolution_dict)
 
                 from hgraph.nodes._service_utils import _request_service
                 from hgraph.nodes._service_utils import _request_reply_service

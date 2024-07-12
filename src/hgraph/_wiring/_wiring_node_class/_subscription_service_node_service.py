@@ -47,8 +47,9 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
-                typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
-                full_path = self.full_path(kwargs_.get("path"))
+                path = kwargs_.get("path") or self.signature.name
+                full_path = self.full_path(path)
+                typed_full_path = self.typed_full_path(path, resolution_dict)
 
                 from hgraph import TIME_SERIES_TYPE, TSD
                 from hgraph.nodes import write_subscription_key, get_shared_reference_output

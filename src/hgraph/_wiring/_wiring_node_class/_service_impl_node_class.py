@@ -73,9 +73,9 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
         __interface__: WiringNodeSignature = None,
         **kwargs,
     ) -> "WiringPort":
-        path_types = __pre_resolved_types__
         with WiringContext(current_wiring_node=self, current_signature=self._original_signature):
             path = kwargs.get("path")
+            path_types = __pre_resolved_types__
 
             if __interface__ is None:
                 __interface__ = self.interfaces[0]

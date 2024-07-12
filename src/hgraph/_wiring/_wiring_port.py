@@ -81,7 +81,11 @@ class WiringPort:
 
         from hgraph._builder._graph_builder import Edge
 
-        return {Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path)}
+        instance = node_map.get(self.node_instance)
+        if instance is None:
+            raise CustomMessageWiringError(f"The node {self.node_instance} is not in the node map")
+
+        return {Edge(instance, self.path, dst_node_ndx, dst_path)}
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:

@@ -71,7 +71,10 @@ def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_
         node_builder, input_edges = wiring_node.create_node_builder_and_edges(node_map, node_builders)
         for edge in input_edges:
             if edge.src_node >= edge.dst_node:
-                raise RuntimeError(f"Cycle detected at node: {wiring_node.resolved_signature.signature} on input: {wiring_node.resolved_signature.args[edge.input_path[0]]}")
+                raise RuntimeError(
+                    f"Cycle detected at node: {wiring_node.resolved_signature.signature} on input:"
+                    f" {wiring_node.resolved_signature.args[edge.input_path[0]]}"
+                )
         node_builders.append(node_builder)
         edges.update(input_edges)
         node_map[wiring_node] = ndx
@@ -104,7 +107,9 @@ def toposort(
                     raise CustomMessageWiringError(
                         f"Node: {from_node} has more than one ranking alternative. That's not supported at the moment."
                     )
-                from_node = from_node.ranking_alternatives[0]
+                alt_node = from_node.ranking_alternatives[0]
+                mapping[from_node].add(alt_node)
+                nodes_to_process.append(alt_node)
             mapping[from_node].add(to_node)
             nodes_to_process.append(from_node)
         if not ts_nodes:
@@ -118,7 +123,7 @@ def toposort(
         if not supports_push_nodes and from_node.resolved_signature.node_type is NodeTypeEnum.PUSH_SOURCE_NODE:
             raise CustomMessageWiringError(
                 f"Node: {from_node.resolved_signature} is a push source node, "
-                f"but this graph does not support push nodes."
+                "but this graph does not support push nodes."
             )
         if from_node.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE:
             # We re-set to 0 if this is a push source node to ensure they all left-align

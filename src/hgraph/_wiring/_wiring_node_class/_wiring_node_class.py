@@ -198,7 +198,10 @@ def prepare_kwargs(signature: WiringNodeSignature, *args, _ignore_defaults: bool
     This does not validate the types, just that all args are provided.
     """
     if len(args) + len(kwargs) > len(signature.args) and not signature.var_arg and not signature.var_kwarg:
-        raise SyntaxError(f"[{signature.signature}] More arguments are provided than are defined for this function")
+        raise SyntaxError(
+            f"[{signature.signature}] More arguments are provided than are defined for this function -"
+            f" {len(args)} positional and {kwargs.keys()}"
+        )
     kwargs_ = extract_kwargs(signature, *args, _ignore_defaults=_ignore_defaults, **kwargs)
     return kwargs_
 
