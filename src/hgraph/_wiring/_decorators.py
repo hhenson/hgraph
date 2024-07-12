@@ -24,8 +24,10 @@ __all__ = (
     "subscription_service",
     "default_path",
     "service_impl",
-    "service_adaptor",
+    "adaptor",
+    "adaptor_impl",
     "register_service",
+    "register_adaptor",
     "push_queue",
 )
 
@@ -551,6 +553,7 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     """
     from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper
     from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
+    from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
 
     if isinstance(implementation, PreResolvedWiringNodeWrapper):
         implementation = implementation.underlying_node
@@ -558,35 +561,68 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     else:
         resolution_dict = implementation._convert_item(resolution_dict) if resolution_dict else {}
 
-    if not isinstance(implementation, ServiceImplNodeClass):
+    if not isinstance(implementation, (ServiceImplNodeClass, AdaptorImplNodeClass)):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
 
     from hgraph import WiringGraphContext
 
     for i in implementation.interfaces:
-        WiringGraphContext.instance().register_service_impl(
-            i, i.full_path(path), implementation, kwargs, resolution_dict
-        )
+        WiringGraphContext.instance().register_service_impl(i, path, implementation, kwargs, resolution_dict)
 
 
-def service_adaptor(interface):
+def adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
     """
-    @service
+    @adaptor
     def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
         pass
 
-    @service_adapter(my_interface)
-    class MyAdapter:
-
-        def __init__(self, sender: Sender, ...):
-            ''' The sender has a method called send on it that takes a Python object that will enqueue into the out
-                shape, use this to send a message'''
-
-        def on_data(ts1: TIME_SERIES, ...):
-            ''' Is called each time one of the inputs ticks '''
+    @adaptor_impl(my_interface)
+    def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+        pass
 
     Use the register_service method to with the class as the impl value.
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(WiringNodeType.ADAPTOR, interface, resolvers=resolvers)
+
+
+def adaptor_impl(
+    *,
+    interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    deprecated: bool | str = False,
+):
+    """
+    Wraps an adaptor implementation.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
+    )
+
+
+def register_adaptor(path: str, implementation, resolution_dict=None, **kwargs):
+    """
+    Binds the implementation of the adaptor to the path provided. The additional kwargs
+    are passed to the implementation. These should be defined on the implementation and are independent of the
+    attributes defined in the adaptor.
+    """
+    from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper
+    from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
+
+    if isinstance(implementation, PreResolvedWiringNodeWrapper):
+        implementation = implementation.underlying_node
+        resolution_dict = implementation.resolved_types or {}
+    else:
+        resolution_dict = implementation._convert_item(resolution_dict) if resolution_dict else {}
+
+    if not isinstance(implementation, AdaptorImplNodeClass):
+        raise CustomMessageWiringError("The provided implementation is not a 'adaptor_impl' wrapped function.")
+
+    for i in implementation.interfaces:
+        i.register_impl(path, implementation, resolution_dict, **kwargs)
 
 
 def _node_decorator(
@@ -659,6 +695,17 @@ def _node_decorator(
             kwargs["node_class"] = ServiceImplNodeClass
             kwargs["interfaces"] = interfaces
             _assert_no_node_configs("Service Impl", kwargs)
+        case WiringNodeType.ADAPTOR:
+            from hgraph._wiring._wiring_node_class._adaptor_node_class import AdaptorNodeClass
+
+            kwargs["node_class"] = AdaptorNodeClass
+            _assert_no_node_configs("Adaptor", kwargs)
+        case WiringNodeType.ADAPTOR_IMPL:
+            from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
+
+            kwargs["node_class"] = AdaptorImplNodeClass
+            kwargs["interfaces"] = interfaces
+            _assert_no_node_configs("Adaptor Impl", kwargs)
 
     if overloads is not None and impl_fn is None:
         kwargs["overloads"] = overloads

@@ -168,6 +168,9 @@ class WiringGraphContext:
         if path is None:
             path = service.signature.name
 
+        if not service.is_full_path(path):
+            path = service.full_path(path)
+
         if resolution_dict:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
 

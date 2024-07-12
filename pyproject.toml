@@ -106,6 +106,7 @@ exclude_lines = [
 [tool.black]
 line-length = 120
 target-version = ['py311']
+unstable = true
 include = '\.pyi?$'
 # 'extend-exclude' excludes files or directories in addition to the defaults
 extend-exclude = '''

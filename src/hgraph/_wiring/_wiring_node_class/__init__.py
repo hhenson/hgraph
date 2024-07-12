@@ -15,3 +15,5 @@ from hgraph._wiring._wiring_node_class._subscription_service_node_service import
 from hgraph._wiring._wiring_node_class._switch_wiring_node import *
 from hgraph._wiring._wiring_node_class._try_except_wiring_node import *
 from hgraph._wiring._wiring_node_class._wiring_node_class import *
+from hgraph._wiring._wiring_node_class._adaptor_node_class import *
+from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import *

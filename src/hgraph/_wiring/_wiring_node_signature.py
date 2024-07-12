@@ -55,6 +55,8 @@ class WiringNodeType(Enum):
     REQ_REP_SVC = 8
     SVC_IMPL = 9
     OPERATOR = 10  # Similar to STUB, expect in this case will be replaced with a matched node.
+    ADAPTOR = 11
+    ADAPTOR_IMPL = 12
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
@@ -274,7 +276,7 @@ class WiringNodeSignature:
                                 if _ensure_match:
                                     raise ParseError(
                                         f"In {self.name}, {k}: {v} = {arg}; arg is not parsable, "
-                                        f"but we require type resolution"
+                                        "but we require type resolution"
                                     )
                             else:
                                 # If the signature was not unresolved, then we can use the signature, but the input value
@@ -361,7 +363,7 @@ class WiringNodeSignature:
 
         if not weak and all_resolved < len(resolution_dict):
             raise ParseError(
-                f"Unable to build a resolved resolution dictionary, due to:"
+                "Unable to build a resolved resolution dictionary, due to:"
                 f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}"
             )
         return out_dict
@@ -499,11 +501,11 @@ class WiringNodeSignature:
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
                     elif v is REQUIRED:
                         raise CustomMessageWiringError(
-                            f"Context of type {tp} for argument '{arg}' is required, " f"but not found"
+                            f"Context of type {tp} for argument '{arg}' is required, but not found"
                         )
                     elif type(v) is REQUIRED:
                         raise CustomMessageWiringError(
-                            f"Context of type {tp} with name {v} for argument '{arg}' " f"is required, but not found"
+                            f"Context of type {tp} with name {v} for argument '{arg}' is required, but not found"
                         )
                     else:
                         from hgraph import nothing
