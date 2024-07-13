@@ -1,9 +1,8 @@
+import concurrent.futures
 import logging
 import os
-import sys
 import tempfile
 import time
-import concurrent.futures
 from datetime import datetime
 from glob import glob
 from threading import Thread
@@ -232,25 +231,23 @@ def perspective_web_start(
             (
                 r"/node_modules/(.*)",
                 tornado.web.StaticFileHandler,
-                {"path": os.path.join(sys.prefix, "node_modules")},
+                {"path": os.path.join("/opt/homebrew/lib", "node_modules")},
             ),
         ]
         + perspective_manager.tornado_config()
         + ([(k, tornado.web.StaticFileHandler, v) for k, v in static.items()] if static else [])
         + (
-            [
-                (
-                    r"/(.*)",
-                    IndexPageHandler,
-                    {
-                        "mgr": perspective_manager,
-                        "layouts_path": layouts_dir,
-                        "index_template": index_template,
-                        "host": host,
-                        "port": port,
-                    },
-                )
-            ]
+            [(
+                r"/(.*)",
+                IndexPageHandler,
+                {
+                    "mgr": perspective_manager,
+                    "layouts_path": layouts_dir,
+                    "index_template": index_template,
+                    "host": host,
+                    "port": port,
+                },
+            )]
             if index_template
             else []
         ),
