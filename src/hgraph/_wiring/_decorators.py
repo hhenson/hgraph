@@ -12,23 +12,24 @@ if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 __all__ = (
-    "operator",
-    "compute_node",
-    "pull_source_node",
-    "push_source_node",
-    "sink_node",
-    "graph",
-    "generator",
-    "reference_service",
-    "request_reply_service",
-    "subscription_service",
-    "default_path",
-    "service_impl",
     "adaptor",
     "adaptor_impl",
-    "register_service",
-    "register_adaptor",
+    "component",
+    "compute_node",
+    "default_path",
+    "generator",
+    "graph",
+    "operator",
+    "pull_source_node",
     "push_queue",
+    "push_source_node",
+    "reference_service",
+    "register_adaptor",
+    "register_service",
+    "request_reply_service",
+    "service_impl",
+    "sink_node",
+    "subscription_service",
 )
 
 SOURCE_NODE_SIGNATURE = TypeVar("SOURCE_NODE_SIGNATURE", bound=Callable)
@@ -625,6 +626,54 @@ def register_adaptor(path: str, implementation, resolution_dict=None, **kwargs):
         i.register_impl(path, implementation, resolution_dict, **kwargs)
 
 
+def component(
+    fn: GRAPH_SIGNATURE = None,
+    *,
+    recordable_id: str | None = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    deprecated: bool | str = False,
+) -> GRAPH_SIGNATURE:
+    """
+    Decorator to indicate the function being wrapped is a graph that is recordable.
+    A component is a graph, with the following constraints:
+    * The component should not access any services unless the service is already able to support replay mode.
+    * The component MAY NOT use ANY push source nodes.
+    * The component should not use any pull source nodes that are not replay compliant.
+    * The component should not use any sink nodes that will have side effects other than, for example, printing or logging.
+    The component is expected to be idempotent (i.e., given the same inputs, the graph should produce the same results)
+    and have no side effects.
+
+    When using the component in save/restore mode, the component should be able to produce a correct result if all the
+    inputs were re-ticked into the graph and re-computed, in other words, the component should not depend on the order
+    of tick arrival to produce the same result. <This constraint will be removed as soon as possible, but there are a
+    number of complexities to fully manage the saving and restoration of graph state correctly>
+
+    The key idea behind a component is that it represents a meaningful amount of work that will benefit from
+    regression testing in the form of replaying the inputs and comparing the results produced for correctness.
+    This will also support recording inputs and results for logging and diagnostic purposes.
+    Finally, it is possible to use components to support restorable computations and to allow for skipping re-computation
+    of already computed results. This allows for re-running graphs when one or more components have failed without having
+    to re-compute each node.
+
+    The ``recordable_id`` represents the unique id of the component within the context of the master graph.
+    If no id is provided, then the name of the component is used as the id. If it is possible to have more than one
+    instance of the component is supported in the master graph, then the component needs to be able to create a unique
+    identy, the ``recordable_id`` support using a Format string with the ability to create an id using the scalar
+    properties of the component or any ``const`` inputs provided (for example, a key in a bundle). Here is an example:
+    ```python
+    @component(recordable_id='my_component.{key}')
+    def my_component(key: TS[str], ...) -> TIME_SERIES_VALUE:
+        ...
+    ```
+    Then if this was used in a map_ the key will be available at start and will create an instance key.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.COMPONENT, fn, resolvers=resolvers, deprecated=deprecated, record_and_replay_id=recordable_id
+    )
+
+
 def _node_decorator(
     node_type: "WiringNodeType",
     impl_fn,
@@ -638,6 +687,7 @@ def _node_decorator(
     resolvers: Mapping[TypeVar, Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
+    record_and_replay_id: str | None = None,
 ) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
@@ -654,6 +704,7 @@ def _node_decorator(
         interfaces=interfaces,
         deprecated=deprecated,
         requires=requires,
+        record_and_replay_id=record_and_replay_id,
     )
     if node_impl is not None:
         if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
@@ -706,6 +757,11 @@ def _node_decorator(
             kwargs["node_class"] = AdaptorImplNodeClass
             kwargs["interfaces"] = interfaces
             _assert_no_node_configs("Adaptor Impl", kwargs)
+        case WiringNodeType.COMPONENT:
+            from hgraph._wiring._wiring_node_class._component_node_class import ComponentNodeClass
+
+            kwargs["node_class"] = ComponentNodeClass
+            _assert_no_node_configs("Component", kwargs)
 
     if overloads is not None and impl_fn is None:
         kwargs["overloads"] = overloads
@@ -759,6 +815,7 @@ def _create_node(
     interfaces=None,
     deprecated: bool | str = False,
     requires: Callable[[..., ...], bool] = None,
+    record_and_replay_id: str | None = None,
 ) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
@@ -784,6 +841,7 @@ def _create_node(
             all_valid_inputs=all_valid_inputs,
             deprecated=deprecated,
             requires=requires,
+            record_and_replay_id=record_and_replay_id,
         )
     )
     if interfaces is None:

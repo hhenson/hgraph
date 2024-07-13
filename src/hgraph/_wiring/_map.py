@@ -341,7 +341,8 @@ def _extract_map_fn_key_arg_and_type(
         input_has_key_arg = True
         if input_key_name != signature.args[0]:
             raise CustomMessageWiringError(
-                f"The key argument '{input_key_name}' is not the first argument of the function: '{signature.signature}'"
+                f"The key argument '{input_key_name}' is not the first argument of the function:"
+                f" '{signature.signature}'"
             )
         input_key_tp = signature.input_types[input_key_name]
     elif signature.args[0] in ("key", "ndx"):
@@ -505,12 +506,10 @@ def _create_tsd_map_wiring_node(
     stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, no_key_args, input_key_tp, input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
-    reference_inputs = frozendict(
-        {
-            k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG else v
-            for k, v in input_types.items()
-        }
-    )
+    reference_inputs = frozendict({
+        k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) and k != KEYS_ARG else v
+        for k, v in input_types.items()
+    })
 
     # NOTE: The wrapper node does not need to set it valid and tick to that of the underlying node, it just
     #       needs to ensure that it gets notified when the key sets tick. Likewise with validity.
@@ -524,19 +523,15 @@ def _create_tsd_map_wiring_node(
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=reference_inputs,
         output_type=(
-            HgTSDTypeMetaData(
-                input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type.dereference())
-            )
+            HgTSDTypeMetaData(input_key_tp.value_scalar_tp, resolved_signature.output_type.dereference().as_reference())
             if resolved_signature.output_type
             else None
         ),
         src_location=resolved_signature.src_location,  # TODO: Figure out something better for this.
         active_inputs=None,  # We will follow a copy approach to transfer the inputs to inner graphs
-        valid_inputs=frozenset(
-            {
-                KEYS_ARG,
-            }
-        ),  # We have constructed the map so that the key are is always present.
+        valid_inputs=frozenset({
+            KEYS_ARG,
+        }),  # We have constructed the map so that the key are is always present.
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
@@ -585,12 +580,10 @@ def _create_tsl_map_signature(
     )
     resolved_signature = fn.resolve_signature(**stub_inputs)
 
-    reference_inputs = frozendict(
-        {
-            k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) else v
-            for k, v in input_types.items()
-        }
-    )
+    reference_inputs = frozendict({
+        k: as_reference(v, k in multiplex_args) if isinstance(v, HgTimeSeriesTypeMetaData) else v
+        for k, v in input_types.items()
+    })
 
     # Build provisional signature first so we can pass it in as context into inner graph wiring
     provisional_signature = WiringNodeSignature(
@@ -601,7 +594,7 @@ def _create_tsl_map_signature(
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=frozendict(reference_inputs),
         output_type=(
-            HgTSLTypeMetaData(HgREFTypeMetaData(resolved_signature.output_type), size_tp)
+            HgTSLTypeMetaData(resolved_signature.output_type.as_reference(), size_tp)
             if resolved_signature.output_type
             else None
         ),
@@ -695,6 +688,6 @@ def _validate_multiplex_types(signature: WiringNodeSignature, kwargs_, multiplex
             (m_type := kwargs_[arg].output_type.dereference()).value_tp
         ):
             raise CustomMessageWiringError(
-                f"The input '{arg}: {m_type}' is a multiplexed type, "
-                f"but its value type '{m_type.value_tp}' is not compatible with the input type of the inner graph: {in_type}"
+                f"The input '{arg}: {m_type}' is a multiplexed type, but its value type '{m_type.value_tp}' is not"
+                f" compatible with the input type of the inner graph: {in_type}"
             )

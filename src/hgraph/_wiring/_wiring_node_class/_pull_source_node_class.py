@@ -1,4 +1,4 @@
-from typing import cast, TYPE_CHECKING
+from typing import cast, TYPE_CHECKING, Any, Mapping
 
 from frozendict import frozendict
 
@@ -12,6 +12,8 @@ from hgraph._wiring._wiring_node_instance import create_wiring_node_instance, Wi
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
+    from hgraph._wiring._wiring_node_class import WiringNodeSignature
+    from hgraph._runtime._node import NodeSignature
 
 __all__ = ("last_value_source_node",)
 
@@ -43,7 +45,12 @@ def last_value_source_node(name: str, tp: type[TIME_SERIES_TYPE], default: SCALA
 
 class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
+    ) -> "NodeBuilder":
         from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
 

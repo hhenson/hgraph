@@ -20,7 +20,7 @@ class MeshWiringNodeClass(BaseWiringNodeClass):
     signature: MeshWiringSignature
 
     def create_node_builder_instance(
-        self, node_signature: "MeshWiringSignature", scalars: Mapping[str, Any]
+        self, resolved_wiring_signature, node_signature: "MeshWiringSignature", scalars: Mapping[str, Any]
     ) -> "NodeBuilder":
         from hgraph._impl._builder._mesh_builder import PythonMeshNodeBuilder
 

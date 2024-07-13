@@ -123,7 +123,9 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
             for p in paths:
                 WiringGraphContext.instance().add_built_service_impl(p, wiring_node_instance)
 
-    def create_node_builder_instance(self, node_signature: "NodeSignature", scalars: Dict[str, Any]) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self, resolved_wiring_signature: "WiringNodeSignature", node_signature: "NodeSignature", scalars: Dict[str, Any]
+    ) -> "NodeBuilder":
         # The service impl node should only take scalar values in. The rest will be a
         # graph where we will stub out the inputs and outputs.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):

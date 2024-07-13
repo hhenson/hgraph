@@ -57,6 +57,7 @@ class WiringNodeType(Enum):
     OPERATOR = 10  # Similar to STUB, expect in this case will be replaced with a matched node.
     ADAPTOR = 11
     ADAPTOR_IMPL = 12
+    COMPONENT = 13  # A graph with constraints that allows for record, replay, etc.
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
@@ -547,6 +548,7 @@ def extract_signature(
     all_valid_inputs: frozenset[str] | None = None,
     deprecated: bool = False,
     requires: Callable[[...], bool] | None = None,
+    record_and_replay_id: str | None = None,
 ) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
@@ -653,7 +655,7 @@ def extract_signature(
         time_series_args=time_series_inputs,
         injectable_inputs=injectable_inputs,
         label=None,
-        record_and_replay_id=None,
+        record_and_replay_id=record_and_replay_id,
         deprecated=deprecated,
         requires=requires,
         kw_only_args=kw_only_args,

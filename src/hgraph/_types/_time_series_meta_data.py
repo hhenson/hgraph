@@ -84,9 +84,6 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     def has_references(self) -> bool:
         return False
 
-    def dereference(self) -> "HgTimeSeriesTypeMetaData":
-        return self
-
     def build_resolution_dict_from_scalar(
         self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
     ):
