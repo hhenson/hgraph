@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import TypeVar, Type, Optional, TYPE_CHECKING
 
+
 if TYPE_CHECKING:
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
 
@@ -110,8 +111,9 @@ class HgTypeMetaData:
         This DOES NOT recurse the type hierarchy.
         """
         from hgraph._types._ref_meta_data import HgREFTypeMetaData
+        from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
-        return self if isinstance(self, HgREFTypeMetaData) else HgREFTypeMetaData(self)
+        return self if isinstance(self, (HgREFTypeMetaData, HgScalarTypeMetaData)) else HgREFTypeMetaData(self)
 
     @property
     def typevars(self):
