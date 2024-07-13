@@ -27,7 +27,10 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
     signature: ReduceWiringSignature
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
         from hgraph._impl._builder._reduce_builder import PythonReduceNodeBuilder
 

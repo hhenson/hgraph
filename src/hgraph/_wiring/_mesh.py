@@ -147,7 +147,7 @@ def _create_mesh_wiring_node(
         raise CustomMessageWiringError("The mesh function must have an output type")
 
     output_tsd_type = HgTSDTypeMetaData(
-        input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type.dereference())
+        input_key_tp.value_scalar_tp, resolved_signature.output_type.dereference().as_reference()
     )
 
     # The mesh needs a reference output that references its real output, so fold it into an unnamed bundle
@@ -155,7 +155,7 @@ def _create_mesh_wiring_node(
 
     output_type = HgTSBTypeMetaData(
         HgTypeMetaData.parse_type(
-            UnNamedTimeSeriesSchema.create(out=output_tsd_type, ref=HgREFTypeMetaData(output_tsd_type))
+            UnNamedTimeSeriesSchema.create(out=output_tsd_type, ref=output_tsd_type.as_reference())
         )
     )
 

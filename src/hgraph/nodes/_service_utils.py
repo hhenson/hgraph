@@ -13,7 +13,6 @@ from hgraph import (
     Removed,
     pull_source_node,
     BaseWiringNodeClass,
-    HgREFTypeMetaData,
     create_input_output_builders,
     graph,
     AUTO_RESOLVE,
@@ -209,11 +208,12 @@ def write_service_requests(path: str, request: TIME_SERIES_TYPE):
 class SharedReferenceNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        output_type = node_signature.time_series_output
-        if type(output_type) is not HgREFTypeMetaData:
-            node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
+        node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
 
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
 

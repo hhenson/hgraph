@@ -13,7 +13,10 @@ class NodeImplWiringNodeClass(BaseWiringNodeClass):
         super().__init__(signature, fn)
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
         from hgraph._impl._builder._node_impl_builder import PythonNodeImplNodeBuilder
 

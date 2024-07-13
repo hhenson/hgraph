@@ -522,9 +522,7 @@ def _create_tsd_map_wiring_node(
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=reference_inputs,
         output_type=(
-            HgTSDTypeMetaData(
-                input_key_tp.value_scalar_tp, HgREFTypeMetaData(resolved_signature.output_type.dereference())
-            )
+            HgTSDTypeMetaData(input_key_tp.value_scalar_tp, resolved_signature.output_type.dereference().as_reference())
             if resolved_signature.output_type
             else None
         ),
@@ -595,7 +593,7 @@ def _create_tsl_map_signature(
         defaults=frozendict(),  # Defaults would have already been applied.
         input_types=frozendict(reference_inputs),
         output_type=(
-            HgTSLTypeMetaData(HgREFTypeMetaData(resolved_signature.output_type), size_tp)
+            HgTSLTypeMetaData(resolved_signature.output_type.as_reference(), size_tp)
             if resolved_signature.output_type
             else None
         ),

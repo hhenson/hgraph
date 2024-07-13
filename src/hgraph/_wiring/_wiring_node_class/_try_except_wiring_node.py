@@ -31,7 +31,7 @@ class TryExceptWiringNodeClass(BaseWiringNodeClass):
         self._resolved_signature_inner = resolved_signature_inner
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self, resolved_wiring_signature, node_signature: "NodeSignature", scalars: Mapping[str, Any]
     ) -> ("NodeBuilder", tuple):
         # TODO: move wiring of hte nexted graph into the wiring call so that the reassignable items can be reassigned
         # to the correct node before the graph is ranked
