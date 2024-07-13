@@ -638,6 +638,9 @@ def extract_signature(
     # graph expansion logic.
 
     injectable_inputs = extract_injectable_inputs(**input_types)
+    if record_and_replay_id is None:
+        scalars = [f"{{{k}}}" for k in args if k not in time_series_inputs]
+        record_and_replay_id = f"{name}{'::' if scalars else ''}{'_'.join(scalars)}"
 
     return WiringNodeSignature(
         node_type=wiring_node_type,
