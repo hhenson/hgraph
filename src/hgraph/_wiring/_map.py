@@ -510,7 +510,7 @@ def _create_tsd_map_wiring_node(
         for k, v in input_types.items()
     })
 
-    # NOTE: The wrapper node does not need to sets it valid and tick to that of the underlying node, it just
+    # NOTE: The wrapper node does not need to set it valid and tick to that of the underlying node, it just
     #       needs to ensure that it gets notified when the key sets tick. Likewise with validity.
 
     # Build provisional signature first so we can pass it in as context into inner graph wiring
