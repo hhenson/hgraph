@@ -570,3 +570,11 @@ Version 0.2.49 (04-07-2024)
 ---------------------------
 
 * Upgrade to Polars 1.0, fixes due to API changes
+
+Version 0.2.50 (15-07-2024)
+---------------------------
+
+* Ranking bug fixes
+* Updates to perspective adapter
+* First pass adapter implementation
+* First pass wrapper for component implementation (still in alpha)
