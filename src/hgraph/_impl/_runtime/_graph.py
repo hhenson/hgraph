@@ -128,8 +128,9 @@ class PythonGraph(Graph):
         clock = self._evaluation_engine.engine_evaluation_clock
         if when < (et := clock.evaluation_time):
             raise RuntimeError(
-                f"Graph[{self.graph_id}] Trying to schedule node: {self.nodes[node_ndx].signature.signature}[{node_ndx}]"
-                f" for {when} but current time is {self.evaluation_clock.evaluation_time}"
+                f"Graph[{self.graph_id}] Trying to schedule node:"
+                f" {self.nodes[node_ndx].signature.signature}[{node_ndx}] for {when} but current time is"
+                f" {self.evaluation_clock.evaluation_time}"
             )
         st = self.schedule[node_ndx]
         if force_set or st <= et or st > when:
@@ -194,7 +195,10 @@ class PythonGraph(Graph):
         if clock.push_node_requires_scheduling:
             clock.reset_push_node_requires_scheduling()
             for i in range(self.push_source_nodes_end):
-                nodes[i].eval()  # This is only to move nodes on, won't call the before and after node eval here
+                node = nodes[i]
+                node.eval()  # This is only to move nodes on, won't call the before and after node eval here
+                if node.output.modified:
+                    self._evaluation_engine.notify_after_node_evaluation(node)
 
         for i in range(self.push_source_nodes_end, len(nodes)):
             scheduled_time, node = schedule[i], nodes[i]
