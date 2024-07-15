@@ -52,22 +52,21 @@ def mesh_(func: Callable, *args, **kwargs):
 
     with WiringContext(current_signature=STATE(signature=f"mesh_('{graph.signature.signature}', ...)")):
         signature: WiringNodeSignature = graph.signature
-        map_wiring_node, calling_kwargs, sc, cc = _build_mesh_wiring_node_and_inputs(
+        map_wiring_node, calling_kwargs, ri = _build_mesh_wiring_node_and_inputs(
             graph, signature, *args, **kwargs, __name__=name
         )
         port = map_wiring_node(**calling_kwargs).out[calling_kwargs[KEYS_ARG]]
 
         from hgraph import WiringGraphContext
 
-        WiringGraphContext.instance().reassign_service_clients(sc, port.node_instance)
-        WiringGraphContext.instance().reassign_context_clients(cc, port.node_instance)
+        WiringGraphContext.instance().reassign_items(ri, port.node_instance)
 
         return port if port.output_type else None
 
 
 def _build_mesh_wiring_node_and_inputs(
     fn: Callable, signature: WiringNodeSignature, *args, __keys__=None, __key_arg__=None, __name__=None, **kwargs
-) -> tuple[WiringNodeClass, dict[str, WiringPort | SCALAR], list, list]:
+) -> tuple[WiringNodeClass, dict[str, WiringPort | SCALAR], tuple]:
     """
     Build the mesh wiring signature. This works exactly like the map_ function but without TSL support and building
     a mesh node instead of a map node.
@@ -103,7 +102,7 @@ def _build_mesh_wiring_node_and_inputs(
             __keys__ = kwargs_[next(iter(multiplex_args))].key_set
         kwargs_[KEYS_ARG] = __keys__
     input_types = input_types | {KEYS_ARG: __keys__.output_type.dereference()}
-    mesh_wiring_node, sc, cc = _create_mesh_wiring_node(
+    mesh_wiring_node, ri = _create_mesh_wiring_node(
         fn,
         kwargs_,
         input_types,
@@ -118,7 +117,7 @@ def _build_mesh_wiring_node_and_inputs(
     for arg in chain(pass_through_args, no_key_args):
         kwargs_[arg] = kwargs_[arg].value  # Unwrap the marker inputs.
 
-    return mesh_wiring_node, kwargs_, sc, cc
+    return mesh_wiring_node, kwargs_, ri
 
 
 def _create_mesh_wiring_node(
@@ -130,7 +129,7 @@ def _create_mesh_wiring_node(
     input_key_tp: HgTSTypeMetaData,
     input_key_name: str | None,
     name: str = None,
-) -> [MeshWiringNodeClass, list, list]:
+) -> [MeshWiringNodeClass, tuple]:
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
 
     # This again follows the pattern in map_ with the following differences: creates a different type of wiring
@@ -186,7 +185,7 @@ def _create_mesh_wiring_node(
             context_wiring_port, WiringNodeInstanceContext.instance(), STATE(f_locals={name: context_wiring_port})
         )
 
-        builder, sc, cc = wire_nested_graph(
+        builder, ri = wire_nested_graph(
             fn,
             resolved_signature.input_types,
             {
@@ -213,7 +212,7 @@ def _create_mesh_wiring_node(
         TimeSeriesContextTracker.instance().exit_context(context_wiring_port, capture=False)
 
     wiring_node = MeshWiringNodeClass(mesh_signature, fn)
-    return wiring_node, sc, cc
+    return wiring_node, ri
 
 
 @dataclass(frozen=True)
