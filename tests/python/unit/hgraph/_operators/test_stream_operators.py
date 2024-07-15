@@ -3,9 +3,32 @@ from typing import Tuple
 
 import pytest
 
-from hgraph import TS, MIN_TD, graph, schedule, SIGNAL, sample, lag, resample, dedup, \
-    filter_, TSL, Size, throttle, take, drop, WindowResult, window, MIN_ST, TSB, gate, NodeException, batch, step, \
-    slice_
+from hgraph import (
+    TS,
+    MIN_TD,
+    graph,
+    schedule,
+    SIGNAL,
+    sample,
+    lag,
+    resample,
+    dedup,
+    filter_,
+    TSL,
+    Size,
+    throttle,
+    take,
+    drop,
+    WindowResult,
+    window,
+    MIN_ST,
+    TSB,
+    gate,
+    NodeException,
+    batch,
+    step,
+    slice_,
+)
 from hgraph.test import eval_node
 
 
@@ -14,8 +37,13 @@ def test_sample():
     def g(signal: SIGNAL, ts: TS[int]) -> TS[int]:
         return sample(signal, ts)
 
-    assert eval_node(g, [None, True, None, True], [1, 2, 3, 4, 5],
-                     resolution_dict={'signal': TS[bool]}) == [None, 2, None, 4, None]
+    assert eval_node(g, [None, True, None, True], [1, 2, 3, 4, 5], resolution_dict={"signal": TS[bool]}) == [
+        None,
+        2,
+        None,
+        4,
+        None,
+    ]
 
 
 def test_lag_tick():
@@ -48,15 +76,54 @@ def test_schedule():
     assert eval_node(g, delay=MIN_TD, max_ticks=1, initial_delay=False) == [True]
 
 
+def test_schedule_ts():
+    @graph
+    def g(delay: TS[timedelta], initial_delay: bool = True, max_ticks: int = 1) -> TS[bool]:
+        return schedule(delay, initial_delay, max_ticks)
+
+    assert eval_node(g, delay=MIN_TD * 2, max_ticks=2, initial_delay=False) == [True, None, True]
+
+    assert eval_node(g, delay=[MIN_TD, None, None, MIN_TD * 2], max_ticks=4, initial_delay=True) == [
+        None,
+        True,
+        True,
+        None,
+        None,
+        True,
+        None,
+        True,
+    ]
+
+    assert eval_node(g, delay=MIN_TD, max_ticks=1, initial_delay=False) == [True]
+
+
 def test_resample():
     @graph
     def g(ts: TS[int], period: timedelta) -> TS[int]:
         return resample(ts, period)
 
-    assert (eval_node(g, [1], 2 * MIN_TD, __end_time__=MIN_ST + 10*MIN_TD)
-            == [None, None, 1, None, 1, None, 1, None, 1])
-    assert (eval_node(g, [1, 2, 3, 4, 5, 6], 2 * MIN_TD, __end_time__=MIN_ST + 10*MIN_TD)
-            == [None, None, 3, None, 5, None, 6, None, 6])
+    assert eval_node(g, [1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        None,
+        None,
+        1,
+        None,
+        1,
+        None,
+        1,
+        None,
+        1,
+    ]
+    assert eval_node(g, [1, 2, 3, 4, 5, 6], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        None,
+        None,
+        3,
+        None,
+        5,
+        None,
+        6,
+        None,
+        6,
+    ]
 
 
 def test_drop_dups():
@@ -70,9 +137,19 @@ def test_drop_dups():
 
     assert eval_node(g_int, [1, 2, 2, 3, 3, 3, 4, 4, 4, 4]) == [1, 2, None, 3, None, None, 4, None, None, None]
 
-    assert eval_node(g_float,
-                     [1.0, 2.0, 2.0, 3.0, 3.0 + 1e-15, 3.0, 4.0, 4.0, 4.0, 4.0, 4.00001],
-                     abs_tol=1e-15) == [1.0, 2.0, None, 3.0, None, None, 4.0, None, None, None, 4.00001]
+    assert eval_node(g_float, [1.0, 2.0, 2.0, 3.0, 3.0 + 1e-15, 3.0, 4.0, 4.0, 4.0, 4.0, 4.00001], abs_tol=1e-15) == [
+        1.0,
+        2.0,
+        None,
+        3.0,
+        None,
+        None,
+        4.0,
+        None,
+        None,
+        None,
+        4.00001,
+    ]
 
 
 def test_filter_int():
@@ -88,8 +165,13 @@ def test_filter_tsl():
     def g(condition: TS[bool], ts: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return filter_(condition, ts)
 
-    assert (eval_node(g, [True, False, None, True], [(1, 1), (2, 2), {1: 3}, None, {0: 5}]) ==
-            [{0: 1, 1: 1}, None, None, {0: 2, 1: 3}, {0: 5}])
+    assert eval_node(g, [True, False, None, True], [(1, 1), (2, 2), {1: 3}, None, {0: 5}]) == [
+        {0: 1, 1: 1},
+        None,
+        None,
+        {0: 2, 1: 3},
+        {0: 5},
+    ]
 
 
 def test_throttle():
@@ -97,8 +179,16 @@ def test_throttle():
     def g(ts: TS[int], period: timedelta) -> TS[int]:
         return throttle(ts, period)
 
-    assert (eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10*MIN_TD)
-            == [None, 1, None, 3, None, 2, None, 1])
+    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        None,
+        1,
+        None,
+        3,
+        None,
+        2,
+        None,
+        1,
+    ]
 
 
 def test_take():
@@ -125,9 +215,9 @@ def test_window_cyclic_buffer():
     expected = [
         None,
         None,
-        {'buffer': (1, 2, 3), 'index': (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
-        {'buffer': (2, 3, 4), 'index': (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
-        {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
+        {"buffer": (1, 2, 3), "index": (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
+        {"buffer": (2, 3, 4), "index": (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
+        {"buffer": (3, 4, 5), "index": (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
     assert eval_node(g, [1, 2, 3, 4, 5], 3) == expected
@@ -139,11 +229,20 @@ def test_window_cyclic_buffer_with_min_window_period():
         return window(ts, period, min_window_period)
 
     expected = [
-        {'buffer': (1,), 'index': (MIN_ST,)},
-        {'buffer': (1, 2,), 'index': (MIN_ST, MIN_ST + MIN_TD,)},
-        {'buffer': (1, 2, 3), 'index': (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
-        {'buffer': (2, 3, 4), 'index': (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
-        {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
+        {"buffer": (1,), "index": (MIN_ST,)},
+        {
+            "buffer": (
+                1,
+                2,
+            ),
+            "index": (
+                MIN_ST,
+                MIN_ST + MIN_TD,
+            ),
+        },
+        {"buffer": (1, 2, 3), "index": (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
+        {"buffer": (2, 3, 4), "index": (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
+        {"buffer": (3, 4, 5), "index": (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
     assert eval_node(g, [1, 2, 3, 4, 5], 3, 1) == expected
@@ -156,10 +255,19 @@ def test_window_timedelta():
 
     expected = [
         None,
-        {'buffer': (1, 2,), 'index': (MIN_ST, MIN_ST + MIN_TD,)},
-        {'buffer': (1, 2, 3), 'index': (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
-        {'buffer': (2, 3, 4), 'index': (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
-        {'buffer': (3, 4, 5), 'index': (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
+        {
+            "buffer": (
+                1,
+                2,
+            ),
+            "index": (
+                MIN_ST,
+                MIN_ST + MIN_TD,
+            ),
+        },
+        {"buffer": (1, 2, 3), "index": (MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD)},
+        {"buffer": (2, 3, 4), "index": (MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD)},
+        {"buffer": (3, 4, 5), "index": (MIN_ST + 2 * MIN_TD, MIN_ST + 3 * MIN_TD, MIN_ST + 4 * MIN_TD)},
     ]
 
     assert eval_node(g, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected

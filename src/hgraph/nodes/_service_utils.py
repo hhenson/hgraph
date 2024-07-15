@@ -163,13 +163,15 @@ def _request_reply_service(
 
 
 @compute_node
-def write_adaptor_request(path: str, arg: str, request: REF[TIME_SERIES_TYPE], _output: TS_OUT[int], _state: STATE) -> TS[int]:
+def write_adaptor_request(
+    path: str, arg: str, request: REF[TIME_SERIES_TYPE], _output: TS_OUT[int] = None, _state: STATE = None
+) -> TS[int]:
     """Connect the request time series to the node collecting all the requests into a TSD in the adaptor"""
-    from_graph_output = GlobalState.instance().get(f"{path}/from_graph_{arg}")
-    if from_graph_output is None:
+    from_graph_node = GlobalState.instance().get(f"{path}/{arg}")
+    if from_graph_node is None:
         raise ValueError(f"request stub '{arg}' not found for {path}")
 
-    from_graph_output.get_or_create(id(request)).set_value(request.value)
+    from_graph_node.output.get_or_create(id(_state.requestor_id)).value = request.value
 
     if not _output.valid:
         return id(_state.requestor_id)
@@ -182,13 +184,13 @@ def write_adaptor_request_start(_state: STATE):
 
 @write_adaptor_request.stop
 def write_adaptor_request_stop(path: str, arg: str, _state: STATE):
-    if from_graph_output := GlobalState.instance().get(f"{path}/from_graph_{arg}"):
-        del from_graph_output[id(_state.requestor_id)]
+    if from_graph_node := GlobalState.instance().get(f"{path}/{arg}"):
+        if id(_state.requestor_id) in from_graph_node.output:
+            del from_graph_node.output[id(_state.requestor_id)]
 
 
-@pull_source_node()
-def adaptor_request(path: str, arg: str) -> TSD[int, REF[TIME_SERIES_TYPE]]:
-    ...
+@pull_source_node
+def adaptor_request(path: str, arg: str) -> TSD[int, REF[TIME_SERIES_TYPE]]: ...
 
 
 @sink_node

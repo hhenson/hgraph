@@ -1,18 +1,16 @@
 from typing import Callable, Sequence, TypeVar
 
-from frozendict import frozendict
-
 from hgraph._types._scalar_type_meta_data import HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext, GraphWiringNodeClass
+from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     WiringNodeClass,
     validate_and_resolve_signature,
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
-from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
 
 __all__ = ("ServiceAdaptorImplNodeClass",)
 
@@ -77,8 +75,8 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
         if len(interfaces) == 1:
             interface_sig: WiringNodeSignature = interfaces[0].signature
             match interface_sig.node_type:
-                case WiringNodeType.ADAPTOR:
-                    for arg, ts_type in signature.input_types.items():
+                case WiringNodeType.SERVICE_ADAPTOR:
+                    for arg, ts_type in signature.time_series_inputs.items():
                         if not isinstance(ts_type, HgTSDTypeMetaData):
                             raise CustomMessageWiringError(
                                 f"service adaptors inputs all must be TSD: {arg} is {ts_type.py_type}"
@@ -91,6 +89,10 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
                             raise CustomMessageWiringError(
                                 f"The implementation input {arg}: {ts_type} type value does not match {ts_int_type}"
                             )
+                    if any(arg not in signature.time_series_inputs for arg in interface_sig.time_series_inputs):
+                        raise CustomMessageWiringError(
+                            "The implementation has missing inputs compared to the service signature"
+                        )
                     output = signature.output_type.dereference()
                     if not isinstance(output, HgTSDTypeMetaData):
                         raise CustomMessageWiringError(
