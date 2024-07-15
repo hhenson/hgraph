@@ -5,6 +5,7 @@ import tempfile
 import time
 from datetime import datetime
 from glob import glob
+from pathlib import Path
 from threading import Thread
 from typing import Dict, Optional, Callable, List
 
@@ -181,6 +182,14 @@ def perspective_web(
         logger.info(f"Perspective server not started")
 
 
+def _get_node_location():
+    """Assuming node is installed this will retrieve the global local for npm modules"""
+    import subprocess
+
+    result = subprocess.run(["npm", "root", "-g", "for", "npm"], capture_output=True, text=True)
+    return result.stdout.rstrip()
+
+
 @perspective_web.start
 def perspective_web_start(
     host: str,
@@ -231,7 +240,7 @@ def perspective_web_start(
             (
                 r"/node_modules/(.*)",
                 tornado.web.StaticFileHandler,
-                {"path": os.path.join("/opt/homebrew/lib", "node_modules")},
+                {"path": Path(_get_node_location())},
             ),
         ]
         + perspective_manager.tornado_config()
