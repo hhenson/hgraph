@@ -24,11 +24,12 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
         return f"ref_svc://{user_path}/{self.fn.__name__}"
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        output_type = node_signature.time_series_output
-        if type(output_type) is not HgREFTypeMetaData:
-            node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
+        node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
 
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
 
@@ -71,7 +72,10 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
                 self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
             )
 
-            typed_full_path = self.typed_full_path(kwargs_.get("path"), resolution_dict)
+            path = kwargs_.get("path") or self.signature.name
+            full_path = self.full_path(path)
+            typed_full_path = self.typed_full_path(path, resolution_dict)
+
             port = super().__call__(
                 __pre_resolved_types__=__pre_resolved_types__, **(kwargs_ | {"path": typed_full_path})
             )
@@ -79,8 +83,8 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
             from hgraph import WiringGraphContext
 
             WiringGraphContext.instance().register_service_client(
-                self, self.full_path(kwargs_.get("path")), resolution_dict or None
-            , port.node_instance)
+                self, full_path, resolution_dict or None, port.node_instance
+            )
 
             return port
 

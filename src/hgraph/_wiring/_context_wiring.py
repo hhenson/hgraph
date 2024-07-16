@@ -142,11 +142,12 @@ def capture_context_stop(path: str, state: STATE):
 class ContextNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        output_type = node_signature.time_series_output
-        if type(output_type) is not HgREFTypeMetaData:
-            node_signature = node_signature.copy_with(time_series_output=HgREFTypeMetaData(output_type))
+        node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
 
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
 

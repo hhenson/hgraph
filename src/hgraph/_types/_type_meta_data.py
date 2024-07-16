@@ -1,5 +1,9 @@
 from functools import lru_cache
-from typing import TypeVar, Type, Optional, Mapping
+from typing import TypeVar, Type, Optional, TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
 
 __all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE")
 
@@ -94,7 +98,22 @@ class HgTypeMetaData:
         return False
 
     def dereference(self) -> "HgTypeMetaData":
+        """
+        Returns the dereferenced value of the type, this is performed recursively. The resultant type will represent
+        the type without any reference value included.
+        """
         return self
+
+    def as_reference(self) -> "HgREFTypeMetaData":
+        """
+        Converts the type meta-data to a reference type if the type is not already a reference type.
+        If the type is already a reference type, it will be returned as is.
+        This DOES NOT recurse the type hierarchy.
+        """
+        from hgraph._types._ref_meta_data import HgREFTypeMetaData
+        from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
+        return self if isinstance(self, (HgREFTypeMetaData, HgScalarTypeMetaData)) else HgREFTypeMetaData(self)
 
     @property
     def typevars(self):

@@ -1,9 +1,12 @@
 from pathlib import Path
+from typing import Callable
 
 from frozendict import frozendict
 
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
+from hgraph._types._ref_type import REF
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
@@ -12,15 +15,21 @@ from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNod
 from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
 
 
-def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> WiringPort:
+def create_input_stub(
+    key: str,
+    tp: HgTimeSeriesTypeMetaData,
+    is_key: bool,
+    stub_fn: Callable[[REF[TIME_SERIES_TYPE]], REF[TIME_SERIES_TYPE]] = None,
+) -> WiringPort:
     """
     Creates a stub input for a wiring node input.
+    If a stub_fn is provided, this is used as the glue function; otherwise, the default stubs are used.
     """
     # We use the class approach for now since it is easier to deal with the edges that could be created
     # if the component wrapped is a graph. This would have multiple dependencies and having the stubs in once
     # place at the start of the graph is better. Using references makes this reasonably light weights with
     # minimal overhead.
-    ref_tp = tp if type(tp) is HgREFTypeMetaData or is_key else HgREFTypeMetaData(tp)
+    ref_tp = tp if is_key else tp.as_reference()
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
         name=f"stub:{key}",
@@ -29,23 +38,20 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
         input_types=frozendict({"ts": ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 13),
-        active_inputs=frozenset(
-            {
-                "ts",
-            }
-        ),
+        active_inputs=frozenset({
+            "ts",
+        }),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
-        time_series_args=frozenset(
-            {
-                "ts",
-            }
-        ),
+        time_series_args=frozenset({
+            "ts",
+        }),
         label=key,
     )
-    node = PythonWiringNodeClass(signature, KeyStubEvalFn() if is_key else _stub)
+    stub_fn = KeyStubEvalFn() if is_key else (_stub if stub_fn is None else stub_fn)
+    node = PythonWiringNodeClass(signature, stub_fn)
     node_instance = create_wiring_node_instance(
         node,
         signature,
@@ -55,13 +61,12 @@ def create_input_stub(key: str, tp: HgTimeSeriesTypeMetaData, is_key: bool) -> W
     return _wiring_port_for(ref_tp, node_instance, ())
 
 
-def create_output_stub(output: WiringPort):
+def create_output_stub(output: WiringPort, stub_fn: Callable[[REF[TIME_SERIES_TYPE]], REF[TIME_SERIES_TYPE]] = None):
     """
     Creates a stub output for a wiring node output.
     """
     # This ensures symetry.
-    tp = output.output_type
-    ref_tp = tp if type(tp) is HgREFTypeMetaData else HgREFTypeMetaData(tp)
+    ref_tp = output.output_type.as_reference()
     signature = WiringNodeSignature(
         node_type=WiringNodeType.COMPUTE_NODE,
         name="stub:__out__",
@@ -70,23 +75,19 @@ def create_output_stub(output: WiringPort):
         input_types=frozendict({"ts": ref_tp}),
         output_type=ref_tp,
         src_location=SourceCodeDetails(Path(__file__), 42),
-        active_inputs=frozenset(
-            {
-                "ts",
-            }
-        ),
+        active_inputs=frozenset({
+            "ts",
+        }),
         valid_inputs=frozenset(),
         all_valid_inputs=None,
         context_inputs=None,
         unresolved_args=frozenset(),
-        time_series_args=frozenset(
-            {
-                "ts",
-            }
-        ),
+        time_series_args=frozenset({
+            "ts",
+        }),
         label="graph:out",
     )
-    node = PythonWiringNodeClass(signature, _stub)
+    node = PythonWiringNodeClass(signature, _stub if stub_fn is None else stub_fn)
     node_instance = create_wiring_node_instance(
         node,
         signature,

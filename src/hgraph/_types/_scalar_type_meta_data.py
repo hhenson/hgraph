@@ -213,7 +213,7 @@ class HgAtomicType(HgScalarTypeMetaData):
     is_atomic = True
     is_resolved = True
 
-    def __init__(self, py_type: Type, convertable_types: tuple[Type, ...]):
+    def __init__(self, py_type: Type, convertable_types: tuple[Type, ...] = ()):
         self.py_type = py_type
         self.convertable_types = convertable_types
 

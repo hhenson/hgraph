@@ -12,21 +12,26 @@ if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
 __all__ = (
-    "operator",
+    "adaptor",
+    "adaptor_impl",
+    "component",
     "compute_node",
-    "pull_source_node",
-    "push_source_node",
-    "sink_node",
-    "graph",
-    "generator",
-    "reference_service",
-    "request_reply_service",
-    "subscription_service",
     "default_path",
-    "service_impl",
-    "service_adaptor",
-    "register_service",
+    "generator",
+    "graph",
+    "operator",
+    "pull_source_node",
     "push_queue",
+    "push_source_node",
+    "reference_service",
+    "register_adaptor",
+    "register_service",
+    "request_reply_service",
+    "service_adaptor",
+    "service_adaptor_impl",
+    "service_impl",
+    "sink_node",
+    "subscription_service",
 )
 
 SOURCE_NODE_SIGNATURE = TypeVar("SOURCE_NODE_SIGNATURE", bound=Callable)
@@ -551,6 +556,7 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     """
     from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper
     from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
+    from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
 
     if isinstance(implementation, PreResolvedWiringNodeWrapper):
         implementation = implementation.underlying_node
@@ -558,35 +564,157 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     else:
         resolution_dict = implementation._convert_item(resolution_dict) if resolution_dict else {}
 
-    if not isinstance(implementation, ServiceImplNodeClass):
+    if not isinstance(implementation, (ServiceImplNodeClass, AdaptorImplNodeClass)):
         raise CustomMessageWiringError("The provided implementation is not a 'service_impl' wrapped function.")
 
     from hgraph import WiringGraphContext
 
     for i in implementation.interfaces:
-        WiringGraphContext.instance().register_service_impl(
-            i, i.full_path(path), implementation, kwargs, resolution_dict
-        )
+        WiringGraphContext.instance().register_service_impl(i, path, implementation, kwargs, resolution_dict)
 
 
-def service_adaptor(interface):
+def adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
     """
-    @service
+    @adaptor
     def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
         pass
 
-    @service_adapter(my_interface)
-    class MyAdapter:
+    @adaptor_impl(my_interface)
+    def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+        pass
 
-        def __init__(self, sender: Sender, ...):
-            ''' The sender has a method called send on it that takes a Python object that will enqueue into the out
-                shape, use this to send a message'''
-
-        def on_data(ts1: TIME_SERIES, ...):
-            ''' Is called each time one of the inputs ticks '''
-
-    Use the register_service method to with the class as the impl value.
+    This is a client interface for a single client adaptor. An adaptor is a graph pattern primarily used to define
+    connectivity from graph code to the outside world.
     """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(WiringNodeType.ADAPTOR, interface, resolvers=resolvers)
+
+
+def adaptor_impl(
+    *,
+    interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    deprecated: bool | str = False,
+):
+    """
+    Wraps an adaptor implementation.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
+    )
+
+
+def service_adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
+    """
+    @service_adaptor
+    def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+        pass
+
+    @service_adaptor_impl(my_interface)
+    def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+        pass
+
+    Service adaptor is a mutli-client version of adaptor. It works in a similar way to the request reply service
+    in the way that every client on the graph gets an integer id and all client requests are combined into a TSD keyed
+    by those ids. Replies from the adaptor are expected to be also keyed by the same ids so t hat they can be delivered
+    to the correct client
+
+    NOTE: this decorator is temporary, the plan is to make a common service interface decorator that will work for both
+    request-reply service and mutli-client adaptors and implementations will be compatible so that even the same
+    service with different paths can be implemented as a service of adaptor by implementor's choice
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(WiringNodeType.SERVICE_ADAPTOR, interface, resolvers=resolvers)
+
+
+def service_adaptor_impl(
+    *,
+    interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    deprecated: bool | str = False,
+):
+    """
+    Wraps an adaptor implementation.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.SERVICE_ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
+    )
+
+
+def register_adaptor(path: str, implementation, resolution_dict=None, **kwargs):
+    """
+    Binds the implementation of the adaptor to the path provided. The additional kwargs
+    are passed to the implementation. These should be defined on the implementation and are independent of the
+    attributes defined in the adaptor.
+    """
+    from hgraph._wiring._wiring_node_class._wiring_node_class import PreResolvedWiringNodeWrapper
+    from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
+
+    if isinstance(implementation, PreResolvedWiringNodeWrapper):
+        implementation = implementation.underlying_node
+        resolution_dict = implementation.resolved_types or {}
+    else:
+        resolution_dict = implementation._convert_item(resolution_dict) if resolution_dict else {}
+
+    if not isinstance(implementation, AdaptorImplNodeClass):
+        raise CustomMessageWiringError("The provided implementation is not a 'adaptor_impl' wrapped function.")
+
+    for i in implementation.interfaces:
+        i.register_impl(path, implementation, resolution_dict, **kwargs)
+
+
+def component(
+    fn: GRAPH_SIGNATURE = None,
+    *,
+    recordable_id: str | None = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    deprecated: bool | str = False,
+) -> GRAPH_SIGNATURE:
+    """
+    Decorator to indicate the function being wrapped is a graph that is recordable.
+    A component is a graph, with the following constraints:
+    * The component should not access any services unless the service is already able to support replay mode.
+    * The component MAY NOT use ANY push source nodes.
+    * The component should not use any pull source nodes that are not replay compliant.
+    * The component should not use any sink nodes that will have side effects other than, for example, printing or logging.
+    The component is expected to be idempotent (i.e., given the same inputs, the graph should produce the same results)
+    and have no side effects.
+
+    When using the component in save/restore mode, the component should be able to produce a correct result if all the
+    inputs were re-ticked into the graph and re-computed, in other words, the component should not depend on the order
+    of tick arrival to produce the same result. <This constraint will be removed as soon as possible, but there are a
+    number of complexities to fully manage the saving and restoration of graph state correctly>
+
+    The key idea behind a component is that it represents a meaningful amount of work that will benefit from
+    regression testing in the form of replaying the inputs and comparing the results produced for correctness.
+    This will also support recording inputs and results for logging and diagnostic purposes.
+    Finally, it is possible to use components to support restorable computations and to allow for skipping re-computation
+    of already computed results. This allows for re-running graphs when one or more components have failed without having
+    to re-compute each node.
+
+    The ``recordable_id`` represents the unique id of the component within the context of the master graph.
+    If no id is provided, then the name of the component is used as the id. If it is possible to have more than one
+    instance of the component is supported in the master graph, then the component needs to be able to create a unique
+    identy, the ``recordable_id`` support using a Format string with the ability to create an id using the scalar
+    properties of the component or any ``const`` inputs provided (for example, a key in a bundle). Here is an example:
+    ```python
+    @component(recordable_id='my_component.{key}')
+    def my_component(key: TS[str], ...) -> TIME_SERIES_VALUE:
+        ...
+    ```
+    Then if this was used in a map_ the key will be available at start and will create an instance key.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.COMPONENT, fn, resolvers=resolvers, deprecated=deprecated, record_and_replay_id=recordable_id
+    )
 
 
 def _node_decorator(
@@ -602,6 +730,7 @@ def _node_decorator(
     resolvers: Mapping[TypeVar, Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
+    record_and_replay_id: str | None = None,
 ) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
@@ -618,6 +747,7 @@ def _node_decorator(
         interfaces=interfaces,
         deprecated=deprecated,
         requires=requires,
+        record_and_replay_id=record_and_replay_id,
     )
     if node_impl is not None:
         if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
@@ -659,6 +789,33 @@ def _node_decorator(
             kwargs["node_class"] = ServiceImplNodeClass
             kwargs["interfaces"] = interfaces
             _assert_no_node_configs("Service Impl", kwargs)
+        case WiringNodeType.ADAPTOR:
+            from hgraph._wiring._wiring_node_class._adaptor_node_class import AdaptorNodeClass
+
+            kwargs["node_class"] = AdaptorNodeClass
+            _assert_no_node_configs("Adaptor", kwargs)
+        case WiringNodeType.ADAPTOR_IMPL:
+            from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
+
+            kwargs["node_class"] = AdaptorImplNodeClass
+            kwargs["interfaces"] = interfaces
+            _assert_no_node_configs("Adaptor Impl", kwargs)
+        case WiringNodeType.SERVICE_ADAPTOR:
+            from hgraph._wiring._wiring_node_class._service_adaptor_node_class import ServiceAdaptorNodeClass
+
+            kwargs["node_class"] = ServiceAdaptorNodeClass
+            _assert_no_node_configs("Service Adaptor", kwargs)
+        case WiringNodeType.SERVICE_ADAPTOR_IMPL:
+            from hgraph._wiring._wiring_node_class._service_adaptor_impl_node_class import ServiceAdaptorImplNodeClass
+
+            kwargs["node_class"] = ServiceAdaptorImplNodeClass
+            kwargs["interfaces"] = interfaces
+            _assert_no_node_configs("Adaptor Impl", kwargs)
+        case WiringNodeType.COMPONENT:
+            from hgraph._wiring._wiring_node_class._component_node_class import ComponentNodeClass
+
+            kwargs["node_class"] = ComponentNodeClass
+            _assert_no_node_configs("Component", kwargs)
 
     if overloads is not None and impl_fn is None:
         kwargs["overloads"] = overloads
@@ -712,6 +869,7 @@ def _create_node(
     interfaces=None,
     deprecated: bool | str = False,
     requires: Callable[[..., ...], bool] = None,
+    record_and_replay_id: str | None = None,
 ) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
@@ -737,6 +895,7 @@ def _create_node(
             all_valid_inputs=all_valid_inputs,
             deprecated=deprecated,
             requires=requires,
+            record_and_replay_id=record_and_replay_id,
         )
     )
     if interfaces is None:

@@ -73,7 +73,7 @@ def switch_(
             cast(WiringPort, key).output_type.dereference(), HgTSTypeMetaData
         ):
             raise CustomMessageWiringError(
-                f"The key must be a time-series value of form TS[SCALAR], " f"received {key.output_type.dereference()}"
+                f"The key must be a time-series value of form TS[SCALAR], received {key.output_type.dereference()}"
             )
 
         switches = {
@@ -122,8 +122,12 @@ def switch_(
             input_types=frozendict(input_types),
             output_type=output_type,
             src_location=SourceCodeDetails(Path(__file__), 25),
-            active_inputs=frozenset({"key", }),
-            valid_inputs=frozenset({"key", }),
+            active_inputs=frozenset({
+                "key",
+            }),
+            valid_inputs=frozenset({
+                "key",
+            }),
             all_valid_inputs=None,
             context_inputs=None,
             # We have constructed the map so that the key are is always present.
@@ -133,10 +137,9 @@ def switch_(
         )
 
         nested_graphs = {}
-        service_clients = []
-        context_clients = []
+        reassignables = None
         for k, v in switches.items():
-            graph, sc, cc = wire_nested_graph(
+            graph, ri = wire_nested_graph(
                 v,
                 resolved_signature_inner.input_types,
                 {
@@ -149,8 +152,11 @@ def switch_(
                 depth=2,
             )
             nested_graphs[k] = graph
-            service_clients.extend(sc)
-            context_clients.extend(cc)
+            if reassignables is None:
+                reassignables = ri
+            else:
+                for i, r in enumerate(ri):
+                    reassignables[i].extend(r)
 
         switch_signature = SwitchWiringSignature(
             **resolved_signature_outer.as_dict(), inner_graphs=frozendict(nested_graphs)
@@ -165,8 +171,8 @@ def switch_(
         )
 
         from hgraph import WiringGraphContext
-        WiringGraphContext.instance().reassign_service_clients(service_clients, port.node_instance)
-        WiringGraphContext.instance().reassign_context_clients(context_clients, port.node_instance)
+
+        WiringGraphContext.instance().reassign_items(reassignables, port.node_instance)
 
         return port if port.output_type is not None else None
 
@@ -194,7 +200,7 @@ def _validate_signature(
                 # If the signatures do not match, then we cannot wire the switch.
                 # We ensure the arguments and their types match, as well as the output type.
                 raise CustomMessageWiringError(
-                    f"The signature of the switch nodes do not match: "
+                    "The signature of the switch nodes do not match: "
                     f"{check_signature.signature} != {k}: {this_signature.signature}"
                 )
     return check_signature

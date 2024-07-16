@@ -153,16 +153,16 @@ def _reduce_tsd(func, ts, zero):
             )
         )
 
-    builder, sc, cc = wire_nested_graph(func,
-                                      {k: tp.value_tp for k in func.signature.input_types},
-                                      {},
-                                      resolved_signature,
-                                      None,
-                                      depth=2)
-
-    reduce_signature = ReduceWiringSignature(
-        **resolved_signature.as_dict(),
-        inner_graph=builder
+    builder, ri = wire_nested_graph(
+        func, {k: tp.value_tp for k in func.signature.input_types}, {}, resolved_signature, None, depth=2
     )
+
+    reduce_signature = ReduceWiringSignature(**resolved_signature.as_dict(), inner_graph=builder)
     wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
-    return wiring_node(ts, zero)
+    port = wiring_node(ts, zero)
+
+    from hgraph import WiringGraphContext
+
+    WiringGraphContext.instance().reassign_items(ri, port.node_instance)
+
+    return port

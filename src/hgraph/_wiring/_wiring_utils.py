@@ -1,12 +1,14 @@
 from collections.abc import Set
 from dataclasses import dataclass
-from typing import Mapping, Any, cast, TYPE_CHECKING, _GenericAlias
+from typing import Mapping, Any, cast, TYPE_CHECKING, _GenericAlias, Callable
 
 from frozendict import frozendict
 
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
+from hgraph._types._ref_type import REF
 from hgraph._types._scalar_types import Size
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
@@ -59,18 +61,18 @@ def as_reference(tp_: HgTimeSeriesTypeMetaData, is_multiplexed: bool = False) ->
             tp_: HgTSDTypeMetaData
             return HgTSDTypeMetaData(
                 tp_.key_tp,
-                HgREFTypeMetaData(tp_.value_tp) if type(tp_.value_tp) is not HgREFTypeMetaData else tp_.value_tp,
+                tp_.value_tp.as_reference(),
             )
         elif type(tp_) is HgTSLTypeMetaData:
             tp_: HgTSLTypeMetaData
             return HgTSLTypeMetaData(
-                HgREFTypeMetaData(tp_.value_tp) if type(tp_.value_tp) is not HgREFTypeMetaData else tp_.value_tp,
+                tp_.value_tp.as_reference(),
                 tp_.size_tp,
             )
         else:
             raise CustomMessageWiringError(f"Unable to create reference for multiplexed type: {tp_}")
     else:
-        return HgREFTypeMetaData(tp_) if type(tp_) is not HgREFTypeMetaData else tp_
+        return tp_.as_reference()
 
 
 def wire_nested_graph(
@@ -80,7 +82,9 @@ def wire_nested_graph(
     outer_wiring_node_signature: WiringNodeSignature,
     key_arg: str,
     depth: int = 1,
-) -> ["GraphBuilder", list, list]:
+    input_stub_fn: Callable[[REF[TIME_SERIES_TYPE]], REF[TIME_SERIES_TYPE]] = None,
+    output_stub_fn: Callable[[REF[TIME_SERIES_TYPE]], REF[TIME_SERIES_TYPE]] = None,
+) -> ["GraphBuilder", tuple]:
     """
     Wire the inner function using stub inputs and wrap stub outputs.
     The outer wiring node signature is used to supply to the wiring graph context, this is for error and stack trace
@@ -98,20 +102,19 @@ def wire_nested_graph(
             if v.is_scalar:
                 inputs_[k] = scalars[k]
             else:
-                inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == key_arg)
+                inputs_[k] = create_input_stub(k, cast(HgTimeSeriesTypeMetaData, v), k == key_arg, input_stub_fn)
 
         out = fn(**inputs_)
         if out is not None and out.output_type is not None:
-            create_output_stub(cast(WiringPort, out))
+            create_output_stub(cast(WiringPort, out), output_stub_fn)
         sink_nodes = context.pop_sink_nodes()
-        service_clients = context.pop_service_clients()
-        context_clients = context.pop_context_clients()
+        reassignable = context.pop_reassignable_items()
         builder = create_graph_builder(sink_nodes, False)
 
     if temp_factory:
         TimeSeriesBuilderFactory.un_declare()
 
-    return builder, service_clients, context_clients
+    return builder, reassignable
 
 
 def extract_stub_node_indices(inner_graph, input_args: Set[str]) -> tuple[frozendict[str, int], int]:

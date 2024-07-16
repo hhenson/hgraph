@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 from logging import Logger, getLogger, DEBUG, StreamHandler, Formatter
 from typing import Callable, Any, Dict
 
@@ -57,6 +57,12 @@ class GraphConfiguration:
 
         if self.start_time < MIN_ST:
             raise RuntimeError(f"Start time '{self.start_time}' is less than minimum time '{MIN_ST}'")
+
+        if isinstance(self.end_time, timedelta):
+            if self.run_mode is EvaluationMode.SIMULATION:
+                self.end_time = self.start_time + self.end_time
+            elif self.run_mode is EvaluationMode.REAL_TIME:
+                self.end_time = datetime.utcnow() + self.end_time
 
         if self.end_time > MAX_ET:
             raise RuntimeError(f"End time '{self.end_time}' is greater than maximum time '{MAX_ET}'")
@@ -168,4 +174,4 @@ def run_graph(
     if life_cycle_observers is not None:
         kwargs_["life_cycle_observers"] = life_cycle_observers
     config = GraphConfiguration(**kwargs_)
-    evaluate_graph(graph, config, *args, **kwargs)
+    return evaluate_graph(graph, config, *args, **kwargs)

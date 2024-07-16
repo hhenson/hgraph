@@ -41,7 +41,10 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
     signature: TsdMapWiringSignature
 
     def create_node_builder_instance(
-        self, node_signature: "TsdMapWiringSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "TsdMapWiringSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
         from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
 
@@ -102,7 +105,7 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
         out = []
 
         for i in range(cast(Size, self.signature.size_tp.py_type).SIZE):
-            kwargs_ = {k: (v[i] if k in self.signature.multiplexed_args else v) for k, v in kwargs.items()}
+            kwargs_ = {k: v[i] if k in self.signature.multiplexed_args else v for k, v in kwargs.items()}
             if self.signature.key_arg:
                 kwargs_ = {self.signature.key_arg: const(i)} | kwargs_
             out.append(self.fn(**kwargs_))

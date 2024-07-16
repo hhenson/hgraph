@@ -168,6 +168,9 @@ class WiringGraphContext:
         if path is None:
             path = service.signature.name
 
+        if not service.is_full_path(path):
+            path = service.full_path(path)
+
         if resolution_dict:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
 
@@ -217,6 +220,51 @@ class WiringGraphContext:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
 
         return self._built_services.get(path)
+
+    def register_context_client(self, path, depth, node):
+        self._context_clients.append((path, depth, node))
+
+    def reassign_context_clients(self, clients, node):
+        self._context_clients = [(path, depth, node) for path, depth, _ in clients]
+
+    def remove_context_clients(self, path, depth):
+        clients = [node for c_path, c_depth, node in self._context_clients if c_path == path and c_depth == depth]
+        self._context_clients = [
+            (c_path, c_depth, node)
+            for c_path, c_depth, node in self._context_clients
+            if not (c_path == path and c_depth == depth)
+        ]
+        return clients
+
+    def pop_context_clients(self):
+        r = self._context_clients
+        self._context_clients = []
+        return r
+
+    def reassign_service_clients(self, clients, node):
+        self._service_clients.extend([(service, path, type_map, node) for service, path, type_map, _ in clients])
+
+    def pop_service_clients(self):
+        r = self._service_clients
+        self._service_clients = []
+        return r
+
+    def reassign_service_stubs(self, stubs, node):
+        self._service_stubs.extend([(service, full_typed_path, node) for service, full_typed_path, _ in stubs])
+
+    def pop_service_stubs(self):
+        r = self._service_stubs
+        self._service_stubs = []
+        return r
+
+    def pop_reassignable_items(self):
+        return self.pop_service_clients(), self.pop_service_stubs(), self.pop_context_clients()
+
+    def reassign_items(self, items, node):
+        sc, ss, cc = items
+        self.reassign_service_clients(sc, node)
+        self.reassign_service_stubs(ss, node)
+        self.reassign_context_clients(cc, node)
 
     def build_services(self):
         """
@@ -270,34 +318,6 @@ class WiringGraphContext:
         for service, full_path, node in self._service_stubs:
             node: "WiringNodeInstance"
             self._built_services[full_path].add_indirect_dependency(node)
-
-    def register_context_client(self, path, depth, node):
-        self._context_clients.append((path, depth, node))
-
-    def reassign_context_clients(self, clients, node):
-        self._context_clients = [(path, depth, node) for path, depth, _ in clients]
-
-    def remove_context_clients(self, path, depth):
-        clients = [node for c_path, c_depth, node in self._context_clients if c_path == path and c_depth == depth]
-        self._context_clients = [
-            (c_path, c_depth, node)
-            for c_path, c_depth, node in self._context_clients
-            if not (c_path == path and c_depth == depth)
-        ]
-        return clients
-
-    def pop_context_clients(self):
-        r = self._context_clients
-        self._context_clients = []
-        return r
-
-    def reassign_service_clients(self, clients, node):
-        self._service_clients.extend([(service, path, type_map, node) for service, path, type_map, _ in clients])
-
-    def pop_service_clients(self):
-        r = self._service_clients
-        self._service_clients = []
-        return r
 
     def __enter__(self):
         WiringGraphContext.__stack__.append(self)

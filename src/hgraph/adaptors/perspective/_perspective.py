@@ -1,11 +1,11 @@
+import concurrent.futures
 import logging
 import os
-import sys
 import tempfile
 import time
-import concurrent.futures
 from datetime import datetime
 from glob import glob
+from pathlib import Path
 from threading import Thread
 from typing import Dict, Optional, Callable, List
 
@@ -182,6 +182,14 @@ def perspective_web(
         logger.info(f"Perspective server not started")
 
 
+def _get_node_location():
+    """Assuming node is installed this will retrieve the global local for npm modules"""
+    import subprocess
+
+    result = subprocess.run(["npm", "root", "-g", "for", "npm"], capture_output=True, text=True)
+    return result.stdout.rstrip()
+
+
 @perspective_web.start
 def perspective_web_start(
     host: str,
@@ -232,25 +240,23 @@ def perspective_web_start(
             (
                 r"/node_modules/(.*)",
                 tornado.web.StaticFileHandler,
-                {"path": os.path.join(sys.prefix, "node_modules")},
+                {"path": Path(_get_node_location())},
             ),
         ]
         + perspective_manager.tornado_config()
         + ([(k, tornado.web.StaticFileHandler, v) for k, v in static.items()] if static else [])
         + (
-            [
-                (
-                    r"/(.*)",
-                    IndexPageHandler,
-                    {
-                        "mgr": perspective_manager,
-                        "layouts_path": layouts_dir,
-                        "index_template": index_template,
-                        "host": host,
-                        "port": port,
-                    },
-                )
-            ]
+            [(
+                r"/(.*)",
+                IndexPageHandler,
+                {
+                    "mgr": perspective_manager,
+                    "layouts_path": layouts_dir,
+                    "index_template": index_template,
+                    "host": host,
+                    "port": port,
+                },
+            )]
             if index_template
             else []
         ),

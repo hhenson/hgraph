@@ -55,6 +55,11 @@ class WiringNodeType(Enum):
     REQ_REP_SVC = 8
     SVC_IMPL = 9
     OPERATOR = 10  # Similar to STUB, expect in this case will be replaced with a matched node.
+    ADAPTOR = 11
+    ADAPTOR_IMPL = 12
+    SERVICE_ADAPTOR = 13
+    SERVICE_ADAPTOR_IMPL = 14
+    COMPONENT = 15  # A graph with constraints that allows for record, replay, etc.
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
@@ -274,7 +279,7 @@ class WiringNodeSignature:
                                 if _ensure_match:
                                     raise ParseError(
                                         f"In {self.name}, {k}: {v} = {arg}; arg is not parsable, "
-                                        f"but we require type resolution"
+                                        "but we require type resolution"
                                     )
                             else:
                                 # If the signature was not unresolved, then we can use the signature, but the input value
@@ -361,7 +366,7 @@ class WiringNodeSignature:
 
         if not weak and all_resolved < len(resolution_dict):
             raise ParseError(
-                f"Unable to build a resolved resolution dictionary, due to:"
+                "Unable to build a resolved resolution dictionary, due to:"
                 f"{';'.join(f' {k}: {v}' for k, v in out_dict.items() if not v.is_resolved)}"
             )
         return out_dict
@@ -400,7 +405,7 @@ class WiringNodeSignature:
         )
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
-            if valid_inputs:
+            if valid_inputs is not None:
                 return (r := frozenset(k for k in valid_inputs if k not in optional_inputs)), r != self.valid_inputs
             else:
                 return frozenset(k for k in self.time_series_args if k not in optional_inputs), True
@@ -499,11 +504,11 @@ class WiringNodeSignature:
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
                     elif v is REQUIRED:
                         raise CustomMessageWiringError(
-                            f"Context of type {tp} for argument '{arg}' is required, " f"but not found"
+                            f"Context of type {tp} for argument '{arg}' is required, but not found"
                         )
                     elif type(v) is REQUIRED:
                         raise CustomMessageWiringError(
-                            f"Context of type {tp} with name {v} for argument '{arg}' " f"is required, but not found"
+                            f"Context of type {tp} with name {v} for argument '{arg}' is required, but not found"
                         )
                     else:
                         from hgraph import nothing
@@ -545,6 +550,7 @@ def extract_signature(
     all_valid_inputs: frozenset[str] | None = None,
     deprecated: bool = False,
     requires: Callable[[...], bool] | None = None,
+    record_and_replay_id: str | None = None,
 ) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
@@ -634,6 +640,9 @@ def extract_signature(
     # graph expansion logic.
 
     injectable_inputs = extract_injectable_inputs(**input_types)
+    if record_and_replay_id is None:
+        scalars = [f"{{{k}}}" for k in args if k not in time_series_inputs]
+        record_and_replay_id = f"{name}{'::' if scalars else ''}{'_'.join(scalars)}"
 
     return WiringNodeSignature(
         node_type=wiring_node_type,
@@ -651,7 +660,7 @@ def extract_signature(
         time_series_args=time_series_inputs,
         injectable_inputs=injectable_inputs,
         label=None,
-        record_and_replay_id=None,
+        record_and_replay_id=record_and_replay_id,
         deprecated=deprecated,
         requires=requires,
         kw_only_args=kw_only_args,

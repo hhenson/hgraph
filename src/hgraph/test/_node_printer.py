@@ -88,7 +88,7 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
                 if (node.output and node.output.valid)
                 else "<UnSet>"
             )
-            node_signature += f"{' *->* ' if mod_ else ' -> '}" f"{value_}"
+            node_signature += f"{' *->* ' if mod_ else ' -> '}{value_}"
         if add_scheduled_time:
             scheduled_msg = f" SCHED[{node.scheduler.next_scheduled_time}]"
         else:
@@ -119,7 +119,13 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
 
     def on_after_start_node(self, node: "Node"):
         if self.start and self.node and (self.filter is None or self.filter in self._node_name(node)):
-            self._print_node(node, "Started node", add_output=True)
+            fmt_id = lambda id: f"<{', '.join(str(i) for i in id)}>"
+            inputs = ", ".join(
+                f"{k}: {fmt_id(n.output.owning_node.node_id) if n.output else '?'}" for k, n in node.inputs.items()
+            )
+            scalars = ", ".join(f"{k}: {v}" for k, v in node.scalars.items())
+            and_ = " and " if inputs and scalars else ""
+            self._print_node(node, f"Started node with {inputs}{and_}{scalars}", add_output=True)
 
     def on_before_graph_evaluation(self, graph: "Graph"):
         if self.eval and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):

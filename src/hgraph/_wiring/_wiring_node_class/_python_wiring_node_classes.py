@@ -1,6 +1,6 @@
 import inspect
 import types
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Any, Mapping
 
 from hgraph._types._typing_utils import with_signature
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
@@ -8,6 +8,7 @@ from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
+    from hgraph._runtime._node import NodeSignature
 
 
 __all__ = ("PythonWiringNodeClass", "PythonPushQueueWiringNodeClass", "PythonGeneratorWiringNodeClass")
@@ -15,7 +16,12 @@ __all__ = ("PythonWiringNodeClass", "PythonPushQueueWiringNodeClass", "PythonGen
 
 class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
+    ) -> "NodeBuilder":
         from hgraph._impl._builder import PythonGeneratorNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
 
@@ -34,7 +40,12 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
 class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
+    ) -> "NodeBuilder":
         from hgraph._impl._builder import PythonPushQueueNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
 
@@ -66,7 +77,12 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
 
         super().__init__(signature, fn)
 
-    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
+    ) -> "NodeBuilder":
         from hgraph._impl._builder import PythonNodeBuilder
 
         input_builder, output_builder, error_builder = create_input_output_builders(

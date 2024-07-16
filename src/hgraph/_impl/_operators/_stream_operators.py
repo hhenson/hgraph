@@ -93,11 +93,36 @@ def lag_timedelta_start(_state: STATE[LagState]):
 
 
 @generator(overloads=schedule)
-def schedule(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.maxsize) -> TS[bool]:
+def schedule_scalar(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.maxsize) -> TS[bool]:
     initial_timedelta = delay if initial_delay else timedelta()
     yield (initial_timedelta, True)
     for _ in range(max_ticks - 1):
         yield (delay, True)
+
+
+@dataclass
+class TickCount(CompoundScalar):
+    count: int = 0
+
+
+@compute_node(overloads=schedule)
+def schedule_ts(
+    delay: TS[timedelta],
+    initial_delay: bool = True,
+    max_ticks: int = sys.maxsize,
+    _scheduler: SCHEDULER = None,
+    _state: STATE[TickCount] = None,
+) -> TS[bool]:
+    if _state.count == max_ticks:
+        return
+
+    scheduled = _scheduler.is_scheduled_now
+
+    _scheduler.schedule(delay.value, "_")
+    if (delay.modified and not initial_delay) or (scheduled and not delay.modified):
+        if _state.count < max_ticks:
+            _state.count += 1
+            return True
 
 
 @graph(overloads=resample)

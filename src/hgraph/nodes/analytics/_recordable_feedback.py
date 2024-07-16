@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, cast, Optional, Any
+from typing import Generic, cast, Optional, Any, Mapping
 
 from frozendict import frozendict
 
@@ -85,7 +85,12 @@ def _recorded_source_node(recordable_id: str, tp: type[TIME_SERIES_TYPE], defaul
 
 class PythonRecordedSourceNodeWiringNodeClass(BaseWiringNodeClass):
 
-    def create_node_builder_instance(self, node_signature, scalars) -> "NodeBuilder":
+    def create_node_builder_instance(
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
+    ) -> "NodeBuilder":
         from hgraph import TimeSeriesBuilderFactory
 
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
