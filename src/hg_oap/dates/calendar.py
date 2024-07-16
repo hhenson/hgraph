@@ -110,7 +110,7 @@ class HolidayCalendar(WeekendCalendar):
         self._holidays_set = set(holidays)
 
     def is_holiday(self, d: date) -> bool:
-        return date in self._holidays_set
+        return d in self._holidays_set
 
     def is_holiday_or_weekend(self, d: date) -> bool:
         return self.is_holiday(d) or super().is_holiday_or_weekend(d)
