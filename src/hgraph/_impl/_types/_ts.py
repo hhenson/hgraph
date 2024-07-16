@@ -49,7 +49,11 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
     def apply_result(self, result: SCALAR):
         if result is None:
             return
-        self.value = result
+        try:
+            self.value = result
+        except Exception as e:
+            raise TypeError(f"Cannot apply node output {result} of "
+                            f"type {result.__class__.__name__} to {self}: {e}") from e
 
     def mark_invalid(self):
         self._value = None

@@ -109,7 +109,7 @@ def floordiv_numbers(
 @compute_node(overloads=floordiv_)
 def floordiv_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TS[int]:
     """
-    Floor divides a int timeseries by another
+    Floor divides an int timeseries by another
     """
     try:
         return lhs.value // rhs.value
@@ -185,7 +185,7 @@ def pow_int_float(lhs: TS[int], rhs: TS[float]) -> TS[float]:
     """
     Raises an int time-series value to the power of a float time-series value
     """
-    return lhs.value**rhs.value
+    return lhs.value ** rhs.value
 
 
 @compute_node(overloads=pow_)
@@ -193,7 +193,7 @@ def pow_float_int(lhs: TS[float], rhs: TS[int]) -> TS[float]:
     """
     Raises a float time-series value to the power of an int time-series value
     """
-    return lhs.value**rhs.value
+    return lhs.value ** rhs.value
 
 
 EPSILON = 1e-10
