@@ -229,6 +229,7 @@ def _deduce_signature_from_lambda_and_args(func, key, *args, __key_arg__="key", 
     # 2. Put together annotations for the lambda from the parameter types
     annotations = {}
     values = {}
+    i = 0
     for i, (n, p) in enumerate(sig.parameters.items()):
         if p.kind in (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD):
             raise CustomMessageWiringError("lambdas with variable argument list are not supported for switch_()")

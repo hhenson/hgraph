@@ -304,7 +304,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def on_key_removed(self, key: K):
         if not self._removed_items:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
-        value: TimeSeriesInput = self._ts_values.pop(key)
+        value: TimeSeriesInput = self._ts_values.pop(key, None)
+        if value is None:
+          return
         if value.parent_input is self:
             if value.active:
                 value.make_passive()

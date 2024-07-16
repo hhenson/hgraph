@@ -103,7 +103,7 @@ def write_subscription_key_stop(path: str, _state: STATE):
         if not s:
             del _state.tracker[key]
             if subs_in := GlobalState.instance().get(f"{path}/subs"):
-                subs_in.apply_value(Removed(key))
+                subs_in.apply_value({Removed(key)})
 
 
 @compute_node

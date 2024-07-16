@@ -183,7 +183,6 @@ class BaseNodeImpl(Node, ABC):
                 try:
                     self.do_eval()
                 except Exception as e:
-                    out = None
                     from hgraph._types._error_type import NodeError
 
                     self.error_output.apply_result(NodeError.capture_error(e, self))
@@ -498,9 +497,14 @@ class PythonLastValuePullNodeImpl(NodeImpl):
         self.notify_next_cycle()  # If we are copying the value now, then we expect it to be used in the next cycle
 
     def apply_value(self, new_value: "SCALAR"):
-        self._delta_value = (
-            new_value if self._delta_value is None else self._delta_combine_fn(self._delta_value, new_value)
-        )
+        try:
+            self._delta_value = (
+                new_value if self._delta_value is None else self._delta_combine_fn(self._delta_value, new_value)
+            )
+        except Exception as e:
+            raise TypeError(f"Cannot apply value {new_value} of type "
+                            f"{new_value.__class__.__name__} to {self}: {e}") from e
+
         self.notify_next_cycle()
 
     def eval(self):
@@ -526,7 +530,7 @@ class PythonLastValuePullNodeImpl(NodeImpl):
                 removed={i for i in new_delta if type(i) is Removed},
             )
 
-        # Only addd items that have not subsequently been removed plus the new added items less the "re-added elements"
+        # Only add items that have not subsequently been removed plus the new added items less the "re-added elements"
         added = (old_delta.added - new_delta.removed) | (new_delta.added - old_delta.removed)
         removed = (old_delta.removed - new_delta.added) | (new_delta.removed - old_delta.added)
         # Only remove elements that have not been recently added and don't remove old removes that have been re-added

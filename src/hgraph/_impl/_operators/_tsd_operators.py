@@ -257,8 +257,9 @@ def rekey_tsd(
 
     # Track changes in new keys
     for ts_key in new_keys.removed_keys():
-        prev_key = prev.pop(ts_key)
-        out[prev_key] = REMOVE_IF_EXISTS
+        prev_key = prev.pop(ts_key, None)
+        if prev_key is not None:
+            out[prev_key] = REMOVE_IF_EXISTS
     for ts_key, new_key in new_keys.modified_items():
         new_key = new_key.value  # Get the value from the ts
         prev_key = prev.get(ts_key, None)
@@ -288,7 +289,7 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
     # Clear up existing mapping before we track new key mappings
     for k in ts.removed_keys():
-        k_new = prev.pop(k)
+        k_new = prev.pop(k, None)
         if k_new is not None:
             out[k_new] = REMOVE_IF_EXISTS
 
