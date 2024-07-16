@@ -57,6 +57,9 @@ class WiringNodeType(Enum):
     OPERATOR = 10  # Similar to STUB, expect in this case will be replaced with a matched node.
     ADAPTOR = 11
     ADAPTOR_IMPL = 12
+    SERVICE_ADAPTOR = 13
+    SERVICE_ADAPTOR_IMPL = 14
+    COMPONENT = 15  # A graph with constraints that allows for record, replay, etc.
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
@@ -402,7 +405,7 @@ class WiringNodeSignature:
         )
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
-            if valid_inputs:
+            if valid_inputs is not None:
                 return (r := frozenset(k for k in valid_inputs if k not in optional_inputs)), r != self.valid_inputs
             else:
                 return frozenset(k for k in self.time_series_args if k not in optional_inputs), True
@@ -547,6 +550,7 @@ def extract_signature(
     all_valid_inputs: frozenset[str] | None = None,
     deprecated: bool = False,
     requires: Callable[[...], bool] | None = None,
+    record_and_replay_id: str | None = None,
 ) -> WiringNodeSignature:
     """
     Performs signature extract that will work for python 3.9 (and possibly above)
@@ -636,6 +640,9 @@ def extract_signature(
     # graph expansion logic.
 
     injectable_inputs = extract_injectable_inputs(**input_types)
+    if record_and_replay_id is None:
+        scalars = [f"{{{k}}}" for k in args if k not in time_series_inputs]
+        record_and_replay_id = f"{name}{'::' if scalars else ''}{'_'.join(scalars)}"
 
     return WiringNodeSignature(
         node_type=wiring_node_type,
@@ -653,7 +660,7 @@ def extract_signature(
         time_series_args=time_series_inputs,
         injectable_inputs=injectable_inputs,
         label=None,
-        record_and_replay_id=None,
+        record_and_replay_id=record_and_replay_id,
         deprecated=deprecated,
         requires=requires,
         kw_only_args=kw_only_args,

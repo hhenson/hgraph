@@ -155,7 +155,12 @@ class WiringNodeInstance:
         match self.resolved_signature.node_type:
             case WiringNodeType.SINK_NODE:
                 node_type = NodeTypeEnum.SINK_NODE
-            case WiringNodeType.COMPUTE_NODE | WiringNodeType.REQ_REP_SVC | WiringNodeType.SUBS_SVC:
+            case (
+                WiringNodeType.COMPUTE_NODE
+                | WiringNodeType.REQ_REP_SVC
+                | WiringNodeType.SUBS_SVC
+                | WiringNodeType.COMPONENT
+            ):
                 node_type = NodeTypeEnum.COMPUTE_NODE
             case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC | WiringNodeType.SVC_IMPL:
                 node_type = NodeTypeEnum.PULL_SOURCE_NODE
@@ -197,14 +202,12 @@ class WiringNodeInstance:
         node_index = len(nodes)
         node_map[self] = node_index  # Update this wiring nodes index in the graph
 
-        scalars = frozendict(
-            {
-                k: t.injector if t.is_injectable else self.inputs[k]
-                for k, t in self.resolved_signature.scalar_inputs.items()
-            }
-        )
+        scalars = frozendict({
+            k: t.injector if t.is_injectable else self.inputs[k]
+            for k, t in self.resolved_signature.scalar_inputs.items()
+        })
 
-        node_builder = self.node.create_node_builder_instance(self.node_signature, scalars)
+        node_builder = self.node.create_node_builder_instance(self.resolved_signature, self.node_signature, scalars)
         # Extract out edges
 
         edges = set()

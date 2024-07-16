@@ -70,7 +70,7 @@ class OperatorWiringNodeClass(WiringNodeClass):
         return resolved_signature
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self, resolved_wiring_signature, node_signature: "NodeSignature", scalars: Mapping[str, Any]
     ) -> "NodeBuilder":
         raise RuntimeError("Should not be instantiating an operator definition")
 
@@ -207,9 +207,9 @@ class OverloadedWiringNodeHelper:
             p = lambda x: str(x.output_type) if isinstance(x, WiringPort) else str(x)
             newline = "\n"
             raise WiringError(
-                f"Overloads are ambiguous with given parameters:\n "
-                f"{newline.join(f'{c.signature.signature} with rank {r}' for c, r in best_candidates if r == best_candidates[0][1])}"
-                f"\nwhen wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}"
+                "Overloads are ambiguous with given parameters:\n"
+                f" {newline.join(f'{c.signature.signature} with rank {r}' for c, r in best_candidates if r == best_candidates[0][1])}\nwhen"
+                f" wired with {','.join(p(i) for i in args)}, {','.join(f'{k}:{p(v)}' for k, v in kwargs.items())}"
             )
 
         return pick

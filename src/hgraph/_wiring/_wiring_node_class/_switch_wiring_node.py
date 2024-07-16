@@ -41,7 +41,10 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
         self._reload_on_ticked = reload_on_ticked
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
         # create nested graphs
         nested_graphs = self.signature.inner_graphs

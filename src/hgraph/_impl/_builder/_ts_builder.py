@@ -187,9 +187,7 @@ class PythonTSDOutputBuilder(TSDOutputBuilder):
         factory = TimeSeriesBuilderFactory.instance()
         object.__setattr__(self, "key_set_builder", factory.make_output_builder(HgTSSTypeMetaData(self.key_tp)))
         object.__setattr__(self, "value_builder", factory.make_output_builder(self.value_tp))
-        object.__setattr__(
-            self, "value_reference_builder", factory.make_output_builder(HgREFTypeMetaData(self.value_tp))
-        )
+        object.__setattr__(self, "value_reference_builder", factory.make_output_builder(self.value_tp.as_reference()))
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hgraph._impl._types._tsd import PythonTimeSeriesDictOutput

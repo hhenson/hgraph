@@ -102,12 +102,7 @@ def toposort(
         ts_nodes = [n.node_instance for n in to_node.inputs.values() if isinstance(n, WiringPort)]
         ts_nodes.extend(n for n in to_node.non_input_dependencies)
         for from_node in ts_nodes:
-            if from_node.ranking_alternatives:
-                if len(from_node.ranking_alternatives) > 1:
-                    raise CustomMessageWiringError(
-                        f"Node: {from_node} has more than one ranking alternative. That's not supported at the moment."
-                    )
-                alt_node = from_node.ranking_alternatives[0]
+            for alt_node in from_node.ranking_alternatives:
                 mapping[from_node].add(alt_node)
                 nodes_to_process.append(alt_node)
             mapping[from_node].add(to_node)

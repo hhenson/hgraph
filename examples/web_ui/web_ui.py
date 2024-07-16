@@ -19,13 +19,10 @@ from hgraph import (
     feedback,
     compute_node,
     SCHEDULER,
-    TSL,
     STATE,
-    REMOVE_IF_EXISTS,
     CompoundScalar,
     const,
     debug_print,
-    lag,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective._perspective import perspective_web
@@ -61,19 +58,19 @@ class RandomDataState(CompoundScalar):
 
 @compute_node
 def random_data(
-    config: TSD[str, TSB[Config]],
-    freq_ms: int = 1000,
-    ec: EvaluationClock = None,
-    sched: SCHEDULER = None,
-    state: STATE[RandomDataState] = None,
+        config: TSD[str, TSB[Config]],
+        freq_ms: int = 1000,
+        ec: EvaluationClock = None,
+        sched: SCHEDULER = None,
+        state: STATE[RandomDataState] = None,
 ) -> TSD[str, TSB[Readings]]:
     sensors = list(k for k, v in config.items() if v.all_valid)
 
     data = {
         t: {
             "value": (prev := state.value.get(t, config[t].initial.value))
-            + (random() - 0.5) * (config[t].randomness.value * prev / sqrt(252))
-            + config[t].trend.value / 252,
+                     + (random() - 0.5) * (config[t].randomness.value * prev / sqrt(252))
+                     + config[t].trend.value / 252,
             "events": floor(randint(0, 100)) if randint(0, 100) > 95 else 0,
         }
         for t in sample(sensors, k=randint(1, len(sensors)))

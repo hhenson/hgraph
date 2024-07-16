@@ -1,20 +1,19 @@
 import inspect
 from copy import copy
 from dataclasses import replace
-from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple, List
 from types import GenericAlias
+from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING, Tuple
 
 from frozendict import frozendict
 
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
-from hgraph._types._type_meta_data import HgTypeMetaData, AUTO_RESOLVE
+from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_errors import WiringError, MissingInputsError, CustomMessageWiringError, WiringFailureError
+from hgraph._wiring._wiring_errors import WiringError, MissingInputsError, WiringFailureError
 from hgraph._wiring._wiring_node_instance import (
     WiringNodeInstance,
     create_wiring_node_instance,
-    WiringNodeInstanceContext,
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_port import _wiring_port_for, WiringPort
@@ -102,9 +101,13 @@ class WiringNodeClass:
         raise NotImplementedError()
 
     def create_node_builder_instance(
-        self, node_signature: "NodeSignature", scalars: Mapping[str, Any]
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
         """Create the appropriate node builder for the node this wiring node represents
+        :param resolved_wiring_signature:
         :param node_ndx:
         :param node_signature:
         :param scalars:
@@ -374,24 +377,14 @@ def validate_and_resolve_signature(
             )
         else:
             # Only need to re-create if we actually resolved the signature.
-            resolve_signature = WiringNodeSignature(
-                node_type=signature.node_type,
-                name=signature.name,
-                args=signature.args,
-                defaults=signature.defaults,
+            resolve_signature = signature.copy_with(
                 input_types=resolved_inputs,
                 output_type=resolved_output,
-                src_location=signature.src_location,
                 active_inputs=active_inputs,
                 valid_inputs=valid_inputs,
                 all_valid_inputs=all_valid_inputs,
-                context_inputs=signature.context_inputs,
                 unresolved_args=frozenset(),
-                time_series_args=signature.time_series_args,
-                injectable_inputs=signature.injectable_inputs,  # This should not differ based on resolution
-                label=signature.label,
                 record_and_replay_id=record_replay_id,
-                requires=signature.requires,
             )
             if resolve_signature.is_resolved and __enforce_output_type__ or resolve_signature.is_weakly_resolved:
                 resolve_signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
