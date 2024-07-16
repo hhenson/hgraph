@@ -136,3 +136,15 @@ def test_mesh_contains():
         None,
         {4: True, 5: True},
     ]
+
+
+def test_mesh_cycle():
+    @graph
+    def mesh_contains_prev(key: TS[int]) -> TS[bool]:
+        return mesh_("_")[key + convert[TS[int]]((key % 2 - 0.5) * 2)]
+
+    @graph
+    def g(keys: TSS[int]) -> TSD[int, TS[bool]]:
+        return mesh_(mesh_contains_prev, __keys__=keys, __name__="_")
+
+    assert eval_node(g, [{4}, {3}], __trace__=True) == []
