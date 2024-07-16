@@ -27,6 +27,8 @@ __all__ = (
     "register_adaptor",
     "register_service",
     "request_reply_service",
+    "service_adaptor",
+    "service_adaptor_impl",
     "service_impl",
     "sink_node",
     "subscription_service",
@@ -581,7 +583,8 @@ def adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
     def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
         pass
 
-    Use the register_service method to with the class as the impl value.
+    This is a client interface for a single client adaptor. An adaptor is a graph pattern primarily used to define
+    connectivity from graph code to the outside world.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
@@ -601,6 +604,46 @@ def adaptor_impl(
 
     return _node_decorator(
         WiringNodeType.ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
+    )
+
+
+def service_adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
+    """
+    @service_adaptor
+    def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+        pass
+
+    @service_adaptor_impl(my_interface)
+    def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+        pass
+
+    Service adaptor is a mutli-client version of adaptor. It works in a similar way to the request reply service
+    in the way that every client on the graph gets an integer id and all client requests are combined into a TSD keyed
+    by those ids. Replies from the adaptor are expected to be also keyed by the same ids so t hat they can be delivered
+    to the correct client
+
+    NOTE: this decorator is temporary, the plan is to make a common service interface decorator that will work for both
+    request-reply service and mutli-client adaptors and implementations will be compatible so that even the same
+    service with different paths can be implemented as a service of adaptor by implementor's choice
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(WiringNodeType.SERVICE_ADAPTOR, interface, resolvers=resolvers)
+
+
+def service_adaptor_impl(
+    *,
+    interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    deprecated: bool | str = False,
+):
+    """
+    Wraps an adaptor implementation.
+    """
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.SERVICE_ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
     )
 
 
@@ -755,6 +798,17 @@ def _node_decorator(
             from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
 
             kwargs["node_class"] = AdaptorImplNodeClass
+            kwargs["interfaces"] = interfaces
+            _assert_no_node_configs("Adaptor Impl", kwargs)
+        case WiringNodeType.SERVICE_ADAPTOR:
+            from hgraph._wiring._wiring_node_class._service_adaptor_node_class import ServiceAdaptorNodeClass
+
+            kwargs["node_class"] = ServiceAdaptorNodeClass
+            _assert_no_node_configs("Service Adaptor", kwargs)
+        case WiringNodeType.SERVICE_ADAPTOR_IMPL:
+            from hgraph._wiring._wiring_node_class._service_adaptor_impl_node_class import ServiceAdaptorImplNodeClass
+
+            kwargs["node_class"] = ServiceAdaptorImplNodeClass
             kwargs["interfaces"] = interfaces
             _assert_no_node_configs("Adaptor Impl", kwargs)
         case WiringNodeType.COMPONENT:

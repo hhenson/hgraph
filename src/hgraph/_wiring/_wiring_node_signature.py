@@ -57,7 +57,9 @@ class WiringNodeType(Enum):
     OPERATOR = 10  # Similar to STUB, expect in this case will be replaced with a matched node.
     ADAPTOR = 11
     ADAPTOR_IMPL = 12
-    COMPONENT = 13  # A graph with constraints that allows for record, replay, etc.
+    SERVICE_ADAPTOR = 13
+    SERVICE_ADAPTOR_IMPL = 14
+    COMPONENT = 15  # A graph with constraints that allows for record, replay, etc.
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:
@@ -403,7 +405,7 @@ class WiringNodeSignature:
         )
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
-            if valid_inputs:
+            if valid_inputs is not None:
                 return (r := frozenset(k for k in valid_inputs if k not in optional_inputs)), r != self.valid_inputs
             else:
                 return frozenset(k for k in self.time_series_args if k not in optional_inputs), True

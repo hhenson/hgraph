@@ -32,9 +32,10 @@ class TryExceptWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(
         self, resolved_wiring_signature, node_signature: "NodeSignature", scalars: Mapping[str, Any]
-    ) -> "NodeBuilder":
-        # create nested graphs
-        nested_graph, ss, cc = wire_nested_graph(
+    ) -> ("NodeBuilder", tuple):
+        # TODO: move wiring of hte nexted graph into the wiring call so that the reassignable items can be reassigned
+        # to the correct node before the graph is ranked
+        nested_graph, ri = wire_nested_graph(
             self._nested_graph, self._resolved_signature_inner.input_types, scalars, self.signature, "key"
         )
         nested_graph_input_ids, nested_graph_output_id = extract_stub_node_indices(

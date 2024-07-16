@@ -1,52 +1,21 @@
 from typing import Callable, Sequence, TypeVar
 
-from frozendict import frozendict
-
 from hgraph._types._scalar_type_meta_data import HgAtomicType
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext, GraphWiringNodeClass
+from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import AdaptorImplNodeClass
+from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     WiringNodeClass,
     validate_and_resolve_signature,
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 
-__all__ = ("AdaptorImplNodeClass",)
+__all__ = ("ServiceAdaptorImplNodeClass",)
 
 
-class AdaptorImplNodeClass(GraphWiringNodeClass):
-    def __init__(self, signature: WiringNodeSignature, fn: Callable, interfaces=None):
-        self.implementation_graph = GraphWiringNodeClass(signature, fn)
-
-        # Public signature has "path" and only scalar inputs
-        has_path = "path" in signature.args
-        super().__init__(
-            signature.copy_with(
-                args=(("path",) if not has_path else ()) + tuple(signature.scalar_inputs.keys()),
-                input_types=frozendict(dict(signature.scalar_inputs) | {"path": HgAtomicType.parse_type(str)}),
-                time_series_args=tuple(),
-            ),
-            fn,
-        )
-        if interfaces is None:
-            raise CustomMessageWiringError("No interfaces provided")
-        if isinstance(interfaces, (tuple, list, set)):
-            raise CustomMessageWiringError("Mutli adapters are not implemented")
-        self.interfaces = (interfaces,)
-
-        # Ensure the service impl signature is valid given the signature definitions of the interfaces.
-        self.validate_signature_vs_interfaces(signature, fn, self.interfaces)
-
-    def _validate_service_not_already_bound(
-        self, path: str | None, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None
-    ):
-        if WiringGraphContext.instance().is_service_built(path, __pre_resolved_types__):
-            raise CustomMessageWiringError(
-                f"This path: '{path}' has already been registered for this service implementation"
-            )
-
+class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
     def __call__(
         self,
         *args,
@@ -95,29 +64,43 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
                 )
                 __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
 
-    def __eq__(self, other):
-        return super().__eq__(other) and self.interfaces == other.interfaces
-
-    def __hash__(self):
-        return super().__hash__() ^ hash(self.interfaces)
-
     def validate_signature_vs_interfaces(
         self, signature: WiringNodeSignature, fn: Callable, interfaces: Sequence[WiringNodeClass]
     ) -> WiringNodeSignature:
         """
         Simple adaptor implementation has the same interface as the adaptor it implements
         """
+        from hgraph import HgTSDTypeMetaData
 
         if len(interfaces) == 1:
             interface_sig: WiringNodeSignature = interfaces[0].signature
             match interface_sig.node_type:
-                case WiringNodeType.ADAPTOR:
-                    for arg, ts_type in signature.input_types.items():
-                        if not ts_type.matches((ts_int_type := interface_sig.input_types.get(arg))):
+                case WiringNodeType.SERVICE_ADAPTOR:
+                    for arg, ts_type in signature.time_series_inputs.items():
+                        if not isinstance(ts_type, HgTSDTypeMetaData):
+                            raise CustomMessageWiringError(
+                                f"service adaptors inputs all must be TSD: {arg} is {ts_type.py_type}"
+                            )
+                        if not ts_type.key_tp.matches(HgAtomicType(int)):
+                            raise CustomMessageWiringError(
+                                f"service adaptors inputs keys must be int: {arg}'s is {ts_type.key_tp}"
+                            )
+                        if not ts_type.value_tp.matches((ts_int_type := interface_sig.input_types.get(arg))):
                             raise CustomMessageWiringError(
                                 f"The implementation input {arg}: {ts_type} type value does not match {ts_int_type}"
                             )
-                    if not signature.output_type.dereference().matches(interface_sig.output_type.dereference()):
+                    if any(arg not in signature.time_series_inputs for arg in interface_sig.time_series_inputs):
+                        raise CustomMessageWiringError(
+                            "The implementation has missing inputs compared to the service signature"
+                        )
+                    output = signature.output_type.dereference()
+                    if not isinstance(output, HgTSDTypeMetaData):
+                        raise CustomMessageWiringError(
+                            f"service adaptors output must be TSD: output is {output.py_type}"
+                        )
+                    if not output.key_tp.matches(HgAtomicType(int)):
+                        raise CustomMessageWiringError(f"service adaptors output key must be int: {output.key_tp}")
+                    if not output.value_tp.matches(interface_sig.output_type.dereference()):
                         raise CustomMessageWiringError(
                             "The output type does not match that of the subscription service signature"
                         )

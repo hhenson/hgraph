@@ -85,7 +85,6 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
         subscriptions = _wiring_port_for(tp, subscriptions, tuple())
         capture_output_node_to_global_state(f"{typed_path}/subs", subscriptions)
 
-        WiringGraphContext.instance().register_service_stub(self, typed_path, subscriptions.node_instance)
         WiringGraphContext.instance().add_built_service_impl(typed_path, None)
 
         return TSB[ts_schema(**{arg: HgTypeMetaData.parse_type(tp)})].from_ts(**{arg: subscriptions})

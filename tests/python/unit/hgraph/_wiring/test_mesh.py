@@ -1,5 +1,6 @@
 from typing import Tuple, Callable
 
+import pytest
 
 from hgraph import (
     TS,
@@ -18,6 +19,7 @@ from hgraph import (
     match_,
     convert,
     const,
+    NodeException,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.test import eval_node
@@ -117,3 +119,35 @@ def test_mesh_named():
         return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
 
     assert eval_node(g, [{7}, {8}, {9}], __trace__=True)[-1] == {7: 13, 8: 21, 9: 34}
+
+
+def test_mesh_contains():
+    @graph
+    def mesh_contains_prev(key: TS[int]) -> TS[bool]:
+        return contains_(mesh_("_"), key - 1)
+
+    @graph
+    def g(keys: TSS[int]) -> TSD[int, TS[bool]]:
+        return mesh_(mesh_contains_prev, __keys__=keys, __name__="_")
+
+    assert eval_node(g, [{1}, {2}, {3}, {5}, None, {4}], __trace__=True) == [
+        {1: False},
+        {2: True},
+        {3: True},
+        {5: False},
+        None,
+        {4: True, 5: True},
+    ]
+
+
+def test_mesh_cycle():
+    @graph
+    def mesh_contains_prev(key: TS[int]) -> TS[bool]:
+        return mesh_("_")[key + convert[TS[int]]((key % 2 - 0.5) * 2)]
+
+    @graph
+    def g(keys: TSS[int]) -> TSD[int, TS[bool]]:
+        return mesh_(mesh_contains_prev, __keys__=keys, __name__="_")
+
+    with pytest.raises(NodeException, match="has a dependency cycle"):
+        eval_node(g, [{4}, {3}])

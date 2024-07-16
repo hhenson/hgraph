@@ -102,7 +102,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
             )
 
             with WiringContext(current_wiring_node=self, current_signature=self.signature):
-                inner_graph, sc, cc, paths = create_inner_graph(
+                inner_graph, ri, paths = create_inner_graph(
                     self._original_signature, self.fn, kwargs_, self.interfaces, resolution_dict, path_types
                 )
                 kwargs_["inner_graph"] = inner_graph
@@ -118,8 +118,7 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
 
             from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
-            WiringGraphContext.instance().reassign_service_clients(sc, wiring_node_instance)
-            WiringGraphContext.instance().reassign_context_clients(cc, wiring_node_instance)
+            WiringGraphContext.instance().reassign_items(ri, wiring_node_instance)
             for p in paths:
                 WiringGraphContext.instance().add_built_service_impl(p, wiring_node_instance)
 
@@ -208,7 +207,7 @@ def create_inner_graph(
     interfaces: list[WiringNodeSignature],
     resolution_dict: dict[TypeVar, HgTypeMetaData] = None,
     interface_resolution_dict: dict[TypeVar, HgTypeMetaData] = None,
-) -> (GraphBuilder, [str]):
+) -> (GraphBuilder, tuple, [str]):
     if len(interfaces) == 1:
         s: WiringNodeSignature = interfaces[0].signature
         match s.node_type:
@@ -228,7 +227,7 @@ def create_inner_graph(
                 raise CustomMessageWiringError(f"Unknown service type: {s.node_type}")
     else:
         with WiringGraphContext(None) as context:
-            graph, final_resolution_dict, sc, cc = wire_multi_service(fn, scalars)
+            graph, final_resolution_dict, ri = wire_multi_service(fn, scalars)
             for path, node in context.built_services().items():
                 if node:
                     raise CustomMessageWiringError(
@@ -248,7 +247,7 @@ def create_inner_graph(
                     case _:
                         raise CustomMessageWiringError(f"Unknown service type: {s.signature.node_type}")
 
-            return graph, sc, cc, list(context.built_services().keys())
+            return graph, ri, list(context.built_services().keys())
 
 
 def wire_multi_service(fn: Callable, scalars: Mapping[str, Any], resolution_dict: dict[TypeVar, HgTypeMetaData] = None):
@@ -259,11 +258,10 @@ def wire_multi_service(fn: Callable, scalars: Mapping[str, Any], resolution_dict
         )
         g[resolution_dict](**scalars)
         sink_nodes = context.pop_sink_nodes()
-        service_clients = context.pop_service_clients()
-        context_clients = context.pop_context_clients()
+        reassignable = context.pop_reassignable_items()
         builder = create_graph_builder(sink_nodes, False)
 
-    return builder, final_resolution_dict, service_clients, context_clients
+    return builder, final_resolution_dict, reassignable
 
 
 def wire_subscription_service(
@@ -273,7 +271,7 @@ def wire_subscription_service(
     interface,
     resolution_dict=None,
     interface_resolution_dict=None,
-) -> (GraphBuilder, [str]):
+) -> (GraphBuilder, tuple, [str]):
     path = (scalars := dict(scalars)).pop("path")
     typed_full_path = interface.typed_full_path(path, interface_resolution_dict)
 
@@ -293,11 +291,10 @@ def wire_subscription_service(
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         subscription_service()
         sink_nodes = context.pop_sink_nodes()
-        service_clients = context.pop_service_clients()
-        context_clients = context.pop_context_clients()
+        reassignable = context.pop_reassignable_items()
         builder = create_graph_builder(sink_nodes, False)
 
-    return builder, service_clients, context_clients, [typed_full_path]
+    return builder, reassignable, [typed_full_path]
 
 
 def wire_request_reply_service_stubs(
@@ -352,11 +349,10 @@ def wire_request_reply_service(
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         request_reply_service()
         sink_nodes = context.pop_sink_nodes()
-        service_clients = context.pop_service_clients()
-        context_clients = context.pop_context_clients()
+        reassignable = context.pop_reassignable_items()
         builder = create_graph_builder(sink_nodes, False)
 
-    return builder, service_clients, context_clients, [typed_full_path]
+    return builder, reassignable, [typed_full_path]
 
 
 def wire_reference_data_service(
@@ -388,8 +384,7 @@ def wire_reference_data_service(
     with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
         ref_svc_inner_graph()
         sink_nodes = context.pop_sink_nodes()
-        service_clients = context.pop_service_clients()
-        context_clients = context.pop_context_clients()
+        reassignable = context.pop_reassignable_items()
         builder = create_graph_builder(sink_nodes, False)
 
-    return builder, service_clients, context_clients, [typed_full_path]
+    return builder, reassignable, [typed_full_path]
