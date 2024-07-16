@@ -414,6 +414,13 @@ def test_roll_bwd():
     assert list(roll_bwd(days, calendar)()) == [date(2024, 6, 21), date(2024, 6, 21), date(2024, 6, 21), date(2024, 6, 24)]
 
 
+def test_roll_bwd_2():
+    calendar = HolidayCalendar(holidays.country_holidays("GB", "ENG")["2024-01-01":"2027-01-01"])
+    # Dec 22 2025 is Monday, 25th and 26th Thurs and Friday are holidays
+    days = "2025-12-24" <= years.days <= "2025-12-28"  # Wed to Sun
+    assert list(roll_bwd(days, calendar)()) == [date(2025, 12, 24)] * 5
+
+
 def test_quarters():
     qs = '2024-02-01' < quarters < '2024-11-02'
     assert list(qs()) == [date(2024, 4, 1), date(2024, 7, 1), date(2024, 10, 1)]

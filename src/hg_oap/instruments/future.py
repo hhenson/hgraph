@@ -15,8 +15,17 @@ from hg_oap.utils import ExprClass, Expression, SELF, ParameterOp
 from hg_oap.utils.op import lazy
 from hgraph import CompoundScalar
 
-__all__ = ("SettlementMethod", "Settlement", "FutureContractSpec", "FutureContractSeries", "Future",
-           "CONTRACT_BASE_DATE", "month_code", "month_from_code", "MONTH_CODES")
+__all__ = (
+    "SettlementMethod",
+    "Settlement",
+    "FutureContractSpec",
+    "FutureContractSeries",
+    "Future",
+    "CONTRACT_BASE_DATE",
+    "month_code",
+    "month_from_code",
+    "MONTH_CODES"
+)
 
 
 class SettlementMethod(Enum):
@@ -29,6 +38,7 @@ class Settlement(CompoundScalar):
     """
     The settlement of a future contract.
     """
+
     method: SettlementMethod
 
 
@@ -37,6 +47,7 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     """
     The specification of a future contract.
     """
+
     exchange_mic: str
     symbol: str
     underlying: Instrument
@@ -44,14 +55,15 @@ class FutureContractSpec(CompoundScalar, ExprClass, UnitConversionContext):
     currency: Currency
 
     trading_calendar: Calendar  # TODO - we also need settlement calendar and reset calendar?  To get the expiry dates
-    settlement: Settlement  # TODO - why is the enum wrapped up in an object?
+    settlement: Settlement
 
     quotation_currency_unit: Unit
     quotation_unit: Unit
     tick_size: Quantity[float]
 
-    unit_conversion_factors: tuple[Quantity[float]] = \
-        lambda self: self.underlying.unit_conversion_factors + (self.contract_size/(1.*U.lot),)
+    unit_conversion_factors: tuple[Quantity[float], ...] = lambda self: self.underlying.unit_conversion_factors + (
+        self.contract_size / (1.0 * U.lot),
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -78,7 +90,8 @@ class FutureContractSeries(CompoundScalar, ExprClass, UnitConversionContext):
 CONTRACT_BASE_DATE = lazy(make_dgen)(ParameterOp(_name="CONTRACT_BASE_DATE"))
 
 
-MONTH_CODES = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
+MONTH_CODES = ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"]
+
 
 def month_code(d: int | date) -> str:
     # Return the month code corresponding to the month (as a date or a 1-based month number)
@@ -114,4 +127,4 @@ class Future(Instrument):
     first_trading_date: date = SELF.series.first_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
     last_trading_date: date = SELF.series.last_trading_date(CONTRACT_BASE_DATE=SELF.contract_base_date)
 
-    unit_conversion_factors: tuple[Quantity[float]] = SELF.series.spec.unit_conversion_factors
+    unit_conversion_factors: tuple[Quantity[float], ...] = SELF.series.spec.unit_conversion_factors

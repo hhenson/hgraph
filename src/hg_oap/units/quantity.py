@@ -62,7 +62,7 @@ class Quantity(CompoundScalar, Generic[NUMBER]):
             return Quantity[tp](self.qty / other, self.unit)
         elif isinstance(other, Quantity) and type(other.qty) is tp:
             return Quantity[tp](self.qty / other.qty, self.unit / other.unit)
-        elif isinstance(other, type(self.qty)):
+        elif isinstance(other, tp):
             return Quantity[tp](self.qty / other, self.unit)
 
         return NotImplemented

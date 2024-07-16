@@ -32,6 +32,7 @@ U.weight = PrimaryDimension()
 U.kg = PrimaryUnit(dimension=U.weight)
 U.g = DerivedUnit(primary_unit=U.kg, ratio=0.001, prefixes=('k', 'm'))
 U.mt = 1000 * U.kg
+U.tonne = U.mt
 U.pound = DerivedUnit(primary_unit=U.kg, ratio=0.45359237)
 U.toz = DerivedUnit(primary_unit=U.kg, ratio=1.0/32.1507)
 
