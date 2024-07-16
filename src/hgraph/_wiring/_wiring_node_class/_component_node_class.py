@@ -48,7 +48,7 @@ class ComponentNodeClass(BaseWiringNodeClass):
             kwargs_, resolved_signature, _ = validate_and_resolve_signature(
                 self._nested_graph_signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
             )
-            nested_graph, ss, cc = wire_nested_graph(
+            nested_graph, ri = wire_nested_graph(
                 self._nested_graph,
                 resolved_signature.input_types,
                 {
@@ -61,7 +61,7 @@ class ComponentNodeClass(BaseWiringNodeClass):
                 # input_stub_fn=...,
                 # output_stub_fn=...,
             )
-            if ss or cc:
+            if any(i for i in ri):
                 raise CustomMessageWiringError("Components cannot have contexts or services contained in the code.")
 
         signature = self.signature
