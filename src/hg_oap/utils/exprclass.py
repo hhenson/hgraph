@@ -5,7 +5,7 @@ from inspect import isfunction, signature
 
 from .op import Op, Expression, is_op, lazy
 
-__all__ = ("dataclassex", 'exprclass', 'ExprClass')
+__all__ = ("dataclassex", "exprclass", "ExprClass", "replace")
 
 
 class _BaseExDescriptor:
@@ -120,7 +120,7 @@ def _process_ops_and_lambdas(cls):
 
                 override = f"_override_{k}"
                 new_annotations[override] = a
-                setattr(cls, override, field(default=None, init=False, repr=False, metadata={'hidden': True}))
+                setattr(cls, override, field(default=MISSING, init=False, repr=False, metadata={'hidden': True}))
 
     cls.__annotations__ = {'_': KW_ONLY, **cls.__annotations__, **new_annotations}
 
@@ -129,7 +129,7 @@ def _process_ops_and_lambdas(cls):
     def post_init(self, *args):
         for k, v in zip(overridable, args):
             if not isinstance(v, _BaseExDescriptor):
-                setattr(self, f'_override_{k}', v)
+                object.__setattr__(self, f'_override_{k}', v)
         if original_post_init:
             # ideally we would figure out if there were any initvars in the original annotations and filter on those
             # and pass in but dataclasses using positional args for initvars makes it difficult to do this
@@ -164,3 +164,39 @@ def dataclassex(cls):
 
 def exprclass(cls):
     return _process_ops_and_lambdas(cls)
+
+
+def replace(obj, /, **changes):
+    """Return a new object replacing specified fields with new values. Make sure to NOT copy expression fields unless
+    they are overriden on the source object
+    """
+
+    # We're going to mutate 'changes', but that's okay because it's a
+    # new dict, even if called with 'replace(obj, **my_changes)'.
+
+    from dataclasses import _is_dataclass_instance, _FIELDS, _FIELD_CLASSVAR, _FIELD_INITVAR
+
+    if not _is_dataclass_instance(obj):
+        raise TypeError("replace() should be called on dataclass instances")
+
+    for f in getattr(obj, _FIELDS).values():
+        # Only consider normal fields or InitVars.
+        if f._field_type is _FIELD_CLASSVAR:
+            continue
+
+        if not f.init:
+            # Error if this field is specified in changes.
+            if f.name in changes:
+                raise ValueError(f"field {f.name} is declared with init=False, it cannot be specified with replace()")
+            continue
+
+        if f.name not in changes:
+            if f._field_type is _FIELD_INITVAR:
+                if f.default is MISSING:
+                    raise ValueError(f"InitVar {f.name!r} must be specified with replace()")
+                elif not getattr(obj.__class__, f.name).__overriden__(obj):
+                    continue
+
+            changes[f.name] = getattr(obj, f.name)
+
+    return obj.__class__(**changes)
