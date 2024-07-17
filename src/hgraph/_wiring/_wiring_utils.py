@@ -84,7 +84,7 @@ def wire_nested_graph(
     depth: int = 1,
     input_stub_fn: Callable[[REF[TIME_SERIES_TYPE]], REF[TIME_SERIES_TYPE]] = None,
     output_stub_fn: Callable[[REF[TIME_SERIES_TYPE]], REF[TIME_SERIES_TYPE]] = None,
-) -> ["GraphBuilder", list, list]:
+) -> ["GraphBuilder", tuple]:
     """
     Wire the inner function using stub inputs and wrap stub outputs.
     The outer wiring node signature is used to supply to the wiring graph context, this is for error and stack trace
@@ -108,14 +108,13 @@ def wire_nested_graph(
         if out is not None and out.output_type is not None:
             create_output_stub(cast(WiringPort, out), output_stub_fn)
         sink_nodes = context.pop_sink_nodes()
-        service_clients = context.pop_service_clients()
-        context_clients = context.pop_context_clients()
+        reassignable = context.pop_reassignable_items()
         builder = create_graph_builder(sink_nodes, False)
 
     if temp_factory:
         TimeSeriesBuilderFactory.un_declare()
 
-    return builder, service_clients, context_clients
+    return builder, reassignable
 
 
 def extract_stub_node_indices(inner_graph, input_args: Set[str]) -> tuple[frozendict[str, int], int]:

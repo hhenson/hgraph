@@ -162,6 +162,51 @@ def _request_reply_service(
         return out[requestor_id]
 
 
+@compute_node
+def write_adaptor_request(
+    path: str, arg: str, request: REF[TIME_SERIES_TYPE], _output: TS_OUT[int] = None, _state: STATE = None
+) -> TS[int]:
+    """Connect the request time series to the node collecting all the requests into a TSD in the adaptor"""
+    from_graph_node = GlobalState.instance().get(f"{path}/{arg}")
+    if from_graph_node is None:
+        raise ValueError(f"request stub '{arg}' not found for {path}")
+
+    from_graph_node.output.get_or_create(id(_state.requestor_id)).value = request.value
+
+    if not _output.valid:
+        return id(_state.requestor_id)
+
+
+@write_adaptor_request.start
+def write_adaptor_request_start(_state: STATE):
+    _state.requestor_id = object()
+
+
+@write_adaptor_request.stop
+def write_adaptor_request_stop(path: str, arg: str, _state: STATE):
+    if from_graph_node := GlobalState.instance().get(f"{path}/{arg}"):
+        if id(_state.requestor_id) in from_graph_node.output:
+            del from_graph_node.output[id(_state.requestor_id)]
+
+
+@pull_source_node
+def adaptor_request(path: str, arg: str) -> TSD[int, REF[TIME_SERIES_TYPE]]: ...
+
+
+@sink_node
+def write_service_requests(path: str, request: TIME_SERIES_TYPE):
+    """
+    Updates TSDs attached to the path with the data provided.
+    TIME_SERIES_TYPE is expected to be a bundle of TSDs (there is no generic way to represent it on the signature atm)
+    """
+    for arg, ts in request.items():
+        if ts.modified:
+            svc_node_in = GlobalState.instance().get(f"{path}/request_{arg}")
+            if svc_node_in is None:
+                raise ValueError(f"request stub '{arg}' not found for service {path}")
+            svc_node_in.apply_value(ts.delta_value)
+
+
 class SharedReferenceNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(

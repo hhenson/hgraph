@@ -207,7 +207,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         else:
             return True
 
-    def _re_rank(self, key: K, depends_on: K):
+    def _re_rank(self, key: K, depends_on: K, re_rank_stack=()):
         if (prev_rank := self._active_graphs_rank[key]) <= (below := self._active_graphs_rank[depends_on]):
             schedule = self._scheduled_keys_by_rank[prev_rank].pop(key, None)
             new_rank = below + 1
@@ -216,7 +216,13 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             if schedule:
                 self.schedule_graph(key, schedule)
             for k in self._active_graphs_dependencies[key]:
-                self._re_rank(k, key)
+                if k not in re_rank_stack:
+                    self._re_rank(k, key, re_rank_stack=re_rank_stack + (key,))
+                else:
+                    raise ValueError(
+                        f"mesh {self.signature.wiring_path_name}.{self.signature.label or self.signature.name} has a"
+                        f" dependency cycle {re_rank_stack + (key, k)}"
+                    )
 
     def _remove_graph_dependency(self, key: K, depends_on: K):
         self._active_graphs_dependencies[depends_on].remove(key)

@@ -16,7 +16,8 @@ class ServiceInterfaceNodeClass(BaseWiringNodeClass):
 
     def path_from_full_path(self, path: str) -> str:
         split = self.full_path("|").split("|", 1)
-        return path[len(split[0]) : -len(split[1])]
+        l0 = len(split[0])
+        return path[l0 : l0 + path[l0:].find(split[1])]
 
     def typed_full_path(self, path, type_map):
         if not self.is_full_path(path):
@@ -29,4 +30,6 @@ class ServiceInterfaceNodeClass(BaseWiringNodeClass):
 
     @staticmethod
     def _resolution_dict_to_str(type_map: dict[TypeVar, HgTypeMetaData]):
-        return f"{', '.join(f'{k}:{str(type_map[k])}' for k in sorted(type_map, key=lambda x: x.__name__))}"
+        return (
+            f"{', '.join(f'{k}:{str(type_map[k])}' for k in sorted(type_map, key=lambda x: getattr(x, '__name__', str(x))))}"
+        )
