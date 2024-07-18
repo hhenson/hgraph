@@ -8,15 +8,23 @@ from .op import Op, Expression, is_op, lazy
 __all__ = ("dataclassex", "exprclass", "ExprClass", "replace")
 
 
+class _NO_VALUE: ...
+
+
+NO_VALUE = _NO_VALUE()
+
+
 class _BaseExDescriptor:
     def __init__(self, expr):
         self.expr = expr
 
-    def __get__(self, instance, owner = None):
+    def __get__(self, instance, owner=None):
         if instance is not None:
-            if (v := instance.__dict__.get(self.override_name, MISSING)) is not MISSING:
+            if (
+                v := instance.__dict__.get(self.override_name, NO_VALUE)
+            ) is not NO_VALUE:
                 return v
-            if (v := instance.__dict__.get(self.cache_name, MISSING)) is not MISSING:
+            if (v := instance.__dict__.get(self.cache_name, NO_VALUE)) is not NO_VALUE:
                 return v
 
             v = self.__calc__(instance)
@@ -33,19 +41,19 @@ class _BaseExDescriptor:
             if not instance.__dataclass_params__.frozen:
                 setattr(instance, self.override_name, value)
             else:
-                raise AttributeError(f'field {self.name} in {instance} is readonly')
+                raise AttributeError(f"field {self.name} in {instance} is readonly")
 
     def __override__(self, instance, value):
         if value is not self and instance is not None:
             object.__setattr__(instance, self.override_name, value)
 
     def __overriden__(self, instance):
-        return getattr(instance, self.override_name, MISSING) is not MISSING
+        return getattr(instance, self.override_name, NO_VALUE) is not NO_VALUE
 
     def __set_name__(self, owner, name):
         self.name = name
-        self.cache_name = f'__cache_{self.name or id(self)}__'
-        self.override_name = f'_override_{self.name or id(self)}'
+        self.cache_name = f"__cache_{self.name or id(self)}__"
+        self.override_name = f"_override_{self.name or id(self)}"
 
 
 class CallableDescriptor(_BaseExDescriptor):
@@ -89,7 +97,7 @@ class DateListDescriptor(_BaseExDescriptor):
 
 
 def _process_ops_and_lambdas(cls):
-    cls.__annotations__.pop('SELF', None)
+    cls.__annotations__.pop("SELF", None)
 
     overridable = []
     new_annotations = {}
@@ -100,7 +108,7 @@ def _process_ops_and_lambdas(cls):
                 descriptor_type = DateDescriptor
             elif a == list[date] or a == tuple[date]:
                 descriptor_type = DateListDescriptor
-            elif getattr(a, '__origin__', None) is Expression:
+            elif getattr(a, "__origin__", None) is Expression:
                 descriptor_type = CallableExpressionDescriptor
             else:
                 descriptor_type = CallableDescriptor
@@ -120,22 +128,31 @@ def _process_ops_and_lambdas(cls):
 
                 override = f"_override_{k}"
                 new_annotations[override] = a
-                setattr(cls, override, field(default=MISSING, init=False, repr=False, metadata={'hidden': True}))
+                setattr(
+                    cls,
+                    override,
+                    field(
+                        default=NO_VALUE,
+                        init=False,
+                        repr=False,
+                        metadata={"hidden": True},
+                    ),
+                )
 
-    cls.__annotations__ = {'_': KW_ONLY, **cls.__annotations__, **new_annotations}
+    cls.__annotations__ = {"_": KW_ONLY, **cls.__annotations__, **new_annotations}
 
-    original_post_init = getattr(cls, '__post_init__', None)
+    original_post_init = getattr(cls, "__post_init__", None)
 
     def post_init(self, *args):
         for k, v in zip(overridable, args):
             if not isinstance(v, _BaseExDescriptor):
-                object.__setattr__(self, f'_override_{k}', v)
+                object.__setattr__(self, f"_override_{k}", v)
         if original_post_init:
             # ideally we would figure out if there were any initvars in the original annotations and filter on those
             # and pass in but dataclasses using positional args for initvars makes it difficult to do this
             original_post_init(self)
 
-    setattr(cls, '__post_init__', post_init)
+    setattr(cls, "__post_init__", post_init)
 
     return cls
 
@@ -145,9 +162,11 @@ def _make_descriptor(annotation, cls, descriptor_type, name, op):
         descriptor = descriptor_type(Expression(op))
         descriptor.__set_name__(cls, name)
         return descriptor
-    elif isfunction(op) and op.__name__ == '<lambda>':
+    elif isfunction(op) and op.__name__ == "<lambda>":
         if len(signature(op).parameters) == 1:
-            descriptor = descriptor_type(lambda SELF, __partial__=None: op(SELF) if __partial__ is None else op)
+            descriptor = descriptor_type(
+                lambda SELF, __partial__=None: op(SELF) if __partial__ is None else op
+            )
             descriptor.__set_name__(cls, name)
             return descriptor
 
@@ -174,7 +193,12 @@ def replace(obj, /, **changes):
     # We're going to mutate 'changes', but that's okay because it's a
     # new dict, even if called with 'replace(obj, **my_changes)'.
 
-    from dataclasses import _is_dataclass_instance, _FIELDS, _FIELD_CLASSVAR, _FIELD_INITVAR
+    from dataclasses import (
+        _is_dataclass_instance,
+        _FIELDS,
+        _FIELD_CLASSVAR,
+        _FIELD_INITVAR,
+    )
 
     if not _is_dataclass_instance(obj):
         raise TypeError("replace() should be called on dataclass instances")
@@ -187,13 +211,18 @@ def replace(obj, /, **changes):
         if not f.init:
             # Error if this field is specified in changes.
             if f.name in changes:
-                raise ValueError(f"field {f.name} is declared with init=False, it cannot be specified with replace()")
+                raise ValueError(
+                    f"field {f.name} is declared with init=False, it cannot be"
+                    " specified with replace()"
+                )
             continue
 
         if f.name not in changes:
             if f._field_type is _FIELD_INITVAR:
                 if f.default is MISSING:
-                    raise ValueError(f"InitVar {f.name!r} must be specified with replace()")
+                    raise ValueError(
+                        f"InitVar {f.name!r} must be specified with replace()"
+                    )
                 elif not getattr(obj.__class__, f.name).__overriden__(obj):
                     continue
 
