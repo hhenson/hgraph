@@ -4,3 +4,4 @@
 2. Empty TSDs do no tick (at least in tests). Empty TSSs appear OK.  See test_tsd_operators.test_sum_tsd_unary
 3. Would be good if switch_() had the keys arg first, to make the order natural as per other languages
 4. Need a substr() operator
+5. Need a 'copy_with()' for CompoundScalar which handles expressions.  dataclasses.replace() fails with frozen dataclasses containing expressions currently

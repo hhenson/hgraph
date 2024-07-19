@@ -9,7 +9,7 @@ from hgraph import (
     AUTO_RESOLVE,
     Series,
     getitem_,
-    getattr_, min_, max_
+    getattr_
 )
 
 __all__ = tuple()
