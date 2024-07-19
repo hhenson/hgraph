@@ -578,3 +578,10 @@ Version 0.2.50 (15-07-2024)
 * Updates to perspective adapter
 * First pass adapter implementation
 * First pass wrapper for component implementation (still in alpha)
+
+Version 0.2.51 (17-07-2024)
+---------------------------
+
+* Updates to the adaptor framework
+* Small fixes to examples
+* combine for date

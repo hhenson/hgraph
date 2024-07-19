@@ -1,5 +1,6 @@
 from typing import Tuple, Callable
 
+import pytest
 
 from hgraph import (
     TS,
@@ -18,6 +19,7 @@ from hgraph import (
     match_,
     convert,
     const,
+    NodeException,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.test import eval_node
@@ -147,4 +149,5 @@ def test_mesh_cycle():
     def g(keys: TSS[int]) -> TSD[int, TS[bool]]:
         return mesh_(mesh_contains_prev, __keys__=keys, __name__="_")
 
-    assert eval_node(g, [{4}, {3}], __trace__=True) == []
+    with pytest.raises(NodeException, match="has a dependency cycle"):
+        eval_node(g, [{4}, {3}])

@@ -199,10 +199,14 @@ def test_uncollapse_keys():
 
 
 def test_merge_tsd():
+    @graph
+    def g(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return merge(tsd1, tsd2)
+
     assert eval_node(
-        merge[K:int, TIME_SERIES_TYPE : TS[int], SIZE : Size[2]],
-        tsl=[({1: 1, 2: 2}, {1: 5, 3: 6}), ({2: 4}, {3: 8}), ({1: REMOVE}, {}), ({}, {1: REMOVE})],
-        resolution_dict={"tsl": TSL[TSD[int, TS[int]], Size[2]]},
+        g,
+        tsd1=[{1: 1, 2: 2}, {2: 4}, {1: REMOVE}, {}],
+        tsd2=[{1: 5, 3: 6}, {3: 8}, {}, {1: REMOVE}],
     ) == [{1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
 
 

@@ -221,7 +221,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         return type(o) is HgAtomicType and self.py_type is o.py_type
 
     def __str__(self) -> str:
-        return f"{self.py_type}"
+        return f"{self.py_type.__name__}"
 
     def __repr__(self) -> str:
         return f"HgAtomicType({repr(self.py_type)})"

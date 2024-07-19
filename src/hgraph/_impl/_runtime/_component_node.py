@@ -1,6 +1,8 @@
 from datetime import datetime
+from string import Formatter
 from typing import Mapping, Any
 
+from hgraph import GlobalState, start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,
@@ -11,7 +13,7 @@ from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature, Node
 
-all = ("PythonNestedNodeImpl",)
+__all__ = ("PythonComponentNodeImpl",)
 
 
 class PythonComponentNodeImpl(PythonNestedNodeImpl):
@@ -35,6 +37,20 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
 
     def _wire_graph(self):
         """Connect inputs and outputs to the nodes inputs and outputs"""
+        id_, ready = self.recordable_id()
+        if not ready:
+            return
+        if (gs := GlobalState.instance()).get(k := f"component::{id_}", None) is not None:
+            raise RuntimeError(f"Component[{id_}] {self.signature.signature} already exists in graph")
+        else:
+            gs[k] = True  # Just write a marker for now
+
+        self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self)
+        self._active_graph.evaluation_engine = NestedEvaluationEngine(
+            self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
+        )
+        self._active_graph.initialise()
+
         for arg, node_ndx in self.input_node_ids.items():
             node: NodeImpl = self._active_graph.nodes[node_ndx]
             node.notify()
@@ -48,24 +64,56 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
             # Replace the nodes output with the map node's output
             node.output = self.output
 
+        if self.is_started | self.is_starting:
+            self._active_graph.start()
+
     def initialise(self):
-        self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self)
-        self._active_graph.evaluation_engine = NestedEvaluationEngine(
-            self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
-        )
-        self._active_graph.initialise()
         self._wire_graph()
 
+    @start_guard
     def start(self):
-        self._active_graph.start()
+        if self._active_graph:
+            self._active_graph.start()
+        else:
+            self._wire_graph()
+            if not self._active_graph:
+                self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
 
+    @stop_guard
     def stop(self):
-        self._active_graph.stop()
+        if self._active_graph:
+            self._active_graph.stop()
 
     def dispose(self):
-        self._active_graph.dispose()
-        self._active_graph = None
+        if self._active_graph:
+            self._active_graph.dispose()
+            self._active_graph = None
 
     def eval(self):
+        if self._active_graph is None:
+            self._wire_graph()
+            if self._active_graph is None:
+                # Still pending
+                return
+
         self.mark_evaluated()
         self._active_graph.evaluate_graph()
+
+    def recordable_id(self) -> tuple[str, bool]:
+        """The id and True or no id and False if required inputs are not ready yet"""
+        id_ = self.signature.record_replay_id
+        dependencies = [k for _, k, _, _ in Formatter().parse(id_) if k is not None]
+        if any(k == "" for k in dependencies):
+            raise RuntimeError(
+                f"recordable_id: {id_} in signature: {self.signature.signature} has non-labeled format descriptors"
+            )
+        if dependencies:
+            ts_values = [k for k in dependencies if k not in self.scalars]
+            if ts_values and (
+                not (self.is_started or self.is_starting) or not all(self.inputs[k].valid for k in ts_values)
+            ):
+                return id_, False
+            args = {k: self.scalars[k] if k in self.scalars else self.inputs[k].value for k in dependencies}
+            return id_.format(**args), True
+        else:
+            return id_, True

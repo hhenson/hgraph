@@ -1,5 +1,5 @@
-Map, Reduce, Switch
-===================
+Map, Reduce, Switch, Mesh
+=========================
 
 map_
 ----
@@ -167,3 +167,64 @@ def graph_switch_lambda(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int
         "sub": lambda lhs, rhs: lhs - rhs,
     }, selector, lhs, rhs)
 ```
+
+
+mesh_
+-----
+
+``mesh_`` provides a facility for building dynamic graphs that share the same signature.
+This operates in a similar fashion to the ``map_`` operator in that it will create an instance
+of the provided template node / graph for each key in the provided key-set.
+
+This differs from the map in that it is possible to extend the key-set from within the template 
+node / graph. Allowing for additional instance of the template to be constructed, but the instance
+is then ranked to ensure that the newly constructed value is suitably constructed to be evaluated 
+before use.
+
+This may look as follows:
+
+![](mesh_ranking.png)
+<details>
+
+```plantuml
+@startuml mesh_ranking.png
+state f_a {
+}
+state f_b {
+}
+
+state f_a_b {
+}
+
+f_a --> f_a_b : lhs 
+f_b --> f_a_b : rhs
+
+@enduml
+```
+</details>
+
+The code to produce this may look as follows:
+
+```python
+
+@graph
+def f(k: TS[str]) -> TS[float]:
+    return switch_(
+        {
+            'a': lambda : const(1.0),
+            'b': lambda : const(2.0),
+            'a+b': lambda: mesh_('f')['a'] + mesh_('f')['b']
+        },
+        k
+    )
+
+@graph
+def compute_a_plus_b() -> TS[float]:
+    return mesh_(f, 
+                 __key_arg__ = 'k', 
+                 __key_set__ = const(frozenset({'a+b'}), TSS[str]), 
+                 __name__='f')
+```
+
+This will construct f with the input of 'a+b', which will then create two new keys of 'a' and 'b'
+returning the result of f('a') and f('b').
