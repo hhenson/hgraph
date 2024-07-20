@@ -498,6 +498,10 @@ class PythonLastValuePullNodeImpl(NodeImpl):
         self.notify_next_cycle()  # If we are copying the value now, then we expect it to be used in the next cycle
 
     def apply_value(self, new_value: "SCALAR"):
+        if new_value is Removed or type(new_value) is Removed:
+            # TODO: Remove once issue is identified
+            # Attempting to diagnose an issue that only seems to occur when running under the CICD process
+            raise RuntimeError("Removed is not valid in this context")
         self._delta_value = (
             new_value if self._delta_value is None else self._delta_combine_fn(self._delta_value, new_value)
         )
