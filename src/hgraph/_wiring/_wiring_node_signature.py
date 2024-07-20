@@ -13,7 +13,6 @@ from hgraph._types._scalar_type_meta_data import (
     HgEvaluationClockType,
     HgEvaluationEngineApiType,
     HgStateType,
-    HgReplayType,
     HgLoggerType,
 )
 from hgraph._types._scalar_type_meta_data import (
@@ -680,7 +679,6 @@ def extract_injectable_inputs(**kwargs) -> InjectableTypes:
                 HgEvaluationEngineApiType: InjectableTypes.ENGINE_API,
                 HgStateType: InjectableTypes.STATE,
                 HgOutputType: InjectableTypes.OUTPUT,
-                HgReplayType: InjectableTypes.REPLAY_STATE,
                 HgLoggerType: InjectableTypes.LOGGER,
             }.get(type(v), InjectableTypes(0))
             for v in kwargs.values()
