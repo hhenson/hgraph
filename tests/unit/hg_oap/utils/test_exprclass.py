@@ -1,3 +1,4 @@
+import dataclasses
 from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -5,10 +6,16 @@ from datetime import date, timedelta
 from hg_oap.dates.tenor import Tenor
 from hg_oap.dates.dgen import days
 from hg_oap.utils import Expression
-from hg_oap.utils.exprclass import ExprClass, dataclassex, CallableDescriptor, exprclass
-from hg_oap.utils.op import ParameterOp, lazy
+from hg_oap.utils.exprclass import (
+    ExprClass,
+    dataclassex,
+    CallableDescriptor,
+    exprclass,
+    replace,
+)
+from hg_oap.utils.op import ParameterOp, lazy, Expression
 
-SELF = ParameterOp(_name='SELF', _index=0)
+SELF = ParameterOp(_name="SELF", _index=0)
 
 
 def test_expr_descriptor():
@@ -56,10 +63,10 @@ def test_dataclassex_date():
 
     @dataclassex
     class date_expr_1:
-        SELF: 'date_expr_1'
+        SELF: "date_expr_1"
 
         today: date = lambda x: date.today()
-        tomorrow: date = SELF.today + Tenor('1d')
+        tomorrow: date = SELF.today + Tenor("1d")
 
     e = date_expr_1()
     assert e.tomorrow == date.today() + timedelta(days=1)
@@ -69,13 +76,29 @@ def test_exprclass_dates():
     @dataclass
     @exprclass
     class date_expr_2:
-        SELF: 'date_expr_2'
+        SELF: "date_expr_2"
 
         today: date = lambda x: date(date.today().year, date.today().month, 1)
-        in_a_month: date = SELF.today + Tenor('1m')
+        in_a_month: date = SELF.today + Tenor("1m")
         days_in_month: list[date] = SELF.today <= days < SELF.in_a_month
         number_of_days: int = lazy(len)(SELF.days_in_month)
 
     e = date_expr_2()
     assert e.number_of_days == monthrange(e.today.year, e.today.month)[1]
 
+
+def test_exprclass_replace():
+    @dataclass(frozen=True)
+    @exprclass
+    class date_expr_2:
+        SELF: "date_expr_2"
+
+        today: date
+        in_a_month: date = SELF.today + Tenor("1m")
+        days_in_month: list[date] = SELF.today <= days < SELF.in_a_month
+        number_of_days: int = lazy(len)(SELF.days_in_month)
+
+    e = date_expr_2(today=date.today())
+    e1 = replace(e, today=date(2021, 1, 1), in_a_month=date(2021, 3, 1))
+
+    assert e1.number_of_days == 59
