@@ -72,6 +72,15 @@ def test_collect_tss_from_sets():
             [{1}, {2}, {3, 4, Removed(2), Removed(1)}])
 
 
+def test_collect_tss_from_tss():
+    @graph
+    def g(a: TSS[int], b: TS[bool]) -> TSS[int]:
+        return collect[TSS](a, reset=b)
+
+    assert (eval_node(g, [{1, }, {2, }, {3, 4}], [None, None, True], __trace_wiring__=True) ==
+            [{1}, {2}, {3, 4, Removed(2), Removed(1)}])
+
+
 def test_emit_tss():
     @graph
     def g(m: TSS[int]) -> TS[int]:

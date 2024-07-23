@@ -5,3 +5,4 @@
 3. Would be good if switch_() had the keys arg first, to make the order natural as per other languages
 4. Need a substr() operator
 5. Need a 'copy_with()' for CompoundScalar which handles expressions.  dataclasses.replace() fails with frozen dataclasses containing expressions currently
+6. Add a 'replace()' operator implemented for bundles, TSD, TS[CompoundScalar] etc
