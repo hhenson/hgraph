@@ -45,7 +45,6 @@ __all__ = (
     "NUMBER",
     "KEYABLE_SCALAR",
     "LOGGER",
-    "REPLAY_STATE",
     "compound_scalar",
     "UnNamedCompoundScalar",
     "COMPOUND_SCALAR_1",
@@ -53,7 +52,7 @@ __all__ = (
     "DEFAULT",
     "NUMBER_2",
     "TUPLE",
-    "ENUM"
+    "ENUM",
 )
 
 
@@ -280,25 +279,9 @@ class STATE(Generic[COMPOUND_SCALAR]):
         return self.__dict__["_updated"]
 
     def __repr__(self) -> str:
-        return f"SCALAR[{self.__schema__.__name__}]({', '.join(k + '=' + repr(v) for k, v in asdict(self._value).items())})"
-
-
-class REPLAY_STATE:
-    """
-    Used to indicate if the graph is currently been replayed. This serves two purposes, one to know if the graph
-    is currently replaying and another to indicate that the node is replay aware. If this is a sink-node it will
-    be evaluated during replay, if not it will be excluded.
-    """
-
-    def __init__(self, api: EvaluationEngineApi):
-        self._api: EvaluationEngineApi = api
-
-    @property
-    def is_replaying(self) -> bool:
-        return self._api.evaluation_mode == EvaluationMode.REPLAY
-
-    def __repr__(self) -> str:
-        return "REPLAY_STATE"
+        return (
+            f"SCALAR[{self.__schema__.__name__}]({', '.join(k + '=' + repr(v) for k, v in asdict(self._value).items())})"
+        )
 
 
 LOGGER = Logger

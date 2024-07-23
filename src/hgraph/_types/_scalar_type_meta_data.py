@@ -13,7 +13,7 @@ import numpy as np
 from frozendict import frozendict
 
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
-from hgraph._types._scalar_types import Size, STATE, CompoundScalar, REPLAY_STATE, LOGGER, UnNamedCompoundScalar
+from hgraph._types._scalar_types import Size, STATE, CompoundScalar, LOGGER, UnNamedCompoundScalar
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
@@ -356,7 +356,6 @@ class HgInjectableType(HgScalarTypeMetaData):
             EvaluationEngineApiInjector: lambda: HgEvaluationEngineApiType(),
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
-            REPLAY_STATE: lambda: HgReplayType(),
             LOGGER: lambda: HgLoggerType(),
         }.get(value_tp, lambda: None)()
 
@@ -403,25 +402,6 @@ class HgEvaluationEngineApiType(HgInjectableType):
     @property
     def injector(self):
         return EvaluationEngineApiInjector()
-
-
-class ReplayInjector(Injector):
-
-    def __call__(self, node):
-        return REPLAY_STATE(node.graph.evaluation_engine_api)
-
-
-class HgReplayType(HgInjectableType):
-    """
-    Injectable for replay state.
-    """
-
-    def __init__(self):
-        super().__init__(REPLAY_STATE)
-
-    @property
-    def injector(self):
-        return ReplayInjector()
 
 
 class LoggerInjector(Injector):

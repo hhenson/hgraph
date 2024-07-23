@@ -70,9 +70,6 @@ class EvaluationMode(Enum):
 
     REAL_TIME = 0
     SIMULATION = 1
-    RECORDING = 2
-    REPLAY = 3
-    COMPARISON = 4
 
 
 class EvaluationLifeCycleObserver:
