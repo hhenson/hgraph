@@ -107,6 +107,8 @@ This operation collects values into a collection, Syntax `collect[TSS[int]](ts)`
 | TS[tuple]                         | &#9989; same as sums | &#9989; | &#9989; from two inputs for K and V | &#9989; |             |             | &#9989; for two inputs, K and V |
 | TS[set]                           |                      |         |                                     | &#9989; |             |             |                                 |
 | TS[Mapping]                       |                      |         |                                     |         |             |             | &#9989;                         |
+| TSS[T]                            |                      |         |                                     | &#9989; |             |             |                                 |
+| TSD[K, V]                         |                      |         |                                     |         |             |             | &#9989;                         |
 
 `collect` can also receive a `remove` input to tell it to remove items from the collection.
 
