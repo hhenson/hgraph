@@ -192,7 +192,7 @@ def _validate_signature(
                 for arg in check_signature.args
             )
             same_output = (
-                this_signature.output_type.dereference().matches(check_signature.output_type.dereference())
+                check_signature.output_type.dereference().matches(this_signature.output_type.dereference())
                 if check_signature.output_type is not None
                 else this_signature.output_type is None
             )
