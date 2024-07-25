@@ -1,7 +1,6 @@
 from typing import Mapping, Any, TypeVar, Callable, TYPE_CHECKING, List, Tuple
 
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
-from hgraph._wiring._wiring_utils import pretty_str_types
 from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_errors import WiringFailureError
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
@@ -13,6 +12,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeType, AUTO_RESOLVE
 from hgraph._wiring._wiring_port import WiringPort
+from hgraph._wiring._wiring_utils import pretty_str_types
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
@@ -112,10 +112,10 @@ class OverloadedWiringNodeHelper:
 
     def __init__(self, base: WiringNodeClass):
         self.base = base
-        if base.signature.node_type != WiringNodeType.OPERATOR:
-            self.overloads = [(base, self._calc_rank(base.signature))]
-        else:
+        if base.signature.node_type == WiringNodeType.OPERATOR or getattr(self.base, "skip_overload_check", False):
             self.overloads = []
+        else:
+            self.overloads = [(base, self._calc_rank(base.signature))]
 
     def overload(self, impl: WiringNodeClass):
         self.overloads.append((impl, self._calc_rank(impl.signature)))
