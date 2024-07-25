@@ -11,7 +11,8 @@ from hgraph import (
     MAX_ET,
 )
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import record, get_recorded_value
+from hgraph.nodes import record
+from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
 __all__ = (
     "start_wiring_graph",

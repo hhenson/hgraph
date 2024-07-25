@@ -37,6 +37,8 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
 
     def _wire_graph(self):
         """Connect inputs and outputs to the nodes inputs and outputs"""
+        if self._active_graph:
+            return  # Already wired in
         id_, ready = self.recordable_id()
         if not ready:
             return
