@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Mapping, Any, Type
+from typing import Type
 
 from hgraph import (
     sink_node,
@@ -12,8 +12,6 @@ from hgraph import (
     STATE,
     Removed,
     pull_source_node,
-    BaseWiringNodeClass,
-    create_input_output_builders,
     graph,
     AUTO_RESOLVE,
     TSD,
@@ -21,6 +19,7 @@ from hgraph import (
     REMOVE_IF_EXISTS,
     TIME_SERIES_TYPE_1,
     null_sink,
+    NODE,
 )
 
 __all__ = (
@@ -33,15 +32,20 @@ __all__ = (
 )
 
 
-@sink_node(active=tuple(), valid=tuple())
+@sink_node(valid=tuple())
 def capture_output_to_global_state(path: str, ts: REF[TIME_SERIES_TYPE]):
     """This node serves to capture the output of a service node and record the output reference in the global state."""
+    GlobalState.instance()[path] = ts.value
+    GlobalState.instance()[f"{path}_subscriber"].notify(ts.last_modified_time)
 
 
 @capture_output_to_global_state.start
 def capture_output_to_global_state_start(path: str, ts: REF[TIME_SERIES_TYPE]):
     """Place the reference into the global state"""
+    from hgraph import TimeSeriesSubscriber
+
     GlobalState.instance()[path] = ts.value
+    GlobalState.instance()[f"{path}_subscriber"] = TimeSeriesSubscriber()
 
 
 @capture_output_to_global_state.stop
@@ -209,53 +213,25 @@ def write_service_requests(path: str, request: TIME_SERIES_TYPE):
             svc_node_in.apply_value(ts.delta_value)
 
 
-class SharedReferenceNodeClass(BaseWiringNodeClass):
-
-    def create_node_builder_instance(
-        self,
-        resolved_wiring_signature: "WiringNodeSignature",
-        node_signature: "NodeSignature",
-        scalars: Mapping[str, Any],
-    ) -> "NodeBuilder":
-        node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
-
-        from hgraph._impl._builder import PythonNodeImplNodeBuilder
-
-        input_builder, output_builder, error_builder = create_input_output_builders(
-            node_signature, self.error_output_type
-        )
-
-        from hgraph._impl._runtime._node import BaseNodeImpl
-
-        class _PythonSharedReferenceStubSourceNode(BaseNodeImpl):
-
-            def do_eval(self):
-                """The service must be available by now, so we can retrieve the output reference."""
-                from hgraph._runtime._global_state import GlobalState
-
-                shared_output = GlobalState.instance().get(self.scalars["path"])
-                if shared_output is None:
-                    raise RuntimeError(f"Missing shared output for path: {self.scalars['path']}")
-                # NOTE: The output needs to be a reference value output so we can set the value and continue!
-                self.output.value = shared_output
-
-            def do_start(self):
-                """Make sure we get notified to serve the service output reference"""
-                self.notify()
-
-            def do_stop(self):
-                """Nothing to do, but abstract so must be implemented"""
-
-        return PythonNodeImplNodeBuilder(
-            signature=node_signature,
-            scalars=scalars,
-            input_builder=input_builder,
-            output_builder=output_builder,
-            error_builder=error_builder,
-            node_impl=_PythonSharedReferenceStubSourceNode,
-        )
-
-
-@pull_source_node(node_impl=SharedReferenceNodeClass)
-def get_shared_reference_output(path: str) -> REF[TIME_SERIES_TYPE]:
+@pull_source_node
+def get_shared_reference_output(path: str, strict: bool = True, node: NODE = None) -> REF[TIME_SERIES_TYPE]:
     """Uses the special node to extract a node from the global state."""
+    from hgraph._runtime._global_state import GlobalState
+
+    shared_output = GlobalState.instance().get(path)
+    GlobalState.instance()[f"{path}_subscriber"].subscribe(node)
+
+    if shared_output is None and strict:
+        raise RuntimeError(f"Missing shared output for path: {path}")
+
+    return shared_output
+
+
+@get_shared_reference_output.start
+def get_shared_reference_output_start(path: str, node: NODE = None):
+    node.notify(node.graph.evaluation_clock.evaluation_time)
+
+
+@get_shared_reference_output.stop
+def get_shared_reference_output_start(path: str, node: NODE = None):
+    GlobalState.instance()[f"{path}_subscriber"].unsubscribe(node)

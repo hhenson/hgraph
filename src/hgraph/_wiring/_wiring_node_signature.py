@@ -14,6 +14,7 @@ from hgraph._types._scalar_type_meta_data import (
     HgEvaluationEngineApiType,
     HgStateType,
     HgLoggerType,
+    HgNodeType,
 )
 from hgraph._types._scalar_type_meta_data import (
     HgScalarTypeMetaData,
@@ -680,6 +681,7 @@ def extract_injectable_inputs(**kwargs) -> InjectableTypes:
                 HgStateType: InjectableTypes.STATE,
                 HgOutputType: InjectableTypes.OUTPUT,
                 HgLoggerType: InjectableTypes.LOGGER,
+                HgNodeType: InjectableTypes.NODE,
             }.get(type(v), InjectableTypes(0))
             for v in kwargs.values()
         ),

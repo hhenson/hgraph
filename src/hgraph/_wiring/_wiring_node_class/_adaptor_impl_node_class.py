@@ -32,9 +32,7 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
         )
         if interfaces is None:
             raise CustomMessageWiringError("No interfaces provided")
-        if isinstance(interfaces, (tuple, list, set)):
-            raise CustomMessageWiringError("Mutli adapters are not implemented")
-        self.interfaces = (interfaces,)
+        self.interfaces = (interfaces,) if not isinstance(interfaces, Sequence) else interfaces
 
         # Ensure the service impl signature is valid given the signature definitions of the interfaces.
         self.validate_signature_vs_interfaces(signature, fn, self.interfaces)
@@ -85,15 +83,15 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
                 self.signature, *args, __pre_resolved_types__=pre_resolved_types, **(kwargs | scalars)
             )
 
-            path_types = {k: v for k, v in resolution_dict.items() if k in __interface__.signature.typevars}
-            kwargs_["path"] = __interface__.typed_full_path(path, path_types | scalars)
-
             with WiringGraphContext(node_signature=self.signature):
-                from_graph = __interface__.wire_impl_inputs_stub(path, resolution_dict, **scalars)
-                to_graph = self.implementation_graph.__call__(
-                    __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph.as_dict()
-                )
-                __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
+                if len(self.interfaces) == 1:
+                    from_graph = __interface__.wire_impl_inputs_stub(path, resolution_dict, **scalars)
+                    to_graph = self.implementation_graph.__call__(
+                        __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph.as_dict()
+                    )
+                    __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
+                else:  # multiadaptor/multiservice implementations use the interface stub APIs to wire up the service
+                    self.implementation_graph.__call__(__pre_resolved_types__=resolution_dict, **kwargs_)
 
     def __eq__(self, other):
         return super().__eq__(other) and self.interfaces == other.interfaces
