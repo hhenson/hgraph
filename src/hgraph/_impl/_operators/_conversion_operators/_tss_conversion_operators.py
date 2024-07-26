@@ -105,6 +105,20 @@ def collect_tss_from_sets(
     return PythonSetDelta(new, remove)
 
 
+
+@compute_node(
+    overloads=collect,
+    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    valid=("tss",),
+)
+def collect_tss_from_sets(
+    tss: TSS[SCALAR], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None
+) -> TSS[SCALAR]:
+    remove = _output.value if _output.valid and reset.modified else set()
+    new = tss.value if tss.modified else set()
+    return PythonSetDelta(new, remove)
+
+
 @compute_node(overloads=emit)
 def emit_tss(ts: TSS[SCALAR], _state: STATE[_BufferState] = None, _schedule: SCHEDULER = None) -> TS[SCALAR]:
     """

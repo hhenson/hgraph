@@ -186,9 +186,11 @@ def validate_signature_vs_interfaces(
                     )
             case WiringNodeType.REQ_REP_SVC:
                 for arg, ts_type in signature.input_types.items():
+                    if not hasattr(ts_type, "value_tp"):
+                        raise CustomMessageWiringError(f"For {arg}: invalid service signature type {ts_type}")
                     if not ts_type.value_tp.matches((ts_int_type := interface_sig.time_series_inputs.get(arg))):
                         raise CustomMessageWiringError(
-                            f"The implementation input {ts_type} type value does not match: {ts_int_type}"
+                            f"For {arg} the implementation input {ts_type} type value does not match: {ts_int_type}"
                         )
                 if not signature.output_type.dereference().value_tp.matches(interface_sig.output_type.dereference()):
                     raise CustomMessageWiringError(

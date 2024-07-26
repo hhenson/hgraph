@@ -3,8 +3,9 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable
 
-from hgraph import TS, run_graph, GlobalState, push_queue, graph, const, if_true, EvaluationMode
-from hgraph.nodes import record, get_recorded_value, stop_engine
+from hgraph import record, TS, run_graph, GlobalState, push_queue, graph, const, if_true, EvaluationMode
+from hgraph.nodes import stop_engine
+from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
 
 def test_push_queue():

@@ -92,6 +92,16 @@ def test_collect_tsd_from_mappings():
             [{'a': 1}, {'b': 2, 'c': 3}, {'c': 3, 'a': REMOVE, 'b': REMOVE}, {'c': 4}])
 
 
+def test_collect_tsd_from_tsd():
+    @graph
+    def g(a: TSD[str, TS[int]], b: TS[bool]) -> TSD[str, TS[int]]:
+        return collect[TSD](a, reset=b)
+
+    assert (eval_node(g, [{'a': 1}, {'b': 2, 'c': 3}, {'c': 3}, {'c': 4}],
+                         [None, None, True]) ==
+            [{'a': 1}, {'b': 2, 'c': 3}, {'c': 3, 'a': REMOVE, 'b': REMOVE}, {'c': 4}])
+
+
 def test_emit_tsd():
     @graph
     def g(m: TSD[str, TS[int]]) -> TSB[KeyValue[str, TS[int]]]:

@@ -16,8 +16,12 @@ from hgraph import (
     WiringContext,
     WiringError,
     EvaluationLifeCycleObserver,
+    SimpleArrayReplaySource,
+    set_replay_values,
+    replay_from_memory,
+    record_to_memory,
+    get_recorded_value,
 )
-from hgraph.nodes import replay, record, SimpleArrayReplaySource, set_replay_values, get_recorded_value
 
 
 def eval_node(
@@ -100,7 +104,7 @@ def eval_node(
                     ts_type = HgTSTypeMetaData(ts_type)
                     print(f"Auto resolved type for '{ts_arg}' to '{ts_type}'")
                 ts_type = ts_type.py_type if not ts_type.is_context_wired else ts_type.ts_type.py_type
-            inputs[ts_arg] = replay(ts_arg, ts_type)
+            inputs[ts_arg] = replay_from_memory(ts_arg, ts_type)
             is_list = hasattr(arg_value, "__len__")
             set_replay_values(ts_arg, SimpleArrayReplaySource(arg_value if is_list else [arg_value]))
         for scalar_args in node.signature.scalar_inputs.keys():
@@ -110,7 +114,7 @@ def eval_node(
 
         if node.signature.output_type is not None:
             # For now, not to worry about un_named bundle outputs
-            record(out)
+            record_to_memory(out)
 
     with GlobalState() if GlobalState._instance is None else nullcontext():
         max_count = 0

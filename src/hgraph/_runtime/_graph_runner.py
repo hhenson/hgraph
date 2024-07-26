@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from logging import Logger, getLogger, DEBUG, StreamHandler, Formatter
-from typing import Callable, Any, Dict
+from typing import Callable, Any
 
 from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
@@ -94,7 +94,8 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
     from hgraph._wiring._graph_builder import wire_graph
     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
     from hgraph._wiring._wiring_node_signature import WiringNodeSignature
-    from hgraph.nodes import get_recorded_value, record
+    from hgraph._operators._record_replay import record
+    from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
     signature: WiringNodeSignature = None
     if not isinstance(graph, GraphBuilder):

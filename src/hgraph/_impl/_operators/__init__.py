@@ -9,6 +9,7 @@ from hgraph._impl._operators._frozenset_operators import *
 from hgraph._impl._operators._getattr import *
 from hgraph._impl._operators._graph_operators import *
 from hgraph._impl._operators._number_operators import *
+from hgraph._impl._operators._record_replay_in_memory import *
 from hgraph._impl._operators._scalar_operators import *
 from hgraph._impl._operators._series_operators import *
 from hgraph._impl._operators._set_operators import *

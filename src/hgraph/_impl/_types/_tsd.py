@@ -146,7 +146,10 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def apply_result(self, result: Any):
         if result is None:
             return
-        self.value = result
+        try:
+            self.value = result
+        except TypeError:
+            raise TypeError(f"Cannot apply result {result} of type {result.__class__} to {self}")
 
     def _create(self, key: K):
         cast(TimeSeriesSetOutput, self.key_set).add(key)
@@ -304,7 +307,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def on_key_removed(self, key: K):
         if not self._removed_items:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
-        value: TimeSeriesInput = self._ts_values.pop(key)
+        value: TimeSeriesInput = self._ts_values.pop(key, None)
+        if value is None:
+          return
         if value.parent_input is self:
             if value.active:
                 value.make_passive()
