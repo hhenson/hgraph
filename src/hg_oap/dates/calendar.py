@@ -8,19 +8,48 @@ __all__ = ('Calendar', 'WeekendCalendar', 'HolidayCalendar')
 
 class Calendar:
     @abstractmethod
-    def weekend_days(self) -> Tuple[int, ...]: ...
+    def weekend_days(self) -> Tuple[int, ...]:
+        """
+        Returns a tuple of day numbers corresponding to the weekend days for this calendar
+        """
 
     @abstractmethod
-    def is_holiday(self, d: date) -> bool: ...
+    def is_holiday(self, d: date) -> bool:
+        """
+        Returns True if the given date is a holiday date
+        Returns False if the given date is a weekend day
+        Returns False otherwise
+        """
 
     @abstractmethod
-    def is_holiday_or_weekend(self, d: date) -> bool: ...
+    def is_holiday_or_weekend(self, d: date) -> bool:
+        """
+        Returns True if the given date is a holiday date
+        Returns True if the given date is a weekend day
+        Returns False otherwise
+        """
 
     @abstractmethod
-    def add_business_days(self, d: date, days: int): ...
+    def add_business_days(self, d: date, days: int) -> date:
+        """
+        Add `days business days to the given date `d and return the resulting date
+
+        Adding business days has the following semantics:
+        If the current date d is a business day:
+          - Adding 0 days has no effect.
+          - Adding 1 business day lands on the next day which is not a weekend or holiday date after the current date
+        If the current date d is a weekend or holiday day:
+          - Adding 0 days rolls to the next non-weekend and non-holiday day
+          - Adding 1 business day rolls to the next non-weekend and non-holiday after that (and so on)
+
+        Subtracting business days has similar semantics but moving backwards rather than forwards through time.
+        """
 
     @abstractmethod
-    def sub_business_days(self, d: date, days: int): ...
+    def sub_business_days(self, d: date, days: int) -> date:
+        """
+        See `add_business_days above
+        """
 
 
 class WeekendCalendar(Calendar):

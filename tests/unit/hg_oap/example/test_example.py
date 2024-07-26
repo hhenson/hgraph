@@ -80,7 +80,7 @@ class Price(CompoundScalar, Generic[NUMBER], ExprClass, UnitConversionContext):
     currency_unit: Unit
     unit: Unit
 
-    unit_conversion_factors: tuple[Quantity[float]] = lambda self: (self.qty * (self.currency_unit / self.unit),)
+    unit_conversion_factors: tuple[Quantity[float], ...] = lambda self: (self.qty * (self.currency_unit / self.unit),)
 
 
 #####################

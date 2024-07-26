@@ -22,13 +22,15 @@ class PhysicalAsset(Asset):
     A tangible thing, for example: raw materials, infrastructure, equipment, etc.
 
     The physical asset has a default unit - for example, copper is often measured in metric tonnes.
+    TODO - is the default unit the size or price unit? e.g. MWh is price unit vs MW is contract size unit
+        Does it make any sense to have it here?
     The actual traded unit can vary according to the contract - copper can be traded in pounds as well as tonnes.
     The unit conversion factors can be used to convert between units of different dimensions -
     e.g. density for mass/volume
     """
     name: str
     default_unit: Unit = None  # TODO - add a Unit.null?
-    unit_conversion_factors: tuple[Quantity[float]] = ()
+    unit_conversion_factors: tuple[Quantity[float], ...] = ()
 
 
 @dataclass(frozen=True)
