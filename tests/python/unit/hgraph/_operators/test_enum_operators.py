@@ -1,6 +1,6 @@
 from enum import Enum
 
-from hgraph import TS, graph, min_, max_, ENUM
+from hgraph import TS, graph, min_, max_, ENUM, nothing
 from hgraph.test import eval_node
 
 
@@ -33,12 +33,36 @@ def test_min_enums_binary():
     assert eval_node(app, [TestEnum.B, TestEnum.A], [TestEnum.A, TestEnum.B]) == [TestEnum.A, TestEnum.A]
 
 
+def test_min_enums_binary_not_strict():
+    @graph
+    def app(ts1: TS[ENUM]) -> TS[ENUM]:
+        return min_(ts1, nothing(TS[TestEnum]), __strict__=False)
+
+    assert eval_node(app, [TestEnum.B, TestEnum.A]) == [TestEnum.B, TestEnum.A]
+
+
 def test_min_enums_multi():
     @graph
     def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM], i4: TS[ENUM]) -> TS[ENUM]:
         return min_(i1, i2, i3, i4)
 
     assert eval_node(app, TestEnum.B, TestEnum.A, TestEnum.A, TestEnum.B) == [TestEnum.A]
+
+
+def test_min_enums_multi_non_strict():
+    @graph
+    def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
+        return min_(i1, i2, i3, nothing(TS[TestEnum]), __strict__=False)
+
+    assert eval_node(app, TestEnum.B, TestEnum.A, TestEnum.A) == [TestEnum.A]
+
+
+def test_min_enums_multi_strict_not_all_valid():
+    @graph
+    def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
+        return min_(i1, i2, i3, nothing(TS[TestEnum]))
+
+    assert eval_node(app, TestEnum.B, TestEnum.A, TestEnum.A) is None
 
 
 def test_max_enums_unary():
@@ -57,12 +81,36 @@ def test_max_enums_binary():
     assert eval_node(app, [TestEnum.B, TestEnum.A], [TestEnum.A, TestEnum.B]) == [TestEnum.B, TestEnum.B]
 
 
+def test_max_enums_binary_not_strict():
+    @graph
+    def app(ts1: TS[ENUM]) -> TS[ENUM]:
+        return max_(ts1, nothing(TS[TestEnum]), __strict__=False)
+
+    assert eval_node(app, [TestEnum.B, TestEnum.A]) == [TestEnum.B, TestEnum.A]
+
+
 def test_max_enums_multi():
     @graph
     def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM], i4: TS[ENUM]) -> TS[ENUM]:
         return max_(i1, i2, i3, i4)
 
     assert eval_node(app, TestEnum.B, TestEnum.A, TestEnum.A, TestEnum.B) == [TestEnum.B]
+
+
+def test_max_enums_multi_non_strict():
+    @graph
+    def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
+        return max_(i1, i2, i3, nothing(TS[TestEnum]), __strict__=False)
+
+    assert eval_node(app, TestEnum.B, TestEnum.A, TestEnum.A) == [TestEnum.B]
+
+
+def test_max_enums_multi_strict_not_all_valid():
+    @graph
+    def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
+        return max_(i1, i2, i3, nothing(TS[TestEnum]))
+
+    assert eval_node(app, TestEnum.B, TestEnum.A, TestEnum.A) is None
 
 
 def test_lt_enums():
