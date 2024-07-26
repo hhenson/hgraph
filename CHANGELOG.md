@@ -585,3 +585,11 @@ Version 0.2.51 (17-07-2024)
 * Updates to the adaptor framework
 * Small fixes to examples
 * combine for date
+
+Version 0.2.52 (26-07-2024)
+---------------------------
+
+* collection for TSD -> TSD and TSS -> TSS
+* Some bug fixes
+* Preparation of record / replay operators
+* Work on adaptors
