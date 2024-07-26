@@ -624,7 +624,7 @@ def service_adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
 
     NOTE: this decorator is temporary, the plan is to make a common service interface decorator that will work for both
     request-reply service and mutli-client adaptors and implementations will be compatible so that even the same
-    service with different paths can be implemented as a service of adaptor by implementor's choice
+    service with different paths can be implemented as a service or adaptor by implementor's choice
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 

@@ -347,7 +347,7 @@ class HgInjectableType(HgScalarTypeMetaData):
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._runtime._evaluation_clock import EvaluationClock
         from hgraph._runtime._evaluation_engine import EvaluationEngineApi
-        from hgraph._runtime._node import SCHEDULER
+        from hgraph._runtime._node import SCHEDULER, NODE
 
         return {
             EvaluationClock: lambda: HgEvaluationClockType(),
@@ -357,6 +357,7 @@ class HgInjectableType(HgScalarTypeMetaData):
             SCHEDULER: lambda: HgSchedulerType(),
             SchedulerInjector: lambda: HgSchedulerType(),
             LOGGER: lambda: HgLoggerType(),
+            NODE: lambda: HgNodeType(),
         }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -411,7 +412,7 @@ class LoggerInjector(Injector):
 
 class HgLoggerType(HgInjectableType):
     """
-    Injectable for replay state.
+    Injectable for logger object.
     """
 
     def __init__(self):
@@ -420,6 +421,26 @@ class HgLoggerType(HgInjectableType):
     @property
     def injector(self):
         return LoggerInjector()
+
+
+class NodeInjector(Injector):
+    def __call__(self, node):
+        return node
+
+
+class HgNodeType(HgInjectableType):
+    """
+    Injectable for node object.
+    """
+
+    def __init__(self):
+        from hgraph._runtime._node import Node
+
+        super().__init__(Node)
+
+    @property
+    def injector(self):
+        return NodeInjector()
 
 
 class StateInjector(Injector):

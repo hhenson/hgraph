@@ -87,7 +87,15 @@ class WiringGraphContext:
 
         self._sink_nodes: ["WiringNodeInstance"] = []
         self._other_nodes: [Tuple["WiringPort", dict]] = []
-        self._service_clients: [Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
+        self._service_clients: [
+            Tuple[
+                "WiringNodeClass",
+                str,
+                dict[TypeVar, HgTypeMetaData],
+                "WiringNodeInstance",
+                bool,
+            ]
+        ] = []
         self._service_stubs: [Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
         self._context_clients: [Tuple[str, int, "WiringNOdeInstance"]] = []
         self._service_implementations: Dict[str, Tuple["WiringNodeClass", "ServiceImplNodeClass", dict]] = {}
@@ -96,18 +104,18 @@ class WiringGraphContext:
         self._current_frame = sys._getframe(1)
 
     @property
-    def sink_nodes(self) -> tuple["WiringNodeInstance", ...]:
-        return tuple(self._sink_nodes)
-
-    def has_sink_nodes(self) -> bool:
-        return bool(self._sink_nodes)
-
-    @property
     def wiring_node_signature(self) -> WiringNodeSignature:
         return self._wiring_node_signature
 
     def add_sink_node(self, node: "WiringNodeInstance"):
         self._sink_nodes.append(node)
+
+    def has_sink_nodes(self) -> bool:
+        return bool(self._sink_nodes)
+
+    @property
+    def sink_nodes(self) -> tuple["WiringNodeInstance", ...]:
+        return tuple(self._sink_nodes)
 
     def pop_sink_nodes(self) -> ["WiringNodeInstance"]:
         """
@@ -139,12 +147,19 @@ class WiringGraphContext:
                 port.node_instance.label = varname
 
     def register_service_client(
-        self, service: "ServiceInterfaceNodeClass", path: str, type_map: dict = None, node: "WiringNodeInstance" = None
+        self,
+        service: "ServiceInterfaceNodeClass",
+        path: str,
+        type_map: dict = None,
+        node: "WiringNodeInstance" = None,
+        receive=True,
     ):
         """
         Register a service client with the graph context
         """
-        self._service_clients.append((service, path, (frozendict(type_map) if type_map else frozendict()), node))
+        self._service_clients.append(
+            (service, path, (frozendict(type_map) if type_map else frozendict()), node, receive)
+        )
 
     def register_service_stub(
         self, service: "ServiceInterfaceNodeClass", full_typed_path: str, node: "WiringNodeInstance" = None
@@ -242,7 +257,9 @@ class WiringGraphContext:
         return r
 
     def reassign_service_clients(self, clients, node):
-        self._service_clients.extend([(service, path, type_map, node) for service, path, type_map, _ in clients])
+        self._service_clients.extend(
+            [(service, path, type_map, node, receive) for service, path, type_map, _, receive in clients]
+        )
 
     def pop_service_clients(self):
         r = self._service_clients
@@ -270,7 +287,7 @@ class WiringGraphContext:
         """
         Build the service implementations for the graph
         """
-        service_clients = [(service, path, type_map) for service, path, type_map, _ in self._service_clients]
+        service_clients = [(service, path, type_map) for service, path, type_map, _, _ in self._service_clients]
         service_full_paths = {}
         while True:
             services_to_build = dict()
@@ -305,15 +322,19 @@ class WiringGraphContext:
             if len(self._service_clients) == len(service_clients):
                 break
             else:
-                service_clients = [(service, path, type_map) for service, path, type_map, _ in self._service_clients]
+                service_clients = [(service, path, type_map) for service, path, type_map, _, _ in self._service_clients]
 
-        for service, path, type_map, node in self._service_clients:
+        for service, path, type_map, node, receive in self._service_clients:
             if service.signature.node_type != WiringNodeType.REQ_REP_SVC:
                 node: "WiringNodeInstance"
-                if node.is_source_node:
-                    node.add_ranking_alternative(self._built_services[service_full_paths[(service, path, type_map)]])
+
+                full_typed_path = service_full_paths[(service, path, type_map)]
+                if receive is False:
+                    self._built_services[full_typed_path].add_indirect_dependency(node)
+                elif node.is_source_node:
+                    node.add_ranking_alternative(self._built_services[full_typed_path])
                 else:
-                    node.add_indirect_dependency(self._built_services[service_full_paths[(service, path, type_map)]])
+                    node.add_indirect_dependency(self._built_services[full_typed_path])
 
         for service, full_path, node in self._service_stubs:
             node: "WiringNodeInstance"

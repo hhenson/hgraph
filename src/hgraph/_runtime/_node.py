@@ -15,7 +15,16 @@ if TYPE_CHECKING:
     from hgraph._runtime._graph_recorder import GraphRecorder
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
-__all__ = ("Node", "NodeTypeEnum", "NodeSignature", "SCHEDULER", "NodeScheduler", "InjectableTypes", "NodeDelegate")
+__all__ = (
+    "Node",
+    "NODE",
+    "NodeTypeEnum",
+    "NodeSignature",
+    "SCHEDULER",
+    "NodeScheduler",
+    "InjectableTypes",
+    "NodeDelegate",
+)
 
 
 class NodeTypeEnum(Enum):
@@ -32,6 +41,7 @@ class InjectableTypes(IntFlag):
     CLOCK = auto()
     ENGINE_API = auto()
     LOGGER = auto()
+    NODE = auto()
 
 
 @dataclass
@@ -424,3 +434,4 @@ class NodeScheduler(ABC):
 
 
 SCHEDULER = NodeScheduler
+NODE = Node

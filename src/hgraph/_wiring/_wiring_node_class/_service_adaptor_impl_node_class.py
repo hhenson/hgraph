@@ -93,16 +93,21 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
                         raise CustomMessageWiringError(
                             "The implementation has missing inputs compared to the service signature"
                         )
-                    output = signature.output_type.dereference()
-                    if not isinstance(output, HgTSDTypeMetaData):
+                    if signature.output_type is not None:
+                        output = signature.output_type.dereference()
+                        if not isinstance(output, HgTSDTypeMetaData):
+                            raise CustomMessageWiringError(
+                                f"service adaptors output must be TSD: output is {output.py_type}"
+                            )
+                        if not output.key_tp.matches(HgAtomicType(int)):
+                            raise CustomMessageWiringError(f"service adaptors output key must be int: {output.key_tp}")
+                        if not output.value_tp.matches(interface_sig.output_type.dereference()):
+                            raise CustomMessageWiringError(
+                                "The output type does not match that of the subscription service signature"
+                            )
+                    elif interface_sig.output_type is not None:
                         raise CustomMessageWiringError(
-                            f"service adaptors output must be TSD: output is {output.py_type}"
-                        )
-                    if not output.key_tp.matches(HgAtomicType(int)):
-                        raise CustomMessageWiringError(f"service adaptors output key must be int: {output.key_tp}")
-                    if not output.value_tp.matches(interface_sig.output_type.dereference()):
-                        raise CustomMessageWiringError(
-                            "The output type does not match that of the subscription service signature"
+                            "The implementation has missing output compared to the service signature"
                         )
                 case _:
                     raise CustomMessageWiringError(f"Unknown service type: {interface_sig.node_type}")
