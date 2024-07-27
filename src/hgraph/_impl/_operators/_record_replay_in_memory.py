@@ -8,7 +8,6 @@ from hgraph import (
     GlobalState,
     generator,
     replay,
-    record_replay_model,
     IN_MEMORY,
     TIME_SERIES_TYPE,
     sink_node,
@@ -25,6 +24,8 @@ __all__ = (
     "set_replay_values",
     "get_recorded_value",
 )
+
+from hgraph._operators._record_replay import record_replay_model_restriction
 
 
 class ReplaySource(Protocol):
@@ -58,8 +59,8 @@ def set_replay_values(label: str, value: ReplaySource):
     GlobalState.instance()[f"nodes.{replay_from_memory.signature.name}.{label}"] = value
 
 
-@generator(overloads=replay, requires=lambda m, s: record_replay_model() == IN_MEMORY)
-def replay_from_memory(key: str, tp: type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
+@generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY))
+def replay_from_memory(key: str, tp: type[TIME_SERIES_TYPE], is_operator: bool = False) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
     The type of the elements of the sequence must be a delta value of the time series type.
@@ -75,11 +76,12 @@ def replay_from_memory(key: str, tp: type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE
             yield ts, v
 
 
-@sink_node(overloads=record, requires=lambda m, s: record_replay_model() == IN_MEMORY)
+@sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY))
 def record_to_memory(
     ts: TIME_SERIES_TYPE,
     key: str = "out",
     record_delta_values: bool = True,
+    is_operator: bool = False,
     _clock: EvaluationClock = None,
     _state: STATE = None,
 ):

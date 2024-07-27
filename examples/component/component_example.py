@@ -16,6 +16,10 @@ from hgraph import (
     replay_from_memory,
     set_replay_values,
     SimpleArrayReplaySource,
+    set_record_replay_model,
+    GlobalState,
+    RecordReplayContext,
+    RecordReplayEnum,
 )
 
 
@@ -34,10 +38,11 @@ def main():
 
 
 def run_record():
-    set_replay_values("returns", SimpleArrayReplaySource([fd(a=0.25, b=1.2), fd(a=0.27, b=1.3)]))
-    set_replay_values("factors", SimpleArrayReplaySource([fd(a=0.1, b=0.2), fd(a=0.12, b=0.18)]))
-    config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
-    evaluate_graph(main, config)
+    with RecordReplayContext(mode=RecordReplayEnum.RECORD):
+        set_replay_values("returns", SimpleArrayReplaySource([fd(a=0.25, b=1.2), fd(a=0.27, b=1.3)]))
+        set_replay_values("factors", SimpleArrayReplaySource([fd(a=0.1, b=0.2), fd(a=0.12, b=0.18)]))
+        config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
+        evaluate_graph(main, config)
 
 
 def run_simulation():
@@ -48,18 +53,20 @@ def run_simulation():
 
 
 def run_replay():
-    set_replay_values("returns", SimpleArrayReplaySource([]))
-    set_replay_values("factors", SimpleArrayReplaySource([]))
-    # This should replay using the recorded data, ignoring any incoming data until the recorded data is processed.
-    # Once we have replayed the data the graph returns to RECORD mode and will process any new data received.
-    config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
-    evaluate_graph(main, config)
+    with RecordReplayContext(mode=RecordReplayEnum.REPLAY):
+        set_replay_values("returns", SimpleArrayReplaySource([]))
+        set_replay_values("factors", SimpleArrayReplaySource([]))
+        # This should replay using the recorded data, ignoring any incoming data until the recorded data is processed.
+        # Once we have replayed the data the graph returns to RECORD mode and will process any new data received.
+        config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
+        evaluate_graph(main, config)
 
 
 def run_compare():
-    # In this mode, we run the component itself to see if the component will reproduce itself.
-    config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
-    evaluate_graph(compute_signal, config)
+    with RecordReplayContext(mode=RecordReplayEnum.COMPARE):
+        # In this mode, we run the component itself to see if the component will reproduce itself.
+        config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
+        evaluate_graph(compute_signal, config)
 
 
 def run_recover():
@@ -71,8 +78,9 @@ def run_recover():
 
 
 if __name__ == "__main__":
-    run_simulation()
-    # run_record()
+    set_record_replay_model("DataFrame")
+    # run_simulation()
+    run_record()
     # run_replay()
     # run_compare()
     # run_recover()

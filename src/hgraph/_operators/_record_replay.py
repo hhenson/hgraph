@@ -1,16 +1,13 @@
 from enum import auto, IntFlag
 
 from hgraph._runtime._global_state import GlobalState
-from hgraph._types._context_type import CONTEXT
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
-from hgraph._types._ts_type import TS
 from hgraph._wiring._decorators import operator
-
 
 __all__ = (
     "RecordReplayEnum",
     "RecordReplayContext",
-    "register_record_replay_model",
+    "set_record_replay_model",
     "record_replay_model",
     "record",
     "replay",
@@ -74,7 +71,7 @@ class RecordReplayContext:
         self._instance.pop()
 
 
-def register_record_replay_model(model: str):
+def set_record_replay_model(model: str):
     """Registers the recordable model to make use of"""
     GlobalState.instance()["::record_replay_model::"] = model
 
@@ -87,8 +84,20 @@ def record_replay_model() -> str:
     return GlobalState.instance().get("::record_replay_model::", IN_MEMORY)
 
 
+def record_replay_model_restriction(model: str):
+    """
+    Ensure the operator implementation will only be available when the record model is as per ``model`` when used
+    as an operator, but not if the implementation is used directly.
+    """
+
+    def restriction(m, s):
+        return not s.get("is_operator", False) or record_replay_model() == model
+
+    return restriction
+
+
 @operator
-def record(ts: TIME_SERIES_TYPE, key: str, **kwargs):
+def record(ts: TIME_SERIES_TYPE, key: str):
     """
     Records the ts input. The recordable_context is provided containing the recordable_id as well
     as the record mode. If the mode does not contain record, then the results are not recorded.
@@ -101,7 +110,7 @@ def record(ts: TIME_SERIES_TYPE, key: str, **kwargs):
 
 
 @operator
-def replay(key: str, tp: type[TIME_SERIES_TYPE], **kwargs) -> TIME_SERIES_TYPE:
+def replay(key: str, tp: type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
@@ -111,7 +120,7 @@ def replay(key: str, tp: type[TIME_SERIES_TYPE], **kwargs) -> TIME_SERIES_TYPE:
 
 
 @operator
-def compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs):
+def compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
     """
     Perform a comparison between two time series (when the context is set to COMPARE).
     This will write the results of the comparison to a comparison result file.

@@ -151,8 +151,13 @@ class OverloadedWiringNodeHelper:
         for c, r in self.overloads:
             try:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
+                if "is_operator" in c.signature.args:
+                    kwargs_ = dict(kwargs)
+                    kwargs_["is_operator"] = True
+                else:
+                    kwargs_ = kwargs
                 c.resolve_signature(
-                    *args, **kwargs, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH
+                    *args, **kwargs_, __enforce_output_type__=c.signature.node_type != WiringNodeType.GRAPH
                 )
                 candidates.append((c, r))
             except (WiringError, SyntaxError) as e:
