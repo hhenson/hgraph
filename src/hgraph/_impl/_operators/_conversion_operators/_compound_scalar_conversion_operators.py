@@ -17,6 +17,7 @@ from hgraph import (
     combine,
     convert,
     CompoundScalar,
+    AUTO_RESOLVE,
 )
 
 __all__ = ()
@@ -64,6 +65,9 @@ def convert_cs_from_tsb(bundle: TSB[TS_SCHEMA], __strict__: bool = True) -> TS[C
     all_valid=lambda m, s: ("bundle",) if s["__strict__"] else None,
 )
 def convert_cs_from_tsb_typed(
-    bundle: TSB[TS_SCHEMA], __strict__: bool = True, tp_: Type[TS[COMPOUND_SCALAR]] = DEFAULT[OUT]
+    bundle: TSB[TS_SCHEMA],
+    __strict__: bool = True,
+    tp_: Type[TS[COMPOUND_SCALAR]] = DEFAULT[OUT],
+    scalar_tp_: Type[COMPOUND_SCALAR] = AUTO_RESOLVE,
 ) -> TS[COMPOUND_SCALAR]:
-    return bundle.value
+    return scalar_tp_(**{k: v.value for k, v in bundle.items() if k in scalar_tp_.__meta_data_schema__})

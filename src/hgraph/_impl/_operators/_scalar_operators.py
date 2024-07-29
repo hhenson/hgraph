@@ -241,21 +241,26 @@ def contains_scalar(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
 
 
 @graph(overloads=min_)
-def min_scalar(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+def min_scalar(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True) -> TS[SCALAR]:
     if len(ts) == 1:
         return min_scalar_unary(ts[0])
     elif len(ts) == 2:
-        return min_scalar_binary(ts[0], ts[1])
+        return min_scalar_binary(ts[0], ts[1], __strict__)
     else:
-        return min_scalar_multi(*ts, default_value=default_value)
+        return min_scalar_multi(*ts, default_value=default_value, __strict__=__strict__)
 
 
-@compute_node
-def min_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
+@compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
+def min_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True) -> TS[SCALAR]:
     """
     Binary min()
     """
-    return min(lhs.value, rhs.value)
+    if lhs.valid and rhs.valid:
+        return min(lhs.value, rhs.value)
+    if lhs.valid:
+        return lhs.value
+    if rhs.valid:
+        return rhs.value
 
 
 @compute_node
@@ -272,22 +277,24 @@ def min_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALA
         return ts.value
 
 
-@compute_node
-def min_scalar_multi(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+@compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
+def min_scalar_multi(
+    *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True
+) -> TS[SCALAR]:
     """
     Multi-arg min()
     """
-    return min((arg.value for arg in ts), default=default_value.value)
+    return min((arg.value for arg in ts if arg.valid), default=default_value.value)
 
 
 @graph(overloads=max_)
-def max_scalar(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+def max_scalar(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True) -> TS[SCALAR]:
     if len(ts) == 1:
         return max_scalar_unary(ts[0])
     elif len(ts) == 2:
-        return max_scalar_binary(ts[0], ts[1])
+        return max_scalar_binary(ts[0], ts[1], __strict__)
     else:
-        return max_scalar_multi(*ts, default_value=default_value)
+        return max_scalar_multi(*ts, default_value=default_value, __strict__=__strict__)
 
 
 @compute_node
@@ -304,20 +311,27 @@ def max_scalar_unary(ts: TS[SCALAR], _output: TS_OUT[SCALAR] = None) -> TS[SCALA
         return ts.value
 
 
-@compute_node
-def max_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
+@compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
+def max_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True) -> TS[SCALAR]:
     """
     Binary max()
     """
-    return max(lhs.value, rhs.value)
+    if lhs.valid and rhs.valid:
+        return max(lhs.value, rhs.value)
+    if lhs.valid:
+        return lhs.value
+    if rhs.valid:
+        return rhs.value
 
 
-@compute_node
-def max_scalar_multi(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+@compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
+def max_scalar_multi(
+    *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True
+) -> TS[SCALAR]:
     """
     Multi-arg max()
     """
-    return max((arg.value for arg in ts), default=default_value.value)
+    return max((arg.value for arg in ts if arg.valid), default=default_value.value)
 
 
 @graph(overloads=sum_)
