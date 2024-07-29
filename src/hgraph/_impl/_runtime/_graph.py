@@ -9,6 +9,7 @@ from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngin
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeTypeEnum, Node
+from hgraph._runtime._traits import Traits
 
 if typing.TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
@@ -30,11 +31,16 @@ class PythonGraph(Graph):
         self._evaluation_engine: EvaluationEngine | None = None
         self._parent_node: Node = parent_node
         self._label: str = label
+        if parent_node is None or parent_node.graph is None:
+            self._traits: Traits = Traits()
+        else:
+            self._traits: Traits = Traits(parent=parent_node.graph.traits)
 
     def copy_with(self, nodes: tuple[Node, ...]) -> "Graph":
         graph = PythonGraph(self._graph_id, nodes, self._parent_node)
         graph._schedule = self._schedule
         graph._evaluation_engine = self._evaluation_engine
+        graph._traits = self._traits.copy()
         return graph
 
     @property
@@ -78,6 +84,10 @@ class PythonGraph(Graph):
     @property
     def schedule(self) -> list[datetime, ...]:
         return self._schedule
+
+    @property
+    def traits(self) -> Traits:
+        return self._traits
 
     @functools.cached_property
     def push_source_nodes_end(self) -> int:

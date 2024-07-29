@@ -47,7 +47,8 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         else:
             gs[k] = True  # Just write a marker for now
 
-        self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self)
+        self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self, label=id_)
+        self._active_graph.traits.set_traits(recordable_id=id_)
         self._active_graph.evaluation_engine = NestedEvaluationEngine(
             self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
         )
@@ -103,7 +104,10 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
 
     def recordable_id(self) -> tuple[str, bool]:
         """The id and True or no id and False if required inputs are not ready yet"""
-        id_ = self.signature.record_replay_id
+        outer_id = self.graph.traits.get_trait_or("recordable_id")
+        id_ = (
+            f"{'' if outer_id is None else outer_id}{'' if outer_id is None else '::'}{self.signature.record_replay_id}"
+        )
         dependencies = [k for _, k, _, _ in Formatter().parse(id_) if k is not None]
         if any(k == "" for k in dependencies):
             raise RuntimeError(

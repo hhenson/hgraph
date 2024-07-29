@@ -3,13 +3,14 @@ from typing import Callable, TypeVar, Optional
 
 from frozendict import frozendict
 
-from hgraph import WiringPort
+from hgraph import NODE
 from hgraph._operators._record_replay import RecordReplayEnum, RecordReplayContext, record, replay, compare
-from hgraph._types._ref_type import REF
+from hgraph._runtime._evaluation_engine import EvaluationEngineApi
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._ts_type import TS
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._decorators import graph
+from hgraph._wiring._decorators import graph, generator
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
@@ -18,6 +19,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
     validate_and_resolve_signature,
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
 
 __all__ = ("ComponentNodeClass",)
@@ -130,7 +132,7 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
     match RecordReplayContext.instance().mode:
         case RecordReplayEnum.RECORD:
-            ts = record(ts, key)
+            record(ts, key)
         case RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE:
             ts: WiringPort
             ts = replay(key, ts.output_type)
@@ -141,7 +143,7 @@ def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
 def output_wrapper(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     match RecordReplayContext.instance().mode:
         case RecordReplayEnum.RECORD:
-            ts = record(ts, "__out__")
+            record(ts, "__out__")
         case RecordReplayEnum.REPLAY_OUTPUT:
             ts: WiringPort
             ts = replay("__out__", ts.output_type)

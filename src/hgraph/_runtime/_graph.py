@@ -3,6 +3,7 @@ from abc import abstractmethod
 from datetime import datetime
 
 from hgraph._runtime._lifecycle import ComponentLifeCycle
+from hgraph._runtime._traits import Traits
 
 if typing.TYPE_CHECKING:
     from hgraph._runtime._node import Node
@@ -92,3 +93,8 @@ class Graph(ComponentLifeCycle):
     @abstractmethod
     def copy_with(self, nodes: tuple["Node", ...]) -> "Graph":
         """Create a new instance of the graph with an adjust node set"""
+
+    @property
+    @abstractmethod
+    def traits(self) -> Traits:
+        """The traits of this graph"""

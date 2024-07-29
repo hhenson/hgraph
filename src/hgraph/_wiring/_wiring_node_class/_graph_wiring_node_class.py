@@ -129,11 +129,14 @@ class WiringGraphContext:
     def add_node(self, node: "WiringPort"):
         i = 1
         prev_f = None
-        while self._current_frame != (f := sys._getframe(i)):
-            if i > 20:
-                return
-            prev_f = f
-            i += 1
+        try:
+            while self._current_frame != (f := sys._getframe(i)):
+                if i > 20:
+                    return
+                prev_f = f
+                i += 1
+        except ValueError:
+            return
 
         self._other_nodes.append((node, prev_f.f_locals))
 

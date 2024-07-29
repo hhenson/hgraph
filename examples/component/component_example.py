@@ -20,6 +20,8 @@ from hgraph import (
     GlobalState,
     RecordReplayContext,
     RecordReplayEnum,
+    IN_MEMORY,
+    get_recorded_value,
 )
 
 
@@ -78,9 +80,13 @@ def run_recover():
 
 
 if __name__ == "__main__":
-    set_record_replay_model("DataFrame")
-    # run_simulation()
-    run_record()
-    # run_replay()
-    # run_compare()
-    # run_recover()
+    with GlobalState() as gs:
+        # set_record_replay_model("DataFrame")
+        set_record_replay_model(IN_MEMORY)
+        # run_simulation()
+        run_record()
+        #run_replay()
+        # run_compare()
+        # run_recover()
+        values = get_recorded_value("__out__", "compute_signal")
+        ...

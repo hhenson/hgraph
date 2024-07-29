@@ -348,6 +348,7 @@ class HgInjectableType(HgScalarTypeMetaData):
         from hgraph._runtime._evaluation_clock import EvaluationClock
         from hgraph._runtime._evaluation_engine import EvaluationEngineApi
         from hgraph._runtime._node import SCHEDULER, NODE
+        from hgraph._runtime._traits import Traits
 
         return {
             EvaluationClock: lambda: HgEvaluationClockType(),
@@ -358,6 +359,7 @@ class HgInjectableType(HgScalarTypeMetaData):
             SchedulerInjector: lambda: HgSchedulerType(),
             LOGGER: lambda: HgLoggerType(),
             NODE: lambda: HgNodeType(),
+            Traits: lambda: HgTraitsType(),
         }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -375,6 +377,12 @@ class EvaluationClockInjector(Injector):
 
     def __call__(self, node):
         return node.graph.evaluation_clock
+
+
+class TraitsInjector(Injector):
+
+    def __call__(self, node):
+        return node.graph.traits
 
 
 class HgEvaluationClockType(HgInjectableType):
@@ -403,6 +411,18 @@ class HgEvaluationEngineApiType(HgInjectableType):
     @property
     def injector(self):
         return EvaluationEngineApiInjector()
+
+
+class HgTraitsType(HgInjectableType):
+
+    def __init__(self):
+        from hgraph._runtime._traits import Traits
+
+        super().__init__(Traits)
+
+    @property
+    def injector(self):
+        return TraitsInjector()
 
 
 class LoggerInjector(Injector):
