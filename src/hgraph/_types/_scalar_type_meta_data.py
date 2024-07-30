@@ -600,7 +600,12 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         if tp_ is HgTupleCollectionScalarType:
             return self.element_type.matches(tp.element_type)
         elif tp_ is HgTupleFixedScalarType:
-            return all(self.element_type.matches(tp_) for tp_ in tp.element_types)
+            matches = all(self.element_type.matches(tp_) for tp_ in tp.element_types)
+            if matches and self.element_type.is_generic:
+                resolution = {}
+                self.element_type.build_resolution_dict(resolution, tp.element_types[0])
+                resolved = self.element_type.resolve(resolution)
+                return all(resolved.matches(tp_) for tp_ in tp.element_types)
         elif tp_ is HgDictScalarType:
             # Support matching a delta value as well.
             return self.element_type.matches(tp.value_type) and tp.key_type.py_type is int

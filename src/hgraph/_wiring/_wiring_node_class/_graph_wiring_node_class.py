@@ -448,7 +448,8 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                                 out = const(out, tp=output_type.py_type)
                             except Exception as e:
                                 raise WiringError(
-                                    f"Expected a time series of type '{str(output_type)}' but got '{str(out)}'"
+                                    f"{self.signature} was expected to return a time series of type"
+                                    f" '{str(output_type)}' but returned '{str(out)}'"
                                 ) from e
 
                     if not output_type.dereference().matches(out.output_type.dereference()):
