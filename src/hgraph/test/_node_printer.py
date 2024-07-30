@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING
 
 from hgraph._runtime._constants import MAX_ET
 from hgraph._runtime._node import NodeTypeEnum
-from hgraph._types import HgSchedulerType
+from hgraph._types import HgSchedulerType, Injector
+from hgraph._builder import Builder
 
 if TYPE_CHECKING:
     from hgraph import Graph, EvaluationClock
@@ -123,7 +124,7 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
             inputs = ", ".join(
                 f"{k}: {fmt_id(n.output.owning_node.node_id) if n.output else '?'}" for k, n in node.inputs.items()
             )
-            scalars = ", ".join(f"{k}: {v}" for k, v in node.scalars.items())
+            scalars = ", ".join(f"{k}: {v}" for k, v in node.scalars.items() if not isinstance(v, (Injector, Builder)))
             and_ = " and " if inputs and scalars else ""
             self._print_node(node, f"Started node with {inputs}{and_}{scalars}", add_output=True)
 

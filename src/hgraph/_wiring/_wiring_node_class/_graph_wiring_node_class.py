@@ -131,7 +131,7 @@ class WiringGraphContext:
         prev_f = None
         try:
             while self._current_frame != (f := sys._getframe(i)):
-                if i > 20:
+                if i > 10:
                     return
                 prev_f = f
                 i += 1
