@@ -22,6 +22,7 @@ from hgraph import (
     add_,
     sample,
     combine,
+    REMOVE,
 )
 from hgraph.test import eval_node
 
@@ -176,6 +177,28 @@ def test_switch_from_reduce():
         )
 
     assert eval_node(switch_test, ["o"], [{}, {1: 1}, {2: 2}, {3: 3, 4: 4, 5: 5}], __trace__=True) == [0, 2, 6, 30]
+
+
+def test_reduce_from_switch():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @graph
+    def switch_test(n: TSD[int, TS[int]]) -> TS[int]:
+        refs = map_(
+            lambda key, value: combine[TSB[AB]](a=value, b=switch_({DEFAULT: lambda v: v + 1}, value, value)), n
+        )
+        return reduce(lambda x, y: combine[TSB[AB]](a=x.a + y.a, b=x.b + y.b), refs, combine[TSB[AB]](a=0, b=0)).b
+
+    assert eval_node(switch_test, [{}, {1: 1}, {2: 2}, {1: 2}, {2: 3}, {1: REMOVE}], __trace__=True) == [
+        0,
+        2,
+        5,
+        6,
+        7,
+        4,
+    ]
 
 
 def test_switch_bundle_from_reduce():

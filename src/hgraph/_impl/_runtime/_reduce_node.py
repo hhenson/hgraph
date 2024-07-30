@@ -78,6 +78,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         super().stop()
 
     def eval(self):
+        self.mark_evaluated()
+
         # Process additions and removals (do in order remove then add to reduce the possibility of growing
         # The tree just to tear it down again
         self._remove_nodes(self._tsd.removed_keys())
@@ -176,20 +178,26 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         return self._nested_graph.nodes[ndx * self._node_size : (ndx + 1) * self._node_size]
 
     def _bind_key_to_node(self, key: K, ndx: tuple[int, int]):
+        from hgraph import TimeSeriesReferenceInput
+
         """Bind a key to a node"""
         self._bound_node_indexes[key] = ndx
         node_id, side = ndx
         node: NodeImpl = self._get_node(node_id)[side]
         ts = self._tsd[key]  # The key must exist.
-        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+        inner_input: TimeSeriesReferenceInput = node.input["ts"]
+        inner_input.clone_binding(ts)
         node.notify()
 
     def _zero_node(self, ndx: tuple[int, int]):
+        from hgraph import TimeSeriesReferenceInput
+
         """Unbind a key from a node"""
         node_id, side = ndx
         node = self._get_node(node_id)[side]
         # The previously bound time-series can be dropped as it would have been removed and is going away.
-        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=self._zero)
+        inner_input: TimeSeriesReferenceInput = node.input["ts"]
+        inner_input.clone_binding(self._zero)
         node.notify()
 
     def _grow_tree(self):
@@ -205,10 +213,10 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
             un_bound_outputs.append(i)
             self._nested_graph.extend_graph(self.nested_graph_builder, True)
             if i < top_layer_end:
-                ndx = (i, 0)
+                ndx = (i, self.input_node_ids[0])
                 self._free_node_indexes.append(ndx)
                 self._zero_node(ndx)
-                ndx = (i, 1)
+                ndx = (i, self.input_node_ids[1])
                 self._free_node_indexes.append(ndx)
                 self._zero_node(ndx)
             else:
