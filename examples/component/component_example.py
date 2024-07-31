@@ -78,7 +78,7 @@ def run_compare():
     with RecordReplayContext(mode=RecordReplayEnum.COMPARE):
         # In this mode, we run the component itself to see if the component will reproduce itself.
         config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
-        evaluate_graph(compute_signal, config)
+        evaluate_graph(main, config)
 
 
 def run_recover():
@@ -106,6 +106,7 @@ if __name__ == "__main__":
         print("\nRun Replay Output\n")
         run_replay_output()
 
-        # run_compare()
+        print("\nRun Compare\n")
+        run_compare()
         # run_recover()
         ...
