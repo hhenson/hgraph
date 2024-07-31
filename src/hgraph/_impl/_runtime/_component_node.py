@@ -89,6 +89,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
 
     def dispose(self):
         if self._active_graph:
+            GlobalState.instance().pop(f"component::{self._active_graph.label}", None)
             self._active_graph.dispose()
             self._active_graph = None
 
