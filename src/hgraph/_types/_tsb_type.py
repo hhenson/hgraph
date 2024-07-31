@@ -19,6 +19,7 @@ from typing import (
     ValuesView,
     cast,
     ClassVar,
+    _GenericAlias,
 )
 
 from frozendict import frozendict
@@ -32,7 +33,7 @@ from hgraph._types._time_series_types import (
     TimeSeriesDeltaValue,
     TimeSeries,
 )
-from hgraph._types._type_meta_data import ParseError
+from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 from hgraph._types._typing_utils import nth, clone_typevar
 
 if TYPE_CHECKING:
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
         Node,
         Graph,
         HgTimeSeriesTypeMetaData,
-        HgTypeMetaData,
         WiringNodeSignature,
         WiringNodeType,
         HgTSBTypeMetaData,
@@ -412,8 +412,11 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
         requirement.
         """
         bundle: TSB[TS_SCHEMA] = kwargs.pop("__type__", None)
+        if isinstance(bundle, (type, types.GenericAlias, _GenericAlias)):
+            bundle = HgTypeMetaData.parse_type(bundle)
+
         schema: TS_SCHEMA = (
-            kwargs.pop("__schema__") or bundle.bundle_schema_tp
+            kwargs.pop("__schema__", None) or bundle.bundle_schema_tp.py_type
         )  # remove __schema__ once `combine` is done
         fn_details = TimeSeriesBundleInput.from_ts.__code__
 

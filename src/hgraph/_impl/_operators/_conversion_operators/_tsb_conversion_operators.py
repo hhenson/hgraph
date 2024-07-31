@@ -13,6 +13,7 @@ from hgraph import (
     convert,
     DEFAULT,
     OUT,
+    TS_SCHEMA_1,
 )
 
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
@@ -26,6 +27,19 @@ def combine_unnamed_tsb(**bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
 @graph(overloads=combine)
 def combine_named_tsb(tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle
+
+
+def _combine_tsb_partial_requirements(mapping, scalars):
+    in_schema = mapping[TS_SCHEMA_1].meta_data_schema
+    out_schema = mapping[TS_SCHEMA].meta_data_schema
+    return set(in_schema.keys()).issubset(out_schema.keys()) and all(
+        out_schema[k].matches(in_) for k, in_ in in_schema.items()
+    )
+
+
+@graph(overloads=combine, requires=_combine_tsb_partial_requirements)
+def combine_named_tsb_partial(tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA_1]) -> TSB[TS_SCHEMA]:
+    return TSB.from_ts(__type__=tp_, **bundle.as_dict())
 
 
 @compute_node(overloads=convert)
@@ -42,7 +56,10 @@ def _convert_tsb_to_tsd_requirements(mapping, scalars):
     if keys is None:
         keys = schema.keys()
     value_types = set(schema[k] for k in keys)
-    return len(value_types) == 1
+    return (
+        len(value_types) == 1
+        or f"{mapping[TS_SCHEMA].py_type} cannot be converted to a TSD as it requires all values to be the same type"
+    )
 
 
 @compute_node(overloads=convert, requires=_convert_tsb_to_tsd_requirements)

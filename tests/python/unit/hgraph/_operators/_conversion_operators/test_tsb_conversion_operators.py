@@ -12,21 +12,13 @@ class ATimeSeriesSchema(TimeSeriesSchema):
 
 
 def test_tsb_convert_to_bool():
-    assert eval_node(
-        convert,
-        [dict(p1=1.0)],
-        TS[bool],
-        resolution_dict=dict(ts=TSB[ATimeSeriesSchema])
-    ) == [True]
+    assert eval_node(convert, [dict(p1=1.0)], TS[bool], resolution_dict=dict(ts=TSB[ATimeSeriesSchema])) == [True]
 
 
 def test_tsb_convert_to_tsd():
-    assert eval_node(
-        convert,
-        [dict(p1=1.0)],
-        TSD[str, TS[float]],
-        resolution_dict=dict(ts=TSB[ATimeSeriesSchema])
-    ) == [fd(p1=1.0)]
+    assert eval_node(convert, [dict(p1=1.0)], TSD[str, TS[float]], resolution_dict=dict(ts=TSB[ATimeSeriesSchema])) == [
+        fd(p1=1.0)
+    ]
 
 
 class AnotherTimeSeriesSchema(ATimeSeriesSchema):
@@ -35,12 +27,7 @@ class AnotherTimeSeriesSchema(ATimeSeriesSchema):
 
 def test_tsb_convert_to_tsb_failure():
     with pytest.raises(WiringError):
-        eval_node(
-            convert,
-            [dict(p1=1.0)],
-            TSD[str, TS[float]],
-            resolution_dict=dict(ts=TSB[AnotherTimeSeriesSchema])
-        )
+        eval_node(convert, [dict(p1=1.0)], TSD[str, TS[float]], resolution_dict=dict(ts=TSB[AnotherTimeSeriesSchema]))
 
 
 def test_tsb_convert_to_tsd_keys():
@@ -49,10 +36,7 @@ def test_tsb_convert_to_tsd_keys():
     def convert_g(ts: TSB[AnotherTimeSeriesSchema]) -> TSD[str, TS[float]]:
         return convert(ts=ts, to=TSD[str, TS[float]], keys=("p1", "p2", "p3"))
 
-    assert eval_node(
-        convert_g,
-        [dict(p1=1.0)]
-    ) == [fd(p1=1.0)]
+    assert eval_node(convert_g, [dict(p1=1.0)]) == [fd(p1=1.0)]
 
 
 def test_combine_unnamed_tsb():
@@ -73,3 +57,15 @@ def test_combine_named_tsb():
         return combine[TSB[AB]](a=a, b=b)
 
     assert eval_node(g, 1, "a") == [dict(a=1, b="a")]
+
+
+def test_combine_named_tsb_partial():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    @graph
+    def g(a: TS[int]) -> TSB[AB]:
+        return combine[TSB[AB]](a=a)
+
+    assert eval_node(g, 1) == [dict(a=1)]
