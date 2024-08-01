@@ -2,6 +2,7 @@ from typing import Callable, TypeVar
 
 from frozendict import frozendict
 
+from hgraph import TS
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsd_type import TSD
@@ -18,6 +19,7 @@ from hgraph.nodes._service_utils import (
     adaptor_request,
     capture_output_to_global_state,
     capture_output_node_to_global_state,
+    request_id,
 )
 
 
@@ -35,6 +37,16 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
     def __call__(
         self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
     ) -> "WiringPort":
+        id = self.from_graph(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+        return self.to_graph(*args, __request_id__=id, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+
+    def from_graph(
+        self,
+        *args,
+        __request_id__: TS[int] = None,
+        __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
+        **kwargs,
+    ) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
@@ -49,25 +61,44 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
 
                 from_graph_full_path = self.full_path(kwargs_.get("path") + "/from_graph")
                 from_graph_typed_path = self.typed_full_path(from_graph_full_path, resolution_dict)
+
+                id = __request_id__ or request_id()
+                for k, v in inputs.items():
+                    client = write_adaptor_request(
+                        from_graph_typed_path, k, v, requestor_id=id, __return_sink_wp__=True
+                    )
+                    g.register_service_client(
+                        self, from_graph_full_path, resolution_dict, client.node_instance, receive=False
+                    )
+
+                return id
+
+    def to_graph(
+        self,
+        *args,
+        __request_id__: TS[int],
+        __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
+        **kwargs,
+    ) -> "WiringPort":
+        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+            kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
+                self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
+            )
+
+            with WiringGraphContext(self.signature) as g:
+                scalars = {k: v for k, v in kwargs_.items() if k in resolved_signature.scalar_inputs and k != "path"}
+                resolution_dict |= scalars
+
                 to_graph_full_path = self.full_path(kwargs_.get("path") + "/to_graph")
                 to_graph_typed_path = self.typed_full_path(to_graph_full_path, resolution_dict)
 
                 from hgraph.nodes import get_shared_reference_output
 
-                for k, v in inputs.items():
-                    client = write_adaptor_request(from_graph_typed_path, k, v)
-                    g.register_service_client(
-                        self, from_graph_full_path, resolution_dict, client.node_instance, receive=False
-                    )
-
+                id = __request_id__
                 if resolved_signature.output_type is not None:
                     out = get_shared_reference_output[TSD[int, resolved_signature.output_type]](to_graph_typed_path)
                     g.register_service_client(self, to_graph_full_path, resolution_dict, out.node_instance)
-                    return out[client]
-                else:
-                    from hgraph import null_sink
-
-                    null_sink(client)
+                    return out[id]
 
     def wire_impl_inputs_stub(
         self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **scalars
