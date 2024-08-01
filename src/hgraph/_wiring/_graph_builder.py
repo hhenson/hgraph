@@ -89,6 +89,7 @@ def toposort(
     nodes: typing.Sequence["WiringNodeInstance"], supports_push_nodes: bool = True
 ) -> typing.Sequence["WiringNodeInstance"]:
     mapping: dict["WiringNodeInstance", set["WiringNodeInstance"]] = defaultdict(set)
+    reverse_mapping: dict["WiringNodeInstance", set["WiringNodeInstance"]] = defaultdict(set)
     nodes_to_process: deque["WiringNodeInstance"] = deque(nodes)
     source_nodes = set()
     processed_nodes = dict["WiringNodeInstance", int]()
@@ -104,8 +105,10 @@ def toposort(
         for from_node in ts_nodes:
             for alt_node in from_node.ranking_alternatives:
                 mapping[from_node].add(alt_node)
+                reverse_mapping[alt_node].add(from_node)
                 nodes_to_process.append(alt_node)
             mapping[from_node].add(to_node)
+            reverse_mapping[to_node].add(from_node)
             nodes_to_process.append(from_node)
         if not ts_nodes:
             source_nodes.add(to_node)
@@ -114,7 +117,7 @@ def toposort(
     nodes_to_process.extend(source_nodes)
     max_rank = 0
     while len(nodes_to_process) > 0:
-        from_node = nodes_to_process.pop()
+        from_node = nodes_to_process.popleft()
         if not supports_push_nodes and from_node.resolved_signature.node_type is NodeTypeEnum.PUSH_SOURCE_NODE:
             raise CustomMessageWiringError(
                 f"Node: {from_node.resolved_signature} is a push source node, "
@@ -128,8 +131,37 @@ def toposort(
             nodes_to_process.append(to_node)
             max_rank = max(max_rank, processed_nodes[to_node])
 
+        if max_rank > len(processed_nodes) + 1000 or len(nodes_to_process) > len(processed_nodes) + 1000:
+            # seems we have a cycle in the graph, now walk from the current node backwards until we find the cycle
+            # then pick out the cycle nodes and raise an error.
+            cycle_finding_nodes = deque([from_node])
+            cycle_nodes = {from_node: None}
+            cycle_found = None
+            while cycle_finding_nodes:
+                current = cycle_finding_nodes.popleft()
+                for up in reverse_mapping[current]:
+                    if up in cycle_nodes:
+                        cycle_nodes[up] = current
+                        cycle_found = up
+                        break
+                    cycle_nodes[up] = current
+                    cycle_finding_nodes.append(up)
+                if cycle_found is not None:
+                    cycle_nodes_clean = [cycle_found]
+                    next_node = cycle_nodes[cycle_found]
+                    while next_node != cycle_found:
+                        cycle_nodes_clean.append(next_node)
+                        next_node = cycle_nodes[next_node]
+
+                    cycle_nodes = cycle_nodes_clean
+                    break
+
+            cycle_print = " -> ".join(
+                f"{n.wiring_path_name}.{n.label or n.node_signature.name}"
+                for n in sorted(cycle_nodes, key=lambda x: processed_nodes[x])
+            )
+            raise RuntimeError(f"Cyclic sub graph detected that involves {cycle_print}")
+
     # Sort nodes by rank
     result = [node for _, node in sorted((rank, node) for node, rank in processed_nodes.items()) if not node.is_stub]
-    # if not all(n.rank <= n_1.rank for n, n_1 in zip(result[:-1], result[1:])):
-    #     raise RuntimeError("not correctly ranked")
     return result
