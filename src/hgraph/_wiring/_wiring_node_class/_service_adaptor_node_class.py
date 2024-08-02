@@ -31,7 +31,7 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
-            user_path = f"{self.fn.__module__}"
+            user_path = self.default_path()
         return f"svc_adaptor://{user_path}/{self.fn.__name__}"
 
     def __call__(
@@ -50,7 +50,10 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
-                self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
+                self.signature,
+                *args,
+                __pre_resolved_types__=__pre_resolved_types__,
+                **kwargs,
             )
 
             with WiringGraphContext(self.signature) as g:
@@ -78,11 +81,23 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
         *args,
         __request_id__: TS[int],
         __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
+        __no_ts_inputs__: bool = False,
         **kwargs,
     ) -> "WiringPort":
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
-                self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
+                (
+                    self.signature.copy_with(
+                        args=tuple(k for k in self.signature.args if self.signature.input_types[k].is_scalar),
+                        input_types={k: v for k, v in self.signature.input_types.items() if v.is_scalar},
+                        time_series_args=set(),
+                    )
+                    if __no_ts_inputs__
+                    else self.signature
+                ),
+                *args,
+                __pre_resolved_types__=__pre_resolved_types__,
+                **kwargs,
             )
 
             with WiringGraphContext(self.signature) as g:
@@ -141,15 +156,22 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
     ):
         from hgraph import register_service
 
-        register_service(
-            self.full_path(path + "/from_graph"),
-            impl,
-            self.signature.try_build_resolution_dict(__pre_resolved_types__),
-            **kwargs,
-        )
-        register_service(
-            self.full_path(path + "/to_graph"),
-            impl,
-            self.signature.try_build_resolution_dict(__pre_resolved_types__),
-            **kwargs,
-        )
+        if path:
+            register_service(
+                self.full_path(path + "/from_graph"),
+                impl,
+                self.signature.try_build_resolution_dict(__pre_resolved_types__),
+                **kwargs,
+            )
+            register_service(
+                self.full_path(path + "/to_graph"),
+                impl,
+                self.signature.try_build_resolution_dict(__pre_resolved_types__),
+                **kwargs,
+            )
+        else:
+            assert (
+                not __pre_resolved_types__
+            ), "Type parameters for general adaptor registrations (wit no path) are not implemented"
+            assert not kwargs, "Kwargs for general adaptor registrations (wit no path) are not implemented"
+            register_service(None, impl, None)

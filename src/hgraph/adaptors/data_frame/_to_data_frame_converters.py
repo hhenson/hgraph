@@ -238,9 +238,23 @@ def convert_df_to_frame(
     ts: TS[DataFrame], _tp: Type[TS[Frame[SCHEMA]]] = DEFAULT[OUT], _schema: Type[SCHEMA] = AUTO_RESOLVE
 ) -> TS[Frame[SCHEMA]]:
     df: DataFrame = ts.value
-    assert df.schema.keys() == _schema.__meta_data_schema__.keys() and all(
-        dtype_to_py_type(df.schema[k]) == v.py_type for k, v in _schema.__meta_data_schema__.items()
-    )
+
+    if df.schema.keys() != _schema.__meta_data_schema__.keys():
+        raise ValueError(
+            f"expected schema keys {_schema.__meta_data_schema__.keys()} does not match received frame with"
+            f" {df.schema.keys()}"
+        )
+
+    wrong_types = []
+    for k, v in _schema.__meta_data_schema__.items():
+        if dtype_to_py_type(df.schema[k]) != v.py_type:
+            wrong_types.append(
+                f"{k}: schema type {v.py_type} does not match frame type {dtype_to_py_type(df.schema[k])}"
+            )
+
+    if wrong_types:
+        raise ValueError(f"schemas do not match: {', '.join(wrong_types)}")
+
     return df
 
 

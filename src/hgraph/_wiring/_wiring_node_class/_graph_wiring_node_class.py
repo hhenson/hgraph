@@ -184,7 +184,7 @@ class WiringGraphContext:
         Register a service client with the graph context
         """
         if path is None:
-            path = service.signature.name
+            path = service.default_path()
 
         if not service.is_full_path(path):
             path = service.full_path(path)
@@ -200,7 +200,7 @@ class WiringGraphContext:
 
         self._service_implementations[path] = (service, impl, kwargs)
 
-    def find_service_impl(self, path, resolution_dict=None, quiet=False):
+    def find_service_impl(self, path, service=None, resolution_dict=None, quiet=False):
         if path.endswith("]"):
             typed_path = path
             path = path.split("[", 1)[0]
@@ -218,7 +218,7 @@ class WiringGraphContext:
             return item
         elif item := find_impl(path):
             return item
-        elif item := find_impl(path.split("/")[-1]):
+        elif service and (item := find_impl(service.full_path(None))):
             return item
         else:
             if not quiet:
@@ -297,7 +297,7 @@ class WiringGraphContext:
             for service, path, type_map in set(service_clients):
                 typed_path = service.typed_full_path(path, type_map)
 
-                if item := self.find_service_impl(path, type_map):
+                if item := self.find_service_impl(path, service, type_map):
                     interface, impl, kwargs = item
                 else:
                     raise CustomMessageWiringError(
@@ -335,7 +335,7 @@ class WiringGraphContext:
                 if receive is False:
                     self._built_services[full_typed_path].add_indirect_dependency(node)
                 elif node.is_source_node:
-                    node.add_ranking_alternative(self._built_services[full_typed_path])
+                    node.add_indirect_dependency(self._built_services[full_typed_path])
                 else:
                     node.add_indirect_dependency(self._built_services[full_typed_path])
 
