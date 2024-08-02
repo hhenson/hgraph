@@ -199,7 +199,8 @@ def abs_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     return abs(ts.value)
 
 
-@compute_node(overloads=len_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__len__"))
+@compute_node(overloads=len_,
+              requires=lambda m, s: hasattr(m[SCALAR].py_type, "__len__") or m[SCALAR].py_type.__name__ == "Frame")
 def len_scalar(ts: TS[SCALAR]) -> TS[int]:
     """
     The length of the value of the timeseries

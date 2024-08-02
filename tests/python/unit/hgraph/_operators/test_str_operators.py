@@ -67,6 +67,22 @@ def test_join():
     assert eval_node(g, [("a", "b", "c")]) == ["a,b,c"]
 
 
+def test_join_strict():
+    @graph
+    def g(s: TSL[TS[str], Size[3]]) -> TS[str]:
+        return join(*s, separator=',', __strict__=True)
+
+    assert eval_node(g, [("a", None, "c"), ("a", "b", "c")]) == [None, "a,b,c"]
+
+
+def test_join_not_strict():
+    @graph
+    def g(s: TSL[TS[str], Size[3]]) -> TS[str]:
+        return join(*s, separator=',', __strict__=False)
+
+    assert eval_node(g, [("a", None, "c"), ("a", "b", "c")]) == ["a,c", "a,b,c"]
+
+
 def test_format_args():
     @graph
     def format_test(format_str: TS[str], ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2) -> TS[str]:
