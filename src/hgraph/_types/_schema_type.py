@@ -144,13 +144,29 @@ class AbstractSchema:
             r_cls.__partial_resolution__ = frozendict(resolution_dict)
             r_cls.__parameters__ = cls.__parameters__
             r_cls.__parameters_meta_data__ = cls.__parameters_meta_data__
+            r_cls.__args__ = tuple(resolution_dict.get(k, k) for k in cls.__parameters__)
             r_cls.__partial_resolution_parent__ = cls._root_cls()
             cls.__resolved__[cls_name] = r_cls
         return r_cls
 
     @classmethod
     def _resolve(cls, resolution_dict) -> Type["AbstractSchema"]:
-        suffix = ",".join(f"{str(resolution_dict.get(k, k))}" for k in cls.__parameters__)
+        if not resolution_dict:
+            return cls
+
+        for b in reversed(cls.mro()):
+            if b == cls._root_cls():
+                suffix_map = b.__parameters_meta_data__
+            elif issubclass(b, cls._root_cls()):
+                arg_map = {k: cls._parse_type(v) for k, v in zip(suffix_map.keys(), b.__args__)}
+                suffix_map = {k: cls._parse_type(v).resolve(arg_map, weak=True).py_type for k, v in suffix_map.items()}
+
+        suffix_map = {k: cls._parse_type(v).resolve(resolution_dict, weak=True).py_type for k, v in suffix_map.items()}
+        if all(k is v for k, v in suffix_map.items()):
+            # class Schema[T, T1]; t = Schema[T1, T2]; is a noop
+            return cls
+
+        suffix = ",".join(str(v) for v in suffix_map.values())
         cls_name = f"{cls._root_cls().__qualname__}[{suffix}]"
         r_cls: Type["AbstractSchema"]
         if (r_cls := cls.__resolved__.get(cls_name)) is None:
@@ -175,9 +191,10 @@ class AbstractSchema:
                     parameters.extend(r.typevars)
 
             r_cls = type(cls_name, bases, type_dict)
-            r_cls.__root__ = cls
+            r_cls.__root__ = cls._root_cls()
             r_cls.__parameters__ = tuple(parameters)
             r_cls.__parameters_meta_data__ = {p: cls._parse_type(p) for p in parameters}
+            r_cls.__args__ = tuple(suffix_map[k] for k in cls._root_cls().__parameters__)
             r_cls.__meta_data_schema__ = frozendict(
                 {k: v.resolve(resolution_dict, weak=True) for k, v in r_cls.__meta_data_schema__.items()}
             )
@@ -216,7 +233,7 @@ class AbstractSchema:
                 v = item.stop
             elif has_slice:
                 raise ParseError(
-                    f"'{cls}' has supplied slice parameters already, " f"non-slice parameters are no longer accepted"
+                    f"'{cls}' has supplied slice parameters already, non-slice parameters are no longer accepted"
                 )
             else:
                 k = parm
@@ -245,7 +262,6 @@ class AbstractSchema:
             v: HgTypeMetaData
             tp = cls._resolve(resolution_dict)
 
-        tp.__args__ = items
         return tp
 
 

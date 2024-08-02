@@ -251,7 +251,7 @@ def test_context_wired_explicitly():
 def test_graph_contexts():
     @graph
     def use_context(a: CONTEXT[TIME_SERIES_TYPE] = "a", b: CONTEXT[TIME_SERIES_TYPE] = "b") -> TS[str]:
-        return format_("{} {}", a, b)
+        return format_("{} {}", a, b, __strict__=False)
 
     @graph
     def f() -> TS[str]:

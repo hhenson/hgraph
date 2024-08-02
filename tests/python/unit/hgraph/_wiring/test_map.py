@@ -24,6 +24,8 @@ from hgraph import (
     format_,
     const,
     debug_print,
+    switch_,
+    nothing,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
@@ -452,3 +454,17 @@ def test_map_restricted_keys():
         ],
         [{"a": 1, "b": 2}, {"c": 3}],
     ) == [frozendict({"a": "a_1", "b": "b_2"}), None]
+
+
+def test_map_preexisting_keys():
+    @graph
+    def g(keys: TSS[str], flag: TS[bool]) -> TSD[str, TS[str]]:
+        return switch_(
+            {False: lambda k: nothing(TSD[str, TS[str]]), True: lambda k: map_(lambda key: key, __keys__=k)}, flag, keys
+        )
+
+    assert eval_node(g, [{"a", "b"}, None, {"c"}], [False, True, None], __trace__=True) == [
+        None,
+        {"a": "a", "b": "b"},
+        {"c": "c"},
+    ]

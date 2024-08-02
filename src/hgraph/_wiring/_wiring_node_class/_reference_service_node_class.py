@@ -19,7 +19,7 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
-            user_path = f"{self.fn.__module__}"
+            user_path = self.default_path()
 
         return f"ref_svc://{user_path}/{self.fn.__name__}"
 
@@ -72,7 +72,7 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
                 self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
             )
 
-            path = kwargs_.get("path") or self.signature.name
+            path = kwargs_.get("path") or self.default_path()
             full_path = self.full_path(path)
             typed_full_path = self.typed_full_path(path, resolution_dict)
 

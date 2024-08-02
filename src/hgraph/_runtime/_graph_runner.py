@@ -142,7 +142,7 @@ def run_graph(
     *args,
     run_mode: EvaluationMode = EvaluationMode.SIMULATION,
     start_time: datetime = None,
-    end_time: datetime = None,
+    end_time: datetime | timedelta = None,
     print_progress: bool = True,
     life_cycle_observers: [EvaluationLifeCycleObserver] = None,
     __trace__: bool | dict = False,

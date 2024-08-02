@@ -7,6 +7,10 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeC
 
 class ServiceInterfaceNodeClass(BaseWiringNodeClass):
 
+    def default_path(self) -> str:
+        """The default path of the service interface"""
+        return f"{self.signature.name}_default"
+
     @abstractmethod
     def full_path(self, user_path: str | None) -> str:
         """The full path of the service interface"""

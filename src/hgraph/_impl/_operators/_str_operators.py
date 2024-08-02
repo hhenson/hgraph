@@ -155,11 +155,14 @@ class FormatState:
     count = 0
 
 
-@compute_node(overloads=format_, valid=())
+@compute_node(
+    overloads=format_, valid=("fmt",), all_valid=lambda m, s: ("__pos_args__", "__kw_args__") if s["__strict__"] else ()
+)
 def format_(
     fmt: TS[str],
     *__pos_args__: TSB[TS_SCHEMA],
     __sample__: int = -1,
+    __strict__: bool = True,
     _state: STATE[FormatState] = None,
     **__kw_args__: TSB[TS_SCHEMA_1],
 ) -> TS[str]:
