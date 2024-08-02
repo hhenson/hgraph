@@ -132,14 +132,22 @@ def split_default(s: TS[str], separator: str, maxsplit: int = -1) -> DEFAULT[OUT
     return tuple(s.value.split(separator, maxsplit))
 
 
-@compute_node(overloads=join)
-def join_tsl(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
-    return separator.join(s.value for s in strings.valid_values())
+@graph(overloads=join)
+def join_str_tsl(*strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = False) -> TS[str]:
+    if __strict__:
+        @compute_node(all_valid=("strings",))
+        def _join(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
+            return separator.join(s.value for s in strings.values())
+    else:
+        @compute_node
+        def _join(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
+            return separator.join(s.value for s in strings.valid_values())
+    return _join(*strings, separator=separator)
 
 
 @compute_node(overloads=join)
-def join_tuple(strings: TS[Tuple[str, ...]], separator: str) -> TS[str]:
-    return separator.join(s for s in strings.value)
+def join_str_tuple(strings: TS[Tuple[str, ...]], separator: str) -> TS[str]:
+    return separator.join(strings.value)
 
 
 @dataclass

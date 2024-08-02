@@ -103,7 +103,7 @@ def write_subscription_key_start(path: str, _state: STATE):
 @write_subscription_key.stop
 def write_subscription_key_stop(path: str, _state: STATE):
     if key := _state.previous_key:
-        (s := _state.tracker[key]).remove(_state.subscription_id)
+        (s := _state.tracker[key]).discard(_state.subscription_id)
         if not s:
             del _state.tracker[key]
             if subs_in := GlobalState.instance().get(f"{path}/subs"):

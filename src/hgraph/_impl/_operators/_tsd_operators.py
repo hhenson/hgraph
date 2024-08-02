@@ -3,6 +3,7 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
+from hgraph import reduce, add_
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import sub_, getitem_, min_, max_, sum_, mean, var, str_, std, div_, bit_and, bit_or, bit_xor, \
     not_, eq_, keys_, contains_, is_empty, len_, getattr_, collapse_keys, uncollapse_keys, rekey, flip, flip_keys, \
@@ -442,57 +443,66 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
     This is a helper generator to create a zero time-series for the reduce function.
     """
     from hgraph import nothing
-
     return nothing(ts)
 
 
 @compute_node(overloads=min_)
-def min_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
-    """
-    The minimum value in the TSD
-    """
-    return min(tsd.value.values(), default=default_value.value)
+def max_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
+    return reduce(min_, tsd, zero(tp, min_))
+
+
+@compute_node(overloads=min_)
+def min_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], default_value: TS[NUMBER] = None) -> TS[NUMBER]:
+    return min((v.value for v in tsd.valid_values()), default=default_value.value)
 
 
 @compute_node(overloads=max_)
-def max_tsd_unary(tsd: TSD[K, V], default_value: V = None) -> V:
-    """
-    The maximum value in the TSD
-    """
-    return max(tsd.value.values(), default=default_value.value)
+def max_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
+    return reduce(max_, tsd, zero(tp, max_))
+
+
+@compute_node(overloads=max_)
+def max_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], default_value: TS[NUMBER] = None) -> TS[NUMBER]:
+    return max((v.value for v in tsd.valid_values()), default=default_value.value)
 
 
 @graph(overloads=sum_)
 def sum_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
+    return reduce(add_, tsd, zero(tp, add_))
+
+
+@graph(overloads=sum_)
+def sum_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], tp: Type[TS[NUMBER]] = AUTO_RESOLVE) -> TS[NUMBER]:
     return _sum_tsd_unary(tsd, zero(tp, sum_))
 
 
 @compute_node
-def _sum_tsd_unary(tsd: TSD[K, V], zero_ts: V) -> V:
-    return sum(tsd.value.values(), start=zero_ts.value)
+def _sum_tsd_unary(tsd: TSD[K, TS[NUMBER]], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
+    return sum((v.value for v in tsd.valid_values()), start=zero_ts.value)
 
 
 @graph(overloads=mean)
 def mean_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
     from hgraph import DivideByZero, default
-
     return default(div_(sum_(ts), len_(ts), divide_by_zero=DivideByZero.NAN), float("NaN"))
 
 
 @compute_node(overloads=std)
-def std_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
-    if len(ts) <= 1:
+def std_tsd_unary_number(tsd: TSD[K, TS[NUMBER]]) -> TS[float]:
+    values = [v.value for v in tsd.valid_values()]
+    if len(values) <= 1:
         return 0.0
     else:
-        return float(stdev(ts.value.values()))
+        return float(stdev(values))
 
 
 @compute_node(overloads=var)
-def var_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
-    if len(ts) <= 1:
+def var_tsd_unary_number(tsd: TSD[K, TS[NUMBER]]) -> TS[float]:
+    values = [v.value for v in tsd.valid_values()]
+    if len(values) <= 1:
         return 0.0
     else:
-        return float(variance(ts.value.values()))
+        return float(variance(values))
 
 
 @compute_node(overloads=str_)

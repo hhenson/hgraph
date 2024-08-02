@@ -64,7 +64,7 @@ def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...
 
 @compute_node
 def group_by(ts: TS[Frame[COMPOUND_SCALAR]], by: str) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
-    return {k: v for k, v in ts.value.group_by(by)}
+    return {k: v for (k,), v in ts.value.group_by(by)}
 
 
 @compute_node
