@@ -185,15 +185,21 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             return False
 
     def do_un_bind_output(self):
-        super().do_un_bind_output()
+        if self._output:
+            super().do_un_bind_output()
         if self._value is not None:
             self._value = None
             # TODO: Do we need to notify here? should we not only notify if the input is active?
             self._sample_time = (
                 self.owning_graph.evaluation_clock.evaluation_time if self.owning_node.is_started else MIN_ST
             )
+        if self._items:
+            for item in self._items:
+                item.un_bind_output()
+            self._items = None
 
     def clone_binding(self, other: TimeSeriesReferenceInput):
+        self.un_bind_output()
         if other.output:
             self.bind_output(other.output)
         elif other._items:
@@ -201,6 +207,10 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
                 s.clone_binding(o)
         elif other.value:
             self._value = other.value
+            if self.owning_node.is_started:
+                self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
+                if self.active:
+                    self.notify(self._sample_time)
 
     def start(self):
         # if the input was scheduled for start it means it wanted to be sampled on node start

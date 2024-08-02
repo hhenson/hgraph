@@ -135,7 +135,7 @@ def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
             record(ts, key)
         case RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE:
             ts: WiringPort
-            ts = replay(key, ts.output_type)
+            ts = replay(key, ts.output_type.py_type)
     return ts
 
 
@@ -146,7 +146,7 @@ def output_wrapper(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
             record(ts, "__out__")
         case RecordReplayEnum.REPLAY_OUTPUT:
             ts: WiringPort
-            ts = replay("__out__", ts.output_type)
+            ts = replay("__out__", ts.output_type.py_type)
         case RecordReplayEnum.COMPARE:
-            compare(ts, replay(ts, "__out__"))
+            compare(ts, replay("__out__", ts.output_type.py_type))
     return ts

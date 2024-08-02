@@ -14,8 +14,10 @@ from hgraph import (
     record,
     EvaluationClock,
     STATE,
-    CONTEXT,
     TS,
+    graph,
+    CompoundScalar,
+    LOGGER,
 )
 
 __all__ = (
@@ -27,7 +29,7 @@ __all__ = (
     "get_recorded_value",
 )
 
-from hgraph._operators._record_replay import record_replay_model_restriction
+from hgraph._operators._record_replay import record_replay_model_restriction, compare
 from hgraph._runtime._traits import Traits
 
 
@@ -132,3 +134,27 @@ def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tu
         recordable_id = f":memory:{recordable_id}"
     global_state = GlobalState.instance()
     return global_state[f"{recordable_id}.{label}"]
+
+
+@graph(overloads=compare, requires=record_replay_model_restriction(IN_MEMORY))
+def compare_in_memory(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
+    out = lhs == rhs
+    record_to_memory(out, key="__COMPARE__")
+    _assert_result(out)
+
+
+class _AssertResult(CompoundScalar):
+    has_error: bool = False
+
+
+@sink_node
+def _assert_result(ts: TS[bool], _state: STATE[_AssertResult] = None, _traits: Traits = None, _logger: LOGGER = None):
+    _state.has_error |= ts.value
+
+
+@_assert_result.start
+def _assert_result_start(_state: STATE[_AssertResult], _traits: Traits, _logger: LOGGER):
+    if _state.has_error:
+        raise RuntimeError(f"{_traits.get_trait('recordable_id')} is not equal")
+    else:
+        _logger.info(f"[COMPARE] '{_traits.get_trait('recordable_id')}' is the same")

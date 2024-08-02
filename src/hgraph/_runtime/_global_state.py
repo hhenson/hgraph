@@ -109,3 +109,15 @@ class GlobalState(object):
             return default
         else:
             return self._previous.get(key, default)
+
+    def keys(self):
+        return self._state.keys()
+
+    def values(self):
+        return self._state.values()
+
+    def items(self):
+        return self._state.items()
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        return self._state.pop(key, default)
