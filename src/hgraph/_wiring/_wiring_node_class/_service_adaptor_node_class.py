@@ -62,7 +62,8 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
 
                 resolution_dict |= scalars
 
-                from_graph_full_path = self.full_path(kwargs_.get("path") + "/from_graph")
+                path = kwargs_.get("path") or self.default_path()
+                from_graph_full_path = self.full_path(path + "/from_graph")
                 from_graph_typed_path = self.typed_full_path(from_graph_full_path, resolution_dict)
 
                 id = __request_id__ or request_id()
@@ -104,7 +105,8 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
                 scalars = {k: v for k, v in kwargs_.items() if k in resolved_signature.scalar_inputs and k != "path"}
                 resolution_dict |= scalars
 
-                to_graph_full_path = self.full_path(kwargs_.get("path") + "/to_graph")
+                path = kwargs_.get("path") or self.default_path()
+                to_graph_full_path = self.full_path(path + "/to_graph")
                 to_graph_typed_path = self.typed_full_path(to_graph_full_path, resolution_dict)
 
                 from hgraph.nodes import get_shared_reference_output

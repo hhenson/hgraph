@@ -196,7 +196,8 @@ class WiringNodeSignature:
             for k, v in self.defaults.items():
                 if isinstance(v, TypeVar):
                     typevars.add(v)
-            typevars.update(self.output_type.typevars)
+            if self.output_type is not None:
+                typevars.update(self.output_type.typevars)
         return frozenset(typevars)
 
     @property

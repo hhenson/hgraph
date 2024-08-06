@@ -174,7 +174,10 @@ def switch_(
 
         WiringGraphContext.instance().reassign_items(reassignables, port.node_instance)
 
-        return port if port.output_type is not None else None
+        if port.output_type is not None:
+            return port
+        else:
+            WiringGraphContext.instance().add_sink_node(port.node_instance)
 
 
 def _validate_signature(
