@@ -4,7 +4,17 @@ from hgraph._types import TS, DEFAULT, TSD, K, K_1
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, OUT
 from hgraph._wiring._decorators import operator
 
-__all__ = ("keys_", "values_", "rekey", "flip", "flip_keys", "partition", "collapse_keys", "uncollapse_keys")
+__all__ = (
+    "keys_",
+    "values_",
+    "rekey",
+    "flip",
+    "flip_keys",
+    "partition",
+    "unpartition",
+    "collapse_keys",
+    "uncollapse_keys",
+)
 
 TSD_OR_MAPPING = TypeVar("TSD_OR_MAPPING", TSD, TS[Mapping])
 
@@ -39,7 +49,7 @@ def flip(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
 
 
 @operator
-def partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
+def partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> OUT:
     """
     Splits a TSD into multiple TSDs give a mapping TSD. Its output is a TSD[K1, TSD[K, V]] for inputs of TSD[K, V]
     and TSD[K, K1] for mapping
@@ -47,14 +57,21 @@ def partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> DEFAULT[O
 
 
 @operator
-def flip_keys(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
+def unpartition(ts: TIME_SERIES_TYPE) -> OUT:
+    """
+    Takes a nested TSD[K1, TSD[K, V]] and produces a TSD[K, V] by merging the inner TSDs
+    """
+
+
+@operator
+def flip_keys(ts: TIME_SERIES_TYPE) -> OUT:
     """
     Work on nested TSDs like TSD[K, TSD[K1, V]] to inverse keys to get TSD[K1, TSD[K, V]]
     """
 
 
 @operator
-def collapse_keys(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
+def collapse_keys(ts: TIME_SERIES_TYPE) -> OUT:
     """
     Given a nested TSD[K, TSD[K1, V]] collapse_keys will produce TSD[Tuple[K, K1], V] where the keys are pairs of
     outer and inner key for each value

@@ -237,26 +237,34 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
         return PythonSetDelta(self.added(), self.removed())
 
     def values(self) -> Iterable[SCALAR]:
-        return self.output.values()
+        return frozenset(self.output.values())
 
     def added(self) -> Iterable[SCALAR]:
-        return (
-            self.output.added()
-            if self._prev_output is None
-            else cast(set, self.output.added()) | (cast(set, self.values()) - cast(set, self._prev_output.values()))
-        )
+        if self._prev_output is not None:
+            return self.output.added() | (self.values() - self._prev_output.values())
+        else:
+            return self.values() if self._sampled else self.output.added()
 
     def was_added(self, item: SCALAR) -> bool:
-        return self.output.was_added(item) and (self._prev_output is None or item not in self._prev_output.values())
+        if self._prev_output is not None:
+            self.output.was_added(item) and item not in self._prev_output.values()
+        elif self._sampled:
+            return item in self.output.value()
+        else:
+            self.output.was_added(item)
 
     def removed(self) -> Iterable[SCALAR]:
-        return (
-            self.output.removed()
-            if self._prev_output is None
-            else (cast(set, self._prev_output.values()) - cast(set, self.values()))
-        )
+        if self._prev_output is not None:
+            return self._prev_output.values() - self.values()
+        elif self._sampled:
+            return set()
+        else:
+            return self.output.removed()
 
     def was_removed(self, item: SCALAR) -> bool:
-        return self.output.was_removed(item) and (
-            self._prev_output is None or item in self._prev_output.values() and item not in self.values()
-        )
+        if self._prev_output is not None:
+            return item in self._prev_output.values() and item not in self.values()
+        elif self._sampled:
+            return False
+        else:
+            return self.output.was_removed(item)

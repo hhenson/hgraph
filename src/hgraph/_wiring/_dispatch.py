@@ -23,11 +23,12 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
     non_autoresolve = fn.signature.non_autoresolve_inputs
     pos_inputs = {k: v for k, v in fn.signature.positional_inputs.items() if k in non_autoresolve}
     kw_inputs = {k: v for k, v in fn.signature.kw_only_inputs.items() if k in non_autoresolve}
+    defaults = {k: v for k, v in fn.signature.defaults.items() if k in non_autoresolve and v is not None}
 
     @with_signature(
         args={**pos_inputs},
         kwargs={**kw_inputs, "__resolution_dict__": HgTypeMetaData.parse_type(object)},
-        defaults={"__resolution_dict__": AUTO_RESOLVE},
+        defaults={**defaults, "__resolution_dict__": AUTO_RESOLVE},
         return_annotation=fn.signature.output_type,
     )
     def dispatch_(*args, **kwargs):

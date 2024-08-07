@@ -54,9 +54,6 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
                 self.signature, *args, __pre_resolved_types__=pre_resolved_types, **(kwargs | scalars)
             )
 
-            path_types = {k: v for k, v in resolution_dict.items() if k in __interface__.signature.typevars}
-            kwargs_["path"] = __interface__.typed_full_path(path, path_types | scalars)
-
             with WiringGraphContext(node_signature=self.signature):
                 from_graph = __interface__.wire_impl_inputs_stub(path, resolution_dict, **scalars)
                 to_graph = self.implementation_graph.__call__(

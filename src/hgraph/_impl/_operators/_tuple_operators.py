@@ -28,7 +28,6 @@ from hgraph import (
     TUPLE,
 )
 
-STATE, CompoundScalar, SCHEDULER, MIN_TD, mul_, and_, or_, AUTO_RESOLVE, graph, getitem_, min_, max_, sum_, zero, TUPLE
 
 __all__ = tuple()
 
@@ -39,6 +38,13 @@ def _item_type(tuple_tp: Type[TUPLE], index: int) -> Type:
     elif isinstance(tuple_tp, HgTupleCollectionScalarType):
         return tuple_tp.element_type
     raise IncorrectTypeBinding(TUPLE, tuple_tp)
+
+
+@compute_node(
+    overloads=getitem_, resolvers={SCALAR: lambda mapping, scalars: _item_type(mapping[TUPLE], scalars["key"])}
+)
+def getitem_tuple_fixed(ts: TS[TUPLE], key: int) -> TS[SCALAR]:
+    return ts.value[key]
 
 
 @compute_node(overloads=getitem_)

@@ -24,7 +24,7 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
-            user_path = f"{self.fn.__module__}"
+            user_path = self.default_path()
         return f"reqrepl_svc://{user_path}/{self.fn.__name__}"
 
     def __call__(

@@ -14,12 +14,10 @@ def test_schema_base():
     class GenericallyDerivedCompoundScalar(Base[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
         p2: int
 
-
     tp = GenericallyDerivedCompoundScalar[SimpleCompoundScalar]
 
-
-    assert 'p1' in tp.__meta_data_schema__
-    assert 'p2' in tp.__meta_data_schema__
+    assert "p1" in tp.__meta_data_schema__
+    assert "p2" in tp.__meta_data_schema__
     assert issubclass(tp, SimpleCompoundScalar)
     assert issubclass(tp, GenericallyDerivedCompoundScalar)
 
@@ -72,11 +70,13 @@ def test_schema_base_generic():
     assert meta4.typevars == {COMPOUND_SCALAR_1}
 
     tp5 = tp4[SimpleCompoundScalar]
-    assert tp5.__base_resolution_meta__ == HgTypeMetaData.parse_type(TimeSeriesSchema.from_scalar_schema(SimpleCompoundScalar))
+    assert tp5.__base_resolution_meta__ == HgTypeMetaData.parse_type(
+        TimeSeriesSchema.from_scalar_schema(SimpleCompoundScalar)
+    )
     assert tp5.scalar_type() == tp2[SimpleCompoundScalar]
 
-    assert 'p1' in tp5.__meta_data_schema__
-    assert 'p2' in tp5.__meta_data_schema__
+    assert "p1" in tp5.__meta_data_schema__
+    assert "p2" in tp5.__meta_data_schema__
 
     meta5 = HgTypeMetaData.parse_type(tp5)
     assert meta5.is_resolved is True
@@ -84,11 +84,23 @@ def test_schema_base_generic():
 
     resolution_dict = {}
     meta4.build_resolution_dict(resolution_dict, meta5)
-    assert resolution_dict == {
-        COMPOUND_SCALAR_1: HgTypeMetaData.parse_type(SimpleCompoundScalar)
-    }
+    assert resolution_dict == {COMPOUND_SCALAR_1: HgTypeMetaData.parse_type(SimpleCompoundScalar)}
 
     meta6 = meta4.resolve(resolution_dict)
     assert meta6 == meta5
     assert meta6.scalar_type() == meta5.scalar_type()
 
+
+def test_deep_schema_base():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        p1: int
+
+    @dataclass
+    class GenericallyDerivedCompoundScalar(Base[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
+        p2: int
+
+    p1 = GenericallyDerivedCompoundScalar[GenericallyDerivedCompoundScalar[COMPOUND_SCALAR]]
+    p2 = p1[SimpleCompoundScalar]
+
+    assert p2

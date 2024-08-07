@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import timedelta
 from typing import Type
 
 from hgraph import (
@@ -20,6 +21,7 @@ from hgraph import (
     TIME_SERIES_TYPE_1,
     null_sink,
     NODE,
+    generator,
 )
 
 __all__ = (
@@ -29,6 +31,7 @@ __all__ = (
     "write_service_request",
     "get_shared_reference_output",
     "write_service_replies",
+    "request_id",
 )
 
 
@@ -103,7 +106,7 @@ def write_subscription_key_start(path: str, _state: STATE):
 @write_subscription_key.stop
 def write_subscription_key_stop(path: str, _state: STATE):
     if key := _state.previous_key:
-        (s := _state.tracker[key]).remove(_state.subscription_id)
+        (s := _state.tracker[key]).discard(_state.subscription_id)
         if not s:
             del _state.tracker[key]
             if subs_in := GlobalState.instance().get(f"{path}/subs"):
@@ -168,31 +171,34 @@ def _request_reply_service(
         return out[requestor_id]
 
 
-@compute_node
+@generator
+def request_id() -> TS[int]:
+    request = object()
+    yield timedelta(), id(request)
+
+
+@sink_node
 def write_adaptor_request(
-    path: str, arg: str, request: REF[TIME_SERIES_TYPE], _output: TS_OUT[int] = None, _state: STATE = None
-) -> TS[int]:
+    path: str,
+    arg: str,
+    request: REF[TIME_SERIES_TYPE],
+    requestor_id: TS[int] = None,
+    _output: TS_OUT[int] = None,
+    _state: STATE = None,
+):
     """Connect the request time series to the node collecting all the requests into a TSD in the adaptor"""
     from_graph_node = GlobalState.instance().get(f"{path}/{arg}")
     if from_graph_node is None:
         raise ValueError(f"request stub '{arg}' not found for {path}")
 
-    from_graph_node.output.get_or_create(id(_state.requestor_id)).value = request.value
-
-    if not _output.valid:
-        return id(_state.requestor_id)
-
-
-@write_adaptor_request.start
-def write_adaptor_request_start(_state: STATE):
-    _state.requestor_id = object()
+    from_graph_node.output.get_or_create(requestor_id.value).value = request.value
 
 
 @write_adaptor_request.stop
-def write_adaptor_request_stop(path: str, arg: str, _state: STATE):
+def write_adaptor_request_stop(path: str, arg: str, requestor_id: TS[int], _state: STATE):
     if from_graph_node := GlobalState.instance().get(f"{path}/{arg}"):
-        if id(_state.requestor_id) in from_graph_node.output:
-            del from_graph_node.output[id(_state.requestor_id)]
+        if requestor_id.value in from_graph_node.output:
+            del from_graph_node.output[requestor_id.value]
 
 
 @pull_source_node
