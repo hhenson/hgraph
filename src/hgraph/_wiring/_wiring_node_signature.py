@@ -196,7 +196,8 @@ class WiringNodeSignature:
             for k, v in self.defaults.items():
                 if isinstance(v, TypeVar):
                     typevars.add(v)
-            typevars.update(self.output_type.typevars)
+            if self.output_type is not None:
+                typevars.update(self.output_type.typevars)
         return frozenset(typevars)
 
     @property
@@ -500,6 +501,8 @@ class WiringNodeSignature:
                     ):
                         kwargs[arg] = c
                         kwarg_types[arg] = c.output_type
+                        if not tp.ts_type.matches(c.output_type):
+                            resolved_inputs = resolved_inputs | {arg: c.output_type}
                         valid_inputs = frozenset((valid_inputs or set()) | {arg})
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
                     elif v is REQUIRED:
@@ -518,7 +521,7 @@ class WiringNodeSignature:
                         valid_inputs = frozenset((valid_inputs or set(self.time_series_inputs.keys())) - {arg})
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
 
-        return valid_inputs, has_valid_overrides
+        return resolved_inputs, valid_inputs, has_valid_overrides
 
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:

@@ -1,6 +1,6 @@
 from inspect import isfunction
 from pathlib import Path
-from typing import Callable, Optional, cast
+from typing import Callable, Optional, cast, Any
 
 from frozendict import frozendict
 
@@ -25,7 +25,7 @@ __all__ = ("switch_",)
 
 
 def switch_(
-    switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
+    switches: dict[SCALAR, Callable],
     key: TS[SCALAR],
     *args,
     reload_on_ticked: bool = False,
@@ -174,7 +174,10 @@ def switch_(
 
         WiringGraphContext.instance().reassign_items(reassignables, port.node_instance)
 
-        return port if port.output_type is not None else None
+        if port.output_type is not None:
+            return port
+        else:
+            WiringGraphContext.instance().add_sink_node(port.node_instance)
 
 
 def _validate_signature(

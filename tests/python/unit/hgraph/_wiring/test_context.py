@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import pytest
 
 from hgraph import (
@@ -14,6 +16,13 @@ from hgraph import (
     TIME_SERIES_TYPE,
     format_,
     const,
+    CompoundScalar,
+    TSB,
+    REF,
+    lag,
+    SCHEDULER,
+    MIN_TD,
+    combine,
 )
 from hgraph.test import eval_node
 
@@ -21,21 +30,21 @@ from hgraph.test import eval_node
 class TestContext:
     __instance__ = None
 
-    def __init__(self, msg: str):
+    def __init__(self, msg: str = "non-default"):
         self.msg = msg
 
     @classmethod
     def instance(cls):
-        if cls.__instance__ is None:
+        if TestContext.__instance__ is None:
             return TestContext("default")
-        return cls.__instance__
+        return TestContext.__instance__
 
     def __enter__(self):
-        type(self).__instance__ = self
+        TestContext.__instance__ = self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if type(self).__instance__ == self:
-            type(self).__instance__ = None
+        if TestContext.__instance__ == self:
+            TestContext.__instance__ = None
         else:
             raise ValueError("Exiting context not entered.")
 
@@ -130,6 +139,24 @@ def test_context_scalar_named_default():
         return use_context(ts, context="B")
 
     assert eval_node(g, [True, None, False]) == ["default", None, "default"]
+
+
+def test_context_bundle():
+    @dataclass(frozen=True)
+    class ContextStruct(CompoundScalar, TestContext):
+        a: int
+        msg: str = "bundle"
+
+    @compute_node
+    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
+        return f"{TestContext.instance().msg}"
+
+    @graph
+    def g(ts: TS[bool]) -> TS[str]:
+        with combine[TSB[ContextStruct]](a=1):
+            return use_context(ts)
+
+    assert eval_node(g, [True, None, False]) == ["bundle", None, "bundle"]
 
 
 def test_context_ranking():
