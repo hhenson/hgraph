@@ -1,6 +1,6 @@
 from inspect import isfunction
 from pathlib import Path
-from typing import Callable, Optional, cast
+from typing import Callable, Optional, cast, Any
 
 from frozendict import frozendict
 
@@ -25,7 +25,7 @@ __all__ = ("switch_",)
 
 
 def switch_(
-    switches: dict[SCALAR, Callable[[...], Optional[TIME_SERIES_TYPE]]],
+    switches: dict[SCALAR, Callable],
     key: TS[SCALAR],
     *args,
     reload_on_ticked: bool = False,
