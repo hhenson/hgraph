@@ -147,16 +147,16 @@ def test_context_bundle():
         a: int
         msg: str = "bundle"
 
-    @compute_node
+    @compute_node(valid=("ts", "context"))
     def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
         return f"{TestContext.instance().msg}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
-        with combine[TSB[ContextStruct]](a=1):
+        with combine[TSB[ContextStruct]](a=1, msg="bundle"):
             return use_context(ts)
 
-    assert eval_node(g, [True, None, False]) == ["bundle", None, "bundle"]
+    assert eval_node(g, [True, None, False], __trace__=True) == ["bundle", None, "bundle"]
 
 
 def test_context_ranking():
