@@ -132,35 +132,25 @@ def toposort(
             max_rank = max(max_rank, processed_nodes[to_node])
 
         if max_rank > len(processed_nodes) + 1000 or len(nodes_to_process) > len(processed_nodes) + 1000:
-            # seems we have a cycle in the graph, now walk from the current node backwards until we find the cycle
-            # then pick out the cycle nodes and raise an error.
-            cycle_finding_nodes = deque([from_node])
-            cycle_nodes = {from_node: None}
-            cycle_found = None
-            while cycle_finding_nodes:
-                current = cycle_finding_nodes.popleft()
-                for up in reverse_mapping[current]:
-                    if up in cycle_nodes:
-                        cycle_nodes[up] = current
-                        cycle_found = up
-                        break
-                    cycle_nodes[up] = current
-                    cycle_finding_nodes.append(up)
-                if cycle_found is not None:
-                    cycle_nodes_clean = [cycle_found]
-                    next_node = cycle_nodes[cycle_found]
-                    while next_node != cycle_found:
-                        cycle_nodes_clean.append(next_node)
-                        next_node = cycle_nodes[next_node]
+            from graphlib import TopologicalSorter, CycleError
 
-                    cycle_nodes = cycle_nodes_clean
-                    break
+            try:
+                list(TopologicalSorter(reverse_mapping).static_order())
+            except CycleError as e:
+                cycle_nodes = e.args[1]
 
-            cycle_print = " -> ".join(
-                f"{n.wiring_path_name}.{n.label or n.node_signature.name}"
-                for n in sorted(cycle_nodes, key=lambda x: processed_nodes[x])
-            )
-            raise RuntimeError(f"Cyclic sub graph detected that involves {cycle_print}")
+                cycle_node_strings = []
+                for n in cycle_nodes:
+                    scalars = ", ".join(
+                        f"{k}={str(v)[:100]}" for k, v in n.inputs.items() if k in n.resolved_signature.scalar_inputs
+                    )
+                    cycle_node_strings.append(f"{n.wiring_path_name}.{n.label or n.node_signature.name}({scalars})")
+
+                cycle_print = "\n -> ".join(cycle_node_strings)
+
+                raise RuntimeError(f"Cyclic sub graph detected that involves nodes: \n{cycle_print}")
+            else:
+                raise RuntimeError(f"Cyclic sub graph exists but could not be detected")
 
     # Sort nodes by rank
     result = [node for _, node in sorted((rank, node) for node, rank in processed_nodes.items()) if not node.is_stub]

@@ -47,7 +47,7 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
             return
 
         tm = node._scheduled_keys_by_rank[rank].get(self._key)
-        if tm is None or tm > next_time:
+        if tm is None or tm > next_time or tm < node.last_evaluation_time:
             node.schedule_graph(self._key, next_time)
 
         if next_time > node.last_evaluation_time:
@@ -128,6 +128,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         next_time = MAX_DT
         rank = 0
         while rank <= self.max_rank:
+            self.current_eval_rank = rank
             dt = self._scheduled_ranks.pop(rank, None)
             if dt == self.last_evaluation_time:
                 graphs = self._scheduled_keys_by_rank.pop(rank, {})

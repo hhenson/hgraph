@@ -131,7 +131,7 @@ def if_true_impl(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
         return True
 
 
-@compute_node(valid=("condition",), overloads=if_then_else)
+@compute_node(overloads=if_then_else, valid=("condition",))
 def if_then_else_impl(
     condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]
 ) -> REF[TIME_SERIES_TYPE]:
@@ -160,4 +160,3 @@ def index_of_impl(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[
     Return the index of the leftmost time-series in the TSL with value equal to ts
     """
     return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)
-

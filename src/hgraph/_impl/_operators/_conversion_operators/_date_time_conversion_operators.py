@@ -1,6 +1,11 @@
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
-from hgraph import compute_node, TS, OUT, WiringPort, combine
+from hgraph import compute_node, TS, OUT, WiringPort, combine, convert
+
+
+@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[datetime])
+def convert_date_to_datetime(ts: TS[date]) -> TS[datetime]:
+    return datetime(ts.value.year, ts.value.month, ts.value.day)
 
 
 @compute_node(overloads=combine, requires=lambda m, s: m[OUT].py_type == TS[date])

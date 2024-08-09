@@ -216,7 +216,7 @@ def tsd_get_bundle_item(
 
 @compute_node(
     overloads=getattr_,
-    resolvers={SCALAR: lambda mapping, scalars: get_schema_type(mapping[SCHEMA], scalars["key"])},
+    resolvers={SCALAR: lambda mapping, scalars: get_schema_type(mapping[SCHEMA].meta_data_schema, scalars["key"])},
 )
 def tsd_get_cs_item(tsd: TSD[K, TS[SCHEMA]], key: str, _schema: Type[SCHEMA] = AUTO_RESOLVE) -> TSD[K, TS[SCALAR]]:
     """
