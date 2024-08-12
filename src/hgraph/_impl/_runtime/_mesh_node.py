@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
-from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD
+from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD, MIN_DT
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,
@@ -47,7 +47,7 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
             return
 
         tm = node._scheduled_keys_by_rank[rank].get(self._key)
-        if tm is None or tm > next_time or tm < node.last_evaluation_time:
+        if tm is None or tm > next_time or tm < node.graph.evaluation_clock.evaluation_time:
             node.schedule_graph(self._key, next_time)
 
         if next_time > node.last_evaluation_time:
@@ -176,7 +176,9 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
     def schedule_graph(self, key, tm):
         rank = self._active_graphs_rank[key]
         self._scheduled_keys_by_rank[rank][key] = tm
-        self._scheduled_ranks[rank] = min(self._scheduled_ranks.get(rank, MAX_DT), tm)
+        self._scheduled_ranks[rank] = min(
+            max(self._scheduled_ranks.get(rank, MAX_DT), self.graph.evaluation_clock.evaluation_time), tm
+        )
         self.graph.schedule_node(self.node_ndx, tm)
 
     def _remove_graph(self, key: K):
