@@ -76,7 +76,8 @@ def ts_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     for df in dfs_instance.iter_frames():
-        if df.is_empty(): continue
+        if df.is_empty():
+            continue
         for dt, value in df.select([dt_col, value_col]).iter_rows(named=False):
             dt = dt_converter(dt)
             yield dt + offset, value
@@ -128,7 +129,8 @@ def tsd_k_v_from_data_source(
     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     for df_1 in dfs_instance.iter_frames():
-        if df_1.is_empty(): continue
+        if df_1.is_empty():
+            continue
         for (dt,), df in df_1.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             yield dt + offset, {k: v for k, v in df.select(key_col, value_col).iter_rows()}
@@ -173,7 +175,8 @@ def tsd_k_tsd_from_data_source(
     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col, pivot_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     for df_all in dfs_instance.iter_frames():
-        if df_all.is_empty(): continue
+        if df_all.is_empty():
+            continue
         for (dt,), df_1 in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             out = {}
@@ -207,7 +210,8 @@ def tsd_k_b_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
     for df_all in dfs_instance.iter_frames():
-        if df_all.is_empty(): continue
+        if df_all.is_empty():
+            continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             key_df = df[key_col]
@@ -244,7 +248,8 @@ def tsd_k_a_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
     for df_all in dfs_instance.iter_frames():
-        if df_all.is_empty(): continue
+        if df_all.is_empty():
+            continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             out = {k: np.array(v) for k, v in zip(df[key_col], df.select(*value_keys).iter_rows())}
@@ -275,7 +280,8 @@ def ts_of_array_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
     for df in dfs_instance.iter_frames():
-        if df.is_empty(): continue
+        if df.is_empty():
+            continue
         for dt, values in zip(df[dt_col], df.select(*value_keys).iter_rows()):
             dt = dt_converter(dt)
             yield dt + offset, np.array(values)
@@ -293,7 +299,8 @@ def tsl_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in df.schema.keys() if k != dt_col)
     for df in dfs_instance.iter_frames():
-        if df.is_empty(): continue
+        if df.is_empty():
+            continue
         df_dt = df[dt_col]
         df_values = df.select(*value_keys)
         for dt, values in zip(df_dt, df_values.iter_rows(named=False)):
@@ -319,7 +326,8 @@ def ts_of_matrix_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
     for df_all in dfs_instance.iter_frames():
-        if df_all.is_empty(): continue
+        if df_all.is_empty():
+            continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             df_values = df.select(*value_keys)
@@ -348,7 +356,8 @@ def ts_of_frames_from_data_source(
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if not remove_dt_col or k != dt_col)
     for df_all in dfs_instance.iter_frames():
-        if df_all.is_empty(): continue
+        if df_all.is_empty():
+            continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
             dt = dt_converter(dt)
             df_values = df.select(*value_keys)
