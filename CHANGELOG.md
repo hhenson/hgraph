@@ -593,3 +593,8 @@ Version 0.2.52 (26-07-2024)
 * Some bug fixes
 * Preparation of record / replay operators
 * Work on adaptors
+
+Version 0.2.53 (12-08-2024)
+---------------------------
+
+* Fixed imports
