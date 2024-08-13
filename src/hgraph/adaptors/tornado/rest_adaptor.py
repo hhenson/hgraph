@@ -21,6 +21,11 @@ from hgraph import (
     merge,
     register_adaptor,
     register_service,
+    TSB,
+    TS_SCHEMA,
+    TIME_SERIES_TYPE,
+    HgTSBTypeMetaData,
+    nothing,
 )
 import tornado
 from hgraph.adaptors.tornado._tordano_web import TornadoWeb
@@ -141,22 +146,46 @@ def rest_handler(fn: Callable = None, *, url: str):
         fn = graph(fn)
 
     assert "request" in fn.signature.time_series_inputs.keys(), "Rest graph must have an input named 'request'"
-    assert all(
-        k in fn.signature.defaults for k in fn.signature.time_series_inputs.keys() if k != "request"
-    ), "Rest graph must have default values for all inputs except 'request'"
     assert fn.signature.time_series_inputs["request"].matches_type(TS[RestRequest]) or fn.signature.time_series_inputs[
         "request"
     ].matches_type(
         TSD[int, TS[RestRequest]]
     ), "Rest graph must have a single input named 'request' of type TS[RestRequest] or TSD[int, TS[RestRequest]]"
-    assert fn.signature.output_type.matches_type(TS[RestResponse]) or fn.signature.output_type.matches_type(
+
+    output_type = fn.signature.output_type
+    if isinstance(output_type, HgTSBTypeMetaData):
+        output_type = output_type["response"]
+
+    assert output_type.matches_type(TS[RestResponse]) or output_type.matches_type(
         TSD[int, TS[RestResponse]]
     ), "Rest graph must have a single output of type TS[RestResponse] or TSD[int, TS[RestResponse]]"
 
     mgr = RestAdaptorManager.instance()
+    # this makes the handler to be auto-wired in the rest_adaptor
     mgr.add_handler(url, fn)
 
-    return fn
+    @graph
+    def rest_handler_graph(**inputs: TSB[TS_SCHEMA]) -> TIME_SERIES_TYPE:
+        # if however this is wired into the graph explicitly, it will be used instead of the auto-wiring the handler
+        mgr.add_handler(url, None)  # prevent auto-wiring
+
+        requests = rest_adaptor.to_graph(path=url, __no_ts_inputs__=True)
+        if fn.signature.time_series_inputs["request"].matches_type(TS[RestRequest]):
+            if inputs.as_dict():
+                responses = map_(lambda r, i: fn(request=r, **i.as_dict()), requests, inputs)
+            else:
+                responses = map_(lambda r: fn(request=r), requests)
+        else:
+            responses = fn(request=requests, **inputs)
+
+        if isinstance(responses.output_type, HgTSBTypeMetaData):
+            rest_adaptor.from_graph(responses.response, path=url)
+            return responses
+        else:
+            rest_adaptor.from_graph(responses, path=url)
+            return combine()
+
+    return rest_handler_graph
 
 
 @adaptor
@@ -205,6 +234,8 @@ def rest_adaptor_impl(path: str, port: int):
                 responses[url] = map_(handler, request=requests_by_url[url])
             elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[RestGetRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
+        elif handler is None:
+            pass
         else:
             raise ValueError(f"Invalid REST handler type for the rest adaptor: {handler}")
 

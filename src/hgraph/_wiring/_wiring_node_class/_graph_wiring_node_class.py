@@ -193,7 +193,7 @@ class WiringGraphContext:
         if resolution_dict:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
 
-        if prev_impl := self._service_implementations.get(path):
+        if (prev_impl := self._service_implementations.get(path)) and prev_impl is not None and prev_impl[1] != impl:
             CustomMessageWiringError(
                 f"Service implementation already registered for service at path: {path}: "
                 f"{prev_impl[0].signature.signature} with {prev_impl[1]}"
@@ -408,7 +408,9 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 co_posonlyargcount=0,
                 co_kwonlyargcount=len(signature.args),
             )
-            fn = types.FunctionType(kw_only_code, fn.__globals__)
+            fn = types.FunctionType(
+                kw_only_code, fn.__globals__, name=fn.__name__, argdefs=fn.__defaults__, closure=fn.__closure__
+            )
 
         super().__init__(signature, fn)
 

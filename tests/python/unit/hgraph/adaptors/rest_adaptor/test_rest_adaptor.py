@@ -130,16 +130,17 @@ try:
         def q(t: TIME_SERIES_TYPE):
             Thread(target=make_query).start()
 
+        @rest_handler(url="/test/(.*)")
+        def x(request: TS[RestRequest], b: TS[int]) -> TS[RestResponse]:
+            return combine[TS[RestResponse]](
+                status_code=200, body=format_("Hello, {} and {}!", request.url_parsed_args[0], b)
+            )
+
         @graph
         def g():
             register_adaptor(None, rest_adaptor_helper, port=8081)
 
-            requests = rest_adaptor.to_graph(path="/test/(.*)", __no_ts_inputs__=True)
-            responses = map_(
-                lambda r: combine[TS[RestResponse]](status_code=200, body=format_("Hello, {}!", r.url_parsed_args[0])),
-                requests,
-            )
-            rest_adaptor.from_graph(responses, path="/test/(.*)")
+            x(b=12)
 
             q(True)
 
@@ -168,10 +169,10 @@ try:
 
         assert response1 is not None
         assert response1.status_code == 200
-        assert response1.text == "Hello, one!"
+        assert response1.text == "Hello, one and 12!"
         assert response2 is not None
         assert response2.status_code == 200
-        assert response2.text == "Hello, two!"
+        assert response2.text == "Hello, two and 12!"
 
 except ImportError:
     pass
