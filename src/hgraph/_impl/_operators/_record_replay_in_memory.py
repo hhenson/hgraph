@@ -72,6 +72,7 @@ def set_replay_values(label: str, value: ReplaySource, recordable_id: str = None
 def replay_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE],
+    suffix: str = None,
     is_operator: bool = False,
     _traits: Traits = None,
 ) -> TIME_SERIES_TYPE:
@@ -86,7 +87,7 @@ def replay_from_memory(
     if recordable_id is None:
         recordable_id = f"nodes.{replay_from_memory.signature.name}"
     else:
-        recordable_id = f":memory:{recordable_id}"
+        recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
@@ -100,6 +101,7 @@ def record_to_memory(
     ts: TIME_SERIES_TYPE,
     key: str = "out",
     record_delta_values: bool = True,
+    suffix: str = None,
     is_operator: bool = False,
     _clock: EvaluationClock = None,
     _state: STATE = None,
@@ -112,14 +114,14 @@ def record_to_memory(
 
 
 @record_to_memory.start
-def record_to_memory(key: str, _state: STATE, _traits: Traits):
+def record_to_memory(key: str, suffix: str, _state: STATE, _traits: Traits):
     value = []
     global_state = GlobalState.instance()
     recordable_id = _traits.get_trait_or("recordable_id", None)
     if recordable_id is None:
         recordable_id = f"nodes.{record.signature.name}"
     else:
-        recordable_id = f":memory:{recordable_id}"
+        recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}"
     global_state[f"{recordable_id}.{key}"] = value
     _state.record_value = value
 
