@@ -24,6 +24,7 @@ from hgraph import (
     Frame,
     COMPOUND_SCALAR,
     compound_scalar,
+    EvaluationEngineApi,
 )
 from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, DataStore
 
@@ -70,12 +71,16 @@ def _extract_scalar(mapping, scalars) -> SCALAR:
 
 @generator(resolvers={SCALAR: _extract_scalar})
 def ts_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str = "date", value_col: str = "value", offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE],
+    dt_col: str = "date",
+    value_col: str = "value",
+    offset: timedelta = timedelta(),
+    _api: EvaluationEngineApi = None,
 ) -> TS[SCALAR]:
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    for df in dfs_instance.iter_frames():
+    for df in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df.is_empty():
             continue
         for dt, value in df.select([dt_col, value_col]).iter_rows(named=False):
@@ -84,7 +89,9 @@ def ts_from_data_source(
 
 
 @generator(resolvers={TS_SCHEMA: _extract_schema})
-def tsb_from_data_source(dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()) -> TSB[TS_SCHEMA]:
+def tsb_from_data_source(
+    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), _api: EvaluationEngineApi = None
+) -> TSB[TS_SCHEMA]:
     """
     Iterates over the data_frame, returning an instance of TS_SCHEMA for each row in the table.
     null values are not ticked.
@@ -92,7 +99,7 @@ def tsb_from_data_source(dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: time
     df: pl.DataFrame
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    for df in dfs_instance.iter_frames():
+    for df in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         for value in df.iter_rows(named=True):
             dt = dt_converter(value.pop(dt_col))
             yield dt + offset, value
@@ -112,7 +119,11 @@ def _extract_tsd_key_value_scalar(mapping, scalars) -> SCALAR_1:
 
 @generator(resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar})
 def tsd_k_v_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE],
+    dt_col: str,
+    key_col: str,
+    offset: timedelta = timedelta(),
+    _api: EvaluationEngineApi = None,
 ) -> TSD[SCALAR, TS[SCALAR_1]]:
     """
     Extract a TSD instance from the data frame source. This will extract the key_col column and will
@@ -128,7 +139,7 @@ def tsd_k_v_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    for df_1 in dfs_instance.iter_frames():
+    for df_1 in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df_1.is_empty():
             continue
         for (dt,), df in df_1.group_by(dt_col, maintain_order=True):
@@ -157,7 +168,12 @@ def _extract_tsd_pivot_value_value_scalar(mapping, scalars) -> SCALAR_1:
     }
 )
 def tsd_k_tsd_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, pivot_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE],
+    dt_col: str,
+    key_col: str,
+    pivot_col: str,
+    offset: timedelta = timedelta(),
+    _api: EvaluationEngineApi = None,
 ) -> TSD[SCALAR, TSD[SCALAR_1, TS[SCALAR_2]]]:
     """
     Extract a TSD instance from the data frame source. This uses key_col for the first dimension and pivot_col for the
@@ -174,7 +190,7 @@ def tsd_k_tsd_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col, pivot_col)))
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-    for df_all in dfs_instance.iter_frames():
+    for df_all in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df_all.is_empty():
             continue
         for (dt,), df_1 in df_all.group_by(dt_col, maintain_order=True):
@@ -193,7 +209,11 @@ def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:
 
 @generator(resolvers={SCALAR: _extract_tsd_key_scalar, TS_SCHEMA: _extract_tsd_key_value_bundle})
 def tsd_k_b_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE],
+    dt_col: str,
+    key_col: str,
+    offset: timedelta = timedelta(),
+    _api: EvaluationEngineApi = None,
 ) -> TSD[SCALAR, TSB[TS_SCHEMA]]:
     """
     Extract a TSD instance from the data frame source. This will extract the key_col column and will
@@ -209,7 +229,7 @@ def tsd_k_b_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
-    for df_all in dfs_instance.iter_frames():
+    for df_all in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df_all.is_empty():
             continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
@@ -237,7 +257,11 @@ def _extract_tsd_array_size(mapping, scalars) -> SIZE:
     resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_array_value, SIZE: _extract_tsd_array_size}
 )
 def tsd_k_a_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, key_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE],
+    dt_col: str,
+    key_col: str,
+    offset: timedelta = timedelta(),
+    _api: EvaluationEngineApi = None,
 ) -> TSD[SCALAR, TS[Array[SCALAR_1, SIZE]]]:
     """
     Extract out a TSD with value type of Array. This requires the value columns to be of the same type.
@@ -247,7 +271,7 @@ def tsd_k_a_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col))
-    for df_all in dfs_instance.iter_frames():
+    for df_all in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df_all.is_empty():
             continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
@@ -270,7 +294,7 @@ def _extract_array_size(mapping, scalars) -> SIZE:
 
 @generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size})
 def ts_of_array_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), _api: EvaluationEngineApi = None
 ) -> TS[Array[SCALAR, SIZE]]:
     """
     Extract out a TS of Array values.
@@ -279,7 +303,7 @@ def ts_of_array_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
-    for df in dfs_instance.iter_frames():
+    for df in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df.is_empty():
             continue
         for dt, values in zip(df[dt_col], df.select(*value_keys).iter_rows()):
@@ -289,7 +313,7 @@ def ts_of_array_from_data_source(
 
 @generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size})
 def tsl_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), _api: EvaluationEngineApi = None
 ) -> TSL[TS[SCALAR], SIZE]:
     """
     Extract a TSL from a data frame.
@@ -298,7 +322,7 @@ def tsl_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in df.schema.keys() if k != dt_col)
-    for df in dfs_instance.iter_frames():
+    for df in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df.is_empty():
             continue
         df_dt = df[dt_col]
@@ -313,7 +337,7 @@ SIZE_1 = clone_typevar(SIZE, "SIZE_1")
 
 @generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m, s: Size[-1]})
 def ts_of_matrix_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta()
+    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), _api: EvaluationEngineApi = None
 ) -> TS[Array[SCALAR, SIZE, SIZE_1]]:
     """
     Extract out a TS of a matrix Array. The size of the second value is the size of the matrix is the columns
@@ -325,7 +349,7 @@ def ts_of_matrix_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if k != dt_col)
-    for df_all in dfs_instance.iter_frames():
+    for df_all in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df_all.is_empty():
             continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
@@ -345,7 +369,11 @@ def _extract_frame_schema(mapping, scalars) -> COMPOUND_SCALAR:
 
 @generator(resolvers={COMPOUND_SCALAR: _extract_frame_schema})
 def ts_of_frames_from_data_source(
-    dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), remove_dt_col: bool = True
+    dfs: type[DATA_FRAME_SOURCE],
+    dt_col: str,
+    offset: timedelta = timedelta(),
+    remove_dt_col: bool = True,
+    _api: EvaluationEngineApi = None,
 ) -> TS[Frame[COMPOUND_SCALAR]]:
     """
     Iterates over the data frame/s grouping by date. The resultant data frame is returned, by default with the
@@ -355,7 +383,7 @@ def ts_of_frames_from_data_source(
     dfs_instance = DataStore.instance().get_data_source(dfs)
     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
     value_keys = tuple(k for k in dfs_instance.schema.keys() if not remove_dt_col or k != dt_col)
-    for df_all in dfs_instance.iter_frames():
+    for df_all in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
         if df_all.is_empty():
             continue
         for (dt,), df in df_all.group_by(dt_col, maintain_order=True):
