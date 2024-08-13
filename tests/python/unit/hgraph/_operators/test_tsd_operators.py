@@ -318,7 +318,6 @@ def test_max_tsd_unary():
     assert eval_node(app, [{3: 2, 100: -100}]) == [2]
 
 
-@pytest.mark.xfail(reason="Empty TSDs don't seem to tick", strict=True)
 def test_sum_tsd_unary():
     @graph
     def app(tsd: TSD[int, TS[int]]) -> TS[int]:
@@ -327,7 +326,7 @@ def test_sum_tsd_unary():
         log_("TSD {}", tsd)
         return sum_(tsd)
 
-    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}]) == [0, 102]
+    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}], __trace__=True) == [0, 102]
 
 
 def test_str_tsd():
