@@ -5,9 +5,36 @@ from typing import Type, cast, Tuple, Set
 
 from hgraph import reduce, add_
 from hgraph._impl._types._ref import PythonTimeSeriesReference
-from hgraph._operators import sub_, getitem_, min_, max_, sum_, mean, var, str_, std, div_, bit_and, bit_or, bit_xor, \
-    not_, eq_, keys_, contains_, is_empty, len_, getattr_, collapse_keys, uncollapse_keys, rekey, flip, flip_keys, \
-    merge, zero, partition
+from hgraph._operators import (
+    sub_,
+    getitem_,
+    min_,
+    max_,
+    sum_,
+    mean,
+    var,
+    str_,
+    std,
+    div_,
+    bit_and,
+    bit_or,
+    bit_xor,
+    not_,
+    eq_,
+    keys_,
+    contains_,
+    is_empty,
+    len_,
+    getattr_,
+    collapse_keys,
+    uncollapse_keys,
+    rekey,
+    flip,
+    flip_keys,
+    merge,
+    zero,
+    partition,
+)
 from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput
 from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT, K_1, V
@@ -31,12 +58,12 @@ class KeyValueRefState:
 
 @compute_node(overloads=getitem_, valid=("key",))
 def tsd_get_item_default(
-        ts: REF[TSD[K, TIME_SERIES_TYPE]],
-        key: TS[K],
-        _ref: REF[TIME_SERIES_TYPE] = None,
-        _ref_ref: REF[TIME_SERIES_TYPE] = None,
-        _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-        _state: STATE[KeyValueRefState] = None,
+    ts: REF[TSD[K, TIME_SERIES_TYPE]],
+    key: TS[K],
+    _ref: REF[TIME_SERIES_TYPE] = None,
+    _ref_ref: REF[TIME_SERIES_TYPE] = None,
+    _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _state: STATE[KeyValueRefState] = None,
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
@@ -74,12 +101,14 @@ def tsd_get_items(ts: TSD[K, REF[TIME_SERIES_TYPE]], key: TSS[K]) -> TSD[K, REF[
     """
     Filters the tsd to the given keys.
     """
-    return {
+    out = {
         **{k: v.value for k, v in ts.modified_items() if k in key},
         **{k: REMOVE_IF_EXISTS for k in ts.removed_keys()},
         **{k: ts[k].value for k in key.added() if k in ts},
         **{k: REMOVE_IF_EXISTS for k in key.removed()},
     }
+    if out:
+        return out
 
 
 @compute_node(
@@ -99,7 +128,7 @@ def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
 @compute_node(
     overloads=keys_,
     requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
-                          or m[OUT].matches_type(TS[Set[m[K].py_type]]),
+    or m[OUT].matches_type(TS[Set[m[K].py_type]]),
 )
 def keys_tsd_as_set(tsd: TSD[K, TIME_SERIES_TYPE]) -> TS[Set[K]]:
     return set(tsd.keys())
@@ -166,7 +195,7 @@ def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]
     resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
 )
 def tsd_get_bundle_item(
-        tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+    tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Returns a TSD of the given items from the bundles in the original TSD
@@ -206,7 +235,7 @@ def collapse_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
 
 @compute_node(overloads=uncollapse_keys)
 def uncollapse_keys_tsd(
-        ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]], _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None
+    ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]], _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None
 ) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
     Un-Collapse the nested TSDs to a TSD with a tuple key.
@@ -240,7 +269,7 @@ class TsdRekeyState(CompoundScalar):
 
 @compute_node(overloads=rekey, valid=("new_keys",))
 def rekey_tsd(
-        ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
 ) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
     Rekey a TSD to the new keys.
@@ -276,7 +305,7 @@ def rekey_tsd(
         if k_new is not None:
             out[k_new] = v.value
 
-    return out
+    return out if out else None
 
 
 @compute_node(overloads=flip)
@@ -307,7 +336,7 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
 @compute_node(overloads=flip_keys)
 def flip_keys_tsd(
-        ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None
+    ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None
 ) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Switch the keys on a TSD of TSD's. This can be considered as a pivot.
@@ -366,7 +395,7 @@ def merge_tsds(*tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIM
 
 @compute_node(overloads=merge)
 def merge_nested_tsds(
-        *tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]
+    *tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]
 ) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     out = defaultdict(dict)
     removals = set()
@@ -401,7 +430,7 @@ def merge_nested_tsds(
 
 @compute_node(overloads=partition)
 def partition_tsd(
-        ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
 ) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Partition a TSD into partitions by the given mapping.
@@ -443,6 +472,7 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
     This is a helper generator to create a zero time-series for the reduce function.
     """
     from hgraph import nothing
+
     return nothing(ts)
 
 
@@ -484,6 +514,7 @@ def _sum_tsd_unary(tsd: TSD[K, TS[NUMBER]], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
 @graph(overloads=mean)
 def mean_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
     from hgraph import DivideByZero, default
+
     return default(div_(sum_(ts), len_(ts), divide_by_zero=DivideByZero.NAN), float("NaN"))
 
 

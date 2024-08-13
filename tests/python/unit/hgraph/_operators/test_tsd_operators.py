@@ -289,7 +289,7 @@ def test_eq_tsds():
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TS[bool]:
         return tsd1 == tsd2
 
-    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 2}, {1: 1}], __trace__=True) == [False, True]
+    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 2}, {1: 1}]) == [False, True]
 
 
 @pytest.mark.parametrize(
@@ -326,7 +326,7 @@ def test_sum_tsd_unary():
         log_("TSD {}", tsd)
         return sum_(tsd)
 
-    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}], __trace__=True) == [0, 102]
+    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}]) == [0, 102]
 
 
 def test_str_tsd():

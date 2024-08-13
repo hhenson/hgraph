@@ -91,7 +91,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         if v is None:
             self.invalidate()
             return
-        self.mark_modified()  # Even if we tick an empty set, we still need to mark this as modified
+        if not self.valid and not v:
+            self.mark_modified()  # Even if we tick an empty set, we still need to mark this as modified
         # Expect a mapping of some sort or an iterable of k, v pairs
         for k, v_ in v.items() if isinstance(v, (dict, frozendict)) else v:
             if v_ is None:
