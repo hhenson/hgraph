@@ -570,7 +570,13 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
     from hgraph import WiringGraphContext
 
     for i in implementation.interfaces:
-        WiringGraphContext.instance().register_service_impl(i, path, implementation, kwargs, resolution_dict)
+        if i is not None:
+            WiringGraphContext.instance().register_service_impl(i, path, implementation, kwargs, resolution_dict)
+    if implementation.interfaces == () or any(i is None for i in implementation.interfaces):
+        from hgraph import WiringGraphContext
+
+        assert path, "A catch-all service must have a path"
+        WiringGraphContext.instance().register_service_impl(None, path, implementation, kwargs, resolution_dict)
 
 
 def adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
@@ -666,7 +672,13 @@ def register_adaptor(path: str, implementation, resolution_dict=None, **kwargs):
         raise CustomMessageWiringError("The provided implementation is not a 'adaptor_impl' wrapped function.")
 
     for i in implementation.interfaces:
-        i.register_impl(path, implementation, resolution_dict, **kwargs)
+        if i is not None:
+            i.register_impl(path, implementation, resolution_dict, **kwargs)
+    if implementation.interfaces == () or any(i is None for i in implementation.interfaces):
+        from hgraph import WiringGraphContext
+
+        assert path, "A catch-all adaptor must have a path"
+        WiringGraphContext.instance().register_service_impl(None, path, implementation, kwargs, resolution_dict)
 
 
 def component(

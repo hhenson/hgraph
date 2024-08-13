@@ -27,6 +27,12 @@ class AdaptorNodeClass(ServiceInterfaceNodeClass):
     def __call__(
         self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
     ) -> "WiringPort":
+        self.from_graph(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+        return self.to_graph(*args, __pre_resolved_types__=__pre_resolved_types__, **kwargs)
+
+    def from_graph(
+        self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs
+    ) -> "WiringPort":
 
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
@@ -41,8 +47,6 @@ class AdaptorNodeClass(ServiceInterfaceNodeClass):
 
                 from_graph_full_path = self.full_path(kwargs_.get("path") + "/from_graph")
                 from_graph_typed_path = self.typed_full_path(from_graph_full_path, resolution_dict)
-                to_graph_full_path = self.full_path(kwargs_.get("path") + "/to_graph")
-                to_graph_typed_path = self.typed_full_path(to_graph_full_path, resolution_dict)
 
                 from hgraph import combine
                 from hgraph.nodes import capture_output_to_global_state, get_shared_reference_output
@@ -54,6 +58,39 @@ class AdaptorNodeClass(ServiceInterfaceNodeClass):
                 g.register_service_client(
                     self, from_graph_full_path, resolution_dict, client.node_instance, receive=False
                 )
+
+    def to_graph(
+        self,
+        *args,
+        __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None,
+        __no_ts_inputs__: bool = False,
+        **kwargs,
+    ) -> "WiringPort":
+
+        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+            kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
+                (
+                    self.signature.copy_with(
+                        args=tuple(k for k in self.signature.args if self.signature.input_types[k].is_scalar),
+                        input_types={k: v for k, v in self.signature.input_types.items() if v.is_scalar},
+                        time_series_args=set(),
+                    )
+                    if __no_ts_inputs__
+                    else self.signature
+                ),
+                *args,
+                __pre_resolved_types__=__pre_resolved_types__,
+                **kwargs,
+            )
+
+            with WiringGraphContext(self.signature) as g:
+                scalars = {k: v for k, v in kwargs_.items() if k in resolved_signature.scalar_inputs and k != "path"}
+                resolution_dict |= scalars
+
+                to_graph_full_path = self.full_path(kwargs_.get("path") + "/to_graph")
+                to_graph_typed_path = self.typed_full_path(to_graph_full_path, resolution_dict)
+
+                from hgraph.nodes import get_shared_reference_output
 
                 out = get_shared_reference_output[resolved_signature.output_type](to_graph_typed_path)
                 g.register_service_client(self, to_graph_full_path, resolution_dict, out.node_instance)
@@ -90,9 +127,15 @@ class AdaptorNodeClass(ServiceInterfaceNodeClass):
         self, path: str, impl: "NodeBuilder", __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs
     ):
         resolution_dict = self.signature.try_build_resolution_dict(__pre_resolved_types__)
-        WiringGraphContext.instance().register_service_impl(
-            self, self.full_path(path + "/from_graph"), impl, kwargs, resolution_dict
-        )
-        WiringGraphContext.instance().register_service_impl(
-            self, self.full_path(path + "/to_graph"), impl, kwargs, resolution_dict
-        )
+        if path is None:
+            path = self.default_path()
+            WiringGraphContext.instance().register_service_impl(
+                self, self.full_path(path), impl, kwargs, resolution_dict
+            )
+        else:
+            WiringGraphContext.instance().register_service_impl(
+                self, self.full_path(path + "/from_graph"), impl, kwargs, resolution_dict
+            )
+            WiringGraphContext.instance().register_service_impl(
+                self, self.full_path(path + "/to_graph"), impl, kwargs, resolution_dict
+            )

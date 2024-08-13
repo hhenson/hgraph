@@ -183,11 +183,12 @@ class WiringGraphContext:
         """
         Register a service client with the graph context
         """
-        if path is None:
-            path = service.default_path()
+        if service is not None:
+            if path is None:
+                path = service.default_path()
 
-        if not service.is_full_path(path):
-            path = service.full_path(path)
+            if not service.is_full_path(path):
+                path = service.full_path(path)
 
         if resolution_dict:
             path = f"{path}[{ServiceInterfaceNodeClass._resolution_dict_to_str(resolution_dict)}]"
@@ -286,6 +287,13 @@ class WiringGraphContext:
         self.reassign_service_stubs(ss, node)
         self.reassign_context_clients(cc, node)
 
+    def registered_service_clients(self, service):
+        return tuple(
+            (path, type_map, node, receive)
+            for s, path, type_map, node, receive in self._service_clients
+            if s == service
+        )
+
     def build_services(self):
         """
         Build the service implementations for the graph
@@ -293,40 +301,55 @@ class WiringGraphContext:
         service_clients = [(service, path, type_map) for service, path, type_map, _, _ in self._service_clients]
         service_full_paths = {}
         while True:
-            services_to_build = dict()
-            for service, path, type_map in set(service_clients):
-                typed_path = service.typed_full_path(path, type_map)
+            while True:
+                services_to_build = dict()
+                for service, path, type_map in set(service_clients):
+                    typed_path = service.typed_full_path(path, type_map)
 
-                if item := self.find_service_impl(path, service, type_map, quiet=True):
-                    interface, impl, kwargs = item
+                    if item := self.find_service_impl(path, service, type_map, quiet=True):
+                        interface, impl, kwargs = item
+                    else:
+                        clients = [
+                            node.wiring_path_name
+                            for s, p, t, node, _ in self._service_clients
+                            if s == service and p == path and t == type_map
+                        ]
+                        raise CustomMessageWiringError(
+                            f"No implementation found for service: {service.signature.name} at path: {path} requested"
+                            f" by {clients}"
+                        )
+
+                    if isinstance(interface, PreResolvedWiringNodeWrapper):
+                        interface = interface.underlying_node
+
+                    if interface != service:
+                        raise CustomMessageWiringError(
+                            f"service implementation for path {path} implements "
+                            f"{interface.signature.signature} which does not match the client "
+                            f"expecting {service.signature.signature}"
+                        )
+
+                    services_to_build[typed_path] = (service, path, impl, kwargs, type_map)
+                    service_full_paths[(service, path, type_map)] = typed_path
+
+                for typed_path in services_to_build:
+                    if typed_path not in self._built_services:
+                        service, path, impl, kwargs, type_map = services_to_build[typed_path]
+                        impl(path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
+
+                if len(self._service_clients) == len(service_clients):
+                    break
                 else:
-                    clients = [
-                        node.wiring_path_name
-                        for s, p, t, node, _ in self._service_clients
-                        if s == service and p == path and t == type_map
+                    service_clients = [
+                        (service, path, type_map) for service, path, type_map, _, _ in self._service_clients
                     ]
-                    raise CustomMessageWiringError(
-                        f"No implementation found for service: {service.signature.name} at path: {path} requested by"
-                        f" {clients}"
-                    )
 
-                if isinstance(interface, PreResolvedWiringNodeWrapper):
-                    interface = interface.underlying_node
-
-                if interface != service:
-                    raise CustomMessageWiringError(
-                        f"service implementation for path {path} implements "
-                        f"{interface.signature.signature} which does not match the client "
-                        f"expecting {service.signature.signature}"
-                    )
-
-                services_to_build[typed_path] = (service, path, impl, kwargs, type_map)
-                service_full_paths[(service, path, type_map)] = typed_path
-
-            for typed_path in services_to_build:
-                if typed_path not in self._built_services:
-                    service, path, impl, kwargs, type_map = services_to_build[typed_path]
-                    impl(path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
+            # these are catch-all services and adaptors that will figure out if they need to wire anything by themselves
+            for path, impl, kwargs in (
+                (p, i, kw) for p, (s, i, kw) in self._service_implementations.items() if s is None
+            ):
+                if path not in self._built_services:
+                    impl(path=path, __pre_resolved_types__={}, **kwargs)
 
             if len(self._service_clients) == len(service_clients):
                 break

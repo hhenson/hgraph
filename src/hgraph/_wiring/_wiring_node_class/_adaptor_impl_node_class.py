@@ -59,20 +59,23 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
 
             __interface__: AdaptorNodeClass
 
-            if __interface__ is None:
-                __interface__ = self.interfaces[0]
+            if self.interfaces != ():
+                if __interface__ is None:
+                    __interface__ = self.interfaces[0]
 
-            if not __interface__.is_full_path(path):
-                full_path = __interface__.full_path(path)
+                if not __interface__.is_full_path(path):
+                    full_path = __interface__.full_path(path)
+                else:
+                    full_path = path
+                    path = __interface__.path_from_full_path(full_path)
             else:
                 full_path = path
-                path = __interface__.path_from_full_path(full_path)
 
             path = path.replace("/from_graph", "").replace("/to_graph", "")
 
             self._validate_service_not_already_bound(full_path, __pre_resolved_types__)
 
-            scalars = {k: v for k, v in __pre_resolved_types__.items() if k in __interface__.signature.scalar_inputs}
+            scalars = {k: v for k, v in __pre_resolved_types__.items() if k in self.signature.scalar_inputs}
             pre_resolved_types = {
                 k: v for k, v in __pre_resolved_types__.items() if k not in self.signature.scalar_inputs
             }
