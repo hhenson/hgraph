@@ -326,6 +326,8 @@ class WiringNodeSignature:
                     if kwt is not None and not meta_data.is_scalar and kwt.is_scalar:
                         meta_data: HgTimeSeriesTypeMetaData
                         meta_data.build_resolution_dict_from_scalar(resolution_dict, kwt, kwarg)
+                    elif kwt is None and weak:
+                        pass
                     else:
                         meta_data.build_resolution_dict(resolution_dict, kwt)
             # now ensures all "resolved" items are actually resolved

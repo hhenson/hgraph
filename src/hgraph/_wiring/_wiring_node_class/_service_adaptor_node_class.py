@@ -131,7 +131,7 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
 
         from_graph = {}
         for k, t in self.signature.time_series_inputs.items():
-            from_graph[k] = adaptor_request[TIME_SERIES_TYPE:t](from_graph_path, k)
+            from_graph[k] = adaptor_request[TIME_SERIES_TYPE : t.resolve(resolution_dict)](from_graph_path, k)
             from_graph[k].node_instance.add_indirect_dependency(service_top.node_instance)
             capture_output_node_to_global_state(f"{from_graph_path}/{k}", from_graph[k])
 
