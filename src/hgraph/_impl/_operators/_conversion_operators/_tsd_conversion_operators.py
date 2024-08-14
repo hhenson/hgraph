@@ -37,10 +37,10 @@ from hgraph._impl._operators._conversion_operators._conversion_operator_util imp
 )
 def convert_ts_to_tsd(
     key: TS[KEYABLE_SCALAR],
-    ts: TIME_SERIES_TYPE,
+    ts: REF[TIME_SERIES_TYPE],
     to: Type[OUT] = DEFAULT[OUT],
-    _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
-) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
+    _output: TSD_OUT[KEYABLE_SCALAR, REF[TIME_SERIES_TYPE]] = None,
+) -> TSD[KEYABLE_SCALAR, REF[TIME_SERIES_TYPE]]:
     remove = {k: REMOVE for k in _output.keys() if k != key.value} if _output.valid and key.modified else {}
     return {key.value: ts.value, **remove}
 

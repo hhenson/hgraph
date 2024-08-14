@@ -26,26 +26,6 @@ from hgraph import (
 )
 from ._perspective import PerspectiveTablesManager
 
-__all__ = ("publish_table",)
-
-
-def publish_table(
-    name: str, ts: TIME_SERIES_TYPE, editable: bool = False, empty_row: bool = False, history: int = None, **kwargs
-) -> TIME_SERIES_TYPE:
-    """
-    Publish a time series to a perspective table. The overrides define the logic specific to the input time series type.
-    Passing the history scalar as a non-zero value will create a history table with the same name as the main table plus
-    '_history' suffix. The history table will have a 'time' column with the evaluation time of the data arriving.
-
-    If editable is set to True, the table will be editable in the perspective web interface and the edited rows will be
-    returned as a time series of the same shape as input.
-    """
-    _publish_table(name, ts, editable=editable, empty_row=empty_row, history=history, **kwargs)
-    if editable:
-        return _receive_table_edits(name=name, type=ts.output_type.dereference().py_type, **kwargs)
-    else:
-        return nothing[OUT : ts.output_type]()
-
 
 @sink_node
 def _publish_table(
