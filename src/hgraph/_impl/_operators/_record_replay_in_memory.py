@@ -24,12 +24,13 @@ __all__ = (
     "ReplaySource",
     "replay_from_memory",
     "record_to_memory",
+    "replay_const_from_memory",
     "SimpleArrayReplaySource",
     "set_replay_values",
     "get_recorded_value",
 )
 
-from hgraph._operators._record_replay import record_replay_model_restriction, compare
+from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
 from hgraph._runtime._traits import Traits
 
 
@@ -75,6 +76,7 @@ def replay_from_memory(
     suffix: str = None,
     is_operator: bool = False,
     _traits: Traits = None,
+    _clock: EvaluationClock = None,
 ) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
@@ -91,9 +93,36 @@ def replay_from_memory(
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
+    tm = _clock.evaluation_time
     for ts, v in source:
+        if ts < tm:
+            continue
         if v is not None:
             yield ts, v
+
+
+@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY))
+def replay_const_from_memory(
+    key: str,
+    tp: type[TIME_SERIES_TYPE],
+    suffix: str = None,
+    is_operator: bool = False,
+    _traits: Traits = None,
+    _clock: EvaluationClock = None,
+) -> TIME_SERIES_TYPE:
+    recordable_id = f":memory:{_traits.get_trait_or("recordable_id", None)}{'_' + suffix if suffix else ''}"
+    source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
+    if source is None:
+        raise ValueError(f"Replay source with label '{key}' does not exist")
+    tm = _clock.evaluation_time
+    previous_v = None
+    for ts, v in source:
+        # This is a slow approach, but since we don't have an index this is the best we can do.
+        if ts <= tm:
+            previous_v = v
+        else:
+            break
+    yield tm, previous_v
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY))

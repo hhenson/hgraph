@@ -39,7 +39,7 @@ class RecordReplayEnum(IntFlag):
         Then will continue to compute the next states.
     """
 
-    NONE = auto()
+    NONE = 0
     RECORD = auto()
     REPLAY = auto()
     COMPARE = auto()
@@ -125,6 +125,14 @@ def replay(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SER
 
     The key represents the input argument (or out for the output)
     The suffix to append to the recorder id, this is useful when multiple recording is performed.
+    """
+
+
+@operator
+def replay_const(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SERIES_TYPE:
+    """
+    Will return a const time-series of values <= start_time.
+    This is used to intialise the graph prior to continued computations.
     """
 
 
