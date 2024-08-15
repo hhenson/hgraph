@@ -599,9 +599,10 @@ Version 0.2.53 (12-08-2024)
 
 * Fixed imports
 
-Version 0.2.54 (TBD)
--------------------
+Version 0.2.54 (15-08-2024)
+---------------------------
 
 * Fix dataframe iteration when the iterator returns an empty set.
 * Introduce RECOVER flag
 * Fix TSD's ticking when not valid and {} is ticked.
+* Implement initial recovery logic.
