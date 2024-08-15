@@ -21,25 +21,25 @@ try:
         format_,
         map_,
     )
-    from hgraph.adaptors.tornado.rest_adaptor import (
-        rest_handler,
-        RestRequest,
-        RestResponse,
-        rest_adaptor_impl,
-        rest_adaptor,
-        rest_adaptor_helper,
+    from hgraph.adaptors.tornado.http_server_adaptor import (
+        http_server_handler,
+        HttpRequest,
+        HttpResponse,
+        http_server_adaptor_impl,
+        http_server_adaptor,
+        http_server_adaptor_helper,
     )
     from hgraph.nodes import stop_engine
 
     def test_single_request_graph():
-        @rest_handler(url="/test")
-        def x(request: TS[RestRequest]) -> TS[RestResponse]:
-            return combine[TS[RestResponse]](status_code=200, body="Hello, world!")
+        @http_server_handler(url="/test")
+        def x(request: TS[HttpRequest]) -> TS[HttpResponse]:
+            return combine[TS[HttpResponse]](status_code=200, body="Hello, world!")
 
-        @rest_handler(url="/stop")
-        def s(request: TS[RestRequest]) -> TS[RestResponse]:
+        @http_server_handler(url="/stop")
+        def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
-            return combine[TS[RestResponse]](status_code=200, body="Ok")
+            return combine[TS[HttpResponse]](status_code=200, body="Ok")
 
         @sink_node
         def q(t: TIME_SERIES_TYPE):
@@ -47,7 +47,7 @@ try:
 
         @graph
         def g():
-            register_adaptor("rest_adaptor", rest_adaptor_impl, port=8081)
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
             q(True)
 
         response1 = None
@@ -76,20 +76,20 @@ try:
         assert response2.text == "Hello, world!"
 
     def test_multiple_request_graph():
-        @rest_handler(url="/test")
+        @http_server_handler(url="/test")
         @compute_node
-        def x(request: TSD[int, TS[RestRequest]], _state: STATE = None) -> TSD[int, TS[RestResponse]]:
+        def x(request: TSD[int, TS[HttpRequest]], _state: STATE = None) -> TSD[int, TS[HttpResponse]]:
             out = {}
             for i, v in request.modified_items():
                 _state.counter = _state.counter + 1 if hasattr(_state, "counter") else 0
-                out[i] = RestResponse(status_code=200, body=f"Hello, world #{_state.counter}!")
+                out[i] = HttpResponse(status_code=200, body=f"Hello, world #{_state.counter}!")
 
             return out
 
-        @rest_handler(url="/stop")
-        def s(request: TS[RestRequest]) -> TS[RestResponse]:
+        @http_server_handler(url="/stop")
+        def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
-            return combine[TS[RestResponse]](status_code=200, body="Ok")
+            return combine[TS[HttpResponse]](status_code=200, body="Ok")
 
         @sink_node
         def q(t: TIME_SERIES_TYPE):
@@ -97,7 +97,7 @@ try:
 
         @graph
         def g():
-            register_adaptor("rest_adaptor", rest_adaptor_impl, port=8081)
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
             q(True)
 
         response1 = None
@@ -125,29 +125,29 @@ try:
         assert response2.status_code == 200
         assert response2.text == "Hello, world #1!"
 
-    def test_rest_adaptor_graph():
+    def test_http_server_adaptor_graph():
         @sink_node
         def q(t: TIME_SERIES_TYPE):
             Thread(target=make_query).start()
 
-        @rest_handler(url="/test/(.*)")
-        def x(request: TS[RestRequest], b: TS[int]) -> TS[RestResponse]:
-            return combine[TS[RestResponse]](
+        @http_server_handler(url="/test/(.*)")
+        def x(request: TS[HttpRequest], b: TS[int]) -> TS[HttpResponse]:
+            return combine[TS[HttpResponse]](
                 status_code=200, body=format_("Hello, {} and {}!", request.url_parsed_args[0], b)
             )
 
         @graph
         def g():
-            register_adaptor(None, rest_adaptor_helper, port=8081)
+            register_adaptor(None, http_server_adaptor_helper, port=8081)
 
             x(b=12)
 
             q(True)
 
-        @rest_handler(url="/stop")
-        def s(request: TS[RestRequest]) -> TS[RestResponse]:
+        @http_server_handler(url="/stop")
+        def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
-            return combine[TS[RestResponse]](status_code=200, body="Ok")
+            return combine[TS[HttpResponse]](status_code=200, body="Ok")
 
         response1 = None
         response2 = None

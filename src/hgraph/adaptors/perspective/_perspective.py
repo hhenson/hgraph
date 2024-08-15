@@ -16,7 +16,7 @@ from hgraph import sink_node, GlobalState, TS
 
 __all__ = ["perspective_web", "PerspectiveTablesManager"]
 
-from hgraph.adaptors.tornado._tordano_web import TornadoWeb
+from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
 class PerspectiveTableUpdatesHandler:

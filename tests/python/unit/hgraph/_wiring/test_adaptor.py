@@ -166,7 +166,6 @@ def test_mutli_adaptor_sink_only():
     eval_node(g, [1, None, 2])
 
 
-@pytest.mark.xfail(reason="Not implemented yet")
 def test_adaptor_source_only():
     @adaptor
     def my_adaptor(path: str) -> TS[int]: ...
