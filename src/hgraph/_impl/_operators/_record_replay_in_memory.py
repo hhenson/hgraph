@@ -17,7 +17,7 @@ from hgraph import (
     TS,
     graph,
     CompoundScalar,
-    LOGGER,
+    LOGGER, TimeSeriesOutput,
 )
 
 __all__ = (
@@ -109,20 +109,26 @@ def replay_const_from_memory(
     is_operator: bool = False,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
+    _output: TIME_SERIES_TYPE = None,
 ) -> TIME_SERIES_TYPE:
     recordable_id = f":memory:{_traits.get_trait_or("recordable_id", None)}{'_' + suffix if suffix else ''}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
     tm = _clock.evaluation_time
-    previous_v = None
+    _output: TimeSeriesOutput
     for ts, v in source:
-        # This is a slow approach, but since we don't have an index this is the best we can do.
+        # This is a slow approach, but since we don't have an index, this is the best we can do.
+        # Additionally, since we are recording delta values, we need to apply the successive results to form the
+        # full picture of state.
         if ts <= tm:
-            previous_v = v
+            # Combine results when dealing with Collection results
+            _output.apply_result(v)
         else:
             break
-    yield tm, previous_v
+    if _output.last_modified_time != tm:
+        # This should only occur if the value was not modified
+        yield tm, None
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY))

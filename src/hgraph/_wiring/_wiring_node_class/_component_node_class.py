@@ -3,7 +3,7 @@ from typing import Callable, TypeVar, Optional
 
 from frozendict import frozendict
 
-from hgraph import NODE, default
+from hgraph import NODE, default, merge
 from hgraph._operators._record_replay import (
     RecordReplayEnum,
     RecordReplayContext,
@@ -144,7 +144,7 @@ def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
         ts: WiringPort
         ts = replay(key, ts.output_type.py_type)
     if RecordReplayEnum.RECOVER in mode:
-        ts = default(ts, replay_const(key, ts.output_type.py_type))
+        ts = merge(ts, replay_const(key, ts.output_type.py_type))
     return ts
 
 

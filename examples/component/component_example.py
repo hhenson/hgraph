@@ -89,7 +89,8 @@ def run_recover():
         set_replay_values(
             "factors", SimpleArrayReplaySource([fd(a=0.11, b=0.19), fd(a=0.09, b=0.21)], MIN_ST + MIN_TD * 3)
         )
-        # This should identify that there is recorded state, reload the last known state and then continue from that point on.
+        # This should identify that there is recorded state,
+        # reload the last known state and then continue from that point on.
         config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION, start_time=MIN_ST + MIN_TD)
         evaluate_graph(main, config)
 
