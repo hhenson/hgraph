@@ -39,14 +39,13 @@ Note the first version of services are implemented in process and are not distri
 ## 0.3.0
 
 The following features are planned for this release:
-* distributed network services.
-* External API support (REST, gRPC, etc.). Allows for exposure of the graph to non-graph users.
+* Graph recording and playback.
 
 ## 0.4.0
 
 The following features are planned for this release:
-* Full graph recording and playback.
-
+* distributed network services.
+* External API support (REST, gRPC, etc.). Allows for exposure of the graph to non-graph users.
 
 ## 0.5.0
 
