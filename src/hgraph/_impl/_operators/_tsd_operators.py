@@ -3,7 +3,7 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
-from hgraph import reduce, add_
+from hgraph import reduce, add_, SCHEMA, join, unpartition
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import (
     sub_,
@@ -209,6 +209,25 @@ def tsd_get_bundle_item(
                 out[k] = v.value.items[_schema._schema_index_of(key)]
         else:
             out[k] = PythonTimeSeriesReference()
+
+    for k in tsd.removed_keys():
+        out[k] = REMOVE_IF_EXISTS
+
+    return out
+
+
+@compute_node(
+    overloads=getattr_,
+    resolvers={SCALAR: lambda mapping, scalars: get_schema_type(mapping[SCHEMA].meta_data_schema, scalars["key"])},
+)
+def tsd_get_cs_item(tsd: TSD[K, TS[SCHEMA]], key: str, _schema: Type[SCHEMA] = AUTO_RESOLVE) -> TSD[K, TS[SCALAR]]:
+    """
+    Returns a TSD of the given items from the compound scalars in the original TSD
+    """
+    out = {}
+    for k, v in tsd.modified_items():
+        if v.valid:
+            out[k] = getattr(v.value, key)
 
     for k in tsd.removed_keys():
         out[k] = REMOVE_IF_EXISTS
@@ -464,6 +483,20 @@ def partition_tsd(
             out[partition][k] = v.value
 
     return out
+
+
+@compute_node(overloads=unpartition)
+def unpartition_tsd(tsd: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    """
+    Union of TSDs - given
+    """
+    out = {}
+    removed = {}
+    for k, v in tsd.modified_items():
+        out |= {k: v.delta_value for k, v in v.modified_items()}
+        removed |= {k: REMOVE_IF_EXISTS for k in v.removed_keys()}
+
+    return removed | out
 
 
 @graph(overloads=zero)

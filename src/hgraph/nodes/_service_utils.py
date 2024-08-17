@@ -172,9 +172,9 @@ def _request_reply_service(
 
 
 @generator
-def request_id() -> TS[int]:
-    request = object()
-    yield timedelta(), id(request)
+def request_id(_state: STATE = None) -> TS[int]:
+    _state.request = object()
+    yield timedelta(), id(_state.request)
 
 
 @sink_node

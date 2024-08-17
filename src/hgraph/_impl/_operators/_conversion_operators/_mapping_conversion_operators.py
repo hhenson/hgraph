@@ -24,6 +24,7 @@ from hgraph import (
     SIZE,
     TSL,
     TSD,
+    TS_SCHEMA,
 )
 from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState, KeyValue
 
@@ -76,6 +77,16 @@ def convert_tsl_to_mapping(
 def convert_tsd_to_mapping(
     ts: TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE], to: Type[OUT] = DEFAULT[OUT]
 ) -> TS[Mapping[KEYABLE_SCALAR, SCALAR]]:
+    return ts.value
+
+
+@compute_node(
+    overloads=convert,
+    requires=lambda m, s: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
+    and all(m[SCALAR].matches(v.scalar_type()) for v in m[TS_SCHEMA].meta_data_schema.values()),
+    resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
+)
+def convert_tsb_to_mapping(ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT]) -> TS[Mapping[str, SCALAR]]:
     return ts.value
 
 

@@ -196,7 +196,8 @@ class WiringNodeSignature:
             for k, v in self.defaults.items():
                 if isinstance(v, TypeVar):
                     typevars.add(v)
-            typevars.update(self.output_type.typevars)
+            if self.output_type is not None:
+                typevars.update(self.output_type.typevars)
         return frozenset(typevars)
 
     @property
@@ -484,7 +485,16 @@ class WiringNodeSignature:
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
-    def resolve_context_kwargs(self, kwargs, kwarg_types, resolved_inputs, valid_inputs, has_valid_overrides):
+    def resolve_context_kwargs(
+        self,
+        kwargs,
+        kwarg_types,
+        resolved_inputs,
+        valid_inputs,
+        has_valid_overrides,
+        all_valid_inputs,
+        has_all_valid_overrides,
+    ):
         for arg, tp in self.time_series_inputs.items():
             if tp.is_context_wired:
                 from hgraph import REQUIRED
@@ -500,8 +510,16 @@ class WiringNodeSignature:
                     ):
                         kwargs[arg] = c
                         kwarg_types[arg] = c.output_type
-                        valid_inputs = frozenset((valid_inputs or set()) | {arg})
-                        has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
+                        if not tp.ts_type.matches(c.output_type.dereference()):
+                            # the context must be a bundle so replace the context type and require it to be all-valid
+                            resolved_inputs = resolved_inputs | {arg: c.output_type.dereference()}
+                            all_valid_inputs = frozenset((all_valid_inputs or set()) | {arg})
+                            has_all_valid_overrides = (
+                                has_all_valid_overrides or all_valid_inputs is None or arg not in all_valid_inputs
+                            )
+                        else:
+                            valid_inputs = frozenset((valid_inputs or set()) | {arg})
+                            has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
                     elif v is REQUIRED:
                         raise CustomMessageWiringError(
                             f"Context of type {tp} for argument '{arg}' is required, but not found"
@@ -518,7 +536,7 @@ class WiringNodeSignature:
                         valid_inputs = frozenset((valid_inputs or set(self.time_series_inputs.keys())) - {arg})
                         has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs
 
-        return valid_inputs, has_valid_overrides
+        return resolved_inputs, valid_inputs, has_valid_overrides, all_valid_inputs, has_all_valid_overrides
 
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:

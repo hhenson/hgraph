@@ -33,6 +33,7 @@ class FeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
             raise CustomMessageWiringError(f"feedback is already bounded")
         self._bound = True
         _feedback_sink(ts, self._delegate)
+        return self
 
 
 def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> FeedbackWiringPort[TIME_SERIES_TYPE]:

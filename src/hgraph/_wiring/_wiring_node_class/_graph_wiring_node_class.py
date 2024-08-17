@@ -297,11 +297,17 @@ class WiringGraphContext:
             for service, path, type_map in set(service_clients):
                 typed_path = service.typed_full_path(path, type_map)
 
-                if item := self.find_service_impl(path, service, type_map):
+                if item := self.find_service_impl(path, service, type_map, quiet=True):
                     interface, impl, kwargs = item
                 else:
+                    clients = [
+                        node.wiring_path_name
+                        for s, p, t, node, _ in self._service_clients
+                        if s == service and p == path and t == type_map
+                    ]
                     raise CustomMessageWiringError(
-                        f"No implementation found for service: {service.signature.name} at path: {path}"
+                        f"No implementation found for service: {service.signature.name} at path: {path} requested by"
+                        f" {clients}"
                     )
 
                 if isinstance(interface, PreResolvedWiringNodeWrapper):

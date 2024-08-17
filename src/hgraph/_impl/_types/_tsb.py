@@ -132,11 +132,11 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().value
         else:
-            v = {k: ts.value for k, ts in self.items() if ts.valid}
             if s := self.__schema__.scalar_type():
+                v = {k: ts.value for k, ts in self.items() if ts.valid or getattr(s, k, None) is None}
                 return s(**v)
             else:
-                return v
+                return {k: ts.value for k, ts in self.items() if ts.valid}
 
     @property
     def delta_value(self) -> Mapping[str, Any]:

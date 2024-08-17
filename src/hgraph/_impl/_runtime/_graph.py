@@ -202,7 +202,7 @@ class PythonGraph(Graph):
         nodes = self._nodes
         schedule = self._schedule
 
-        if clock.push_node_requires_scheduling:
+        if self.push_source_nodes_end > 0 and clock.push_node_requires_scheduling:
             clock.reset_push_node_requires_scheduling()
             for i in range(self.push_source_nodes_end):
                 node = nodes[i]

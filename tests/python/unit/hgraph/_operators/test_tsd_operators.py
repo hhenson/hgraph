@@ -41,6 +41,7 @@ from hgraph import (
     getitem_,
     merge,
     TSL,
+    unpartition,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -239,6 +240,23 @@ def test_tsd_partition():
         {"even": {2: REMOVE}},
         {"prime": {3: 6}, "odd": {3: REMOVE}},
     ]
+
+
+def test_tsd_unpartition():
+    @graph
+    def g(tsd: TSD[str, TSD[int, TS[int]]]) -> TSD[int, TS[int]]:
+        return unpartition(tsd)
+
+    assert eval_node(
+        g,
+        [
+            {"odd": {1: 1}},
+            {"odd": {1: 4, 3: 6}, "even": {2: 5}},
+            {"odd": {1: REMOVE}},
+            {"even": {2: REMOVE}},
+            {"prime": {3: 6}, "odd": {3: REMOVE}},
+        ],
+    ) == [{1: 1}, {1: 4, 3: 6, 2: 5}, {1: REMOVE}, {2: REMOVE}, {3: 6}]
 
 
 def test_sub_tsds():

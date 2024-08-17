@@ -600,7 +600,10 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         if tp_ is HgTupleCollectionScalarType:
             return self.element_type.matches(tp.element_type)
         elif tp_ is HgTupleFixedScalarType:
-            matches = all(self.element_type.matches(tp_) for tp_ in tp.element_types)
+            matches = all(self.element_type == tp_ for tp_ in tp.element_types) or (
+                all(self.element_type.matches(tp_) for tp_ in tp.element_types)
+                and all(tp_.py_type != object for tp_ in tp.element_types)
+            )
             if matches and self.element_type.is_generic:
                 resolution = {}
                 self.element_type.build_resolution_dict(resolution, tp.element_types[0])
