@@ -33,14 +33,19 @@ class RecordReplayEnum(IntFlag):
 
     RESET
         Ignores the current state and will re-record the results.
+
+    RECOVER
+        Will recover the state of the graph using the first recorded time prior to the start-time.
+        Then will continue to compute the next states.
     """
 
-    NONE = auto()
+    NONE = 0
     RECORD = auto()
     REPLAY = auto()
     COMPARE = auto()
     REPLAY_OUTPUT = auto()
     RESET = auto()
+    RECOVER = auto()
 
 
 class RecordReplayContext:
@@ -98,7 +103,7 @@ def record_replay_model_restriction(model: str):
 
 
 @operator
-def record(ts: TIME_SERIES_TYPE, key: str):
+def record(ts: TIME_SERIES_TYPE, key: str, record_delta_values: bool = True, suffix: str = None):
     """
     Records the ts input. The recordable_context is provided containing the recordable_id as well
     as the record mode. If the mode does not contain record, then the results are not recorded.
@@ -106,17 +111,28 @@ def record(ts: TIME_SERIES_TYPE, key: str):
     the last recorded time is reached (unless the reset option is set).
 
     The key represents the input argument (or out for the output)
+
+    The suffix to append to the recorder id, this is useful when multiple recording is performed.
     """
     ...
 
 
 @operator
-def replay(key: str, tp: type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
+def replay(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SERIES_TYPE:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
 
     The key represents the input argument (or out for the output)
+    The suffix to append to the recorder id, this is useful when multiple recording is performed.
+    """
+
+
+@operator
+def replay_const(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SERIES_TYPE:
+    """
+    Will return a const time-series of values <= start_time.
+    This is used to intialise the graph prior to continued computations.
     """
 
 

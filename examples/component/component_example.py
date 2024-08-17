@@ -82,11 +82,17 @@ def run_compare():
 
 
 def run_recover():
-    set_replay_values("returns", SimpleArrayReplaySource([fd(a=0.26, b=1.4), fd(a=0.23, b=1.35)], MIN_ST + MIN_TD * 3))
-    set_replay_values("factors", SimpleArrayReplaySource([fd(a=0.11, b=0.19), fd(a=0.09, b=0.21)], MIN_ST + MIN_TD * 3))
-    # This should identify that there is recorded state, reload the last known state and then continue from that point on.
-    config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION)
-    evaluate_graph(main, config)
+    with RecordReplayContext(mode=RecordReplayEnum.RECOVER):
+        set_replay_values(
+            "returns", SimpleArrayReplaySource([fd(a=0.26, b=1.4), fd(a=0.23, b=1.35)], MIN_ST + MIN_TD * 3)
+        )
+        set_replay_values(
+            "factors", SimpleArrayReplaySource([fd(a=0.11, b=0.19), fd(a=0.09, b=0.21)], MIN_ST + MIN_TD * 3)
+        )
+        # This should identify that there is recorded state,
+        # reload the last known state and then continue from that point on.
+        config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION, start_time=MIN_ST + MIN_TD)
+        evaluate_graph(main, config)
 
 
 if __name__ == "__main__":
@@ -108,5 +114,7 @@ if __name__ == "__main__":
 
         print("\nRun Compare\n")
         run_compare()
-        # run_recover()
+
+        print("\nRun Recover\n")
+        run_recover()
         ...

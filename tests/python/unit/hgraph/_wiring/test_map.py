@@ -463,7 +463,7 @@ def test_map_preexisting_keys():
             {False: lambda k: nothing(TSD[str, TS[str]]), True: lambda k: map_(lambda key: key, __keys__=k)}, flag, keys
         )
 
-    assert eval_node(g, [{"a", "b"}, None, {"c"}], [False, True, None], __trace__=True) == [
+    assert eval_node(g, [{"a", "b"}, None, {"c"}], [False, True, None]) == [
         None,
         {"a": "a", "b": "b"},
         {"c": "c"},
