@@ -607,4 +607,9 @@ Version 0.2.54 (15-08-2024)
 * Fix TSD's ticking when not valid and {} is ticked.
 * Implement initial recovery logic.
 
-Version 
+Version 0.3.0 (17-08-2024)
+--------------------------
+
+* Update roadmap to address re-order of work.
+* Update to adaptors and adaptor logic
+* Bug fixes
