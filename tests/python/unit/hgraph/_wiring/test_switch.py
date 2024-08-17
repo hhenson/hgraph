@@ -176,7 +176,7 @@ def test_switch_from_reduce():
             no,
         )
 
-    assert eval_node(switch_test, ["o"], [{}, {1: 1}, {2: 2}, {3: 3, 4: 4, 5: 5}], __trace__=True) == [0, 2, 6, 30]
+    assert eval_node(switch_test, ["o"], [{}, {1: 1}, {2: 2}, {3: 3, 4: 4, 5: 5}]) == [0, 2, 6, 30]
 
 
 def test_reduce_from_switch():
@@ -191,7 +191,7 @@ def test_reduce_from_switch():
         )
         return reduce(lambda x, y: combine[TSB[AB]](a=x.a + y.a, b=x.b + y.b), refs, combine[TSB[AB]](a=0, b=0)).b
 
-    assert eval_node(switch_test, [{}, {1: 1}, {2: 2}, {1: 2}, {2: 3}, {1: REMOVE}], __trace__=True) == [
+    assert eval_node(switch_test, [{}, {1: 1}, {2: 2}, {1: 2}, {2: 3}, {1: REMOVE}]) == [
         0,
         2,
         5,
@@ -217,7 +217,7 @@ def test_switch_bundle_from_reduce():
             combine[TSB[AB]](a=no, b=no),
         )
 
-    assert eval_node(switch_test, ["o", None, None], [{}, {1: 1}, {2: 2}, {3: 3, 4: 4, 5: 5}], __trace__=True) == [
+    assert eval_node(switch_test, ["o", None, None], [{}, {1: 1}, {2: 2}, {3: 3, 4: 4, 5: 5}]) == [
         0,
         2,
         6,

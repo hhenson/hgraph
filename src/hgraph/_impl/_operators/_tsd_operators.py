@@ -101,12 +101,14 @@ def tsd_get_items(ts: TSD[K, REF[TIME_SERIES_TYPE]], key: TSS[K]) -> TSD[K, REF[
     """
     Filters the tsd to the given keys.
     """
-    return {
+    out = {
         **{k: v.value for k, v in ts.modified_items() if k in key},
         **{k: REMOVE_IF_EXISTS for k in ts.removed_keys()},
         **{k: ts[k].value for k in key.added() if k in ts},
         **{k: REMOVE_IF_EXISTS for k in key.removed()},
     }
+    if out:
+        return out
 
 
 @compute_node(
@@ -322,7 +324,7 @@ def rekey_tsd(
         if k_new is not None:
             out[k_new] = v.value
 
-    return out
+    return out if out else None
 
 
 @compute_node(overloads=flip)
@@ -503,6 +505,7 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
     This is a helper generator to create a zero time-series for the reduce function.
     """
     from hgraph import nothing
+
     return nothing(ts)
 
 
@@ -544,6 +547,7 @@ def _sum_tsd_unary(tsd: TSD[K, TS[NUMBER]], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
 @graph(overloads=mean)
 def mean_tsd_unary_number(ts: TSD[K, TS[NUMBER]]) -> TS[float]:
     from hgraph import DivideByZero, default
+
     return default(div_(sum_(ts), len_(ts), divide_by_zero=DivideByZero.NAN), float("NaN"))
 
 

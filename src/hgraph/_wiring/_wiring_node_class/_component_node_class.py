@@ -3,8 +3,15 @@ from typing import Callable, TypeVar, Optional
 
 from frozendict import frozendict
 
-from hgraph import NODE
-from hgraph._operators._record_replay import RecordReplayEnum, RecordReplayContext, record, replay, compare
+from hgraph import NODE, default, merge
+from hgraph._operators._record_replay import (
+    RecordReplayEnum,
+    RecordReplayContext,
+    record,
+    replay,
+    compare,
+    replay_const,
+)
 from hgraph._runtime._evaluation_engine import EvaluationEngineApi
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -130,12 +137,14 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
 
 @graph
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
-    match RecordReplayContext.instance().mode:
-        case RecordReplayEnum.RECORD:
-            record(ts, key)
-        case RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE:
-            ts: WiringPort
-            ts = replay(key, ts.output_type.py_type)
+    mode = RecordReplayContext.instance().mode
+    if RecordReplayEnum.RECORD in mode:
+        record(ts, key)
+    if ((RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE) & mode) != RecordReplayEnum.NONE:
+        ts: WiringPort
+        ts = replay(key, ts.output_type.py_type)
+    if RecordReplayEnum.RECOVER in mode:
+        ts = merge(ts, replay_const(key, ts.output_type.py_type))
     return ts
 
 

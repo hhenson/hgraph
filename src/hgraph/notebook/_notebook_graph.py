@@ -9,9 +9,9 @@ from hgraph import (
     create_graph_builder,
     MIN_ST,
     MAX_ET,
+    record,
 )
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import record
 from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
 __all__ = (

@@ -106,7 +106,7 @@ def test_request_reply_service():
         register_service(default_path, add_one_service_impl)
         return add_one_service(default_path, x)
 
-    assert eval_node(main, [1], __trace__=True) == [None, None, 2]
+    assert eval_node(main, [1]) == [None, None, 2]
 
 
 def test_request_reply_service2():
@@ -201,7 +201,7 @@ def test_multiservice():
         submit("submit", ts2)
         return map_(lambda key: subscribe("submit", key), __keys__=receive("submit"))
 
-    assert eval_node(multiservice_test, [1, None], [None, 2], __trace__=True) == [None, {}, {1: True}, {2: True}]
+    assert eval_node(multiservice_test, [1, None], [None, 2]) == [None, {}, {1: True}, {2: True}]
 
 
 def test_generic_ref_service():
