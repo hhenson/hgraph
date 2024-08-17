@@ -73,7 +73,9 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
                 co_posonlyargcount=0,
                 co_kwonlyargcount=len(signature.args),
             )
-            fn = types.FunctionType(kw_only_code, fn.__globals__)
+            fn = types.FunctionType(
+                kw_only_code, fn.__globals__, name=fn.__name__, argdefs=fn.__defaults__, closure=fn.__closure__
+            )
 
         super().__init__(signature, fn)
 

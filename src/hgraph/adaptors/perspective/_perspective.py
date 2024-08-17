@@ -16,13 +16,14 @@ from hgraph import sink_node, GlobalState, TS
 
 __all__ = ["perspective_web", "PerspectiveTablesManager"]
 
+from hgraph.adaptors.tornado._tordano_web import TornadoWeb
+
 
 class PerspectiveTableUpdatesHandler:
     _table: Table
     _view: View
     _updates_table: Table
     _queue: Optional[Callable] = None
-    _expected_updates: List[int]
 
     @property
     def table(self):
@@ -43,7 +44,6 @@ class PerspectiveTableUpdatesHandler:
     @queue.setter
     def queue(self, value):
         self._queue = value
-        self._expected_updates = []
 
     def on_update(self, x, y):
         if x != 0:
@@ -51,9 +51,9 @@ class PerspectiveTableUpdatesHandler:
             if self._queue:
                 self._queue(self._updates_table.view())
 
-            import pyarrow
-
-            print(pyarrow.ipc.RecordBatchStreamReader(y).read_all().__repr__())
+            # import pyarrow
+            #
+            # print(pyarrow.ipc.RecordBatchStreamReader(y).read_all().__repr__())
 
 
 class PerspectiveTablesManager:
@@ -127,7 +127,11 @@ class PerspectiveTablesManager:
 
     def tornado_config(self):
         return [
-            (r"/websocket_readonly", PerspectiveTornadoHandler, {"manager": self._manager, "check_origin": True}),
+            (
+                r"/websocket_readonly",
+                PerspectiveTornadoHandler,
+                {"manager": self._manager, "check_origin": True},
+            ),
             (
                 r"/websocket_editable",
                 PerspectiveTornadoHandler,
@@ -156,19 +160,18 @@ def perspective_web(
     logger: logging.Logger = None,
 ):
     perspective_manager = PerspectiveTablesManager.current()
-    app = GlobalState.instance()["tornado_app"]
-    started = False
-
-    def started_cb():
-        nonlocal started
-        started = True
+    app = GlobalState.instance()["perspective_tornado_web"]
 
     if _sig.value:
-        thread = Thread(target=_tornado_thread, kwargs=dict(app=app, port=port, cb=started_cb))
-        thread.daemon = True
-        thread.start()
+        app.start()
 
-        thread = Thread(target=_perspective_thread, kwargs=dict(manager=perspective_manager))
+        started = False
+
+        def started_cb():
+            nonlocal started
+            started = True
+
+        thread = Thread(target=_perspective_thread, kwargs=dict(manager=perspective_manager, cb=started_cb))
         thread.daemon = True
         thread.start()
 
@@ -186,7 +189,7 @@ def _get_node_location():
     """Assuming node is installed this will retrieve the global local for npm modules"""
     import subprocess
 
-    result = subprocess.run(["npm", "root", "-g", "for", "npm"], capture_output=True, text=True)
+    result = subprocess.run(["npm", "root", "-g", "for", "npm"], shell=True, capture_output=True, text=True)
     return result.stdout.rstrip()
 
 
@@ -208,17 +211,14 @@ def perspective_web_start(
     if "/" not in workspace_template:
         workspace_template = os.path.join(os.path.dirname(__file__), workspace_template)
 
-    from tornado.log import enable_pretty_logging
-
-    enable_pretty_logging()
-
     perspective_manager = PerspectiveTablesManager.current()
     perspective_manager.start()
 
     tempfile.gettempdir()
     layouts_dir = layouts_path or os.path.join(tempfile.tempdir, "psp_layouts")
 
-    app = tornado.web.Application(
+    app = TornadoWeb.instance(port)
+    app.add_handlers(
         [
             (
                 r"/table/(.*)",
@@ -260,23 +260,16 @@ def perspective_web_start(
             if index_template
             else []
         ),
-        websocket_ping_interval=1,
     )
 
-    GlobalState.instance()["tornado_app"] = app
+    GlobalState.instance()["perspective_tornado_web"] = app
 
 
-def _tornado_thread(app, port, cb):
-    app.listen(port)
-    loop = tornado.ioloop.IOLoop.current()
-    cb()
-    loop.start()
-
-
-def _perspective_thread(manager):
+def _perspective_thread(manager, cb):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         loop = tornado.ioloop.IOLoop()
         manager.set_loop_callback(loop.run_in_executor, executor)
+        cb()
         loop.start()
 
 
