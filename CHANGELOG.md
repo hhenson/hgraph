@@ -20,3 +20,8 @@ Version 0.1.2 (15-05-2024)
 
 * Unit framework
 * Some example of modeling.
+
+Version 0.1.3 (17-08-2024)
+--------------------------
+
+* Numerous bug fixes
