@@ -91,7 +91,7 @@ def run_recover():
         )
         # This should identify that there is recorded state,
         # reload the last known state and then continue from that point on.
-        config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION, start_time=MIN_ST + MIN_TD)
+        config = GraphConfiguration(run_mode=EvaluationMode.SIMULATION, start_time=MIN_ST + MIN_TD * 2)
         evaluate_graph(main, config)
 
 
@@ -117,4 +117,4 @@ if __name__ == "__main__":
 
         print("\nRun Recover\n")
         run_recover()
-        ...
+        # ...

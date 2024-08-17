@@ -1,6 +1,5 @@
 from enum import auto, IntFlag
 
-from hgraph._types._ts_type import TS
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._decorators import operator
@@ -12,6 +11,7 @@ __all__ = (
     "record_replay_model",
     "record",
     "replay",
+    "replay_const",
     "compare",
     "IN_MEMORY",
 )
