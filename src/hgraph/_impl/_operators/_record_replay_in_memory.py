@@ -186,11 +186,11 @@ class _AssertResult(CompoundScalar):
 
 @sink_node
 def _assert_result(ts: TS[bool], _state: STATE[_AssertResult] = None, _traits: Traits = None, _logger: LOGGER = None):
-    _state.has_error |= ts.value
+    _state.has_error |= not ts.value
 
 
-@_assert_result.start
-def _assert_result_start(_state: STATE[_AssertResult], _traits: Traits, _logger: LOGGER):
+@_assert_result.stop
+def _assert_result_stop(_state: STATE[_AssertResult], _traits: Traits, _logger: LOGGER):
     if _state.has_error:
         raise RuntimeError(f"{_traits.get_trait('recordable_id')} is not equal")
     else:
