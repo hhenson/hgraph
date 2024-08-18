@@ -17,7 +17,8 @@ from hgraph import (
     TS,
     graph,
     CompoundScalar,
-    LOGGER, TimeSeriesOutput,
+    LOGGER,
+    TimeSeriesOutput,
 )
 
 __all__ = (
@@ -111,7 +112,7 @@ def replay_const_from_memory(
     _clock: EvaluationClock = None,
     _output: TIME_SERIES_TYPE = None,
 ) -> TIME_SERIES_TYPE:
-    recordable_id = f":memory:{_traits.get_trait_or("recordable_id", None)}{'_' + suffix if suffix else ''}"
+    recordable_id = f":memory:{_traits.get_trait_or('recordable_id', None)}{'_' + suffix if suffix else ''}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
