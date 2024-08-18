@@ -111,3 +111,36 @@ def test_record_replay():
                 fd(a=5.0, b=2.0),
                 fd(a=7.0, b=9.0),
             ]
+
+
+def test_record_recovery():
+    @component
+    def my_component(a: TSD[str, TS[float]], b: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
+        return map_(add_[TS[float]], a, b)
+
+    with GlobalState() as gs:
+        set_record_replay_model(IN_MEMORY)
+
+        with RecordReplayContext(mode=RecordReplayEnum.RECORD):
+            assert eval_node(my_component, a=[fd(a=1.0, b=2.0), fd(a=2.0)], b=[fd(a=3.0, b=2.0), fd(b=1.0)]) == [
+                fd(a=4.0, b=4.0),
+                fd(a=5.0, b=3.0),
+            ]
+
+        with RecordReplayContext(mode=RecordReplayEnum.RECOVER | RecordReplayEnum.RECORD):
+            assert eval_node(
+                my_component,
+                a=[None, None, None, None, fd(a=1.0, b=2.0)],
+                b=[None, None, None, None, fd(a=6.0, b=7.0)],
+                __start_time__=MIN_ST + MIN_TD * 3,
+            ) == [
+                None,
+                None,
+                None,
+                fd(a=5.0, b=3.0),
+                fd(a=7.0, b=9.0),
+            ]
+
+            assert len(a_ts := gs.get(f":memory:my_component.a")) == 4
+            assert len(b_ts := gs.get(f":memory:my_component.b")) == 4
+            assert len(b_ts := gs.get(f":memory:my_component.__out__")) == 4

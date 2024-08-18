@@ -19,6 +19,7 @@ from hgraph import (
     CompoundScalar,
     LOGGER,
     TimeSeriesOutput,
+    EvaluationEngineApi,
 )
 
 __all__ = (
@@ -139,14 +140,16 @@ def record_to_memory(
     record_delta_values: bool = True,
     suffix: str = None,
     is_operator: bool = False,
-    _clock: EvaluationClock = None,
+    _api: EvaluationEngineApi = None,
     _state: STATE = None,
     _traits: Traits = None,
 ):
     """
     This node will record the values of the time series into the provided list.
     """
-    _state.record_value.append((_clock.evaluation_time, ts.delta_value if record_delta_values else ts.value))
+    _state.record_value.append(
+        (_api.evaluation_clock.evaluation_time, ts.delta_value if record_delta_values else ts.value)
+    )
 
 
 @record_to_memory.start
@@ -154,16 +157,29 @@ def record_to_memory_start(key: str, suffix: str, is_operator: bool, _state: STA
     recordable_id = _traits.get_trait_or("recordable_id", None)
     if recordable_id is None:
         recordable_id = f"nodes.{record.signature.name}.{key}"
+        _state.is_operator = False
     else:
         recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}.{key}"
+        _state.is_operator = True
     _state.recordable_id = recordable_id
     _state.record_value = []
 
 
 @record_to_memory.stop
-def record_to_memory_stop(_state: STATE):
+def record_to_memory_stop(_state: STATE, _api: EvaluationEngineApi):
     global_state = GlobalState.instance()
-    global_state[_state.recordable_id] = _state.record_value
+    if _state.is_operator and (value := global_state.get(_state.recordable_id, None)):
+        result = []
+        st = _api.start_time
+        for t, v in value:
+            if t >= st:
+                break
+            result.append((t, v))
+        result.extend(_state.record_value)
+    else:
+        result = _state.record_value
+
+    global_state[_state.recordable_id] = result
 
 
 def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tuple[datetime, Any]]:
