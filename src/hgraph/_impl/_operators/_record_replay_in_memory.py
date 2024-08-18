@@ -150,19 +150,20 @@ def record_to_memory(
 
 
 @record_to_memory.start
-def record_to_memory(key: str, suffix: str, is_operator: bool, _state: STATE, _traits: Traits):
-    global_state = GlobalState.instance()
+def record_to_memory_start(key: str, suffix: str, is_operator: bool, _state: STATE, _traits: Traits):
     recordable_id = _traits.get_trait_or("recordable_id", None)
     if recordable_id is None:
         recordable_id = f"nodes.{record.signature.name}.{key}"
     else:
         recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}.{key}"
-    if is_operator:
-        value = global_state.setdefault(recordable_id, [])
-    else:
-        value = []
-        global_state[recordable_id] = value
-    _state.record_value = value
+    _state.recordable_id = recordable_id
+    _state.record_value = []
+
+
+@record_to_memory.stop
+def record_to_memory_stop(_state: STATE):
+    global_state = GlobalState.instance()
+    global_state[_state.recordable_id] = _state.record_value
 
 
 def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tuple[datetime, Any]]:
