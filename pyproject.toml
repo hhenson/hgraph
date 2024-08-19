@@ -14,7 +14,7 @@ dependencies = [
     "sqlalchemy",
     "duckdb",
     "pyarrow",
-#    "perspective",
+#    "perspective-python",
 #    "tornado"
 ]
 requires-python = ">=3.11"
@@ -38,7 +38,7 @@ classifiers = [
 
 [project.optional-dependencies]
 web = [
-    "perspective",
+    "perspective-python",
     "tornado"
 ]
 
@@ -54,7 +54,7 @@ path = "src/hgraph/__about__.py"
 dependencies = [
     "coverage[toml]>=6.5",
     "pytest",
-    "perspective",
+    "perspective-python",
     "tornado"
 ]
 
