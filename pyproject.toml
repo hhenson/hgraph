@@ -38,7 +38,7 @@ classifiers = [
 
 [project.optional-dependencies]
 web = [
-    "perspective-python",
+    "perspective-python < 3",
     "tornado"
 ]
 
@@ -54,7 +54,7 @@ path = "src/hgraph/__about__.py"
 dependencies = [
     "coverage[toml]>=6.5",
     "pytest",
-    "perspective-python",
+    "perspective-python < 3",
     "tornado"
 ]
 
