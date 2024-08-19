@@ -1,7 +1,7 @@
 from enum import auto, IntFlag
 
 from hgraph._runtime._global_state import GlobalState
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
 from hgraph._wiring._decorators import operator
 
 __all__ = (
@@ -118,7 +118,7 @@ def record(ts: TIME_SERIES_TYPE, key: str, record_delta_values: bool = True, suf
 
 
 @operator
-def replay(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SERIES_TYPE:
+def replay(key: str, tp: type[OUT], suffix: str = None) -> OUT:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
@@ -129,7 +129,7 @@ def replay(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SER
 
 
 @operator
-def replay_const(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> TIME_SERIES_TYPE:
+def replay_const(key: str, tp: type[OUT], suffix: str = None) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.
