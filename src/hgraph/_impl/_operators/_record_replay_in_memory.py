@@ -194,10 +194,11 @@ def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tu
     return global_state[f"{recordable_id}.{label}"]
 
 
-@graph(overloads=compare, requires=record_replay_model_restriction(IN_MEMORY))
-def compare_in_memory(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
+@graph(overloads=compare)
+def compare_generic(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
+    """This just makes use of the generic eq_ operator to perform the comparison."""
     out = lhs == rhs
-    record_to_memory(out, key="__COMPARE__")
+    record(out, key="__COMPARE__")
     _assert_result(out)
 
 
