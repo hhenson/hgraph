@@ -1,5 +1,5 @@
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Type, Callable
 
 from perspective import Table, View
@@ -23,28 +23,9 @@ from hgraph import (
     push_queue,
     OUT,
     nothing,
+    SCHEDULER,
 )
 from ._perspective import PerspectiveTablesManager
-
-__all__ = ("publish_table",)
-
-
-def publish_table(
-    name: str, ts: TIME_SERIES_TYPE, editable: bool = False, empty_row: bool = False, history: int = None, **kwargs
-) -> TIME_SERIES_TYPE:
-    """
-    Publish a time series to a perspective table. The overrides define the logic specific to the input time series type.
-    Passing the history scalar as a non-zero value will create a history table with the same name as the main table plus
-    '_history' suffix. The history table will have a 'time' column with the evaluation time of the data arriving.
-
-    If editable is set to True, the table will be editable in the perspective web interface and the edited rows will be
-    returned as a time series of the same shape as input.
-    """
-    _publish_table(name, ts, editable=editable, empty_row=empty_row, history=history, **kwargs)
-    if editable:
-        return _receive_table_edits(name=name, type=ts.output_type.dereference().py_type, **kwargs)
-    else:
-        return nothing[OUT : ts.output_type]()
 
 
 @sink_node
@@ -73,6 +54,7 @@ def _publish_table_from_tsd(
     _schema: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     ec: EvaluationClock = None,
     state: STATE = None,
+    sched: SCHEDULER = None,
 ):
     """
     Publish a TSD to a perspective table as a collection of rows. The value types supported are a bundle,
@@ -88,9 +70,20 @@ def _publish_table_from_tsd(
     if state.create_index:
         data = [{**i, **state.create_index(i)} for i in data]
 
-    state.manager.update_table(name, data, ts.removed_keys())
-    if history:
-        state.manager.update_table(name + "_history", [{"time": ec.evaluation_time, **d} for d in data])
+    state.data += data
+    state.removed.update(ts.removed_keys())
+    state.removed -= ts.added_keys()
+
+    if not sched.is_scheduled:
+        sched.schedule(timedelta(milliseconds=250))
+
+    if sched.is_scheduled_now:
+        state.manager.update_table(name, state.data, state.removed)
+        if history:
+            state.manager.update_table(name + "_history", [{"time": ec.evaluation_time, **d} for d in state.data])
+
+        state.data = []
+        state.removed = set()
 
 
 @_publish_table_from_tsd.start
@@ -179,6 +172,8 @@ def _publish_table_from_tsd_start(
         table.update([state.process_key(empty_values)])
 
     manager.add_table(name, table, editable)
+    state.data = []
+    state.removed = set()
 
     if history:
         history_table = Table(

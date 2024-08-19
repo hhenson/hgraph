@@ -16,7 +16,7 @@ from hgraph import sink_node, GlobalState, TS
 
 __all__ = ["perspective_web", "PerspectiveTablesManager"]
 
-from hgraph.adaptors.tornado._tordano_web import TornadoWeb
+from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
 class PerspectiveTableUpdatesHandler:
@@ -281,7 +281,7 @@ class TablePageHandler(tornado.web.RequestHandler):
         self.port = port
 
     def get(self, table_name):
-        tornado.log.app_log.info("requesting table", table_name)
+        tornado.log.app_log.info(f"requesting table {table_name}")
         if table_name in self.mgr.get_table_names():
             self.render(
                 self.template,
@@ -333,14 +333,14 @@ class WorkspacePageHandler(tornado.web.RequestHandler):
                 if "." in url and os.path.isfile(v_path := os.path.join(self.path, f"{url}.version")):
                     with open(v_path, "r") as f:
                         json = f.read().encode("utf-8")
-                        tornado.log.app_log.info("loaded layout", url, "returning", json)
+                        tornado.log.app_log.info(f"loaded layout {url} returning {json}")
                         self.finish(json)
                         return
 
                 layout_file = os.path.join(self.path, f"{url}.json")
                 with open(layout_file, "r") as f:
                     json = f.read().encode("utf-8")
-                    tornado.log.app_log.info("loaded layout", url, "from", layout_file, "returning", json)
+                    tornado.log.app_log.info(f"loaded layout {url} from {layout_file} returned {json}")
                     self.finish(json)
             except:
                 files = glob(os.path.join(self.path, f"{url}.*.version"))
@@ -348,12 +348,12 @@ class WorkspacePageHandler(tornado.web.RequestHandler):
                     files.sort()
                     with open(files[-1], "r") as f:
                         json = f.read().encode("utf-8")
-                        tornado.log.app_log.info("loaded layout", url, "from", files[-1], "returning", json)
+                        tornado.log.app_log.info(f"loaded layout {url} from {files[-1]} returning {json}")
                         self.finish(json)
                 else:
                     self.finish("{}")
                     tornado.log.app_log.warn(
-                        "failed to open file", os.path.join(self.path, url), "and no found no versions, returning {}"
+                        f"failed to open file {os.path.join(self.path, url)} and no found no versions, returning {{}}"
                     )
         else:
             self.set_status(404)

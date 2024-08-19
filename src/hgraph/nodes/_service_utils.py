@@ -225,7 +225,8 @@ def get_shared_reference_output(path: str, strict: bool = True, node: NODE = Non
     from hgraph._runtime._global_state import GlobalState
 
     shared_output = GlobalState.instance().get(path)
-    GlobalState.instance()[f"{path}_subscriber"].subscribe(node)
+    if shared_output:
+        GlobalState.instance()[f"{path}_subscriber"].subscribe(node)
 
     if shared_output is None and strict:
         raise RuntimeError(f"Missing shared output for path: {path}")
@@ -240,4 +241,6 @@ def get_shared_reference_output_start(path: str, node: NODE = None):
 
 @get_shared_reference_output.stop
 def get_shared_reference_output_start(path: str, node: NODE = None):
-    GlobalState.instance()[f"{path}_subscriber"].unsubscribe(node)
+    subscriber = GlobalState.instance().get(f"{path}_subscriber")
+    if subscriber:
+        subscriber.unsubscribe(node)

@@ -1,7 +1,9 @@
 import asyncio
 import concurrent.futures
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
+
+from frozendict import frozendict
 
 from hgraph import (
     CompoundScalar,
@@ -28,34 +30,34 @@ from hgraph import (
     nothing,
 )
 import tornado
-from hgraph.adaptors.tornado._tordano_web import TornadoWeb
+from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
 @dataclass(frozen=True)
-class RestRequest(CompoundScalar):
+class HttpRequest(CompoundScalar):
     url: str
-    url_parsed_args: tuple[str]
-    headers: dict[str, str]
+    url_parsed_args: tuple[str] = ()
+    headers: dict[str, str] = frozendict()
 
 
 @dataclass(frozen=True)
-class RestResponse(CompoundScalar):
+class HttpResponse(CompoundScalar):
     status_code: int
-    body: str
-    headers: dict[str, str] = None
+    headers: frozendict[str, str] = frozendict()
+    body: str = ""
 
 
 @dataclass(frozen=True)
-class RestGetRequest(RestRequest):
+class HttpGetRequest(HttpRequest):
     pass
 
 
 @dataclass(frozen=True)
-class RestPostRequest(RestRequest):
-    body: str
+class HttpPostRequest(HttpRequest):
+    body: str = ""
 
 
-class RestAdaptorManager:
+class HttpAdaptorManager:
     handlers: dict[str, Callable | str]
 
     def __init__(self):
@@ -75,7 +77,7 @@ class RestAdaptorManager:
         self.tornado_web = TornadoWeb.instance(port)
 
         for path in self.handlers.keys():
-            self.tornado_web.add_handler(path, RestHandler, {"path": path, "mgr": self})
+            self.tornado_web.add_handler(path, HttpHandler, {"path": path, "mgr": self})
 
         self.tornado_web.start()
 
@@ -100,7 +102,7 @@ class RestAdaptorManager:
         print(f"Completed request {request_id} with response {response}")
 
 
-class RestHandler(tornado.web.RequestHandler):
+class HttpHandler(tornado.web.RequestHandler):
     def initialize(self, path, mgr):
         self.path = path
         self.mgr = mgr
@@ -110,7 +112,7 @@ class RestHandler(tornado.web.RequestHandler):
         request_id = id(request_obj)
 
         response = await self.mgr.add_request(
-            request_id, RestGetRequest(url=self.path, url_parsed_args=args, headers=self.request.headers)
+            request_id, HttpGetRequest(url=self.path, url_parsed_args=args, headers=self.request.headers)
         )
 
         self.set_status(response.status_code)
@@ -127,7 +129,7 @@ class RestHandler(tornado.web.RequestHandler):
 
         response = await self.mgr.add_request(
             request_id,
-            RestPostRequest(url=self.path, url_parsed_args=args, headers=self.request.headers, body=self.request.body),
+            HttpPostRequest(url=self.path, url_parsed_args=args, headers=self.request.headers, body=self.request.body),
         )
 
         self.set_status(response.status_code)
@@ -136,41 +138,41 @@ class RestHandler(tornado.web.RequestHandler):
         await self.finish(response.body)
 
 
-def rest_handler(fn: Callable = None, *, url: str):
+def http_server_handler(fn: Callable = None, *, url: str):
     if fn is None:
-        return lambda fn: rest_handler(fn, url=url)
+        return lambda fn: http_server_handler(fn, url=url)
 
     from hgraph import WiringNodeClass
 
     if not isinstance(fn, WiringNodeClass):
         fn = graph(fn)
 
-    assert "request" in fn.signature.time_series_inputs.keys(), "Rest graph must have an input named 'request'"
-    assert fn.signature.time_series_inputs["request"].matches_type(TS[RestRequest]) or fn.signature.time_series_inputs[
+    assert "request" in fn.signature.time_series_inputs.keys(), "Http graph must have an input named 'request'"
+    assert fn.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]) or fn.signature.time_series_inputs[
         "request"
     ].matches_type(
-        TSD[int, TS[RestRequest]]
-    ), "Rest graph must have a single input named 'request' of type TS[RestRequest] or TSD[int, TS[RestRequest]]"
+        TSD[int, TS[HttpRequest]]
+    ), "Http graph must have a single input named 'request' of type TS[HttpRequest] or TSD[int, TS[HttpRequest]]"
 
     output_type = fn.signature.output_type
     if isinstance(output_type, HgTSBTypeMetaData):
         output_type = output_type["response"]
 
-    assert output_type.matches_type(TS[RestResponse]) or output_type.matches_type(
-        TSD[int, TS[RestResponse]]
-    ), "Rest graph must have a single output of type TS[RestResponse] or TSD[int, TS[RestResponse]]"
+    assert output_type.matches_type(TS[HttpResponse]) or output_type.matches_type(
+        TSD[int, TS[HttpResponse]]
+    ), "Http graph must have a single output of type TS[HttpResponse] or TSD[int, TS[HttpResponse]]"
 
-    mgr = RestAdaptorManager.instance()
-    # this makes the handler to be auto-wired in the rest_adaptor
+    mgr = HttpAdaptorManager.instance()
+    # this makes the handler to be auto-wired in the http_server_adaptor
     mgr.add_handler(url, fn)
 
     @graph
-    def rest_handler_graph(**inputs: TSB[TS_SCHEMA]) -> TIME_SERIES_TYPE:
+    def http_server_handler_graph(**inputs: TSB[TS_SCHEMA]) -> TIME_SERIES_TYPE:
         # if however this is wired into the graph explicitly, it will be used instead of the auto-wiring the handler
         mgr.add_handler(url, None)  # prevent auto-wiring
 
-        requests = rest_adaptor.to_graph(path=url, __no_ts_inputs__=True)
-        if fn.signature.time_series_inputs["request"].matches_type(TS[RestRequest]):
+        requests = http_server_adaptor.to_graph(path=url, __no_ts_inputs__=True)
+        if fn.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
             if inputs.as_dict():
                 responses = map_(lambda r, i: fn(request=r, **i.as_dict()), requests, inputs)
             else:
@@ -179,45 +181,48 @@ def rest_handler(fn: Callable = None, *, url: str):
             responses = fn(request=requests, **inputs)
 
         if isinstance(responses.output_type, HgTSBTypeMetaData):
-            rest_adaptor.from_graph(responses.response, path=url)
+            http_server_adaptor.from_graph(responses.response, path=url)
             return responses
         else:
-            rest_adaptor.from_graph(responses, path=url)
+            http_server_adaptor.from_graph(responses, path=url)
             return combine()
 
-    return rest_handler_graph
+    return http_server_handler_graph
 
 
 @adaptor
-def rest_adaptor(response: TSD[int, TS[RestResponse]], path: str) -> TSD[int, TS[RestRequest]]: ...
+def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[int, TS[HttpRequest]]: ...
 
 
-@adaptor_impl(interfaces=(rest_adaptor, rest_adaptor))
-def rest_adaptor_helper(path: str, port: int):
-    register_service("rest_adaptor", rest_adaptor_impl, port=port)
+@adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
+def http_server_adaptor_helper(path: str, port: int):
+    register_service("http_server_adaptor", http_server_adaptor_impl, port=port)
 
 
 @adaptor_impl(interfaces=())
-def rest_adaptor_impl(path: str, port: int):
+def http_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
-    @push_queue(TSD[int, TS[RestGetRequest]])
-    def from_web(sender, path: str = "tornado_rest_adaptor") -> TSD[int, TS[RestGetRequest]]:
-        GlobalState.instance()[f"rest_adaptor://{path}/queue"] = sender
+    @push_queue(TSD[int, TS[HttpGetRequest]])
+    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpGetRequest]]:
+        GlobalState.instance()[f"http_server_adaptor://{path}/queue"] = sender
         return None
 
     @sink_node
     def to_web(
-        responses: TSD[int, TS[RestResponse]], port: int, path: str = "tornado_rest_adaptor", _state: STATE = None
+        responses: TSD[int, TS[HttpResponse]],
+        port: int,
+        path: str = "tornado_http_server_adaptor",
+        _state: STATE = None,
     ):
         for response_id, response in responses.modified_items():
             TornadoWeb.get_loop().add_callback(_state.mgr.complete_request, response_id, response.value)
 
     @to_web.start
     def to_web_start(port: int, path: str, _state: STATE):
-        _state.mgr = RestAdaptorManager.instance()
-        _state.mgr.set_queue(queue=GlobalState.instance()[f"rest_adaptor://{path}/queue"])
+        _state.mgr = HttpAdaptorManager.instance()
+        _state.mgr.set_queue(queue=GlobalState.instance()[f"http_server_adaptor://{path}/queue"])
         _state.mgr.start(port)
 
     @to_web.stop
@@ -228,33 +233,35 @@ def rest_adaptor_impl(path: str, port: int):
     requests_by_url = partition(requests, requests.url)
 
     responses = {}
-    for url, handler in RestAdaptorManager.instance().handlers.items():
+    for url, handler in HttpAdaptorManager.instance().handlers.items():
         if isinstance(handler, WiringNodeClass):
-            if handler.signature.time_series_inputs["request"].matches_type(TS[RestGetRequest]):
+            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpGetRequest]):
                 responses[url] = map_(handler, request=requests_by_url[url])
-            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[RestGetRequest]]):
+            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpGetRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
         elif handler is None:
             pass
         else:
-            raise ValueError(f"Invalid REST handler type for the rest adaptor: {handler}")
+            raise ValueError(f"Invalid REST handler type for the http_ adaptor: {handler}")
 
     adaptors_dedup = set()
     adaptors = set()
-    for path, type_map, node, receive in WiringGraphContext.__stack__[0].registered_service_clients(rest_adaptor):
-        assert type_map == {}, "Rest adaptor does not support type generics"
+    for path, type_map, node, receive in WiringGraphContext.__stack__[0].registered_service_clients(
+        http_server_adaptor
+    ):
+        assert type_map == {}, "Http adaptor does not support type generics"
         if (path, receive) in adaptors_dedup:
-            raise ValueError(f"Duplicate rest adaptor client for path {path}: only one client is allowed")
+            raise ValueError(f"Duplicate http_ adaptor client for path {path}: only one client is allowed")
         adaptors_dedup.add((path, receive))
         adaptors.add(path.replace("/from_graph", "").replace("/to_graph", ""))
 
     for path in adaptors:
-        url = rest_adaptor.path_from_full_path(path)
+        url = http_server_adaptor.path_from_full_path(path)
 
-        mgr = RestAdaptorManager.instance()
+        mgr = HttpAdaptorManager.instance()
         mgr.add_handler(url, None)
 
-        responses[url] = rest_adaptor.wire_impl_inputs_stub(path).response
-        rest_adaptor.wire_impl_out_stub(path, requests_by_url[url])
+        responses[url] = http_server_adaptor.wire_impl_inputs_stub(path).response
+        http_server_adaptor.wire_impl_out_stub(path, requests_by_url[url])
 
     to_web(merge(*responses.values()), port)

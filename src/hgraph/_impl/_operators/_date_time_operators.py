@@ -72,6 +72,37 @@ def datetime_getattr(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
         raise AttributeError(f"TS[datetime] has no property {attribute}")
 
 
+_timedelta_properties = {
+    "days": int,
+    "seconds": int,
+    "microseconds": int,
+}
+
+_timedelta_methods = {
+    "total_seconds": float,
+}
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: _timedelta_properties[s["attribute"]]})
+def timedelta_properties(ts: TS[timedelta], attribute: str) -> TS[SCALAR]:
+    return getattr(ts.value, attribute)
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: _timedelta_methods[s["attribute"]]})
+def timedelta_methods(ts: TS[timedelta], attribute: str) -> TS[SCALAR]:
+    return getattr(ts.value, attribute)()
+
+
+@graph(overloads=getattr_)
+def timedelta_getattr(ts: TS[timedelta], attribute: str) -> TS[SCALAR]:
+    if attribute in _timedelta_properties:
+        return timedelta_properties(ts, attribute)
+    elif attribute in _timedelta_methods:
+        return timedelta_methods(ts, attribute)
+    else:
+        raise AttributeError(f"TS[timedelta] has no property {attribute}")
+
+
 @graph(overloads=add_)
 def add_datetimes(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]:
     # This is to avoid the add_scalars getting wired and failing at runtime
