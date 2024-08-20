@@ -60,6 +60,16 @@ def convert_ts_scalar(
     return s1_type(ts.value)
 
 
+@compute_node(overloads=convert)
+def convert_ts_str_to_bytes(ts: TS[str], to: type[TS[bytes]] = DEFAULT[OUT]) -> TS[bytes]:
+    return ts.value.encode()
+
+
+@compute_node(overloads=convert)
+def convert_ts_bytes_to_str(ts: TS[bytes], to: type[TS[str]] = DEFAULT[OUT]) -> TS[str]:
+    return ts.value.decode()
+
+
 @graph(
     overloads=convert,
     requires=lambda m, s: m[SCALAR] != m[SCALAR_1]

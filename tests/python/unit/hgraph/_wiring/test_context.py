@@ -156,7 +156,7 @@ def test_context_bundle():
         with combine[TSB[ContextStruct]](a=1, msg="bundle"):
             return use_context(ts)
 
-    assert eval_node(g, [True, None, False], __trace__=True) == ["bundle", None, "bundle"]
+    assert eval_node(g, [True, None, False]) == ["bundle", None, "bundle"]
 
 
 def test_context_ranking():

@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from logging import Logger, getLogger, DEBUG, StreamHandler, Formatter
@@ -6,6 +7,7 @@ from typing import Callable, Any
 from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph_executor import GraphEngineFactory
+from hgraph._runtime._global_state import GlobalState
 import warnings
 
 __all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
@@ -97,44 +99,45 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
     from hgraph._operators._record_replay import record
     from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
-    signature: WiringNodeSignature = None
-    if not isinstance(graph, GraphBuilder):
-        config.graph_logger.debug("Wiring graph: %s", graph.signature.signature)
-        signature = graph.signature
-        if signature.output_type:
-            graph_ = graph
+    with GlobalState() if GlobalState._instance is None else nullcontext():
+        signature: WiringNodeSignature = None
+        if not isinstance(graph, GraphBuilder):
+            config.graph_logger.debug("Wiring graph: %s", graph.signature.signature)
+            signature = graph.signature
+            if signature.output_type:
+                graph_ = graph
 
-            def _record(*args, **kwargs):
-                out = graph_(*args, **kwargs)
-                record(out, "__out__")
+                def _record(*args, **kwargs):
+                    out = graph_(*args, **kwargs)
+                    record(out, "__out__")
 
-            graph = _record
-        with WiringNodeInstanceContext():
-            from hgraph._wiring._wiring_observer import WiringObserverContext
+                graph = _record
+            with WiringNodeInstanceContext():
+                from hgraph._wiring._wiring_observer import WiringObserverContext
 
-            with WiringObserverContext() as wiring_observer_context:
-                for observer in config.wiring_observers:
-                    wiring_observer_context.add_wiring_observer(observer)
+                with WiringObserverContext() as wiring_observer_context:
+                    for observer in config.wiring_observers:
+                        wiring_observer_context.add_wiring_observer(observer)
 
-                graph_builder: GraphBuilder = wire_graph(graph, *args, **kwargs)
+                    graph_builder: GraphBuilder = wire_graph(graph, *args, **kwargs)
 
-    else:
-        graph_builder = graph
+        else:
+            graph_builder = graph
 
-    config.graph_logger.debug("Creating graph engine: %s", config.run_mode)
-    engine = GraphEngineFactory.make(
-        graph=graph_builder.make_instance(tuple()), run_mode=config.run_mode, observers=config.life_cycle_observers
-    )
-    config.graph_logger.debug("Starting to run graph from: %s to %s", config.start_time, config.end_time)
-    try:
-        engine.run(config.start_time, config.end_time)
-        if signature is not None and signature.output_type:
-            return get_recorded_value("__out__")
-    except Exception as e:
-        config.graph_logger.exception("Graph failed", exc_info=True)
-        raise e
-    finally:
-        config.graph_logger.debug("Finished running graph")
+        config.graph_logger.debug("Creating graph engine: %s", config.run_mode)
+        engine = GraphEngineFactory.make(
+            graph=graph_builder.make_instance(tuple()), run_mode=config.run_mode, observers=config.life_cycle_observers
+        )
+        config.graph_logger.debug("Starting to run graph from: %s to %s", config.start_time, config.end_time)
+        try:
+            engine.run(config.start_time, config.end_time)
+            if signature is not None and signature.output_type:
+                return get_recorded_value("__out__")
+        except Exception as e:
+            config.graph_logger.exception("Graph failed", exc_info=True)
+            raise e
+        finally:
+            config.graph_logger.debug("Finished running graph")
 
 
 def run_graph(
