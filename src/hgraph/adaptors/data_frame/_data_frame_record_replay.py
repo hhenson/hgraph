@@ -15,12 +15,11 @@ from hgraph import (
     STATE,
     GlobalState,
 )
+from hgraph._operators._record_replay import record_replay_model_restriction
+from hgraph._runtime._traits import Traits
+
 
 __all__ = ("DATA_FRAME_RECORD_REPLAY", "set_data_frame_record_path")
-
-from hgraph._operators._record_replay import record_replay_model_restriction
-
-from hgraph._runtime._traits import Traits
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
 DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"

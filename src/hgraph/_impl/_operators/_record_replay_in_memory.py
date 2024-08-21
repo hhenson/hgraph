@@ -21,6 +21,9 @@ from hgraph import (
     TimeSeriesOutput,
     EvaluationEngineApi,
 )
+from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
+from hgraph._runtime._traits import Traits
+
 
 __all__ = (
     "ReplaySource",
@@ -31,9 +34,6 @@ __all__ = (
     "set_replay_values",
     "get_recorded_value",
 )
-
-from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
-from hgraph._runtime._traits import Traits
 
 
 class ReplaySource(Protocol):
