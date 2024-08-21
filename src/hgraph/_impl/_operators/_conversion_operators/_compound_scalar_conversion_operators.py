@@ -23,12 +23,15 @@ from hgraph import (
 __all__ = ()
 
 
+MISSING = object()
+
+
 def _check_schema(scalar, bundle):
     if bundle.meta_data_schema.keys() - scalar.meta_data_schema.keys():
         return f"Extra fields: {bundle.meta_data_schema.keys() - scalar.meta_data_schema.keys()}"
     for k, t in scalar.meta_data_schema.items():
         if (kt := bundle.meta_data_schema.get(k)) is None:
-            if getattr(scalar.py_type, k, None) is None:
+            if getattr(scalar.py_type, k, MISSING) is MISSING:
                 return f"Missing input: {k}"
         elif not t.matches(kt if kt.is_scalar else kt.scalar_type()):
             return f"field {k} of type {t} does not accept {kt}"

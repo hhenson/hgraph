@@ -64,7 +64,7 @@ def test_adaptor():
         register_adaptor("test_adaptor", my_adaptor_impl)
         return my_adaptor("test_adaptor", count(schedule(timedelta(milliseconds=10), max_ticks=10)))
 
-    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=1000), __trace__=True)
+    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=1000))
 
     assert [x[1] for x in result] == list(range(1, 11))
 
@@ -166,7 +166,6 @@ def test_mutli_adaptor_sink_only():
     eval_node(g, [1, None, 2])
 
 
-@pytest.mark.xfail(reason="Not implemented yet")
 def test_adaptor_source_only():
     @adaptor
     def my_adaptor(path: str) -> TS[int]: ...

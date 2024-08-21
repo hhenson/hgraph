@@ -326,6 +326,8 @@ class WiringNodeSignature:
                     if kwt is not None and not meta_data.is_scalar and kwt.is_scalar:
                         meta_data: HgTimeSeriesTypeMetaData
                         meta_data.build_resolution_dict_from_scalar(resolution_dict, kwt, kwarg)
+                    elif kwt is None and weak:
+                        pass
                     else:
                         meta_data.build_resolution_dict(resolution_dict, kwt)
             # now ensures all "resolved" items are actually resolved
@@ -485,7 +487,16 @@ class WiringNodeSignature:
             if type(v) is HgTypeOfTypeMetaData:
                 kwargs[arg] = cast(HgTypeOfTypeMetaData, v).value_tp.py_type
 
-    def resolve_context_kwargs(self, kwargs, kwarg_types, resolved_inputs, valid_inputs, has_valid_overrides, all_valid_inputs, has_all_valid_overrides):
+    def resolve_context_kwargs(
+        self,
+        kwargs,
+        kwarg_types,
+        resolved_inputs,
+        valid_inputs,
+        has_valid_overrides,
+        all_valid_inputs,
+        has_all_valid_overrides,
+    ):
         for arg, tp in self.time_series_inputs.items():
             if tp.is_context_wired:
                 from hgraph import REQUIRED
@@ -505,7 +516,9 @@ class WiringNodeSignature:
                             # the context must be a bundle so replace the context type and require it to be all-valid
                             resolved_inputs = resolved_inputs | {arg: c.output_type.dereference()}
                             all_valid_inputs = frozenset((all_valid_inputs or set()) | {arg})
-                            has_all_valid_overrides = has_all_valid_overrides or all_valid_inputs is None or arg not in all_valid_inputs
+                            has_all_valid_overrides = (
+                                has_all_valid_overrides or all_valid_inputs is None or arg not in all_valid_inputs
+                            )
                         else:
                             valid_inputs = frozenset((valid_inputs or set()) | {arg})
                             has_valid_overrides = has_valid_overrides or valid_inputs is None or arg not in valid_inputs

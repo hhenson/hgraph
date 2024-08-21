@@ -59,20 +59,23 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
 
             __interface__: AdaptorNodeClass
 
-            if __interface__ is None:
-                __interface__ = self.interfaces[0]
+            if self.interfaces != ():
+                if __interface__ is None:
+                    __interface__ = self.interfaces[0]
 
-            if not __interface__.is_full_path(path):
-                full_path = __interface__.full_path(path)
+                if not __interface__.is_full_path(path):
+                    full_path = __interface__.full_path(path)
+                else:
+                    full_path = path
+                    path = __interface__.path_from_full_path(full_path)
             else:
                 full_path = path
-                path = __interface__.path_from_full_path(full_path)
 
             path = path.replace("/from_graph", "").replace("/to_graph", "")
 
             self._validate_service_not_already_bound(full_path, __pre_resolved_types__)
 
-            scalars = {k: v for k, v in __pre_resolved_types__.items() if k in __interface__.signature.scalar_inputs}
+            scalars = {k: v for k, v in __pre_resolved_types__.items() if k in self.signature.scalar_inputs}
             pre_resolved_types = {
                 k: v for k, v in __pre_resolved_types__.items() if k not in self.signature.scalar_inputs
             }
@@ -89,7 +92,8 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
                     to_graph = self.implementation_graph.__call__(
                         __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph.as_dict()
                     )
-                    __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
+                    if to_graph is not None:
+                        __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
                 else:  # multiadaptor/multiservice implementations use the interface stub APIs to wire up the service
                     self.implementation_graph.__call__(__pre_resolved_types__=resolution_dict, **kwargs_)
 
@@ -115,10 +119,11 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
                             raise CustomMessageWiringError(
                                 f"The implementation input {arg}: {ts_type} type value does not match {ts_int_type}"
                             )
-                    if not signature.output_type.dereference().matches(interface_sig.output_type.dereference()):
-                        raise CustomMessageWiringError(
-                            "The output type does not match that of the subscription service signature"
-                        )
+                    if signature.output_type:
+                        if not signature.output_type.dereference().matches(interface_sig.output_type.dereference()):
+                            raise CustomMessageWiringError(
+                                "The output type does not match that of the subscription service signature"
+                            )
                 case _:
                     raise CustomMessageWiringError(f"Unknown service type: {interface_sig.node_type}")
         else:

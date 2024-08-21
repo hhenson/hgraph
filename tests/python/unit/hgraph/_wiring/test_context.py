@@ -113,7 +113,7 @@ def test_context_scalar_named():
             with const(TestContext("Hello_Z")) as z:
                 return format_("{} {}", use_context(ts), use_context(ts, context="z"))
 
-    assert eval_node(g, [True, None, False], __trace__=True) == ["Hello_A Hello_Z", None, "Hello_A Hello_Z"]
+    assert eval_node(g, [True, None, False]) == ["Hello_A Hello_Z", None, "Hello_A Hello_Z"]
 
 
 def test_context_scalar_named_required():
@@ -147,13 +147,13 @@ def test_context_bundle():
         a: int
         msg: str = "bundle"
 
-    @compute_node
+    @compute_node(valid=("ts", "context"))
     def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
         return f"{TestContext.instance().msg}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
-        with combine[TSB[ContextStruct]](a=1):
+        with combine[TSB[ContextStruct]](a=1, msg="bundle"):
             return use_context(ts)
 
     assert eval_node(g, [True, None, False]) == ["bundle", None, "bundle"]
@@ -192,7 +192,7 @@ def test_context_over_switch():
         with create_context(format_("{}_", s)):
             return switch_({True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts, ts)
 
-    assert eval_node(g, ts=[True, None, False], s=["Hello", None, "Hulla"], __trace__=True) == [
+    assert eval_node(g, ts=[True, None, False], s=["Hello", None, "Hulla"]) == [
         "Hello_ True",
         None,
         "Chao False",
@@ -225,7 +225,7 @@ def test_context_over_witch_inside_map():
         h,
         ts=[{1: {1: True}, 2: {2: True}}, {1: {1: False}}, None],
         s=[{1: "Hello", 2: "Chao"}, None, {2: "Ho"}],
-        __trace__={"start": False},
+        # __trace__={"start": False},
     ) == [{1: {1: "Hello_ True"}, 2: {2: "Chao_ True"}}, {1: {1: "Chao False"}}, {2: {2: "Ho_ True"}}]
 
 

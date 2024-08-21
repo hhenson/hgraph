@@ -38,7 +38,7 @@ class RequestReplyServiceNodeClass(ServiceInterfaceNodeClass):
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(self.signature) as g:
-                path = kwargs_.get("path") or self.signature.name
+                path = kwargs_.get("path") or self.default_path()
                 full_path = self.full_path(path)
                 typed_full_path = self.typed_full_path(path, resolution_dict)
 

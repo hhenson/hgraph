@@ -36,7 +36,7 @@ def default(ts: DEFAULT[OUT], default_value: OUT) -> OUT:
 
 
 @operator
-def nothing(tp: type[OUT] = AUTO_RESOLVE) -> OUT:
+def nothing(tp: type[OUT] = AUTO_RESOLVE) -> DEFAULT[OUT]:
     """
     Produces no ticks ever. This can be used in one of two ways:
 
@@ -63,12 +63,7 @@ def null_sink(ts: TIME_SERIES_TYPE):
 
 
 @operator
-def debug_print(
-    label: str,
-    ts: TIME_SERIES_TYPE,
-    print_delta: bool = True,
-    sample: int = -1
-):
+def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, sample: int = -1):
     """
     Use this to help debug code, this will print the value of the supplied time-series to the standard out.
     It will include the engine time in the print. Do not leave these lines in production code.
@@ -81,7 +76,7 @@ def debug_print(
 
 
 @operator
-def print_(format_str: TS[str], *args: TSB[TS_SCHEMA], __std_out__: bool = True, **kwargs:TSB[TS_SCHEMA_1]):
+def print_(format_str: TS[str], *args: TSB[TS_SCHEMA], __std_out__: bool = True, **kwargs: TSB[TS_SCHEMA_1]):
     """
     A sink node that will write the formatted string to the std out.
     This should be generally be used for debugging purposes and not be present in production code, instead use the

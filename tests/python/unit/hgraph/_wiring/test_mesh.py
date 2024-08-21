@@ -88,7 +88,7 @@ def test_mesh_2():
 
     r = eval_node(
         g,
-        __trace__={"start": False, "stop": False},
+        # __trace__={"start": False, "stop": False},
         i=[None, "e"] + [None] * 20 + ["f", "c"] + [None] * 10 + [{Removed("e")}],
         vars=[{"a": "1.", "b": "2.", "c": "a+b", "d": "c-x", "x": "3.", "e": "d*a"}]
         + [None] * 10
@@ -118,7 +118,7 @@ def test_mesh_named():
     def g(i: TSS[int]) -> TSD[int, TS[int]]:
         return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
 
-    assert eval_node(g, [{7}, {8}, {9}], __trace__=True)[-1] == {7: 13, 8: 21, 9: 34}
+    assert eval_node(g, [{7}, {8}, {9}])[-1] == {7: 13, 8: 21, 9: 34}
 
 
 def test_mesh_contains():
@@ -130,7 +130,7 @@ def test_mesh_contains():
     def g(keys: TSS[int]) -> TSD[int, TS[bool]]:
         return mesh_(mesh_contains_prev, __keys__=keys, __name__="_")
 
-    assert eval_node(g, [{1}, {2}, {3}, {5}, None, {4}], __trace__=True) == [
+    assert eval_node(g, [{1}, {2}, {3}, {5}, None, {4}]) == [
         {1: False},
         {2: True},
         {3: True},

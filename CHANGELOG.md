@@ -593,3 +593,23 @@ Version 0.2.52 (26-07-2024)
 * Some bug fixes
 * Preparation of record / replay operators
 * Work on adaptors
+
+Version 0.2.53 (12-08-2024)
+---------------------------
+
+* Fixed imports
+
+Version 0.2.54 (15-08-2024)
+---------------------------
+
+* Fix dataframe iteration when the iterator returns an empty set.
+* Introduce RECOVER flag
+* Fix TSD's ticking when not valid and {} is ticked.
+* Implement initial recovery logic.
+
+Version 0.3.0 (17-08-2024)
+--------------------------
+
+* Update roadmap to address re-order of work.
+* Update to adaptors and adaptor logic
+* Bug fixes

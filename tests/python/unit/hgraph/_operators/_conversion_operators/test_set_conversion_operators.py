@@ -37,7 +37,7 @@ def test_convert_tss_to_set():
     def g(a: TSS[int]) -> TS[Set[int]]:
         return convert[TS[Set]](a)
 
-    assert eval_node(g, [None, {1}, {1, 2, 3}, {Removed(2)}], __trace__=True) == [None, {1}, {1, 2, 3}, {1, 3}]
+    assert eval_node(g, [None, {1}, {1, 2, 3}, {Removed(2)}]) == [None, {1}, {1, 2, 3}, {1, 3}]
 
 
 def test_collect_set():

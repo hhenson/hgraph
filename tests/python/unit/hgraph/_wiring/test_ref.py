@@ -99,7 +99,6 @@ def test_merge_ref_set():
         index=[0, None, 1, None],
         ts1=[{1, 2}, None, None, {4}],
         ts2=[{-1}, {-2}, {-3, Removed(-1)}, {-4}],
-        __trace__=True,
     ) == [{1, 2}, None, {-2, -3, Removed(1), Removed(2)}, {-4}]
 
 
