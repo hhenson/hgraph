@@ -1,8 +1,8 @@
 from enum import Enum, auto
 from typing import Type
 
-from hgraph._types import TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
-from hgraph._types._scalar_types import Size, SIZE
+from hgraph._types import OUT, TIME_SERIES_TYPE, TS, SCALAR, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2
+from hgraph._types._scalar_types import Size, SIZE, DEFAULT
 from hgraph._types._tsl_type import TSL
 from hgraph._wiring._decorators import operator, graph
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -57,12 +57,12 @@ __all__ = (
     "accumulate",
     "std",
     "var",
-    "DivideByZero"
+    "DivideByZero",
 )
 
 
 @operator
-def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TIME_SERIES_TYPE_2:
+def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
     """
     This represents the `+` operator for time series types.
     To implement the add_ operator, do:
@@ -81,7 +81,7 @@ WiringPort.__radd__ = lambda x, y: add_(y, x)
 
 
 @operator
-def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TIME_SERIES_TYPE_2:
+def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
     """
     This represents the `-` operator for time series types.
     To implement the sub_ operator, do:
@@ -120,6 +120,7 @@ WiringPort.__rmul__ = lambda x, y: mul_(y, x)
 
 class DivideByZero(Enum):
     """For numeric division set the divide_by_zero property"""
+
     ERROR = auto()
     NAN = auto()
     INF = auto()
@@ -127,7 +128,7 @@ class DivideByZero(Enum):
 
 
 @operator
-def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_TYPE_2:
+def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
     """
     This represents the `/` operator for time series types.
     To implement the div_ operator, do:
@@ -261,7 +262,7 @@ WiringPort.__rrshift__ = lambda x, y: rshift_(y, x)
 
 
 @operator
-def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
+def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     This represents the `&` operator for time series types.
 
@@ -339,7 +340,7 @@ def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 
 
 @operator
-def bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE_1:
+def bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     This represents the `^` operator for time series types.
 
@@ -653,7 +654,7 @@ def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_S
 
 
 @operator
-def sum_(*ts: TSL[TS[SCALAR], SIZE]) -> TIME_SERIES_TYPE_2:
+def sum_(*ts: TSL[TS[SCALAR], SIZE]) -> DEFAULT[OUT]:
     """
     This represents the `sum` operator for time series types, either as a binary or unary operator
 
@@ -664,7 +665,7 @@ def sum_(*ts: TSL[TS[SCALAR], SIZE]) -> TIME_SERIES_TYPE_2:
 
 
 @operator
-def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     This represents the `mean` operator for time series types
 
@@ -675,7 +676,7 @@ def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
 
 
 @operator
-def std(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def std(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     Calculates the standard deviation for time series types
 
@@ -686,7 +687,7 @@ def std(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
 
 
 @operator
-def var(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def var(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     Calculates the variance for time series types
 
@@ -722,7 +723,7 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
 
 
 @operator
-def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     Performs a union of the provided time-series values.
 
@@ -731,7 +732,7 @@ def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
 
 
 @operator
-def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     Performs an intersection of the provided time-series values.
 
@@ -740,7 +741,7 @@ def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
 
 
 @operator
-def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     Performs a difference of the provided time-series values.
 
@@ -749,7 +750,7 @@ def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
 
 
 @operator
-def symmetric_difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def symmetric_difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
     Performs the symmetric difference of the provided time-series values.
 
@@ -780,12 +781,12 @@ def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
 
 # For backwards compatibility.  Prefer sum_ to accumulate and mean to average
 @graph(deprecated="Prefer sum_")
-def accumulate(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE_2:
+def accumulate(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> DEFAULT[OUT]:
     if default_value is not None:
         raise NotImplementedError(f"Accumulate is not implemented for {type(default_value)}")
     return sum_(*ts)
 
 
 @graph(deprecated="Prefer mean")
-def average(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE_2:
+def average(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     return mean(*ts)

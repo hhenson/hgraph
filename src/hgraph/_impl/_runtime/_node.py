@@ -429,11 +429,13 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         self.eval_fn(self.receiver, **self._kwargs)
 
     def eval(self):
-        value = self.receiver.dequeue()
-        if value is None:
-            return
-        self.graph.engine_evaluation_clock.mark_push_node_requires_scheduling()
-        self.output.apply_result(value)
+        with self.receiver:
+            value = self.receiver.dequeue()
+            if value is None:
+                return
+            self.output.apply_result(value)
+            if self.receiver:
+                self.graph.engine_evaluation_clock.mark_push_node_requires_scheduling()
 
     @stop_guard
     def stop(self):
@@ -502,8 +504,9 @@ class PythonLastValuePullNodeImpl(NodeImpl):
                 new_value if self._delta_value is None else self._delta_combine_fn(self._delta_value, new_value)
             )
         except Exception as e:
-            raise TypeError(f"Cannot apply value {new_value} of type "
-                            f"{new_value.__class__.__name__} to {self}: {e}") from e
+            raise TypeError(
+                f"Cannot apply value {new_value} of type {new_value.__class__.__name__} to {self}: {e}"
+            ) from e
 
         self.notify_next_cycle()
 

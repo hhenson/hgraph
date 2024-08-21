@@ -1,4 +1,5 @@
 from abc import abstractmethod, ABC
+from datetime import datetime
 from functools import cached_property
 from itertools import chain
 from typing import Iterator, TypeVar, Optional, OrderedDict, Any
@@ -23,11 +24,11 @@ class DataFrameSource(ABC):
     to feed into the graph.
     """
 
-    @property
     @abstractmethod
-    def data_frame(self) -> pl.DataFrame:
+    def data_frame(self, start_time: datetime = None, end_time: datetime = None) -> pl.DataFrame:
         """
         Returns a data-frame representing this data source.
+        The start_time and end_time are the engine start and end times.
         """
 
     @property
@@ -37,18 +38,19 @@ class DataFrameSource(ABC):
         extract the schema from that. If the data-source is large it is possible to provide the value
         directly. (Override the property)
         """
-        df = self.data_frame
+        df = self.data_frame()
         return df.schema
 
-    def iter_frames(self) -> Iterator[pl.DataFrame]:
+    def iter_frames(self, start_time: datetime = None, end_time: datetime = None) -> Iterator[pl.DataFrame]:
         """
         Return the data source as a sequence of dataframes.
         By default, this is just an iterator over the data_frame provided by this data source.
         When possible, this is useful when the data source can return results in batches.
-        Could produce better memory consumption and possibly improve the performance of the
+        This may produce better memory consumption and possibly improve the performance of the
         data source when back-testing.
+        The start_time and end_time are the engine start and end times.
         """
-        return iter([self.data_frame])
+        return iter([self.data_frame(start_time, end_time)])
 
 
 DATA_FRAME_SOURCE = TypeVar("DATA_FRAME_SOURCE", bound=DataFrameSource)
@@ -111,8 +113,7 @@ class PolarsDataFrameSource(DataFrameSource):
     def __init__(self, df: pl.DataFrame):
         self._df: pl.DataFrame = df
 
-    @property
-    def data_frame(self) -> pl.DataFrame:
+    def data_frame(self, start_time: datetime = None, end_time: datetime = None) -> pl.DataFrame:
         return self._df
 
 
@@ -173,16 +174,15 @@ class SqlDataFrameSource(DataFrameSource):
     def connection(self):
         return DataConnectionStore.instance().get_connection(self._connection)
 
-    @property
-    def data_frame(self) -> pl.DataFrame:
+    def data_frame(self, start_time: datetime = None, end_time: datetime = None) -> pl.DataFrame:
         if self._df is None:
             self._df = pl.read_database(self._query, self.connection, **self._kwargs)
         return self._df
 
-    def iter_frames(self) -> Iterator[pl.DataFrame]:
+    def iter_frames(self, start_time: datetime = None, end_time: datetime = None) -> Iterator[pl.DataFrame]:
         if self._df is None:
             if self._batch_size == -1:
-                return iter([self.data_frame])
+                return iter([self.data_frame(start_time, end_time)])
             else:
                 df = pl.read_database(
                     self._query,
@@ -192,12 +192,12 @@ class SqlDataFrameSource(DataFrameSource):
                     execute_options=self._kwargs,
                 )
                 if isinstance(df, pl.DataFrame):
-                    return iter([self.data_frame])
+                    return iter([self.data_frame(start_time, end_time)])
                 else:
                     return df
         else:
             # Since we already have the data loaded, just use the loaded data-frame
-            return iter([self.data_frame])
+            return iter([self.data_frame(start_time, end_time)])
 
     @cached_property
     def schema(self) -> OrderedDict[str, pl.DataType]:

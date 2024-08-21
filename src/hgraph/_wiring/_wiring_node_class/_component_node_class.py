@@ -3,14 +3,19 @@ from typing import Callable, TypeVar, Optional
 
 from frozendict import frozendict
 
-from hgraph import NODE
-from hgraph._operators._record_replay import RecordReplayEnum, RecordReplayContext, record, replay, compare
-from hgraph._runtime._evaluation_engine import EvaluationEngineApi
+from hgraph import (
+    merge,
+    RecordReplayEnum,
+    RecordReplayContext,
+    record,
+    replay,
+    compare,
+    replay_const,
+)
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
-from hgraph._types._ts_type import TS
 from hgraph._types._type_meta_data import HgTypeMetaData
-from hgraph._wiring._decorators import graph, generator
+from hgraph._wiring._decorators import graph
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
@@ -130,23 +135,27 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
 
 @graph
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
-    match RecordReplayContext.instance().mode:
-        case RecordReplayEnum.RECORD:
-            record(ts, key)
-        case RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE:
-            ts: WiringPort
-            ts = replay(key, ts.output_type.py_type)
+    mode = RecordReplayContext.instance().mode
+    if RecordReplayEnum.RECOVER in mode:
+        ts = merge(ts, replay_const(key, ts.output_type.py_type))
+    if ((RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE) & mode) != RecordReplayEnum.NONE:
+        if RecordReplayEnum.RECOVER in mode:
+            raise RuntimeError("Can't recover and replay / compare at the same time")
+        ts: WiringPort
+        ts = replay(key, ts.output_type.py_type)
+    if RecordReplayEnum.RECORD in mode:
+        record(ts, key)
     return ts
 
 
 @graph
 def output_wrapper(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
-    match RecordReplayContext.instance().mode:
-        case RecordReplayEnum.RECORD:
-            record(ts, "__out__")
-        case RecordReplayEnum.REPLAY_OUTPUT:
-            ts: WiringPort
-            ts = replay("__out__", ts.output_type.py_type)
-        case RecordReplayEnum.COMPARE:
-            compare(ts, replay("__out__", ts.output_type.py_type))
+    mode = RecordReplayContext.instance().mode
+    if RecordReplayEnum.RECORD in mode:
+        record(ts, "__out__")
+    if RecordReplayEnum.REPLAY_OUTPUT in mode:
+        ts: WiringPort
+        ts = replay("__out__", ts.output_type.py_type)
+    if RecordReplayEnum.COMPARE in mode:
+        compare(ts, replay("__out__", ts.output_type.py_type))
     return ts

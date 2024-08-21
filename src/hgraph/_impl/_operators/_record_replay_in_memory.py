@@ -18,18 +18,21 @@ from hgraph import (
     graph,
     CompoundScalar,
     LOGGER,
+    TimeSeriesOutput,
+    EvaluationEngineApi,
 )
 
 __all__ = (
     "ReplaySource",
     "replay_from_memory",
     "record_to_memory",
+    "replay_const_from_memory",
     "SimpleArrayReplaySource",
     "set_replay_values",
     "get_recorded_value",
 )
 
-from hgraph._operators._record_replay import record_replay_model_restriction, compare
+from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
 from hgraph._runtime._traits import Traits
 
 
@@ -72,8 +75,10 @@ def set_replay_values(label: str, value: ReplaySource, recordable_id: str = None
 def replay_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE],
+    suffix: str = None,
     is_operator: bool = False,
     _traits: Traits = None,
+    _clock: EvaluationClock = None,
 ) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
@@ -86,13 +91,46 @@ def replay_from_memory(
     if recordable_id is None:
         recordable_id = f"nodes.{replay_from_memory.signature.name}"
     else:
-        recordable_id = f":memory:{recordable_id}"
+        recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
+    tm = _clock.evaluation_time
     for ts, v in source:
+        if ts < tm:
+            continue
         if v is not None:
             yield ts, v
+
+
+@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY))
+def replay_const_from_memory(
+    key: str,
+    tp: type[TIME_SERIES_TYPE],
+    suffix: str = None,
+    is_operator: bool = False,
+    _traits: Traits = None,
+    _clock: EvaluationClock = None,
+    _output: TIME_SERIES_TYPE = None,
+) -> TIME_SERIES_TYPE:
+    recordable_id = f":memory:{_traits.get_trait_or('recordable_id', None)}{'_' + suffix if suffix else ''}"
+    source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
+    if source is None:
+        raise ValueError(f"Replay source with label '{key}' does not exist")
+    tm = _clock.evaluation_time
+    _output: TimeSeriesOutput
+    for ts, v in source:
+        # This is a slow approach, but since we don't have an index, this is the best we can do.
+        # Additionally, since we are recording delta values, we need to apply the successive results to form the
+        # full picture of state.
+        if ts <= tm:
+            # Combine results when dealing with Collection results
+            _output.apply_result(v)
+        else:
+            break
+    if _output.last_modified_time != tm:
+        # This should only occur if the value was not modified
+        yield tm, None
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY))
@@ -100,28 +138,48 @@ def record_to_memory(
     ts: TIME_SERIES_TYPE,
     key: str = "out",
     record_delta_values: bool = True,
+    suffix: str = None,
     is_operator: bool = False,
-    _clock: EvaluationClock = None,
+    _api: EvaluationEngineApi = None,
     _state: STATE = None,
     _traits: Traits = None,
 ):
     """
     This node will record the values of the time series into the provided list.
     """
-    _state.record_value.append((_clock.evaluation_time, ts.delta_value if record_delta_values else ts.value))
+    _state.record_value.append(
+        (_api.evaluation_clock.evaluation_time, ts.delta_value if record_delta_values else ts.value)
+    )
 
 
 @record_to_memory.start
-def record_to_memory(key: str, _state: STATE, _traits: Traits):
-    value = []
-    global_state = GlobalState.instance()
+def record_to_memory_start(key: str, suffix: str, is_operator: bool, _state: STATE, _traits: Traits):
     recordable_id = _traits.get_trait_or("recordable_id", None)
     if recordable_id is None:
-        recordable_id = f"nodes.{record.signature.name}"
+        recordable_id = f"nodes.{record.signature.name}.{key}"
+        _state.is_operator = False
     else:
-        recordable_id = f":memory:{recordable_id}"
-    global_state[f"{recordable_id}.{key}"] = value
-    _state.record_value = value
+        recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}.{key}"
+        _state.is_operator = True
+    _state.recordable_id = recordable_id
+    _state.record_value = []
+
+
+@record_to_memory.stop
+def record_to_memory_stop(_state: STATE, _api: EvaluationEngineApi):
+    global_state = GlobalState.instance()
+    if _state.is_operator and (value := global_state.get(_state.recordable_id, None)):
+        result = []
+        st = _api.start_time
+        for t, v in value:
+            if t >= st:
+                break
+            result.append((t, v))
+        result.extend(_state.record_value)
+    else:
+        result = _state.record_value
+
+    global_state[_state.recordable_id] = result
 
 
 def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tuple[datetime, Any]]:
@@ -136,10 +194,11 @@ def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tu
     return global_state[f"{recordable_id}.{label}"]
 
 
-@graph(overloads=compare, requires=record_replay_model_restriction(IN_MEMORY))
-def compare_in_memory(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
+@graph(overloads=compare)
+def compare_generic(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
+    """This just makes use of the generic eq_ operator to perform the comparison."""
     out = lhs == rhs
-    record_to_memory(out, key="__COMPARE__")
+    record(out, key="__COMPARE__")
     _assert_result(out)
 
 
@@ -149,11 +208,11 @@ class _AssertResult(CompoundScalar):
 
 @sink_node
 def _assert_result(ts: TS[bool], _state: STATE[_AssertResult] = None, _traits: Traits = None, _logger: LOGGER = None):
-    _state.has_error |= ts.value
+    _state.has_error |= not ts.value
 
 
-@_assert_result.start
-def _assert_result_start(_state: STATE[_AssertResult], _traits: Traits, _logger: LOGGER):
+@_assert_result.stop
+def _assert_result_stop(_state: STATE[_AssertResult], _traits: Traits, _logger: LOGGER):
     if _state.has_error:
         raise RuntimeError(f"{_traits.get_trait('recordable_id')} is not equal")
     else:

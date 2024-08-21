@@ -14,7 +14,7 @@ dependencies = [
     "sqlalchemy",
     "duckdb",
     "pyarrow",
-#    "perspective",
+#    "perspective-python",
 #    "tornado"
 ]
 requires-python = ">=3.11"
@@ -36,6 +36,12 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
+[project.optional-dependencies]
+web = [
+ #   "perspective-python < 3",
+    "tornado"
+]
+
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
 Repository = "https://github.com/hhenson/hgraph.git"
@@ -48,6 +54,8 @@ path = "src/hgraph/__about__.py"
 dependencies = [
     "coverage[toml]>=6.5",
     "pytest",
+ #   "perspective-python < 3",
+    "tornado"
 ]
 
 [tool.hatch.envs.default.scripts]

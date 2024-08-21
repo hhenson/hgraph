@@ -307,7 +307,7 @@ def test_eq_tsds():
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TS[bool]:
         return tsd1 == tsd2
 
-    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 2}, {1: 1}], __trace__=True) == [False, True]
+    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 2}, {1: 1}]) == [False, True]
 
 
 @pytest.mark.parametrize(
@@ -336,7 +336,6 @@ def test_max_tsd_unary():
     assert eval_node(app, [{3: 2, 100: -100}]) == [2]
 
 
-@pytest.mark.xfail(reason="Empty TSDs don't seem to tick", strict=True)
 def test_sum_tsd_unary():
     @graph
     def app(tsd: TSD[int, TS[int]]) -> TS[int]:
