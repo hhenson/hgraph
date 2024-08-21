@@ -1,5 +1,6 @@
 from enum import auto, IntFlag
 
+from hgraph._types._scalar_types import DEFAULT
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
 from hgraph._wiring._decorators import operator
@@ -103,7 +104,7 @@ def record_replay_model_restriction(model: str):
 
 
 @operator
-def record(ts: TIME_SERIES_TYPE, key: str, record_delta_values: bool = True, suffix: str = None):
+def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str, record_delta_values: bool = True, suffix: str = None):
     """
     Records the ts input. The recordable_context is provided containing the recordable_id as well
     as the record mode. If the mode does not contain record, then the results are not recorded.
