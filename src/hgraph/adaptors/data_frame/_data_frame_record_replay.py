@@ -35,8 +35,6 @@ def set_data_frame_record_path(path: Path):
 def record_to_data_frame(
     ts: TIME_SERIES_TYPE,
     key: str,
-    record_delta_values: bool = True,
-    suffix: str = None,
     tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
 ):
     """
@@ -45,7 +43,7 @@ def record_to_data_frame(
     """
     tbl = to_table(ts)
     schema = to_table_schema(tp)
-    _record_to_data_frame(tbl, schema, key, suffix)
+    _record_to_data_frame(tbl, schema, key)
 
 
 @sink_node
@@ -53,7 +51,6 @@ def _record_to_data_frame(
     ts: TIME_SERIES_TYPE,
     schema: TS[TableSchema],
     key: str,
-    suffix: str = None,
     _state: STATE = None,
     _traits: Traits = None,
 ):
@@ -61,10 +58,10 @@ def _record_to_data_frame(
 
 
 @_record_to_data_frame.start
-def _record_to_data_frame_start(key: str, suffix: str, _state: STATE, _traits: Traits = None):
+def _record_to_data_frame_start(key: str, _state: STATE, _traits: Traits = None):
     _state.value = []
     recordable_id = _traits.get_trait_or("recordable_id", None)
-    _state.recordable_id = f":data_frame:{recordable_id}{'_' + suffix if suffix else ''}"
+    _state.recordable_id = f":data_frame:{recordable_id}"
 
 
 @_record_to_data_frame.stop

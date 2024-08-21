@@ -110,33 +110,29 @@ def record_replay_model_restriction(model: str, check_operator: bool = False):
 
 
 @operator
-def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str, record_delta_values: bool = True, suffix: str = None):
+def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str):
     """
-    Records the ts input. The recordable_context is provided containing the recordable_id as well
-    as the record mode. If the mode does not contain record, then the results are not recorded.
-    If the state is record, but a replay option is set, then the recording will only continue once
-    the last recorded time is reached (unless the reset option is set).
+    Record the ts value. The recoding is tied to the recordable_id plus the key.
+    Recordings are made as delta values. A model could choose to record as full state
+    so long as it is consistent.
 
-    The key represents the input argument (or out for the output)
-
-    The suffix to append to the recorder id, this is useful when multiple recording is performed.
+    The key represents the input argument (or __out__ for the output)
     """
     ...
 
 
 @operator
-def replay(key: str, tp: type[OUT], suffix: str = None) -> OUT:
+def replay(key: str, tp: type[OUT]) -> OUT:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
 
     The key represents the input argument (or out for the output)
-    The suffix to append to the recorder id, this is useful when multiple recording is performed.
     """
 
 
 @operator
-def replay_const(key: str, tp: type[OUT], suffix: str = None) -> OUT:
+def replay_const(key: str, tp: type[OUT]) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.
