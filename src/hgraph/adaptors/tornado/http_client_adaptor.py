@@ -1,4 +1,6 @@
+import urllib
 from typing import Callable
+from urllib.parse import urlencode
 
 from tornado.httpclient import AsyncHTTPClient
 
@@ -23,12 +25,17 @@ def http_client_adaptor_impl(
 
     async def make_http_request(id: int, request: HttpRequest, sender: Callable):
         client = AsyncHTTPClient()
+        if request.query:
+            url = f"{request.url}?{urlencode(request.query)}"
+        else:
+            url = request.url
+
         if isinstance(request, HttpPostRequest):
             response = await client.fetch(
-                request.url, method="POST", headers=request.headers, body=request.body, raise_error=False
+                url, method="POST", headers=request.headers, body=request.body, raise_error=False
             )
         else:
-            response = await client.fetch(request.url, method="GET", headers=request.headers, raise_error=False)
+            response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False)
 
         sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body.decode())})
 

@@ -162,10 +162,14 @@ class BaseNodeImpl(Node, ABC):
                 else self.signature.time_series_inputs.keys()
             )
             if not all(self.input[k].valid for k in args):
+                if scheduled:
+                    self._scheduler.advance()
                 return  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
             all_valid = self.signature.all_valid_inputs
             if not all(self.input[k].all_valid for k in ([] if all_valid is None else all_valid)):
+                if scheduled:
+                    self._scheduler.advance()
                 return  # This really could do with some optimisation as on large collections this will be expensive!
             if self.signature.uses_scheduler:
                 # It is possible we have scheduled and then remove the schedule,
@@ -339,12 +343,12 @@ class NodeSchedulerImpl(NodeScheduler):
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
         if when > (
-            self._node.graph.evaluation_clock.evaluation_time if (is_stated := self._node.is_started) else MIN_DT
+            self._node.graph.evaluation_clock.evaluation_time if (is_started := self._node.is_started) else MIN_DT
         ):
             self._tags[tag] = when
             current_first = self._scheduled_events[0][0] if self._scheduled_events else MAX_DT
             self._scheduled_events.add((when, "" if tag is None else tag))
-            if is_stated and current_first > (next_ := self.next_scheduled_time):
+            if is_started and current_first > (next_ := self.next_scheduled_time):
                 force_set = original_time is not None and original_time < when
                 self._node.graph.schedule_node(self._node.node_ndx, next_, force_set)
 
