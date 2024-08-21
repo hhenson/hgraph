@@ -619,3 +619,9 @@ Version 0.3.1 (21-08-2024)
 
 * Small fixes
 * Initial cut of to_table and related code
+
+Version 0.3.2 (21-08-2024)
+--------------------------
+
+* Fix to cycle detection logic
+
