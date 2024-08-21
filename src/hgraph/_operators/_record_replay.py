@@ -91,14 +91,20 @@ def record_replay_model() -> str:
     return GlobalState.instance().get("::record_replay_model::", IN_MEMORY)
 
 
-def record_replay_model_restriction(model: str):
+def record_replay_model_restriction(model: str, check_operator: bool = False):
     """
     Ensure the operator implementation will only be available when the record model is as per ``model`` when used
     as an operator, but not if the implementation is used directly.
     """
+    if check_operator:
 
-    def restriction(m, s):
-        return not s.get("is_operator", False) or record_replay_model() == model
+        def restriction(m, s):
+            return not s.get("is_operator", False) or record_replay_model() == model
+
+    else:
+
+        def restriction(m, s):
+            return record_replay_model() == model
 
     return restriction
 

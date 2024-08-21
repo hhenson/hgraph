@@ -71,7 +71,7 @@ def set_replay_values(label: str, value: ReplaySource, recordable_id: str = None
     GlobalState.instance()[f"{recordable_id}.{label}"] = value
 
 
-@generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY))
+@generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE],
@@ -103,7 +103,7 @@ def replay_from_memory(
             yield ts, v
 
 
-@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY))
+@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_const_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE],
@@ -133,7 +133,7 @@ def replay_const_from_memory(
         yield tm, None
 
 
-@sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY))
+@sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))
 def record_to_memory(
     ts: TIME_SERIES_TYPE,
     key: str = "out",
