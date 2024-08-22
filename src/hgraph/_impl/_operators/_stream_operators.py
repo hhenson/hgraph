@@ -269,7 +269,7 @@ def gate(
         else:
             raise RuntimeError(f"Buffer overflow when adding {ts.delta_value} to gate buffer")
 
-    if (condition.modified or _sched.is_scheduled_now) and condition.valid and _state.buffer:
+    if (condition.modified or _sched.is_scheduled_now) and condition.value and _state.buffer:
         out = _state.buffer.popleft()
         if _state.buffer:
             _sched.schedule(delay)
