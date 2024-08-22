@@ -8,7 +8,7 @@ from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
 
-__all__ = ("default", "nothing", "null_sink", "debug_print", "print_", "log_")
+__all__ = ("default", "nothing", "null_sink", "debug_print", "print_", "log_", "assert_")
 
 
 @operator
@@ -97,4 +97,11 @@ def log_(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.INFO, 
     :param level: The logging level
     :param args: The time-series enumerated inputs
     :param kwargs: The named time-series inputs
+    """
+
+
+@operator
+def assert_(condition: TS[bool], error_msg: str):
+    """
+    Asserts that the condition is True, if not raises an AssertionError with the error message.
     """

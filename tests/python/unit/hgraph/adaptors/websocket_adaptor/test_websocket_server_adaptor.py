@@ -75,6 +75,7 @@ try:
 
             for id, msg in queries.items():
                 TornadoWeb.instance().get_loop().add_callback(ws, id, msg)
+                time.sleep(0.1)
 
             sleeps = 0
             while len(GlobalState().instance().responses) < len(queries) and sleeps < 10:
