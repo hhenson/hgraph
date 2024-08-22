@@ -110,32 +110,36 @@ def record_replay_model_restriction(model: str, check_operator: bool = False):
 
 
 @operator
-def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str):
+def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str, recordable_id: str = None):
     """
     Record the ts value. The recoding is tied to the recordable_id plus the key.
     Recordings are made as delta values. A model could choose to record as full state
     so long as it is consistent.
 
     The key represents the input argument (or __out__ for the output)
+
+    If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
     ...
 
 
 @operator
-def replay(key: str, tp: type[OUT]) -> OUT:
+def replay(key: str, tp: type[OUT], recordable_id: str = None) -> OUT:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
 
     The key represents the input argument (or out for the output)
+    If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
 
 
 @operator
-def replay_const(key: str, tp: type[OUT]) -> OUT:
+def replay_const(key: str, tp: type[OUT], recordable_id: str = None) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.
+    If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
 
 

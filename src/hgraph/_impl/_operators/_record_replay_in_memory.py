@@ -76,6 +76,7 @@ def replay_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE],
     is_operator: bool = False,
+    recordable_id: str = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
 ) -> TIME_SERIES_TYPE:
@@ -86,7 +87,7 @@ def replay_from_memory(
     # TODO: At some point it would be useful to support a time-indexed collection of values to provide
     # More complex replay scenarios.
     """
-    recordable_id = _traits.get_trait_or("recordable_id", None)
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     if recordable_id is None:
         recordable_id = f"nodes.{replay_from_memory.signature.name}"
     else:
@@ -107,11 +108,13 @@ def replay_const_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE],
     is_operator: bool = False,
+    recordable_id: str = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
     _output: TIME_SERIES_TYPE = None,
 ) -> TIME_SERIES_TYPE:
-    recordable_id = f":memory:{_traits.get_trait_or('recordable_id', None)}"
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
+    recordable_id = f":memory:{recordable_id}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
@@ -136,6 +139,7 @@ def record_to_memory(
     ts: TIME_SERIES_TYPE,
     key: str = "out",
     is_operator: bool = False,
+    recordable_id: str = None,
     _api: EvaluationEngineApi = None,
     _state: STATE = None,
     _traits: Traits = None,
@@ -147,8 +151,8 @@ def record_to_memory(
 
 
 @record_to_memory.start
-def record_to_memory_start(key: str, is_operator: bool, _state: STATE, _traits: Traits):
-    recordable_id = _traits.get_trait_or("recordable_id", None)
+def record_to_memory_start(key: str, is_operator: bool, recordable_id: str, _state: STATE, _traits: Traits):
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     if recordable_id is None:
         recordable_id = f"nodes.{record.signature.name}.{key}"
         _state.is_operator = False

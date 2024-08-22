@@ -14,10 +14,11 @@ from hgraph import (
     TS,
     STATE,
     GlobalState,
+    generator,
+    OUT,
 )
-from hgraph._operators._record_replay import record_replay_model_restriction
+from hgraph._operators._record_replay import record_replay_model_restriction, replay
 from hgraph._runtime._traits import Traits
-
 
 __all__ = ("DATA_FRAME_RECORD_REPLAY", "set_data_frame_record_path")
 
@@ -34,6 +35,7 @@ def set_data_frame_record_path(path: Path):
 def record_to_data_frame(
     ts: TIME_SERIES_TYPE,
     key: str,
+    recordable_id: str = None,
     tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
 ):
     """
@@ -50,6 +52,7 @@ def _record_to_data_frame(
     ts: TIME_SERIES_TYPE,
     schema: TS[TableSchema],
     key: str,
+    recordable_id: str = None,
     _state: STATE = None,
     _traits: Traits = None,
 ):
@@ -57,9 +60,9 @@ def _record_to_data_frame(
 
 
 @_record_to_data_frame.start
-def _record_to_data_frame_start(key: str, _state: STATE, _traits: Traits = None):
+def _record_to_data_frame_start(key: str, recordable_id: str, _state: STATE, _traits: Traits = None):
     _state.value = []
-    recordable_id = _traits.get_trait_or("recordable_id", None)
+    recordable_id = recordable_id if recordable_id is not None else _traits.get_trait_or("recordable_id", None)
     _state.recordable_id = f":data_frame:{recordable_id}"
 
 
@@ -71,6 +74,18 @@ def _record_to_data_frame_stop(_state: STATE, schema: TS[TableSchema]):
     _write_df(df, path, _state.recordable_id)
 
 
-def _write_df(df, path, recordable_id):
+def _write_df(df: pl.DataFrame, path: Path, recordable_id: str):
     """Separate the writing logic into a function to simplify testing"""
     df.write_parquet(path.joinpath(recordable_id + ".parquet"))
+
+
+def _read_df(path: Path, recordable_id: str) -> pl.DataFrame:
+    """Separate the reading logic into a function to simplify testing"""
+    return pl.read_parquet(path.joinpath(recordable_id + ".parquet"))
+
+
+@generator(overloads=replay, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
+def replay_from_data_frame(key: str, tp: type[OUT], recordable_id: str = None, _traits: Traits = None) -> OUT:
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
+    path: Path = GlobalState.instance().get(DATA_FRAME_RECORD_REPLAY_PATH, Path("."))
+    df = _read_df(path, recordable_id)
