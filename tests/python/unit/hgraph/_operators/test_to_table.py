@@ -19,7 +19,7 @@ from hgraph.test import eval_node
 def test_simple_scalar():
 
     @graph
-    def table_test(ts: TS[int]) -> TS[tuple[datetime, int]]:
+    def table_test(ts: TS[int]) -> TS[tuple[datetime, datetime, int]]:
         return to_table(ts)
 
     @graph
