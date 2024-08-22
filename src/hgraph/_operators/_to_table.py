@@ -2,12 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from hgraph._operators._operators import operator
-from hgraph._types import TIME_SERIES_TYPE, CompoundScalar, TS, SCALAR
+from hgraph._types import TIME_SERIES_TYPE, CompoundScalar, TS, SCALAR, OUT, DEFAULT
 from hgraph._runtime import GlobalState, EvaluationClock
 
 __all__ = (
     "to_table",
-    "to_table_schema",
+    "from_table",
+    "table_schema",
     "TableSchema",
     "set_as_of",
     "get_as_of",
@@ -93,7 +94,19 @@ def to_table(ts: TIME_SERIES_TYPE) -> TS[SCALAR]:
 
 
 @operator
-def to_table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
+def table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
     """
     A const tick of the expected schema that will be produced by the to_table operator.
+    """
+
+
+@operator
+def from_table(ts: TS[SCALAR]) -> DEFAULT[OUT]:
+    """
+    Extracts data from a tabular form into the appropriate output type.
+    The output type must be specified, and the input schema must be correctly structured for the type to be
+    extracted.
+
+    This reverses the ``to_table`` operator.
+    The Schema can be obtained using the ``table_schema`` operator.
     """

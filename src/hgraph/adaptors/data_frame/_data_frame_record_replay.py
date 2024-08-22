@@ -7,7 +7,7 @@ from hgraph import (
     record,
     TIME_SERIES_TYPE,
     to_table,
-    to_table_schema,
+    table_schema,
     AUTO_RESOLVE,
     TableSchema,
     sink_node,
@@ -41,7 +41,7 @@ def record_to_data_frame(
     delta_value are ignored when working in the tabular space for now.
     """
     tbl = to_table(ts)
-    schema = to_table_schema(tp)
+    schema = table_schema(tp)
     _record_to_data_frame(tbl, schema, key)
 
 
