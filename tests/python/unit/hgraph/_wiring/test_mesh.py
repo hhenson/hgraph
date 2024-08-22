@@ -69,9 +69,9 @@ def test_mesh_2():
     @graph
     def operation(i: TS[str], vars: TS[str]) -> TS[float]:
         what = vars
-        number = match_("^([0-9]+(?:\.[0-9]*)?)$", what)
-        var = match_("^(\w+)$", what)
-        expr = match_("^(\w+)([+\-*/])(\w+)$", what)
+        number = match_(r"^([0-9]+(?:\.[0-9]*)?)$", what)
+        var = match_(r"^(\w+)$", what)
+        expr = match_(r"^(\w+)([+\-*/])(\w+)$", what)
         return switch_(
             {
                 (True, False, False): lambda n: convert[TS[float]](n[0]),

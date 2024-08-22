@@ -37,13 +37,16 @@ from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 class HttpRequest(CompoundScalar):
     url: str
     url_parsed_args: tuple[str] = ()
+    query: dict[str, str] = frozendict()
     headers: dict[str, str] = frozendict()
+    cookies: dict[str, str] = frozendict()
 
 
 @dataclass(frozen=True)
 class HttpResponse(CompoundScalar):
     status_code: int
     headers: frozendict[str, str] = frozendict()
+    cookies: frozendict[str, str] = frozendict()
     body: str = ""
 
 
