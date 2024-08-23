@@ -70,6 +70,8 @@ def is_negative_slice(item):
 
 
 class DGen(Item):
+    __compared__ = None
+
     def __call__(
         self,
         input_date=None,
@@ -80,7 +82,7 @@ class DGen(Item):
         calendar: Calendar = None,
         **kwargs,
     ):
-        return self.__invoke__(
+        return self.__invoke__log__(
             make_date(start),
             make_date(end),
             make_date(after),
@@ -88,6 +90,20 @@ class DGen(Item):
             calendar,
             **kwargs,
         )
+
+    def __invoke__log__(
+        self,
+        start: date = date.min,
+        end: date = date.max,
+        after: date = date.min,
+        before: date = date.max,
+        calendar: Calendar = None,
+        **kwargs,
+    ):
+        for d in self.__invoke__(start, end, after, before, calendar, **kwargs):
+            # print(f"{str(self)} generated {d}")
+            yield d
+
 
     def __invoke__(
         self,
@@ -293,7 +309,7 @@ class AfterDGen(DGen):
     ):
         if is_dgen(self.date):
             after = next(
-                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+                self.date.__invoke__log__(start, end, after, before, calendar, **kwargs)
             )
         else:
             after = self.date
@@ -302,7 +318,7 @@ class AfterDGen(DGen):
 
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if d >= after
         )
 
@@ -335,14 +351,14 @@ class AfterOrOnDGen(DGen):
     ):
         if is_dgen(self.date):
             after = next(
-                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+                self.date.__invoke__log__(start, end, after, before, calendar, **kwargs)
             )
         else:
             after = self.date
 
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if d >= after
         )
 
@@ -375,14 +391,14 @@ class BeforeDGen(DGen):
     ):
         if is_dgen(self.date):
             before = next(
-                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+                self.date.__invoke__log__(start, end, after, before, calendar, **kwargs)
             )
         else:
             before = self.date
 
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if d < before
         )
 
@@ -409,7 +425,7 @@ class BeforeOrOnDGen(DGen):
     ):
         if is_dgen(self.date):
             before = next(
-                self.date.__invoke__(start, end, after, before, calendar, **kwargs)
+                self.date.__invoke__log__(start, end, after, before, calendar, **kwargs)
             )
         else:
             before = self.date
@@ -418,7 +434,7 @@ class BeforeOrOnDGen(DGen):
 
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if d < before
         )
 
@@ -472,7 +488,7 @@ class WeekdaysDGen(DGen):
         we = calendar.weekend_days() if calendar else (5, 6)
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if d.weekday() not in we
         )
 
@@ -502,7 +518,7 @@ class WeekendsDGen(DGen):
         we = calendar.weekend_days() if calendar else (5, 6)
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if d.weekday() in we
         )
 
@@ -532,7 +548,7 @@ class BusinessDaysDGen(DGen):
         assert calendar, "Business days calculation requires a calendar"
         yield from (
             d
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
             if not calendar.is_holiday_or_weekend(d)
         )
 
@@ -627,7 +643,7 @@ class DayOfWeekDGen(DGen):
                 d += timedelta(days=7)
         else:
             after -= timedelta(days=6)
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs):
                 d_ = d + timedelta(days=(self.weekday - d.weekday()) % 7)
                 if d_ < before:
                     yield d_
@@ -668,7 +684,7 @@ class AddTenorDGen(DGen):
         )
         yield from (
             self.tenor.add_to(d, calendar)
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
         )
 
     def __repr__(self):
@@ -700,7 +716,7 @@ class SubTenorDGen(DGen):
             end = self.tenor.add_to(end, calendar) if not self.tenor.is_neg() else end
         yield from (
             self.tenor.sub_from(d, calendar)
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
         )
 
     def __repr__(self):
@@ -721,8 +737,8 @@ class JoinDGen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        g1 = self.gen1.__invoke__(start, end, after, before, calendar, **kwargs)
-        g2 = self.gen2.__invoke__(start, end, after, before, calendar, **kwargs)
+        g1 = self.gen1.__invoke__log__(start, end, after, before, calendar, **kwargs)
+        g2 = self.gen2.__invoke__log__(start, end, after, before, calendar, **kwargs)
 
         d1 = next(g1, None)
         d2 = next(g2, None)
@@ -764,8 +780,8 @@ class CommonDatesDGen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        g1 = self.gen1.__invoke__(start, end, after, before, calendar, **kwargs)
-        g2 = self.gen2.__invoke__(start, end, after, before, calendar, **kwargs)
+        g1 = self.gen1.__invoke__log__(start, end, after, before, calendar, **kwargs)
+        g2 = self.gen2.__invoke__log__(start, end, after, before, calendar, **kwargs)
 
         d1 = next(g1, None)
         d2 = next(g2, None)
@@ -797,8 +813,8 @@ class RemoveDatesDGen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        g1 = self.gen1.__invoke__(start, end, after, before, calendar, **kwargs)
-        g2 = self.gen2.__invoke__(start, end, after, before, calendar, **kwargs)
+        g1 = self.gen1.__invoke__log__(start, end, after, before, calendar, **kwargs)
+        g2 = self.gen2.__invoke__log__(start, end, after, before, calendar, **kwargs)
 
         d1 = next(g1, None)
         d2 = next(g2, None)
@@ -842,6 +858,9 @@ class MonthsDGen(DGen):
             year = first.year + first.month // 12
             month = first.month % 12 + 1
             first = date(year, month, 1)
+
+    def __call__(self, gen):
+        return month_start(gen)
 
     @property
     def end(self):
@@ -925,7 +944,7 @@ class SubSequenceDGen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        for begin in self.main_sequence.__invoke__(
+        for begin in self.main_sequence.__invoke__log__(
             start, end, after, before, calendar, **kwargs
         ):
             end = self.main_sequence.cadence().add_to(begin)
@@ -950,7 +969,7 @@ class SubSequenceDGen(DGen):
     def __getitem__(self, item):
         if isinstance(item, int):
             return SubSequenceDGen(
-                self.main_sequence, self.sub_sequence, slice(item, item + 1)
+                self.main_sequence, self.sub_sequence, slice(item, item + 1) if item > 0 else slice(item, item - 1, -1)
             )
         if isinstance(item, slice):
             return SubSequenceDGen(self.main_sequence, self.sub_sequence, item)
@@ -984,7 +1003,7 @@ class DaysOfMonthDGen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        for month in self.months.__invoke__(
+        for month in self.months.__invoke__log__(
             start, end, after, before, calendar, **kwargs
         ):
             next_month = Tenor("1m").add_to(month)
@@ -1160,7 +1179,7 @@ class SliceDGen(DGen):
         **kwargs,
     ):
         yield from islice(
-            self.gen.__invoke__(start, end, after, before, calendar, **kwargs),
+            self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs),
             self.slice.start,
             self.slice.stop,
             self.slice.step,
@@ -1188,7 +1207,7 @@ class WithCalendarDGen(DGen):
         **kwargs,
     ):
         yield from (
-            d for d in self.gen.__invoke__(start, end, after, before, self.calendar)
+            d for d in self.gen.__invoke__log__(start, end, after, before, self.calendar)
         )
 
     def __repr__(self):
@@ -1219,7 +1238,7 @@ class RollFwdDGen(DGen):
         assert c, "Business days calculation requires a calendar"
         yield from (
             c.add_business_days(d, 0)
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
         )
 
     def __repr__(self):
@@ -1261,7 +1280,7 @@ class RollBwdDGen(DGen):
         assert c, "Business days calculation requires a calendar"
         yield from (
             c.sub_business_days(d, 0)
-            for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs)
+            for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs)
         )
 
     def __repr__(self):
@@ -1300,7 +1319,7 @@ class DGenRetain(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+        for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs):
             self.last = d
             self.all.append(d)
             yield d
@@ -1360,7 +1379,7 @@ class MonthEndDgen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+        for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs):
             yield date(d.year, d.month, monthrange(d.year, d.month)[1])
 
     def __repr__(self):
@@ -1381,12 +1400,9 @@ def month_last_bday(x, calendar=None):
         return roll_bwd(month_end(x), calendar)
 
 
-class MonthStartDgen(DGen):
+class MonthStartDgen(MonthsDGen):
     def __init__(self, gen):
         self.gen = gen
-
-    def cadence(self):
-        return self.gen.cadence()
 
     def is_single_date_gen(self):
         return self.gen.is_single_date_gen()
@@ -1400,7 +1416,7 @@ class MonthStartDgen(DGen):
         calendar: Calendar = None,
         **kwargs,
     ):
-        for d in self.gen.__invoke__(start, end, after, before, calendar, **kwargs):
+        for d in self.gen.__invoke__log__(start, end, after, before, calendar, **kwargs):
             yield date(d.year, d.month, 1)
 
     def __repr__(self):

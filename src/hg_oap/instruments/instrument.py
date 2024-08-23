@@ -1,13 +1,11 @@
 from dataclasses import dataclass
-from typing import NewType
 
 from hg_oap.units.unit_system import UnitConversionContext
 from hg_oap.utils import ExprClass
-from hgraph import CompoundScalar, TimeSeriesSchema, TS
+from hgraph import CompoundScalar
 
 __all__ = ("INSTRUMENT_ID", "Instrument")
 
-from hg_oap.assets.asset import Asset
 
 INSTRUMENT_ID = str  # A useful alias to help make it clear when a string is intended to represent an instrument id.
 
@@ -25,5 +23,3 @@ class InstrumentId(CompoundScalar):
 @dataclass(frozen=True)
 class Instrument(CompoundScalar, ExprClass, UnitConversionContext):
     symbol: INSTRUMENT_ID
-
-

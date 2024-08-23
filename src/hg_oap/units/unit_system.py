@@ -2,10 +2,9 @@ import operator
 from dataclasses import dataclass, field
 from functools import reduce
 from itertools import chain, combinations
-from typing import ClassVar, Tuple, Iterable, Callable
+from typing import ClassVar, Tuple, Iterable
 
 from hg_oap.utils.exprclass import CallableDescriptor
-
 
 __all__ = ("UnitSystem", "UnitConversionContext")
 
@@ -27,7 +26,6 @@ class UnitSystem:
     @staticmethod
     def instance():
         if UnitSystem.__instance__ is None and UnitSystem.__default__ is not None:
-            from hg_oap.units import default_unit_system
             UnitSystem.__instance__ = U
         return UnitSystem.__instance__
 
@@ -99,7 +97,7 @@ class UnitSystem:
 
 
 class UnitConversionContext:
-    def __init__(self, conversion_factors: tuple["Quantity[float]"] = ()):
+    def __init__(self, conversion_factors: tuple["Quantity[float]", ...] = ()):
         self.unit_conversion_factors = conversion_factors
 
     def __enter__(self):

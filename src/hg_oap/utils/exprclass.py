@@ -187,7 +187,7 @@ def exprclass(cls):
 
 def replace(obj, /, **changes):
     """Return a new object replacing specified fields with new values. Make sure to NOT copy expression fields unless
-    they are overriden on the source object
+    they are overridden on the source object
     """
 
     # We're going to mutate 'changes', but that's okay because it's a
