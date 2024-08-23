@@ -272,10 +272,6 @@ class BaseWiringNodeClass(WiringNodeClass):
         **kwargs,
     ) -> "WiringPort":
 
-        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
-        if found_overload:
-            return r
-
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             # Now validate types and resolve any un-resolved types and provide an updated signature.
@@ -356,8 +352,16 @@ def validate_and_resolve_signature(
         valid_inputs, has_valid_overrides = signature.resolve_valid_inputs(resolution_dict, **kwargs)
         all_valid_inputs, has_all_valid_overrides = signature.resolve_all_valid_inputs(resolution_dict, **kwargs)
         active_inputs, has_active_overrides = signature.resolve_active_inputs(resolution_dict, **kwargs)
-        resolved_inputs, valid_inputs, has_valid_overrides, all_valid_inputs, has_all_valid_overrides = signature.resolve_context_kwargs(
-            kwargs, kwarg_types, resolved_inputs, valid_inputs, has_valid_overrides, all_valid_inputs, has_all_valid_overrides
+        resolved_inputs, valid_inputs, has_valid_overrides, all_valid_inputs, has_all_valid_overrides = (
+            signature.resolve_context_kwargs(
+                kwargs,
+                kwarg_types,
+                resolved_inputs,
+                valid_inputs,
+                has_valid_overrides,
+                all_valid_inputs,
+                has_all_valid_overrides,
+            )
         )
         resolved_inputs = signature.resolve_auto_resolve_kwargs(resolution_dict, kwarg_types, kwargs, resolved_inputs)
 
