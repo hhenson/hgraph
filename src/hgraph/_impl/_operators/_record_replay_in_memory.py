@@ -21,6 +21,10 @@ from hgraph import (
     TimeSeriesOutput,
     EvaluationEngineApi,
 )
+from hgraph._types._type_meta_data import AUTO_RESOLVE
+from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
+from hgraph._runtime._traits import Traits
+
 
 __all__ = (
     "ReplaySource",
@@ -31,9 +35,6 @@ __all__ = (
     "set_replay_values",
     "get_recorded_value",
 )
-
-from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
-from hgraph._runtime._traits import Traits
 
 
 class ReplaySource(Protocol):
@@ -71,12 +72,12 @@ def set_replay_values(label: str, value: ReplaySource, recordable_id: str = None
     GlobalState.instance()[f"{recordable_id}.{label}"] = value
 
 
-@generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY))
+@generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_from_memory(
     key: str,
-    tp: type[TIME_SERIES_TYPE],
-    suffix: str = None,
+    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     is_operator: bool = False,
+    recordable_id: str = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
 ) -> TIME_SERIES_TYPE:
@@ -87,11 +88,11 @@ def replay_from_memory(
     # TODO: At some point it would be useful to support a time-indexed collection of values to provide
     # More complex replay scenarios.
     """
-    recordable_id = _traits.get_trait_or("recordable_id", None)
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     if recordable_id is None:
         recordable_id = f"nodes.{replay_from_memory.signature.name}"
     else:
-        recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}"
+        recordable_id = f":memory:{recordable_id}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
@@ -103,17 +104,18 @@ def replay_from_memory(
             yield ts, v
 
 
-@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY))
+@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_const_from_memory(
     key: str,
-    tp: type[TIME_SERIES_TYPE],
-    suffix: str = None,
+    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     is_operator: bool = False,
+    recordable_id: str = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
     _output: TIME_SERIES_TYPE = None,
 ) -> TIME_SERIES_TYPE:
-    recordable_id = f":memory:{_traits.get_trait_or('recordable_id', None)}{'_' + suffix if suffix else ''}"
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
+    recordable_id = f":memory:{recordable_id}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
@@ -133,13 +135,12 @@ def replay_const_from_memory(
         yield tm, None
 
 
-@sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY))
+@sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))
 def record_to_memory(
     ts: TIME_SERIES_TYPE,
     key: str = "out",
-    record_delta_values: bool = True,
-    suffix: str = None,
     is_operator: bool = False,
+    recordable_id: str = None,
     _api: EvaluationEngineApi = None,
     _state: STATE = None,
     _traits: Traits = None,
@@ -147,19 +148,17 @@ def record_to_memory(
     """
     This node will record the values of the time series into the provided list.
     """
-    _state.record_value.append(
-        (_api.evaluation_clock.evaluation_time, ts.delta_value if record_delta_values else ts.value)
-    )
+    _state.record_value.append((_api.evaluation_clock.evaluation_time, ts.delta_value))
 
 
 @record_to_memory.start
-def record_to_memory_start(key: str, suffix: str, is_operator: bool, _state: STATE, _traits: Traits):
-    recordable_id = _traits.get_trait_or("recordable_id", None)
+def record_to_memory_start(key: str, is_operator: bool, recordable_id: str, _state: STATE, _traits: Traits):
+    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     if recordable_id is None:
         recordable_id = f"nodes.{record.signature.name}.{key}"
         _state.is_operator = False
     else:
-        recordable_id = f":memory:{recordable_id}{'_' + suffix if suffix else ''}.{key}"
+        recordable_id = f":memory:{recordable_id}.{key}"
         _state.is_operator = True
     _state.recordable_id = recordable_id
     _state.record_value = []

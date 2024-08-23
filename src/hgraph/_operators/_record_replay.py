@@ -1,5 +1,7 @@
 from enum import auto, IntFlag
 
+from hgraph._types._type_meta_data import AUTO_RESOLVE
+from hgraph._types._scalar_types import DEFAULT
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
 from hgraph._wiring._decorators import operator
@@ -90,49 +92,55 @@ def record_replay_model() -> str:
     return GlobalState.instance().get("::record_replay_model::", IN_MEMORY)
 
 
-def record_replay_model_restriction(model: str):
+def record_replay_model_restriction(model: str, check_operator: bool = False):
     """
     Ensure the operator implementation will only be available when the record model is as per ``model`` when used
     as an operator, but not if the implementation is used directly.
     """
+    if check_operator:
 
-    def restriction(m, s):
-        return not s.get("is_operator", False) or record_replay_model() == model
+        def restriction(m, s):
+            return not s.get("is_operator", False) or record_replay_model() == model
+
+    else:
+
+        def restriction(m, s):
+            return record_replay_model() == model
 
     return restriction
 
 
 @operator
-def record(ts: TIME_SERIES_TYPE, key: str, record_delta_values: bool = True, suffix: str = None):
+def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str, recordable_id: str = None):
     """
-    Records the ts input. The recordable_context is provided containing the recordable_id as well
-    as the record mode. If the mode does not contain record, then the results are not recorded.
-    If the state is record, but a replay option is set, then the recording will only continue once
-    the last recorded time is reached (unless the reset option is set).
+    Record the ts value. The recoding is tied to the recordable_id plus the key.
+    Recordings are made as delta values. A model could choose to record as full state
+    so long as it is consistent.
 
-    The key represents the input argument (or out for the output)
+    The key represents the input argument (or __out__ for the output)
 
-    The suffix to append to the recorder id, this is useful when multiple recording is performed.
+    If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
     ...
 
 
 @operator
-def replay(key: str, tp: type[OUT], suffix: str = None) -> OUT:
+def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) -> OUT:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
 
     The key represents the input argument (or out for the output)
-    The suffix to append to the recorder id, this is useful when multiple recording is performed.
+    If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
 
 
 @operator
-def replay_const(key: str, tp: type[OUT], suffix: str = None) -> OUT:
+def replay_const(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.
+    If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
 
 

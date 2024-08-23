@@ -613,3 +613,15 @@ Version 0.3.0 (17-08-2024)
 * Update roadmap to address re-order of work.
 * Update to adaptors and adaptor logic
 * Bug fixes
+
+Version 0.3.1 (21-08-2024)
+--------------------------
+
+* Small fixes
+* Initial cut of to_table and related code
+
+Version 0.3.2 (21-08-2024)
+--------------------------
+
+* Fix to cycle detection logic
+

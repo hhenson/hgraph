@@ -428,10 +428,6 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 stacklevel=3,
             )
 
-        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=__pre_resolved_types__)
-        if found_overload:
-            return r
-
         kwargs.pop("__return_sink_wp__", None)  # not applicable to graphs
 
         # We don't want graph and node signatures to operate under different rules as this would make
