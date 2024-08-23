@@ -71,10 +71,10 @@ def make_table_schema(
     as_of_key: str = None,
 ) -> TableSchema:
     if date_key is None:
-        date_key = GlobalState.instance().get(DATE_KEY, "__date_time__")
+        date_key = (GlobalState.instance() if GlobalState._instance else {}).get(DATE_KEY, "__date_time__")
 
     if as_of_key is None:
-        as_of_key = GlobalState.instance().get(AS_OF_KEY, "__as_of__")
+        as_of_key = (GlobalState.instance() if GlobalState._instance else {}).get(AS_OF_KEY, "__as_of__")
 
     keys_ = [date_key, as_of_key]
     types_ = [datetime, datetime]
