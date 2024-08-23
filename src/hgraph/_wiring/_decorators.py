@@ -16,6 +16,7 @@ __all__ = (
     "adaptor_impl",
     "component",
     "compute_node",
+    "const_fn",
     "default_path",
     "generator",
     "graph",
@@ -345,6 +346,53 @@ def graph(
 
     return _node_decorator(
         WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires, deprecated=deprecated
+    )
+
+
+def const_fn(
+    fn: SOURCE_NODE_SIGNATURE = None,
+    overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
+    resolvers: Mapping[TypeVar, Callable] = None,
+    requires: Callable[[..., ...], bool] = None,
+    deprecated: bool | str = False,
+) -> SOURCE_NODE_SIGNATURE:
+    """
+    Wraps a constant function. A constant function is one that accepts non-time-series inputs and produces a constant
+    value. The function returns a value that matches the scalar representation of the time-series output.
+    The side effect of using this decorator is that the value can be called in the context of a graph or as a normal
+    function. This can still benefit from operator resolution as well.
+
+    When used outside the graph wiring, the function will return a time-series output.
+    The static value can be queried using the .value property.
+    If the function is called outside a wiring-context, the computed value is just returned.
+
+    For example:
+
+        @const_fn
+        def my_const(a: int, b: int) -> TS[int]:
+            return a + b
+
+        @graph
+        def my_graph():
+            a = my_const(1, 2) # Used inside the graph wiring.
+            if a.value == 3:
+                debug_print('a', a)
+            else:
+                raise RuntimeError("Bad things happening")
+
+        print(f"1+2={my_const(1, 2)}")  # Used outside the graph wiring
+    """
+    from hgraph._wiring._wiring_node_class._python_const_wiring_node_class import PythonConstWiringNodeClass
+    from hgraph._wiring._wiring_node_signature import WiringNodeType
+
+    return _node_decorator(
+        WiringNodeType.CONST_FN,
+        fn,
+        overloads=overloads,
+        node_class=PythonConstWiringNodeClass,
+        resolvers=resolvers,
+        requires=requires,
+        deprecated=deprecated,
     )
 
 
@@ -828,6 +876,8 @@ def _node_decorator(
 
             kwargs["node_class"] = ComponentNodeClass
             _assert_no_node_configs("Component", kwargs)
+        case WiringNodeType.CONST_FN:
+            _assert_no_node_configs("Const Fn", kwargs)
 
     if overloads is not None and impl_fn is None:
         kwargs["overloads"] = overloads
