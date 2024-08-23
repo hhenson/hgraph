@@ -6,7 +6,7 @@ from tornado.web import Application
 
 
 class TornadoWeb:
-    """Tornado web server. This class allows to share isntances of the web server across multiple adaptors"""
+    """Tornado web server. This class allows for a shared instances of the web server across multiple adaptors"""
 
     _instances: dict[int, "TornadoWeb"] = {}
     _started = 0
