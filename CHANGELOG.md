@@ -625,3 +625,10 @@ Version 0.3.2 (21-08-2024)
 
 * Fix to cycle detection logic
 
+Version 0.3.3 (23-08-2024)
+--------------------------
+
+* Add const_fn decorator for wrapping a constant value function
+  This allows for operator support and can be used outside the wiring context.
+* Convert table_schema to const_fn
+* Prepare replay logic from dataframes.

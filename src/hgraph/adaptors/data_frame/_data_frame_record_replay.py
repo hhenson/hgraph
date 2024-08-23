@@ -89,7 +89,7 @@ def _read_df(path: Path, recordable_id: str) -> pl.DataFrame:
 
 @graph(overloads=replay, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
 def replay_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) -> OUT:
-    values = _replay_from_data_frame(key, recordable_id)
+    values = _replay_from_data_frame(key, tp, recordable_id)
     return from_table[tp](values)
 
 
@@ -100,23 +100,27 @@ def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
 
 
 def _replay_from_data_frame_output_shape(m, s):
-    recordable_id = s["recordable_id"]
-    traits = s["_traits"]
-    key = s["key"]
-    df = _get_df(key, recordable_id, traits)
-    schema = df.schema
-    from polars.datatypes import dtype_to_py_type
-
-    types = tuple(dtype_to_py_type(tp) for tp in schema.values())
-    return tuple[*types]
+    tp = m[TIME_SERIES_TYPE].py_type
+    schema: TableSchema = table_schema(tp).value
+    if schema.partition_keys:
+        return tuple[tuple[*schema.types], ...]
+    else:
+        return tuple[*schema.types]
 
 
 @generator(resolvers={OUT: _replay_from_data_frame_output_shape})
-def _replay_from_data_frame(key: str, recordable_id: str = None, _traits: Traits = None) -> TS[OUT]:
+def _replay_from_data_frame(
+    key: str, tp: type[TIME_SERIES_TYPE], recordable_id: str = None, _traits: Traits = None
+) -> TS[OUT]:
+    schema: TableSchema = table_schema(tp)
     df_source = _get_df(key, recordable_id, _traits)
     dt_col = pl.col(get_table_schema_date_key())
     df: pl.DataFrame
     dt: datetime
     for (dt,), df in df_source.group_by(dt_col, maintain_order=True):
         out = tuple(df.iter_rows())
-        yield dt, out[0]  # for now do this, need to work out how to detect pivoted data.
+        if out:
+            if schema.partition_keys:
+                yield dt, out
+            else:
+                yield dt, out[0]  # If there are no partition keys we should only return a single value

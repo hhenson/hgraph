@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from hgraph._operators._operators import operator
-from hgraph._types import TIME_SERIES_TYPE, CompoundScalar, TS, SCALAR, OUT, DEFAULT
 from hgraph._runtime import GlobalState, EvaluationClock
+from hgraph._types import TIME_SERIES_TYPE, CompoundScalar, TS, SCALAR, OUT, DEFAULT
 
 __all__ = (
     "to_table",

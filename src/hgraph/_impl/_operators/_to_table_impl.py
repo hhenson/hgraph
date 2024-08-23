@@ -5,7 +5,7 @@ from hgraph import AUTO_RESOLVE, from_table, HgTupleFixedScalarType
 from hgraph._operators import to_table, get_as_of, table_schema, const, TableSchema, make_table_schema
 from hgraph._runtime import EvaluationClock
 from hgraph._types import TS, SCALAR
-from hgraph._wiring._decorators import compute_node, graph
+from hgraph._wiring._decorators import compute_node, graph, const_fn
 
 __all__ = []
 
@@ -22,9 +22,9 @@ def to_table_ts_simple_value(ts: TS[SIMPLE_SCALAR], _clock: EvaluationClock = No
     return (ts.last_modified_time, get_as_of(_clock), ts.value)
 
 
-@graph(overloads=table_schema)
+@const_fn(overloads=table_schema)
 def table_schema_ts_simple_value(tp: type[TS[SCALAR]], _scalar: type[SCALAR] = AUTO_RESOLVE) -> TS[TableSchema]:
-    return const(make_table_schema(("value",), (_scalar,)))
+    return make_table_schema(("value",), (_scalar,))
 
 
 def _simple_value_scalar(m, s):

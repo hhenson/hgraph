@@ -21,7 +21,6 @@ def test_data_frame_record():
             assert df["value"][2] == 3
 
 
-@pytest.mark.xfail(reason="In process of making work")
 def test_data_frame_record_replay():
     with GlobalState() as gs:
         set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
