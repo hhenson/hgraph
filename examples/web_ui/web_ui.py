@@ -41,6 +41,7 @@ from hgraph.adaptors.perspective import (
     publish_multitable,
 )
 from hgraph.adaptors.perspective._perspective import perspective_web
+from hgraph.debug import trace_controller
 
 
 class Readings(TimeSeriesSchema):
@@ -139,6 +140,7 @@ def host_web_server():
         history=sys.maxsize,
     )
 
+    trace_controller()
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:
