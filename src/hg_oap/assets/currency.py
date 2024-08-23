@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 from hg_oap.assets.asset import FinancialAsset
@@ -22,3 +23,10 @@ class Currency(FinancialAsset):
         if self.minor_currency_ratio is not None:
             minor_symbol = f"{self.symbol[:-1]}X"
             setattr(U, minor_symbol, 1.0/self.minor_currency_ratio * unit)
+
+
+class Currencies(Enum):
+    """The collection of known currencies"""
+    EUR = Currency(symbol="EUR", minor_currency_ratio=100)
+    GBP = Currency(symbol="GBP", minor_currency_ratio=100)
+    USD = Currency(symbol="USD", minor_currency_ratio=100)
