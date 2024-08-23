@@ -254,7 +254,7 @@ def window_timedelta_start(_state: STATE):
     _state.index = deque[datetime]()
 
 
-@compute_node(overloads=gate)
+@compute_node(overloads=gate, valid=("ts",))
 def gate(
     condition: TS[bool],
     ts: TIME_SERIES_TYPE,

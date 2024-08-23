@@ -280,8 +280,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                 else:
                     to_keep[k] = v
             self._removed_items = to_keep
-        if self.has_peer:
-            super().do_un_bind_output()
+
+        self.output.remove_key_observer(self)
+        super().do_un_bind_output()
 
     def _create(self, key: K):
         item = self._ts_builder.make_instance(owning_input=self)

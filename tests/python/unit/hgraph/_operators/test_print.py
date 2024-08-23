@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from hgraph import graph, TSL, TS, Size, debug_print, log_, print_
+from hgraph import graph, TSL, TS, Size, debug_print, log_, print_, assert_, NodeException
 from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 
@@ -99,3 +99,11 @@ def test_debug_print_sample(capsys):
 
     assert "[2] ts" in capsys.readouterr().out
 
+
+def test_assert():
+    @graph
+    def main(condition: TS[bool], ts: TS[int]):
+        assert_(condition, "assertion {} {sample}", ts, sample=2)
+
+    with pytest.raises(NodeException, match="assertion 3 2"):
+        eval_node(main,[True, None, False], [1, 2, 3, 4])

@@ -62,7 +62,7 @@ try:
             )
 
         with GlobalState():
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3), __trace__=True)
+            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
             for tick in [{"one": True}, {"two": True}]:
                 assert tick in [t[-1] for t in get_recorded_value()]
 

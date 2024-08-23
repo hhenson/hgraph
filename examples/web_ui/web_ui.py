@@ -41,6 +41,7 @@ from hgraph.adaptors.perspective import (
     publish_multitable,
 )
 from hgraph.adaptors.perspective._perspective import perspective_web
+from hgraph.debug import trace_controller
 
 
 class Readings(TimeSeriesSchema):
@@ -71,7 +72,7 @@ class RandomDataState(CompoundScalar):
 
 
 @compute_node(all_valid=("config",))
-def random_data(
+def random_values(
     config: TSB[Config],
     freq_ms: int = 1000,
     ec: EvaluationClock = None,
@@ -84,10 +85,24 @@ def random_data(
             + (random() - 0.5) * (config.randomness.value * prev / sqrt(252))
             + config.trend.value / 252
         ),
-        "events": floor(randint(0, 100)) if randint(0, 100) > 95 else 0,
     }
 
     state.value = data["value"]
+    sched.schedule(ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)))
+    return data
+
+
+@compute_node(all_valid=("config",))
+def random_events(
+    config: TSB[Config],
+    freq_ms: int = 1000,
+    ec: EvaluationClock = None,
+    sched: SCHEDULER = None,
+) -> TSB[Readings]:
+    data = {
+        "events": floor(randint(0, 100)) if randint(0, 100) > 95 else 0,
+    }
+
     sched.schedule(ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)))
     return data
 
@@ -105,7 +120,14 @@ def host_web_server():
 
     map_(
         lambda key, c: publish_multitable(
-            "data", key, random_data(c, 100), index_col_name="sensor", history=sys.maxsize
+            "data", key, random_values(c, 100), index_col_name="sensor", history=sys.maxsize
+        ),
+        config,
+    )
+
+    map_(
+        lambda key, c: publish_multitable(
+            "data", key, random_events(c, 100), index_col_name="sensor", history=sys.maxsize
         ),
         config,
     )
@@ -118,6 +140,7 @@ def host_web_server():
         history=sys.maxsize,
     )
 
+    trace_controller()
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:

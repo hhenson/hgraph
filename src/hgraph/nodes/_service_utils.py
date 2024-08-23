@@ -172,7 +172,7 @@ def _request_reply_service(
 
 
 @generator
-def request_id(_state: STATE = None) -> TS[int]:
+def request_id(hash: int, _state: STATE = None) -> TS[int]:
     _state.request = object()
     yield timedelta(), id(_state.request)
 

@@ -28,8 +28,8 @@ def test_push_queue():
 
     now = datetime.utcnow()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.
-    GlobalState.reset()
-    run_graph(main, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=3))
-    values = get_recorded_value()
+    with GlobalState():
+        run_graph(main, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=3))
+        values = get_recorded_value()
     # The exact timings are not that important.
     assert [v[1] for v in values] == ["1", "2", "3"]

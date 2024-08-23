@@ -15,7 +15,7 @@ class GlobalState(object):
     @staticmethod
     def instance() -> "GlobalState":
         if GlobalState._instance is None:
-            GlobalState._instance = GlobalState()
+            raise RuntimeError("No global state is present")  # default constructing one is very bad for tests
         return GlobalState._instance
 
     @staticmethod

@@ -66,7 +66,7 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
                 from_graph_full_path = self.full_path(path + "/from_graph")
                 from_graph_typed_path = self.typed_full_path(from_graph_full_path, resolution_dict)
 
-                id = __request_id__ or request_id()
+                id = __request_id__ or request_id(hash((path, frozendict(inputs), frozendict(scalars))))
                 for k, v in inputs.items():
                     client = write_adaptor_request(
                         from_graph_typed_path, k, v, requestor_id=id, __return_sink_wp__=True

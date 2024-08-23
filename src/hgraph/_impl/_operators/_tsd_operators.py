@@ -353,6 +353,33 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
     return out
 
 
+@compute_node(overloads=flip, requires=lambda m, s: s["unique"] is False)
+def flip_tsd_non_unique(ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TSS[K]]:
+    """
+    Flip the TSD to have the time-series as the key and the key as the time-series. Collect keys for duplicate values into TSS
+    """
+    from hgraph import Removed
+
+    out = defaultdict(set)
+    prev = _state.prev
+
+    # Clear up existing mapping before we track new key mappings
+    for k in ts.removed_keys():
+        k_new = prev.pop(k, None)
+        if k_new is not None:
+            out[k_new].add(Removed(k))
+
+    for k, v in ts.modified_items():
+        v = v.value
+        k_new = prev.pop(k, None)
+        if k_new is not None:
+            out[k_new].add(Removed(k))
+        out[v].add(k)
+        prev[k] = v
+
+    return out
+
+
 @compute_node(overloads=flip_keys)
 def flip_keys_tsd(
     ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None

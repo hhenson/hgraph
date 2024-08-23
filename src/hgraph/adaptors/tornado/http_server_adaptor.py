@@ -37,13 +37,16 @@ from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 class HttpRequest(CompoundScalar):
     url: str
     url_parsed_args: tuple[str] = ()
+    query: dict[str, str] = frozendict()
     headers: dict[str, str] = frozendict()
+    cookies: dict[str, str] = frozendict()
 
 
 @dataclass(frozen=True)
 class HttpResponse(CompoundScalar):
     status_code: int
     headers: frozendict[str, str] = frozendict()
+    cookies: frozendict[str, str] = frozendict()
     body: str = ""
 
 
@@ -112,7 +115,12 @@ class HttpHandler(tornado.web.RequestHandler):
         request_id = id(request_obj)
 
         response = await self.mgr.add_request(
-            request_id, HttpGetRequest(url=self.path, url_parsed_args=args, headers=self.request.headers)
+            request_id, HttpGetRequest(
+                url=self.path,
+                url_parsed_args=args,
+                headers=self.request.headers,
+                query=frozendict({k: ''.join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
+                cookies=frozendict(self.request.cookies))
         )
 
         self.set_status(response.status_code)
@@ -196,7 +204,7 @@ def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[
 
 @adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
 def http_server_adaptor_helper(path: str, port: int):
-    register_service("http_server_adaptor", http_server_adaptor_impl, port=port)
+    register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
 
 
 @adaptor_impl(interfaces=())

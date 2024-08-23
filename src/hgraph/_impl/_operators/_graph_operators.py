@@ -2,7 +2,7 @@ import logging
 import sys
 from dataclasses import dataclass
 
-from hgraph._operators._graph_operators import default, nothing, null_sink, debug_print, print_, log_
+from hgraph._operators._graph_operators import default, nothing, null_sink, debug_print, print_, log_, assert_
 from hgraph._operators._string import format_
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF
@@ -161,3 +161,27 @@ def log_impl(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.IN
 @sink_node
 def _log(ts: TS[str], level: int, logger: LOGGER = None):
     logger.log(level, ts.value)
+
+
+@sink_node(overloads=assert_)
+def assert_default(condition: TS[bool], error_msg: str):
+    if not condition.value:
+        raise AssertionError(error_msg)
+
+
+@sink_node(overloads=assert_)
+def assert_default(condition: TS[bool], error_msg: TS[str]):
+    if condition.modified and not condition.value:
+        raise AssertionError(error_msg.value)
+
+
+@graph(overloads=assert_)
+def assert_format(condition: TS[bool], error_msg: str, *args: TSB[TS_SCHEMA], **kwargs: TSB[TS_SCHEMA_1]):
+    from hgraph import sample, if_true
+
+    do_format = if_true(condition == False)
+    assert_(condition,
+            format_(
+                error_msg,
+                __pos_args__=sample(do_format, args),
+                __kw_args__=sample(do_format, kwargs)))
