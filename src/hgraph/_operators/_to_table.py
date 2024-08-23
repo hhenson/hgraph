@@ -15,6 +15,7 @@ __all__ = (
     "set_as_of_key",
     "set_date_key",
     "make_table_schema",
+    "get_table_schema_date_key",
 )
 
 
@@ -55,6 +56,11 @@ class TableSchema(CompoundScalar):
     partition_keys: tuple[str, ...]  # An empty set implies a single row per tick.
     date_time_key: str
     as_of_key: str  # Empty string when no as_of_key is present
+
+
+def get_table_schema_date_key() -> str:
+    """The date key used for table structures."""
+    return GlobalState.instance().get(DATE_KEY, "__date_time__")
 
 
 def make_table_schema(

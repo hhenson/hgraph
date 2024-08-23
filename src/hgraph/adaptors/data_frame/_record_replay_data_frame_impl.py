@@ -1,6 +1,6 @@
 from hgraph._operators import record
-from hgraph._operators._record_replay import record_replay_model_restriction, replay
-from hgraph._types import TIME_SERIES_TYPE, OUT
+from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
+from hgraph._types import TIME_SERIES_TYPE, OUT, AUTO_RESOLVE
 from hgraph._wiring import graph
 
 __all__ = ("record_to_dataframe", "replay_from_dataframe", "replay_const_from_data_frame", "RECORD_AS_DATA_FRAME")
@@ -34,8 +34,8 @@ def record_to_dataframe(ts: TIME_SERIES_TYPE, key: str, record_delta_values: boo
 
 
 @graph(overloads=replay, requires=record_replay_model_restriction(RECORD_AS_DATA_FRAME))
-def replay_from_dataframe(key: str, tp: type[TIME_SERIES_TYPE], suffix: str = None) -> OUT: ...
+def replay_from_dataframe(key: str, tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE, suffix: str = None) -> OUT: ...
 
 
-@graph(overloads=replay, requires=record_replay_model_restriction(RECORD_AS_DATA_FRAME))
-def replay_const_from_data_frame(key: str, tp: type[OUT], suffix: str = None) -> OUT: ...
+@graph(overloads=replay_const, requires=record_replay_model_restriction(RECORD_AS_DATA_FRAME))
+def replay_const_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, suffix: str = None) -> OUT: ...

@@ -21,6 +21,7 @@ from hgraph import (
     TimeSeriesOutput,
     EvaluationEngineApi,
 )
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
 from hgraph._runtime._traits import Traits
 
@@ -74,7 +75,7 @@ def set_replay_values(label: str, value: ReplaySource, recordable_id: str = None
 @generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_from_memory(
     key: str,
-    tp: type[TIME_SERIES_TYPE],
+    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     is_operator: bool = False,
     recordable_id: str = None,
     _traits: Traits = None,
@@ -106,7 +107,7 @@ def replay_from_memory(
 @generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_const_from_memory(
     key: str,
-    tp: type[TIME_SERIES_TYPE],
+    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     is_operator: bool = False,
     recordable_id: str = None,
     _traits: Traits = None,

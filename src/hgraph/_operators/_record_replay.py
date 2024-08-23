@@ -1,5 +1,6 @@
 from enum import auto, IntFlag
 
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._types._scalar_types import DEFAULT
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
@@ -124,7 +125,7 @@ def record(ts: DEFAULT[TIME_SERIES_TYPE], key: str, recordable_id: str = None):
 
 
 @operator
-def replay(key: str, tp: type[OUT], recordable_id: str = None) -> OUT:
+def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) -> OUT:
     """
     Replay the ts using the id provided in the context.
     This will also ensure that REPLAY | COMPARE is set as the mode before attempting replay.
@@ -135,7 +136,7 @@ def replay(key: str, tp: type[OUT], recordable_id: str = None) -> OUT:
 
 
 @operator
-def replay_const(key: str, tp: type[OUT], recordable_id: str = None) -> OUT:
+def replay_const(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.
