@@ -362,10 +362,6 @@ def const_fn(
     The side effect of using this decorator is that the value can be called in the context of a graph or as a normal
     function. This can still benefit from operator resolution as well.
 
-    When used outside the graph wiring, the function will return a time-series output.
-    The static value can be queried using the .value property.
-    If the function is called outside a wiring-context, the computed value is just returned.
-
     For example:
 
         @const_fn
@@ -380,7 +376,7 @@ def const_fn(
             else:
                 raise RuntimeError("Bad things happening")
 
-        print(f"1+2={my_const(1, 2)}")  # Used outside the graph wiring
+        print(f"1+2={my_const(1, 2).value}")  # Used outside the graph wiring
     """
     from hgraph._wiring._wiring_node_class._python_const_wiring_node_class import PythonConstWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType

@@ -112,7 +112,7 @@ def _replay_from_data_frame_output_shape(m, s):
 def _replay_from_data_frame(
     key: str, tp: type[TIME_SERIES_TYPE], recordable_id: str = None, _traits: Traits = None
 ) -> TS[OUT]:
-    schema: TableSchema = table_schema(tp)
+    schema: TableSchema = table_schema(tp).value
     df_source = _get_df(key, recordable_id, _traits)
     dt_col = pl.col(get_table_schema_date_key())
     df: pl.DataFrame

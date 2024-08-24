@@ -1,22 +1,19 @@
-import inspect
-import types
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Callable, Any, Mapping, TypeVar
+from typing import TYPE_CHECKING, TypeVar, Any, NamedTuple
 
 from hgraph import HgTypeMetaData, WiringContext, const, WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     BaseWiringNodeClass,
-    create_input_output_builders,
     validate_and_resolve_signature,
 )
-from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
 if TYPE_CHECKING:
-    from hgraph._builder._node_builder import NodeBuilder
-    from hgraph._runtime._node import NodeSignature
-
+    pass
 
 __all__ = ("PythonConstWiringNodeClass",)
+
+
+ValueTuple = NamedTuple("ValueTuple", [("value", Any)])
 
 
 class PythonConstWiringNodeClass(BaseWiringNodeClass):
@@ -49,4 +46,4 @@ class PythonConstWiringNodeClass(BaseWiringNodeClass):
                 out = const(value, tp=resolved_signature.output_type.py_type)
                 return out
             else:
-                return value
+                return ValueTuple(value=value)
