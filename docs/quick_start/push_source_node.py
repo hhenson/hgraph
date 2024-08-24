@@ -8,10 +8,10 @@ from hgraph.nodes import stop_engine
 
 
 def _user_input(sender: Callable[[str], None]):
-    while(True):
-        s = sys.stdin.readline().strip('\n')
+    while True:
+        s = sys.stdin.readline().strip("\n")
         sender(s)
-        if s == 'exit':
+        if s == "exit":
             break
 
 
