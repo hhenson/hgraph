@@ -36,7 +36,8 @@ def capture_an_exception():
     e = exception_time_series(c)
     debug_print("a / b", c)
     debug_print("exception", e)
-
+```
+```
 >> [1970-01-01 00:00:00.000534][1970-01-01 00:00:00.000001] exception: div_(lhs: TS[float], rhs: TS[float]) -> TS[float]
 >> NodeError: float division by zero
 >> Stack trace:
@@ -70,6 +71,8 @@ these parameters when requesting the the exception output.
 For example:
 
 ```python
+from hgraph import graph, const, exception_time_series, debug_print
+
 @graph
 def capture_an_exception():
     a = const(1.0) + const(2.0)
@@ -94,6 +97,8 @@ this for all use-cases, the key difference being how the output is returned.
 Here is an example using this:
 
 ```python
+from hgraph import graph, TS, try_except, const, debug_print, run_graph
+
 @graph
 def a_graph(lhs: TS[float], rhs: TS[float]) -> TS[float]:
     return lhs / rhs
