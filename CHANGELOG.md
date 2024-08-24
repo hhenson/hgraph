@@ -25,3 +25,8 @@ Version 0.1.3 (17-08-2024)
 --------------------------
 
 * Numerous bug fixes
+
+Version 0.1.5 (24-08-2024)
+--------------------------
+
+* Fixes and convertion to poetry for project management
