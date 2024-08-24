@@ -64,11 +64,12 @@ pytest = "*"
 mypy = "*"
 pytest-cov = "*"
 coverage = "*"
+pytest-xdist = "*"
 
 # Configure pytest
 [tool.pytest.ini_options]
 minversion = "7.4.3"
-addopts = "-ra -q"
+addopts = "-n auto -ra -q" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 testpaths = [
     "tests",
 ]
@@ -82,8 +83,8 @@ omit = [
 ]
 
 [tool.coverage.paths]
-hg = ["src/hgraph", "*/hgraph/src/hg"]
-tests = ["tests", "*/hgraph/tests"]
+hg = ["src/hgraph",]
+tests = ["tests",]
 
 [tool.coverage.report]
 fail_under = 80
