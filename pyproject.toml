@@ -11,7 +11,8 @@ license = "MIT"
 authors = [
     "Howard Henson <howard@henson.me.uk>",
     "Alexander Balabin <balabin@me.com>",
-    "Simon Young <whepstead@gmail.com>"
+    "Simon Young <whepstead@gmail.com>",
+    "Tope Olukemi <tolukemi@gmail.com>"
 ]
 keywords = [
     "reactive", "graph", "fpg", "forward propogating graph",
@@ -74,11 +75,10 @@ testpaths = [
 
 # Configure coverage
 [tool.coverage.run]
-source_pkgs = ["hgraph", "tests"]
+source_pkgs = ["hgraph",]
 branch = true
 parallel = true
 omit = [
-    "src/hgraph/__about__.py",
 ]
 
 [tool.coverage.paths]
