@@ -114,6 +114,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._ts_values_to_keys.pop(id(item))
         self._ref_ts_feature.update(k)
         cast(TimeSeriesSetOutput, self.key_set).remove(k)
+        try:
+            self._modified_items.remove((k, item))
+        except: pass
         for observer in self._key_observers:
             observer.on_key_removed(k)
 
@@ -317,6 +320,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             if value.active:
                 value.make_passive()
             self._removed_items[key] = value
+            try:
+                self._modified_items.remove((key, value))
+            except: pass
         else:
             self._ts_values[key] = value
             value.un_bind_output()
