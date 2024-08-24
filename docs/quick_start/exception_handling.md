@@ -25,8 +25,7 @@ key is the map key and the value is the standard error stream.
 Here is an example of capturing an exception:
 
 ```python
-from hgraph import graph, exception_time_series
-from hgraph.nodes import const, debug_print
+from hgraph import graph, exception_time_series, const, debug_print
 
 
 @graph

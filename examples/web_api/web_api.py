@@ -5,6 +5,7 @@ be extended to different paradigms.
 We could greate an arbitrarily complex queue type and add additional context to direct the responses, but the basic
 idea should hold.
 """
+
 import threading
 from queue import Queue
 from typing import Callable
@@ -15,7 +16,7 @@ from hgraph import graph, push_queue, TS, sink_node, run_graph, EvaluationMode
 
 app = Flask(__name__)
 
-SENDER: Callable[[str],None] = None
+SENDER: Callable[[str], None] = None
 RECEIVER: Queue = None
 
 
@@ -26,7 +27,7 @@ def do(cmd):
 
 
 @push_queue(TS[str])
-def web_request(sender: Callable[[str],None]=None):
+def web_request(sender: Callable[[str], None] = None):
     global SENDER
     SENDER = sender
 
@@ -61,7 +62,11 @@ class HGraphApp:
         run_graph(self._graph, run_mode=EvaluationMode.REAL_TIME)
 
 
-if __name__ == "__main__":
+def main():
     graph_app = HGraphApp(graph=web_api)
     graph_app.init_app(app)
     app.run()
+
+
+if __name__ == "__main__":
+    main()

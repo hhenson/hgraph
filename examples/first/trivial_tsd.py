@@ -8,5 +8,9 @@ def trivial_tsd(ts: TSD[str, TS[int]]):
     log_("result {}", result)
 
 
-if __name__ == "__main__":
+def main():
     eval_node(trivial_tsd, [{"one": 1}, {"two": 2}], __trace__={"start": False, "stop": False, "eval": False})
+
+
+if __name__ == "__main__":
+    main()

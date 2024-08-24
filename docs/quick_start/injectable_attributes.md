@@ -19,8 +19,7 @@ either the __getitem__ or __getattr__ methods.
 The following is an example of a node that uses state:
 
 ```python
-from hgraph import compute_node, TS, graph, run_graph, STATE
-from hgraph.test import eval_node
+from hgraph import compute_node, TS, STATE
 
 
 @compute_node
@@ -58,7 +57,8 @@ This does not so much as introduce data, but will cause the node to be scheduled
 An example of using the scheduler is as follows:
 
 ```python
-from hgraph import compute_node, TS, graph, run_graph, SCHEDULER, STATE, MIN_TD
+from hgraph import compute_node, TS, SCHEDULER, STATE, MIN_TD
+
 
 @compute_node
 def lag(ts: TS[int], _scheduler: SCHEDULER = None, _state: STATE = None) -> TS[int]:

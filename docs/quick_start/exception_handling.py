@@ -1,5 +1,4 @@
-from hgraph import graph, exception_time_series, run_graph, TS, try_except
-from hgraph.nodes import const, debug_print
+from hgraph import graph, exception_time_series, run_graph, TS, try_except, const, debug_print
 
 
 @graph

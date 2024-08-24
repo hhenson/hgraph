@@ -12,7 +12,11 @@ def display(ts: TIME_SERIES_TYPE):
     print(ts.value)
 
 
-if __name__ == "__main__":
+def main():
     eval_node(
         trivial_graph, [None, 2, None, 4, None], [None, None, 3, None, 6], __trace__={"start": False, "stop": False}
     )
+
+
+if __name__ == "__main__":
+    main()

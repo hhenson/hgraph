@@ -54,8 +54,7 @@ be pre-resolved by performing explicit resolution using the [] syntax as depicte
 ```python
 from typing import Mapping
 from frozendict import frozendict
-from hgraph import compute_node, TS, TSD, TSL, SCALAR, TIME_SERIES_TYPE, graph, run_graph, Size
-from hgraph.nodes import debug_print
+from hgraph import compute_node, TS, TSD, TSL, SCALAR, TIME_SERIES_TYPE, graph, run_graph, Size, debug_print
 
 @compute_node
 def cast(value: TS[SCALAR]) -> TIME_SERIES_TYPE:

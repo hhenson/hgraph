@@ -2,8 +2,7 @@ from typing import TypeVar, Mapping
 
 from frozendict import frozendict
 
-from hgraph import compute_node, TS, graph, run_graph, SCALAR, TIME_SERIES_TYPE, Size, TSL, TSD
-from hgraph.nodes import debug_print
+from hgraph import compute_node, TS, graph, run_graph, SCALAR, TIME_SERIES_TYPE, Size, TSL, TSD, debug_print
 
 NUMERIC = TypeVar("NUMERIC", int, float)
 

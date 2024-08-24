@@ -4,8 +4,7 @@ Hello World
 The obligatory hello world example.
 
 ```python
-from hgraph import graph, run_graph, EvaluationMode
-from hgraph.nodes import const, debug_print
+from hgraph import graph, run_graph, EvaluationMode, const, debug_print
 
 @graph
 def hello_world() -> None:
