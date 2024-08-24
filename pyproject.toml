@@ -10,7 +10,8 @@ readme = "README.md"
 license = "MIT"
 authors = [
     "Howard Henson <howard@henson.me.uk>",
-    "Alexander Balabin <balabin@me.com>"
+    "Alexander Balabin <balabin@me.com>",
+    "Simon Young <whepstead@gmail.com>"
 ]
 keywords = [
     "reactive", "graph", "fpg", "forward propogating graph",
