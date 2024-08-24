@@ -7,7 +7,8 @@ license = "MIT"
 authors = [
     "Howard Henson <howard@henson.me.uk>",
     "Alexander Balabin <balabin@me.com>",
-    "Simon Young <whepstead@gmail.com>"
+    "Simon Young <whepstead@gmail.com>",
+    "Tope Olukemi <tolukemi@gmail.com>"
 ]
 keywords = [
     "reactive", "graph", "fpg", "forward propogating graph", "time series", "functional reactive programming",
