@@ -632,3 +632,8 @@ Version 0.3.3 (23-08-2024)
   This allows for operator support and can be used outside the wiring context.
 * Convert table_schema to const_fn
 * Prepare replay logic from dataframes.
+
+Version 0.3.4 (24-08-2024)
+--------------------------
+
+* Update to make use of poetry for project management.

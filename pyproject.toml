@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hgraph"
-version = "0.3.4a1"
+version = "0.3.4"
 description = """ \
 A functional reactive platform used to process time-series streams. \
 Provides support for backtest (simulation) and realtime time-series processing. \
@@ -61,6 +61,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.test.dependencies]
 pytest = "*"
 mypy = "*"
+pytest-cov = "*"
+coverage = "*"
 
 # Configure pytest
 [tool.pytest.ini_options]
