@@ -19,7 +19,6 @@ from hgraph import (
     OUT,
     get_table_schema_date_key,
     from_table,
-    const_fn,
     EvaluationEngineApi,
     get_as_of,
 )
@@ -114,14 +113,33 @@ def _replay_from_data_frame_output_shape(m, s):
 
 @generator(resolvers={OUT: _replay_from_data_frame_output_shape})
 def _replay_from_data_frame(
-    key: str, tp: type[TIME_SERIES_TYPE], recordable_id: str = None, _traits: Traits = None
+    key: str,
+    tp: type[TIME_SERIES_TYPE],
+    recordable_id: str = None,
+    _traits: Traits = None,
+    _api: EvaluationEngineApi = None,
 ) -> TS[OUT]:
     schema: TableSchema = table_schema(tp).value
     df_source = _get_df(key, recordable_id, _traits)
-    dt_col = pl.col(get_table_schema_date_key())
-    df: pl.DataFrame
+    dt_col_str = get_table_schema_date_key()
+    dt_col = pl.col(dt_col_str)
+    as_of_str = get_table_schema_as_of_key()
+    as_of_col = pl.col(as_of_str)
+    partition_keys = [dt_col] + [pl.col(k) for k in schema.partition_keys]
+    start_time = _api.start_time
+    as_of_time = get_as_of(_api.evaluation_clock)
+    df_source: pl.DataFrame = (
+        df_source.lazy()
+        .filter(dt_col >= start_time, as_of_col <= as_of_time)
+        .sort(dt_col, as_of_col, descending=[False, True])  # Get the most recent version for current as_of
+        .with_columns(pl.cum_count(as_of_str).over(partition_keys).alias("__n__"))
+        .filter(pl.col("__n__") == 1)
+        .drop("__n__")
+        .collect()
+        .group_by(dt_col, maintain_order=True)
+    )
     dt: datetime
-    for (dt,), df in df_source.group_by(dt_col, maintain_order=True):
+    for (dt,), df in df_source:
         out = tuple(df.iter_rows())
         if out:
             if schema.partition_keys:
