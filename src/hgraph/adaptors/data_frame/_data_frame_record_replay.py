@@ -19,8 +19,12 @@ from hgraph import (
     OUT,
     get_table_schema_date_key,
     from_table,
+    const_fn,
+    EvaluationEngineApi,
+    get_as_of,
 )
-from hgraph._operators._record_replay import record_replay_model_restriction, replay
+from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
+from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
 from hgraph._runtime._traits import Traits
 
 __all__ = ("DATA_FRAME_RECORD_REPLAY", "set_data_frame_record_path")
@@ -124,3 +128,36 @@ def _replay_from_data_frame(
                 yield dt, out
             else:
                 yield dt, out[0]  # If there are no partition keys we should only return a single value
+
+
+@generator(overloads=replay_const, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
+def replay_const_from_data_frame(
+    key: str,
+    tp: type[OUT] = AUTO_RESOLVE,
+    recordable_id: str = None,
+    _traits: Traits = None,
+    _api: EvaluationEngineApi = None,
+) -> OUT:
+    schema: TableSchema = table_schema(tp).value
+    df_source = _get_df(key, recordable_id, _traits)
+    dt_col_str = get_table_schema_date_key()
+    dt_col = pl.col(dt_col_str)
+    as_of_str = get_table_schema_as_of_key()
+    as_of_col = pl.col(as_of_str)
+    partition_keys = [dt_col] + [pl.col(k) for k in schema.partition_keys]
+    start_time = _api.start_time
+    as_of_time = get_as_of(_api.evaluation_clock)
+    df = (
+        df_source.lazy()
+        .filter(dt_col >= start_time, as_of_col <= as_of_time)
+        .sort(dt_col, as_of_col, descending=[False, True])  # Get the most recent version for current as_of
+        .with_columns(pl.cum_count(as_of_str).over(partition_keys).alias("__n__"))
+        .filter(pl.col("__n__") == 1)
+        .drop("__n__")
+        .collect()
+        .group_by(dt_col, maintain_order=True)
+    )
+    dt, df_ = next(iter(df))
+    results = tuple(df_.iter_rows())
+    results = from_table_const[tp](results if schema.partition_keys else results[0]).value
+    yield _api.start_time, results

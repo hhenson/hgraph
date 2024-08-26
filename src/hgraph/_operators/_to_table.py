@@ -60,7 +60,12 @@ class TableSchema(CompoundScalar):
 
 def get_table_schema_date_key() -> str:
     """The date key used for table structures."""
-    return GlobalState.instance().get(DATE_KEY, "__date_time__")
+    return (GlobalState.instance() if GlobalState._instance else {}).get(DATE_KEY, "__date_time__")
+
+
+def get_table_schema_as_of_key() -> str:
+    """The date key used for table structures."""
+    return (GlobalState.instance() if GlobalState._instance else {}).get(AS_OF_KEY, "__as_of__")
 
 
 def make_table_schema(
@@ -71,10 +76,10 @@ def make_table_schema(
     as_of_key: str = None,
 ) -> TableSchema:
     if date_key is None:
-        date_key = (GlobalState.instance() if GlobalState._instance else {}).get(DATE_KEY, "__date_time__")
+        date_key = get_table_schema_date_key()
 
     if as_of_key is None:
-        as_of_key = (GlobalState.instance() if GlobalState._instance else {}).get(AS_OF_KEY, "__as_of__")
+        as_of_key = get_table_schema_as_of_key()
 
     keys_ = [date_key, as_of_key]
     types_ = [datetime, datetime]
@@ -115,4 +120,12 @@ def from_table(ts: TS[SCALAR]) -> DEFAULT[OUT]:
 
     This reverses the ``to_table`` operator.
     The Schema can be obtained using the ``table_schema`` operator.
+    """
+
+
+@operator
+def from_table_const(value: SCALAR) -> DEFAULT[OUT]:
+    """
+    Extract data from a table tuple into the appropriate output type.
+    This is the constant version of the from_table operator.
     """

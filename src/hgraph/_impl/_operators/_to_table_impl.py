@@ -3,6 +3,7 @@ from typing import TypeVar
 
 from hgraph import AUTO_RESOLVE, from_table, HgTupleFixedScalarType
 from hgraph._operators import to_table, get_as_of, table_schema, const, TableSchema, make_table_schema
+from hgraph._operators._to_table import from_table_const
 from hgraph._runtime import EvaluationClock
 from hgraph._types import TS, SCALAR
 from hgraph._wiring._decorators import compute_node, graph, const_fn
@@ -39,3 +40,8 @@ def _simple_value_scalar(m, s):
 def from_table_ts_simple_value(ts: TS[SCALAR]) -> TS[SIMPLE_SCALAR]:
     # We can ignore the date information as this would have been used to inject the data
     return ts.value[-1]
+
+
+@const_fn(overloads=from_table_const, resolvers={SIMPLE_SCALAR: _simple_value_scalar})
+def from_table_const_ts_simple_value(value: SCALAR) -> TS[SIMPLE_SCALAR]:
+    return value[-1]
