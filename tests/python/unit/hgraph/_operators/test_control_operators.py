@@ -1,7 +1,7 @@
 import pytest
 
 from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const, BoolResult, if_, \
-    route_by_index, race, if_true, if_then_else
+    route_by_index, race, if_true, if_then_else, nothing
 from hgraph.test import eval_node
 
 
@@ -106,6 +106,14 @@ def test_race_scalars():
         return race(*tsl)
 
     assert eval_node(app, [{1: 100}, {0: 200, 2: 300}, {1: 300, 2: 500}, {0: 600}]) == [100, None, 300, None]
+
+
+def test_race_scalars_invalid():
+    @graph
+    def app(ts: TS[int]) -> REF[TS[int]]:
+        return race(ts, nothing[TS[int]]())
+
+    assert eval_node(app, [None, 1, None]) == [None, 1, None]
 
 
 def test_race_tsls():
