@@ -644,3 +644,7 @@ Version 0.3.5 (27-08-2024)
 * First pass of dataframe recording complete.
 * Update documentation.
 
+Version 0.3.6 (27-08-2024)
+--------------------------
+
+* Add to_json and from_json operators.

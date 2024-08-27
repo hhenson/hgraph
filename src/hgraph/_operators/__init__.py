@@ -7,6 +7,7 @@ from hgraph._operators._stream import *
 from hgraph._operators._string import *
 from hgraph._operators._time_series_conversion import *
 from hgraph._operators._time_series_properties import *
+from hgraph._operators._to_json import *
 from hgraph._operators._to_table import *
 from hgraph._operators._tsd_and_mapping import *
 from hgraph._operators._type_operators import *
