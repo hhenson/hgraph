@@ -51,7 +51,7 @@ def trace_controller(port: int = 8090):
                 out[i] = HttpResponse(status_code=200, body=form.format(result="", **current_options))
 
             if (command := r.url_parsed_args[0]) not in ("start", "stop"):
-                return HttpResponse(status_code=400, body=form.format(result="Invalid command", **current_options))
+                out[i] = HttpResponse(status_code=400, body=form.format(result="Invalid command", **current_options))
 
             options = r.query
             options = {
