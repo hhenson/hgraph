@@ -638,7 +638,9 @@ Version 0.3.4 (24-08-2024)
 
 * Update to make use of poetry for project management.
 
-Version 0.3.5 (TBD)
--------------------
+Version 0.3.5 (27-08-2024)
+--------------------------
 
 * First pass of dataframe recording complete.
+* Update documentation.
+
