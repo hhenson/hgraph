@@ -82,7 +82,12 @@ def _record_to_data_frame_stop(_state: STATE, schema: TS[TableSchema]):
 
 def _write_df(df: pl.DataFrame, path: Path, recordable_id: str):
     """Separate the writing logic into a function to simplify testing"""
-    df.write_parquet(path.joinpath(recordable_id + ".parquet"))
+    file_path: Path = path / f"{recordable_id}.parquet"
+    if file_path.exists():
+        # If there is already data here, just add to the data frame.
+        df_old = pl.read_parquet(file_path)
+        df = pl.concat([df_old, df])
+    df.write_parquet(file_path)
 
 
 def _read_df(path: Path, recordable_id: str) -> pl.DataFrame:
