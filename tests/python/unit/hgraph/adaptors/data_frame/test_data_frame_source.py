@@ -4,8 +4,13 @@ import polars as pl
 import pytest
 
 from hgraph import GraphConfiguration, evaluate_graph, graph, TSB, ts_schema, TS
-from hgraph.adaptors.data_frame import PolarsDataFrameSource, DataStore, DataConnectionStore, \
-    SqlDataFrameSource, tsb_from_data_source
+from hgraph.adaptors.data_frame import (
+    PolarsDataFrameSource,
+    DataStore,
+    DataConnectionStore,
+    SqlDataFrameSource,
+    tsb_from_data_source,
+)
 from hgraph.adaptors.data_frame._data_source_generators import ts_from_data_source
 
 
@@ -13,13 +18,14 @@ class MockDataSource(PolarsDataFrameSource):
 
     def __init__(self):
         df = pl.DataFrame({
-            'date': [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
-            'name': ['John', 'Alice', 'Bob'],
-            'age': [25, 30, 35]
+            "date": [date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
+            "name": ["John", "Alice", "Bob"],
+            "age": [25, 30, 35],
         })
         super().__init__(df)
 
 
+@pytest.mark.serial
 def test_ts_data_source():
     @graph
     def main() -> TS[int]:
@@ -29,13 +35,10 @@ def test_ts_data_source():
         config = GraphConfiguration()
         result = evaluate_graph(main, config)
 
-    assert result == [
-        (datetime(2020, 1, 1), 25),
-        (datetime(2020, 1, 2), 30),
-        (datetime(2020, 1, 3), 35)
-    ]
+    assert result == [(datetime(2020, 1, 1), 25), (datetime(2020, 1, 2), 30), (datetime(2020, 1, 3), 35)]
 
 
+@pytest.mark.serial
 def test_data_source():
     @graph
     def main() -> TSB[ts_schema(name=TS[str], age=TS[int])]:
@@ -46,31 +49,32 @@ def test_data_source():
         result = evaluate_graph(main, config)
 
     assert result == [
-        (datetime(2020, 1, 1), {'name': 'John', 'age': 25}),
-        (datetime(2020, 1, 2), {'name': 'Alice', 'age': 30}),
-        (datetime(2020, 1, 3), {'name': 'Bob', 'age': 35})
+        (datetime(2020, 1, 1), {"name": "John", "age": 25}),
+        (datetime(2020, 1, 2), {"name": "Alice", "age": 30}),
+        (datetime(2020, 1, 3), {"name": "Bob", "age": 35}),
     ]
 
 
-CREATE_TBL_SQL = '''
+CREATE_TBL_SQL = """
 CREATE TABLE my_table (
     date DATE,
     name TEXT,
     age INTEGER,
     PRIMARY KEY (date, name)
 );
-'''
+"""
 
 INSERT_TEST_DATA = [
     "INSERT INTO my_table (date, name, age) VALUES ('2020-01-01', 'John', 25);",
     "INSERT INTO my_table (date, name, age) VALUES ('2020-01-02', 'Alice', 30);",
-    "INSERT INTO my_table (date, name, age) VALUES ('2020-01-03', 'Bob', 35);"
+    "INSERT INTO my_table (date, name, age) VALUES ('2020-01-03', 'Bob', 35);",
 ]
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
 def connection():
     import duckdb
+
     return duckdb.connect(":memory:")
 
 
@@ -83,7 +87,7 @@ def age_data(connection):
     connection.commit()
     print("Data loaded")
     yield
-    connection.execute('DROP TABLE IF EXISTS my_table')
+    connection.execute("DROP TABLE IF EXISTS my_table")
     connection.commit()
 
 
@@ -112,7 +116,7 @@ def test_db_source(age_data, data_store_connection):
         result = evaluate_graph(main, config)
 
     assert result == [
-        (datetime(2020, 1, 1), {'name': 'John', 'age': 25}),
-        (datetime(2020, 1, 2), {'name': 'Alice', 'age': 30}),
-        (datetime(2020, 1, 3), {'name': 'Bob', 'age': 35})
+        (datetime(2020, 1, 1), {"name": "John", "age": 25}),
+        (datetime(2020, 1, 2), {"name": "Alice", "age": 30}),
+        (datetime(2020, 1, 3), {"name": "Bob", "age": 35}),
     ]
