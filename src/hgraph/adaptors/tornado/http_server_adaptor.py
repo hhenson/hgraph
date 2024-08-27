@@ -115,12 +115,14 @@ class HttpHandler(tornado.web.RequestHandler):
         request_id = id(request_obj)
 
         response = await self.mgr.add_request(
-            request_id, HttpGetRequest(
+            request_id,
+            HttpGetRequest(
                 url=self.path,
                 url_parsed_args=args,
                 headers=self.request.headers,
-                query=frozendict({k: ''.join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
-                cookies=frozendict(self.request.cookies))
+                query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
+                cookies=frozendict(self.request.cookies),
+            ),
         )
 
         self.set_status(response.status_code)
@@ -147,6 +149,51 @@ class HttpHandler(tornado.web.RequestHandler):
 
 
 def http_server_handler(fn: Callable = None, *, url: str):
+    """
+    Wrap an endpoint or route in the adaptor handler.
+    If the handler is simple (i.e. it is self-contained) then the function can have a simple signature of:
+
+    ::
+
+        @http_server_handler(url='/mypath')
+        def simple_handler(request: TS[HttpRequest]) -> TS[HttpResponse]:
+            return combine[TS[HttpResponse]](status_code=200, body="Simple Response")
+
+    In this case, so long as this is imported, it will be wired in when the server is registered.
+    The http server is registered as below:
+
+    ::
+
+        register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
+
+    When more interaction is required, the signature of the function can be extended as below:
+
+    ::
+
+        class MyHandlerResponse(TimeSeriesSchema):
+            response: TS[HttpResponse]
+            p1: ...
+            p2: ...
+
+        @http_server_handler(url='/mypath')
+        def complex_handler(request: TS[HttpRequest], ts_1: ...) -> TSB[MyHandlerResponse]:
+            ...
+
+    In this scenario the function is able to take multiple inputs and return multiple outputs.
+    The request must be present in the input signature, the response must be present in the output TSB.
+
+    The decorated function can be called without the request parameter being provided, for example:
+
+    ::
+
+        ...
+        out = complex_handlder(ts_1=..., ...)
+
+    The ``request`` argument is automatically wired into the adaptor. The response is returned in full, but the
+    ``response`` output will also be wired into the adaptor.
+
+    When using this model, the function must be wired into the graph by the user to work correctly.
+    """
     if fn is None:
         return lambda fn: http_server_handler(fn, url=url)
 
