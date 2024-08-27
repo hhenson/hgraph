@@ -1,12 +1,18 @@
 from collections import defaultdict
+from random import randrange
+
+import pytest
+from frozendict import frozendict
 
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
+from hgraph.adaptors.tornado.websocket_client_adaptor import websocket_client_adaptor, websocket_client_adaptor_impl
 from hgraph.adaptors.tornado.websocket_server_adaptor import (
     websocket_server_handler,
     WebSocketRequest,
     WebSocketResponse,
     websocket_server_adaptor_impl,
     websocket_server_adaptor_helper,
+    WebSocketConnectRequest,
 )
 
 try:
@@ -35,6 +41,12 @@ try:
         GlobalState,
         sample,
         convert,
+        get_recorded_value,
+        const,
+        record,
+        gate,
+        emit,
+        feedback,
     )
     from hgraph.adaptors.tornado.http_server_adaptor import (
         http_server_handler,
@@ -45,6 +57,8 @@ try:
         http_server_adaptor_helper,
     )
     from hgraph.nodes import stop_engine
+
+    PORT = randrange(3300, 32000)
 
     @graph
     def run_test(queries: dict[object, object]):
@@ -67,9 +81,11 @@ try:
 
             async def ws(i, msg):
                 if isinstance(i, str):
-                    ws1 = await tornado.websocket.websocket_connect(f"ws://localhost:8082/test/{i}", connect_timeout=1)
+                    ws1 = await tornado.websocket.websocket_connect(
+                        f"ws://localhost:{PORT+1}/test/{i}", connect_timeout=1
+                    )
                 else:
-                    ws1 = await tornado.websocket.websocket_connect("ws://localhost:8082/test", connect_timeout=1)
+                    ws1 = await tornado.websocket.websocket_connect(f"ws://localhost:{PORT+1}/test", connect_timeout=1)
                 ws1.write_message(msg, binary=True)
                 GlobalState().instance().responses[i] = await ws1.read_message()
 
@@ -82,10 +98,11 @@ try:
                 time.sleep(0.1)
                 sleeps += 1
 
-            requests.request("GET", "http://localhost:8081/stop", timeout=1)
+            requests.request("GET", f"http://localhost:{PORT}/stop", timeout=1)
 
         q(True)
 
+    @pytest.mark.serial
     def test_single_websocket_request_graph():
         @websocket_server_handler(url="/test")
         def x(request: TSB[WebSocketRequest]) -> TSB[WebSocketResponse]:
@@ -96,8 +113,8 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=8082)
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=PORT)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
             run_test(queries={1: b"Hello, world!", 2: b"Hello, world again!"})
 
         with GlobalState() as gs:
@@ -108,6 +125,7 @@ try:
             assert gs.responses[1] == b"Hello, world!"
             assert gs.responses[2] == b"Hello, world again!"
 
+    @pytest.mark.serial
     def test_multiple_websocket_request_graph():
         @websocket_server_handler(url="/test")
         @compute_node
@@ -124,8 +142,8 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=8082)
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=PORT)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
             run_test(queries={1: b"Hello, world!", 2: b"Hello, world again!"})
 
         with GlobalState() as gs:
@@ -136,6 +154,7 @@ try:
             assert gs.responses[1] == b"Hello, world #0!"
             assert gs.responses[2] == b"Hello, world #1!"
 
+    @pytest.mark.serial
     def test_websocket_server_adaptor_graph():
         @websocket_server_handler(url="/test/(.*)")
         def x(request: TSB[WebSocketRequest], b: TS[int]) -> TSB[WebSocketResponse]:
@@ -148,9 +167,9 @@ try:
 
         @graph
         def g():
-            register_adaptor(None, websocket_server_adaptor_helper, port=8082)
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=8082)
+            register_adaptor(None, websocket_server_adaptor_helper, port=PORT + 1)
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=PORT)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
             x(b=33)
             run_test(queries={"a": b"Hello, world!", "b": b"Hello, world again!"})
 
@@ -161,6 +180,59 @@ try:
 
             assert gs.responses["a"] == b"Hello, a and 33!"
             assert gs.responses["b"] == b"Hello, b and 33!"
+
+    @pytest.mark.serial
+    def test_single_request_graph_client():
+        @websocket_server_handler(url="/test/(.*)")
+        def x(request: TSB[WebSocketRequest]) -> TSB[WebSocketResponse]:
+            return combine[TSB[WebSocketResponse]](
+                connect_response=True,
+                message=convert[TS[bytes]](
+                    format_(
+                        "Hello, {}, {}!", request.connect_request.url_parsed_args[0], convert[TS[str]](request.message)
+                    )
+                ),
+            )
+
+        @graph
+        def g():
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
+            register_adaptor(None, websocket_client_adaptor_impl)
+
+            queries = frozendict({
+                "one": (WebSocketConnectRequest(f"ws://localhost:{PORT+1}/test/one"), (b"message 1", b"message 2")),
+                "two": (WebSocketConnectRequest(f"ws://localhost:{PORT+1}/test/two"), (b"message X", b"message Y")),
+            })
+
+            @graph
+            def ws_client(i: TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]) -> TS[bytes]:
+                connected = feedback(TS[bool])
+                resp = websocket_client_adaptor(
+                    combine[TSB[WebSocketRequest]](connect_request=i[0], message=gate(connected(), emit(i[1])))
+                )
+                connected(resp.connect_response)
+                return resp.message
+
+            record(
+                map_(
+                    ws_client,
+                    i=const(
+                        queries,
+                        tp=TSD[str, TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]],
+                        delay=timedelta(milliseconds=10),
+                    ),
+                ),
+            )
+
+        with GlobalState():
+            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+            for tick in [
+                {"one": b"Hello, one, message 1!"},
+                {"one": b"Hello, one, message 2!"},
+                {"two": b"Hello, two, message X!"},
+                {"two": b"Hello, two, message Y!"},
+            ]:
+                assert frozendict(tick) in [t[-1] for t in get_recorded_value()]
 
 except ImportError:
     pass

@@ -1,6 +1,9 @@
 [coverage:run]
 omit =
     tests/*
+    examples/*
+    docs/*
+    src/hgraph/notebook/*
 
 [coverage:report]
 fail_under = 80

@@ -60,6 +60,7 @@ class WiringNodeType(Enum):
     SERVICE_ADAPTOR = 13
     SERVICE_ADAPTOR_IMPL = 14
     COMPONENT = 15  # A graph with constraints that allows for record, replay, etc.
+    CONST_FN = 16  # A constant value function based node.
 
 
 def extract_hg_type(tp) -> HgTypeMetaData:

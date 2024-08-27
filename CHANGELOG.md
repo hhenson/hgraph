@@ -613,3 +613,38 @@ Version 0.3.0 (17-08-2024)
 * Update roadmap to address re-order of work.
 * Update to adaptors and adaptor logic
 * Bug fixes
+
+Version 0.3.1 (21-08-2024)
+--------------------------
+
+* Small fixes
+* Initial cut of to_table and related code
+
+Version 0.3.2 (21-08-2024)
+--------------------------
+
+* Fix to cycle detection logic
+
+Version 0.3.3 (23-08-2024)
+--------------------------
+
+* Add const_fn decorator for wrapping a constant value function
+  This allows for operator support and can be used outside the wiring context.
+* Convert table_schema to const_fn
+* Prepare replay logic from dataframes.
+
+Version 0.3.4 (24-08-2024)
+--------------------------
+
+* Update to make use of poetry for project management.
+
+Version 0.3.5 (27-08-2024)
+--------------------------
+
+* First pass of dataframe recording complete.
+* Update documentation.
+
+Version 0.3.6 (27-08-2024)
+--------------------------
+
+* Add to_json and from_json operators.

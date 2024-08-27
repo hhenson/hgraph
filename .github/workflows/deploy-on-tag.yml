@@ -16,17 +16,25 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Ensure latest pip
         run: python -m pip install --upgrade pip
 
-      - name: Install hatch
-        run: pip install hatch
+      - name: Install poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --all-extras
 
       - name: Build hgraph
-        run: hatch build
+        run: poetry build
 
       - name: Run tests
-        run: hatch run test
+        run: poetry run pytest
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

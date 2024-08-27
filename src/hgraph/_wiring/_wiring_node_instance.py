@@ -65,7 +65,7 @@ class WiringNodeInstanceContext:
 
     @classmethod
     def instance(cls) -> "WiringNodeInstanceContext":
-        return cls.__stack__[-1]
+        return cls.__stack__[-1] if cls.__stack__ else None
 
     def graph_nesting_depth(self) -> int:
         return sum(c._depth for c in self.__stack__)

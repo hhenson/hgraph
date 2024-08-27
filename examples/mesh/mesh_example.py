@@ -113,6 +113,10 @@ def mesh_example():
     debug_print("Positions", position_prices)
 
 
-if __name__ == "__main__":
+def main():
     config = GraphConfiguration()
     evaluate_graph(mesh_example, config)
+
+
+if __name__ == "__main__":
+    main()

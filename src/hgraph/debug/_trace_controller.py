@@ -1,6 +1,10 @@
 from hgraph import graph, compute_node, TS, STATE, register_adaptor, TSD
-from hgraph.adaptors.tornado.http_server_adaptor import http_server_handler, HttpRequest, HttpResponse, \
-    http_server_adaptor_helper, http_server_adaptor_impl
+from hgraph.adaptors.tornado.http_server_adaptor import (
+    http_server_handler,
+    HttpRequest,
+    HttpResponse,
+    http_server_adaptor_impl,
+)
 from hgraph.test import EvaluationTrace
 
 
@@ -39,12 +43,12 @@ def trace_controller(port: int = 8090):
             r: HttpRequest = r.value
 
             current_options = {
-                "start": ('checked' if _state.tracer.start else '') if _state.tracer else '',
-                "eval": ('checked' if _state.tracer.eval else '') if _state.tracer else '',
-                "stop": ('checked' if _state.tracer.stop else '') if _state.tracer else '',
-                "node": ('checked' if _state.tracer.node else '') if _state.tracer else '',
-                "graph": ('checked' if _state.tracer.graph else '') if _state.tracer else '',
-                "filter": _state.tracer.filter if _state.tracer else '',
+                "start": ("checked" if _state.tracer.start else "") if _state.tracer else "",
+                "eval": ("checked" if _state.tracer.eval else "") if _state.tracer else "",
+                "stop": ("checked" if _state.tracer.stop else "") if _state.tracer else "",
+                "node": ("checked" if _state.tracer.node else "") if _state.tracer else "",
+                "graph": ("checked" if _state.tracer.graph else "") if _state.tracer else "",
+                "filter": _state.tracer.filter if _state.tracer else "",
             }
 
             if not r.url_parsed_args:
@@ -60,13 +64,13 @@ def trace_controller(port: int = 8090):
                 "stop": options.get("stop", False),
                 "node": options.get("node", False),
                 "graph": options.get("graph", False),
-                "filter": options.get("filter", ''),
+                "filter": options.get("filter", ""),
             }
-            if (invalid := [o for o in r.query if o not in options]):
+            if invalid := [o for o in r.query if o not in options]:
                 out[i] = HttpResponse(status_code=400, body=f"Invalid options {invalid}")
                 continue
 
-            options = {k: bool(v) if k != 'filter' else v for k, v in options.items() if v is not None}
+            options = {k: bool(v) if k != "filter" else v for k, v in options.items() if v is not None}
 
             if _state.tracer is not None:
                 request.owning_graph.evaluation_engine.remove_life_cycle_observer(_state.tracer)
@@ -78,7 +82,11 @@ def trace_controller(port: int = 8090):
                 _state.tracer = EvaluationTrace(**options)
                 request.owning_graph.evaluation_engine.add_life_cycle_observer(_state.tracer)
 
-                options = {k: ('checked' if bool(v) else '') if k != 'filter' else v for k, v in options.items() if v is not None}
+                options = {
+                    k: ("checked" if bool(v) else "") if k != "filter" else v
+                    for k, v in options.items()
+                    if v is not None
+                }
                 out[i] = HttpResponse(status_code=200, body=form.format(result=f"Start succeeded", **options))
 
         return out
@@ -86,7 +94,6 @@ def trace_controller(port: int = 8090):
     @control_trace.start
     def start_trace(_state: STATE):
         _state.tracer = None
-
 
     http_server_handler(control_trace, url=f"/trace/(.*)")
 
