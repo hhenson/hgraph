@@ -1,7 +1,9 @@
-from hgraph import operator, TIME_SERIES_TYPE, TS, OUT
+from hgraph._wiring._decorators import operator
+from hgraph._types import TIME_SERIES_TYPE, TS, OUT
 
 
 __all__ = ["to_json", "from_json"]
+
 
 @operator
 def to_json(ts: TIME_SERIES_TYPE) -> TS[str]:
