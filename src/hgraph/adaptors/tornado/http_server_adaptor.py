@@ -233,9 +233,10 @@ def http_server_handler(fn: Callable = None, *, url: str):
         else:
             responses = fn(request=requests, **inputs)
 
-        if isinstance(responses.output_type, HgTSBTypeMetaData) or \
-                (isinstance(responses.output_type, HgTSDTypeMetaData) and
-                 isinstance(responses.output_type.value_tp.dereference(), HgTSBTypeMetaData)):
+        if isinstance(responses.output_type, HgTSBTypeMetaData) or (
+            isinstance(responses.output_type, HgTSDTypeMetaData)
+            and isinstance(responses.output_type.value_tp.dereference(), HgTSBTypeMetaData)
+        ):
             http_server_adaptor.from_graph(responses.response, path=url)
             return responses
         else:
