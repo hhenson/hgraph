@@ -1,8 +1,8 @@
 import asyncio
-import concurrent.futures
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
+import tornado
 from frozendict import frozendict
 
 from hgraph import (
@@ -16,20 +16,17 @@ from hgraph import (
     STATE,
     partition,
     map_,
-    unpartition,
     adaptor,
     combine,
     adaptor_impl,
     merge,
     register_adaptor,
-    register_service,
     TSB,
     TS_SCHEMA,
     TIME_SERIES_TYPE,
     HgTSBTypeMetaData,
-    nothing,
+    HgTSDTypeMetaData,
 )
-import tornado
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
@@ -236,7 +233,9 @@ def http_server_handler(fn: Callable = None, *, url: str):
         else:
             responses = fn(request=requests, **inputs)
 
-        if isinstance(responses.output_type, HgTSBTypeMetaData):
+        if isinstance(responses.output_type, HgTSBTypeMetaData) or \
+                (isinstance(responses.output_type, HgTSDTypeMetaData) and
+                 isinstance(responses.output_type.value_tp.dereference(), HgTSBTypeMetaData)):
             http_server_adaptor.from_graph(responses.response, path=url)
             return responses
         else:
