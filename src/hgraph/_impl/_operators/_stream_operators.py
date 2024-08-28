@@ -126,8 +126,8 @@ def schedule_ts(
 
 
 @graph(overloads=resample)
-def resample(ts: TIME_SERIES_TYPE, delay: timedelta) -> TIME_SERIES_TYPE:
-    return sample(schedule(delay), ts)
+def resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
+    return sample(schedule(period), ts)
 
 
 @compute_node(overloads=dedup)
