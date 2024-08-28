@@ -138,7 +138,12 @@ class HttpHandler(tornado.web.RequestHandler):
 
         response = await self.mgr.add_request(
             request_id,
-            HttpPostRequest(url=self.path, url_parsed_args=args, headers=self.request.headers, body=self.request.body),
+            HttpPostRequest(
+                url=self.path,
+                url_parsed_args=args,
+                headers=self.request.headers,
+                body=self.request.body.decode("utf-8"),
+            ),
         )
 
         self.set_status(response.status_code)
