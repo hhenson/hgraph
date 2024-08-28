@@ -25,7 +25,7 @@ from hgraph import (
     TS_SCHEMA,
     TIME_SERIES_TYPE,
     HgTSBTypeMetaData,
-    HgTSDTypeMetaData,
+    HgTSDTypeMetaData, REMOVE_IF_EXISTS,
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
@@ -99,6 +99,7 @@ class HttpAdaptorManager:
 
     def complete_request(self, request_id, response):
         self.requests[request_id].set_result(response)
+        self.queue({request_id: REMOVE_IF_EXISTS})
         print(f"Completed request {request_id} with response {response}")
 
 
