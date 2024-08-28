@@ -272,8 +272,8 @@ def http_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
-    @push_queue(TSD[int, TS[HttpGetRequest]])
-    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpGetRequest]]:
+    @push_queue(TSD[int, TS[HttpRequest]])
+    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpRequest]]:
         GlobalState.instance()[f"http_server_adaptor://{path}/queue"] = sender
         return None
 
@@ -303,9 +303,9 @@ def http_server_adaptor_impl(path: str, port: int):
     responses = {}
     for url, handler in HttpAdaptorManager.instance().handlers.items():
         if isinstance(handler, WiringNodeClass):
-            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpGetRequest]):
+            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
                 responses[url] = map_(handler, request=requests_by_url[url])
-            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpGetRequest]]):
+            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
         elif handler is None:
             pass
