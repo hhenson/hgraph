@@ -185,7 +185,8 @@ def http_server_handler(fn: Callable = None, *, url: str):
     The decorated function can be called without the request parameter being provided, for example:
 
     ::
-
+        # NOTE: We need to make use of the http_server_adapter_helper to make this work
+        register_adaptor(default_path, http_server_adaptor_helper, port=8081)
         ...
         out = complex_handlder(ts_1=..., ...)
 
@@ -251,6 +252,11 @@ def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[
 
 @adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
 def http_server_adaptor_helper(path: str, port: int):
+    """
+    Use this with the ``default_path`` to support ``http_server_handler`` instances that make use of
+    additional inputs other than request. This ensures the wiring service can correct resolve and wire the
+    handlers into the server adapter.
+    """
     register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
 
 
