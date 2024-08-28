@@ -25,7 +25,8 @@ from hgraph import (
     TS_SCHEMA,
     TIME_SERIES_TYPE,
     HgTSBTypeMetaData,
-    HgTSDTypeMetaData, REMOVE_IF_EXISTS,
+    HgTSDTypeMetaData,
+    REMOVE_IF_EXISTS,
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
