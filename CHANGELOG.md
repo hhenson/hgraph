@@ -654,3 +654,8 @@ Version 0.3.7 (28-08-2024)
 
 * Fix HttpAdaptor handling of TSB return values.
 * Ensure the handler request is removed once the response is returned.
+
+Version 0.3.8 (28-08-2024)
+--------------------------
+
+* More fixes to Tornado adaptor
