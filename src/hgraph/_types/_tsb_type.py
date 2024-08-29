@@ -304,6 +304,9 @@ class TimeSeriesBundle(
         """
         return self
 
+    def __len__(self):
+        return len(self._ts_values)
+
     def __getattr__(self, item) -> TimeSeries:
         """
         The time-series value for the property associated to item in the schema

@@ -247,7 +247,7 @@ def perspective_web_start(
         + ([(k, tornado.web.StaticFileHandler, v) for k, v in static.items()] if static else [])
         + (
             [(
-                r"/(.*)",
+                r"/",
                 IndexPageHandler,
                 {
                     "mgr": perspective_manager,

@@ -42,6 +42,7 @@ from hgraph.adaptors.perspective import (
 )
 from hgraph.adaptors.perspective._perspective import perspective_web
 from hgraph.debug import trace_controller
+from hgraph.debug._inspector_controller import inspector_controller
 
 
 class Readings(TimeSeriesSchema):
@@ -141,6 +142,7 @@ def host_web_server():
     )
 
     trace_controller()
+    inspector_controller()
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:

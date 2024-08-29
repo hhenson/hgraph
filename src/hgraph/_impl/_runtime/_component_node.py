@@ -103,6 +103,10 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         self.mark_evaluated()
         self._active_graph.evaluate_graph()
 
+    def enum_nested_graphs(self):
+        if self._active_graph:
+            yield None, self._active_graph
+
     def recordable_id(self) -> tuple[str, bool]:
         """The id and True or no id and False if required inputs are not ready yet"""
         outer_id = self.graph.traits.get_trait_or("recordable_id")

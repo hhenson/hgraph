@@ -75,6 +75,10 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         if self._active_graph:
             self._active_graph.evaluate_graph()
 
+    def enum_nested_graphs(self):
+        if self._active_graph:
+            yield self._active_key, self._active_graph
+
     def _wire_graph(self, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
         from hgraph._wiring._switch import DEFAULT

@@ -94,6 +94,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 self._scheduled_keys[k] = dt
                 self.graph.schedule_node(self.node_ndx, dt)
 
+    def enum_nested_graphs(self):
+        return self._active_graphs.items()
+
     def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""
         graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self, str(key))

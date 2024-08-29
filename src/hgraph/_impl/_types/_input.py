@@ -179,11 +179,11 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def value(self):
-        return self._output.value if self._output else None
+        return self._output.value if self._output is not None else None
 
     @property
     def delta_value(self):
-        return self._output.delta_value if self._output else None
+        return self._output.delta_value if self._output is not None else None
 
     @property
     def modified(self) -> bool:

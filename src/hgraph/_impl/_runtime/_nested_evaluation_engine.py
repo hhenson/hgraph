@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from datetime import datetime
 from typing import Mapping, Any, Callable
 
@@ -79,3 +80,7 @@ class PythonNestedNodeImpl(NodeImpl):
 
     def mark_evaluated(self):
         self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
+
+    @abstractmethod
+    def enum_nested_graphs(self):
+        ...

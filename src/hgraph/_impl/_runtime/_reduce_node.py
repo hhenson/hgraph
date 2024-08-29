@@ -96,6 +96,9 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         if (o := self.output).value != (v := self._last_output.value):
             o.value = v
 
+    def enum_nested_graphs(self):
+        yield (None, self._nested_graph)
+
     @property
     def _last_output(self):
         sub_graph = self._get_node(self._node_count - 1)

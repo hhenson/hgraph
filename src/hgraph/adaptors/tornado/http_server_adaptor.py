@@ -27,7 +27,7 @@ from hgraph import (
     TS_SCHEMA,
     TIME_SERIES_TYPE,
     HgTSBTypeMetaData,
-    nothing,
+    nothing, REMOVE_IF_EXISTS,
 )
 import tornado
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
@@ -104,11 +104,14 @@ class HttpAdaptorManager:
         self.requests[request_id].set_result(response)
         print(f"Completed request {request_id} with response {response}")
 
+    def remove_request(self, request_id):
+        self.queue({request_id: REMOVE_IF_EXISTS})
+        del self.requests[request_id]
 
 class HttpHandler(tornado.web.RequestHandler):
     def initialize(self, path, mgr):
         self.path = path
-        self.mgr = mgr
+        self.mgr: HttpAdaptorManager = mgr
 
     async def get(self, *args):
         request_obj = object()
@@ -130,6 +133,7 @@ class HttpHandler(tornado.web.RequestHandler):
                 self.set_header(k, v)
 
         await self.finish(response.body)
+        self.mgr.remove_request(request_id)
 
     async def post(self, *args):
         request_obj = object()

@@ -20,7 +20,7 @@ from hgraph._types._tsd_type import TSD, TSD_OUT
 from hgraph._types._tss_type import TSS
 from hgraph._wiring._map import KEYS_ARG
 
-__all__ = ("PythonTsdMapNodeImpl",)
+__all__ = ("PythonMeshNodeImpl",)
 
 
 class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):

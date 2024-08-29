@@ -192,6 +192,9 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def __contains__(self, item: SCALAR) -> bool:
         return item in self._value
 
+    def __len__(self):
+        return len(self._value)
+
     def values(self) -> Set[SCALAR]:
         return self._value
 
@@ -231,6 +234,9 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def __contains__(self, item: SCALAR) -> bool:
         return self.output.__contains__(item)
+
+    def __len__(self):
+        return self.output.__len__()
 
     @property
     def delta_value(self):

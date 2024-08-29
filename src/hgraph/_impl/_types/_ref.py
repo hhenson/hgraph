@@ -185,7 +185,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             return False
 
     def do_un_bind_output(self):
-        if self._output:
+        if self._output is not None:
             super().do_un_bind_output()
         if self._value is not None:
             self._value = None

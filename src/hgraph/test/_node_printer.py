@@ -69,7 +69,7 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
             if add_input:
                 inputs = node.inputs
                 node_signature += ", ".join(
-                    f"{f'*{arg}*' if (mod_ := (in_ := inputs[arg]).modified) else arg}={(in_.delta_value if mod_ else in_.value) if in_.valid else '<UnSet>'}"
+                    f"{f'*{arg}*' if (mod_ := (in_ := inputs[arg]).modified) else arg}={(in_.delta_value if mod_ else '') if in_.valid else '<UnSet>'}"
                     for arg in node.signature.time_series_inputs.keys()
                 )
                 if node.signature.uses_scheduler:

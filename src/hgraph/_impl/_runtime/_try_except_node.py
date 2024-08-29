@@ -77,3 +77,6 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
                 self.output.exception.value = err
             else:
                 self.output.value = err
+
+    def enum_nested_graphs(self):
+        yield None, self._active_graph
