@@ -49,19 +49,25 @@ class _RaceState(CompoundScalar):
     winner: REF[OUT] = None
 
 
-@compute_node(overloads=race)
+@compute_node(overloads=race, active=("tsl",))
 def race_default(
     *tsl: TSL[REF[OUT], SIZE],
+    _values: TSL[OUT, SIZE] = None,
     _state: STATE[_RaceState] = None,
     _ec: EvaluationClock = None,
     _sz: type[SIZE] = AUTO_RESOLVE,
 ) -> REF[OUT]:
 
     # Keep track of the first time each input goes valid (and invalid)
+    pending_refs = [None] * _sz.SIZE
+
     for i in range(_sz.SIZE):
         if _tsl_ref_item_valid(tsl, i):
             if i not in _state.first_valid_times:
                 _state.first_valid_times[i] = _ec.now
+        elif tsl[i].valid:  # valid reference but invalid referee
+            pending_refs[i] = tsl[i].value
+            _state.first_valid_times.pop(i, None)
         else:
             _state.first_valid_times.pop(i, None)
 
@@ -72,7 +78,15 @@ def race_default(
         winner = min(_state.first_valid_times.items(), default=None, key=lambda item: item[1])
         if winner is not None:
             _state.winner = winner[0]
+            for v in _values:  # make all values passive and disconnect now that we have a winner
+                v.make_passive()
+                PythonTimeSeriesReference().bind_input(v)
             return tsl[_state.winner].value
+        else:  # if no winner, track timeseries where we have reference but no value
+            for i, r in enumerate(pending_refs):
+                if r is not None and not _values[i].active:
+                    r.bind_input(_values[i])
+                    _values[i].make_active()
     elif tsl[_state.winner].modified:
         # Forward the winning value
         return tsl[_state.winner].delta_value
