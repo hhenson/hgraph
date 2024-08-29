@@ -659,3 +659,8 @@ Version 0.3.8 (28-08-2024)
 --------------------------
 
 * More fixes to Tornado adaptor
+
+Version 0.3.9 (29-08-2024)
+--------------------------
+
+* Fix to the value property on the WiringPort
