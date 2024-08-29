@@ -76,7 +76,8 @@ def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Raises a timeseries value to the power of the other timeseries value
     """
-    return lhs.value**rhs.value
+    # TODO - handle division by 0 for lhs = 0 and rhs < 0 as per div_numbers
+    return lhs.value ** rhs.value
 
 
 @compute_node(overloads=lshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lshift__"))
