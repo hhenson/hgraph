@@ -1,16 +1,14 @@
 from typing import Type
 
-from hgraph import (
-    compute_node,
-    Frame,
-    TS,
-    SCHEMA,
-    SCALAR,
-    AUTO_RESOLVE,
-    Series,
-    getitem_,
-    getattr_,
-)
+from hgraph._wiring._decorators import compute_node
+from hgraph._types._frame_scalar_type_meta_data import Frame
+from hgraph._types._ts_type import TS
+from hgraph._types._frame_scalar_type_meta_data import SCHEMA
+from hgraph._types._scalar_types import SCALAR
+from hgraph._types._type_meta_data import AUTO_RESOLVE
+from hgraph._types._frame_scalar_type_meta_data import Series
+from hgraph._operators._operators import getitem_, getattr_
+
 
 __all__ = tuple()
 
