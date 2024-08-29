@@ -304,7 +304,7 @@ class IndexPageHandler(tornado.web.RequestHandler):
         self.host = host
         self.port = port
 
-    def get(self, url):
+    def get(self, url = ""):
         tornado.log.app_log.info(f"requesting url {url} for template {self.index_template}")
         if url == "" or True:
             layouts = glob(os.path.join(self.layouts_path, f"{url or '*'}.json"))
