@@ -664,3 +664,8 @@ Version 0.3.9 (29-08-2024)
 --------------------------
 
 * Fix to the value property on the WiringPort
+
+Version 0.3.10 (30-08-2024)
+---------------------------
+
+* Add helper functions to extract service inputs and outputs.

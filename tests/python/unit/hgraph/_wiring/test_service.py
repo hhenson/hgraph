@@ -32,6 +32,8 @@ from hgraph import (
     if_,
     debug_print,
     mesh_,
+    set_service_output,
+    get_service_inputs,
 )
 from hgraph.nodes import pass_through
 from hgraph.test import eval_node
@@ -182,11 +184,12 @@ def test_multiservice():
 
     @service_impl(interfaces=(submit, receive, subscribe))
     def impl(path: str):
-        submissions: TSD[int, TS[int]] = submit.wire_impl_inputs_stub(path).ts
+        submissions: TSD[int, TS[int]] = get_service_inputs(path, submit).ts
         items = flip(submissions).key_set
-        receive.wire_impl_out_stub(path, items)
-        subscribe.wire_impl_out_stub(
+        set_service_output(path, receive, items)
+        set_service_output(
             path,
+            subscribe,
             map_(
                 lambda key, i: contains_(i, key),
                 __keys__=subscribe.wire_impl_inputs_stub(path).ts,
