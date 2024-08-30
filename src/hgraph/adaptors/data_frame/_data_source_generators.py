@@ -417,7 +417,7 @@ def _convert_type(pl_type: pl.DataType) -> HgScalarTypeMetaData:
         return HgScalarTypeMetaData.parse_type(str)
     if isinstance(pl_type, (List, Array)):
         tp: List = pl_type
-        return HgScalarTypeMetaData.parse_type(_convert_type(tp.inner).py_type)
+        return HgScalarTypeMetaData.parse_type(tuple[_convert_type(tp.inner).py_type, ...])
     if isinstance(pl_type, Object):
         return HgScalarTypeMetaData.parse_type(object)
     # Do Struct, still
