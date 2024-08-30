@@ -333,6 +333,9 @@ class TimeSeriesBundle(
         else:
             return self._ts_values[item]
 
+    def key_from_value(self, value: Any) -> str:
+        return next((k for k, v in self._ts_values if v is value), None)
+
     def keys(self) -> KeysView[str]:
         """The keys of the schema defining the bundle"""
         return self._ts_values.keys()

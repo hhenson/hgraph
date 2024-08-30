@@ -1,18 +1,20 @@
 import os
 import tempfile
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from _socket import gethostname
+from perspective import Table
 
 from hgraph import graph, compute_node, TS, STATE, register_adaptor, TSD, CompoundScalar, \
-    TimeSeries, PythonNestedNodeImpl, SCHEDULER, Node, Graph
+    TimeSeries, PythonNestedNodeImpl, SCHEDULER, Node, Graph, PythonTimeSeriesReference
+from hgraph.adaptors.perspective import PerspectiveTablesManager
 from hgraph.adaptors.tornado.http_server_adaptor import http_server_handler, HttpRequest, HttpResponse, \
     http_server_adaptor_impl
 from hgraph.debug._inspector_observer import InspectionObserver
 from hgraph.debug._inspector_util import node_id_from_str, str_node_id, format_value, format_timestamp, enum_items, \
-    format_type, name
+    format_type, name, inspect_item
 
 
 @graph
@@ -30,6 +32,37 @@ def inspector_controller(port: int = 8080):
         of_graph: float = None
         of_total: float = None
 
+    @dataclass
+    class InspectorState(CompoundScalar):
+        observer: InspectionObserver = None
+        manager: PerspectiveTablesManager = None
+        table: Table = None
+
+        row_ids: dict = field(default_factory=dict)
+
+        key_ids: dict = field(default_factory=dict)
+        id_keys: dict = field(default_factory=dict)
+
+        node_subscriptions: dict = field(default_factory=lambda: defaultdict(dict))  # node_id -> [(item path, row_id)]
+
+        value_data: list = field(default_factory=list)
+        perf_data: list = field(default_factory=list)
+
+        def id_for_key(self, key):
+            i = self.key_ids.setdefault(key, len(self.key_ids))
+            self.id_keys[i] = key
+            return i
+
+        def key_for_id(self, i):
+            return self.id_keys[i]
+
+        def find_value_and_path(self, node, root_item, row_id, item_id):
+            path = self.node_subscriptions.get(node.node_id, {}).get(row_id[:len(row_id) - 3 * len(item_id)], [])
+            for item in item_id:
+                root_item, key = next((v, k) for i, (k, v) in enumerate(enum_items(root_item)) if i == item)
+                path.append(key)
+            return root_item, path
+
     INPUTS = "zzz001"
     OUTPUT = "zzz002"
     SUBGRAPHS = "zzz003"
@@ -39,29 +72,30 @@ def inspector_controller(port: int = 8080):
 
     def process_tick(state: STATE, node: Node):
         for row_id, path in state.node_subscriptions.get(node.node_id, {}).items():
-            if path:
-                match path[0]:
-                    case "inputs":
-                        v = node.input
-                    case "output":
-                        v = node.output
+            if row_id is not None:
+                if path:
+                    match path[0]:
+                        case "inputs":
+                            v = node.input
+                        case "output":
+                            v = node.output
 
-                for item in path[1:]:
-                    v = v[item]
-            else:
-                v = node
+                    for item in path[1:]:
+                        v = v[item]
+                else:
+                    v = node
 
-            if isinstance(v, (TimeSeries, Node)):
-                state.value_data.append(dict(
-                    id=row_id,
-                    value=format_value(v),
-                    timestamp=format_timestamp(v),
-                ))
-            else:
-                state.value_data.append(dict(
-                    id=row_id,
-                    value=format_value(v),
-                ))
+                if isinstance(v, (TimeSeries, Node)):
+                    state.value_data.append(dict(
+                        id=row_id,
+                        value=format_value(v),
+                        timestamp=format_timestamp(v),
+                    ))
+                else:
+                    state.value_data.append(dict(
+                        id=row_id,
+                        value=format_value(v),
+                    ))
 
     def publish_stats(state: STATE):
         state.manager.update_table("inspector", state.value_data)
@@ -70,7 +104,7 @@ def inspector_controller(port: int = 8080):
         state.perf_data = []
 
     @compute_node
-    def inspector(request: TSD[int, TS[HttpRequest]], port: int = 8080, _state: STATE = None, _sched: SCHEDULER = None) -> TSD[int, TS[HttpResponse]]:
+    def inspector(request: TSD[int, TS[HttpRequest]], port: int = 8080, _state: STATE[InspectorState] = None, _sched: SCHEDULER = None) -> TSD[int, TS[HttpResponse]]:
         responses = {}  # for the HTTP queries
         data = []  # to be published to the table
         remove = set()  # to be removed from the table
@@ -99,20 +133,6 @@ def inspector_controller(port: int = 8080):
             command = r.url_parsed_args[0]
             id_str = r.url_parsed_args[1]
 
-            if command == "ref":
-                # id str is a node id, parse and convert to string id
-                node_id = tuple(int(i) for i in id_str.split(', '))
-                id_str = ""
-                root = request.owning_graph
-                for i in node_id:
-                    if isinstance(root, Graph):
-                        root = root.nodes[i]
-                        id_str += str_node_id((i,))
-                    elif isinstance(root, PythonNestedNodeImpl):
-                        root = next(v for j, (k, v) in enumerate(enum_items(root)) if j == i)
-                        id_str += SUBGRAPHS + str_node_id((i,))
-                command = "expand"
-
             ids = id_str.split('zzz')
             gid = ids[0]
             level = "graph"
@@ -128,7 +148,11 @@ def inspector_controller(port: int = 8080):
                     level = "nested"
                     item_id = node_id_from_str(ids[-1][3:])
                     ids = ids[:-1]
-                elif i == SCALARS[-3:]:
+                elif i.startswith(SUBGRAPHS[-3:] + MORE):
+                    level = "nested"
+                    item_id = node_id_from_str(ids[-1][3:])
+                    ids = ids[:-1]
+                elif i.startswith(SCALARS[-3:]):
                     level = "scalars"
                     item_id = node_id_from_str(ids[-1][3:])
                     ids = ids[:-1]
@@ -178,6 +202,7 @@ def inspector_controller(port: int = 8080):
                                     timestamp=format_timestamp(n)))
 
                                 _state.node_subscriptions[n.node_id][row_id] = None
+                                _state.node_subscriptions[n.node_id][None] = row_id
                                 _state.observer.subscribe(n.node_id)
                                 _state.row_ids[row_id] = n.node_id
 
@@ -242,7 +267,8 @@ def inspector_controller(port: int = 8080):
                                     tab = tab[:-4]
                                     break
                                 else:
-                                    root_item, key = next((v, k) for i, (k, v) in enumerate(enum_items(root_item)) if i == item)
+                                    key = _state._value.key_for_id(item)
+                                    root_item = inspect_item(root_item, key)
                                     path.append(key)
 
                             for i, (k, v) in enumerate(enum_items(root_item)):
@@ -260,7 +286,7 @@ def inspector_controller(port: int = 8080):
                                     break
 
                                 ts = isinstance(v, TimeSeries)
-                                row_id = id_str + str_node_id((i,))
+                                row_id = id_str + str_node_id((_state._value.id_for_key(k),))
                                 data.append(dict(
                                     id=row_id,
                                     X="+",
@@ -285,6 +311,17 @@ def inspector_controller(port: int = 8080):
 
                     data.append(dict(id=id_str, X="+"))
 
+                case "ref":
+                    value, path = _state.find_value_and_path(node, root_item, id_str, item_id)
+                    if isinstance(value, PythonTimeSeriesReference):
+                        if (o := value.output) is not None:
+                            ref_node = o.owning_node
+                            path = []
+                            while o.parent_output:
+                                path.append(o.parent_output.key_from_value(o))
+                                o = o.parent_output
+
+
             if data or remove:
                 _state.manager.update_table("inspector", data, remove)
                 [_state.row_ids.pop(i, None) for i in remove]
@@ -294,21 +331,15 @@ def inspector_controller(port: int = 8080):
         return responses
 
     @inspector.start
-    def start_inspector(port: int, _state: STATE):
+    def start_inspector(port: int, _state: STATE[InspectorState]):
         from hgraph.adaptors.perspective import PerspectiveTablesManager
         from hgraph.adaptors.tornado._tornado_web import TornadoWeb
         from hgraph.adaptors.perspective._perspective import IndexPageHandler
         from perspective import Table
 
-        _state.observer = None
         _state.manager = PerspectiveTablesManager.current()
         _state.table = Table({"id": str, **{k: v.py_type for k, v in GraphInspectorData.__meta_data_schema__.items()}}, index="id")
         _state.manager.add_table("inspector", _state.table)
-
-        _state.row_ids = {}
-        _state.node_subscriptions = defaultdict(dict)  # node_id -> [(item path, row_id)]
-        _state.value_data = []
-        _state.perf_data = []
 
         tempfile.gettempdir()
         layouts_dir = os.path.join(tempfile.tempdir, "inspector_layouts")

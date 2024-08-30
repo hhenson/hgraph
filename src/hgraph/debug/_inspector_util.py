@@ -275,3 +275,15 @@ def _(value: TimeSeriesOutput):
             tp = tp.value_tp
 
     return re.sub(r"<class '(?:\w+\.)+", r"", str(tp)).replace("'>", "")
+
+
+@multimethod
+def inspect_item(value, key):
+    return value[key]
+
+
+@inspect_item.register
+def _(value: PythonNestedNodeImpl, key):
+    return next(v for k, v in value.enum_nested_graphs() if k == key)
+
+

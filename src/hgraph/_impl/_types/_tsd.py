@@ -353,6 +353,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def __contains__(self, item):
         return item in self._ts_values
 
+    def key_from_value(self, value: V) -> K:
+        return self._ts_values_to_keys[id(value)]
+
     def added_keys(self) -> Iterable[K]:
         return self.key_set.added()
 
