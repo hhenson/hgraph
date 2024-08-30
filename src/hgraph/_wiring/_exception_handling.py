@@ -19,7 +19,7 @@ from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass, extract_kwargs
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
-from hgraph._wiring._wiring_utils import as_reference
+from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 
 __all__ = ("exception_time_series", "try_except", "TryExceptResult", "TryExceptTsdMapResult")
 
@@ -113,8 +113,29 @@ def try_except(
         )
         from hgraph import TryExceptWiringNodeClass
 
+        graph, reassignables = wire_nested_graph(
+            func,
+            resolved_signature.input_types,
+            {
+                k: kwargs_[k]
+                for k, v in resolved_signature.input_types.items()
+            },
+            resolved_signature_outer,
+            None,
+            depth=1,
+        )
+
         # noinspection PyTypeChecker
-        return TryExceptWiringNodeClass(resolved_signature_outer, func, resolved_signature)(**kwargs_)
+        port = TryExceptWiringNodeClass(resolved_signature_outer, graph, resolved_signature)(**kwargs_)
+
+        from hgraph import WiringGraphContext
+
+        WiringGraphContext.instance().reassign_items(reassignables, port.node_instance)
+
+        if port.output_type is not None:
+            return port
+        else:
+            WiringGraphContext.instance().add_sink_node(port.node_instance)
 
 
 def _try_except_node(func, *args, __trace_back_depth__: int = 1, __capture_values__: bool = False, **kwargs):
