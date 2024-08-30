@@ -395,7 +395,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         if self._sampled:
             return (i for i in self.items() if i[1].valid)
         elif self.has_peer:
-            return ((k, self._ts_values[k]) for k in self._output.modified_keys())
+            return ((k, self._ts_values[k]) for k in self._output.modified_keys() if k in self._ts_values)
         elif self.active:
             if self._last_notified_time == self.owning_graph.evaluation_clock.evaluation_time:
                 return self._modified_items

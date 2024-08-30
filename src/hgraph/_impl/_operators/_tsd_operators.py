@@ -3,7 +3,7 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
-from hgraph import reduce, add_, SCHEMA, join, unpartition
+from hgraph import add_, SCHEMA, unpartition, reduce
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import (
     sub_,
@@ -537,7 +537,7 @@ def zero_tsd(ts: Type[TSD[SCALAR, TIME_SERIES_TYPE]], op: object) -> TSD[SCALAR,
 
 
 @compute_node(overloads=min_)
-def max_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
+def min_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
     return reduce(min_, tsd, zero(tp, min_))
 
 

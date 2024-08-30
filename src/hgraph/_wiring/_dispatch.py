@@ -127,9 +127,9 @@ def _dispatch_impl(
             if k in dispatch_args and isinstance(t, HgTSTypeMetaData)
         }
         if len(o_dispatch_types) != len(dispatch_args):
-            continue  # not a valid overload
+            raise CustomMessageWiringError(f"Cannot dispatch with signatures of different lengths:\n{dispatch_args}\n{o_dispatch_types}")  # not a valid overload
         if not all(dispatch_args[k].matches(t) for k, t in o_dispatch_types.items()):
-            continue  # not a valid overload
+            raise CustomMessageWiringError(f"Cannot dispatch with mis-matched signatures:\n{dispatch_args}\n{o_dispatch_types}")  # not a valid overload
 
         def make_dispatch_graph(o, dispatch_types):
             @graph

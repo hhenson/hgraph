@@ -113,6 +113,24 @@ def toposort(
         if not ts_nodes:
             source_nodes.add(to_node)
 
+    from graphlib import TopologicalSorter, CycleError
+
+    try:
+        list(TopologicalSorter(reverse_mapping).static_order())
+    except CycleError as e:
+        cycle_nodes = e.args[1]
+
+        cycle_node_strings = []
+        for n in cycle_nodes:
+            scalars = ", ".join(
+                f"{k}={str(v)[:100]}" for k, v in n.inputs.items() if k in n.resolved_signature.scalar_inputs
+            )
+            cycle_node_strings.append(f"{n.wiring_path_name}.{n.label or n.node_signature.name}({scalars})")
+
+        cycle_print = "\n -> ".join(cycle_node_strings)
+
+        raise RuntimeError(f"Cyclic sub graph detected that involves nodes: \n{cycle_print}")
+
     # Rank nodes
     nodes_to_process.extend(source_nodes)
     max_rank = 0
@@ -131,26 +149,8 @@ def toposort(
             nodes_to_process.append(to_node)
             max_rank = max(max_rank, processed_nodes[to_node])
 
-        if max_rank > len(processed_nodes) + 1000 or len(nodes_to_process) > len(processed_nodes) + 1000:
-            from graphlib import TopologicalSorter, CycleError
-
-            try:
-                list(TopologicalSorter(reverse_mapping).static_order())
-            except CycleError as e:
-                cycle_nodes = e.args[1]
-
-                cycle_node_strings = []
-                for n in cycle_nodes:
-                    scalars = ", ".join(
-                        f"{k}={str(v)[:100]}" for k, v in n.inputs.items() if k in n.resolved_signature.scalar_inputs
-                    )
-                    cycle_node_strings.append(f"{n.wiring_path_name}.{n.label or n.node_signature.name}({scalars})")
-
-                cycle_print = "\n -> ".join(cycle_node_strings)
-
-                raise RuntimeError(f"Cyclic sub graph detected that involves nodes: \n{cycle_print}")
-            else:
-                raise RuntimeError(f"Cyclic sub graph exists but could not be detected")
+        if max_rank > len(processed_nodes) + 1000:
+            raise RuntimeError(f"Cyclic sub graph exists but could not be detected")
 
     # Sort nodes by rank
     result = [node for _, node in sorted((rank, node) for node, rank in processed_nodes.items()) if not node.is_stub]
