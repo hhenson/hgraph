@@ -1,8 +1,8 @@
 import asyncio
-import concurrent.futures
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
+import tornado
 from frozendict import frozendict
 
 from hgraph import (
@@ -16,20 +16,18 @@ from hgraph import (
     STATE,
     partition,
     map_,
-    unpartition,
     adaptor,
     combine,
     adaptor_impl,
     merge,
     register_adaptor,
-    register_service,
     TSB,
     TS_SCHEMA,
     TIME_SERIES_TYPE,
     HgTSBTypeMetaData,
-    nothing,
+    HgTSDTypeMetaData,
+    REMOVE_IF_EXISTS,
 )
-import tornado
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
@@ -102,6 +100,7 @@ class HttpAdaptorManager:
 
     def complete_request(self, request_id, response):
         self.requests[request_id].set_result(response)
+        self.queue({request_id: REMOVE_IF_EXISTS})
         print(f"Completed request {request_id} with response {response}")
 
 
@@ -139,7 +138,12 @@ class HttpHandler(tornado.web.RequestHandler):
 
         response = await self.mgr.add_request(
             request_id,
-            HttpPostRequest(url=self.path, url_parsed_args=args, headers=self.request.headers, body=self.request.body),
+            HttpPostRequest(
+                url=self.path,
+                url_parsed_args=args,
+                headers=self.request.headers,
+                body=self.request.body.decode("utf-8"),
+            ),
         )
 
         self.set_status(response.status_code)
@@ -185,7 +189,8 @@ def http_server_handler(fn: Callable = None, *, url: str):
     The decorated function can be called without the request parameter being provided, for example:
 
     ::
-
+        # NOTE: We need to make use of the http_server_adapter_helper to make this work
+        register_adaptor(default_path, http_server_adaptor_helper, port=8081)
         ...
         out = complex_handlder(ts_1=..., ...)
 
@@ -235,7 +240,10 @@ def http_server_handler(fn: Callable = None, *, url: str):
         else:
             responses = fn(request=requests, **inputs)
 
-        if isinstance(responses.output_type, HgTSBTypeMetaData):
+        if isinstance(responses.output_type, HgTSBTypeMetaData) or (
+            isinstance(responses.output_type, HgTSDTypeMetaData)
+            and isinstance(responses.output_type.value_tp.dereference(), HgTSBTypeMetaData)
+        ):
             http_server_adaptor.from_graph(responses.response, path=url)
             return responses
         else:
@@ -251,6 +259,11 @@ def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[
 
 @adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
 def http_server_adaptor_helper(path: str, port: int):
+    """
+    Use this with the ``default_path`` to support ``http_server_handler`` instances that make use of
+    additional inputs other than request. This ensures the wiring service can correct resolve and wire the
+    handlers into the server adapter.
+    """
     register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
 
 
@@ -259,8 +272,8 @@ def http_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
-    @push_queue(TSD[int, TS[HttpGetRequest]])
-    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpGetRequest]]:
+    @push_queue(TSD[int, TS[HttpRequest]])
+    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpRequest]]:
         GlobalState.instance()[f"http_server_adaptor://{path}/queue"] = sender
         return None
 
@@ -290,9 +303,9 @@ def http_server_adaptor_impl(path: str, port: int):
     responses = {}
     for url, handler in HttpAdaptorManager.instance().handlers.items():
         if isinstance(handler, WiringNodeClass):
-            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpGetRequest]):
+            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
                 responses[url] = map_(handler, request=requests_by_url[url])
-            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpGetRequest]]):
+            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
         elif handler is None:
             pass

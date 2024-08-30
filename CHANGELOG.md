@@ -648,3 +648,24 @@ Version 0.3.6 (27-08-2024)
 --------------------------
 
 * Add to_json and from_json operators.
+
+Version 0.3.7 (28-08-2024)
+--------------------------
+
+* Fix HttpAdaptor handling of TSB return values.
+* Ensure the handler request is removed once the response is returned.
+
+Version 0.3.8 (28-08-2024)
+--------------------------
+
+* More fixes to Tornado adaptor
+
+Version 0.3.9 (29-08-2024)
+--------------------------
+
+* Fix to the value property on the WiringPort
+
+Version 0.3.10 (30-08-2024)
+---------------------------
+
+* Add helper functions to extract service inputs and outputs.

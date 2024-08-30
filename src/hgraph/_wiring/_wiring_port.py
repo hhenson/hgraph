@@ -109,7 +109,11 @@ class WiringPort:
 
     @property
     def value(self):
-        return self.node_instance.inputs.get("value", None)
+        v = self.node_instance.inputs.get("value", None)
+        if v is None:  # Let's try and get 'value' from self (in case of `TSB')
+            return self["value"]
+        else:
+            return v
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)
