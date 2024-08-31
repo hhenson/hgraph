@@ -26,7 +26,7 @@ def test_simple_scalar():
     def table_test_schema() -> TS[TableSchema]:
         return table_schema(TS[int])
 
-    assert eval_node(table_test_schema) == [make_table_schema(("value",), (int,))]
+    assert eval_node(table_test_schema) == [make_table_schema(TS[int], ("value",), (int,))]
 
     with GlobalState() as gs:
         as_of = MIN_ST + 10 * MIN_TD
