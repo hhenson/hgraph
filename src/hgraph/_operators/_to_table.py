@@ -191,6 +191,12 @@ def shape_of_table_type(
     expect_keys: bool | None = None,
     expect_length: int | None = None,
 ) -> tuple[tuple[type, ...], bool]:
+    """
+    Extract the tuple shape from the type. To help with validation, it is possible to provide the ``expected_keys``
+    to indicate if the shape is expected to have keys (=> tuple[tuple[type, ...], ...]). If the length of
+    the row tuple is known, it can be provided using the ``expect_length`` parameter. This will ensure that the length
+    (other than the date and as-of, etc. fields) is as specified.
+    """
     if isinstance(tp, type):
         if issubclass(tp, tuple):
             tp = HgTupleFixedScalarType.parse_type(tp)
