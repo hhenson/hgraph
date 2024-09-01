@@ -11,7 +11,7 @@ def convert_units(qty: TS[NUMBER], fr: TS[Unit], to: TS[Unit], tp: Type[NUMBER] 
     Cater for the three use cases of conversion:
         - Same unit, no conversion required
         - Direct conversion ratio available - both units are multiplicative
-        - One of both units are offset
+        - One or both units are offset
     """
 
 
@@ -21,7 +21,7 @@ def convert_units_default(qty: TS[NUMBER], fr: TS[Unit], to: TS[Unit], tp: Type[
     Cater for the three use cases of conversion:
         - Same unit, no conversion required
         - Direct conversion ratio available - both units are multiplicative
-        - One of both units are offset
+        - One or both units are offset
     """
 
     pass_through, to_convert = if_(fr == to, qty)

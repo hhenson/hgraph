@@ -93,8 +93,6 @@ class UnitSystem:
             if factor := context.conversion_factor(dimension):
                 return factor
 
-        return None
-
 
 class UnitConversionContext:
     def __init__(self, conversion_factors: tuple["Quantity[float]", ...] = ()):

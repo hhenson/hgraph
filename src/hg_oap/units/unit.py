@@ -78,6 +78,11 @@ class Unit(CompoundScalar, ExprClass):
         else:
             raise ValueError(f"cannot convert {self} to {to} and no conversion factor for {to.dimension/self.dimension}")
 
+    def is_convertible(self, to: 'Unit') -> bool:
+        return (self is to or
+                self.dimension is to.dimension or
+                bool(UnitSystem.instance().conversion_factor(to.dimension / self.dimension)))
+
     @abstractmethod
     def _do_convert(self, value: NUMBER, to: 'Unit') -> NUMBER: ...
 
