@@ -101,7 +101,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
 
         resolved_type = HgTSTypeMetaData(wired_type)
         if self.py_type in resolution_dict:
-            if resolution_dict[self.py_type] != resolved_type:
+            if not resolution_dict[self.py_type].matches(resolved_type):
                 raise ParseError(
                     f"TypeVar '{str(self)}' has already been resolved to"
                     f" '{str(resolution_dict[self.py_type])}' which does not match the type "

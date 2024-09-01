@@ -178,7 +178,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         if self == wired_type:
             return  # No additional information can be gleaned!
         if type_var in resolution_dict:
-            if wired_type and resolution_dict[type_var] != wired_type:
+            if wired_type and not resolution_dict[type_var].matches(wired_type):
                 from hgraph._wiring._wiring_errors import TemplateTypeIncompatibleResolution
 
                 raise TemplateTypeIncompatibleResolution(self, resolution_dict[type_var], wired_type)

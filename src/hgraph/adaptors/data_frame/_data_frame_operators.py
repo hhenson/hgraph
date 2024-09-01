@@ -48,7 +48,7 @@ def join(
 
 @compute_node
 def filter_cs(ts: TS[Frame[COMPOUND_SCALAR]], predicate: COMPOUND_SCALAR) -> TS[Frame[COMPOUND_SCALAR]]:
-    kwargs = predicate.to_dict()
+    kwargs = {k: v for k, v in predicate.to_dict().items() if v is not None}
     return ts.value.filter(**kwargs)
 
 

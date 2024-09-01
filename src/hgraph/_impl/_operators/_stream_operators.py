@@ -161,11 +161,14 @@ def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 @compute_node(overloads=throttle)
-def throttle(ts: TIME_SERIES_TYPE, period: timedelta, sched: SCHEDULER = None, state: STATE = None) -> TIME_SERIES_TYPE:
+def throttle(ts: TIME_SERIES_TYPE,
+             period: TS[timedelta],
+             sched: SCHEDULER = None,
+             state: STATE = None) -> TIME_SERIES_TYPE:
     if ts.modified:
         state.queue.append(ts.value)
     if sched.is_scheduled_now:
-        sched.schedule(period)
+        sched.schedule(period.value)
         if state.queue:
             return state.queue.popleft()
 
