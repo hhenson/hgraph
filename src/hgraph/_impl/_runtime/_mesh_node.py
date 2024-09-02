@@ -143,6 +143,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
                         next_time = min(next_time, dtg)
             elif dt and dt > self.last_evaluation_time:
                 self._scheduled_ranks[rank] = dt
+                next_time = min(next_time, dt)
 
             rank += 1
 

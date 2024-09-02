@@ -101,6 +101,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
                 return
 
         self.mark_evaluated()
+        self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._active_graph.evaluate_graph()
 
     def enum_nested_graphs(self):

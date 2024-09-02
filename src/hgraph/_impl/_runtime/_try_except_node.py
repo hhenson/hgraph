@@ -68,6 +68,7 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
     def eval(self):
         try:
             self.mark_evaluated()
+            self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
             self._active_graph.evaluate_graph()
         except Exception as e:
             from hgraph._types._error_type import NodeError

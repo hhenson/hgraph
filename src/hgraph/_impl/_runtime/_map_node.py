@@ -124,6 +124,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
     def _evaluate_graph(self, key: K):
         """Evaluate the graph for this key"""
         graph: Graph = self._active_graphs[key]
+        graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         # TODO: This can be done at start time or initialisation time (decide on behaviour) and then we don't
         # have to pay for the if.
         if self.signature.capture_exception:
