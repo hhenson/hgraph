@@ -55,10 +55,10 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
         self._active_graph.initialise()
         self._wire_graph()
 
-    def start(self):
+    def do_start(self):
         self._active_graph.start()
 
-    def stop(self):
+    def do_stop(self):
         self._active_graph.stop()
 
     def dispose(self):

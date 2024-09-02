@@ -91,9 +91,8 @@
                                     }
                                 }
                                 if (meta.column_header[0] === 'value'){
-                                    if (row.value.startsWith('REF')) {
-                                        const node_id = row.value.match(/REF\[\w+<((\d+, )*(\d+))>/)[1];
-                                        const new_row = await (await fetch("/inspect/ref/" + node_id, {cache: "no-store"})).text();
+                                    if (row.value.startsWith('REF[')) {
+                                        const new_row = await (await fetch("/inspect/ref/" + row.id, {cache: "no-store"})).text();
                                         window.setTimeout(async () => {
                                             const id_col = stuff.column_headers.findIndex((c) => {return c[0] === 'id'})
                                             const ids = await table._view_cache.view(id_col, 0, id_col+1, meta.y);
@@ -115,7 +114,12 @@
                                 console.log(row)
                                 if (meta.column_header[0] === 'name'){
                                     if (row.X === '+') {
-                                        await fetch("/inspect/expand/" + row.id, {cache: "no-store"});
+                                        if (event.ctrlKey) {
+                                            await fetch("/inspect/expand/" + row.id + "?" + new URLSearchParams({all: 'true'}).toString(),
+                                                {cache: "no-store"});
+                                        } else {
+                                            await fetch("/inspect/expand/" + row.id, {cache: "no-store"});
+                                        }
                                     } else {
                                         await fetch("/inspect/collapse/" + row.id, {cache: "no-store"});
                                     }

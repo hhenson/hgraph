@@ -96,14 +96,16 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self.current_eval_graph = None
         self.max_rank = 0
 
-    def start(self):
+    def do_start(self):
         super().start()
         self.output["ref"].value = PythonTimeSeriesReference(self.output["out"])
         GlobalState.instance()[self._full_context_path] = self.output["ref"]
         self._output = self.output["out"]
 
-    def stop(self):
+    def do_stop(self):
         del GlobalState.instance()[self._full_context_path]
+
+        super().do_stop()
 
     def eval(self):
         self.mark_evaluated()
@@ -187,12 +189,13 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         if self.signature.capture_exception:
             # Remove the error output associated to the graph if there is one.
             cast(TSD_OUT[K, TS[NodeError]], self.error_output).pop(key, None)
-        graph: Graph = self._active_graphs.pop(key)
-        self._un_wire_graph(key, graph)
-        graph.stop()
-        self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
-        self._active_graphs_rank.pop(key)
-        graph.dispose()
+        graph: Graph = self._active_graphs.pop(key, None)
+        if graph is not None:  # None can happen during shutdown as shutdown order is not dependency-driven
+            self._un_wire_graph(key, graph)
+            graph.stop()
+            self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
+            self._active_graphs_rank.pop(key)
+            graph.dispose()
 
     def _add_graph_dependency(self, key: K, depends_on: K) -> bool:  # returns True if the key is available now
         self._active_graphs_dependencies[depends_on].add(key)

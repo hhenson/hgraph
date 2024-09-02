@@ -81,7 +81,10 @@ def inspector_controller(port: int = 8080):
                             v = node.output
 
                     for item in path[1:]:
-                        v = v[item]
+                        try:
+                            v = v[item]
+                        except:
+                            v = "This value could not be retrieved"
                 else:
                     v = node
 
@@ -117,18 +120,18 @@ def inspector_controller(port: int = 8080):
         elif not _sched.is_scheduled:
             _sched.schedule(timedelta(seconds=1))
 
+        if _state.observer is None:
+            _state.observer = InspectionObserver(
+                request.owning_graph,
+                callback=lambda n: process_tick(_state, n)
+            )
+            _state.observer.on_before_node_evaluation(request.owning_node)
+            request.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
+
+        observer = _state.observer
+
         for r_i, r_r in request.modified_items():
             r: HttpRequest = r_r.value
-
-            if _state.observer is None:
-                _state.observer = InspectionObserver(
-                    request.owning_graph,
-                    callback=lambda n: process_tick(_state, n)
-                )
-                _state.observer.on_before_node_evaluation(request.owning_node)
-                request.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
-
-            observer = _state.observer
 
             command = r.url_parsed_args[0]
             id_str = r.url_parsed_args[1]
@@ -274,7 +277,7 @@ def inspector_controller(port: int = 8080):
                             for i, (k, v) in enumerate(enum_items(root_item)):
                                 if i < start:
                                     continue
-                                if i >= start + 10:
+                                if i >= start + 10 and not 'all' in r.query:
                                     row_id = id_str + MORE + str_node_id((i,))
                                     data.append(dict(
                                         id=row_id,

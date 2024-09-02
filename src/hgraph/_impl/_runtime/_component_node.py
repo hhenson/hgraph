@@ -74,7 +74,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         self._wire_graph()
 
     @start_guard
-    def start(self):
+    def do_start(self):
         if self._active_graph:
             self._active_graph.start()
         else:
@@ -83,7 +83,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
                 self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
 
     @stop_guard
-    def stop(self):
+    def do_stop(self):
         if self._active_graph:
             self._active_graph.stop()
 

@@ -94,6 +94,13 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 self._scheduled_keys[k] = dt
                 self.graph.schedule_node(self.node_ndx, dt)
 
+    def do_stop(self):
+        for k in list(self._active_graphs.keys()):
+            self._remove_graph(k)
+        self._active_graphs.clear()
+        self._scheduled_keys.clear()
+        self._pending_keys.clear()
+
     def enum_nested_graphs(self):
         return self._active_graphs.items()
 

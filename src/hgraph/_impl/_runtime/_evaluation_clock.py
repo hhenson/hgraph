@@ -3,7 +3,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from threading import Condition
 
-from hgraph._runtime._constants import MAX_DT, MIN_TD
+from hgraph._runtime._constants import MAX_DT, MIN_TD, MIN_DT
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 
 
@@ -99,6 +99,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         self._push_node_requires_scheduling = False
         self._push_node_requires_scheduling_condition = Condition()
         self._ready_to_push: bool = False
+        self._last_time_allowed_push: datetime = MIN_DT
 
     @property
     def now(self) -> datetime:
@@ -129,19 +130,24 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         next_scheduled_time = self.next_scheduled_evaluation_time
 
         # We only let push values to be introduced when there are no feedback entries left otherwise go compute those
+        # however if we've been busy like that for more than a second, let push values in.
+        now = datetime.utcnow()
+
         self._ready_to_push = False
-        if next_scheduled_time > self.evaluation_time + MIN_TD:
+        if next_scheduled_time > self.evaluation_time + MIN_TD or now > self._last_time_allowed_push + timedelta(seconds=1):
             with self._push_node_requires_scheduling_condition:
                 self._ready_to_push = True
-                while datetime.utcnow() < next_scheduled_time and not self._push_node_requires_scheduling:
-                    sleep_time = (next_scheduled_time - datetime.utcnow()).total_seconds()
+                self._last_time_allowed_push = now
+                while now < next_scheduled_time and not self._push_node_requires_scheduling:
+                    sleep_time = (next_scheduled_time - now).total_seconds()
                     # print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: sleeping for {sleep_time}", file=sys.stderr)
                     self._push_node_requires_scheduling_condition.wait(
                         min(sleep_time, 10)
                     )  # wake up regularly so sleep_time is not 100 years
+                    now = datetime.utcnow()
             # It could be that a push node has triggered
             # print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
-        self.evaluation_time = min(next_scheduled_time, max(self.next_cycle_evaluation_time, datetime.utcnow()))
+        self.evaluation_time = min(next_scheduled_time, max(self.next_cycle_evaluation_time, now))
 
     def reset_push_node_requires_scheduling(self):
         """
