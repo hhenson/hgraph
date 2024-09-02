@@ -97,7 +97,8 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self.max_rank = 0
 
     def do_start(self):
-        super().start()
+        super().do_start()
+
         self.output["ref"].value = PythonTimeSeriesReference(self.output["out"])
         GlobalState.instance()[self._full_context_path] = self.output["ref"]
         self._output = self.output["out"]
