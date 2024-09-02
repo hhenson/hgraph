@@ -27,7 +27,7 @@ from hgraph import (
     NodeException,
     batch,
     step,
-    slice_,
+    slice_, TSD, REMOVE,
 )
 from hgraph.test import eval_node
 
@@ -152,6 +152,22 @@ def test_drop_dups():
     ]
 
 
+def test_drop_dups_tsd():
+    @graph
+    def g(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return dedup(ts)
+
+    assert eval_node(g, [{1: 1, 2: 2}, {1: 1, 2: 3}, {1: REMOVE, 2: 3}]) == [{1: 1, 2: 2}, {2: 3}, {1: REMOVE}]
+
+
+def test_drop_dups_tsl():
+    @graph
+    def g(ts: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
+        return dedup(ts)
+
+    assert eval_node(g, [{0: 1}, {0: 1, 1: 2}, None, {0: 1, 1: 3}]) == [{0: 1}, {1: 2}, None, {1: 3}]
+
+
 def test_filter_int():
     @graph
     def g(condition: TS[bool], ts: TS[int]) -> TS[int]:
@@ -179,16 +195,17 @@ def test_throttle():
     def g(ts: TS[int], period: timedelta) -> TS[int]:
         return throttle(ts, period)
 
-    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
-        None,
-        1,
-        None,
-        3,
-        None,
-        2,
-        None,
-        1,
-    ]
+    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD
+                     ) == [1, None, 2, None, 5, None, 1]
+
+
+def test_throttle_tsd():
+    @graph
+    def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:
+        return throttle(ts, period)
+
+    assert eval_node(g, [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}], 3 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD
+                     ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
 
 
 def test_take():

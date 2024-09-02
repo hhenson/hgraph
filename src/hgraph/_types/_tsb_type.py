@@ -19,7 +19,7 @@ from typing import (
     ValuesView,
     cast,
     ClassVar,
-    _GenericAlias,
+    _GenericAlias, Iterable, Tuple,
 )
 
 from frozendict import frozendict
@@ -340,15 +340,31 @@ class TimeSeriesBundle(
         """The keys of the schema defining the bundle"""
         return self._ts_values.keys()
 
-    @abstractmethod
     def items(self) -> ItemsView[str, TimeSeries]:
         """The items of the bundle"""
         return self._ts_values.items()
 
-    @abstractmethod
     def values(self) -> ValuesView[TimeSeries]:
         """The values of the bundle"""
         return self._ts_values.values()
+
+    def modified_keys(self) -> Iterable[str]:
+        return (i for i in self.keys() if self._ts_values[i].modified)
+
+    def modified_values(self) -> Iterable[TimeSeries]:
+        return (v for v in self.values() if v.modified)
+
+    def modified_items(self) -> Iterable[Tuple[str, TimeSeries]]:
+        return ((i, v) for i, v in self.items() if v.modified)
+
+    def valid_keys(self) -> Iterable[str]:
+        return (i for i in self.keys() if self._ts_values[i].valid)
+
+    def valid_values(self) -> Iterable[TimeSeries]:
+        return (v for v in self.values() if v.valid)
+
+    def valid_items(self) -> Iterable[Tuple[str, TimeSeries]]:
+        return ((i, v) for i, v in self.items() if v.valid)
 
 
 class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):

@@ -97,7 +97,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
     def on_before_graph_evaluation(self, graph: "Graph"):
         self.current_graph = self.graphs[id(graph)]
         self.current_graph_begin_time = time.perf_counter_ns()
-        if len(graph.nodes) != (self.current_graph.node_eval_counts):
+        if len(graph.nodes) != len(self.current_graph.node_eval_counts):
             self.current_graph.node_eval_counts = [0] * len(graph.nodes)
             self.current_graph.node_eval_times = [0.] * len(graph.nodes)
 

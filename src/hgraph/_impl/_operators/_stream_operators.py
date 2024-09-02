@@ -3,6 +3,8 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta, datetime
 
+from frozendict import frozendict
+
 from hgraph import (
     compute_node,
     TIME_SERIES_TYPE,
@@ -34,7 +36,7 @@ from hgraph import (
     lag,
     TSL,
     SIZE,
-    INT_OR_TIME_DELTA,
+    INT_OR_TIME_DELTA, REMOVE_IF_EXISTS,
 )
 
 __all__ = ()
@@ -135,11 +137,32 @@ def drop_dups_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) ->
     """
     Drops duplicate values from a time-series.
     """
-    if _output.valid:
-        if ts.value != _output.value:
-            return ts.delta_value
-    else:
-        return ts.value
+    from multimethod import multimethod
+    from hgraph import PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput
+    from hgraph import PythonTimeSeriesDictInput, PythonTimeSeriesDictOutput
+
+    @multimethod
+    def dedup_item(input, output):
+        return {k_new: v_new for k_new, v_new in
+                ((k, dedup_item(v, output[k])) for k, v in input.modified_items())
+                if v_new is not None}
+
+    @dedup_item.register
+    def dedup_dicts(input: PythonTimeSeriesDictInput, output):
+        out = {k_new: v_new for k_new, v_new in
+                ((k, dedup_item(v, output.get_or_create(k))) for k, v in input.modified_items())
+                if v_new is not None}
+        return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
+
+    @dedup_item.register
+    def dedup_value(input: PythonTimeSeriesValueInput, output):
+        if output.valid:
+            if input.value != output.value:
+                return input.delta_value
+        else:
+            return input.value
+
+    return dedup_item(ts, _output)
 
 
 @compute_node(overloads=dedup)
@@ -165,18 +188,40 @@ def throttle(ts: TIME_SERIES_TYPE,
              period: TS[timedelta],
              sched: SCHEDULER = None,
              state: STATE = None) -> TIME_SERIES_TYPE:
+    from multimethod import multimethod
+    from hgraph import PythonTimeSeriesValueInput
+    from hgraph import PythonTimeSeriesDictInput
+
+    @multimethod
+    def collect_tick(input, out):
+        return {k_new: v_new for k_new, v_new in
+                ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
+                if v_new is not None}
+
+    @collect_tick.register
+    def collect_dict(input: PythonTimeSeriesDictInput, out):
+        out |= {k_new: v_new for k_new, v_new in
+               ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
+               if v_new is not None}
+        return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
+
+    @collect_tick.register
+    def collect_value(input: PythonTimeSeriesValueInput, out):
+        return input.value
+
     if ts.modified:
-        state.queue.append(ts.value)
+        if sched.is_scheduled:
+            state.tick = collect_tick(ts, state.tick)
+        else:
+            state.tick = {}
+            sched.schedule(period.value)
+            return ts.value
+
     if sched.is_scheduled_now:
-        sched.schedule(period.value)
-        if state.queue:
-            return state.queue.popleft()
-
-
-@throttle.start
-def throttle_start(state: STATE, sched: SCHEDULER):
-    state.queue = deque(maxlen=1)
-    sched.schedule(MIN_TD)
+        if tick := state.tick:
+            state.tick = {}
+            sched.schedule(period.value)
+            return tick
 
 
 @dataclass

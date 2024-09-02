@@ -47,6 +47,7 @@ def inspector_controller(port: int = 8080):
 
         value_data: list = field(default_factory=list)
         perf_data: list = field(default_factory=list)
+        last_publish_time: datetime = None
 
         def id_for_key(self, key):
             i = self.key_ids.setdefault(key, len(self.key_ids))
@@ -100,11 +101,30 @@ def inspector_controller(port: int = 8080):
                         value=format_value(v),
                     ))
 
+        if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2:
+            publish_stats(state)
+
     def publish_stats(state: STATE):
         state.manager.update_table("inspector", state.value_data)
         state.value_data = []
+
+        root_graph = state.observer.get_graph_info(())
+        for node_id, items in state.node_subscriptions.items():
+            if node_row := items.get(None, None):
+                gi = state.observer.get_graph_info(node_id[:-1])
+                node_ndx = node_id[-1]
+                state.perf_data.append(dict(
+                    id=node_row,
+                    evals=gi.node_eval_counts[node_ndx],
+                    time=gi.node_eval_times[node_ndx] / 1_000_000_000,
+                    of_graph=gi.node_eval_times[node_ndx] / gi.eval_time if gi.eval_time else None,
+                    of_total=gi.node_eval_times[node_ndx] / root_graph.eval_time if root_graph.eval_time else None
+                ))
+
         state.manager.update_table("inspector", state.perf_data)
         state.perf_data = []
+
+        state.last_publish_time = datetime.now()
 
     @compute_node
     def inspector(request: TSD[int, TS[HttpRequest]], port: int = 8080, _state: STATE[InspectorState] = None, _sched: SCHEDULER = None) -> TSD[int, TS[HttpResponse]]:
@@ -271,38 +291,44 @@ def inspector_controller(port: int = 8080):
                                     break
                                 else:
                                     key = _state._value.key_for_id(item)
-                                    root_item = inspect_item(root_item, key)
-                                    path.append(key)
+                                    try:
+                                        root_item = inspect_item(root_item, key)
+                                        path.append(key)
+                                    except:
+                                        root_item = None
+                                        responses[r_i] = HttpResponse(status_code=500, body=f"Item cannot be inspected")
+                                        break
 
-                            for i, (k, v) in enumerate(enum_items(root_item)):
-                                if i < start:
-                                    continue
-                                if i >= start + 10 and not 'all' in r.query:
-                                    row_id = id_str + MORE + str_node_id((i,))
+                            if root_item:
+                                for i, (k, v) in enumerate(enum_items(root_item)):
+                                    if i < start:
+                                        continue
+                                    if i >= start + 10 and not 'all' in r.query:
+                                        row_id = id_str + MORE + str_node_id((i,))
+                                        data.append(dict(
+                                            id=row_id,
+                                            X="+",
+                                            name=tab + "...",
+                                            type="",
+                                        ))
+                                        _state.row_ids[row_id] = None
+                                        break
+
+                                    ts = isinstance(v, TimeSeries)
+                                    row_id = id_str + str_node_id((_state._value.id_for_key(k),))
                                     data.append(dict(
                                         id=row_id,
                                         X="+",
-                                        name=tab + "...",
-                                        type="",
+                                        name=tab + str(k),
+                                        type=format_type(v),
+                                        value=format_value(v),
+                                        timestamp=format_timestamp(v) if ts else "-"
                                     ))
-                                    _state.row_ids[row_id] = None
-                                    break
 
-                                ts = isinstance(v, TimeSeries)
-                                row_id = id_str + str_node_id((_state._value.id_for_key(k),))
-                                data.append(dict(
-                                    id=row_id,
-                                    X="+",
-                                    name=tab + str(k),
-                                    type=format_type(v),
-                                    value=format_value(v),
-                                    timestamp=format_timestamp(v) if ts else "-"
-                                ))
+                                    _state.node_subscriptions[node.node_id][row_id] = path + [k]
+                                    _state.row_ids[row_id] = node.node_id
 
-                                _state.node_subscriptions[node.node_id][row_id] = path + [k]
-                                _state.row_ids[row_id] = node.node_id
-
-                            remove.add(id_str + MORE + str_node_id((start,)))
+                                remove.add(id_str + MORE + str_node_id((start,)))
 
                 case "collapse":
                     remove |= {i for i in _state.row_ids if i.startswith(id_str)} - {id_str}

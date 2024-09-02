@@ -96,6 +96,9 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self.current_eval_graph = None
         self.max_rank = 0
 
+        self._scheduled_times = defaultdict(list)
+        self._evaluated_times = defaultdict(list)
+
     def do_start(self):
         super().do_start()
 
@@ -135,8 +138,10 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             dt = self._scheduled_ranks.pop(rank, None)
             if dt == self.last_evaluation_time:
                 graphs = self._scheduled_keys_by_rank.pop(rank, {})
+                self._evaluated_times[rank].append(dt)
                 for k, dtg in graphs.items():
                     if dtg == dt:
+                        self._evaluated_times[k].append(dt)
                         self.current_eval_graph = k
                         dtg = self._evaluate_graph(k)
                         self.current_eval_graph = None
@@ -184,6 +189,8 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             max(self._scheduled_ranks.get(rank, MAX_DT), self.graph.evaluation_clock.evaluation_time), tm
         )
         self.graph.schedule_node(self.node_ndx, tm)
+
+        self._scheduled_times[key].append((self.last_evaluation_time, tm))
 
     def _remove_graph(self, key: K):
         """Un-wire graph and schedule for removal"""
