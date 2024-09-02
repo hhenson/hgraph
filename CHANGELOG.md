@@ -665,7 +665,9 @@ Version 0.3.9 (29-08-2024)
 
 * Fix to the value property on the WiringPort
 
-Version 0.3.10 (30-08-2024)
+Version 0.3.10 (02-09-2024)
 ---------------------------
 
 * Add helper functions to extract service inputs and outputs.
+* Add new logic to handle to_table and related methods. Provides a more generic solution to the implementation.
+* Support TSD, TS, TSB and CompoundScalar serialisation.
