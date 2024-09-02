@@ -1,100 +1,85 @@
-from datetime import date, datetime, time, timedelta
-from itertools import chain
-from typing import TypeVar
-
-from hgraph import AUTO_RESOLVE, from_table, TSD, K, REMOVE_IF_EXISTS
+from hgraph import (
+    from_table,
+    TIME_SERIES_TYPE,
+    STATE,
+    AUTO_RESOLVE,
+    OUT,
+)
+from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema_raw_type, PartialSchema
 from hgraph._operators import to_table, get_as_of, table_schema, TableSchema, make_table_schema
-from hgraph._operators._to_table import from_table_const, TABLE, table_shape, shape_of_table_type
+from hgraph._operators._to_table import from_table_const, TABLE, table_shape
 from hgraph._runtime import EvaluationClock
-from hgraph._types import TS, SCALAR
+from hgraph._types import TS
 from hgraph._wiring._decorators import compute_node, const_fn
 
 __all__ = []
 
 
-SIMPLE_SCALAR = TypeVar("SIMPLE_SCALAR", bool, int, float, str, date, datetime, time, timedelta)
+def _validate_not_type(tp, not_type) -> type:
+    if isinstance(tp, not_type):
+        raise RuntimeError(f"'{tp}' is not of type '{not_type}'")
+    return tp
 
 
-@compute_node(overloads=to_table, resolvers={TABLE: lambda m, s: table_shape(TS[m[SIMPLE_SCALAR]])})
-def to_table_ts_simple_value(ts: TS[SIMPLE_SCALAR], _clock: EvaluationClock = None) -> TS[TABLE]:
-    return (ts.last_modified_time, get_as_of(_clock), ts.value)
+def _validate_is_type(tp, is_type) -> type:
+    if not isinstance(tp, is_type):
+        raise RuntimeError(f"'{tp}' is of type '{is_type}'")
+    return tp
 
 
-@const_fn(overloads=table_schema)
-def table_schema_ts_simple_value(tp: type[TS[SCALAR]], _scalar: type[SCALAR] = AUTO_RESOLVE) -> TS[TableSchema]:
-    return make_table_schema(TS[_scalar], ("value",), (_scalar,))
-
-
-@compute_node(
-    overloads=from_table, resolvers={SIMPLE_SCALAR: lambda m, s: shape_of_table_type(m[TABLE], False, 1)[0][0]}
-)
-def from_table_ts_simple_value(ts: TS[TABLE]) -> TS[SIMPLE_SCALAR]:
-    # We can ignore the date information as this would have been used to inject the data
-    return ts.value[-1]
-
-
-@const_fn(
-    overloads=from_table_const, resolvers={SIMPLE_SCALAR: lambda m, s: shape_of_table_type(m[TABLE], False, 1)[0][0]}
-)
-def from_table_const_ts_simple_value(value: TABLE) -> TS[SIMPLE_SCALAR]:
-    return value[-1]
-
-
-# TSD[K, TS[SCALAR]]
-
-
-@compute_node(overloads=to_table, resolvers={TABLE: lambda m, s: table_shape(TSD[m[K], TS[m[SIMPLE_SCALAR]]])})
-def to_table_tsd_ts_simple_value(ts: TSD[K, TS[SIMPLE_SCALAR]], _clock: EvaluationClock = None) -> TS[TABLE]:
-    return tuple(
-        chain(
-            ((ts.last_modified_time, get_as_of(_clock), False, k, v.value) for k, v in ts.modified_items()),
-            ((ts.last_modified_time, get_as_of(_clock), True, k, None) for k in ts.removed_keys()),
-        )
-    )
+# Generic TimeSeries flattener
 
 
 @const_fn(overloads=table_schema)
-def table_schema_tsd_ts_simple_value(
-    tp: type[TSD[K, TS[SIMPLE_SCALAR]]], _key: type[K] = AUTO_RESOLVE, _scalar: type[SIMPLE_SCALAR] = AUTO_RESOLVE
-) -> TS[TableSchema]:
+def table_schema_generic(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
+    partial_schema = extract_table_schema_raw_type(tp)
     return make_table_schema(
-        tp,
-        (
-            "key",
-            "value",
-        ),
-        (
-            _key,
-            _scalar,
-        ),
-        partition_keys=("key",),
+        tp=tp,
+        keys=partial_schema.keys,
+        types=partial_schema.types,
+        partition_keys=partial_schema.partition_keys,
+        removed_keys=partial_schema.remove_partition_keys,
     )
 
 
-@compute_node(
-    overloads=from_table,
-    resolvers={
-        K: lambda m, s: shape_of_table_type(m[TABLE], True, 2)[0][0],
-        SIMPLE_SCALAR: lambda m, s: shape_of_table_type(m[TABLE], True, 2)[0][1],
-    },
-)
-def from_table_tsd_ts_simple_value(ts: TS[TABLE]) -> TSD[K, TS[SIMPLE_SCALAR]]:
-    # We can ignore the date information as this would have been used to inject the data
-    v = ts.value
-    return _tsd_ts_simple_value(v)
+@compute_node(overloads=to_table, resolvers={TABLE: lambda m, s: table_shape(m[TIME_SERIES_TYPE].py_type)})
+def to_table_generic(
+    ts: TIME_SERIES_TYPE,
+    _clock: EvaluationClock = None,
+    _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _state: STATE = None,
+) -> TS[TABLE]:
+    schema: PartialSchema = _state.partial_schema
+    if schema.partition_keys:
+        return tuple(((ts.last_modified_time, get_as_of(_clock)) + i) for i in schema.to_table(ts))
+    else:
+        return (ts.last_modified_time, get_as_of(_clock)) + schema.to_table(ts)
 
 
-def _tsd_ts_simple_value(value: TABLE) -> dict:
-    out = {r[-2]: REMOVE_IF_EXISTS if r[2] else r[-1] for r in value}
-    return out
+@to_table_generic.start
+def to_table_generic_start(_tp: type[TIME_SERIES_TYPE], _state: STATE):
+    _state.partial_schema = extract_table_schema_raw_type(_tp)
 
 
-@const_fn(
-    overloads=from_table_const,
-    resolvers={
-        K: lambda m, s: shape_of_table_type(m[TABLE], True, 2)[0][0],
-        SIMPLE_SCALAR: lambda m, s: shape_of_table_type(m[TABLE], True, 2)[0][1],
-    },
-)
-def from_table_const_tsd_ts_simple_value(value: TABLE) -> TSD[K, TS[SIMPLE_SCALAR]]:
-    return _tsd_ts_simple_value(value)
+@compute_node(overloads=from_table)
+def from_table_generic(ts: TS[TABLE], _tp: type[OUT] = AUTO_RESOLVE, _state: STATE = None) -> OUT:
+    schema: PartialSchema = _state.partial_schema
+    # We strip out the time aspect as this would have been used to prepare the inputs, we only need to
+    # process the main data bundle
+    if schema.partition_keys:
+        return schema.from_table(iter(value[2:] for value in ts.value))
+    else:
+        return schema.from_table(iter(ts.value[2:]))
+
+
+@from_table_generic.start
+def from_table_generic_start(_tp: type[OUT], _state: STATE):
+    _state.partial_schema = extract_table_schema_raw_type(_tp)
+
+
+@const_fn(overloads=from_table_const)
+def from_table_const_generic(value: TABLE, _tp: type[OUT] = AUTO_RESOLVE) -> OUT:
+    schema: PartialSchema = extract_table_schema_raw_type(_tp)
+    # We strip out the time aspect as this would have been used to prepare the inputs, we only need to
+    # process the main data bundle
+    return schema.from_table(iter(value[2:]))

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TypeVar
+from typing import TypeVar, Callable, Any
 
 from hgraph._types._scalar_type_meta_data import HgTupleFixedScalarType, HgTupleCollectionScalarType
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
@@ -20,8 +20,6 @@ __all__ = (
     "get_as_of",
     "set_table_schema_as_of_key",
     "set_table_schema_date_key",
-    "set_table_schema_del_key",
-    "get_table_schema_removed_key",
     "get_table_schema_as_of_key",
     "get_table_schema_date_key",
     "make_table_schema",
@@ -59,9 +57,9 @@ class TableSchema(CompoundScalar):
     keys: tuple[str, ...]
     types: tuple[type, ...]
     partition_keys: tuple[str, ...]  # An empty set implies a single row per tick.
+    removed_keys: tuple[str, ...]  # Only present when there are partition_keys.
     date_time_key: str
     as_of_key: str
-    removed_key: str  # Only present when there are partition_keys.
 
 
 def table_shape(ts: type[TIME_SERIES_TYPE]) -> TABLE:
@@ -95,16 +93,6 @@ def get_table_schema_as_of_key() -> str:
     return (GlobalState.instance() if GlobalState._instance else {}).get(AS_OF_KEY, "__as_of__")
 
 
-def get_table_schema_removed_key() -> str:
-    """
-    The column indicating a partition key has been removed. When this is set, the rest of the columns
-    (other than the partition key/s and time-series keys) are not set. This is a boolean field, since the
-    as_of date can be used to determine when the key was removed.
-    This column is only present when there are partition keys in the schema.
-    """
-    return (GlobalState.instance() if GlobalState._instance else {}).get(DEL_KEY, "__removed__")
-
-
 def set_table_schema_as_of_key(key: str):
     """
     Set the column name to be used for the as_of column.
@@ -119,26 +107,25 @@ def set_table_schema_date_key(key: str):
     GlobalState.instance()[DATE_KEY] = key
 
 
-def set_table_schema_del_key(key: str):
-    """
-    Set the column name to be used for indicating if the partition key has been deleted.
-    """
-    GlobalState.instance()[DEL_KEY] = key
-
-
 def make_table_schema(
     tp: type,
     keys: tuple[str, ...],
     types: tuple[type, ...],
     partition_keys: tuple[str, ...] = tuple(),
+    removed_keys: tuple[str, ...] = tuple(),
     date_key: str = None,
     as_of_key: str = None,
-    removed_key: str = None,
 ) -> TableSchema:
     """
     Constructs the table schema. This ensures we use the system default behaviour when
     date_key, as_of_key and removed_key are not set. It also adds the required date_key, as_of_key
     and removed_key as required, setting the default times.
+
+    If it is cheap to call ``to_table_const`` with the time-series delta-value,
+    then only the ``to_table_const`` is required.
+    This will generate the ``to_table`` function with the delta value supplied.
+
+    If the serialisation is to be handled withing a dedicated overload, then the converter functions are not required.
     """
     if date_key is None:
         date_key = get_table_schema_date_key()
@@ -149,14 +136,6 @@ def make_table_schema(
     keys_ = [date_key, as_of_key]
     types_ = [datetime, datetime]
 
-    if partition_keys:
-        if removed_key is None:
-            removed_key = get_table_schema_removed_key()
-        keys_.append(removed_key)
-        types_.append(bool)
-    else:
-        removed_key = ""
-
     keys_.extend(keys)
     types_.extend(types)
 
@@ -165,10 +144,17 @@ def make_table_schema(
         keys=tuple(keys_),
         types=tuple(types_),
         partition_keys=partition_keys,
+        removed_keys=removed_keys,
         date_time_key=date_key,
         as_of_key=as_of_key,
-        removed_key=removed_key,
     )
+
+
+@operator
+def table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
+    """
+    A const tick of the expected schema that will be produced by the to_table operator.
+    """
 
 
 @operator
@@ -180,9 +166,22 @@ def to_table(ts: TIME_SERIES_TYPE) -> TS[TABLE]:
 
 
 @operator
-def table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
+def from_table(ts: TS[TABLE]) -> DEFAULT[OUT]:
     """
-    A const tick of the expected schema that will be produced by the to_table operator.
+    Extracts data from a tabular form into the appropriate output type.
+    The output type must be specified, and the input schema must be correctly structured for the type to be
+    extracted.
+
+    This reverses the ``to_table`` operator.
+    The Schema can be obtained using the ``table_schema`` operator.
+    """
+
+
+@operator
+def from_table_const(value: TABLE) -> DEFAULT[OUT]:
+    """
+    Extract data from a table tuple into the appropriate output type.
+    This is the constant version of the from_table operator.
     """
 
 
@@ -227,23 +226,3 @@ def shape_of_table_type(
             raise CustomMessageWiringError(f"{repr(tp)} expected have a length of {repr(expect_length)}")
 
     return tp, is_keyed
-
-
-@operator
-def from_table(ts: TS[TABLE]) -> DEFAULT[OUT]:
-    """
-    Extracts data from a tabular form into the appropriate output type.
-    The output type must be specified, and the input schema must be correctly structured for the type to be
-    extracted.
-
-    This reverses the ``to_table`` operator.
-    The Schema can be obtained using the ``table_schema`` operator.
-    """
-
-
-@operator
-def from_table_const(value: TABLE) -> DEFAULT[OUT]:
-    """
-    Extract data from a table tuple into the appropriate output type.
-    This is the constant version of the from_table operator.
-    """
