@@ -75,7 +75,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             keys=tuple(schema.keys),
             types=tuple(schema.types),
             partition_keys=tuple(schema.partition_keys),
-            to_table=lambda ts: schema.to_table(ts.value),
+            to_table=lambda ts, schema=schema: schema.to_table(ts.value) if ts.modified else (None,) * len(schema.keys),
             from_table=schema.from_table,
         )
     else:
@@ -107,8 +107,12 @@ def _(tp: HgTSBTypeMetaData) -> PartialSchema:
             from_table.append(schema.from_table)
         elif tp_ in (HgTSTypeMetaData, HgTSSTypeMetaData):
             schema = extract_table_schema(v)
-            keys.append(k)
-            types.append(v.scalar_type().py_type)
+            if len(schema.keys) > 1:  # If the type is a CompoundScalar
+                keys.extend(f"{k}.{k_}" for k_ in schema.keys)
+                types.extend(schema.types)
+            else:
+                keys.append(k)
+                types.append(schema.types[0])
             to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
             from_table.append(schema.from_table)
         else:
