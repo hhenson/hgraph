@@ -671,3 +671,8 @@ Version 0.3.10 (02-09-2024)
 * Add helper functions to extract service inputs and outputs.
 * Add new logic to handle to_table and related methods. Provides a more generic solution to the implementation.
 * Support TSD, TS, TSB and CompoundScalar serialisation.
+
+Version 0.3.11 (03-09-2024)
+---------------------------
+
+* Fix to_table for nested TSD structures.
