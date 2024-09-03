@@ -161,7 +161,7 @@ def _(value: Node):
 
 @format_timestamp.register
 def _(value: Graph):
-    return value.evaluation_engine.engine_evaluation_clock.evaluation_time
+    return value.parent_node.last_evaluation_time if value.parent_node else None
 
 
 @format_timestamp.register
@@ -296,3 +296,11 @@ def _(value: PythonNestedNodeImpl, key):
     return next(v for k, v in value.enum_nested_graphs() if k == key)
 
 
+@inspect_item.register
+def _(value: PythonTimeSeriesReference, key):
+    return value.items[key]
+
+
+@inspect_item.register
+def _(value: Union[PythonTimeSeriesReferenceInput | PythonTimeSeriesReferenceOutput], key):
+    return value.value.items[key]

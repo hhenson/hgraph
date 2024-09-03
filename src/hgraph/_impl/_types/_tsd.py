@@ -143,6 +143,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             del self[key]
         return v
 
+    def key_from_value(self, value: V) -> K:
+        return self._ts_values_to_keys[id(value)]
+
     def invalidate(self):
         for v in self.values():
             v.invalidate()

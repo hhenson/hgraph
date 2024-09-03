@@ -2,21 +2,19 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
-from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD, MIN_DT
+from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,
     NestedEvaluationEngine,
-    PythonNestedNodeImpl,
 )
-from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
-from hgraph._runtime._node import Node, NodeSignature
+from hgraph._runtime._node import NodeSignature
 from hgraph._types._error_type import NodeError
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, K
+from hgraph._types._time_series_types import K
 from hgraph._types._ts_type import TS
-from hgraph._types._tsd_type import TSD, TSD_OUT
+from hgraph._types._tsd_type import TSD_OUT
 from hgraph._types._tss_type import TSS
 from hgraph._wiring._map import KEYS_ARG
 
@@ -191,7 +189,8 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         )
         self.graph.schedule_node(self.node_ndx, tm)
 
-        self._scheduled_times[key].append((self.last_evaluation_time, tm))
+        self._scheduled_times[rank].append((self.last_evaluation_time, self._scheduled_ranks[rank]))
+        self._scheduled_times[key].append((self.last_evaluation_time, tm, rank))
 
     def _remove_graph(self, key: K):
         """Un-wire graph and schedule for removal"""
@@ -204,6 +203,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             graph.stop()
             self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
             self._active_graphs_rank.pop(key)
+            self._re_rank_requests = [(k, d) for k, d in self._re_rank_requests if k != key]
             graph.dispose()
 
     def _add_graph_dependency(self, key: K, depends_on: K) -> bool:  # returns True if the key is available now
