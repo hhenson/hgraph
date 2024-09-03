@@ -30,21 +30,21 @@ class GraphInfo:
     parent_graph: int
     stopped: bool = False
     eval_count: int
+    eval_begin_time: float
     eval_time: float
     node_eval_counts: []
+    node_eval_begin_times: []
     node_eval_times: []
 
 
 class InspectionObserver(EvaluationLifeCycleObserver):
-    def __init__(self, graph: "Graph" = None, callback: Callable = None):
+    def __init__(self, graph: "Graph" = None, callback_node: Callable = None, callback_graph: Callable = None):
         self.graphs = {}
         self.graphs_by_id = {}
         self.current_graph: GraphInfo = None
 
-        self.current_graph_begin_time = None
-        self.current_node_begin_time = None
-
-        self.callback = callback
+        self.callback_node = callback_node
+        self.callback_graph = callback_graph
         self.subscriptions = set()
 
         if graph:
@@ -79,8 +79,10 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             label=graph.label,
             parent_graph=id(graph.parent_node.graph) if graph.parent_node else 0,
             eval_count=0,
-            eval_time=0,
+            eval_begin_time=time.perf_counter_ns(),
+            eval_time=0.,
             node_eval_counts=[0] * len(graph.nodes),
+            node_eval_begin_times=[0.] * len(graph.nodes),
             node_eval_times=[0.] * len(graph.nodes),
         )
 
@@ -96,25 +98,29 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def on_before_graph_evaluation(self, graph: "Graph"):
         self.current_graph = self.graphs[id(graph)]
-        self.current_graph_begin_time = time.perf_counter_ns()
+        self.current_graph.eval_begin_time = time.perf_counter_ns()
         if len(graph.nodes) != len(self.current_graph.node_eval_counts):
             self.current_graph.node_eval_counts = [0] * len(graph.nodes)
+            self.current_graph.node_eval_begin_times = [0.] * len(graph.nodes)
             self.current_graph.node_eval_times = [0.] * len(graph.nodes)
 
     def on_before_node_evaluation(self, node: "Node"):
-        self.current_node_begin_time = time.perf_counter_ns()
+        self.current_graph.node_eval_begin_times[node.node_ndx] = time.perf_counter_ns()
 
     def on_after_node_evaluation(self, node: "Node"):
         self.current_graph.node_eval_counts[node.node_ndx] += 1
-        self.current_graph.node_eval_times[node.node_ndx] += time.perf_counter_ns() - self.current_node_begin_time
+        self.current_graph.node_eval_times[node.node_ndx] += time.perf_counter_ns() - self.current_graph.node_eval_begin_times[node.node_ndx]
 
-        if self.callback and node.node_id in self.subscriptions:
-            self.callback(node)
+        if self.callback_node and node.node_id in self.subscriptions:
+            self.callback_node(node)
 
     def on_after_graph_evaluation(self, graph: "Graph"):
         self.current_graph.eval_count += 1
-        self.current_graph.eval_time += time.perf_counter_ns() - self.current_graph_begin_time
+        self.current_graph.eval_time += time.perf_counter_ns() - self.current_graph.eval_begin_time
         self.current_graph = self.graphs.get(self.current_graph.parent_graph, None)
+
+        if self.callback_graph and graph.graph_id in self.subscriptions:
+            self.callback_graph(graph)
 
     def on_after_stop_graph(self, graph: "Graph"):
         if gi := self.graphs.get(id(graph)):

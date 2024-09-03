@@ -214,6 +214,7 @@ class PythonGraph(Graph):
                 node = nodes[i]
                 node.eval()  # This is only to move nodes on, won't call the before and after node eval here
                 if node.output.modified:
+                    self._evaluation_engine.notify_before_node_evaluation(node)
                     self._evaluation_engine.notify_after_node_evaluation(node)
 
         for i in range(self.push_source_nodes_end, len(nodes)):

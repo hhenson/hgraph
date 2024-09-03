@@ -341,6 +341,15 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             return self.key_set.modified or any(v.modified for v in self._ts_values.values())
 
     @property
+    def last_modified_time(self) -> datetime:
+        if self.has_peer:
+            return super().last_modified_time
+        elif self.active:
+            return max(self._last_notified_time, self.key_set.last_modified_time, self._sample_time)
+        else:
+            return max(self.key_set.last_modified_time, max(v.last_modified_time for v in self._ts_values.values()))
+
+    @property
     def value(self):
         return frozendict((k, v.value) for k, v in self.items())
 

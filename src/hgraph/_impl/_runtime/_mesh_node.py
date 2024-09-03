@@ -98,6 +98,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
 
         self._scheduled_times = defaultdict(list)
         self._evaluated_times = defaultdict(list)
+        self._re_rank_times = defaultdict(list)
 
     def do_start(self):
         super().do_start()
@@ -228,6 +229,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             new_rank = below + 1
             self.max_rank = max(self.max_rank, new_rank)
             self._active_graphs_rank[key] = new_rank
+            self._re_rank_times[key].append((self.last_evaluation_time, prev_rank, new_rank))
             if schedule:
                 self.schedule_graph(key, schedule)
             for k in self._active_graphs_dependencies[key]:

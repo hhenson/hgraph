@@ -154,6 +154,7 @@ class BaseNodeImpl(Node, ABC):
 
     def eval(self):
         scheduled = False if self._scheduler is None else self._scheduler.is_scheduled_now
+        eval = True
         if self.input:
             # Perform validity check of inputs
             args = (
@@ -162,36 +163,34 @@ class BaseNodeImpl(Node, ABC):
                 else self.signature.time_series_inputs.keys()
             )
             if not all(self.input[k].valid for k in args):
-                if scheduled:
-                    self._scheduler.advance()
-                return  # We should look into caching the result of this check.
+                eval = False  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
-            all_valid = self.signature.all_valid_inputs
-            if not all(self.input[k].all_valid for k in ([] if all_valid is None else all_valid)):
-                if scheduled:
-                    self._scheduler.advance()
-                return  # This really could do with some optimisation as on large collections this will be expensive!
-            if self.signature.uses_scheduler:
-                # It is possible we have scheduled and then remove the schedule,
-                # so we need to check that something has caused this to be scheduled.
-                if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
-                    return
-
-        with ExitStack() if self.signature.context_inputs else nullcontext() as stack:
-            if self.signature.context_inputs:
-                for context in self.signature.context_inputs:
-                    if self.input[context].valid:
-                        stack.enter_context(self.input[context].value)
-
-            if self.error_output:
-                try:
-                    self.do_eval()
-                except Exception as e:
-                    from hgraph._types._error_type import NodeError
-
-                    self.error_output.apply_result(NodeError.capture_error(e, self))
             else:
-                self.do_eval()
+                all_valid = self.signature.all_valid_inputs
+                if not all(self.input[k].all_valid for k in ([] if all_valid is None else all_valid)):
+                    eval = False  # This really could do with some optimisation as on large collections this will be expensive!
+                elif self.signature.uses_scheduler:
+                    # It is possible we have scheduled and then remove the schedule,
+                    # so we need to check that something has caused this to be scheduled.
+                    if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
+                        eval = False
+
+        if eval:
+            with ExitStack() if self.signature.context_inputs else nullcontext() as stack:
+                if self.signature.context_inputs:
+                    for context in self.signature.context_inputs:
+                        if self.input[context].valid:
+                            stack.enter_context(self.input[context].value)
+
+                if self.error_output:
+                    try:
+                        self.do_eval()
+                    except Exception as e:
+                        from hgraph._types._error_type import NodeError
+
+                        self.error_output.apply_result(NodeError.capture_error(e, self))
+                else:
+                    self.do_eval()
 
         if scheduled:
             self._scheduler.advance()

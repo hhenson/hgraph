@@ -57,13 +57,6 @@ def inspector_controller(port: int = 8080):
         def key_for_id(self, i):
             return self.id_keys[i]
 
-        def find_value_and_path(self, node, root_item, row_id, item_id):
-            path = self.node_subscriptions.get(node.node_id, {}).get(row_id[:len(row_id) - 3 * len(item_id)], [])
-            for item in item_id:
-                root_item, key = next((v, k) for i, (k, v) in enumerate(enum_items(root_item)) if i == item)
-                path.append(key)
-            return root_item, path
-
     INPUTS = "zzz001"
     OUTPUT = "zzz002"
     SUBGRAPHS = "zzz003"
@@ -80,10 +73,14 @@ def inspector_controller(port: int = 8080):
                             v = node.input
                         case "output":
                             v = node.output
+                        case "nested":
+                            v = node
+                        case _:
+                            continue
 
                     for item in path[1:]:
                         try:
-                            v = v[item]
+                            v = inspect_item(v, item)
                         except:
                             v = "This value could not be retrieved"
                 else:
@@ -104,10 +101,7 @@ def inspector_controller(port: int = 8080):
         if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2:
             publish_stats(state)
 
-    def publish_stats(state: STATE):
-        state.manager.update_table("inspector", state.value_data)
-        state.value_data = []
-
+    def process_graph(state: STATE, graph: Graph):
         root_graph = state.observer.get_graph_info(())
         for node_id, items in state.node_subscriptions.items():
             if node_row := items.get(None, None):
@@ -120,6 +114,13 @@ def inspector_controller(port: int = 8080):
                     of_graph=gi.node_eval_times[node_ndx] / gi.eval_time if gi.eval_time else None,
                     of_total=gi.node_eval_times[node_ndx] / root_graph.eval_time if root_graph.eval_time else None
                 ))
+
+        if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2:
+            publish_stats(state)
+
+    def publish_stats(state: STATE):
+        state.manager.update_table("inspector", state.value_data)
+        state.value_data = []
 
         state.manager.update_table("inspector", state.perf_data)
         state.perf_data = []
@@ -143,9 +144,11 @@ def inspector_controller(port: int = 8080):
         if _state.observer is None:
             _state.observer = InspectionObserver(
                 request.owning_graph,
-                callback=lambda n: process_tick(_state, n)
+                callback_node=lambda n: process_tick(_state, n),
+                callback_graph=lambda n: process_graph(_state, n)
             )
             _state.observer.on_before_node_evaluation(request.owning_node)
+            _state.observer.subscribe(())
             request.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
 
         observer = _state.observer
@@ -155,34 +158,37 @@ def inspector_controller(port: int = 8080):
 
             command = r.url_parsed_args[0]
             id_str = r.url_parsed_args[1]
-
-            ids = id_str.split('zzz')
-            gid = ids[0]
             level = "graph"
-            for i in ids[1:]:
-                if i.startswith(OUTPUT[-3:]):
-                    level = "output"
-                    item_id = node_id_from_str(ids[-1][3:])
-                elif i.startswith(INPUTS[-3:]):
-                    level = "input"
-                    item_id = node_id_from_str(ids[-1][3:])
-                    ids = ids[:-1]
-                elif i == SUBGRAPHS[-3:]:
-                    level = "nested"
-                    item_id = node_id_from_str(ids[-1][3:])
-                    ids = ids[:-1]
-                elif i.startswith(SUBGRAPHS[-3:] + MORE):
-                    level = "nested"
-                    item_id = node_id_from_str(ids[-1][3:])
-                    ids = ids[:-1]
-                elif i.startswith(SCALARS[-3:]):
-                    level = "scalars"
-                    item_id = node_id_from_str(ids[-1][3:])
-                    ids = ids[:-1]
-                else:
-                    gid += i[3:]
 
-            graph_id = node_id_from_str(gid)
+            if id_str[-6:-3] == MORE:
+                more = node_id_from_str(id_str[-3:])[0]
+                id_str = id_str[:-6]
+            else:
+                more = None
+
+            if id_str.endswith(INPUTS):
+                level = "inputs"
+                id_str_node = id_str[:-6]
+            elif id_str.endswith(OUTPUT):
+                level = "output"
+                id_str_node = id_str[:-6]
+            elif id_str.endswith(SUBGRAPHS):
+                level = "nested"
+                id_str_node = id_str[:-6]
+            elif id_str.endswith(SCALARS):
+                level = "scalars"
+                id_str_node = id_str[:-6]
+            else:
+                id_str_node = id_str
+
+            if id_str_node == '':
+                graph_id = ()
+                level = "graph"
+                path = None
+            else:
+                graph_id = _state.row_ids[id_str_node]
+                path = _state.node_subscriptions[graph_id][id_str]
+
             if (gi := observer.get_graph_info(graph_id)) is None:
                 level = "node" if level == "graph" else level
                 node_id = graph_id[-1]
@@ -192,10 +198,22 @@ def inspector_controller(port: int = 8080):
                     continue
                 node = gi.graph.nodes[node_id]
 
+            if path is not None:
+                level = path[0]
+                if len(path) == 2 and level == "nested":
+                    try:
+                        graph = inspect_item(node, path[1])
+                        graph_id = graph.graph_id
+                        gi = observer.get_graph_info(graph_id)
+                        level = "graph"
+                    except:
+                        responses[r_i] = HttpResponse(status_code=500, body=f"Graph {graph_id}, {path[1]} was not found")
+                        continue
+                
             if level == "output":
                 root_item = node.output
                 level = "value"
-            elif level == "input":
+            elif level == "inputs":
                 root_item = node.input
                 level = "value"
             elif level == "nested":
@@ -267,6 +285,7 @@ def inspector_controller(port: int = 8080):
                                     timestamp=format_timestamp(node.input)))
 
                                 _state.row_ids[row_id] = None
+                                _state.node_subscriptions[node.node_id][row_id] = ["nested"]
 
                             if node.scalars:
                                 row_id = id_str + SCALARS
@@ -279,25 +298,23 @@ def inspector_controller(port: int = 8080):
                                     timestamp=format_timestamp(node.scalars)))
 
                                 _state.row_ids[row_id] = None
+                                _state.node_subscriptions[node.node_id][row_id] = ["scalars"]
 
                         case "value":
                             start = 0
-                            path = _state.node_subscriptions.get(node.node_id, {}).get(id_str[:len(id_str)-3*len(item_id)], [])
-                            for item in item_id:
-                                if item == MORE_ID:
-                                    start = item_id[-1]
-                                    id_str = id_str[:-6]
-                                    tab = tab[:-4]
+                            path = [] if path is None else path
+                            for key in path[1:]:
+                                try:
+                                    root_item = inspect_item(root_item, key)
+                                    path.append(key)
+                                except:
+                                    root_item = None
+                                    responses[r_i] = HttpResponse(status_code=500, body=f"Item cannot be inspected")
                                     break
-                                else:
-                                    key = _state._value.key_for_id(item)
-                                    try:
-                                        root_item = inspect_item(root_item, key)
-                                        path.append(key)
-                                    except:
-                                        root_item = None
-                                        responses[r_i] = HttpResponse(status_code=500, body=f"Item cannot be inspected")
-                                        break
+
+                            if more is not None:
+                                start = more
+                                remove.add(id_str + MORE + str_node_id((start,)))
 
                             if root_item:
                                 for i, (k, v) in enumerate(enum_items(root_item)):
@@ -341,14 +358,29 @@ def inspector_controller(port: int = 8080):
                     data.append(dict(id=id_str, X="+"))
 
                 case "ref":
-                    value, path = _state.find_value_and_path(node, root_item, id_str, item_id)
-                    if isinstance(value, PythonTimeSeriesReference):
-                        if (o := value.output) is not None:
+                    path = [] if path is None else path
+                    for key in path[1:]:
+                        try:
+                            root_item = inspect_item(root_item, key)
+                            path.append(key)
+                        except:
+                            root_item = None
+                            responses[r_i] = HttpResponse(status_code=500, body=f"Item cannot be inspected")
+                            break
+
+                    if isinstance(root_item, PythonTimeSeriesReference):
+                        if (o := root_item.output) is not None:
                             ref_node = o.owning_node
                             path = []
                             while o.parent_output:
                                 path.append(o.parent_output.key_from_value(o))
                                 o = o.parent_output
+
+                            for i in range(ref_node.node_id):
+                                graph_id = ref_node.node_id[:i]
+                                if (gi := observer.get_graph_info(graph_id)) is None:
+                                    responses[r_i] = HttpResponse(status_code=500, body=f"Graph {graph_id} was not found")
+                                    continue
 
 
             if data or remove:
