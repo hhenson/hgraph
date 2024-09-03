@@ -191,6 +191,52 @@ def test_to_table_tsd_ts_simple_scalar():
         ]
 
 
+def test_table_schema_tsd_tsd_ts_simple_scalar():
+    schema = table_schema(TSD[str, TSD[str, TS[int]]]).value
+    assert schema == make_table_schema(
+        TSD[str, TSD[str, TS[int]]],
+        (
+            "__key_1_removed__",
+            "__key_1__",
+            "__key_2_removed__",
+            "__key_2__",
+            "value",
+        ),
+        (
+            bool,
+            str,
+            bool,
+            str,
+            int,
+        ),
+        ("__key_1__", "__key_2__"),
+        ("__key_1_removed__", "__key_2_removed__"),
+    )
+
+
+def test_to_table_tsd_tsd_ts_simple_scalar():
+
+    @graph
+    def table_test(
+        ts: TSD[str, TSD[str, TS[int]]],
+    ) -> TS[tuple[tuple[datetime, datetime, bool, str, bool, str, int], ...]]:
+        return to_table(ts)
+
+    with GlobalState() as gs:
+        as_of = MIN_ST + 10 * MIN_TD
+        set_as_of(as_of)
+        assert eval_node(
+            table_test, [fd({"a": fd({"a1": 1})}), fd({"a": fd({"a2": 2})}), fd({"a": REMOVE, "b": fd({"c1": 3})})]
+        ) == [
+            ((MIN_ST, as_of, False, "a", False, "a1", 1),),
+            ((MIN_ST + MIN_TD, as_of, False, "a", False, "a2", 2),),
+            (
+                (MIN_ST + MIN_TD * 2, as_of, False, "b", False, "c1", 3),
+                (MIN_ST + MIN_TD * 2, as_of, True, "a", None, None, None),
+            ),
+        ]
+
+
 def test_from_table_tsd_ts_simple_scalar():
     @graph
     def table_test(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -204,3 +250,16 @@ def test_from_table_tsd_ts_simple_scalar():
             fd({"a": 2}),
             fd({"a": REMOVE, "b": 3}),
         ]
+
+
+def test_from_table_tsd_tsd_simple_scalar():
+    @graph
+    def table_test(ts: TSD[str, TSD[str, TS[int]]]) -> TSD[str, TSD[str, TS[int]]]:
+        return from_table[TSD[str, TSD[str, TS[int]]]](to_table(ts))
+
+    with GlobalState() as gs:
+        as_of = MIN_ST + 10 * MIN_TD
+        set_as_of(as_of)
+        assert eval_node(
+            table_test, [fd({"a": fd({"a1": 1})}), fd({"a": fd({"b": 2})}), fd({"a": REMOVE, "b": fd({"a": 3})})]
+        ) == [fd({"a": fd({"a1": 1})}), fd({"a": fd({"b": 2})}), fd({"a": REMOVE, "b": fd({"a": 3})})]

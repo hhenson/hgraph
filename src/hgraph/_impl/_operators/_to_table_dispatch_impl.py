@@ -217,15 +217,16 @@ def _tsd_from_table(it, schema: PartialSchema) -> fd:
         for r in it:
             removed = r[0]
             key = r[1]
-            if removed:
-                out[key] = REMOVE_IF_EXISTS
             if old_k is None:
                 old_k = key
             elif old_k != key:
                 out[old_k] = schema.from_table(iter(values))
+                old_k = key
                 values = []
-            else:
-                values.append(r[2:])
+            if removed:
+                out[key] = REMOVE_IF_EXISTS
+                continue
+            values.append(r[2:])
         if values:
             out[key] = schema.from_table(iter(values))
     else:
