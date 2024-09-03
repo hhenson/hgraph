@@ -65,7 +65,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self._scheduled_keys: dict[K, datetime] = {}
         self._active_graphs: dict[K, Graph] = {}
         self._pending_keys: set[K] = set()
-        self._count = 0
+        self._count = 1
 
     def eval(self):
         self.mark_evaluated()
@@ -106,7 +106,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
 
     def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""
-        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self, str(key))
+        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (-self._count,), self, str(key))
         self._count += 1
         self._active_graphs[key] = graph
         graph.evaluation_engine = NestedEvaluationEngine(

@@ -8,7 +8,7 @@ from hgraph import Node, Graph, PythonTimeSeriesValueInput, PythonTimeSeriesValu
     PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput, PythonTimeSeriesReference, \
     TimeSeriesList, TimeSeriesDict, TimeSeriesBundle, TimeSeriesSet, TimeSeriesInput, TimeSeriesOutput, \
     PythonNestedNodeImpl, PythonTsdMapNodeImpl, PythonServiceNodeImpl, PythonReduceNodeImpl, PythonSwitchNodeImpl, \
-    PythonTryExceptNodeImpl, HgTSBTypeMetaData
+    PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl
 from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
 from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
@@ -86,6 +86,15 @@ def _(value: Node):
 
 
 @format_value.register
+def _(value: PythonPushQueueNodeImpl):
+    if (receiver := value.receiver) is not None:
+        with receiver:
+            return f"{len(receiver.queue)} items in the queue"
+    else:
+        return "-"
+
+
+@format_value.register
 def _(value: Union[PythonTimeSeriesValueOutput]):
     # Very specific types here because want to check the _tp attribute to avoid potentially costly .value call
     if value.valid:
@@ -142,7 +151,7 @@ def _(value: Union[TimeSeriesList, TimeSeriesSet, TimeSeriesBundle, TimeSeriesDi
 
 @multimethod
 def format_timestamp(value):
-    return "-"
+    return None
 
 
 @format_timestamp.register
@@ -160,7 +169,7 @@ def _(value: Union[TimeSeriesOutput, TimeSeriesInput]):
     if value.valid:
         return value.last_modified_time
     else:
-        return "-"
+        return None
 
 
 @multimethod

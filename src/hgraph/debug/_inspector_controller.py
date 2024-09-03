@@ -1,17 +1,23 @@
+import asyncio
 import os
 import tempfile
-from collections import defaultdict
+import threading
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from _socket import gethostname
+from frozendict import frozendict
 from perspective import Table
+import tornado.web
+import pyarrow as pa
 
-from hgraph import graph, compute_node, TS, STATE, register_adaptor, TSD, CompoundScalar, \
-    TimeSeries, PythonNestedNodeImpl, SCHEDULER, Node, Graph, PythonTimeSeriesReference
+from hgraph import graph, TS, STATE, TSD, CompoundScalar, \
+    TimeSeries, PythonNestedNodeImpl, Node, Graph, PythonTimeSeriesReference, sink_node
+from hgraph._impl._runtime._node import _SenderReceiverState
 from hgraph.adaptors.perspective import PerspectiveTablesManager
-from hgraph.adaptors.tornado.http_server_adaptor import http_server_handler, HttpRequest, HttpResponse, \
-    http_server_adaptor_impl
+from hgraph.adaptors.tornado.http_server_adaptor import HttpRequest, HttpResponse, \
+    HttpGetRequest
 from hgraph.debug._inspector_observer import InspectionObserver
 from hgraph.debug._inspector_util import node_id_from_str, str_node_id, format_value, format_timestamp, enum_items, \
     format_type, name, inspect_item
@@ -32,11 +38,15 @@ def inspector_controller(port: int = 8080):
         of_graph: float = None
         of_total: float = None
 
+
     @dataclass
     class InspectorState(CompoundScalar):
         observer: InspectionObserver = None
         manager: PerspectiveTablesManager = None
         table: Table = None
+        total_cycle_table: Table = None
+
+        requests: _SenderReceiverState = field(default_factory=_SenderReceiverState)
 
         row_ids: dict = field(default_factory=dict)
 
@@ -47,6 +57,8 @@ def inspector_controller(port: int = 8080):
 
         value_data: list = field(default_factory=list)
         perf_data: list = field(default_factory=list)
+        total_data_prev: list = field(default_factory=dict)
+        total_data: list = field(default_factory=lambda: defaultdict(list))
         last_publish_time: datetime = None
 
         def id_for_key(self, key):
@@ -62,7 +74,6 @@ def inspector_controller(port: int = 8080):
     SUBGRAPHS = "zzz003"
     SCALARS = "zzz004"
     MORE = "zzy"
-    MORE_ID = node_id_from_str(MORE)[0]
 
     def process_tick(state: STATE, node: Node):
         for row_id, path in state.node_subscriptions.get(node.node_id, {}).items():
@@ -98,9 +109,6 @@ def inspector_controller(port: int = 8080):
                         value=format_value(v),
                     ))
 
-        if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2:
-            publish_stats(state)
-
     def process_graph(state: STATE, graph: Graph):
         root_graph = state.observer.get_graph_info(())
         for node_id, items in state.node_subscriptions.items():
@@ -115,46 +123,64 @@ def inspector_controller(port: int = 8080):
                     of_total=gi.node_eval_times[node_ndx] / root_graph.eval_time if root_graph.eval_time else None
                 ))
 
-        if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2:
-            publish_stats(state)
+        if graph.graph_id == ():
+            gi = state.observer.get_graph_info(())
+            state.total_data['time'].append(datetime.utcnow())
+            state.total_data['evaluation_time'].append(graph.evaluation_clock.evaluation_time)
+            state.total_data['cycles'].append(gi.eval_count)
+            state.total_data['graph_time'].append(gi.eval_time)
+
+            if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2.5:
+                publish_stats(state)
+
+            handle_request(state)
 
     def publish_stats(state: STATE):
-        state.manager.update_table("inspector", state.value_data)
+        state.manager.update_table("inspector", [i for i in state.value_data if i["id"] in state.row_ids])
         state.value_data = []
 
-        state.manager.update_table("inspector", state.perf_data)
+        state.manager.update_table("inspector", [i for i in state.perf_data if i["id"] in state.row_ids])
         state.perf_data = []
+
+        data = state.total_data
+        if data["time"]:
+            total_time = (state.total_data["time"][-1] - state.total_data_prev.get("time", datetime.min)).total_seconds()
+            total_graph_time = (data["graph_time"][-1] - state.total_data_prev.get("graph_time", 0)) / 1_000_000_000
+            lags = [(data["time"][i] - data["evaluation_time"][i]).total_seconds() for i in range(len(data["time"]))]
+
+            state.total_cycle_table.update([dict(
+                time=data["time"][-1],
+                evaluation_time=data["evaluation_time"][-1],
+                cycles=(data["cycles"][-1] - state.total_data_prev.get("cycles", 0)) / total_time,
+                graph_time=total_graph_time,
+                graph_load=total_graph_time / total_time,
+                avg_lag=sum(lags) / len(data["time"]),
+                max_lag=max(lags)
+            )])
+
+            state.total_data_prev = {k: v[-1] for k, v in data.items()}
+            state.total_data = defaultdict(list)
 
         state.last_publish_time = datetime.now()
 
-    @compute_node
-    def inspector(request: TSD[int, TS[HttpRequest]], port: int = 8080, _state: STATE[InspectorState] = None, _sched: SCHEDULER = None) -> TSD[int, TS[HttpResponse]]:
-        responses = {}  # for the HTTP queries
+    @sink_node
+    def inspector(start: TS[bool] = True, port: int = 8080, _state: STATE[InspectorState] = None):
+        ...
+
+    def set_result(f, r):
+        from hgraph.adaptors.tornado._tornado_web import TornadoWeb
+        TornadoWeb.get_loop().add_callback(lambda f, r: f.set_result(r), f, r)
+
+    def handle_request(_state):
         data = []  # to be published to the table
         remove = set()  # to be removed from the table
 
-        if _sched.is_scheduled_now:
-            request.owning_graph.evaluation_engine.add_after_evaluation_notification(
-                lambda: publish_stats(_state)
-            )
-            _sched.schedule(timedelta(seconds=1))
-        elif not _sched.is_scheduled:
-            _sched.schedule(timedelta(seconds=1))
-
-        if _state.observer is None:
-            _state.observer = InspectionObserver(
-                request.owning_graph,
-                callback_node=lambda n: process_tick(_state, n),
-                callback_graph=lambda n: process_graph(_state, n)
-            )
-            _state.observer.on_before_node_evaluation(request.owning_node)
-            _state.observer.subscribe(())
-            request.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
-
         observer = _state.observer
 
-        for r_i, r_r in request.modified_items():
-            r: HttpRequest = r_r.value
+        while f_r := _state.requests.dequeue():
+            f: asyncio.Future
+            r: HttpRequest
+            f, r = f_r
 
             command = r.url_parsed_args[0]
             id_str = r.url_parsed_args[1]
@@ -194,7 +220,7 @@ def inspector_controller(port: int = 8080):
                 node_id = graph_id[-1]
                 graph_id = graph_id[:-1]
                 if (gi := observer.get_graph_info(graph_id)) is None:
-                    responses[r_i] = HttpResponse(status_code=500, body=f"Graph {graph_id} was not found")
+                    set_result(f, HttpResponse(status_code=500, body=f"Graph {graph_id} was not found"))
                     continue
                 node = gi.graph.nodes[node_id]
 
@@ -207,7 +233,7 @@ def inspector_controller(port: int = 8080):
                         gi = observer.get_graph_info(graph_id)
                         level = "graph"
                     except:
-                        responses[r_i] = HttpResponse(status_code=500, body=f"Graph {graph_id}, {path[1]} was not found")
+                        set_result(f, HttpResponse(status_code=500, body=f"Graph {graph_id}, {path[1]} was not found"))
                         continue
                 
             if level == "output":
@@ -309,7 +335,7 @@ def inspector_controller(port: int = 8080):
                                     path.append(key)
                                 except:
                                     root_item = None
-                                    responses[r_i] = HttpResponse(status_code=500, body=f"Item cannot be inspected")
+                                    set_result(f, HttpResponse(status_code=500, body=f"Item cannot be inspected"))
                                     break
 
                             if more is not None:
@@ -339,7 +365,7 @@ def inspector_controller(port: int = 8080):
                                         name=tab + str(k),
                                         type=format_type(v),
                                         value=format_value(v),
-                                        timestamp=format_timestamp(v) if ts else "-"
+                                        timestamp=format_timestamp(v) if ts else None
                                     ))
 
                                     _state.node_subscriptions[node.node_id][row_id] = path + [k]
@@ -365,7 +391,7 @@ def inspector_controller(port: int = 8080):
                             path.append(key)
                         except:
                             root_item = None
-                            responses[r_i] = HttpResponse(status_code=500, body=f"Item cannot be inspected")
+                            set_result(f, HttpResponse(status_code=500, body=f"Item cannot be inspected"))
                             break
 
                     if isinstance(root_item, PythonTimeSeriesReference):
@@ -379,7 +405,7 @@ def inspector_controller(port: int = 8080):
                             for i in range(ref_node.node_id):
                                 graph_id = ref_node.node_id[:i]
                                 if (gi := observer.get_graph_info(graph_id)) is None:
-                                    responses[r_i] = HttpResponse(status_code=500, body=f"Graph {graph_id} was not found")
+                                    set_result(f, HttpResponse(status_code=500, body=f"Graph {graph_id} was not found"))
                                     continue
 
 
@@ -387,20 +413,41 @@ def inspector_controller(port: int = 8080):
                 _state.manager.update_table("inspector", data, remove)
                 [_state.row_ids.pop(i, None) for i in remove]
 
-            responses[r_i] = HttpResponse(status_code=200, body=id_str)
-
-        return responses
+            set_result(f, HttpResponse(status_code=200, body=id_str))
 
     @inspector.start
-    def start_inspector(port: int, _state: STATE[InspectorState]):
+    def start_inspector(start: TS[bool], port: int, _state: STATE[InspectorState]):
         from hgraph.adaptors.perspective import PerspectiveTablesManager
         from hgraph.adaptors.tornado._tornado_web import TornadoWeb
         from hgraph.adaptors.perspective._perspective import IndexPageHandler
         from perspective import Table
 
+        _state.requests.evaluation_clock = start.owning_graph.evaluation_clock
+
+        _state.observer = InspectionObserver(
+            start.owning_graph,
+            callback_node=lambda n: process_tick(_state, n),
+            callback_graph=lambda n: process_graph(_state, n)
+        )
+        _state.observer.on_before_node_evaluation(start.owning_node)
+        start.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
+        _state.observer.subscribe(())
+
         _state.manager = PerspectiveTablesManager.current()
         _state.table = Table({"id": str, **{k: v.py_type for k, v in GraphInspectorData.__meta_data_schema__.items()}}, index="id")
         _state.manager.add_table("inspector", _state.table)
+
+        _state.total_cycle_table = Table({
+            "time": datetime, "evaluation_time": datetime, "cycles": float, "graph_time": float, "graph_load": float, "avg_lag": float, "max_lag": float
+        }, limit=24*3600)
+        _state.manager.add_table("graph_performance", _state.total_cycle_table)
+
+        _state.total_data_prev = dict(
+            time=datetime.utcnow(),
+            evaluation_time=start.owning_graph.evaluation_clock.evaluation_time,
+            cycles=0,
+            graph_time=0.
+        )
 
         tempfile.gettempdir()
         layouts_dir = os.path.join(tempfile.tempdir, "inspector_layouts")
@@ -419,9 +466,41 @@ def inspector_controller(port: int = 8080):
                         "port": port,
                     },
                 ),
+                (
+                    r"/inspect(?:/([^/]*))?(?:/([^/]*))?(/([^/]*))?",
+                    InspectorHttpHandler,
+                    {
+                        "queue": _state.requests,
+                    }
+                )
             ]
         )
 
-    http_server_handler(inspector, url=f"/inspect(?:/([^/]*))?(?:/([^/]*))?(/([^/]*))?")
+        app.start()
 
-    register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+    inspector()
+
+class InspectorHttpHandler(tornado.web.RequestHandler):
+    def initialize(self, queue):
+        self.queue = queue
+
+    async def get(self, *args):
+        request = HttpGetRequest(
+                url=self.request.uri,
+                url_parsed_args=args,
+                headers=self.request.headers,
+                query=frozendict({k: ''.join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
+                cookies=frozendict(self.request.cookies))
+
+        future = asyncio.Future()
+        self.queue((future, request))
+
+        response = await future
+
+        self.set_status(response.status_code)
+
+        if response.headers:
+            for k, v in response.headers.items():
+                self.set_header(k, v)
+
+        await self.finish(response.body)

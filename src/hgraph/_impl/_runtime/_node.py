@@ -3,7 +3,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections import deque
 from contextlib import ExitStack, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
@@ -427,7 +427,7 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
     def start(self):
         self._initialise_kwargs()
         self.receiver = _SenderReceiverState(
-            lock=threading.RLock(), queue=deque(), evaluation_evaluation_clock=self.graph.engine_evaluation_clock
+            evaluation_clock=self.graph.engine_evaluation_clock
         )
         self.eval_fn(self.receiver, **self._kwargs)
 
@@ -448,9 +448,9 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
 
 @dataclass
 class _SenderReceiverState:
-    lock: threading.RLock
-    queue: deque
-    evaluation_evaluation_clock: EngineEvaluationClock
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    queue: deque = field(default_factory=deque)
+    evaluation_clock: EngineEvaluationClock = None
     stopped: bool = False
 
     def __call__(self, value):
@@ -461,7 +461,7 @@ class _SenderReceiverState:
             if self.stopped:
                 raise RuntimeError("Cannot enqueue into a stopped receiver")
             self.queue.append(value)
-            self.evaluation_evaluation_clock.mark_push_node_requires_scheduling()
+            self.evaluation_clock.mark_push_node_requires_scheduling()
 
     def dequeue(self):
         with self.lock:
