@@ -1,4 +1,5 @@
 from hgraph._impl._operators._conversion_operators._compound_scalar_conversion_operators import *
+from hgraph._impl._operators._conversion_operators._conversion_operator_util import *
 from hgraph._impl._operators._conversion_operators._general_conversion_operators import *
 from hgraph._impl._operators._conversion_operators._mapping_conversion_operators import *
 from hgraph._impl._operators._conversion_operators._set_conversion_operators import *

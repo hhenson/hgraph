@@ -4,7 +4,7 @@ from typing import Generic
 
 from hgraph import CompoundScalar, TimeSeriesSchema, KEYABLE_SCALAR, TIME_SERIES_TYPE, TS
 
-__all__ = ("_BufferState",)
+__all__ = ("_BufferState", "KeyValue")
 
 
 @dataclass
