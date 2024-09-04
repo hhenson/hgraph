@@ -1,6 +1,19 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
-from hgraph import TIME_SERIES_TYPE, REF, TS, compute_node, SIGNAL, valid, last_modified_date, last_modified_time
+from hgraph import (
+    TIME_SERIES_TYPE,
+    REF,
+    TS,
+    compute_node,
+    SIGNAL,
+    valid,
+    last_modified_date,
+    last_modified_time,
+    modified,
+    SCHEDULER,
+    TS_OUT,
+    MIN_TD,
+)
 
 __all__ = tuple()
 
@@ -27,6 +40,20 @@ def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> 
         return True
 
     return False
+
+
+@compute_node(overloads=modified)
+def modified_impl(ts: SIGNAL, _schedule: SCHEDULER = None, _output: TS_OUT[bool] = None) -> TS[bool]:
+    if ts.modified:
+        _schedule.schedule(MIN_TD)
+        return True
+    if _schedule.is_scheduled:
+        return False
+
+
+@modified_impl.start
+def modified_impl_start(_output: TS_OUT[bool]) -> TS[bool]:
+    _output.apply_result(False)
 
 
 @compute_node(overloads=last_modified_time)

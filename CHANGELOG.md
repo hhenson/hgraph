@@ -676,3 +676,9 @@ Version 0.3.11 (03-09-2024)
 ---------------------------
 
 * Fix to_table for nested TSD structures.
+
+Version 0.3.12 (04-08-2024)
+---------------------------
+
+* Add modified operator.
+* Fix imports

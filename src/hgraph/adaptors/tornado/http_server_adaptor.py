@@ -110,18 +110,17 @@ class HttpHandler(tornado.web.RequestHandler):
         self.mgr = mgr
 
     async def get(self, *args):
-        request_obj = object()
-        request_id = id(request_obj)
+        request_obj = HttpGetRequest(
+            url=self.path,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
+            cookies=frozendict(self.request.cookies),
+        )
 
         response = await self.mgr.add_request(
-            request_id,
-            HttpGetRequest(
-                url=self.path,
-                url_parsed_args=args,
-                headers=self.request.headers,
-                query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
-                cookies=frozendict(self.request.cookies),
-            ),
+            id(request_obj),
+            request_obj,
         )
 
         self.set_status(response.status_code)
@@ -133,17 +132,17 @@ class HttpHandler(tornado.web.RequestHandler):
         await self.finish(response.body)
 
     async def post(self, *args):
-        request_obj = object()
-        request_id = id(request_obj)
-
+        request_obj = HttpPostRequest(
+            url=self.path,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            body=self.request.body.decode("utf-8"),
+        )
+        # We can use the id of the request as we clean up the responses on completion, so we should not
+        # hit re-use immediately.
         response = await self.mgr.add_request(
-            request_id,
-            HttpPostRequest(
-                url=self.path,
-                url_parsed_args=args,
-                headers=self.request.headers,
-                body=self.request.body.decode("utf-8"),
-            ),
+            id(request_obj),
+            request_obj,
         )
 
         self.set_status(response.status_code)
