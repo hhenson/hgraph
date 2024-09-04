@@ -5,6 +5,7 @@ import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 from _socket import gethostname
 from frozendict import frozendict
@@ -69,10 +70,14 @@ def inspector_controller(port: int = 8080):
         def key_for_id(self, i):
             return self.id_keys[i]
 
-    INPUTS = "zzz001"
-    OUTPUT = "zzz002"
-    SUBGRAPHS = "zzz003"
-    SCALARS = "zzz004"
+    class NODE_ITEMS(Enum):
+        INPUTS = "zzz001"
+        OUTPUT = "zzz002"
+        SUBGRAPHS = "zzz003"
+        SCALARS = "zzz004"
+
+    NODE_ITEMS_BY_VALUE = {v.value: k for k, v in NODE_ITEMS.__members__.items()}
+
     MORE = "zzy"
 
     def process_tick(state: STATE, node: Node):
@@ -80,11 +85,11 @@ def inspector_controller(port: int = 8080):
             if row_id is not None:
                 if path:
                     match path[0]:
-                        case "inputs":
+                        case NODE_ITEMS.INPUTS:
                             v = node.input
-                        case "output":
+                        case NODE_ITEMS.OUTPUT:
                             v = node.output
-                        case "nested":
+                        case NODE_ITEMS.SUBGRAPHS:
                             v = node
                         case _:
                             continue
@@ -131,7 +136,7 @@ def inspector_controller(port: int = 8080):
             state.total_data['cycles'].append(gi.eval_count)
             state.total_data['graph_time'].append(gi.eval_time)
 
-            if state.last_publish_time is None or (datetime.now() - state.last_publish_time).total_seconds() > 2.5:
+            if state.last_publish_time is None or (datetime.utcnow() - state.last_publish_time).total_seconds() > 2.5:
                 publish_stats(state)
 
             handle_request(state)
@@ -177,7 +182,7 @@ def inspector_controller(port: int = 8080):
             state.total_data_prev = {k: v[-1] for k, v in data.items()}
             state.total_data = defaultdict(list)
 
-        state.last_publish_time = datetime.now()
+        state.last_publish_time = datetime.utcnow()
 
     @sink_node
     def inspector(start: TS[bool] = True, port: int = 8080, _state: STATE[InspectorState] = None):
@@ -206,7 +211,6 @@ def inspector_controller(port: int = 8080):
 
             while commands:
                 command, id_str = commands.popleft()
-                level = "graph"
 
                 if id_str[-6:-3] == MORE:
                     more = node_id_from_str(id_str[-3:])[0]
@@ -214,43 +218,55 @@ def inspector_controller(port: int = 8080):
                 else:
                     more = None
 
-                if id_str.endswith(INPUTS):
-                    level = "inputs"
-                    id_str_node = id_str[:-6]
-                elif id_str.endswith(OUTPUT):
-                    level = "output"
-                    id_str_node = id_str[:-6]
-                elif id_str.endswith(SUBGRAPHS):
-                    level = "nested"
-                    id_str_node = id_str[:-6]
-                elif id_str.endswith(SCALARS):
-                    level = "scalars"
+                if level := NODE_ITEMS_BY_VALUE.get(id_str[-6:], None):
                     id_str_node = id_str[:-6]
                 else:
+                    level = "graph"
                     id_str_node = id_str
 
+                graph_id = ()  # graph that we are inspecting or the graph the inspected node belongs to, root by default
+                gi = None  # graph info of the graph we are inspecting
+                node = None  # node we are inspecting or None
+                path = None  # path to the value we are inspecting inside the node
+
                 if id_str_node == '':
-                    graph_id = ()
-                    level = "graph"
-                    path = None
-                else:
-                    graph_id = _state.row_ids[id_str_node]
+                    # root graph
+                    pass
+                elif graph_id := _state.row_ids.get(id_str_node, None):
+                    # we have expanded this graph before
                     path = _state.node_subscriptions[graph_id][id_str]
+                else:
+                    graph_id = ()
+                    graph = observer.get_graph_info(graph_id)
+                    node_id = node_id_from_str(id_str_node)
+                    i = 0
+                    while i < len(node_id):
+                        node = graph.graph.nodes[node_id[i]]
+                        item_str = id_str_node[(i + 1) * 3:(i + 3 * 3)]
+                        if item_str == NODE_ITEMS.SUBGRAPHS.value:
+                            key = _state._value.key_for_id(node_id[i+3]),
+                            graph = inspect_item(node, key)
+                            graph_id = graph.graph_id
+                            i += 4
+                        elif item_str in NODE_ITEMS_BY_VALUE:
+                            path = [NODE_ITEMS_BY_VALUE[item_str]] + [_state._value.key_for_id(node_id[j]) for j in range(i+2, len(node_id))]
+                            break
+                        else:
+                            # this is irregular
+                            raise ValueError(f"Invalid item {item_str} in node {node.node_id}")
 
                 if (gi := observer.get_graph_info(graph_id)) is None:
                     level = "node" if level == "graph" else level
-                    node_id = graph_id[-1]
+                    node_ndx = graph_id[-1]
                     graph_id = graph_id[:-1]
                     if (gi := observer.get_graph_info(graph_id)) is None:
                         set_result(f, HttpResponse(status_code=500, body=f"Graph {graph_id} was not found"))
                         continue
-                    node = gi.graph.nodes[node_id]
-                else:
-                    node = None
+                    node = gi.graph.nodes[node_ndx]
 
                 if path is not None:
                     level = path[0]
-                    if len(path) == 2 and level == "nested":
+                    if len(path) == 2 and level == NODE_ITEMS.SUBGRAPHS:
                         try:
                             graph = inspect_item(node, path[1])
                             graph_id = graph.graph_id
@@ -260,16 +276,16 @@ def inspector_controller(port: int = 8080):
                             set_result(f, HttpResponse(status_code=500, body=f"Graph {graph_id}, {path[1]} was not found"))
                             continue
 
-                if level == "output":
+                if level == NODE_ITEMS.OUTPUT:
                     root_item = node.output
                     level = "value"
-                elif level == "inputs":
+                elif level == NODE_ITEMS.INPUTS:
                     root_item = node.input
                     level = "value"
-                elif level == "nested":
+                elif level == NODE_ITEMS.SUBGRAPHS:
                     root_item = node
                     level = "value"
-                elif level == "scalars":
+                elif level == NODE_ITEMS.SCALARS:
                     root_item = node.scalars
                     level = "value"
                 else:
@@ -301,7 +317,7 @@ def inspector_controller(port: int = 8080):
 
                             case "node":
                                 if node.input is not None:
-                                    row_id = id_str + INPUTS
+                                    row_id = id_str + NODE_ITEMS.INPUTS.value
                                     data.append(dict(
                                         id=row_id,
                                         X="+",
@@ -310,11 +326,11 @@ def inspector_controller(port: int = 8080):
                                         value=format_value(node.input),
                                         timestamp=format_timestamp(node.input)))
 
-                                    _state.node_subscriptions[node.node_id][row_id] = ["inputs"]
+                                    _state.node_subscriptions[node.node_id][row_id] = [NODE_ITEMS.INPUTS]
                                     _state.row_ids[row_id] = node.node_id
 
                                 if node.output is not None:
-                                    row_id = id_str + OUTPUT
+                                    row_id = id_str + NODE_ITEMS.OUTPUT.value
                                     data.append(dict(
                                         id=row_id,
                                         X="+",
@@ -323,11 +339,11 @@ def inspector_controller(port: int = 8080):
                                         value=format_value(node.output),
                                         timestamp=format_timestamp(node.output)))
 
-                                    _state.node_subscriptions[node.node_id][row_id] = ["output"]
+                                    _state.node_subscriptions[node.node_id][row_id] = [NODE_ITEMS.OUTPUT]
                                     _state.row_ids[row_id] = node.node_id
 
                                 if isinstance(node, PythonNestedNodeImpl):
-                                    row_id = id_str + SUBGRAPHS
+                                    row_id = id_str + NODE_ITEMS.SUBGRAPHS.value
                                     data.append(dict(
                                         id=row_id,
                                         X="+",
@@ -337,10 +353,10 @@ def inspector_controller(port: int = 8080):
                                         timestamp=format_timestamp(node.input)))
 
                                     _state.row_ids[row_id] = None
-                                    _state.node_subscriptions[node.node_id][row_id] = ["nested"]
+                                    _state.node_subscriptions[node.node_id][row_id] = [NODE_ITEMS.SUBGRAPHS]
 
                                 if node.scalars:
-                                    row_id = id_str + SCALARS
+                                    row_id = id_str + NODE_ITEMS.SCALARS.value
                                     data.append(dict(
                                         id=row_id,
                                         X="+",
@@ -350,7 +366,7 @@ def inspector_controller(port: int = 8080):
                                         timestamp=format_timestamp(node.scalars)))
 
                                     _state.row_ids[row_id] = None
-                                    _state.node_subscriptions[node.node_id][row_id] = ["scalars"]
+                                    _state.node_subscriptions[node.node_id][row_id] = [NODE_ITEMS.SCALARS]
 
                             case "value":
                                 start = 0
@@ -395,6 +411,7 @@ def inspector_controller(port: int = 8080):
                                         if isinstance(v, Graph):
                                             _state.row_ids[row_id] = v.graph_id
                                             _state.node_subscriptions[v.graph_id][None] = row_id
+                                            _state.node_subscriptions[v.graph_id][row_id] = None
                                             _state.observer.subscribe(v.graph_id)
                                         else:
                                             _state.node_subscriptions[node.node_id][row_id] = path + [k]
@@ -447,7 +464,7 @@ def inspector_controller(port: int = 8080):
                                     ref_id += str_node_id((graph_id[-1],))
                                     commands.append(("expand", ref_id))
                                     if observer.get_graph_info(graph_id) is None:
-                                        ref_id += SUBGRAPHS
+                                        ref_id += NODE_ITEMS.SUBGRAPHS.value
                                         commands.append(("expand", ref_id))
                                         gi = observer.get_graph_info(ref_node.node_id[:i + 1])
                                         ref_id += str_node_id((_state._value.id_for_key(gi.graph.label),))
@@ -458,7 +475,7 @@ def inspector_controller(port: int = 8080):
 
                                 ref_id += str_node_id((ref_node.node_id[-1],))
                                 commands.append(("expand", ref_id))
-                                ref_id += OUTPUT
+                                ref_id += NODE_ITEMS.OUTPUT.value
                                 commands.append(("expand", ref_id))
 
                                 for i in path:
