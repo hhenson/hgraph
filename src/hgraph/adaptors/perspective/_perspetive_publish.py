@@ -23,12 +23,12 @@ from hgraph import (
     push_queue,
     OUT,
     nothing,
-    SCHEDULER,
+    SCHEDULER, operator,
 )
 from ._perspective import PerspectiveTablesManager
 
 
-@sink_node
+@operator
 def _publish_table(
     name: str, ts: TIME_SERIES_TYPE, editable: bool = False, empty_row: bool = False, history: int = None
 ): ...
