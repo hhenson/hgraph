@@ -48,7 +48,7 @@ def get_as_of(clock: EvaluationClock) -> datetime:
     if dt := GlobalState.instance().get(AS_OF_VALUE, None):
         return dt
     else:
-        return clock.now
+        return clock.now if clock else datetime.utcnow()
 
 
 @dataclass(frozen=True)
