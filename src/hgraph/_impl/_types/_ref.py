@@ -75,12 +75,22 @@ class PythonTimeSeriesReference(TimeSeriesReference):
         if self.tp and not issubclass(self.tp, TimeSeriesOutput) and not isinstance(ts_input, self.tp):
             raise TypeError(f"Cannot bind reference of type {self.tp} to {type(ts_input)}")
 
+        reactivate = False
+        if ts_input.bound and self.has_peer != ts_input.has_peer:
+            reactivate = ts_input.active
+            ts_input.un_bind_output()
+
         if self.has_peer:
             ts_input.bind_output(self.output)
         else:
             for item, r in zip(ts_input, self.items):
                 if r:
                     r.bind_input(item)
+                elif item.bound:
+                    item.un_bind_output()
+
+        if reactivate:
+            ts_input.make_active()
 
     def __str__(self) -> str:
         if self.output is not None:
