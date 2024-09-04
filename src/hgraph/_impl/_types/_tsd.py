@@ -151,6 +151,25 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             v.invalidate()
         self.mark_invalid()
 
+    def can_apply_result(self, result: Any):
+        if result is None:
+            return True
+        if not result:
+            return True
+        # Expect a mapping of some sort or an iterable of k, v pairs
+        for k, v_ in result.items() if isinstance(result, (dict, frozendict)) else result:
+            if v_ is None:
+                continue
+            if v_ is REMOVE or v_ is REMOVE_IF_EXISTS:  # Supporting numpy arrays has its costs (==)
+                if v_ is REMOVE_IF_EXISTS and k not in self._ts_values:  # is check should be faster than contains check
+                    continue
+                if self[k].modified:
+                    return False
+            else:
+                if (v := self.get(k)) and not v.can_apply_result(v_):
+                    return False
+        return True
+
     def apply_result(self, result: Any):
         if result is None:
             return

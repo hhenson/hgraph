@@ -426,24 +426,15 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
     @start_guard
     def start(self):
         self._initialise_kwargs()
-        self.receiver = _SenderReceiverState(
-            evaluation_clock=self.graph.engine_evaluation_clock
-        )
-        self.eval_fn(self.receiver, **self._kwargs)
+        self.receiver = self.graph.receiver
+        self.eval_fn(lambda m: self.receiver((self.node_ndx, m)), **self._kwargs)
+        self.elide = self.scalars.get("elide", False)
 
-    def eval(self):
-        with self.receiver:
-            value = self.receiver.dequeue()
-            if value is None:
-                return
-            self.output.apply_result(value)
-            if self.receiver:
-                self.graph.engine_evaluation_clock.mark_push_node_requires_scheduling()
-
-    @stop_guard
-    def stop(self):
-        self.receiver.stopped = True
-        self.receiver = None
+    def apply_message(self, message):  # return True if stop processing further messages
+        if self.elide or self.output.can_apply_result(message):
+            self.output.apply_result(message)
+            return False
+        return True
 
 
 @dataclass

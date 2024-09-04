@@ -136,6 +136,9 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
         for observer in self._reference_observers.values():
             self._value.bind_input(observer)
 
+    def can_apply_result(self, result: SCALAR):
+        return not self.modified
+
     def apply_result(self, result: SCALAR):
         if result is None:
             return

@@ -59,6 +59,19 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
     def delta_value(self):
         return {k: ts.delta_value for k, ts in self.items() if ts.modified}
 
+    def can_apply_result(self, result: Mapping[str, Any] | None):
+        if result is None:
+            return True
+        else:
+            if type(result) is self.__schema__.scalar_type():
+                return self.modified
+            else:
+                for k, v_ in result.items():
+                    if v_ is not None:
+                        if not cast(TimeSeriesOutput, self[k]).can_apply_result(v_):
+                            return False
+        return True
+
     def apply_result(self, result: Mapping[str, Any] | None):
         if result is None:
             return

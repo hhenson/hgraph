@@ -2,6 +2,7 @@ import asyncio
 import os
 import tempfile
 import threading
+import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,7 +15,8 @@ import tornado.web
 import pyarrow as pa
 
 from hgraph import graph, TS, STATE, TSD, CompoundScalar, \
-    TimeSeries, PythonNestedNodeImpl, Node, Graph, PythonTimeSeriesReference, sink_node, PythonTimeSeriesReferenceOutput
+    TimeSeries, PythonNestedNodeImpl, Node, Graph, PythonTimeSeriesReference, sink_node, \
+    PythonTimeSeriesReferenceOutput, TimeSeriesOutput, TimeSeriesInput
 from hgraph._impl._runtime._node import _SenderReceiverState
 from hgraph.adaptors.perspective import PerspectiveTablesManager
 from hgraph.adaptors.tornado.http_server_adaptor import HttpRequest, HttpResponse, \
@@ -61,6 +63,7 @@ def inspector_controller(port: int = 8080):
         total_data_prev: list = field(default_factory=dict)
         total_data: list = field(default_factory=lambda: defaultdict(list))
         last_publish_time: datetime = None
+        inspector_time: float = 0.
 
         def id_for_key(self, key):
             i = self.key_ids.setdefault(key, len(self.key_ids))
@@ -81,6 +84,8 @@ def inspector_controller(port: int = 8080):
     MORE = "zzy"
 
     def process_tick(state: STATE, node: Node):
+        start = time.perf_counter_ns()
+
         for row_id, path in state.node_subscriptions.get(node.node_id, {}).items():
             if row_id is not None:
                 if path:
@@ -114,7 +119,11 @@ def inspector_controller(port: int = 8080):
                         value=format_value(v),
                     ))
 
+        state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
+
     def process_graph(state: STATE, graph: Graph):
+        start = time.perf_counter_ns()
+
         root_graph = state.observer.get_graph_info(())
         for node_id, items in state.node_subscriptions.items():
             if node_row := items.get(None, None):
@@ -137,7 +146,10 @@ def inspector_controller(port: int = 8080):
             state.total_data['graph_time'].append(gi.eval_time)
 
             if state.last_publish_time is None or (datetime.utcnow() - state.last_publish_time).total_seconds() > 2.5:
+                state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
+                start = time.perf_counter_ns()
                 publish_stats(state)
+                state.inspector_time = 0.
 
             handle_request(state)
 
@@ -154,6 +166,8 @@ def inspector_controller(port: int = 8080):
                         of_graph=gi.eval_time / parent_time if parent_time else None,
                         of_total=gi.eval_time / root_graph.eval_time if root_graph.eval_time else None
                     ))
+
+        state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
 
 
     def publish_stats(state: STATE):
@@ -176,7 +190,8 @@ def inspector_controller(port: int = 8080):
                 graph_time=total_graph_time,
                 graph_load=total_graph_time / total_time,
                 avg_lag=sum(lags) / len(data["time"]),
-                max_lag=max(lags)
+                max_lag=max(lags),
+                inspection_time=state.inspector_time / total_graph_time
             )])
 
             state.total_data_prev = {k: v[-1] for k, v in data.items()}
@@ -189,8 +204,14 @@ def inspector_controller(port: int = 8080):
         ...
 
     def set_result(f, r):
+        def apply_result(fut, res):
+            try:
+                fut.set_result(res)
+            except:
+                pass
+
         from hgraph.adaptors.tornado._tornado_web import TornadoWeb
-        TornadoWeb.get_loop().add_callback(lambda f, r: f.set_result(r), f, r)
+        TornadoWeb.get_loop().add_callback(lambda f, r: apply_result(f, r), f, r)
 
     def handle_request(_state):
         data = []  # to be published to the table
@@ -450,39 +471,51 @@ def inspector_controller(port: int = 8080):
                             root_item = root_item.value
 
                         if isinstance(root_item, PythonTimeSeriesReference):
-                            if (o := root_item.output) is not None:
-                                ref_node = o.owning_node
-                                path = []
-                                while o.parent_output:
-                                    path.append(o.parent_output.key_from_value(o))
-                                    o = o.parent_output
+                            if root_item.output is not None:
+                                root_item = root_item.output
+                            else:
+                                set_result(f, HttpResponse(status_code=500, body="Reference has no output"))
+                                continue
 
-                                ref_id = ''
-                                i = 1
-                                while i < len(ref_node.node_id):
-                                    graph_id = ref_node.node_id[:i]
-                                    ref_id += str_node_id((graph_id[-1],))
-                                    commands.append(("expand", ref_id))
-                                    if observer.get_graph_info(graph_id) is None:
-                                        ref_id += NODE_ITEMS.SUBGRAPHS.value
-                                        commands.append(("expand", ref_id))
-                                        gi = observer.get_graph_info(ref_node.node_id[:i + 1])
-                                        ref_id += str_node_id((_state._value.id_for_key(gi.graph.label),))
-                                        commands.append(("expand", ref_id))
-                                        i += 2
-                                    else:
-                                        i += 1
+                        if isinstance(root_item, TimeSeriesInput):
+                            root_item = root_item.output
 
-                                ref_id += str_node_id((ref_node.node_id[-1],))
+                        if isinstance(root_item, TimeSeriesOutput):
+                            ref_node = root_item.owning_node
+                            path = []
+                            while root_item.parent_output:
+                                path.append(root_item.parent_output.key_from_value(root_item))
+                                root_item = root_item.parent_output
+
+                            ref_id = ''
+                            i = 1
+                            while i < len(ref_node.node_id):
+                                graph_id = ref_node.node_id[:i]
+                                ref_id += str_node_id((graph_id[-1],))
                                 commands.append(("expand", ref_id))
-                                ref_id += NODE_ITEMS.OUTPUT.value
+                                if observer.get_graph_info(graph_id) is None:
+                                    ref_id += NODE_ITEMS.SUBGRAPHS.value
+                                    commands.append(("expand", ref_id))
+                                    gi = observer.get_graph_info(ref_node.node_id[:i + 1])
+                                    ref_id += str_node_id((_state._value.id_for_key(gi.graph.label),))
+                                    commands.append(("expand", ref_id))
+                                    i += 2
+                                else:
+                                    i += 1
+
+                            ref_id += str_node_id((ref_node.node_id[-1],))
+                            commands.append(("expand", ref_id))
+                            ref_id += NODE_ITEMS.OUTPUT.value
+                            commands.append(("expand", ref_id))
+
+                            for i in path:
+                                ref_id += str_node_id((_state._value.id_for_key(i),))
                                 commands.append(("expand", ref_id))
 
-                                for i in path:
-                                    ref_id += str_node_id((_state._value.id_for_key(i),))
-                                    commands.append(("expand", ref_id))
+                            set_result(f, HttpResponse(status_code=200, body=ref_id))
 
-                                set_result(f, HttpResponse(status_code=200, body=ref_id))
+                        else:
+                            set_result(f, HttpResponse(status_code=500, body="Not a reference"))
 
             if data or remove:
                 _state.manager.update_table("inspector", data, remove)
@@ -513,7 +546,7 @@ def inspector_controller(port: int = 8080):
         _state.manager.add_table("inspector", _state.table)
 
         _state.total_cycle_table = Table({
-            "time": datetime, "evaluation_time": datetime, "cycles": float, "graph_time": float, "graph_load": float, "avg_lag": float, "max_lag": float
+            "time": datetime, "evaluation_time": datetime, "cycles": float, "graph_time": float, "graph_load": float, "avg_lag": float, "max_lag": float, "inspection_time": float
         }, limit=24*3600)
         _state.manager.add_table("graph_performance", _state.total_cycle_table)
 

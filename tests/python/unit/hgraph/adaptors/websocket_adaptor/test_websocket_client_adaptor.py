@@ -80,10 +80,10 @@ try:
             )
 
         with GlobalState():
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3), __trace__=True)
+            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
             for tick in [{"one": b"Hello, one, message 1!"}, {"one": b"Hello, one, message 2!"},
                          {"two": b"Hello, two, message X!"}, {"two": b"Hello, two, message Y!"}]:
-                assert frozendict(tick) in [t[-1] for t in get_recorded_value()]
+                assert any(t[-1].get(k, None) == v for t in get_recorded_value() for k, v in tick.items())
 
 except ImportError:
     pass

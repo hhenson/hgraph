@@ -77,6 +77,8 @@
                         })
 
                         table.addEventListener("click", async function observerClickEventListener(event) {
+                            SELECTED_ROW = null
+
                             if (event.target.tagName === "TD") {
                                 const meta = table.getMeta(event.target);
                                 const stuff = await table._view_cache.view(0, meta.y, 10, meta.y + 1);
@@ -91,11 +93,13 @@
                                     }
                                 }
                                 if (meta.column_header[0] === 'value'){
-                                    if (row.value.startsWith('REF[')) {
+                                    if (event.ctrlKey) {
                                         const new_row = await (await fetch("/inspect/ref/" + row.id, {cache: "no-store"})).text();
                                         window.setTimeout(async () => {
-                                            const id_col = stuff.column_headers.findIndex((c) => {return c[0] === 'id'})
-                                            const ids = await table._view_cache.view(id_col, 0, id_col+1, meta.y);
+                                            const id_col = stuff.column_headers.findIndex((c) => {
+                                                return c[0] === 'id'
+                                            })
+                                            const ids = await table._view_cache.view(id_col, 0, id_col + 1, meta.y);
                                             let row_num = ids.metadata[0].indexOf(new_row);
                                             table.scrollToCell(0, row_num, ids.num_columns, ids.num_rows)
                                             SELECTED_ROW = row_num;
@@ -106,6 +110,8 @@
                         });
 
                         table.addEventListener("dblclick", async function observerClickEventListener(event) {
+                            SELECTED_ROW = null
+
                             if (event.target.tagName === "TD") {
                                 const meta = table.getMeta(event.target);
                                 const stuff = await table._view_cache.view(0, meta.y, 10, meta.y + 1);
