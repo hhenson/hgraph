@@ -25,8 +25,8 @@ from typing import Callable
 import sys
 from datetime import datetime, timedelta
 import threading
-from hgraph import push_queue, TS, graph, run_graph, EvaluationMode
-from hgraph.nodes import debug_print, stop_engine, if_true
+from hgraph import push_queue, TS, graph, run_graph, EvaluationMode, debug_print, if_true
+from hgraph.nodes import stop_engine
 
 
 def _user_input(sender: Callable[[str], None]):

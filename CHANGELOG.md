@@ -613,3 +613,72 @@ Version 0.3.0 (17-08-2024)
 * Update roadmap to address re-order of work.
 * Update to adaptors and adaptor logic
 * Bug fixes
+
+Version 0.3.1 (21-08-2024)
+--------------------------
+
+* Small fixes
+* Initial cut of to_table and related code
+
+Version 0.3.2 (21-08-2024)
+--------------------------
+
+* Fix to cycle detection logic
+
+Version 0.3.3 (23-08-2024)
+--------------------------
+
+* Add const_fn decorator for wrapping a constant value function
+  This allows for operator support and can be used outside the wiring context.
+* Convert table_schema to const_fn
+* Prepare replay logic from dataframes.
+
+Version 0.3.4 (24-08-2024)
+--------------------------
+
+* Update to make use of poetry for project management.
+
+Version 0.3.5 (27-08-2024)
+--------------------------
+
+* First pass of dataframe recording complete.
+* Update documentation.
+
+Version 0.3.6 (27-08-2024)
+--------------------------
+
+* Add to_json and from_json operators.
+
+Version 0.3.7 (28-08-2024)
+--------------------------
+
+* Fix HttpAdaptor handling of TSB return values.
+* Ensure the handler request is removed once the response is returned.
+
+Version 0.3.8 (28-08-2024)
+--------------------------
+
+* More fixes to Tornado adaptor
+
+Version 0.3.9 (29-08-2024)
+--------------------------
+
+* Fix to the value property on the WiringPort
+
+Version 0.3.10 (02-09-2024)
+---------------------------
+
+* Add helper functions to extract service inputs and outputs.
+* Add new logic to handle to_table and related methods. Provides a more generic solution to the implementation.
+* Support TSD, TS, TSB and CompoundScalar serialisation.
+
+Version 0.3.11 (03-09-2024)
+---------------------------
+
+* Fix to_table for nested TSD structures.
+
+Version 0.3.12 (04-08-2024)
+---------------------------
+
+* Add modified operator.
+* Fix imports

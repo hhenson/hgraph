@@ -57,6 +57,11 @@ def switch_(
         out = switch({'add': add_, "sub": sub_}, key, ts1, ts2)
 
     Which will perform the computation based on the key's value.
+
+    A default option can be provided by using the DEFAULT marker. For example:
+
+        out = switch_({DEFAULT: add_}, ...)
+
     """
     # Create a nifty simplified signature for the switch node.
     with WiringContext(

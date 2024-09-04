@@ -31,6 +31,8 @@ The ``map_`` function can also take ``TSL`` inputs. As depicted in the example b
 (using the same ``convert`` function as above):
 
 ```python
+from hgraph import graph, TSL, TS, Size, map_, convert
+
 @graph
 def graph_tsl(tsl: TSL[TS[int], Size[2]]) -> TSL[TS[str], Size[2]]:
     return map_(convert, tsl)
@@ -95,8 +97,7 @@ a single value.
 For example:
 
 ```python
-from hgraph import TS, graph, TSD, reduce
-from hgraph.nodes import add_
+from hgraph import TS, graph, TSD, reduce, add_
 
 
 @graph
@@ -125,8 +126,7 @@ that share the same function signature, but provide different implementations.
 For example:
 
 ```python
-from hgraph import TS, graph, switch_
-from hgraph.nodes import add_, sub_
+from hgraph import TS, graph, switch_, add_, sub_
 
 
 @graph
@@ -206,6 +206,7 @@ f_b --> f_a_b : rhs
 The code to produce this may look as follows:
 
 ```python
+from hgraph import graph, TS, switch_, const, mesh_
 
 @graph
 def f(k: TS[str]) -> TS[float]:

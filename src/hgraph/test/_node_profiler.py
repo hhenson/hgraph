@@ -7,17 +7,13 @@ try:
 except ImportError:
     psutil = None
 
-from hgraph._runtime._constants import MAX_ET
-from hgraph._runtime._node import NodeTypeEnum
-from hgraph._types import HgSchedulerType
+from hgraph import EvaluationLifeCycleObserver, MAX_ET
 
 if TYPE_CHECKING:
     from hgraph import Graph, EvaluationClock
     from hgraph import Node
 
 __all__ = ("EvaluationProfiler",)
-
-from hgraph import EvaluationLifeCycleObserver
 
 
 class EvaluationProfiler(EvaluationLifeCycleObserver):

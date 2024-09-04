@@ -1,8 +1,8 @@
 import asyncio
-import concurrent.futures
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
+import tornado
 from frozendict import frozendict
 
 from hgraph import (
@@ -16,20 +16,18 @@ from hgraph import (
     STATE,
     partition,
     map_,
-    unpartition,
     adaptor,
     combine,
     adaptor_impl,
     merge,
     register_adaptor,
-    register_service,
     TSB,
     TS_SCHEMA,
     TIME_SERIES_TYPE,
     HgTSBTypeMetaData,
-    nothing, REMOVE_IF_EXISTS,
+    HgTSDTypeMetaData,
+    REMOVE_IF_EXISTS,
 )
-import tornado
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
@@ -114,16 +112,17 @@ class HttpHandler(tornado.web.RequestHandler):
         self.mgr: HttpAdaptorManager = mgr
 
     async def get(self, *args):
-        request_obj = object()
-        request_id = id(request_obj)
+        request_obj = HttpGetRequest(
+            url=self.path,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
+            cookies=frozendict(self.request.cookies),
+        )
 
         response = await self.mgr.add_request(
-            request_id, HttpGetRequest(
-                url=self.path,
-                url_parsed_args=args,
-                headers=self.request.headers,
-                query=frozendict({k: ''.join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
-                cookies=frozendict(self.request.cookies))
+            id(request_obj),
+            request_obj,
         )
 
         self.set_status(response.status_code)
@@ -133,24 +132,76 @@ class HttpHandler(tornado.web.RequestHandler):
                 self.set_header(k, v)
 
         await self.finish(response.body)
-        self.mgr.remove_request(request_id)
+        self.mgr.remove_request(id(request_obj))
 
     async def post(self, *args):
-        request_obj = object()
-        request_id = id(request_obj)
-
+        request_obj = HttpPostRequest(
+            url=self.path,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            body=self.request.body.decode("utf-8"),
+        )
+        # We can use the id of the request as we clean up the responses on completion, so we should not
+        # hit re-use immediately.
         response = await self.mgr.add_request(
-            request_id,
-            HttpPostRequest(url=self.path, url_parsed_args=args, headers=self.request.headers, body=self.request.body),
+            id(request_obj),
+            request_obj,
         )
 
         self.set_status(response.status_code)
         for k, v in response.headers.items():
             self.set_header(k, v)
         await self.finish(response.body)
+        self.mgr.remove_request(id(request_obj))
 
 
 def http_server_handler(fn: Callable = None, *, url: str):
+    """
+    Wrap an endpoint or route in the adaptor handler.
+    If the handler is simple (i.e. it is self-contained) then the function can have a simple signature of:
+
+    ::
+
+        @http_server_handler(url='/mypath')
+        def simple_handler(request: TS[HttpRequest]) -> TS[HttpResponse]:
+            return combine[TS[HttpResponse]](status_code=200, body="Simple Response")
+
+    In this case, so long as this is imported, it will be wired in when the server is registered.
+    The http server is registered as below:
+
+    ::
+
+        register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
+
+    When more interaction is required, the signature of the function can be extended as below:
+
+    ::
+
+        class MyHandlerResponse(TimeSeriesSchema):
+            response: TS[HttpResponse]
+            p1: ...
+            p2: ...
+
+        @http_server_handler(url='/mypath')
+        def complex_handler(request: TS[HttpRequest], ts_1: ...) -> TSB[MyHandlerResponse]:
+            ...
+
+    In this scenario the function is able to take multiple inputs and return multiple outputs.
+    The request must be present in the input signature, the response must be present in the output TSB.
+
+    The decorated function can be called without the request parameter being provided, for example:
+
+    ::
+        # NOTE: We need to make use of the http_server_adapter_helper to make this work
+        register_adaptor(default_path, http_server_adaptor_helper, port=8081)
+        ...
+        out = complex_handlder(ts_1=..., ...)
+
+    The ``request`` argument is automatically wired into the adaptor. The response is returned in full, but the
+    ``response`` output will also be wired into the adaptor.
+
+    When using this model, the function must be wired into the graph by the user to work correctly.
+    """
     if fn is None:
         return lambda fn: http_server_handler(fn, url=url)
 
@@ -192,7 +243,10 @@ def http_server_handler(fn: Callable = None, *, url: str):
         else:
             responses = fn(request=requests, **inputs)
 
-        if isinstance(responses.output_type, HgTSBTypeMetaData):
+        if isinstance(responses.output_type, HgTSBTypeMetaData) or (
+            isinstance(responses.output_type, HgTSDTypeMetaData)
+            and isinstance(responses.output_type.value_tp.dereference(), HgTSBTypeMetaData)
+        ):
             http_server_adaptor.from_graph(responses.response, path=url)
             return responses
         else:
@@ -208,6 +262,11 @@ def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[
 
 @adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
 def http_server_adaptor_helper(path: str, port: int):
+    """
+    Use this with the ``default_path`` to support ``http_server_handler`` instances that make use of
+    additional inputs other than request. This ensures the wiring service can correct resolve and wire the
+    handlers into the server adapter.
+    """
     register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
 
 
@@ -216,8 +275,8 @@ def http_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
-    @push_queue(TSD[int, TS[HttpGetRequest]])
-    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpGetRequest]]:
+    @push_queue(TSD[int, TS[HttpRequest]])
+    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpRequest]]:
         GlobalState.instance()[f"http_server_adaptor://{path}/queue"] = sender
         return None
 
@@ -247,9 +306,9 @@ def http_server_adaptor_impl(path: str, port: int):
     responses = {}
     for url, handler in HttpAdaptorManager.instance().handlers.items():
         if isinstance(handler, WiringNodeClass):
-            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpGetRequest]):
+            if handler.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
                 responses[url] = map_(handler, request=requests_by_url[url])
-            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpGetRequest]]):
+            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
         elif handler is None:
             pass

@@ -107,6 +107,14 @@ class WiringPort:
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
 
+    @property
+    def value(self):
+        v = self.node_instance.inputs.get("value", None)
+        if v is None:  # Let's try and get 'value' from self (in case of `TSB')
+            return self["value"]
+        else:
+            return v
+
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)
 class ErrorWiringPort(WiringPort):
