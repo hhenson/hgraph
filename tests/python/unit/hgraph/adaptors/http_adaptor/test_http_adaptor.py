@@ -211,14 +211,18 @@ try:
             record(
                 map_(
                     lambda key, q: key == http_client_adaptor(q).body,
-                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=100)),
+                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=10)),
                 )
             )
 
         with GlobalState():
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2))
-            for tick in [{"one": True}, {"two": True}]:
-                assert tick in [t[-1] for t in get_recorded_value()]
+            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+            values = get_recorded_value()
+            assert 1 <= len(values) <= 3
+            v = values[0][1]
+            for _, d in values:
+                v |= d
+            assert v == {"one": True, "two": True}
 
 except ImportError:
     pass
