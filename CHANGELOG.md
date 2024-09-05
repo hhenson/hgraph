@@ -683,3 +683,12 @@ Version 0.3.12 (04-08-2024)
 * Add modified operator.
 * Fix imports
 * Start on to_json serialisation
+
+Version 0.3.13 (05-08-2024)
+---------------------------
+
+* Changes to the real-time scheduling
+* Many bug fixes
+* Work on perspective API to improve performance and design
+* Graph inspector UI (web adaptor)
+* Work on scheduler issues
