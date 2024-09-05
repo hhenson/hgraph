@@ -27,8 +27,8 @@ packages = [
 
 [tool.poetry.dependencies]
     python = ">=3.11"
-    hgraph = ">=0.3.4"
-    holidays = ">=0.46"
+    hgraph = ">=0.3.14"
+    holidays = ">=0.56"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/hhenson/hg_oap"
