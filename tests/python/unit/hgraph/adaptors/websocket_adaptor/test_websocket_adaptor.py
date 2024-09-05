@@ -226,13 +226,18 @@ try:
 
         with GlobalState():
             run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
-            for tick in [
-                {"one": b"Hello, one, message 1!"},
-                {"one": b"Hello, one, message 2!"},
-                {"two": b"Hello, two, message X!"},
-                {"two": b"Hello, two, message Y!"},
-            ]:
-                assert frozendict(tick) in [t[-1] for t in get_recorded_value()]
+            value = get_recorded_value()
+            result = {"one": [], "two": []}
+            for _, d in value:
+                if "one" in d:
+                    result["one"].append(d["one"])
+                if "two" in d:
+                    result["two"].append(d["two"])
+            expected = {
+                "one": [b"Hello, one, message 1!", b"Hello, one, message 2!"],
+                "two": [b"Hello, two, message X!", b"Hello, two, message Y!"],
+            }
+            assert result == expected
 
 except ImportError:
     pass
