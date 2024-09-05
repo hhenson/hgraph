@@ -31,7 +31,7 @@ class MapNestedEngineEvaluationClock(NestedEngineEvaluationClock):
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
         # First we make sure the key is correctly scheduled, then we call super, which will ensure the
         # node is scheduled if required.
-        if next_time <= self._nested_node.last_evaluation_time:
+        if next_time <= self._nested_node.last_evaluation_time or self._nested_node.is_stopping:
             return
         tm = self._nested_node._scheduled_keys.get(self._key)
         if tm is None or tm > next_time:
@@ -65,7 +65,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self._scheduled_keys: dict[K, datetime] = {}
         self._active_graphs: dict[K, Graph] = {}
         self._pending_keys: set[K] = set()
-        self._count = 0
+        self._count = 1
 
     def eval(self):
         self.mark_evaluated()
@@ -94,9 +94,19 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 self._scheduled_keys[k] = dt
                 self.graph.schedule_node(self.node_ndx, dt)
 
+    def do_stop(self):
+        for k in list(self._active_graphs.keys()):
+            self._remove_graph(k)
+        self._active_graphs.clear()
+        self._scheduled_keys.clear()
+        self._pending_keys.clear()
+
+    def enum_nested_graphs(self):
+        return self._active_graphs.items()
+
     def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""
-        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self, str(key))
+        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (-self._count,), self, str(key))
         self._count += 1
         self._active_graphs[key] = graph
         graph.evaluation_engine = NestedEvaluationEngine(
@@ -121,6 +131,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
     def _evaluate_graph(self, key: K):
         """Evaluate the graph for this key"""
         graph: Graph = self._active_graphs[key]
+        graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         # TODO: This can be done at start time or initialisation time (decide on behaviour) and then we don't
         # have to pay for the if.
         if self.signature.capture_exception:

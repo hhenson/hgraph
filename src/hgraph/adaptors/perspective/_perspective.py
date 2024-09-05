@@ -3,12 +3,14 @@ import logging
 import os
 import tempfile
 import time
+from collections import defaultdict
 from datetime import datetime
 from glob import glob
 from pathlib import Path
 from threading import Thread
 from typing import Dict, Optional, Callable, List
 
+import pyarrow
 import tornado
 from perspective import PerspectiveManager, PerspectiveTornadoHandler, Table, View
 
@@ -114,9 +116,31 @@ class PerspectiveTablesManager:
 
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]
-        self._manager_for_table(name).call_loop(lambda: table.update(data))
+
+        if data:
+            if isinstance(data, list):
+                d0 = {}
+                d1 = defaultdict(lambda: [None]*len(data))
+                for i, r in enumerate(data):
+                    for k, v in r.items():
+                        if v is not None:
+                            d1[k][i] = v
+                            d0[k] = True
+                data = {k: v for k, v in d1.items() if k in d0}
+
+            data = pyarrow.record_batch(data)
+            sink = pyarrow.BufferOutputStream()
+
+            with pyarrow.ipc.new_stream(sink, data.schema) as writer:
+                writer.write_batch(data)
+
+            arrow = sink.getvalue().to_pybytes()
+
+            self._manager_for_table(name).call_loop(lambda: table.update(arrow))
+
         if removals:
             self._manager_for_table(name).call_loop(lambda: table.remove(removals))
+
         # table.update(data)
 
     def get_table_names(self):
@@ -247,7 +271,7 @@ def perspective_web_start(
         + ([(k, tornado.web.StaticFileHandler, v) for k, v in static.items()] if static else [])
         + (
             [(
-                r"/(.*)",
+                r"/",
                 IndexPageHandler,
                 {
                     "mgr": perspective_manager,
@@ -304,7 +328,7 @@ class IndexPageHandler(tornado.web.RequestHandler):
         self.host = host
         self.port = port
 
-    def get(self, url):
+    def get(self, url = ""):
         tornado.log.app_log.info(f"requesting url {url} for template {self.index_template}")
         if url == "" or True:
             layouts = glob(os.path.join(self.layouts_path, f"{url or '*'}.json"))

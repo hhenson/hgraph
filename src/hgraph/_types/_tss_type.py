@@ -38,6 +38,12 @@ class TimeSeriesSet(TimeSeriesDeltaValue[KEYABLE_SCALAR, SetDelta[KEYABLE_SCALAR
         """
 
     @abstractmethod
+    def __len__(self) -> int:
+        """
+        Number of items in the set
+        """
+
+    @abstractmethod
     def values(self) -> Iterable[KEYABLE_SCALAR]:
         """
         Iterator over all the time-series values of this collection

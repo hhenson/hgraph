@@ -170,6 +170,12 @@ class TimeSeriesOutput(TimeSeries):
         """
 
     @abstractmethod
+    def can_apply_result(self, result: Any):
+        """
+        Return True if the result can be applies without overwriting any value modified in this engine cycle.
+        """
+
+    @abstractmethod
     def apply_result(self, result: Any):
         """
         Apply the result of calling a python method to the output.

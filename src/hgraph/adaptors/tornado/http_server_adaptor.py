@@ -100,14 +100,16 @@ class HttpAdaptorManager:
 
     def complete_request(self, request_id, response):
         self.requests[request_id].set_result(response)
-        self.queue({request_id: REMOVE_IF_EXISTS})
         print(f"Completed request {request_id} with response {response}")
 
+    def remove_request(self, request_id):
+        self.queue({request_id: REMOVE_IF_EXISTS})
+        del self.requests[request_id]
 
 class HttpHandler(tornado.web.RequestHandler):
     def initialize(self, path, mgr):
         self.path = path
-        self.mgr = mgr
+        self.mgr: HttpAdaptorManager = mgr
 
     async def get(self, *args):
         request_obj = HttpGetRequest(
@@ -130,6 +132,7 @@ class HttpHandler(tornado.web.RequestHandler):
                 self.set_header(k, v)
 
         await self.finish(response.body)
+        self.mgr.remove_request(id(request_obj))
 
     async def post(self, *args):
         request_obj = HttpPostRequest(
@@ -149,6 +152,7 @@ class HttpHandler(tornado.web.RequestHandler):
         for k, v in response.headers.items():
             self.set_header(k, v)
         await self.finish(response.body)
+        self.mgr.remove_request(id(request_obj))
 
 
 def http_server_handler(fn: Callable = None, *, url: str):

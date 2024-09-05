@@ -74,7 +74,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         self._wire_graph()
 
     @start_guard
-    def start(self):
+    def do_start(self):
         if self._active_graph:
             self._active_graph.start()
         else:
@@ -83,7 +83,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
                 self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
 
     @stop_guard
-    def stop(self):
+    def do_stop(self):
         if self._active_graph:
             self._active_graph.stop()
 
@@ -101,7 +101,12 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
                 return
 
         self.mark_evaluated()
+        self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._active_graph.evaluate_graph()
+
+    def enum_nested_graphs(self):
+        if self._active_graph:
+            yield None, self._active_graph
 
     def recordable_id(self) -> tuple[str, bool]:
         """The id and True or no id and False if required inputs are not ready yet"""

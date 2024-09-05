@@ -114,6 +114,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._ts_values_to_keys.pop(id(item))
         self._ref_ts_feature.update(k)
         cast(TimeSeriesSetOutput, self.key_set).remove(k)
+        try:
+            self._modified_items.remove((k, item))
+        except: pass
         for observer in self._key_observers:
             observer.on_key_removed(k)
 
@@ -140,10 +143,32 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             del self[key]
         return v
 
+    def key_from_value(self, value: V) -> K:
+        return self._ts_values_to_keys[id(value)]
+
     def invalidate(self):
         for v in self.values():
             v.invalidate()
         self.mark_invalid()
+
+    def can_apply_result(self, result: Any):
+        if result is None:
+            return True
+        if not result:
+            return True
+        # Expect a mapping of some sort or an iterable of k, v pairs
+        for k, v_ in result.items() if isinstance(result, (dict, frozendict)) else result:
+            if v_ is None:
+                continue
+            if v_ is REMOVE or v_ is REMOVE_IF_EXISTS:  # Supporting numpy arrays has its costs (==)
+                if v_ is REMOVE_IF_EXISTS and k not in self._ts_values:  # is check should be faster than contains check
+                    continue
+                if self[k].modified:
+                    return False
+            else:
+                if (v := self.get(k)) and not v.can_apply_result(v_):
+                    return False
+        return True
 
     def apply_result(self, result: Any):
         if result is None:
@@ -317,6 +342,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             if value.active:
                 value.make_passive()
             self._removed_items[key] = value
+            try:
+                self._modified_items.remove((key, value))
+            except: pass
         else:
             self._ts_values[key] = value
             value.un_bind_output()
@@ -335,6 +363,15 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             return self.key_set.modified or any(v.modified for v in self._ts_values.values())
 
     @property
+    def last_modified_time(self) -> datetime:
+        if self.has_peer:
+            return super().last_modified_time
+        elif self.active:
+            return max(self._last_notified_time, self.key_set.last_modified_time, self._sample_time)
+        else:
+            return max(self.key_set.last_modified_time, max(v.last_modified_time for v in self._ts_values.values()))
+
+    @property
     def value(self):
         return frozendict((k, v.value) for k, v in self.items())
 
@@ -346,6 +383,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def __contains__(self, item):
         return item in self._ts_values
+
+    def key_from_value(self, value: V) -> K:
+        return self._ts_values_to_keys[id(value)]
 
     def added_keys(self) -> Iterable[K]:
         return self.key_set.added()

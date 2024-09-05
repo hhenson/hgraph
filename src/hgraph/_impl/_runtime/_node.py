@@ -3,7 +3,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections import deque
 from contextlib import ExitStack, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
@@ -154,6 +154,7 @@ class BaseNodeImpl(Node, ABC):
 
     def eval(self):
         scheduled = False if self._scheduler is None else self._scheduler.is_scheduled_now
+        eval = True
         if self.input:
             # Perform validity check of inputs
             args = (
@@ -162,36 +163,34 @@ class BaseNodeImpl(Node, ABC):
                 else self.signature.time_series_inputs.keys()
             )
             if not all(self.input[k].valid for k in args):
-                if scheduled:
-                    self._scheduler.advance()
-                return  # We should look into caching the result of this check.
+                eval = False  # We should look into caching the result of this check.
                 # This check could perhaps be set on a separate call?
-            all_valid = self.signature.all_valid_inputs
-            if not all(self.input[k].all_valid for k in ([] if all_valid is None else all_valid)):
-                if scheduled:
-                    self._scheduler.advance()
-                return  # This really could do with some optimisation as on large collections this will be expensive!
-            if self.signature.uses_scheduler:
-                # It is possible we have scheduled and then remove the schedule,
-                # so we need to check that something has caused this to be scheduled.
-                if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
-                    return
-
-        with ExitStack() if self.signature.context_inputs else nullcontext() as stack:
-            if self.signature.context_inputs:
-                for context in self.signature.context_inputs:
-                    if self.input[context].valid:
-                        stack.enter_context(self.input[context].value)
-
-            if self.error_output:
-                try:
-                    self.do_eval()
-                except Exception as e:
-                    from hgraph._types._error_type import NodeError
-
-                    self.error_output.apply_result(NodeError.capture_error(e, self))
             else:
-                self.do_eval()
+                all_valid = self.signature.all_valid_inputs
+                if not all(self.input[k].all_valid for k in ([] if all_valid is None else all_valid)):
+                    eval = False  # This really could do with some optimisation as on large collections this will be expensive!
+                elif self.signature.uses_scheduler:
+                    # It is possible we have scheduled and then remove the schedule,
+                    # so we need to check that something has caused this to be scheduled.
+                    if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
+                        eval = False
+
+        if eval:
+            with ExitStack() if self.signature.context_inputs else nullcontext() as stack:
+                if self.signature.context_inputs:
+                    for context in self.signature.context_inputs:
+                        if self.input[context].valid:
+                            stack.enter_context(self.input[context].value)
+
+                if self.error_output:
+                    try:
+                        self.do_eval()
+                    except Exception as e:
+                        from hgraph._types._error_type import NodeError
+
+                        self.error_output.apply_result(NodeError.capture_error(e, self))
+                else:
+                    self.do_eval()
 
         if scheduled:
             self._scheduler.advance()
@@ -427,31 +426,22 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
     @start_guard
     def start(self):
         self._initialise_kwargs()
-        self.receiver = _SenderReceiverState(
-            lock=threading.RLock(), queue=deque(), evaluation_evaluation_clock=self.graph.engine_evaluation_clock
-        )
-        self.eval_fn(self.receiver, **self._kwargs)
+        self.receiver = self.graph.receiver
+        self.eval_fn(lambda m: self.receiver((self.node_ndx, m)), **self._kwargs)
+        self.elide = self.scalars.get("elide", False)
 
-    def eval(self):
-        with self.receiver:
-            value = self.receiver.dequeue()
-            if value is None:
-                return
-            self.output.apply_result(value)
-            if self.receiver:
-                self.graph.engine_evaluation_clock.mark_push_node_requires_scheduling()
-
-    @stop_guard
-    def stop(self):
-        self.receiver.stopped = True
-        self.receiver = None
+    def apply_message(self, message):  # return True if stop processing further messages
+        if self.elide or self.output.can_apply_result(message):
+            self.output.apply_result(message)
+            return False
+        return True
 
 
 @dataclass
 class _SenderReceiverState:
-    lock: threading.RLock
-    queue: deque
-    evaluation_evaluation_clock: EngineEvaluationClock
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    queue: deque = field(default_factory=deque)
+    evaluation_clock: EngineEvaluationClock = None
     stopped: bool = False
 
     def __call__(self, value):
@@ -462,7 +452,7 @@ class _SenderReceiverState:
             if self.stopped:
                 raise RuntimeError("Cannot enqueue into a stopped receiver")
             self.queue.append(value)
-            self.evaluation_evaluation_clock.mark_push_node_requires_scheduling()
+            self.evaluation_clock.mark_push_node_requires_scheduling()
 
     def dequeue(self):
         with self.lock:

@@ -11,6 +11,8 @@ from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeTypeEnum, Node
 from hgraph._runtime._traits import Traits
 
+from hgraph._impl._runtime._node import _SenderReceiverState
+
 if typing.TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
 
@@ -35,6 +37,12 @@ class PythonGraph(Graph):
             self._traits: Traits = Traits()
         else:
             self._traits: Traits = Traits(parent=parent_node.graph.traits)
+
+        self._receiver: _SenderReceiverState = None
+
+        self._scheduled_times = []
+        self._evaluated_times = []
+        self._evaluated_node_times = []
 
     def copy_with(self, nodes: tuple[Node, ...]) -> "Graph":
         graph = PythonGraph(self._graph_id, nodes, self._parent_node)
@@ -80,6 +88,13 @@ class PythonGraph(Graph):
         if self._evaluation_engine is not None and value is not None:
             raise RuntimeError("Duplicate attempt to set evaluation engine")
         self._evaluation_engine = value
+
+        if self.push_source_nodes_end > 0:
+            self._receiver = _SenderReceiverState(evaluation_clock=self.engine_evaluation_clock)
+
+    @property
+    def receiver(self) -> _SenderReceiverState:
+        return self._receiver
 
     @property
     def schedule(self) -> list[datetime, ...]:
@@ -146,6 +161,7 @@ class PythonGraph(Graph):
         if force_set or st <= et or st > when:
             self.schedule[node_ndx] = when
         clock.update_next_scheduled_evaluation_time(when)
+        self._scheduled_times.append((node_ndx, et, when, force_set or st <= et or st > when, clock.next_scheduled_evaluation_time))
 
     def start_subgraph(self, start: int, end: int):
         """Start the subgraph (end is exclusive), i.e. [start, end)"""
@@ -199,21 +215,30 @@ class PythonGraph(Graph):
         self._evaluation_engine.notify_before_graph_evaluation(self)
 
         now = (clock := self._evaluation_engine.engine_evaluation_clock).evaluation_time
+        self._evaluated_times.append(now)
         nodes = self._nodes
         schedule = self._schedule
 
         if self.push_source_nodes_end > 0 and clock.push_node_requires_scheduling:
             clock.reset_push_node_requires_scheduling()
-            for i in range(self.push_source_nodes_end):
-                node = nodes[i]
-                node.eval()  # This is only to move nodes on, won't call the before and after node eval here
-                if node.output.modified:
-                    self._evaluation_engine.notify_after_node_evaluation(node)
+            while self.receiver:
+                i, message = self.receiver.dequeue()
+                node = self.nodes[i]
+                self._evaluation_engine.notify_before_node_evaluation(node)
+                stop = node.apply_message(message)
+                self._evaluation_engine.notify_after_node_evaluation(node)
+                if stop:
+                    with self.receiver:
+                        # stop == True means the message was not applied, put it back up the queue.
+                        self.receiver.queue.appendleft((i, message))
+                        self.engine_evaluation_clock.mark_push_node_requires_scheduling()
+                    break
 
         for i in range(self.push_source_nodes_end, len(nodes)):
             scheduled_time, node = schedule[i], nodes[i]
             if scheduled_time == now:
                 self._evaluation_engine.notify_before_node_evaluation(node)
+                self._evaluated_node_times.append((node.node_ndx, now))
                 from hgraph._types._error_type import NodeException
 
                 try:
@@ -223,6 +248,7 @@ class PythonGraph(Graph):
                 except Exception as e:
                     raise NodeException.capture_error(e, node, "During evaluation") from e
                 self._evaluation_engine.notify_after_node_evaluation(node)
+                self._evaluated_node_times.append((node.node_ndx, now, schedule[i], clock.next_scheduled_evaluation_time))
             elif scheduled_time > now:
                 # If the node has a scheduled time in the future, we need to let the execution context know.
                 clock.update_next_scheduled_evaluation_time(scheduled_time)

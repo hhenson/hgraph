@@ -33,10 +33,14 @@ def mesh_subscribe_node(
     mesh_node: PythonMeshNodeImpl = mesh.value.output.owning_node
     key = _find_mesh_key(_output.owning_node, mesh_node)
 
-    if _output.valid:
-        mesh_node._remove_graph_dependency(key, state.key)
-
     new_dependency_key = item.value
+
+    if _output.valid:
+        if state.key == new_dependency_key:
+            return None  # mesh ref cannot change
+        else:
+            mesh_node._remove_graph_dependency(key, state.key)
+
     available_now = mesh_node._add_graph_dependency(key, new_dependency_key)
     state.key = item.value
 

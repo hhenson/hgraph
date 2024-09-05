@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no" />
+
+        <script type="module" src="http://{{host}}:{{port}}/node_modules/@finos/perspective-viewer/dist/cdn/perspective-viewer.js"></script>
+        <script type="module" src="http://{{host}}:{{port}}/node_modules/@finos/perspective-workspace/dist/cdn/perspective-workspace.js"></script>
+        <script type="module" src="http://{{host}}:{{port}}/node_modules/@finos/perspective-viewer-datagrid/dist/cdn/perspective-viewer-datagrid.js"></script>
+        <script type="module" src="http://{{host}}:{{port}}/node_modules/@finos/perspective-viewer-d3fc/dist/cdn/perspective-viewer-d3fc.js"></script>
+        <script type="module" src="/node_modules/perspective-viewer-datagrid-norollups/dist/cdn/perspective-viewer-datagrid-norollups.js"></script>
+        <script type="module" src="/node_modules/perspective-viewer-summary/dist/cdn/perspective-viewer-summary.js"></script>
+
+        <link rel="stylesheet" crossorigin="anonymous" href="http://{{host}}:{{port}}/node_modules/@finos/perspective-viewer/dist/css/themes.css" />
+        <link rel="stylesheet" crossorigin="anonymous" href="http://{{host}}:{{port}}/node_modules/@finos/perspective-workspace/dist/css/pro-dark.css" />
+
+        <style>
+            perspective-workspace {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+            }
+
+        </style>
+    </head>
+
+    <body>
+        <perspective-workspace id="workspace"></perspective-workspace>
+
+        <script type="module">
+            import perspective from "http://{{host}}:{{port}}/node_modules/@finos/perspective/dist/cdn/perspective.js";
+
+            window.addEventListener("DOMContentLoaded", async function () {
+                const workspace = window.workspace
+
+                const websocket_ro = perspective.websocket("ws://{{host}}:{{port}}/websocket_readonly");
+                const websocket_rw = perspective.websocket("ws://{{host}}:{{port}}/websocket_editable");
+
+                //{% for table_name in mgr.get_table_names() %}
+                workspace.tables.set(
+                    "{{table_name}}",
+                    {{"websocket_ro" if not mgr.is_table_editable(table_name) else "websocket_rw"}}.open_table("{{table_name}}")
+                );
+                //{% end %}
+
+                const req = await fetch("/layout/{{url}}");
+                const json = await req.json();
+                window.workspace.restore(json);
+
+                const observe = await fetch("/inspect/expand/", {cache: "no-store"});
+
+                window.workspace.addEventListener("workspace-layout-update", async () => {
+                    await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(await window.workspace.save())});
+
+                    for (const g of document.querySelectorAll("perspective-viewer[table='inspector'] perspective-viewer-datagrid")){
+                        const table = g.shadowRoot.querySelector("regular-table")
+
+                        var sheet = new CSSStyleSheet
+                        sheet.replaceSync( `.highlight { background-color: pink }`)
+                        g.shadowRoot.adoptedStyleSheets.push(sheet)
+
+                        let SELECTED_ROW = null;
+                        table.addStyleListener(function fixOverflow() {
+                            for (const tr of table.children[0].children[1].children) {
+                                const meta = table.getMeta(tr.children[0]);
+                                if (meta.y === SELECTED_ROW) {
+                                    tr.classList.add("highlight");
+                                }else{
+                                    tr.classList.remove("highlight");
+                                }
+
+                                for (const td of tr.children) {
+                                    td.style.overflow = "clip";
+                                }
+                            }
+                        })
+
+                        table.addEventListener("click", async function observerClickEventListener(event) {
+                            SELECTED_ROW = null
+
+                            if (event.target.tagName === "TD") {
+                                const meta = table.getMeta(event.target);
+                                const stuff = await table._view_cache.view(0, meta.y, 10, meta.y + 1);
+                                const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
+                                console.log(meta)
+                                console.log(row)
+                                if (meta.column_header[0] === 'X'){
+                                    if (meta.value === '+') {
+                                        await fetch("/inspect/expand/" + row.id, {cache: "no-store"});
+                                    } else {
+                                        await fetch("/inspect/collapse/" + row.id, {cache: "no-store"});
+                                    }
+                                }
+                                if (meta.column_header[0] === 'value'){
+                                    if (event.ctrlKey) {
+                                        const new_row = await (await fetch("/inspect/ref/" + row.id, {cache: "no-store"})).text();
+                                        window.setTimeout(async () => {
+                                            const id_col = stuff.column_headers.findIndex((c) => {
+                                                return c[0] === 'id'
+                                            })
+                                            const ids = await table._view_cache.view(id_col, 0, id_col + 1, meta.y);
+                                            let row_num = ids.metadata[0].indexOf(new_row);
+                                            table.scrollToCell(0, row_num, ids.num_columns, ids.num_rows)
+                                            SELECTED_ROW = row_num;
+                                        }, 100);
+                                    }
+                                }
+                            }
+                        });
+
+                        table.addEventListener("dblclick", async function observerClickEventListener(event) {
+                            SELECTED_ROW = null
+
+                            if (event.target.tagName === "TD") {
+                                const meta = table.getMeta(event.target);
+                                const stuff = await table._view_cache.view(0, meta.y, 10, meta.y + 1);
+                                const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
+                                console.log(meta)
+                                console.log(row)
+                                if (meta.column_header[0] === 'name'){
+                                    if (row.X === '+') {
+                                        if (event.ctrlKey) {
+                                            await fetch("/inspect/expand/" + row.id + "?" + new URLSearchParams({all: 'true'}).toString(),
+                                                {cache: "no-store"});
+                                        } else {
+                                            await fetch("/inspect/expand/" + row.id, {cache: "no-store"});
+                                        }
+                                    } else {
+                                        await fetch("/inspect/collapse/" + row.id, {cache: "no-store"});
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                });
+            });
+        </script>
+    </body>
+</html>

@@ -2,25 +2,23 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
-from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD, MIN_DT
+from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,
     NestedEvaluationEngine,
-    PythonNestedNodeImpl,
 )
-from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
-from hgraph._runtime._node import Node, NodeSignature
+from hgraph._runtime._node import NodeSignature
 from hgraph._types._error_type import NodeError
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, K
+from hgraph._types._time_series_types import K
 from hgraph._types._ts_type import TS
-from hgraph._types._tsd_type import TSD, TSD_OUT
+from hgraph._types._tsd_type import TSD_OUT
 from hgraph._types._tss_type import TSS
 from hgraph._wiring._map import KEYS_ARG
 
-__all__ = ("PythonTsdMapNodeImpl",)
+__all__ = ("PythonMeshNodeImpl",)
 
 
 class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
@@ -92,18 +90,26 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self._active_graphs_rank: dict[K, int] = {}
         self._active_graphs_dependencies: dict[K, set[K]] = defaultdict(set)
         self._re_rank_requests: list[tuple[K, K]] = []
+        self._graphs_to_remove: set[K] = set()
         self.current_eval_rank = None
         self.current_eval_graph = None
         self.max_rank = 0
 
-    def start(self):
-        super().start()
+        self._scheduled_times = defaultdict(list)
+        self._evaluated_times = defaultdict(list)
+        self._re_rank_times = defaultdict(list)
+
+    def do_start(self):
+        super().do_start()
+
         self.output["ref"].value = PythonTimeSeriesReference(self.output["out"])
         GlobalState.instance()[self._full_context_path] = self.output["ref"]
         self._output = self.output["out"]
 
-    def stop(self):
+    def do_stop(self):
         del GlobalState.instance()[self._full_context_path]
+
+        super().do_stop()
 
     def eval(self):
         self.mark_evaluated()
@@ -117,12 +123,20 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
                 if not self._active_graphs_dependencies.get(k, None):
                     self._scheduled_keys_by_rank[self._active_graphs_rank[k]].pop(k, None)
                     self._remove_graph(k)
+
         if self._pending_keys:
             for k in self._pending_keys:
                 self._create_new_graph(k, rank=0)
                 for d in self._active_graphs_dependencies[k]:
                     self._re_rank(d, k)
             self._pending_keys = set()
+
+        if self._graphs_to_remove:
+            for k in set(self._graphs_to_remove):
+                if not self._active_graphs_dependencies[k] and k not in self._kwargs[KEYS_ARG]:
+                    # no more dependencies and this was not asked for externally (through the keys)
+                    self._remove_graph(k)
+            self._graphs_to_remove = set()
 
         # 2. or one of the nested graphs has been scheduled for evaluation.
         next_time = MAX_DT
@@ -132,8 +146,10 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             dt = self._scheduled_ranks.pop(rank, None)
             if dt == self.last_evaluation_time:
                 graphs = self._scheduled_keys_by_rank.pop(rank, {})
+                self._evaluated_times[rank].append(dt)
                 for k, dtg in graphs.items():
                     if dtg == dt:
+                        self._evaluated_times[k].append(dt)
                         self.current_eval_graph = k
                         dtg = self._evaluate_graph(k)
                         self.current_eval_graph = None
@@ -143,6 +159,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
                         next_time = min(next_time, dtg)
             elif dt and dt > self.last_evaluation_time:
                 self._scheduled_ranks[rank] = dt
+                next_time = min(next_time, dt)
 
             rank += 1
 
@@ -181,17 +198,28 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         )
         self.graph.schedule_node(self.node_ndx, tm)
 
+        if tm == self.last_evaluation_time and self.current_eval_rank is not None and rank <= self.current_eval_rank:
+            raise ValueError(
+                f"mesh {self.signature.wiring_path_name}.{self.signature.label or self.signature.name} has a"
+                f" dependency cycle {key} -> {key}"
+            )
+
+        self._scheduled_times[rank].append((self.last_evaluation_time, self._scheduled_ranks[rank]))
+        self._scheduled_times[key].append((self.last_evaluation_time, tm, rank))
+
     def _remove_graph(self, key: K):
         """Un-wire graph and schedule for removal"""
         if self.signature.capture_exception:
             # Remove the error output associated to the graph if there is one.
             cast(TSD_OUT[K, TS[NodeError]], self.error_output).pop(key, None)
-        graph: Graph = self._active_graphs.pop(key)
-        self._un_wire_graph(key, graph)
-        graph.stop()
-        self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
-        self._active_graphs_rank.pop(key)
-        graph.dispose()
+        graph: Graph = self._active_graphs.pop(key, None)
+        if graph is not None:  # None can happen during shutdown as shutdown order is not dependency-driven
+            self._un_wire_graph(key, graph)
+            graph.stop()
+            self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
+            self._active_graphs_rank.pop(key)
+            self._re_rank_requests = [(k, d) for k, d in self._re_rank_requests if k != key]
+            graph.dispose()
 
     def _add_graph_dependency(self, key: K, depends_on: K) -> bool:  # returns True if the key is available now
         self._active_graphs_dependencies[depends_on].add(key)
@@ -216,6 +244,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             new_rank = below + 1
             self.max_rank = max(self.max_rank, new_rank)
             self._active_graphs_rank[key] = new_rank
+            self._re_rank_times[key].append((self.last_evaluation_time, prev_rank, new_rank))
             if schedule:
                 self.schedule_graph(key, schedule)
             for k in self._active_graphs_dependencies[key]:
@@ -231,4 +260,4 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self._active_graphs_dependencies[depends_on].remove(key)
         if not self._active_graphs_dependencies[depends_on] and depends_on not in self._kwargs[KEYS_ARG]:
             # no more dependencies and this was not asked for externally (through the keys)
-            self._remove_graph(depends_on)
+            self._graphs_to_remove.add(depends_on)

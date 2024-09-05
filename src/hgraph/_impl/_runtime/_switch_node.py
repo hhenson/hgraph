@@ -73,7 +73,12 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                     raise ValueError(f"No graph defined for key {self._active_key}")
 
         if self._active_graph:
+            self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
             self._active_graph.evaluate_graph()
+
+    def enum_nested_graphs(self):
+        if self._active_graph:
+            yield self._active_key, self._active_graph
 
     def _wire_graph(self, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""

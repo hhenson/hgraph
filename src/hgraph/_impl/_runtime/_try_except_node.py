@@ -55,10 +55,10 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
         self._active_graph.initialise()
         self._wire_graph()
 
-    def start(self):
+    def do_start(self):
         self._active_graph.start()
 
-    def stop(self):
+    def do_stop(self):
         self._active_graph.stop()
 
     def dispose(self):
@@ -68,12 +68,18 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
     def eval(self):
         try:
             self.mark_evaluated()
+            self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
             self._active_graph.evaluate_graph()
         except Exception as e:
             from hgraph._types._error_type import NodeError
+
+            self._active_graph.stop()
 
             err = NodeError.capture_error(e, self)
             if type(self.signature.time_series_output) is HgTSBTypeMetaData:
                 self.output.exception.value = err
             else:
                 self.output.value = err
+
+    def enum_nested_graphs(self):
+        yield None, self._active_graph

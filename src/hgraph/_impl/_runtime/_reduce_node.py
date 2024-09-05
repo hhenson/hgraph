@@ -88,6 +88,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # Now we can re-balance the tree if required.
         self._re_balance_nodes()
 
+        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._nested_graph.evaluate_graph()
 
         # Now we just need to detect the change in graph shape, so we can propagate it on.
@@ -95,6 +96,9 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # not change very frequently
         if (o := self.output).value != (v := self._last_output.value):
             o.value = v
+
+    def enum_nested_graphs(self):
+        yield (None, self._nested_graph)
 
     @property
     def _last_output(self):
@@ -159,6 +163,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
     def _evaluate_graph(self):
         """Evaluate the graph for this key"""
+        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._nested_graph.evaluate_graph()
 
     @functools.cached_property

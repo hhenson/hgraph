@@ -39,7 +39,8 @@ packages = [
     polars = ">=1.0"
     sqlalchemy = "*"
     duckdb = "*"
-    pyarrow = "*"
+    pyarrow = ">=16.1.0"
+    multimethod = "*"
     tornado = { version = "*", optional = true }
     requests = { version = "*", optional = true }
 

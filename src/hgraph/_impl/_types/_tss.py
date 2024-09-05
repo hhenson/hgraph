@@ -150,6 +150,9 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             self._is_empty_ref_output.value = True
         self.mark_modified()
 
+    def can_apply_result(self, result: Any):
+        return not self.modified
+
     def apply_result(self, result: Any):
         if result is None:
             return
@@ -192,6 +195,9 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def __contains__(self, item: SCALAR) -> bool:
         return item in self._value
 
+    def __len__(self):
+        return len(self._value)
+
     def values(self) -> Set[SCALAR]:
         return self._value
 
@@ -231,6 +237,9 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def __contains__(self, item: SCALAR) -> bool:
         return self.output.__contains__(item)
+
+    def __len__(self):
+        return self.output.__len__()
 
     @property
     def delta_value(self):

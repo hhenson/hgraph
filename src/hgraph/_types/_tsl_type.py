@@ -70,6 +70,9 @@ class TimeSeriesList(
         """
         return iter(self._ts_values)
 
+    def key_from_value(self, value: TIME_SERIES_TYPE) -> int:
+        return self._ts_values.index(value)
+
     def keys(self) -> Iterable[K]:
         return range(len(self._ts_values))
 
