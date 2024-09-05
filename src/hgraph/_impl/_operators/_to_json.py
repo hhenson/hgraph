@@ -13,6 +13,8 @@ from hgraph import (
     HgTSTypeMetaData,
     TIME_SERIES_TYPE,
     AUTO_RESOLVE,
+    HgDictScalarType,
+    HgTupleCollectionScalarType,
 )
 
 __all__ = []
@@ -52,6 +54,24 @@ def _(value: HgAtomicType) -> Callable[[Any], str]:
         timedelta: _td_to_str,
         datetime: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d %H:%M:%S.%f")}"',
     }[value.py_type]
+
+
+@to_json_converter.register(HgDictScalarType)
+def _(value: HgDictScalarType) -> Callable[[Any], str]:
+    k_fn = to_json_converter(value.key_type)
+    v_fn = to_json_converter(value.value_type)
+
+    def _to_json(v, k_fn=k_fn, v_fn=v_fn):
+        items = (f"{k_fn(k)}: {v_fn(v_)}" for k, v_ in v.items())
+        return f'{{ {", ".join(items)} }}'
+
+    return _to_json
+
+
+@to_json_converter.register(HgTupleCollectionScalarType)
+def _(value: HgTupleCollectionScalarType) -> Callable[[Any], str]:
+    v_fn = to_json_converter(value.element_type)
+    return lambda v, v_fn=v_fn: f'[ {", ".join(v_fn(i) for i in v)} ]'
 
 
 @to_json_converter.register(HgTSTypeMetaData)

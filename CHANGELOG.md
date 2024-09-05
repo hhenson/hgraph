@@ -692,3 +692,8 @@ Version 0.3.13 (05-08-2024)
 * Work on perspective API to improve performance and design
 * Graph inspector UI (web adaptor)
 * Work on scheduler issues
+
+Version 0.3.14 (05-08-2024)
+---------------------------
+
+* Add mapping and tuple support to ``to_json`` operator.
