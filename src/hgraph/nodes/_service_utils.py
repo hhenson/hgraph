@@ -174,7 +174,7 @@ def _request_reply_service(
 
 
 @generator
-def request_id(_state: STATE = None) -> TS[int]:
+def request_id(hash: int, _state: STATE = None) -> TS[int]:
     i = GlobalState.instance().get("request_id", id(_state)) + 1
     GlobalState.instance().request_id = i
     yield timedelta(), i
