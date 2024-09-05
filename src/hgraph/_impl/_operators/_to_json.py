@@ -1,7 +1,10 @@
+import json
 from datetime import datetime, date, time, timedelta
 from enum import Enum
 from functools import singledispatch, cache
 from typing import Callable, Any
+
+from frozendict import frozendict as fd
 
 from hgraph import (
     compute_node,
@@ -15,6 +18,9 @@ from hgraph import (
     AUTO_RESOLVE,
     HgDictScalarType,
     HgTupleCollectionScalarType,
+    from_json,
+    OUT,
+    DEFAULT,
 )
 
 __all__ = []
@@ -90,6 +96,76 @@ def _td_to_str(delta: timedelta) -> str:
     return f'"{days}:{hours}:{minutes}:{seconds}.{ms:06}"'
 
 
+@cache
+def _from_json(tp: type[TIME_SERIES_TYPE]) -> Any:
+    return from_json_converter(HgTypeMetaData.parse_type(tp))
+
+
+@singledispatch
+def from_json_converter(value: HgTypeMetaData) -> Callable[[dict], Any]:
+    """By default, just assume the value can be returned as is"""
+    raise RuntimeError(f"Cannot convert to '{value}' from JSON")
+
+
+@from_json_converter.register(HgTSTypeMetaData)
+def _(value: HgTSTypeMetaData) -> Callable[[Any], Any]:
+    return from_json_converter(value.value_scalar_tp)
+
+
+@from_json_converter.register(HgCompoundScalarType)
+def _(value: HgCompoundScalarType) -> Callable[[Any], Any]:
+    fns = []
+    for k, tp in value.meta_data_schema.items():
+        fns.append((k, lambda v, tp=tp, k=k: _from_json(tp)(v.get(k, None))))
+    return lambda v, fns=fns, tp=value.py_type: tp(**{k: v_ for k, fn in fns if (v_ := fn(v)) is not None})
+
+
+@from_json_converter.register(HgAtomicType)
+def _(value: HgAtomicType) -> Callable[[Any], Any]:
+    if issubclass(value.py_type, Enum):
+        return lambda v, tp=value.py_type: None if v is None else getattr(tp, v)
+
+    return {
+        date: lambda v: None if v is None else datetime.strptime(v, "%Y-%m-%d").date(),
+        time: lambda v: None if v is None else datetime.strptime(v, "%H:%M:%S.%f").time(),
+        timedelta: _str_to_td,
+        datetime: lambda v: None if v is None else datetime.strptime(v, "%Y-%m-%d %H:%M:%S.%f"),
+    }.get(value.py_type, lambda v: v)
+
+
+def _str_to_td(s: str) -> timedelta:
+    if s is None:
+        return None
+    days, hours, minutes, seconds_ms = s.split(":")
+    seconds, ms = seconds_ms.split(".")
+    return timedelta(
+        days=int(days),
+        hours=int(hours),
+        minutes=int(minutes),
+        seconds=int(seconds),
+        microseconds=int(ms),
+    )
+
+
+@from_json_converter.register(HgDictScalarType)
+def _(value: HgDictScalarType) -> Callable[[dict], Any]:
+    k_fn = from_json_converter(value.key_type)
+    v_fn = from_json_converter(value.value_type)
+    return lambda v, k_fn=k_fn, v_fn=v_fn: fd(**{k_fn(k_): v_fn(v_) for k_, v_ in v.items()})
+
+
+@from_json_converter.register(HgTupleCollectionScalarType)
+def _(value: HgTupleCollectionScalarType) -> Callable[[list], Any]:
+    v_fn = from_json_converter(value.element_type)
+    return lambda v, v_fn=v_fn: tuple(v_fn(v_fn(i)) for i in v)
+
+
 @compute_node(overloads=to_json)
 def to_json_generic(ts: TIME_SERIES_TYPE, _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TS[str]:
     return _to_json(_tp)(ts)
+
+
+@compute_node(overloads=from_json)
+def from_json_generic(ts: TS[str], _tp: type[OUT] = AUTO_RESOLVE) -> DEFAULT[OUT]:
+    value = json.loads(ts.value)
+    return _from_json(_tp)(value)
