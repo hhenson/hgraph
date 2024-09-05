@@ -1,3 +1,4 @@
+from hgraph._types._scalar_types import DEFAULT
 from hgraph._wiring._decorators import operator
 from hgraph._types import TIME_SERIES_TYPE, TS, OUT
 
@@ -6,7 +7,7 @@ __all__ = ["to_json", "from_json"]
 
 
 @operator
-def to_json(ts: TIME_SERIES_TYPE) -> TS[str]:
+def to_json(ts: DEFAULT[TIME_SERIES_TYPE]) -> TS[str]:
     """
     Converts the ``ts`` to a JSON string.
     """

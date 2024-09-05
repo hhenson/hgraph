@@ -18,6 +18,7 @@ from hgraph._impl._operators._stream_analytical_operators import *
 from hgraph._impl._operators._stream_operators import *
 from hgraph._impl._operators._time_series_conversion import *
 from hgraph._impl._operators._time_series_properties import *
+from hgraph._impl._operators._to_json import *
 from hgraph._impl._operators._to_table_impl import *
 from hgraph._impl._operators._tsb_operators import *
 from hgraph._impl._operators._tsd_operators import *

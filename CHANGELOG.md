@@ -682,3 +682,4 @@ Version 0.3.12 (04-08-2024)
 
 * Add modified operator.
 * Fix imports
+* Start on to_json serialisation
