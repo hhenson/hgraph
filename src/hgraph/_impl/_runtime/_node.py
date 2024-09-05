@@ -172,7 +172,9 @@ class BaseNodeImpl(Node, ABC):
                 elif self.signature.uses_scheduler:
                     # It is possible we have scheduled and then remove the schedule,
                     # so we need to check that something has caused this to be scheduled.
-                    if not scheduled and not any(self.input[k].modified for k in self.signature.time_series_inputs.keys()):
+                    if not scheduled and not any(
+                        self.input[k].modified for k in self.signature.time_series_inputs.keys()
+                    ):
                         eval = False
 
         if eval:
@@ -430,11 +432,15 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         self.eval_fn(lambda m: self.receiver((self.node_ndx, m)), **self._kwargs)
         self.elide = self.scalars.get("elide", False)
 
-    def apply_message(self, message):  # return True if stop processing further messages
+    def apply_message(self, message) -> bool:
+        """
+        Attempt to apply the message to the output, if the application is successful returns True
+        else returns False to indicate the application was not possible.
+        """
         if self.elide or self.output.can_apply_result(message):
             self.output.apply_result(message)
-            return False
-        return True
+            return True
+        return False
 
 
 @dataclass

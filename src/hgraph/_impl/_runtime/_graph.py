@@ -3,6 +3,7 @@ import typing
 from datetime import datetime
 from typing import Iterable, Sequence
 
+from hgraph._impl._runtime._node import PythonPushQueueNodeImpl
 from hgraph._runtime._constants import MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngineApi
@@ -161,7 +162,9 @@ class PythonGraph(Graph):
         if force_set or st <= et or st > when:
             self.schedule[node_ndx] = when
         clock.update_next_scheduled_evaluation_time(when)
-        self._scheduled_times.append((node_ndx, et, when, force_set or st <= et or st > when, clock.next_scheduled_evaluation_time))
+        self._scheduled_times.append(
+            (node_ndx, et, when, force_set or st <= et or st > when, clock.next_scheduled_evaluation_time)
+        )
 
     def start_subgraph(self, start: int, end: int):
         """Start the subgraph (end is exclusive), i.e. [start, end)"""
@@ -223,13 +226,14 @@ class PythonGraph(Graph):
             clock.reset_push_node_requires_scheduling()
             while self.receiver:
                 i, message = self.receiver.dequeue()
-                node = self.nodes[i]
+                # TODO: Extract the generic inteface description as this code can be generic, not depending on the impl
+                node: PythonPushQueueNodeImpl = self.nodes[i]
                 self._evaluation_engine.notify_before_node_evaluation(node)
-                stop = node.apply_message(message)
+                success = node.apply_message(message)
                 self._evaluation_engine.notify_after_node_evaluation(node)
-                if stop:
+                if not success:
                     with self.receiver:
-                        # stop == True means the message was not applied, put it back up the queue.
+                        # The message was not applied, put it back up the queue.
                         self.receiver.queue.appendleft((i, message))
                         self.engine_evaluation_clock.mark_push_node_requires_scheduling()
                     break
@@ -248,7 +252,9 @@ class PythonGraph(Graph):
                 except Exception as e:
                     raise NodeException.capture_error(e, node, "During evaluation") from e
                 self._evaluation_engine.notify_after_node_evaluation(node)
-                self._evaluated_node_times.append((node.node_ndx, now, schedule[i], clock.next_scheduled_evaluation_time))
+                self._evaluated_node_times.append(
+                    (node.node_ndx, now, schedule[i], clock.next_scheduled_evaluation_time)
+                )
             elif scheduled_time > now:
                 # If the node has a scheduled time in the future, we need to let the execution context know.
                 clock.update_next_scheduled_evaluation_time(scheduled_time)
