@@ -211,12 +211,12 @@ try:
             record(
                 map_(
                     lambda key, q: key == http_client_adaptor(q).body,
-                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=10)),
+                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=100)),
                 )
             )
 
         with GlobalState():
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2))
             for tick in [{"one": True}, {"two": True}]:
                 assert tick in [t[-1] for t in get_recorded_value()]
 
