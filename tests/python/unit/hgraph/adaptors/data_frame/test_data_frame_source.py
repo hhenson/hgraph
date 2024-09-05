@@ -26,6 +26,7 @@ class MockDataSource(PolarsDataFrameSource):
 
 
 @pytest.mark.serial
+@pytest.mark.xfail(raises=RuntimeError, reason="When run on the CI/CD this triggers when doing a release (xdist issue)")
 def test_ts_data_source():
     @graph
     def main() -> TS[int]:
@@ -39,6 +40,7 @@ def test_ts_data_source():
 
 
 @pytest.mark.serial
+@pytest.mark.xfail(raises=RuntimeError, reason="When run on the CI/CD this triggers when doing a release (xdist issue)")
 def test_data_source():
     @graph
     def main() -> TSB[ts_schema(name=TS[str], age=TS[int])]:
