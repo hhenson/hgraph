@@ -111,7 +111,7 @@ class WiringPort:
     def value(self):
         v = self.node_instance.inputs.get("value", None)
         if v is None:  # Let's try and get 'value' from self (in case of `TSB')
-            return self["value"]
+            return self.__getattr__("value")
         else:
             return v
 

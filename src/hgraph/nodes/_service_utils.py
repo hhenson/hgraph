@@ -127,15 +127,17 @@ def write_service_request(
             svc_node_in = GlobalState.instance().get(f"{path}/request_{arg}")
             if svc_node_in is None:
                 raise ValueError(f"request stub '{arg}' not found for service {path}")
-            svc_node_in.apply_value({id(_state.requestor_id): ts.delta_value})
+            svc_node_in.apply_value({_state.requestor_id: ts.delta_value})
 
     if not _output.valid:
-        return id(_state.requestor_id)
+        return _state.requestor_id
 
 
 @write_service_request.start
 def write_service_request_start(path: str, _state: STATE):
-    _state.requestor_id = object()
+    i = GlobalState.instance().get("request_id", id(_state)) + 1
+    GlobalState.instance().request_id = i
+    _state.requestor_id = i
 
 
 @write_service_request.stop
@@ -144,7 +146,7 @@ def write_service_request_stop(request: TIME_SERIES_TYPE, path: str, _state: STA
         for arg, i in request.items():
             if i.valid:
                 if svc_node_in := GlobalState.instance().get(f"{path}/request_{arg}"):
-                    svc_node_in.apply_value({id(_state.requestor_id): REMOVE_IF_EXISTS})
+                    svc_node_in.apply_value({_state.requestor_id: REMOVE_IF_EXISTS})
 
 
 @sink_node
@@ -172,9 +174,10 @@ def _request_reply_service(
 
 
 @generator
-def request_id(hash: int, _state: STATE = None) -> TS[int]:
-    _state.request = object()
-    yield timedelta(), id(_state.request)
+def request_id(_state: STATE = None) -> TS[int]:
+    i = GlobalState.instance().get("request_id", id(_state)) + 1
+    GlobalState.instance().request_id = i
+    yield timedelta(), i
 
 
 @sink_node
