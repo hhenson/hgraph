@@ -59,6 +59,7 @@ class HttpRequest(CompoundScalar):
 
     Using this will result in a request failure with code 400.
     """
+
     url: str
     url_parsed_args: tuple[str] = ()
     query: dict[str, str] = frozendict()
