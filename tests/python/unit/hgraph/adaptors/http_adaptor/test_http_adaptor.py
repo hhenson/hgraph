@@ -31,6 +31,8 @@ try:
         const,
         GlobalState,
         get_recorded_value,
+        GraphConfiguration,
+        evaluate_graph,
     )
     from hgraph.adaptors.tornado.http_server_adaptor import (
         http_server_handler,
@@ -216,7 +218,8 @@ try:
             )
 
         with GlobalState():
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+            config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1), trace=False)
+            evaluate_graph(g, config)
             values = get_recorded_value()
             assert 1 <= len(values) <= 3
             v = values[0][1]
