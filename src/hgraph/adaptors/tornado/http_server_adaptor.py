@@ -1,4 +1,5 @@
 import asyncio
+from abc import ABC
 from dataclasses import dataclass
 from typing import Callable
 
@@ -30,6 +31,21 @@ from hgraph import (
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
+__all__ = (
+    "HttpRequest",
+    "HttpResponse",
+    "HttpGetRequest",
+    "HttpDeleteRequest",
+    "HttpPostRequest",
+    "HttpPutRequest",
+    "HttpAdaptorManager",
+    "HttpHandler",
+    "http_server_handler",
+    "http_server_adaptor",
+    "http_server_adaptor_impl",
+    "http_server_adaptor_helper",
+)
+
 
 @dataclass(frozen=True)
 class HttpRequest(CompoundScalar):
@@ -51,6 +67,16 @@ class HttpResponse(CompoundScalar):
 @dataclass(frozen=True)
 class HttpGetRequest(HttpRequest):
     pass
+
+
+@dataclass(frozen=True)
+class HttpDeleteRequest(HttpRequest):
+    pass
+
+
+@dataclass(frozen=True)
+class HttpPutRequest(HttpRequest):
+    body: str = ""
 
 
 @dataclass(frozen=True)
@@ -106,6 +132,7 @@ class HttpAdaptorManager:
         self.queue({request_id: REMOVE_IF_EXISTS})
         del self.requests[request_id]
 
+
 class HttpHandler(tornado.web.RequestHandler):
     def initialize(self, path, mgr):
         self.path = path
@@ -119,20 +146,16 @@ class HttpHandler(tornado.web.RequestHandler):
             query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
             cookies=frozendict(self.request.cookies),
         )
+        await self._handle_request(request_obj)
 
-        response = await self.mgr.add_request(
-            id(request_obj),
-            request_obj,
+    async def delete(self, *args):
+        request_obj = HttpDeleteRequest(
+            url=self.path,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            cookies=frozendict(self.request.cookies),
         )
-
-        self.set_status(response.status_code)
-
-        if response.headers:
-            for k, v in response.headers.items():
-                self.set_header(k, v)
-
-        await self.finish(response.body)
-        self.mgr.remove_request(id(request_obj))
+        await self._handle_request(request_obj)
 
     async def post(self, *args):
         request_obj = HttpPostRequest(
@@ -141,13 +164,22 @@ class HttpHandler(tornado.web.RequestHandler):
             headers=self.request.headers,
             body=self.request.body.decode("utf-8"),
         )
-        # We can use the id of the request as we clean up the responses on completion, so we should not
-        # hit re-use immediately.
+        await self._handle_request(request_obj)
+
+    async def put(self, *args):
+        request_obj = HttpPostRequest(
+            url=self.path,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            body=self.request.body.decode("utf-8"),
+        )
+        await self._handle_request(request_obj)
+
+    async def _handle_request(self, request_obj):
         response = await self.mgr.add_request(
             id(request_obj),
             request_obj,
         )
-
         self.set_status(response.status_code)
         for k, v in response.headers.items():
             self.set_header(k, v)

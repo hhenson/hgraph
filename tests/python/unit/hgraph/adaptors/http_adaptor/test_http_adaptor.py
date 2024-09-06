@@ -1,4 +1,4 @@
-from random import random, randrange
+from random import randrange
 
 import pytest
 from frozendict import frozendict
@@ -33,6 +33,7 @@ try:
         get_recorded_value,
         GraphConfiguration,
         evaluate_graph,
+        log_,
     )
     from hgraph.adaptors.tornado.http_server_adaptor import (
         http_server_handler,
@@ -41,6 +42,7 @@ try:
         http_server_adaptor_impl,
         http_server_adaptor,
         http_server_adaptor_helper,
+        HttpGetRequest,
     )
     from hgraph.nodes import stop_engine
 
@@ -206,19 +208,25 @@ try:
             register_adaptor(None, http_client_adaptor_impl)
 
             queries = frozendict({
-                "one": HttpRequest(f"http://localhost:{port}/test/one"),
-                "two": HttpRequest(f"http://localhost:{port}/test/two"),
+                "one": HttpGetRequest(f"http://localhost:{port}/test/one"),
+                "two": HttpGetRequest(f"http://localhost:{port}/test/two"),
             })
+
+            @graph
+            def _send_query(key: TS[str], q: TS[HttpRequest]) -> TS[bool]:
+                out = http_client_adaptor(q)
+                log_("Response: {}", out)
+                return key == out.body
 
             record(
                 map_(
-                    lambda key, q: key == http_client_adaptor(q).body,
-                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=10)),
+                    _send_query,
+                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=2)),
                 )
             )
 
         with GlobalState():
-            config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1), trace=False)
+            config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
             evaluate_graph(g, config)
             values = get_recorded_value()
             assert 1 <= len(values) <= 3

@@ -1,12 +1,20 @@
-import urllib
+from collections import namedtuple
 from typing import Callable
 from urllib.parse import urlencode
+from frozendict import frozendict as fd
 
 from tornado.httpclient import AsyncHTTPClient
 
 from hgraph import service_adaptor, TS, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
-from hgraph.adaptors.tornado.http_server_adaptor import HttpRequest, HttpResponse, HttpPostRequest
+from hgraph.adaptors.tornado.http_server_adaptor import (
+    HttpRequest,
+    HttpResponse,
+    HttpPostRequest,
+    HttpGetRequest,
+    HttpPutRequest,
+    HttpDeleteRequest,
+)
 
 
 @service_adaptor
@@ -30,12 +38,22 @@ def http_client_adaptor_impl(
         else:
             url = request.url
 
-        if isinstance(request, HttpPostRequest):
+        if isinstance(request, HttpGetRequest):
+            response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False)
+        elif isinstance(request, HttpPostRequest):
             response = await client.fetch(
                 url, method="POST", headers=request.headers, body=request.body, raise_error=False
             )
+        elif isinstance(request, HttpPutRequest):
+            response = await client.fetch(
+                url, method="PUT", headers=request.headers, body=request.body, raise_error=False
+            )
+        elif isinstance(request, HttpDeleteRequest):
+            response = await client.fetch(url, method="DELETE", headers=request.headers, raise_error=False)
         else:
-            response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False)
+            response = namedtuple("HttpResponse_", ["code", "headers", "body"])(
+                400, fd(), b"Incorrect request type provided"
+            )
 
         sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body.decode())})
 
