@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Generic, TYPE_CHECKING, cast
 
+from hgraph import MIN_DT
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
@@ -203,4 +204,4 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().last_modified_time
         else:
-            return max(ts.last_modified_time for ts in self.values())
+            return max((ts.last_modified_time for ts in self.values()), default=MIN_DT)

@@ -43,17 +43,47 @@
 
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
+                const worker = perspective.worker();
 
                 const websocket_ro = perspective.websocket("ws://{{host}}:{{port}}/websocket_readonly");
                 const websocket_rw = perspective.websocket("ws://{{host}}:{{port}}/websocket_editable");
 
                 //{% for table_name in mgr.get_table_names() %}
+                //{% if not table_name.endswith("_removes") %}
+                //{% if mgr.server_tables %}
                 workspace.tables.set(
                     "{{table_name}}",
                     {{"websocket_ro" if not mgr.is_table_editable(table_name) else "websocket_rw"}}.open_table("{{table_name}}")
                 );
+                //{% else %}
+                // {% set tbl = table_name.replace(" ", "_").replace("-", "_") %}
+                const table_{{tbl}} = await {{"websocket_ro" if not mgr.is_table_editable(table_name) else "websocket_rw"}}.open_table("{{table_name}}")
+                const view_{{tbl}} = await table_{{tbl}}.view()
+                // {% if mgr.get_table(table_name).get_index() %}
+                const client_{{tbl}} = await worker.table(view_{{tbl}}, {index: await table_{{tbl}}.get_index()});
+                // {% else %}
+                const client_{{tbl}} = await worker.table(view_{{tbl}});
+                // {% end %}
+                // {% if table_name + "_removes" in mgr.get_table_names() %}
+                const removes_{{tbl}} = await websocket_ro.open_table("{{table_name}}_removes")
+                const removes_view_{{tbl}} = await removes_{{tbl}}.view()
+                removes_view_{{tbl}}.on_update(
+                    async (updated) => {
+                        const update_table = await worker.table(updated.delta);
+                        const update_view = await update_table.view();
+                        const update_data = await update_view.to_columns();
+                        client_{{tbl}}.remove(update_data['i']);
+                    },
+                    { mode: "row" }
+                );
+                // {% end %}
+                // {% end %}
+                workspace.tables.set(
+                    "{{table_name}}",
+                    client_{{tbl}}
+                );
                 //{% end %}
-
+                //{% end %}
 
                 const req = await fetch("/layout/{{url}}");
                 const json = await req.json();

@@ -102,9 +102,11 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._active_graph.evaluate_graph()
 
-    def enum_nested_graphs(self):
+    def nested_graphs(self):
         if self._active_graph:
-            yield None, self._active_graph
+            return {0: self._active_graph}
+        else:
+            return {}
 
     def recordable_id(self) -> tuple[str, bool]:
         """The id and True or no id and False if required inputs are not ready yet"""

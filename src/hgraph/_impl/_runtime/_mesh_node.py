@@ -95,9 +95,10 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         self.current_eval_graph = None
         self.max_rank = 0
 
-        self._scheduled_times = defaultdict(list)
-        self._evaluated_times = defaultdict(list)
-        self._re_rank_times = defaultdict(list)
+        # these are for debugging scheduling issues
+        # self._scheduled_times = defaultdict(list)
+        # self._evaluated_times = defaultdict(list)
+        # self._re_rank_times = defaultdict(list)
 
     def do_start(self):
         super().do_start()
@@ -146,10 +147,10 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             dt = self._scheduled_ranks.pop(rank, None)
             if dt == self.last_evaluation_time:
                 graphs = self._scheduled_keys_by_rank.pop(rank, {})
-                self._evaluated_times[rank].append(dt)
+                # self._evaluated_times[rank].append(dt)
                 for k, dtg in graphs.items():
                     if dtg == dt:
-                        self._evaluated_times[k].append(dt)
+                        # self._evaluated_times[k].append(dt)
                         self.current_eval_graph = k
                         dtg = self._evaluate_graph(k)
                         self.current_eval_graph = None
@@ -204,8 +205,8 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
                 f" dependency cycle {key} -> {key}"
             )
 
-        self._scheduled_times[rank].append((self.last_evaluation_time, self._scheduled_ranks[rank]))
-        self._scheduled_times[key].append((self.last_evaluation_time, tm, rank))
+        # self._scheduled_times[rank].append((self.last_evaluation_time, self._scheduled_ranks[rank]))
+        # self._scheduled_times[key].append((self.last_evaluation_time, tm, rank))
 
     def _remove_graph(self, key: K):
         """Un-wire graph and schedule for removal"""
@@ -244,7 +245,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             new_rank = below + 1
             self.max_rank = max(self.max_rank, new_rank)
             self._active_graphs_rank[key] = new_rank
-            self._re_rank_times[key].append((self.last_evaluation_time, prev_rank, new_rank))
+            # self._re_rank_times[key].append((self.last_evaluation_time, prev_rank, new_rank))
             if schedule:
                 self.schedule_graph(key, schedule)
             for k in self._active_graphs_dependencies[key]:

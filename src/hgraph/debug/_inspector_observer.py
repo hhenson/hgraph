@@ -45,7 +45,8 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         self.callback_node = callback_node
         self.callback_graph = callback_graph
-        self.subscriptions = set()
+        self.graph_subscriptions = set()
+        self.node_subscriptions = set()
 
         if graph:
             self.walk(graph)
@@ -60,17 +61,22 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.on_before_start_graph(graph)
         for n in graph.nodes:
             if isinstance(n, PythonNestedNodeImpl):
-                for k, v in n.enum_nested_graphs():
+                for k, v in n.nested_graphs().items():
                     self.walk(v)
 
         self.on_after_start_graph(graph)
 
-    def subscribe(self, node_id: tuple[int, ...]):
-        if node_id not in self.subscriptions:
-            self.subscriptions.add(node_id)
+    def subscribe_graph(self, graph_id: tuple[int, ...]):
+        self.graph_subscriptions.add(graph_id)
 
-    def unsubscribe(self, node_id: tuple[int, ...]):
-        self.subscriptions.discard(node_id)
+    def unsubscribe_graph(self, graph_id: tuple[int, ...]):
+        self.graph_subscriptions.discard(graph_id)
+
+    def subscribe_node(self, node_id: tuple[int, ...]):
+        self.node_subscriptions.add(node_id)
+
+    def unsubscribe_node(self, node_id: tuple[int, ...]):
+        self.node_subscriptions.discard(node_id)
 
     def on_before_start_graph(self, graph: "Graph"):
         gi = GraphInfo(
@@ -111,7 +117,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.current_graph.node_eval_counts[node.node_ndx] += 1
         self.current_graph.node_eval_times[node.node_ndx] += time.perf_counter_ns() - self.current_graph.node_eval_begin_times[node.node_ndx]
 
-        if self.callback_node and node.node_id in self.subscriptions:
+        if self.callback_node and node.node_id in self.node_subscriptions:
             self.callback_node(node)
 
     def on_after_graph_evaluation(self, graph: "Graph"):
@@ -119,7 +125,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.current_graph.eval_time += time.perf_counter_ns() - self.current_graph.eval_begin_time
         self.current_graph = self.graphs.get(self.current_graph.parent_graph, None)
 
-        if self.callback_graph and graph.graph_id in self.subscriptions:
+        if self.callback_graph and graph.graph_id in self.graph_subscriptions:
             self.callback_graph(graph)
 
     def on_after_stop_graph(self, graph: "Graph"):

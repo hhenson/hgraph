@@ -59,10 +59,16 @@ class PerspectiveTableUpdatesHandler:
 
 
 class PerspectiveTablesManager:
-    def __init__(self):
+    def __init__(self, host_server_tables=True):
+        self._host_server_tables = host_server_tables
         self._started = False
         self._tables = {}
         self._updaters = {}
+
+    @classmethod
+    def set_current(cls, self):
+        assert GlobalState.instance().get("perspective_manager") is None
+        GlobalState.instance()["perspective_manager"] = self
 
     @classmethod
     def current(cls) -> "PerspectiveTablesManager":
@@ -73,10 +79,18 @@ class PerspectiveTablesManager:
 
         return self
 
+    @property
+    def server_tables(self):
+        return self._host_server_tables
+
     def add_table(self, name, table, editable=False):
         self._tables[name] = [table, editable]
         if self._started:
             self._start_table(name)
+
+        if table.get_index() and not self.server_tables:
+            # client tables need removes sent separately (because bug in perspective)
+            self.add_table(name + "_removes", Table({"i": table.schema()[table.get_index()]}))
 
     def subscribe_table_updates(self, name, cb):
         if (table := self._tables.get(name)) and not table[1]:
@@ -139,7 +153,10 @@ class PerspectiveTablesManager:
             self._manager_for_table(name).call_loop(lambda: table.update(arrow))
 
         if removals:
-            self._manager_for_table(name).call_loop(lambda: table.remove(removals))
+            if table.get_index() and not self.server_tables:
+                self.update_table(name + "_removes", {"i": list(removals)})
+            else:
+                self._manager_for_table(name).call_loop(lambda: table.remove(removals))
 
         # table.update(data)
 
@@ -169,7 +186,6 @@ class PerspectiveTablesManager:
 
     def is_table_editable(self, name):
         return self._tables[name][1]
-
 
 @sink_node
 def perspective_web(
@@ -290,9 +306,15 @@ def perspective_web_start(
 
 
 def _perspective_thread(manager, cb):
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    if manager.server_tables:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            loop = tornado.ioloop.IOLoop()
+            manager.set_loop_callback(loop.run_in_executor, executor)
+            cb()
+            loop.start()
+    else:
         loop = tornado.ioloop.IOLoop()
-        manager.set_loop_callback(loop.run_in_executor, executor)
+        manager.set_loop_callback(loop.add_callback)
         cb()
         loop.start()
 
