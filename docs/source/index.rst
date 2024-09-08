@@ -11,4 +11,4 @@ Contents
 .. toctree::
 
    Home <self>
-   api
+   api/api
