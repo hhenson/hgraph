@@ -1556,4 +1556,4 @@ web = ["perspective-python", "requests", "tornado"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11"
-content-hash = "0aff43e2982907eee8aaa24cd8ddf6b370a3e09a146e0bbef293c6770ea6b9ad"
+content-hash = "340a996c53921dff67db22b1dffdb87b3c0dda260abfa9fb2fa8fcedf3f6a510"
