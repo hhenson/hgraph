@@ -11,9 +11,9 @@ def test_inspector_item_id():
     assert item_id.to_str() == "1.2.3:4"
 
     item_id = InspectorItemId(graph=(1, 2, 3), node=4, value_type=NodeValueType.Inputs, value_path=(5, 6, 7))
-    assert item_id.to_str() == "1.2.3:4/inputs/5/6/7"
+    assert item_id.to_str() == "1.2.3:4/INPUTS/5/6/7"
 
-    item_id = InspectorItemId.from_str("1.2.3:4/inputs/5/6/7")
+    item_id = InspectorItemId.from_str("1.2.3:4/INPUTS/5/6/7")
     assert item_id.item_type == InspectorItemType.Value
     assert item_id.graph == (1, 2, 3)
     assert item_id.node == 4
@@ -38,9 +38,9 @@ def test_inspector_item_id():
     InspectorItemId.__reset__()
 
     item_id = InspectorItemId(graph=(1, 2, 3), node=4, value_type=NodeValueType.Inputs, value_path=(5, "6", 7))
-    assert item_id.to_str() == "1.2.3:4/inputs/5/x001/7"
+    assert item_id.to_str() == "1.2.3:4/INPUTS/5/x001/7"
 
-    item_id = InspectorItemId.from_str("1.2.3:4/inputs/5/x001/7")
+    item_id = InspectorItemId.from_str("1.2.3:4/INPUTS/5/x001/7")
     assert item_id.item_type == InspectorItemType.Value
     assert item_id.graph == (1, 2, 3)
     assert item_id.node == 4
