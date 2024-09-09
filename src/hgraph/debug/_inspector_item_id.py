@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
-from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput
+from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput, TimeSeriesSet
 from hgraph.debug._inspector_util import format_name, base62
 
 
@@ -20,10 +20,10 @@ class InspectorItemType(Enum):
 
 
 class NodeValueType(Enum):
-    Inputs = "inputs"
-    Output = "output"
-    Graphs = "graphs"
-    Scalars = "scalars"
+    Inputs = "INPUTS"
+    Output = "OUTPUT"
+    Graphs = "GRAPHS"
+    Scalars = "SCALARS"
 
 
 @dataclass(frozen=True, init=False, kw_only=True)
@@ -66,7 +66,7 @@ class InspectorItemId:
 
     @classmethod
     def _internalise(cls, s):
-        if type(s) is int:
+        if type(s) is int and s < 62**3:
             return s
 
         s_to_i = cls._s_to_i
@@ -199,6 +199,9 @@ class InspectorItemId:
             try:
                 value = value[i]
             except:
+                if isinstance(value, (set, frozenset, TimeSeriesSet)):
+                    if i in value:
+                        return i
                 return None
 
         return value
@@ -260,7 +263,7 @@ class InspectorItemId:
         if self.value_type is not None:
             sort_key += value_type_order[self.value_type]
 
-        sort_key += ''.join(base62(i) if type(i) is int else self._internalise(i)[1:] for i in self.value_path)
+        sort_key += ''.join(base62(i) if type(i) is int and i < 62**3 else self._internalise(i)[1:] for i in self.value_path)
         return sort_key
 
     def sub_item(self, key: int | str | object, value):
@@ -310,9 +313,9 @@ class InspectorItemId:
         )
 
     def is_parent_of(self, other):
-        self_str = self.to_str()
-        other_str = other.to_str()
-        return len(other_str) > len(self_str) and other_str.startswith(self_str) and other_str[len(self_str)] in ".:/"
+        self_str = self.sort_key()
+        other_str = other.sort_key()
+        return len(other_str) > len(self_str) and other_str.startswith(self_str)
 
     def parent_item_ids(self):
         parents = []

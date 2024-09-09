@@ -96,7 +96,7 @@ def publish_stats(state: InspectorState):
     )
     state.tick_data = {}
 
-    state.value_removals = []
+    state.value_removals = set()
 
     data = state.total_data
     if data["time"]:

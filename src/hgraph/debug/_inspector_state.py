@@ -22,9 +22,10 @@ class InspectorState(CompoundScalar):
     graph_subscriptions: dict = field(default_factory=lambda: dict())  # graph_id -> item_id
     node_subscriptions: dict = field(default_factory=lambda: defaultdict(set))  # node_id -> item_id
     node_item_subscriptions: dict = field(default_factory=lambda: defaultdict(set))  # node_id -> {item_ids}
+    found_items: set = field(default_factory=set)
 
     value_data: list = field(default_factory=list)
-    value_removals: list = field(default_factory=list)
+    value_removals: set = field(default_factory=set)
     tick_data: dict = field(default_factory=dict)
     perf_data: list = field(default_factory=list)
     total_data_prev: list = field(default_factory=dict)
