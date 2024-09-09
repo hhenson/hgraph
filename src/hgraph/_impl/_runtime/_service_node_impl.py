@@ -49,5 +49,5 @@ class PythonServiceNodeImpl(PythonNestedNodeImpl):
         self._active_graph.dispose()
         self._active_graph = None
 
-    def enum_nested_graphs(self):
-        yield (None, self._active_graph)
+    def nested_graphs(self):
+        return {0: self._active_graph}

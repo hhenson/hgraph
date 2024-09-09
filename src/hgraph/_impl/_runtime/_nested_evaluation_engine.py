@@ -95,5 +95,5 @@ class PythonNestedNodeImpl(NodeImpl):
         self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
 
     @abstractmethod
-    def enum_nested_graphs(self):
+    def nested_graphs(self):
         ...

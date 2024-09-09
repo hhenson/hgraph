@@ -34,7 +34,7 @@ def _publish_table(
 ): ...
 
 
-@graph
+@operator
 def _receive_table_edits(name: str, type: Type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
     """
     Receive the edits to a perspective table

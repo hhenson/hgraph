@@ -58,10 +58,10 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
                 self._active_key = key.value
 
                 if builder := self.nested_graph_builders.get(self._active_key, self._default_graph_builder):
-                    self._active_graph = builder.make_instance(
-                        self.node_id + (self._count,), self, str(self._active_key)
-                    )
                     self._count += 1
+                    self._active_graph = builder.make_instance(
+                        self.node_id + (-self._count,), self, str(self._active_key)
+                    )
                     self._active_graph.evaluation_engine = NestedEvaluationEngine(
                         self.graph.evaluation_engine,
                         NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self),
@@ -76,9 +76,11 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
             self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
             self._active_graph.evaluate_graph()
 
-    def enum_nested_graphs(self):
+    def nested_graphs(self):
         if self._active_graph:
-            yield self._active_key, self._active_graph
+            return {self._count: self._active_graph}
+        else:
+            return {}
 
     def _wire_graph(self, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""

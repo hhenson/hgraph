@@ -101,8 +101,8 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self._scheduled_keys.clear()
         self._pending_keys.clear()
 
-    def enum_nested_graphs(self):
-        return self._active_graphs.items()
+    def nested_graphs(self):
+        return self._active_graphs
 
     def _create_new_graph(self, key: K):
         """Create new graph instance and wire it into the node"""

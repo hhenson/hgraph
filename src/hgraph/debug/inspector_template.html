@@ -33,15 +33,46 @@
 
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
+                const worker = perspective.worker();
 
                 const websocket_ro = perspective.websocket("ws://{{host}}:{{port}}/websocket_readonly");
                 const websocket_rw = perspective.websocket("ws://{{host}}:{{port}}/websocket_editable");
 
                 //{% for table_name in mgr.get_table_names() %}
+                //{% if not table_name.endswith("_removes") %}
+                //{% if mgr.server_tables %}
                 workspace.tables.set(
                     "{{table_name}}",
                     {{"websocket_ro" if not mgr.is_table_editable(table_name) else "websocket_rw"}}.open_table("{{table_name}}")
                 );
+                //{% else %}
+                // {% set tbl = table_name.replace(" ", "_").replace("-", "_") %}
+                const table_{{tbl}} = await {{"websocket_ro" if not mgr.is_table_editable(table_name) else "websocket_rw"}}.open_table("{{table_name}}")
+                const view_{{tbl}} = await table_{{tbl}}.view()
+                // {% if mgr.get_table(table_name).get_index() %}
+                const client_{{tbl}} = await worker.table(view_{{tbl}}, {index: await table_{{tbl}}.get_index()});
+                // {% else %}
+                const client_{{tbl}} = await worker.table(view_{{tbl}});
+                // {% end %}
+                // {% if table_name + "_removes" in mgr.get_table_names() %}
+                const removes_{{tbl}} = await websocket_ro.open_table("{{table_name}}_removes")
+                const removes_view_{{tbl}} = await removes_{{tbl}}.view()
+                removes_view_{{tbl}}.on_update(
+                    async (updated) => {
+                        const update_table = await worker.table(updated.delta);
+                        const update_view = await update_table.view();
+                        const update_data = await update_view.to_columns();
+                        client_{{tbl}}.remove(update_data['i']);
+                    },
+                    { mode: "row" }
+                );
+                // {% end %}
+                // {% end %}
+                workspace.tables.set(
+                    "{{table_name}}",
+                    client_{{tbl}}
+                );
+                //{% end %}
                 //{% end %}
 
                 const req = await fetch("/layout/{{url}}");
@@ -76,48 +107,146 @@
                             }
                         })
 
-                        table.addEventListener("click", async function observerClickEventListener(event) {
-                            SELECTED_ROW = null
+                        async function targetInfo(target) {
+                            const meta = table.getMeta(target);
+                            const stuff = await table._view_cache.view(0, meta.y, {{len(mgr.get_table('inspector').schema())}}, meta.y + 1);
+                            const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
+                            console.log("event target is: " + meta + " row is: " + row)
+                            return [meta, stuff, row]
+                        }
 
+                        async function tableSize(target) {
+                            const meta = table.getMeta(target);
+                            const stuff = await table._view_cache.view(0, meta.y, {{len(mgr.get_table('inspector').schema())}}, meta.y + 1);
+                            return [stuff.num_columns, stuff.num_rows]
+                        }
+
+                        table.addEventListener("click", async function observerClickEventListener(event) {
                             if (event.target.tagName === "TD") {
-                                const meta = table.getMeta(event.target);
-                                const stuff = await table._view_cache.view(0, meta.y, 10, meta.y + 1);
-                                const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
-                                console.log(meta)
-                                console.log(row)
+                                const [meta, stuff, row] = await targetInfo(event.target);
+
                                 if (meta.column_header[0] === 'X'){
+                                    event.target.style.cursor = "progress";
                                     if (meta.value === '+') {
                                         await fetch("/inspect/expand/" + row.id, {cache: "no-store"});
                                     } else {
                                         await fetch("/inspect/collapse/" + row.id, {cache: "no-store"});
                                     }
                                 }
-                                if (meta.column_header[0] === 'value'){
+                                if (meta.column_header[0] === 'value') {
                                     if (event.ctrlKey) {
-                                        const new_row = await (await fetch("/inspect/ref/" + row.id, {cache: "no-store"})).text();
-                                        window.setTimeout(async () => {
-                                            const id_col = stuff.column_headers.findIndex((c) => {
-                                                return c[0] === 'id'
-                                            })
-                                            const ids = await table._view_cache.view(id_col, 0, id_col + 1, meta.y);
-                                            let row_num = ids.metadata[0].indexOf(new_row);
-                                            table.scrollToCell(0, row_num, ids.num_columns, ids.num_rows)
-                                            SELECTED_ROW = row_num;
-                                        }, 100);
+                                        event.target.style.cursor = "progress";
+                                        const reply = await (await fetch("/inspect/ref/" + row.id, {cache: "no-store"}));
+                                        if (reply.status === 200) {
+                                            const new_row = await reply.text()
+                                            console.log("looking for row " + new_row)
+                                            window.setTimeout(async () => {
+                                                const id_col = stuff.column_headers.findIndex((c) => {
+                                                    return c[0] === 'id'
+                                                })
+                                                const ids = await table._view_cache.view(id_col, 0, id_col + 1, meta.y);
+                                                let row_num = ids.metadata[0].indexOf(new_row);
+                                                table.scrollToCell(0, row_num, ids.num_columns, ids.num_rows)
+                                                SELECTED_ROW = row_num;
+                                            }, 250);
+                                        } else {
+                                            const msg = await reply.text()
+                                            console.error(msg)
+                                            alert(msg)
+                                        }
+                                    }
+                                }
+                                if (meta.column_header[0] === 'name'){
+                                    if (!event.ctrlKey && !event.altKey && !event.shiftKey) {
+                                        SELECTED_ROW = meta.y;
+                                        event.target.parentElement.classList.add("highlight");
+                                        table.draw();
+                                    }
+                                }
+                                window.setTimeout(() => {
+                                    event.target.style.cursor = "";
+                                }, 50);
+                            }
+                        });
+
+                        table.addEventListener("keydown", async function observerKeydownEventListener(event) {
+                            if (event.key === "/" || event.key === "?") {
+                                const searchRow = table.querySelector(".highlight");
+                                if (searchRow) {
+                                    const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
+                                    const search = document.createElement("input");
+                                    search.type = "text";
+                                    search.style.position = "absolute";
+                                    search.style.top = searchRow.offsetTop + "px";
+                                    search.style.left = searchRow.offsetLeft + "px";
+                                    table.appendChild(search);
+                                    search.focus()
+                                    search.addEventListener("input", async function searchEventListener(event) {
+                                        const search = event.target.value;
+                                        console.log("searching for " + search)
+                                        if (search.length > 1){
+                                            const found = await fetch("/inspect/search/" + row.id + "?" +
+                                                new URLSearchParams({q: search}).toString(),
+                                                {cache: "no-store"});
+                                        } else {
+                                            const found = await fetch("/inspect/stopsearch/", {cache: "no-store"});
+                                        }
+                                    });
+                                    search.addEventListener("keydown", async function searchEventListener(event) {
+                                        if (event.key === "Enter") {
+                                            console.log("end searching for " + search)
+                                            event.stopPropagation()
+                                            event.target.remove();
+                                            await fetch("/inspect/applysearch/", {cache: "no-store"});
+                                            table.focus();
+                                        } else if (event.key === "Escape") {
+                                            console.log("cancel searching for " + search)
+                                            event.stopPropagation()
+                                            event.target.remove();
+                                            await fetch("/inspect/stopsearch/", {cache: "no-store"});
+                                            table.focus();
+                                        }
+                                    });
+                                }
+                            }
+                            if (event.key === "ArrowDown") {
+                                if (SELECTED_ROW === null) {
+                                    SELECTED_ROW = 0;
+                                } else {
+                                    if (SELECTED_ROW < table._nrows - 1){
+                                        SELECTED_ROW += 1;
+                                    }
+                                }
+                                table.draw();
+                            }
+                            if (event.key === "ArrowUp") {
+                                if (SELECTED_ROW === null) {
+                                    SELECTED_ROW = table._nrows - 1;
+                                } else {
+                                    if (SELECTED_ROW > 0) {
+                                        SELECTED_ROW -= 1;
+                                    }
+                                }
+                                table.draw();
+                            }
+                            if (event.key === "Enter") {
+                                const searchRow = table.querySelector(".highlight");
+                                if (searchRow) {
+                                    const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
+
+                                    if (row.X === '+' || row.X === '?') {
+                                        await fetch("/inspect/expand/" + row.id, {cache: "no-store"});
+                                    } else {
+                                        await fetch("/inspect/collapse/" + row.id, {cache: "no-store"});
                                     }
                                 }
                             }
                         });
 
                         table.addEventListener("dblclick", async function observerClickEventListener(event) {
-                            SELECTED_ROW = null
-
                             if (event.target.tagName === "TD") {
-                                const meta = table.getMeta(event.target);
-                                const stuff = await table._view_cache.view(0, meta.y, 10, meta.y + 1);
-                                const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
-                                console.log(meta)
-                                console.log(row)
+                                const [meta, stuff, row] = await targetInfo(event.target);
+
                                 if (meta.column_header[0] === 'name'){
                                     if (row.X === '+') {
                                         if (event.ctrlKey) {
@@ -133,7 +262,6 @@
                             }
                         });
                     }
-
                 });
             });
         </script>

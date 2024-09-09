@@ -424,13 +424,19 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.receiver: "_SenderReceiverState" = None
+        self.messages_queued = 0
+        self.messages_dequeued = 0
 
     @start_guard
     def start(self):
         self._initialise_kwargs()
         self.receiver = self.graph.receiver
-        self.eval_fn(lambda m: self.receiver((self.node_ndx, m)), **self._kwargs)
+        self.eval_fn(lambda m: self.enqueue_message(m), **self._kwargs)
         self.elide = self.scalars.get("elide", False)
+
+    def enqueue_message(self, message):
+        self.messages_queued += 1
+        self.receiver((self.node_ndx, message))
 
     def apply_message(self, message) -> bool:
         """
@@ -439,8 +445,13 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         """
         if self.elide or self.output.can_apply_result(message):
             self.output.apply_result(message)
+            self.messages_dequeued += 1
             return True
         return False
+
+    @property
+    def messages_in_queue(self):
+        return self.messages_queued - self.messages_dequeued
 
 
 @dataclass

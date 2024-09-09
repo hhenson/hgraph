@@ -120,10 +120,15 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         if element not in self._value:
             if not self._value:
                 self._is_empty_ref_output.value = False
+
             if self._added is not None:
                 self._added.add(element)
             else:
                 self._added = {element}
+
+            if self._removed is not None:
+                self._removed.discard(element)
+
             self._value.add(element)
             self._contains_ref_outputs.update(element)
 
@@ -136,10 +141,15 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             else:
                 self._removed = {element}
 
+            if self._added is not None:
+                self._added.discard(element)
+
             self._value.remove(element)
             self._contains_ref_outputs.update(element)
+
             if not self._value:
                 self._is_empty_ref_output.value = True
+
             self.mark_modified()
 
     def clear(self):

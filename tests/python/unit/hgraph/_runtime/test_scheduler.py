@@ -25,7 +25,7 @@ def test_map_scheduler():
     def map_scheduler(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
         return map_(my_scheduler, tsd, "TEST")
 
-    assert (eval_node(map_scheduler, [{"ab1": 9, "ab2": 9}, {"ab1": 9}, {"ab2": 9}] + [None] * 7 + [{"ab1": 2}], __trace__=True) == [
+    assert (eval_node(map_scheduler, [{"ab1": 9, "ab2": 9}, {"ab1": 9}, {"ab2": 9}] + [None] * 7 + [{"ab1": 2}]) == [
         frozendict({"ab1": 9, "ab2": 9}), frozendict({"ab1": 9}), frozendict({"ab2": 9}), ] + [None] * 7 +
             [frozendict({"ab1": 2}), frozendict({"ab2": -1}), {"ab1": -1}])
 

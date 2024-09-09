@@ -16,8 +16,12 @@ STR_ID_SYMBOLS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 STR_ID_NUMBERS = [STR_ID_SYMBOLS.find(chr(i)) for i in range(128)]
 
 
+def base62(i: int) -> str:
+    return f"{STR_ID_SYMBOLS[i // 3844]}{STR_ID_SYMBOLS[i // 62 % 62]}{STR_ID_SYMBOLS[i % 62]}"
+
+
 def str_node_id(id: tuple[int, ...]) -> str:
-    return ''.join(f"{STR_ID_SYMBOLS[i // 3844]}{STR_ID_SYMBOLS[i // 62 % 62]}{STR_ID_SYMBOLS[i % 62]}" for i in id)
+    return ''.join(base62(i) for i in id)
 
 
 def node_id_from_str(s: str) -> tuple:
@@ -29,27 +33,20 @@ def node_id_from_str(s: str) -> tuple:
 # These are visitors that are used to extract information from the graph objects to display in the inspector
 
 @multimethod
-def name(value):
-    return "?"
+def format_name(value, key="?"):
+    return str(key)
 
 
-@name.register
-def _(graph: "Graph") -> str:
-    graph_str = []
-    while graph:
-        if graph.parent_node:
-            graph_str.append(
-                f"{(graph.parent_node.signature.label + ':') if graph.parent_node.signature.label else ''}"
-                + f"{graph.parent_node.signature.name}<{', '.join(str(i) for i in graph.graph_id)}>"
-            )
-            graph = graph.parent_node.graph
-        else:
-            graph = None
-    return f"[{'::'.join(reversed(graph_str))}]"
+@format_name.register
+def _(graph: "Graph", key=None) -> str:
+    if key:
+        return str(key)
+
+    return graph.label or "_"
 
 
-@name.register
-def _(node: "Node") -> str:
+@format_name.register
+def _(node: "Node", key=None) -> str:
     long_name = (
         f"{node.signature.wiring_path_name}.{node.signature.name}"
         f"{(':' + node.signature.label) if node.signature.label else ''}"
@@ -63,18 +60,18 @@ def _(node: "Node") -> str:
 
 @multimethod
 def format_value(value):
-    if type(value) in (frozendict, tuple, frozenset):
+    if type(value) in (dict, frozendict, tuple, set, frozenset):
         return f"{len(value)} items"
     else:
         s = str(value)
-        if len(s) > 40:
-            s = s[:40] + "..."
+        if len(s) > 256:
+            s = s[:253] + "..."
         return s
 
 
 @format_value.register
 def _(value: Graph):
-    return name(value)
+    return format_name(value)
 
 
 @format_value.register
@@ -87,11 +84,7 @@ def _(value: Node):
 
 @format_value.register
 def _(value: PythonPushQueueNodeImpl):
-    if (receiver := value.receiver) is not None:
-        with receiver:
-            return f"{len(receiver.queue)} items in the queue"
-    else:
-        return "-"
+    return f"{value.messages_in_queue} items in the queue"
 
 
 @format_value.register
@@ -102,8 +95,8 @@ def _(value: Union[PythonTimeSeriesValueOutput]):
             return f"{len(value.value)} items"
         else:
             s = str(value.value)
-            if len(s) > 40:
-                s = s[:40] + "..."
+            if len(s) > 256:
+                s = s[:253] + "..."
             return s
     else:
         return "INVALID"
@@ -178,12 +171,22 @@ def enum_items(value):
 
 
 @enum_items.register
+def _(value: dict):
+    yield from value.items()
+
+
+@enum_items.register
 def _(value: frozendict):
     yield from value.items()
 
 
 @enum_items.register
 def _(value: frozenset):
+    yield from ((k, k) for k in value)
+
+
+@enum_items.register
+def _(value: set):
     yield from ((k, k) for k in value)
 
 
@@ -213,7 +216,12 @@ def _(value: TimeSeriesSet):
 
 @enum_items.register
 def _(value: PythonNestedNodeImpl):
-    yield from value.enum_nested_graphs()
+    yield from value.nested_graphs().items()
+
+
+@enum_items.register
+def _(value: Graph):
+    yield from enumerate(value.nodes)
 
 
 @multimethod
@@ -293,7 +301,7 @@ def inspect_item(value, key):
 
 @inspect_item.register
 def _(value: PythonNestedNodeImpl, key):
-    return next(v for k, v in value.enum_nested_graphs() if k == key)
+    return value.nested_graphs().get(key)
 
 
 @inspect_item.register

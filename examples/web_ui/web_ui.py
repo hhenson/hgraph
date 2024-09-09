@@ -40,9 +40,9 @@ from hgraph.adaptors.perspective import (
     register_perspective_adaptors,
     publish_multitable,
 )
-from hgraph.adaptors.perspective._perspective import perspective_web
+from hgraph.adaptors.perspective import perspective_web, PerspectiveTablesManager
 from hgraph.debug import trace_controller
-from hgraph.debug._inspector_controller import inspector_controller
+from hgraph.debug import inspector
 
 
 class Readings(TimeSeriesSchema):
@@ -111,6 +111,7 @@ def random_events(
 @graph
 def host_web_server():
     register_perspective_adaptors()
+    PerspectiveTablesManager.set_current(PerspectiveTablesManager(host_server_tables=False))
     perspective_web(gethostname(), 8080, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
 
     initial_config = const(deepfreeze(refdata()), TSD[str, TSB[Config]])
@@ -142,7 +143,7 @@ def host_web_server():
     )
 
     trace_controller()
-    inspector_controller()
+    inspector()
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:

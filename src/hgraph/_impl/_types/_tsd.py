@@ -144,7 +144,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         return v
 
     def key_from_value(self, value: V) -> K:
-        return self._ts_values_to_keys[id(value)]
+        return self._ts_values_to_keys.get(id(value))
 
     def invalidate(self):
         for v in self.values():
@@ -166,6 +166,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
                 if self[k].modified:
                     return False
             else:
+                if k in self._removed_items:  # Unlike TSS, TSD should not allow re-adding a removed key in the same tick
+                    return False
                 if (v := self.get(k)) and not v.can_apply_result(v_):
                     return False
         return True
