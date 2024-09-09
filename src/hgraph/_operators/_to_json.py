@@ -14,7 +14,7 @@ def to_json(ts: DEFAULT[TIME_SERIES_TYPE]) -> TS[str]:
 
 
 @operator
-def from_json(ts: TS[str]) -> OUT:
+def from_json(ts: TS[str]) -> DEFAULT[OUT]:
     """
     Converts the ``ts`` JSON string to the OUT type.
     Usage would be along the lines of:

@@ -697,3 +697,8 @@ Version 0.3.14 (05-08-2024)
 ---------------------------
 
 * Add mapping and tuple support to ``to_json`` operator.
+
+Version 0.3.15 (05-08-2024)
+---------------------------
+
+* Add from_json logic

@@ -45,3 +45,4 @@ __pycache__/
 .idea/*
 
 examples/web_ui/layouts/
+docs/build/*

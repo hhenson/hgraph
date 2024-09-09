@@ -2,10 +2,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Any, Mapping
-from frozendict import frozendict as fd
-import pytest
 
-from hgraph import TIME_SERIES_TYPE, TS, to_json, CompoundScalar
+import pytest
+from frozendict import frozendict as fd
+
+from hgraph import TIME_SERIES_TYPE, TS, to_json, CompoundScalar, from_json
 from hgraph.test import eval_node
 
 
@@ -37,3 +38,4 @@ class MyCS(CompoundScalar):
 )
 def test_to_json(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     assert eval_node(to_json[tp], [value]) == [expected]
+    assert eval_node(from_json[tp], [expected]) == [value]
