@@ -40,7 +40,7 @@ from hgraph.adaptors.perspective import (
     register_perspective_adaptors,
     publish_multitable,
 )
-from hgraph.adaptors.perspective._perspective import perspective_web, PerspectiveTablesManager
+from hgraph.adaptors.perspective import perspective_web, PerspectiveTablesManager
 from hgraph.debug import trace_controller
 from hgraph.debug import inspector
 
