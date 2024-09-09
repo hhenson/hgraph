@@ -1,8 +1,7 @@
 .. include:: ../../README.rst
 
-hgraph documentation
+HGraph Documentation
 ====================
-
 
 
 Contents
@@ -10,5 +9,6 @@ Contents
 
 .. toctree::
 
-   Home <self>
-   api/api
+    Home <self>
+
+

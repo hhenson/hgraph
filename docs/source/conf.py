@@ -22,12 +22,12 @@ copyright = f"{datetime.now().year}, {author}"
 extensions = [
     "sphinx.ext.duration",
     "sphinx.ext.doctest",
-    "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
+    "sphinxcontrib.plantuml",
 ]
 
 intersphinx_mapping = {
@@ -40,6 +40,7 @@ intersphinx_disabled_domains = ["std"]
 templates_path = ["_templates"]
 exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
 
+
 epub_show_urls = "footnote"
 
 # -- Options for HTML output -------------------------------------------------
@@ -51,7 +52,7 @@ html_static_path = ["_static"]
 html_theme_options = {
     "collapse_navigation": False,
     "sticky_navigation": True,
-    "navigation_depth": 4,
+    "navigation_depth": -1,
     "includehidden": True,
     "titles_only": False,
 }

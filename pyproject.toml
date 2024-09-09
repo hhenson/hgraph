@@ -42,11 +42,13 @@ packages = [
     pyarrow = ">=16.1.0"
     multimethod = "*"
     tornado = { version = "*", optional = true }
+    perspective-python = {version = "*", optional=true}
     requests = { version = "*", optional = true }
     sphinx = { version = ">=7.4", optional = true }
     sphinx_rtd_theme = { version = ">=2.0.0", optional = true  }
     sphinx-autodoc-typehints = { version = ">=2.3.0", optional = true }
-    perspective-python = {version = "*", optional=true}
+    sphinxcontrib-plantuml = { version = ">=0.30", optional = true }
+
 
 [tool.poetry.extras]
 web = [
@@ -57,7 +59,8 @@ web = [
 docs = [
     "sphinx",
     "sphinx_rtd_theme",
-    "sphinx-autodoc-typehints"
+    "sphinx-autodoc-typehints",
+    "sphinxcontrib-plantuml"
 ]
 
 [tool.poetry.urls]
