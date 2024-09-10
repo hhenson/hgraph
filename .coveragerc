@@ -4,6 +4,7 @@ omit =
     examples/*
     docs/*
     src/hgraph/notebook/*
+    src/hgraph/debug/*
 
 [coverage:report]
 fail_under = 80
