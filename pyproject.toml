@@ -99,6 +99,11 @@ source_pkgs = ["hgraph",]
 branch = true
 parallel = true
 omit = [
+    "tests/*",
+    "examples/*",
+    "docs/*",
+    "src/hgraph/notebook/*",
+    "src/hgraph/debug/*"
 ]
 
 [tool.coverage.paths]
