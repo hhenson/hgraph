@@ -677,14 +677,14 @@ Version 0.3.11 (03-09-2024)
 
 * Fix to_table for nested TSD structures.
 
-Version 0.3.12 (04-08-2024)
+Version 0.3.12 (04-09-2024)
 ---------------------------
 
 * Add modified operator.
 * Fix imports
 * Start on to_json serialisation
 
-Version 0.3.13 (05-08-2024)
+Version 0.3.13 (05-09-2024)
 ---------------------------
 
 * Changes to the real-time scheduling
@@ -693,12 +693,19 @@ Version 0.3.13 (05-08-2024)
 * Graph inspector UI (web adaptor)
 * Work on scheduler issues
 
-Version 0.3.14 (05-08-2024)
+Version 0.3.14 (05-09-2024)
 ---------------------------
 
 * Add mapping and tuple support to ``to_json`` operator.
 
-Version 0.3.15 (05-08-2024)
+Version 0.3.15 (05-09-2024)
 ---------------------------
 
 * Add from_json logic
+
+Version 0.3.16 (10-09-2024)
+---------------------------
+
+* Bug fixes
+* Work on graph debugging tools
+* Preparation for docs to convert to sphinx and support for readthedocs
