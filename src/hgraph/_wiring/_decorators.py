@@ -106,7 +106,7 @@ def compute_node(
     valid: Sequence[str] | Callable = None,
     all_valid: Sequence[str] | Callable = None,
     overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["Type", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> COMPUTE_NODE_SIGNATURE:
@@ -134,6 +134,7 @@ def compute_node(
 
     For example:
     ::
+
         @compute_node(active('trade_request',))
         def accept_trade_request(trade_request: TS[Trade], market_data: TS[float]) -> TS[bool]:
             return trade_request.value.price == market_data.value
@@ -142,7 +143,7 @@ def compute_node(
     In this scenario, we only care to respond to trade requests and not market data. By marking the `trade_request` as
     being active, it implies the market data is passive, or in other words, it will not activate the logic when the
     market data changes. Marking an input passive does not mean the value will be out of date, the value is always
-    up-to-date; it merely ensures the function is not activated when the input is modified.
+    up to date; it merely ensures the function is not activated when the input is modified.
 
     'valid' works in a similar way to active, in that if it is not set, all inputs are required to be valid before the
     function will be called. If set, then only the nodes that are listed are included in the guard. When using this the
@@ -161,6 +162,7 @@ def compute_node(
     the type.
     For example:
     ::
+
         def _resolve_type(mapping: dict[TypeVar, type], scalars: dict[str, Any]) -> type:
             schema = mapping[TS_SCHEMA]  # resolved as it is an input in to the node
             attr = scalars['attr']
@@ -177,6 +179,7 @@ def compute_node(
     is to determine if the provided inputs meet with the requirements of the node.
     For example:
     ::
+
         def _requires_enum_values(_resolve_type(mapping: dict[TypeVar, type], scalars: dict[str, Any]):
             if scalars['rw_flags'] not in ('r', 'w', 'rw'):
                 raise ValueError("rw_flags must be one of 'r', 'w' or 'rw'")
@@ -219,7 +222,7 @@ def pull_source_node(
     fn: SOURCE_NODE_SIGNATURE = None,
     /,
     node_impl=None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
@@ -238,7 +241,7 @@ def push_source_node(
     fn: SOURCE_NODE_SIGNATURE = None,
     /,
     node_impl=None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
@@ -260,7 +263,7 @@ def sink_node(
     valid: Sequence[str] | Callable = None,
     all_valid: Sequence[str] | Callable = None,
     overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["Type", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> SINK_NODE_SIGNATURE:
@@ -269,6 +272,7 @@ def sink_node(
     These nodes are leaf nodes of the graph and generally the only nodes in the graph that we expect to have side
     effects. Examples of sink nodes include: writing to the output stream, network, database, etc.
     ::
+
         @sink_node
         def print_(format_str: str, value: TS[SCALAR]):
             print(format_str.format(value.value))
@@ -307,7 +311,7 @@ def sink_node(
 def graph(
     fn: GRAPH_SIGNATURE = None,
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> GRAPH_SIGNATURE:
@@ -316,8 +320,8 @@ def graph(
     when the graph is created and is used to indicate which nodes to construct and how to connect the input and outputs
     of the nodes (or the edges of the graph). It is important to note that the logic of the function does not do any
     work and merely describes the shape of the runtime graph. A graph can take time-series inputs and can return
-    a time-series value, but this is not a requirement. Typcially the main graph will only take scalar value inputs
-    for configuration (or take no imputs at all).
+    a time-series value, but this is not a requirement. Typically, the main graph will only take scalar value inputs
+    for configuration (or take no inputs at all).
     ::
 
         @graph
@@ -343,7 +347,7 @@ def graph(
         def a_plus_b_plus_c(a: TS[float], b: TS[float]) -> TS[float]:
             return a+b+c
 
-    Or visa-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but `graph`s are far
+    Or visa-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but ``graph`` s are far
     better at re-use of existing components. The preference should always be to use graph logic before constructing
     node functions.
     """
@@ -357,7 +361,7 @@ def graph(
 def const_fn(
     fn: SOURCE_NODE_SIGNATURE = None,
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
@@ -368,6 +372,7 @@ def const_fn(
     function. This can still benefit from operator resolution as well.
 
     For example:
+    ::
 
         @const_fn
         def my_const(a: int, b: int) -> TS[int]:
@@ -400,7 +405,7 @@ def const_fn(
 def generator(
     fn: SOURCE_NODE_SIGNATURE = None,
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
@@ -410,14 +415,13 @@ def generator(
     time (or timedelta) and value.
 
     For example:
-    ```Python
+    ::
 
-    @generator
-    def signal() -> TS[bool]:
-        while True:
-            yield (timedelta(milliseconds=1), True)
+        @generator
+        def signal() -> TS[bool]:
+            while True:
+                yield (timedelta(milliseconds=1), True)
 
-    ```
 
     This will cause an infinite sequence of ticks (with value of True) that will tick one a millisecond.
 
@@ -442,7 +446,7 @@ def generator(
 def push_queue(
     tp: type[TIME_SERIES_TYPE],
     overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
 ):
@@ -453,12 +457,11 @@ def push_queue(
     It is possible to take additional scalar values that will be provided as kwargs.
 
     For example,
+    ::
 
-    ```Python
         @push_queue(TS[bool])
         def my_message_sender(sender: Callable[[SCALAR], None):
             ...
-    ```
     """
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonPushQueueWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
@@ -502,11 +505,12 @@ default_path = None
 
 
 def subscription_service(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping[TypeVar, Callable] = None
+    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
 ) -> SERVICE_DEFINITION:
     """
     A subscription service is a service where the input receives a subscription key and then
     streams back results. This looks like:
+    ::
 
         default=None
 
@@ -530,19 +534,20 @@ def subscription_service(
 
 
 def reference_service(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping[TypeVar, Callable] = None
+    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
 ) -> SERVICE_DEFINITION:
     """
     A reference service is a service that only produces a value that does not vary by request.
     The pattern for a reference services is the same as a source node.
 
     for example:
+    ::
 
         @reference_service
         def my_reference_service(path: str | None) -> OUT_TIME_SERIES:
             ...
 
-    if path is not provided or defined in the configuration it is assumed there will only be one bound instance
+    if ``path`` is not provided or defined in the configuration, it is assumed there will only be one bound instance
     and that bound instance will be to the path 'ref_svc://<module>.<svc_name>' for example:
     'ref_svc://a.b.c.my_reference_service'
 
@@ -555,11 +560,12 @@ def reference_service(
 
 
 def request_reply_service(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping[TypeVar, Callable] = None
+    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
 ) -> SERVICE_DEFINITION:
     """
     A request-reply service takes a request and returns a response, error or time-out.
     for example:
+    ::
 
         class RequestReplyService(Generic[TIME_SERIES_TYPE_1]):
             result: TIME_SERIES_TYPE_1
@@ -579,7 +585,7 @@ def request_reply_service(
 def service_impl(
     *,
     interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     deprecated: bool | str = False,
 ):
     """
@@ -628,15 +634,17 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
         WiringGraphContext.instance().register_service_impl(None, path, implementation, kwargs, resolution_dict)
 
 
-def adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
+def adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
     """
-    @adaptor
-    def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
-        pass
+    ::
 
-    @adaptor_impl(my_interface)
-    def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
-        pass
+        @adaptor
+        def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+            pass
+
+        @adaptor_impl(my_interface)
+        def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+            pass
 
     This is a client interface for a single client adaptor. An adaptor is a graph pattern primarily used to define
     connectivity from graph code to the outside world.
@@ -649,7 +657,7 @@ def adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
 def adaptor_impl(
     *,
     interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     deprecated: bool | str = False,
 ):
     """
@@ -662,24 +670,27 @@ def adaptor_impl(
     )
 
 
-def service_adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
+def service_adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
     """
-    @service_adaptor
-    def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
-        pass
+    ::
 
-    @service_adaptor_impl(my_interface)
-    def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
-        pass
+        @service_adaptor
+        def my_interface(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+            pass
+
+        @service_adaptor_impl(my_interface)
+        def my_adaptor(ts1: TIME_SERIES, ...) -> OUT_TIME_SERIES:
+            pass
 
     Service adaptor is a mutli-client version of adaptor. It works in a similar way to the request reply service
     in the way that every client on the graph gets an integer id and all client requests are combined into a TSD keyed
     by those ids. Replies from the adaptor are expected to be also keyed by the same ids so t hat they can be delivered
     to the correct client
 
-    NOTE: this decorator is temporary, the plan is to make a common service interface decorator that will work for both
-    request-reply service and mutli-client adaptors and implementations will be compatible so that even the same
-    service with different paths can be implemented as a service or adaptor by implementor's choice
+    .. note:: this decorator is temporary, the plan is to make a common service interface decorator that will work for both
+        request-reply service and mutli-client adaptors and implementations will be compatible so that even the same
+        service with different paths can be implemented as a service or adaptor by implementor's choice
+
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
@@ -689,7 +700,7 @@ def service_adaptor(interface, resolvers: Mapping[TypeVar, Callable] = None):
 def service_adaptor_impl(
     *,
     interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     deprecated: bool | str = False,
 ):
     """
@@ -734,16 +745,18 @@ def component(
     fn: GRAPH_SIGNATURE = None,
     *,
     recordable_id: str | None = None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     deprecated: bool | str = False,
 ) -> GRAPH_SIGNATURE:
     """
     Decorator to indicate the function being wrapped is a graph that is recordable.
     A component is a graph, with the following constraints:
+
     * The component should not access any services unless the service is already able to support replay mode.
     * The component MAY NOT use ANY push source nodes.
     * The component should not use any pull source nodes that are not replay compliant.
     * The component should not use any sink nodes that will have side effects other than, for example, printing or logging.
+
     The component is expected to be idempotent (i.e., given the same inputs, the graph should produce the same results)
     and have no side effects.
 
@@ -764,12 +777,13 @@ def component(
     instance of the component is supported in the master graph, then the component needs to be able to create a unique
     identy, the ``recordable_id`` support using a Format string with the ability to create an id using the scalar
     properties of the component or any ``const`` inputs provided (for example, a key in a bundle). Here is an example:
-    ```python
-    @component(recordable_id='my_component.{key}')
-    def my_component(key: TS[str], ...) -> TIME_SERIES_VALUE:
-        ...
-    ```
-    Then if this was used in a map_ the key will be available at start and will create an instance key.
+    ::
+
+        @component(recordable_id='my_component.{key}')
+        def my_component(key: TS[str], ...) -> TIME_SERIES_VALUE:
+            ...
+
+    Then if this was used in a ``map_`` the key will be available at start and will create an instance key.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
@@ -788,7 +802,7 @@ def _node_decorator(
     node_class: Type["WiringNodeClass"] = None,
     overloads: "WiringNodeClass" = None,
     interfaces=None,
-    resolvers: Mapping[TypeVar, Callable] = None,
+    resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
     record_and_replay_id: str | None = None,
