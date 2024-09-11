@@ -8,3 +8,5 @@ This will be enough to get up and using HGraph, but will only lightly cover the 
 
 .. toctree::
     run_loop
+    graph
+    node

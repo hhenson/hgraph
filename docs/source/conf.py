@@ -37,6 +37,8 @@ intersphinx_mapping = {
 }
 intersphinx_disabled_domains = ["std"]
 
+autodoc_typehints_format = "short"
+
 templates_path = ["_templates"]
 exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
 

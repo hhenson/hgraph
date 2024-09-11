@@ -67,15 +67,20 @@ def operator(fn: GRAPH_SIGNATURE, deprecated: bool | str = False) -> GRAPH_SIGNA
 
     Thus, it is possible to perform the following override:
     ::
+
         @compute_node(overloads=add_)
         def add_ts_date(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]:
             ...
 
     The overload mechanism attempts to match the provided inputs to the implementation that is the closest fit.
 
-    All overloads need to be imported to work, thus when overloading an operator, it is important to make sure
+    All overloads need to be imported to work; thus when overloading an operator, it is important to make sure
     the overload would have been imported prior to using. This can be done by making sure the overloads are included
     in a __init__ (or chain thereof) where importing the top-level package ensures all the children are imported.
+
+    :param fn: The function to wrap
+    :param deprecated: Marks the node as no longer supported and likely to be removed shortly
+    :return: The wrapped function.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 

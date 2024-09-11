@@ -76,3 +76,31 @@ mode this will return immediately.
 
 .. note:: This is not the actual code, just the conceptual view of how it works.
 
+Evaluation Loop
+---------------
+
+The master evaluation loop uses a vector of datetime aligned with the nodes to indicate
+when a node is to be scheduled. The scheduler runs down the list of time until it finds
+an entry that is set to be evaluated at the ``current_time``. The node is then evaluated.
+
+The code takes the form of:
+
+.. code-block:: Python
+
+    for i in range(len(self.nodes)):
+        if self.schedule[i] == current_time
+            self.nodes[i].eval()
+
+The pre and post evaluation life-cycle observer methods are called just before and after
+evaluation.
+
+A node is scheduled by setting the appropriate entry in the schedule.
+
+Nested Graphs
+-------------
+
+A nested graph lives within a node. It runs it's own scheduler. Depending on the
+implementation the nested graph engine, it can implement alternative scheduling algorithms.
+However, by default, each nested graph runs a distinct scheduler with it's own list of
+nodes and schedule.
+
