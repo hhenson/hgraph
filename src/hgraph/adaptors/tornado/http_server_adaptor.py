@@ -303,6 +303,8 @@ def http_server_handler(fn: Callable = None, *, url: str):
 def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[int, TS[HttpRequest]]: ...
 
 
+# NOTE: we define the interface 'twice' to trick the adaptor impl to assume this is a mult-service which allows
+# us to "manually wire" the service. Bypassing the need to accept or be provided with inputs.
 @adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
 def http_server_adaptor_helper(path: str, port: int):
     """
