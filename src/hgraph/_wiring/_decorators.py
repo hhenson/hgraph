@@ -648,6 +648,15 @@ def adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
 
     This is a client interface for a single client adaptor. An adaptor is a graph pattern primarily used to define
     connectivity from graph code to the outside world.
+
+    Usage of the adaptor is typically done using the new accessors:
+
+    * from_graph(path=..., ...)
+    * to_graph(path=..., ...)
+
+    This allows us to use the service in different orders to the defined order.
+
+    The path must be unique per usage of the adaptor. (There is only one instance associated to the path).
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
@@ -684,13 +693,23 @@ def service_adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
 
     Service adaptor is a mutli-client version of adaptor. It works in a similar way to the request reply service
     in the way that every client on the graph gets an integer id and all client requests are combined into a TSD keyed
-    by those ids. Replies from the adaptor are expected to be also keyed by the same ids so t hat they can be delivered
+    by those ids. Replies from the adaptor are expected to be also keyed by the same ids so that they can be delivered
     to the correct client
 
     .. note:: this decorator is temporary, the plan is to make a common service interface decorator that will work for both
         request-reply service and mutli-client adaptors and implementations will be compatible so that even the same
         service with different paths can be implemented as a service or adaptor by implementor's choice
 
+    When using to_graph / from_graph, __request_id__ needs to be used to distinguish different usages.
+
+    calling from_graph first allows the usage of a system generated __request_id__, using the pattern:
+    ::
+
+        id = my_interface.from_graph(path='...')
+        ...
+        my_interface.to_graph(..., __request_id__=id, ...)
+
+    This will allow for unique association to the adaptor "instance".
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 

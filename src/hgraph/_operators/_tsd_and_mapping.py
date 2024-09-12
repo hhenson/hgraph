@@ -1,19 +1,20 @@
 from typing import Tuple, Mapping, TypeVar
 
-from hgraph._types import TS, DEFAULT, TSD, K, K_1
+from hgraph._types import TS, DEFAULT, TSD, K, K_1, SCALAR, TSS, REF
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, OUT
 from hgraph._wiring._decorators import operator
 
 __all__ = (
-    "keys_",
-    "values_",
-    "rekey",
+    "collapse_keys",
     "flip",
     "flip_keys",
+    "keys_",
     "partition",
-    "unpartition",
-    "collapse_keys",
+    "rekey",
     "uncollapse_keys",
+    "unpartition",
+    "values_",
+    "where_in",
 )
 
 TSD_OR_MAPPING = TypeVar("TSD_OR_MAPPING", TSD, TS[Mapping])
@@ -83,4 +84,11 @@ def uncollapse_keys(ts: TSD[Tuple[K, K_1], TIME_SERIES_TYPE]) -> TSD[K, TSD[K_1,
     """
     Given a TSD[Tuple[K, K1], V] uncollapse_keys will produce a nested TSD[K, TSD[K1, V]]. It is the reverse operation
     to ``collapse_keys``
+    """
+
+
+@operator
+def where_in(tsd: TSD[SCALAR, REF[TIME_SERIES_TYPE]], keys: TSS[SCALAR]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
+    """
+    Selects the keys from the tsd that are in the key set provided.
     """

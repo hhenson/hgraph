@@ -1,7 +1,7 @@
 from typing import Set, Tuple
 
 import pytest
-from frozendict import frozendict
+from frozendict import frozendict as fd, frozendict
 
 from hgraph import (
     TS,
@@ -18,12 +18,10 @@ from hgraph import (
     REF,
     TSS,
     Size,
-    SIZE,
     K_1,
     is_empty,
     Removed,
     sub_,
-    eq_,
     len_,
     min_,
     max_,
@@ -42,6 +40,7 @@ from hgraph import (
     merge,
     TSL,
     unpartition,
+    where_in,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -369,3 +368,22 @@ def test_keys_as_set():
         return keys_[OUT : TS[Set[int]]](tsd)
 
     assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {2, 3}]
+
+
+def test_where_in():
+
+    assert eval_node(
+        where_in[SCALAR:str, TIME_SERIES_TYPE : TS[int]],
+        [
+            {"a": 1, "b": 2},
+        ],
+        [
+            {
+                "a",
+            },
+            {
+                "b",
+            },
+            {Removed("b")},
+        ],
+    ) == [fd({"a": 1}), fd({"b": 2}), fd({"b": REMOVE})]

@@ -3,48 +3,52 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
-from hgraph import add_, SCHEMA, unpartition, reduce
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import (
-    sub_,
-    getitem_,
-    min_,
-    max_,
-    sum_,
-    mean,
-    var,
-    str_,
-    std,
-    div_,
+    add_,
     bit_and,
     bit_or,
     bit_xor,
-    not_,
-    eq_,
-    keys_,
-    contains_,
-    is_empty,
-    len_,
-    getattr_,
     collapse_keys,
-    uncollapse_keys,
-    rekey,
+    contains_,
+    div_,
+    eq_,
     flip,
     flip_keys,
+    getattr_,
+    getitem_,
+    is_empty,
+    keys_,
+    len_,
+    max_,
+    mean,
     merge,
-    zero,
+    min_,
+    not_,
     partition,
+    rekey,
+    std,
+    str_,
+    sub_,
+    sum_,
+    uncollapse_keys,
+    unpartition,
+    var,
+    zero,
 )
+from hgraph._operators._tsd_and_mapping import where_in
+from hgraph._types._frame_scalar_type_meta_data import SCHEMA
 from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput
 from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT, K_1, V
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
-from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS
+from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, REMOVE
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
+from hgraph._wiring._reduce import reduce
 
 __all__ = tuple()
 
@@ -599,3 +603,24 @@ def var_tsd_unary_number(tsd: TSD[K, TS[NUMBER]]) -> TS[float]:
 @compute_node(overloads=str_)
 def str_tsd(tsd: TSD[K, V]) -> TS[str]:
     return str(dict(tsd.value))
+
+
+@compute_node(overloads=where_in)
+def where_in_impl(tsd: TSD[SCALAR, REF[TIME_SERIES_TYPE]], keys: TSS[SCALAR]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
+    keys_: set = keys.value
+    out = {}
+    for k in keys_.intersection(tsd.modified_keys()):
+        out[k] = tsd[k].value
+
+    for k in keys_.intersection(tsd.removed_keys()):
+        out[k] = REMOVE_IF_EXISTS
+
+    for k in keys.added():
+        if k in tsd:
+            out[k] = tsd[k].value
+
+    for k in keys.removed():
+        if k in tsd:
+            out[k] = REMOVE_IF_EXISTS
+
+    return out
