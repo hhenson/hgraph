@@ -56,12 +56,15 @@ web = [
     "tornado",
     "requests"
 ]
-docs = [
-    "sphinx",
-    "sphinx_rtd_theme",
-    "sphinx-autodoc-typehints",
-    "sphinxcontrib-plantuml"
-]
+
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.group.docs.dependencies]
+    sphinx = "*"
+    sphinx_rtd_theme = "*"
+    sphinx-autodoc-typehints = "*"
+    sphinxcontrib-plantuml = "*"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/hhenson/hgraph"
