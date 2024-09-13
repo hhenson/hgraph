@@ -1,5 +1,4 @@
 import operator
-
 from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -7,13 +6,15 @@ from functools import reduce
 from typing import Tuple, ForwardRef, TypeVar, ClassVar
 
 from hg_oap.units.dimension import Dimension
-from hg_oap.utils.exprclass import ExprClass
 from hg_oap.units.unit_system import UnitSystem
+from hg_oap.utils.exprclass import ExprClass
 from hgraph import CompoundScalar
 
 NUMBER = TypeVar('NUMBER', int, float)
 
+
 __all__ = ("Unit", "PrimaryUnit", "DerivedUnit", "OffsetDerivedUnit", "DiffDerivedUnit", "ComplexUnit", "UNIT")
+
 
 @dataclass(frozen=True, kw_only=True, init=False, repr=False)
 class Unit(CompoundScalar, ExprClass):
@@ -33,14 +34,14 @@ class Unit(CompoundScalar, ExprClass):
     def __rmul__(self, value):
         if isinstance(value, (int, float)):
             from hg_oap.units.quantity import Quantity
-            return Quantity(value, self)
+            return Quantity[type(value)](value, self)
 
         return NotImplemented
 
     def __rtruediv__(self, value):
         if isinstance(value, (int, float)):
             from hg_oap.units.quantity import Quantity
-            return Quantity(value, self**-1)
+            return Quantity[type(value)](value, self ** -1)
 
         return NotImplemented
 
@@ -154,11 +155,11 @@ class DerivedUnit(Unit):
 
     def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: float = 1.0, name=None, prefixes=None):
         from .quantity import Quantity
-        if type(primary_unit) is Quantity:
+        if isinstance(primary_unit, Quantity):
             ratio = primary_unit.qty
             primary_unit = primary_unit.unit
 
-        if type(primary_unit) is DerivedUnit:
+        if isinstance(primary_unit, DerivedUnit):
             ratio *= primary_unit.ratio
             primary_unit = primary_unit.primary_unit
 
@@ -214,7 +215,7 @@ class OffsetDerivedUnit(DerivedUnit):
     _is_multiplicative: ClassVar[bool] = False
 
     def __new__(cls, primary_unit: Unit | ForwardRef("Quantity"), ratio: float = 1.0, offset: float = 0.0, name=None, prefixes=None):
-        if type(primary_unit) is DerivedUnit:
+        if isinstance(primary_unit, DerivedUnit):
             primary_unit = primary_unit.primary_unit
             ratio *= primary_unit.ratio
 
@@ -269,7 +270,7 @@ class DiffDerivedUnit(DerivedUnit):
     _is_multiplicative: ClassVar[bool] = True
 
     def __new__(cls, offset_unit: OffsetDerivedUnit, name=None):
-        if type(offset_unit) is not OffsetDerivedUnit:
+        if not isinstance(offset_unit, OffsetDerivedUnit):
             raise ValueError(f"cannot create a diff unit from {offset_unit}")
 
         if d := UnitSystem.instance().__derived_units__.get((id(offset_unit), 'diff')):

@@ -4,8 +4,6 @@ from hg_oap.units.dimension import PrimaryDimension, Dimensionless
 from hg_oap.units.unit import PrimaryUnit, DerivedUnit, OffsetDerivedUnit
 from hg_oap.units.unit_system import UnitSystem
 
-__all__ = ("U")
-
 
 std_prefixes = {'k': 1000.0, 'M': 1_000_000.0, 'G': 1_000_000_000.0, 'T': 1_000_000_000_000.0,
                 'c': 0.01, 'm': 0.001, 'u': 0.000_001, 'n': 0.000_000_001, 'p': 0.000_000_000_001}
@@ -85,3 +83,6 @@ U.contracts = PrimaryDimension()
 U.lot = PrimaryUnit(dimension=U.contracts)
 
 U.money = PrimaryDimension()
+
+# Sentinel to indicate a value with no units
+U.NONE = PrimaryUnit(dimension=U.dimensionless)
