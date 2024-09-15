@@ -2,6 +2,7 @@ from typing import Tuple, Type, Callable
 
 from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType, HgTypeMetaData
 from hgraph._wiring._wiring_node_class import WiringNodeClass, BaseWiringNodeClass, WiringNodeSignature, WiringNodeType
+from hgraph._wiring._wiring_node_class import extract_resolution_dict, PreResolvedWiringNodeWrapper
 
 __all__ = ("dispatch", "dispatch_")
 
@@ -76,7 +77,9 @@ def dispatch_(overloaded: BaseWiringNodeClass, *args, __on__: Tuple[str, ...] = 
 
     """
     if overloads := getattr(overloaded, "overload_list", None):
-        return _dispatch_impl(overloaded.signature, overloads.overloads, *args, __on__=__on__, **kwargs)
+        return _dispatch_impl(
+            overloaded.resolve_signature(*args, **kwargs), overloads.overloads, *args, __on__=__on__, **kwargs
+        )
     else:
         from hgraph import CustomMessageWiringError
 
@@ -127,9 +130,13 @@ def _dispatch_impl(
             if k in dispatch_args and isinstance(t, HgTSTypeMetaData)
         }
         if len(o_dispatch_types) != len(dispatch_args):
-            raise CustomMessageWiringError(f"Cannot dispatch with signatures of different lengths:\n{dispatch_args}\n{o_dispatch_types}")  # not a valid overload
+            raise CustomMessageWiringError(
+                f"Cannot dispatch with signatures of different lengths:\n{dispatch_args}\n{o_dispatch_types}"
+            )  # not a valid overload
         if not all(dispatch_args[k].matches(t) for k, t in o_dispatch_types.items()):
-            raise CustomMessageWiringError(f"Cannot dispatch with mis-matched signatures:\n{dispatch_args}\n{o_dispatch_types}")  # not a valid overload
+            raise CustomMessageWiringError(
+                f"Cannot dispatch with mis-matched signatures:\n{dispatch_args}\n{o_dispatch_types}"
+            )  # not a valid overload
 
         def make_dispatch_graph(o, dispatch_types):
             @graph
@@ -152,6 +159,11 @@ def _dispatch_impl(
 
         try:
             o.resolve_signature(**stub_args)
+            if o.signature.typevars:
+                resolved_dict = o.resolved_types if isinstance(o, PreResolvedWiringNodeWrapper) else {}
+                o = o.resolve_with(
+                    extract_resolution_dict(o.signature, __pre_resolved_types__=resolved_dict, **stub_args)
+                )
         except RequirementsNotMetWiringError as e:
             continue
 
