@@ -38,6 +38,10 @@ class OperatorWiringNodeClass(WiringNodeClass):
         else:
             return False, None
 
+    @property
+    def overload_list(self):
+        return self._overload_helper
+
     def __call__(
         self,
         *args,
