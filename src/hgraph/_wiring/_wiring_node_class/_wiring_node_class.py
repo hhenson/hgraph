@@ -25,13 +25,14 @@ if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
 
 __all__ = (
-    "WiringNodeClass",
     "BaseWiringNodeClass",
     "PreResolvedWiringNodeWrapper",
-    "prepare_kwargs",
-    "extract_kwargs",
-    "create_wiring_node_instance",
+    "WiringNodeClass",
     "create_input_output_builders",
+    "create_wiring_node_instance",
+    "extract_kwargs",
+    "extract_resolution_dict",
+    "prepare_kwargs",
     "validate_and_resolve_signature",
 )
 
@@ -227,11 +228,14 @@ class BaseWiringNodeClass(WiringNodeClass):
 
         self.overload_list.overload(other)
 
+    def resolve_with(self, resolved_types: dict[TypeVar, HgTypeMetaData]):
+        return PreResolvedWiringNodeWrapper(
+            signature=self.signature, fn=self.fn, underlying_node=self, resolved_types=resolved_types
+        )
+
     def __getitem__(self, item) -> WiringNodeClass:
         if item:
-            return PreResolvedWiringNodeWrapper(
-                signature=self.signature, fn=self.fn, underlying_node=self, resolved_types=self._convert_item(item)
-            )
+            return self.resolve_with(self._convert_item(item))
         else:
             return self
 
@@ -326,6 +330,20 @@ class BaseWiringNodeClass(WiringNodeClass):
         self._validate_signature(fn)
         self.stop_fn = fn
         return self
+
+
+def extract_resolution_dict(
+    signature: WiringNodeSignature, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable], **kwargs
+):
+    """
+    Performs the logic of extracting the resolution dictionary as is used by the dispatch operator to deal
+    with ensuring overloads are correctly captured upfront.
+    """
+    _ = kwargs.pop("__record_id__", None)  # Remove if preset
+    kwargs = prepare_kwargs(signature, *args, **kwargs)
+    # Extract any additional required type resolution information from inputs
+    kwarg_types = signature.convert_kwargs_to_types(**kwargs)
+    return signature.build_resolution_dict(__pre_resolved_types__, kwarg_types, kwargs)
 
 
 def validate_and_resolve_signature(
@@ -467,31 +485,32 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
             *args, __pre_resolved_types__={**self.resolved_types, **more_resolved_types}, **kwargs
         )
 
+    def resolve_with(self, resolved_types: dict[TypeVar, HgTypeMetaData]) -> "PreResolvedWiringNodeWrapper":
+        further_resolved = PreResolvedWiringNodeWrapper(
+            signature=self.underlying_node.signature,
+            fn=self.fn,
+            underlying_node=self.underlying_node,
+            resolved_types={**self.resolved_types, **resolved_types},
+        )
+        return further_resolved
+
     def __call__(self, *args, **kwargs) -> "WiringPort":
         more_resolved_types = kwargs.pop("__pre_resolved_types__", None) or {}
+        pre_resolved_types = {**self.resolved_types, **more_resolved_types}
 
-        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=more_resolved_types)
+        found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=pre_resolved_types)
         if found_overload:
             return r
 
-        return self.underlying_node(
-            *args, __pre_resolved_types__={**self.resolved_types, **more_resolved_types}, **kwargs
-        )
+        return self.underlying_node(*args, __pre_resolved_types__=pre_resolved_types, **kwargs)
 
     def __getitem__(self, item):
         if item:
-            further_resolved = PreResolvedWiringNodeWrapper(
-                signature=self.underlying_node.signature,
-                fn=self.fn,
-                underlying_node=self.underlying_node,
-                resolved_types={**self.resolved_types, **self._convert_item(item)},
-            )
-
+            further_resolved = self.resolve_with(self._convert_item(item))
             if (overload_helper := getattr(self, "overload_list", None)) is not None:
                 for o, r in overload_helper.overloads:
                     if o is not self:
                         further_resolved.overload(o[item])
-
             return further_resolved
         else:
             return self
@@ -519,3 +538,7 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
 
     def stop(self, fn: Callable):
         self.underlying_node.stop(fn)
+
+    @property
+    def overload_list(self):
+        return getattr(self.underlying_node, "overload_list", None)
