@@ -153,13 +153,13 @@ def port() -> int:
 
 @pytest.mark.serial
 def test_single_rest_request_graph(port):
-    @rest_handler(url="/test", data_type=MyCS)
+    @rest_handler(url="/test_rest", data_type=MyCS)
     def x(request: TS[RestRequest[MyCS]]) -> TS[RestResponse[MyCS]]:
         return combine[TS[RestDeleteResponse[RestResponse[MyCS]]]](
             status=RestResultEnum.NOT_FOUND, reason="Hello, world!"
         )
 
-    @http_server_handler(url="/stop")
+    @http_server_handler(url="/stop_rest")
     def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
         stop_engine(request)
         return combine[TS[HttpResponse]](status_code=200, body="Ok")
@@ -183,9 +183,9 @@ def test_single_rest_request_graph(port):
 
         time.sleep(0.1)
 
-        response1 = requests.request("DELETE", f"http://localhost:{port}/test/abc", timeout=1)
+        response1 = requests.request("DELETE", f"http://localhost:{port}/test_rest/abc", timeout=1)
         time.sleep(0.5)
-        requests.request("GET", f"http://localhost:{port}/stop", timeout=1)
+        requests.request("GET", f"http://localhost:{port}/stop_rest", timeout=1)
 
     run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
 

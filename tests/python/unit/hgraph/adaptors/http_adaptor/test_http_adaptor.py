@@ -52,11 +52,11 @@ try:
 
     @pytest.mark.serial
     def test_single_request_graph(port):
-        @http_server_handler(url="/test")
+        @http_server_handler(url="/test_http")
         def x(request: TS[HttpRequest]) -> TS[HttpResponse]:
             return combine[TS[HttpResponse]](status_code=200, body="Hello, world!")
 
-        @http_server_handler(url="/stop")
+        @http_server_handler(url="/stop_http")
         def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
             return combine[TS[HttpResponse]](status_code=200, body="Ok")
@@ -82,9 +82,9 @@ try:
 
             time.sleep(0.1)
 
-            response1 = requests.request("GET", f"http://localhost:{port}/test", timeout=1)
-            response2 = requests.request("GET", f"http://localhost:{port}/test", timeout=1)
-            requests.request("GET", f"http://localhost:{port}/stop", timeout=1)
+            response1 = requests.request("GET", f"http://localhost:{port}/test_http", timeout=1)
+            response2 = requests.request("GET", f"http://localhost:{port}/test_http", timeout=1)
+            requests.request("GET", f"http://localhost:{port}/stop_http", timeout=1)
 
         run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
 
