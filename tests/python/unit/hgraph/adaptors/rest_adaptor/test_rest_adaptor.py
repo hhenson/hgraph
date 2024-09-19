@@ -184,6 +184,7 @@ def test_single_rest_request_graph(port):
         time.sleep(0.1)
 
         response1 = requests.request("DELETE", f"http://localhost:{port}/test/abc", timeout=1)
+        time.sleep(0.1)
         requests.request("GET", f"http://localhost:{port}/stop", timeout=1)
 
     run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
