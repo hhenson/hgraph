@@ -14,7 +14,6 @@ __all__ = (
     "uncollapse_keys",
     "unpartition",
     "values_",
-    "where_in",
 )
 
 TSD_OR_MAPPING = TypeVar("TSD_OR_MAPPING", TSD, TS[Mapping])
@@ -86,9 +85,3 @@ def uncollapse_keys(ts: TSD[Tuple[K, K_1], TIME_SERIES_TYPE]) -> TSD[K, TSD[K_1,
     to ``collapse_keys``
     """
 
-
-@operator
-def where_in(tsd: TSD[SCALAR, REF[TIME_SERIES_TYPE]], keys: TSS[SCALAR]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
-    """
-    Selects the keys from the tsd that are in the key set provided.
-    """

@@ -36,7 +36,6 @@ from hgraph._operators import (
     var,
     zero,
 )
-from hgraph._operators._tsd_and_mapping import where_in
 from hgraph._types._frame_scalar_type_meta_data import SCHEMA
 from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput
 from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
@@ -604,23 +603,3 @@ def var_tsd_unary_number(tsd: TSD[K, TS[NUMBER]]) -> TS[float]:
 def str_tsd(tsd: TSD[K, V]) -> TS[str]:
     return str(dict(tsd.value))
 
-
-@compute_node(overloads=where_in)
-def where_in_impl(tsd: TSD[SCALAR, REF[TIME_SERIES_TYPE]], keys: TSS[SCALAR]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
-    keys_: set = keys.value
-    out = {}
-    for k in keys_.intersection(tsd.modified_keys()):
-        out[k] = tsd[k].value
-
-    for k in keys_.intersection(tsd.removed_keys()):
-        out[k] = REMOVE_IF_EXISTS
-
-    for k in keys.added():
-        if k in tsd:
-            out[k] = tsd[k].value
-
-    for k in keys.removed():
-        if k in tsd:
-            out[k] = REMOVE_IF_EXISTS
-
-    return out
