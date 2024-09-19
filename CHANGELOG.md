@@ -710,7 +710,8 @@ Version 0.3.16 (10-09-2024)
 * Work on graph debugging tools
 * Preparation for docs to convert to sphinx and support for readthedocs
 
-Version 0.3.17 (TBD)
---------------------
+Version 0.3.17 (19-09-2024)
+---------------------------
 
-* add where_in operator
+* Add rest_handler support
+
