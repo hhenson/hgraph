@@ -117,22 +117,23 @@ def replay_const_from_memory(
     recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     recordable_id = f":memory:{recordable_id}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
-    if source is None:
-        raise ValueError(f"Replay source with label '{key}' does not exist")
     tm = _clock.evaluation_time
-    _output: TimeSeriesOutput
-    for ts, v in source:
-        # This is a slow approach, but since we don't have an index, this is the best we can do.
-        # Additionally, since we are recording delta values, we need to apply the successive results to form the
-        # full picture of state.
-        if ts <= tm:
-            # Combine results when dealing with Collection results
-            _output.apply_result(v)
-        else:
-            break
-    if _output.last_modified_time != tm:
-        # This should only occur if the value was not modified
-        yield tm, None
+    if source is None:
+        yield tm, None  # No data to process
+    else:
+        _output: TimeSeriesOutput
+        for ts, v in source:
+            # This is a slow approach, but since we don't have an index, this is the best we can do.
+            # Additionally, since we are recording delta values, we need to apply the successive results to form the
+            # full picture of state.
+            if ts <= tm:
+                # Combine results when dealing with Collection results
+                _output.apply_result(v)
+            else:
+                break
+        if _output.last_modified_time != tm:
+            # This should only occur if the value was not modified
+            yield tm, None
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))
