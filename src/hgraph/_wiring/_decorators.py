@@ -624,6 +624,9 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
 
     from hgraph import WiringGraphContext
 
+    if len(implementation.interfaces) > 1 and path is None:
+        raise RuntimeError("A service implementation with multiple interface bindings need to have a path defined")
+
     for i in implementation.interfaces:
         if i is not None:
             WiringGraphContext.instance().register_service_impl(i, path, implementation, kwargs, resolution_dict)
