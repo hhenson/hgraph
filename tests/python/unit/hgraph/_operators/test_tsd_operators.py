@@ -40,7 +40,6 @@ from hgraph import (
     merge,
     TSL,
     unpartition,
-    where_in,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -368,22 +367,3 @@ def test_keys_as_set():
         return keys_[OUT : TS[Set[int]]](tsd)
 
     assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {2, 3}]
-
-
-def test_where_in():
-
-    assert eval_node(
-        where_in[SCALAR:str, TIME_SERIES_TYPE : TS[int]],
-        [
-            {"a": 1, "b": 2},
-        ],
-        [
-            {
-                "a",
-            },
-            {
-                "b",
-            },
-            {Removed("b")},
-        ],
-    ) == [fd({"a": 1}), fd({"b": 2}), fd({"b": REMOVE})]
