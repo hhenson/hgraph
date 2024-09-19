@@ -146,7 +146,7 @@ def test_from_response(value, expected):
     assert result == [expected]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def port() -> int:
     return randrange(3300, 32000)
 
