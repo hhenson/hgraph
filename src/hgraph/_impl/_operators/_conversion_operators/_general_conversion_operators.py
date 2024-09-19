@@ -1,6 +1,8 @@
 from typing import Type
 
-from hgraph import OUT, DEFAULT, graph, convert, TIME_SERIES_TYPE
+from hgraph._types import OUT, DEFAULT, TIME_SERIES_TYPE
+from hgraph._wiring import graph
+from hgraph._operators import convert
 
 __all__ = ()
 

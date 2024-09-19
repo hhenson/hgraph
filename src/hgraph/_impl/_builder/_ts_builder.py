@@ -3,7 +3,6 @@ from typing import Mapping, cast
 
 from frozendict import frozendict
 
-from hgraph import HgCONTEXTTypeMetaData
 from hgraph._builder._ts_builder import (
     TSOutputBuilder,
     TimeSeriesBuilderFactory,
@@ -21,6 +20,7 @@ from hgraph._builder._ts_builder import (
     REFInputBuilder,
 )
 from hgraph._runtime._node import Node
+from hgraph._types._context_meta_data import HgCONTEXTTypeMetaData
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData

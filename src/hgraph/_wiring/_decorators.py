@@ -634,7 +634,7 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
         WiringGraphContext.instance().register_service_impl(None, path, implementation, kwargs, resolution_dict)
 
 
-def adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
+def adaptor(fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None):
     """
     ::
 
@@ -660,7 +660,7 @@ def adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
-    return _node_decorator(WiringNodeType.ADAPTOR, interface, resolvers=resolvers)
+    return _node_decorator(WiringNodeType.ADAPTOR, fn, resolvers=resolvers)
 
 
 def adaptor_impl(

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Generic, TYPE_CHECKING, cast
 
-from hgraph import MIN_DT
+from hgraph._runtime._constants import MIN_DT
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput

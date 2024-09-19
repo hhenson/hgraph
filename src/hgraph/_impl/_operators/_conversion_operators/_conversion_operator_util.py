@@ -2,7 +2,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Generic
 
-from hgraph import CompoundScalar, TimeSeriesSchema, KEYABLE_SCALAR, TIME_SERIES_TYPE, TS
+from hgraph._types import CompoundScalar, TimeSeriesSchema, KEYABLE_SCALAR, TIME_SERIES_TYPE, TS
 
 __all__ = ("_BufferState", "KeyValue")
 

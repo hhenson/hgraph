@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
-from hgraph import MAX_DT
+from hgraph._runtime._constants import MAX_DT
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,

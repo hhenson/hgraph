@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, date, time, timedelta
 from enum import Enum
-from functools import singledispatch, cache
+from functools import singledispatch
 from typing import Callable, Any
 
 from frozendict import frozendict as fd
@@ -25,10 +25,7 @@ from hgraph import (
 
 __all__ = []
 
-
-@cache
-def _to_json(tp: TIME_SERIES_TYPE) -> Any:
-    return to_json_converter(HgTypeMetaData.parse_type(tp))
+from hgraph._operators._to_json import to_json_builder, from_json_builder
 
 
 @singledispatch
@@ -96,11 +93,6 @@ def _td_to_str(delta: timedelta) -> str:
     return f'"{days}:{hours}:{minutes}:{seconds}.{ms:06}"'
 
 
-@cache
-def _from_json(tp: type[TIME_SERIES_TYPE]) -> Any:
-    return from_json_converter(HgTypeMetaData.parse_type(tp))
-
-
 @singledispatch
 def from_json_converter(value: HgTypeMetaData) -> Callable[[dict], Any]:
     """By default, just assume the value can be returned as is"""
@@ -116,7 +108,7 @@ def _(value: HgTSTypeMetaData) -> Callable[[Any], Any]:
 def _(value: HgCompoundScalarType) -> Callable[[Any], Any]:
     fns = []
     for k, tp in value.meta_data_schema.items():
-        fns.append((k, lambda v, tp=tp, k=k: _from_json(tp)(v.get(k, None))))
+        fns.append((k, lambda v, tp=tp, k=k: from_json_builder(tp)(v.get(k, None))))
     return lambda v, fns=fns, tp=value.py_type: tp(**{k: v_ for k, fn in fns if (v_ := fn(v)) is not None})
 
 
@@ -162,10 +154,10 @@ def _(value: HgTupleCollectionScalarType) -> Callable[[list], Any]:
 
 @compute_node(overloads=to_json)
 def to_json_generic(ts: TIME_SERIES_TYPE, _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TS[str]:
-    return _to_json(_tp)(ts)
+    return to_json_builder(_tp)(ts)
 
 
 @compute_node(overloads=from_json)
 def from_json_generic(ts: TS[str], _tp: type[OUT] = AUTO_RESOLVE) -> DEFAULT[OUT]:
     value = json.loads(ts.value)
-    return _from_json(_tp)(value)
+    return from_json_builder(_tp)(value)

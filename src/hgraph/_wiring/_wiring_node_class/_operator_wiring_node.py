@@ -7,8 +7,8 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
     WiringNodeClass,
     HgTypeMetaData,
     WiringNodeSignature,
-    PreResolvedWiringNodeWrapper,
     validate_and_resolve_signature,
+    PreResolvedWiringNodeWrapper,
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeType, AUTO_RESOLVE
 from hgraph._wiring._wiring_port import WiringPort
@@ -132,7 +132,7 @@ class OverloadedWiringNodeHelper:
         for k, t in signature.input_types.items():
             if signature.defaults.get(k) != AUTO_RESOLVE:
                 if t.is_scalar:
-                    from hgraph import HgTypeOfTypeMetaData
+                    from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData
 
                     if isinstance(t, HgTypeOfTypeMetaData) and t.value_tp.py_type == signature.defaults.get(k):
                         # skip args like `tp: Type[OUT] = DEFAULT[OUT]`

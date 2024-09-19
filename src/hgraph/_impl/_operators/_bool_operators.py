@@ -1,4 +1,6 @@
-from hgraph import add_, TS, WiringError, graph, sub_, mul_, pow_
+from hgraph._operators import add_, sub_, mul_, pow_
+from hgraph._types import TS
+from hgraph._wiring import WiringError, graph
 
 __all__ = ()
 

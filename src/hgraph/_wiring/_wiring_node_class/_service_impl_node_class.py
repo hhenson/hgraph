@@ -153,7 +153,7 @@ def validate_signature_vs_interfaces(
 
     if len(interfaces) == 1:
         # The signature for the service should be representative of the singular service, i.e. for a reference
-        # service the signature is the same as the reference service, for the subscription service the singature
+        # service the signature is the same as the reference service, for the subscription service the signature
         # takes a single input of type TSS[SUBSCRIPTION] and returns a TSD[SUBSCRIPTION, TIME_SERIES_TYPE]
         # for a request reply service we should have a TSD[RequestorId, TS[REQUEST]] and returns a
         # TSD[RequestorId, TIME_SERIES_TYPE].
@@ -199,7 +199,7 @@ def validate_signature_vs_interfaces(
             case _:
                 raise CustomMessageWiringError(f"Unknown service type: {interface_sig.node_type}")
     else:
-        pass  # multiservice implementations use the interface stub APIs to wire up the service so checking happens there
+        pass  # multi-service implementations use the interface stub APIs to wire up the service so checking happens there
 
 
 def create_inner_graph(
