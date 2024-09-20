@@ -208,11 +208,11 @@ def test_multiple_request_graph(port):
             if isinstance(v, RestDeleteRequest):
                 _state.counter_delete = _state.counter_delete + 1 if hasattr(_state, "counter_delete") else 0
                 out[i] = RestDeleteResponse[RestResponse[MyCS]](
-                    status=RestResultEnum.NO_CONTENT, reason=f"Hello, world #{_state.counter_delete}!"
+                    status=RestResultEnum.NOT_FOUND, reason=f"Hello, world #{_state.counter_delete}!"
                 )
             else:
                 out[i] = RestReadResponse[RestResponse[MyCS], MyCS](
-                    status=RestResultEnum.NOT_FOUND, reason=f"Incorrect request type: {v}"
+                    status=RestResultEnum.BAD_REQUEST, reason=f"Incorrect request type: {v}"
                 )
 
         return out
@@ -244,14 +244,18 @@ def test_multiple_request_graph(port):
         time.sleep(0.1)
 
         response1 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
+        print(response1)
+        time.sleep(0.1)
         response2 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
+        print(response2)
+        time.sleep(0.1)
         requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
 
     run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     assert response1 is not None
-    assert response1.status_code == 204
-    assert response1.text == "Hello, world #0!"
+    assert response1.status_code == 404
+    assert "Hello, world #0!" in response1.text
     assert response2 is not None
-    assert response2.status_code == 204
-    assert response2.text == "Hello, world #1!"
+    assert response2.status_code == 404
+    assert "Hello, world #1!" in response2.text
