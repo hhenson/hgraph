@@ -284,7 +284,7 @@ def http_server_handler(fn: Callable = None, *, url: str):
             else:
                 responses = map_(lambda r: fn(request=r), requests)
         else:
-            responses = fn(request=requests, **inputs)
+            responses = fn(request=requests, **inputs.as_dict())
 
         if isinstance(responses.output_type, HgTSBTypeMetaData) or (
             isinstance(responses.output_type, HgTSDTypeMetaData)
