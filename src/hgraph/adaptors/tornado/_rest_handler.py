@@ -40,7 +40,7 @@ __all__ = (
     "RestReadRequest",
     "RestDeleteRequest",
     "rest_handler",
-    "RestResultEnum"
+    "RestResultEnum",
 )
 
 from hgraph.adaptors.tornado.http_server_adaptor import (
