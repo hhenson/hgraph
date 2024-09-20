@@ -244,10 +244,8 @@ def test_multiple_request_graph(port):
         time.sleep(0.1)
 
         response1 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
-        print(response1)
         time.sleep(0.1)
         response2 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
-        print(response2)
         time.sleep(0.1)
         requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
 
