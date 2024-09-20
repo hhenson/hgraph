@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Callable, Generic, TypeVar
 
 from frozendict import frozendict
-
 from hgraph import (
     CompoundScalar,
     COMPOUND_SCALAR,
@@ -25,6 +24,8 @@ from hgraph import (
     Base,
     to_json_builder,
     with_signature,
+    ts_schema,
+    TSB,
 )
 
 __all__ = (
@@ -229,12 +230,22 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
     assert not url.endswith("/"), "URL cannot end with a '/'"
 
     output_type = fn.signature.output_type
+    is_tsb = False
     if isinstance(output_type, HgTSBTypeMetaData):
+        is_tsb = True
         output_type = output_type["response"]
 
     assert (single_value := output_type.matches_type(TS[RestResponse[data_type]])) or output_type.matches_type(
         TSD[int, TS[RestResponse[data_type]]]
     ), "Graph must have a single output of type TS[RestResponse] or TSD[int, TS[RestResponse]]"
+
+    if is_tsb:
+        kwargs = {k: v.py_type for k, v in fn.signature.output_type.bundle_schema_tp.meta_data_schema.items()} | {
+            "response": TS[HttpResponse] if single_value else TSD[int, TS[HttpResponse]]
+        }
+        final_output_type = TSB[ts_schema(**kwargs)]
+    else:
+        final_output_type = TS[HttpResponse] if single_value else TSD[int, TS[HttpResponse]]
 
     # If inputs or outputs are not standard, then we use the graph, otherwise we can wire up?
     url = f"{url}/?(.*)"  # Create a URL that can respond to list, post and appropriate /<id> requests
@@ -256,13 +267,18 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
         @http_server_handler(url=url)
         @with_signature(
             kwargs={k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if k != "request"},
-            return_annotation=TSD[int, TS[HttpResponse]],
+            return_annotation=final_output_type,
         )
-        def rest_handler_graph(request: TSD[int, TS[HttpRequest]], **kwargs) -> TSD[int, TS[HttpResponse]]:
+        def rest_handler_graph(request: TSD[int, TS[HttpRequest]], **kwargs) -> final_output_type:
             rest_requests = map_(convert[TS[RestRequest[data_type]]], request)
             responses = fn(request=rest_requests, **kwargs)
-            rest_responses = map_(convert[TS[HttpResponse]], responses)
-            return rest_responses
+            if is_tsb:
+                rest_reponses = map_(convert[TS[HttpResponse]], responses.response)
+                return final_output_type.from_ts(
+                    response=rest_reponses, **{k: v for k, v in responses.as_dict().items() if k != "response"}
+                )
+            else:
+                return map_(convert[TS[HttpResponse]], responses)
 
     return rest_handler_graph
 
