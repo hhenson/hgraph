@@ -17,6 +17,9 @@ from hgraph import (
     register_adaptor,
     run_graph,
     EvaluationMode,
+    compute_node,
+    TSD,
+    STATE,
 )
 from hgraph.adaptors.tornado._rest_handler import (
     RestListRequest,
@@ -192,3 +195,63 @@ def test_single_rest_request_graph(port):
     assert response1 is not None
     assert response1.status_code == 404
     assert "Hello, world!" in response1.text
+
+
+@pytest.mark.serial
+def test_multiple_request_graph(port):
+    @rest_handler(url="/test_multi", data_type=MyCS)
+    @compute_node
+    def x(request: TSD[int, TS[RestRequest[MyCS]]], _state: STATE = None) -> TSD[int, TS[RestResponse[MyCS]]]:
+        out = {}
+        for i, v in request.modified_items():
+            v = v.value
+            if isinstance(v, RestDeleteRequest):
+                _state.counter_delete = _state.counter_delete + 1 if hasattr(_state, "counter_delete") else 0
+                out[i] = RestDeleteResponse[RestResponse[MyCS]](
+                    status=RestResultEnum.NO_CONTENT, reason=f"Hello, world #{_state.counter_delete}!"
+                )
+            else:
+                out[i] = RestReadResponse[RestResponse[MyCS], MyCS](
+                    status=RestResultEnum.NOT_FOUND, reason=f"Incorrect request type: {v}"
+                )
+
+        return out
+
+    @http_server_handler(url="/stop_multi")
+    def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
+        stop_engine(request)
+        return combine[TS[HttpResponse]](status_code=200, body="Ok")
+
+    @sink_node
+    def q(t: TIME_SERIES_TYPE):
+        Thread(target=make_query).start()
+
+    @graph
+    def g():
+        register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+        q(True)
+
+    response1 = None
+    response2 = None
+
+    def make_query():
+        import requests
+        import time
+
+        nonlocal response1
+        nonlocal response2
+
+        time.sleep(0.1)
+
+        response1 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
+        response2 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
+        requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
+
+    run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+
+    assert response1 is not None
+    assert response1.status_code == 204
+    assert response1.text == "Hello, world #0!"
+    assert response2 is not None
+    assert response2.status_code == 204
+    assert response2.text == "Hello, world #1!"

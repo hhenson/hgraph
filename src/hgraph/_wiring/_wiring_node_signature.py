@@ -222,6 +222,14 @@ class WiringNodeSignature:
     def non_autoresolve_inputs(self) -> Mapping[str, HgTypeMetaData]:
         return frozendict({k: v for k, v in self.input_types.items() if self.defaults.get(k) is not AUTO_RESOLVE})
 
+    @property
+    def non_injectable_or_auto_resolvable_inputs(self) -> Mapping[str, HgTypeMetaData]:
+        return frozendict({
+            k: v
+            for k, v in self.input_types.items()
+            if self.defaults.get(k) is not AUTO_RESOLVE and not v.is_injectable
+        })
+
     def convert_kwargs_to_types(self, _ensure_match=True, **kwargs) -> dict[str, HgTypeMetaData]:
         """Attempt to convert input types to better support type resolution"""
         # We only need to extract un-resolved values

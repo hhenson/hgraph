@@ -241,7 +241,7 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
 
         @http_server_handler(url=url)
         @with_signature(
-            kwargs={k: v for k, v in fn.signature.non_autoresolve_inputs.items() if k != "request"},
+            kwargs={k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if k != "request"},
             return_annotation=TS[HttpResponse],
         )
         def rest_handler_graph(request: TS[HttpRequest], **kwargs) -> TS[HttpResponse]:
@@ -253,6 +253,10 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
     else:
 
         @http_server_handler(url=url)
+        @with_signature(
+            kwargs={k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if k != "request"},
+            return_annotation=TSD[int, TS[HttpResponse]],
+        )
         def rest_handler_graph(request: TSD[int, TS[HttpRequest]], **kwargs) -> TSD[int, TS[HttpResponse]]:
             rest_requests = map_(convert[TS[RestRequest[data_type]]], request)
             responses = fn(request=rest_requests, **kwargs)
