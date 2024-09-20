@@ -715,3 +715,12 @@ Version 0.3.17 (19-09-2024)
 
 * Add rest_handler support
 
+Version 0.3.18 (20-09-2024)
+---------------------------
+
+* Fixes to rest_handler and more tests
+
+Version 0.3.19 (20-09-2024)
+---------------------------
+
+* More fixes to rest and http logic
