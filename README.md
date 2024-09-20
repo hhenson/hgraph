@@ -24,7 +24,7 @@ Results in:
 [1970-01-01 00:00:00.000385][1970-01-01 00:00:00.000001] a + 2: 3
 ```
 
-See [this](docs_md/index.md) for more information.
+See [this](https://hgraph.readthedocs.io/en/latest/) for more information.
 
 ## Development
 
