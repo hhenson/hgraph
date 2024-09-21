@@ -1,6 +1,7 @@
 import asyncio
 from abc import ABC
 from dataclasses import dataclass
+from logging import info, getLogger
 from typing import Callable
 
 import tornado
@@ -28,6 +29,8 @@ from hgraph import (
     HgTSBTypeMetaData,
     HgTSDTypeMetaData,
     REMOVE_IF_EXISTS,
+    LOGGER,
+    default_path,
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
@@ -42,7 +45,7 @@ __all__ = (
     "HttpHandler",
     "http_server_handler",
     "http_server_adaptor",
-    "http_server_adaptor_helper",
+    "register_http_server_adaptor",
 )
 
 
@@ -281,7 +284,7 @@ def http_server_handler(fn: Callable = None, *, url: str):
         TSD[int, TS[HttpResponse]]
     ), "Http graph must have a single output of type TS[HttpResponse] or TSD[int, TS[HttpResponse]]"
 
-    if not is_tsb and len(fn.signature.input_types == 1):
+    if not is_tsb and len(fn.signature.non_defaulted_arguments) == 1:
         # this makes the handler to be auto-wired in the http_server_adaptor
         HttpAdaptorManager.instance().add_handler(url, fn)
 
@@ -316,6 +319,12 @@ def http_server_handler(fn: Callable = None, *, url: str):
 def http_server_adaptor(response: TSD[int, TS[HttpResponse]], path: str) -> TSD[int, TS[HttpRequest]]: ...
 
 
+def register_http_server_adaptor(port: int):
+    """Correctly registers the http server adaptor and associated machinery."""
+    register_adaptor(default_path, http_server_adaptor_helper, port=port)
+    register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+
+
 # NOTE: we define the interface 'twice' to trick the adaptor impl to assume this is a mult-service which allows
 # us to "manually wire" the service. Bypassing the need to accept or be provided with inputs.
 @adaptor_impl(interfaces=(http_server_adaptor, http_server_adaptor))
@@ -325,7 +334,6 @@ def http_server_adaptor_helper(path: str, port: int):
     additional inputs other than request. This ensures the wiring service can correct resolve and wire the
     handlers into the server adapter.
     """
-    register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
 
 
 @adaptor_impl(interfaces=())
@@ -333,6 +341,9 @@ def http_server_adaptor_impl(path: str, port: int):
     """Don't use this directly, wire in using the http_server_adaptor_helper."""
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
+
+    logger = getLogger("hgraph")
+    logger.info("Wiring HTTP Server Adaptor on port %d", port)
 
     @push_queue(TSD[int, TS[HttpRequest]])
     def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpRequest]]:
@@ -365,6 +376,7 @@ def http_server_adaptor_impl(path: str, port: int):
     responses = {}
     for url, handler in HttpAdaptorManager.instance().handlers.items():
         if isinstance(handler, WiringNodeClass):
+            logger.info("Adding handler: [%s] %s", url, handler.signature.signature)
             if handler.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
                 responses[url] = map_(handler, request=requests_by_url[url])
             elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpRequest]]):

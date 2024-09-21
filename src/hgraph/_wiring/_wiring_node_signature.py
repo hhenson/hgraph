@@ -230,6 +230,14 @@ class WiringNodeSignature:
             if self.defaults.get(k) is not AUTO_RESOLVE and not v.is_injectable
         })
 
+    @property
+    def non_defaulted_arguments(self) -> Mapping[str, HgTypeMetaData]:
+        """
+        This can be used to work out what inputs may be required, this does not catch *args or **kwargs type
+        args though.
+        """
+        return frozendict({k: v for k, v in self.input_types.items() if k not in self.defaults})
+
     def convert_kwargs_to_types(self, _ensure_match=True, **kwargs) -> dict[str, HgTypeMetaData]:
         """Attempt to convert input types to better support type resolution"""
         # We only need to extract un-resolved values

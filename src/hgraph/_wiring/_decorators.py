@@ -751,7 +751,7 @@ def register_adaptor(path: str, implementation, resolution_dict=None, **kwargs):
         resolution_dict = implementation._convert_item(resolution_dict) if resolution_dict else {}
 
     if not isinstance(implementation, AdaptorImplNodeClass):
-        raise CustomMessageWiringError("The provided implementation is not a 'adaptor_impl' wrapped function.")
+        raise CustomMessageWiringError("The provided implementation is not an 'adaptor_impl' wrapped function.")
 
     for i in implementation.interfaces:
         if i is not None:

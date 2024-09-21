@@ -34,15 +34,15 @@ try:
         GraphConfiguration,
         evaluate_graph,
         log_,
+        default_path,
     )
     from hgraph.adaptors.tornado.http_server_adaptor import (
         http_server_handler,
         HttpRequest,
         HttpResponse,
-        http_server_adaptor_impl,
         http_server_adaptor,
-        http_server_adaptor_helper,
         HttpGetRequest,
+        register_http_server_adaptor,
     )
     from hgraph.nodes import stop_engine
 
@@ -67,7 +67,7 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+            register_http_server_adaptor(port=port)
             q(True)
 
         response1 = None
@@ -97,7 +97,7 @@ try:
 
     @pytest.mark.serial
     def test_multiple_request_graph(port):
-        @http_server_handler(url="/test")
+        @http_server_handler(url="/test_multiple_request")
         @compute_node
         def x(request: TSD[int, TS[HttpRequest]], _state: STATE = None) -> TSD[int, TS[HttpResponse]]:
             out = {}
@@ -107,7 +107,7 @@ try:
 
             return out
 
-        @http_server_handler(url="/stop")
+        @http_server_handler(url="/stop_multiple_request")
         def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
             return combine[TS[HttpResponse]](status_code=200, body="Ok")
@@ -118,7 +118,7 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+            register_http_server_adaptor(port=port)
             q(True)
 
         response1 = None
@@ -133,9 +133,9 @@ try:
 
             time.sleep(0.1)
 
-            response1 = requests.request("GET", f"http://localhost:{port}/test", timeout=1)
-            response2 = requests.request("GET", f"http://localhost:{port}/test", timeout=1)
-            requests.request("GET", f"http://localhost:{port}/stop", timeout=1)
+            response1 = requests.request("GET", f"http://localhost:{port}/test_multiple_request", timeout=1)
+            response2 = requests.request("GET", f"http://localhost:{port}/test_multiple_request", timeout=1)
+            requests.request("GET", f"http://localhost:{port}/stop_multiple_request", timeout=1)
 
         run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
 
@@ -160,7 +160,7 @@ try:
 
         @graph
         def g():
-            register_adaptor(None, http_server_adaptor_helper, port=port)
+            register_http_server_adaptor(port=port)
 
             x(b=12)
 
@@ -204,7 +204,7 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+            register_http_server_adaptor(port=port)
             register_adaptor(None, http_client_adaptor_impl)
 
             queries = frozendict({
