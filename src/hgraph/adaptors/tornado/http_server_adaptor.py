@@ -42,7 +42,6 @@ __all__ = (
     "HttpHandler",
     "http_server_handler",
     "http_server_adaptor",
-    "http_server_adaptor_impl",
     "http_server_adaptor_helper",
 )
 
@@ -210,13 +209,30 @@ def http_server_handler(fn: Callable = None, *, url: str):
             return combine[TS[HttpResponse]](status_code=200, body="Simple Response")
 
     In this case, so long as this is imported, it will be wired in when the server is registered.
+
     The http server is registered as below:
 
     ::
 
-        register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=8081)
+        register_adaptor(default_path, http_server_adaptor_helper, port=8081)
 
-    When more interaction is required, the signature of the function can be extended as below:
+    The handler can take single ``TS`` inputs as above, or it can process all requests simultaneously. In this
+    mode, the signature takes the form below:
+
+    ::
+
+        @http_server_handler(url='/mypath')
+        def batch_handler(request: TSD[int, TS[HttpRequest]]) -> TSD[int, TS[HttpResponse]]:
+            ...
+
+    In this more each request is collected into a ``TSD``. As a reminder, it is the implementers' responsibility
+    to process the removal requests (forwarding them to the response output.
+
+    It is possible to support additional inputs and outputs. For inputs, add them to the input signature. Once
+    the handler has any additional inputs (other than ``request``) the handler must be instantiated manually.
+    To return more than one response, use a TSB to encapsulate the responses. Note that there must be at least
+    one response that is called response and has a type of ``TS[HttpResponse]`` or ``TSD[int, TS[HttpResponse]]``.
+    For example:
 
     ::
 
@@ -229,21 +245,16 @@ def http_server_handler(fn: Callable = None, *, url: str):
         def complex_handler(request: TS[HttpRequest], ts_1: ...) -> TSB[MyHandlerResponse]:
             ...
 
-    In this scenario the function is able to take multiple inputs and return multiple outputs.
-    The request must be present in the input signature, the response must be present in the output TSB.
-
-    The decorated function can be called without the request parameter being provided, for example:
+    To instantiate the handler, the function is called in the graph with the inputs being the list
+    of parameters in the input other than the ``request`` parameter. For example:
 
     ::
-        # NOTE: We need to make use of the http_server_adapter_helper to make this work
         register_adaptor(default_path, http_server_adaptor_helper, port=8081)
         ...
         out = complex_handlder(ts_1=..., ...)
 
     The ``request`` argument is automatically wired into the adaptor. The response is returned in full, but the
     ``response`` output will also be wired into the adaptor.
-
-    When using this model, the function must be wired into the graph by the user to work correctly.
     """
     if fn is None:
         return lambda fn: http_server_handler(fn, url=url)
@@ -261,21 +272,23 @@ def http_server_handler(fn: Callable = None, *, url: str):
     ), "Http graph must have a single input named 'request' of type TS[HttpRequest] or TSD[int, TS[HttpRequest]]"
 
     output_type = fn.signature.output_type
+    is_tsb = False
     if isinstance(output_type, HgTSBTypeMetaData):
+        is_tsb = True
         output_type = output_type["response"]
 
     assert output_type.matches_type(TS[HttpResponse]) or output_type.matches_type(
         TSD[int, TS[HttpResponse]]
     ), "Http graph must have a single output of type TS[HttpResponse] or TSD[int, TS[HttpResponse]]"
 
-    mgr = HttpAdaptorManager.instance()
-    # this makes the handler to be auto-wired in the http_server_adaptor
-    mgr.add_handler(url, fn)
+    if not is_tsb and len(fn.signature.input_types == 1):
+        # this makes the handler to be auto-wired in the http_server_adaptor
+        HttpAdaptorManager.instance().add_handler(url, fn)
 
     @graph
     def http_server_handler_graph(**inputs: TSB[TS_SCHEMA]) -> TIME_SERIES_TYPE:
         # if however this is wired into the graph explicitly, it will be used instead of the auto-wiring the handler
-        mgr.add_handler(url, None)  # prevent auto-wiring
+        HttpAdaptorManager.instance().add_handler(url, None)  # prevent auto-wiring
 
         requests = http_server_adaptor.to_graph(path=url, __no_ts_inputs__=True)
         if fn.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
@@ -317,6 +330,7 @@ def http_server_adaptor_helper(path: str, port: int):
 
 @adaptor_impl(interfaces=())
 def http_server_adaptor_impl(path: str, port: int):
+    """Don't use this directly, wire in using the http_server_adaptor_helper."""
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
