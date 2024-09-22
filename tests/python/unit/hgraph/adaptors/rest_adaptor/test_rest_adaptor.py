@@ -60,36 +60,36 @@ class MyCS(CompoundScalar):
 
 
 @graph
-def _convert_to_request(ts: TS[HttpRequest]) -> TS[RestRequest[MyCS]]:
-    return convert[TS[RestRequest[MyCS]]](ts)
+def _convert_to_request(ts: TS[HttpRequest]) -> TS[RestRequest]:
+    return convert[TS[RestRequest]](ts, value_type=MyCS)
 
 
 @pytest.mark.parametrize(
     ["value", "expected"],
     [
-        [HttpGetRequest(url=URL), RestListRequest[RestRequest[MyCS]](url=URL)],
-        [HttpGetRequest(url=URL, url_parsed_args=("id1",)), RestReadRequest[RestRequest[MyCS]](url=URL, id="id1")],
+        [HttpGetRequest(url=URL), RestListRequest(url=URL)],
+        [HttpGetRequest(url=URL, url_parsed_args=("id1",)), RestReadRequest(url=URL, id="id1")],
         [
             HttpPostRequest(url=URL, body='{ "id": "id1", "value": { "a": 1, "b": "b" } }'),
-            RestCreateRequest[RestRequest[MyCS], MyCS](url=URL, id="id1", value=MyCS(a=1, b="b")),
+            RestCreateRequest[MyCS](url=URL, id="id1", value=MyCS(a=1, b="b")),
         ],
         [
             HttpPutRequest(url=URL, url_parsed_args=("id1",), body='{ "a": 1, "b": "b" }'),
-            RestUpdateRequest[RestRequest[MyCS], MyCS](url=URL, id="id1", value=MyCS(a=1, b="b")),
+            RestUpdateRequest[MyCS](url=URL, id="id1", value=MyCS(a=1, b="b")),
         ],
         [
             HttpDeleteRequest(url=URL, url_parsed_args=("id1",)),
-            RestDeleteRequest[RestRequest[MyCS]](url=URL, id="id1"),
+            RestDeleteRequest(url=URL, id="id1"),
         ],
     ],
 )
 def test_to_request(value, expected):
-    result = eval_node(_convert_to_request, [value])
+    result = eval_node(_convert_to_request, [value], __trace_wiring__=True)
     assert result == [expected]
 
 
 @graph
-def _convert_from_rest_response(ts: TS[RestResponse[MyCS]]) -> TS[HttpResponse]:
+def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
     return convert[TS[HttpResponse]](ts)
 
 
@@ -97,13 +97,13 @@ def _convert_from_rest_response(ts: TS[RestResponse[MyCS]]) -> TS[HttpResponse]:
     ["value", "expected"],
     [
         [
-            RestListResponse[RestResponse[MyCS]](status=RestResultEnum.OK, ids=["1", "2"]),
+            RestListResponse(status=RestResultEnum.OK, ids=["1", "2"]),
             HttpResponse(
                 status_code=200, headers=frozendict({"Content-Type": "application/json"}), body='[ "1", "2" ]'
             ),
         ],
         [
-            RestReadResponse[RestResponse[MyCS], MyCS](status=RestResultEnum.OK, id="1", value=MyCS(a=1, b="b")),
+            RestReadResponse[MyCS](status=RestResultEnum.OK, id="1", value=MyCS(a=1, b="b")),
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
@@ -111,7 +111,7 @@ def _convert_from_rest_response(ts: TS[RestResponse[MyCS]]) -> TS[HttpResponse]:
             ),
         ],
         [
-            RestCreateResponse[RestResponse[MyCS], MyCS](status=RestResultEnum.CREATED, id="1", value=MyCS(a=1, b="b")),
+            RestCreateResponse[MyCS](status=RestResultEnum.CREATED, id="1", value=MyCS(a=1, b="b")),
             HttpResponse(
                 status_code=201,
                 headers=frozendict({"Content-Type": "application/json"}),
@@ -119,7 +119,7 @@ def _convert_from_rest_response(ts: TS[RestResponse[MyCS]]) -> TS[HttpResponse]:
             ),
         ],
         [
-            RestUpdateResponse[RestResponse[MyCS], MyCS](status=RestResultEnum.OK, id="1", value=MyCS(a=1, b="b")),
+            RestUpdateResponse[MyCS](status=RestResultEnum.OK, id="1", value=MyCS(a=1, b="b")),
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
@@ -127,7 +127,7 @@ def _convert_from_rest_response(ts: TS[RestResponse[MyCS]]) -> TS[HttpResponse]:
             ),
         ],
         [
-            RestDeleteResponse[RestResponse[MyCS]](status=RestResultEnum.OK),
+            RestDeleteResponse(status=RestResultEnum.OK),
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
@@ -135,7 +135,7 @@ def _convert_from_rest_response(ts: TS[RestResponse[MyCS]]) -> TS[HttpResponse]:
             ),
         ],
         [
-            RestDeleteResponse[RestResponse[MyCS]](status=RestResultEnum.NOT_FOUND, reason="Id not found"),
+            RestDeleteResponse(status=RestResultEnum.NOT_FOUND, reason="Id not found"),
             HttpResponse(
                 status_code=404,
                 headers=frozendict({"Content-Type": "application/json"}),
@@ -157,10 +157,8 @@ def port() -> int:
 @pytest.mark.serial
 def test_single_rest_request_graph(port):
     @rest_handler(url="/test_rest", data_type=MyCS)
-    def x(request: TS[RestRequest[MyCS]]) -> TS[RestResponse[MyCS]]:
-        return combine[TS[RestDeleteResponse[RestResponse[MyCS]]]](
-            status=RestResultEnum.NOT_FOUND, reason="Hello, world!"
-        )
+    def x(request: TS[RestRequest]) -> TS[RestResponse]:
+        return combine[TS[RestDeleteResponse]](status=RestResultEnum.NOT_FOUND, reason="Hello, world!")
 
     @http_server_handler(url="/stop_rest")
     def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
@@ -201,17 +199,17 @@ def test_single_rest_request_graph(port):
 def test_multiple_request_graph(port):
     @rest_handler(url="/test_multi", data_type=MyCS)
     @compute_node
-    def x(request: TSD[int, TS[RestRequest[MyCS]]], _state: STATE = None) -> TSD[int, TS[RestResponse[MyCS]]]:
+    def x(request: TSD[int, TS[RestRequest]], _state: STATE = None) -> TSD[int, TS[RestResponse]]:
         out = {}
         for i, v in request.modified_items():
             v = v.value
             if isinstance(v, RestDeleteRequest):
                 _state.counter_delete = _state.counter_delete + 1 if hasattr(_state, "counter_delete") else 0
-                out[i] = RestDeleteResponse[RestResponse[MyCS]](
+                out[i] = RestDeleteResponse(
                     status=RestResultEnum.NOT_FOUND, reason=f"Hello, world #{_state.counter_delete}!"
                 )
             else:
-                out[i] = RestReadResponse[RestResponse[MyCS], MyCS](
+                out[i] = RestReadResponse[MyCS](
                     status=RestResultEnum.BAD_REQUEST, reason=f"Incorrect request type: {v}"
                 )
 
