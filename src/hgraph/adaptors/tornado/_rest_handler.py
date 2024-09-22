@@ -68,7 +68,7 @@ class RestResultEnum(Enum):
 
 
 @dataclass(frozen=True)
-class RestRequest(CompoundScalar, Generic[COMPOUND_SCALAR]):
+class RestRequest(CompoundScalar):
     """Marker class for all rest operations"""
 
     url: str
@@ -78,7 +78,7 @@ REST_REQUEST = TypeVar("REST_REQUEST", bound=RestRequest)
 
 
 @dataclass(frozen=True)
-class RestCreateRequest(Base[REST_REQUEST], Generic[REST_REQUEST, COMPOUND_SCALAR]):
+class RestCreateRequest(RestRequest, Generic[COMPOUND_SCALAR]):
     """The value associated to the id should be created"""
 
     id: str
@@ -86,7 +86,7 @@ class RestCreateRequest(Base[REST_REQUEST], Generic[REST_REQUEST, COMPOUND_SCALA
 
 
 @dataclass(frozen=True)
-class RestUpdateRequest(Base[REST_REQUEST], Generic[REST_REQUEST, COMPOUND_SCALAR]):
+class RestUpdateRequest(RestRequest, Generic[COMPOUND_SCALAR]):
     """The value associated to the id should be updated"""
 
     id: str
@@ -94,26 +94,26 @@ class RestUpdateRequest(Base[REST_REQUEST], Generic[REST_REQUEST, COMPOUND_SCALA
 
 
 @dataclass(frozen=True)
-class RestReadRequest(Base[REST_REQUEST], Generic[REST_REQUEST]):
+class RestReadRequest(RestRequest):
     """The id is requested to have it's value returned"""
 
     id: str
 
 
 @dataclass(frozen=True)
-class RestDeleteRequest(Base[REST_REQUEST], Generic[REST_REQUEST]):
+class RestDeleteRequest(RestRequest):
     """The id is requested to be removed"""
 
     id: str
 
 
 @dataclass(frozen=True)
-class RestListRequest(Base[REST_REQUEST], Generic[REST_REQUEST]):
+class RestListRequest(RestRequest):
     """No attributes provided"""
 
 
 @dataclass(frozen=True)
-class RestResponse(CompoundScalar, Generic[COMPOUND_SCALAR]):
+class RestResponse(CompoundScalar):
     status: RestResultEnum
     reason: str = ""  # Populated when OK (or success equivalent) is NOT set as the status
 
@@ -123,7 +123,7 @@ REST_RESPONSE_ = TypeVar("REST_RESPONSE_", bound=RestResponse)
 
 
 @dataclass(frozen=True)
-class RestCreateResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE, COMPOUND_SCALAR]):
+class RestCreateResponse(RestResponse, Generic[COMPOUND_SCALAR]):
     """
     The status property should be set as follows:
 
@@ -142,7 +142,7 @@ class RestCreateResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE, COMPOUND_SC
 
 
 @dataclass(frozen=True)
-class RestReadResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE, COMPOUND_SCALAR]):
+class RestReadResponse(RestResponse, Generic[COMPOUND_SCALAR]):
     """
     The status property should be set as follows:
 
@@ -159,7 +159,7 @@ class RestReadResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE, COMPOUND_SCAL
 
 
 @dataclass(frozen=True)
-class RestUpdateResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE, COMPOUND_SCALAR]):
+class RestUpdateResponse(RestResponse, Generic[COMPOUND_SCALAR]):
     """
     The status property should be set as follows:
 
@@ -178,7 +178,7 @@ class RestUpdateResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE, COMPOUND_SC
 
 
 @dataclass(frozen=True)
-class RestDeleteResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE]):
+class RestDeleteResponse(RestResponse):
     """
     The status property should be set as follows:
 
@@ -190,7 +190,7 @@ class RestDeleteResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE]):
 
 
 @dataclass(frozen=True)
-class RestListResponse(Base[REST_RESPONSE], Generic[REST_RESPONSE]):
+class RestListResponse(RestResponse):
     """
     Returns the list of id's available.
 
@@ -221,12 +221,11 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
         fn = graph(fn)
 
     assert "request" in fn.signature.time_series_inputs.keys(), "Rest handler graph must have an input named 'request'"
-    assert fn.signature.time_series_inputs["request"].matches_type(
-        TS[RestRequest[data_type]]
-    ) or fn.signature.time_series_inputs["request"].matches_type(TSD[int, TS[RestRequest[data_type]]]), (
-        f"Graph must have a single input named 'request' of type TS[RestRequest[{data_type}]] or TSD[int,"
-        f" TS[RestRequest[{data_type}]]]"
-    )
+    assert fn.signature.time_series_inputs["request"].matches_type(TS[RestRequest]) or fn.signature.time_series_inputs[
+        "request"
+    ].matches_type(
+        TSD[int, TS[RestRequest]]
+    ), f"Graph must have a single input named 'request' of type TS[RestRequest] or TSD[int, TS[RestRequest]]"
     assert not url.endswith("/"), "URL cannot end with a '/'"
 
     output_type = fn.signature.output_type
@@ -235,8 +234,8 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
         is_tsb = True
         output_type = output_type["response"]
 
-    assert (single_value := output_type.matches_type(TS[RestResponse[data_type]])) or output_type.matches_type(
-        TSD[int, TS[RestResponse[data_type]]]
+    assert (single_value := output_type.matches_type(TS[RestResponse])) or output_type.matches_type(
+        TSD[int, TS[RestResponse]]
     ), "Graph must have a single output of type TS[RestResponse] or TSD[int, TS[RestResponse]]"
 
     if is_tsb:
@@ -257,7 +256,7 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
             return_annotation=TS[HttpResponse],
         )
         def rest_handler_graph(request: TS[HttpRequest], **kwargs) -> TS[HttpResponse]:
-            rest_request = convert[TS[RestRequest[data_type]]](request)
+            rest_request = convert[TS[RestRequest]](request, value_type=data_type)
             response = fn(request=rest_request, **kwargs)
             rest_response = convert[TS[HttpResponse]](response)
             return rest_response
@@ -270,7 +269,7 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
             return_annotation=final_output_type,
         )
         def rest_handler_graph(request: TSD[int, TS[HttpRequest]], **kwargs) -> final_output_type:
-            rest_requests = map_(convert[TS[RestRequest[data_type]]], request)
+            rest_requests = map_(lambda request: convert[TS[RestRequest]](request, value_type=data_type), request)
             responses = fn(request=rest_requests, **kwargs)
             if is_tsb:
                 rest_reponses = map_(convert[TS[HttpResponse]], responses.response)
@@ -287,21 +286,17 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
 def _convert_to_rest_request(
     ts: TS[HttpRequest],
     cs_tp: type[COMPOUND_SCALAR],
-) -> DEFAULT[OUT]:
-    return nothing[TS[RestRequest[cs_tp]]]()
+) -> TS[RestRequest]:
+    return nothing[TS[RestRequest]]()
 
 
-def _resolve_rest_request_out(m, s):
-    return TS[RestRequest[m[COMPOUND_SCALAR].py_type]]
-
-
-@compute_node(overloads=_convert_to_rest_request, resolvers={OUT: _resolve_rest_request_out})
-def _(ts: TS[HttpGetRequest], cs_tp: type[COMPOUND_SCALAR]) -> OUT:
+@compute_node(overloads=_convert_to_rest_request)
+def _(ts: TS[HttpGetRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
     value = ts.value
     if value.url_parsed_args:
-        return RestReadRequest[RestRequest[cs_tp]](url=value.url, id=value.url_parsed_args[0])
+        return RestReadRequest(url=value.url, id=value.url_parsed_args[0])
     else:
-        return RestListRequest[RestRequest[cs_tp]](url=value.url)
+        return RestListRequest(url=value.url)
 
 
 @dataclass(frozen=True)
@@ -310,56 +305,47 @@ class RestIdValueReqResp(CompoundScalar, Generic[COMPOUND_SCALAR]):
     value: COMPOUND_SCALAR
 
 
-@graph(overloads=_convert_to_rest_request, resolvers={OUT: _resolve_rest_request_out})
-def _(ts: TS[HttpPostRequest], cs_tp: type[COMPOUND_SCALAR]) -> OUT:
+@graph(overloads=_convert_to_rest_request)
+def _(ts: TS[HttpPostRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
     # A POST should imply create new
     request = from_json[TS[RestIdValueReqResp[cs_tp]]](ts.body)
     url = ts.url
     id_ = request.id
     value_ = request.value
-    return convert[TS[RestRequest[cs_tp]]](
-        combine[TS[RestCreateRequest[RestRequest[cs_tp], cs_tp]]](url=url, id=id_, value=value_)
-    )
+    return convert[TS[RestRequest]](combine[TS[RestCreateRequest[cs_tp]]](url=url, id=id_, value=value_))
 
 
-@graph(overloads=_convert_to_rest_request, resolvers={OUT: _resolve_rest_request_out})
-def _(ts: TS[HttpPutRequest], cs_tp: type[COMPOUND_SCALAR]) -> OUT:
-    return convert[TS[RestRequest[cs_tp]]](
-        combine[TS[RestUpdateRequest[RestRequest[cs_tp], cs_tp]]](
+@graph(overloads=_convert_to_rest_request)
+def _(ts: TS[HttpPutRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
+    return convert[TS[RestRequest]](
+        combine[TS[RestUpdateRequest[cs_tp]]](
             url=ts.url, id=ts.url_parsed_args[0], value=from_json[TS[cs_tp]](ts.body)
         ),
     )
 
 
-@graph(overloads=_convert_to_rest_request, resolvers={OUT: _resolve_rest_request_out})
-def _(ts: TS[HttpDeleteRequest], cs_tp: type[COMPOUND_SCALAR], _tp: type[OUT] = AUTO_RESOLVE) -> OUT:
-    return convert[TS[RestRequest[cs_tp]]](
-        combine[TS[RestDeleteRequest[RestRequest[cs_tp]]]](url=ts.url, id=ts.url_parsed_args[0])
-    )
+@graph(overloads=_convert_to_rest_request)
+def _(ts: TS[HttpDeleteRequest], cs_tp: type[COMPOUND_SCALAR] = None) -> TS[RestRequest]:
+    return convert[TS[RestRequest]](combine[TS[RestDeleteRequest]](url=ts.url, id=ts.url_parsed_args[0]))
 
 
-def _extract_cs(m, s):
-    return m[OUT].value_scalar_tp.py_type.__args__[0]
-
-
-@graph(overloads=convert, resolvers={COMPOUND_SCALAR: _extract_cs})
+@graph(overloads=convert)
 def convert_to_rest_request(
     ts: TS[HttpRequest],
     to: type[OUT] = OUT,
-    cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-) -> DEFAULT[OUT]:
-    return dispatch_(_convert_to_rest_request[TS[RestRequest[cs_tp]]], ts=ts, cs_tp=cs_tp)
+    value_type: type[COMPOUND_SCALAR] = None,
+) -> TS[RestRequest]:
+    return dispatch_(_convert_to_rest_request, ts=ts, cs_tp=value_type)
 
 
 def _resolve_cs_from_response(m, s):
     return m[REST_RESPONSE].py_type.__args__[0]
 
 
-@compute_node(overloads=convert, resolvers={COMPOUND_SCALAR: _resolve_cs_from_response})
+@compute_node(overloads=convert)
 def convert_from_rest_response(
     ts: TS[REST_RESPONSE],
     to: type[OUT] = OUT,
-    _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
 ) -> TS[HttpResponse]:
     value: RestResponse = ts.value
 
@@ -369,9 +355,11 @@ def convert_from_rest_response(
         values = (f'"{v}"' for v in value.ids)
         body = f'[ {", ".join(values)} ]'
     elif isinstance(value, RestReadResponse):
-        body = f'{{ "id": "{value.id}", "value": {to_json_builder(_cs_tp)(value.value)} }}'
+        v = value.value
+        body = f'{{ "id": "{value.id}", "value": {to_json_builder(type(v))(v)} }}'
     elif isinstance(value, (RestCreateResponse, RestUpdateResponse, RestReadResponse)):
-        body = f'{{ "id": "{value.id}", "value": {to_json_builder(_cs_tp)(value.value)} }}'
+        v = value.value
+        body = f'{{ "id": "{value.id}", "value": {to_json_builder(type(v))(v)} }}'
     else:
         body = ""
 
