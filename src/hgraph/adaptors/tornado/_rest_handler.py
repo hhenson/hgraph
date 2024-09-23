@@ -1,8 +1,11 @@
+import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Generic, TypeVar
 
 from frozendict import frozendict
+from mypy.build import json_dumps
+
 from hgraph import (
     CompoundScalar,
     COMPOUND_SCALAR,
@@ -26,22 +29,25 @@ from hgraph import (
     with_signature,
     ts_schema,
     TSB,
+    from_json_builder,
 )
 
 __all__ = (
-    "RestResultEnum",
-    "RestResponse",
-    "RestCreateResponse",
-    "RestUpdateResponse",
-    "RestDeleteResponse",
-    "RestRequest",
+    "REST_RESPONSE",
     "RestCreateRequest",
-    "RestUpdateRequest",
-    "RestListRequest",
-    "RestReadRequest",
+    "RestCreateResponse",
     "RestDeleteRequest",
-    "rest_handler",
+    "RestDeleteResponse",
+    "RestListRequest",
+    "RestListResponse",
+    "RestReadRequest",
+    "RestReadResponse",
+    "RestRequest",
+    "RestResponse",
     "RestResultEnum",
+    "RestUpdateRequest",
+    "RestUpdateResponse",
+    "rest_handler",
 )
 
 from hgraph.adaptors.tornado.http_server_adaptor import (
@@ -283,17 +289,14 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
 
 
 @operator
-def _convert_to_rest_request(
-    ts: TS[HttpRequest],
-    cs_tp: type[COMPOUND_SCALAR],
-) -> TS[RestRequest]:
+def _convert_to_rest_request(ts: TS[HttpRequest], cs_tp: type[COMPOUND_SCALAR] = None) -> TS[RestRequest]:
     return nothing[TS[RestRequest]]()
 
 
 @compute_node(overloads=_convert_to_rest_request)
-def _(ts: TS[HttpGetRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
+def _(ts: TS[HttpGetRequest], cs_tp: type[COMPOUND_SCALAR] = None) -> TS[RestRequest]:
     value = ts.value
-    if value.url_parsed_args:
+    if value.url_parsed_args and value.url_parsed_args[0]:
         return RestReadRequest(url=value.url, id=value.url_parsed_args[0])
     else:
         return RestListRequest(url=value.url)
@@ -306,7 +309,7 @@ class RestIdValueReqResp(CompoundScalar, Generic[COMPOUND_SCALAR]):
 
 
 @graph(overloads=_convert_to_rest_request)
-def _(ts: TS[HttpPostRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
+def _(ts: TS[HttpPostRequest], cs_tp: type[COMPOUND_SCALAR] = None) -> TS[RestRequest]:
     # A POST should imply create new
     request = from_json[TS[RestIdValueReqResp[cs_tp]]](ts.body)
     url = ts.url
@@ -316,7 +319,7 @@ def _(ts: TS[HttpPostRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
 
 
 @graph(overloads=_convert_to_rest_request)
-def _(ts: TS[HttpPutRequest], cs_tp: type[COMPOUND_SCALAR]) -> TS[RestRequest]:
+def _(ts: TS[HttpPutRequest], cs_tp: type[COMPOUND_SCALAR] = None) -> TS[RestRequest]:
     return convert[TS[RestRequest]](
         combine[TS[RestUpdateRequest[cs_tp]]](
             url=ts.url, id=ts.url_parsed_args[0], value=from_json[TS[cs_tp]](ts.body)
@@ -338,8 +341,45 @@ def convert_to_rest_request(
     return dispatch_(_convert_to_rest_request, ts=ts, cs_tp=value_type)
 
 
-def _resolve_cs_from_response(m, s):
-    return m[REST_RESPONSE].py_type.__args__[0]
+def _process_response_error(value: HttpResponse) -> tuple[RestResultEnum, str | None]:
+    status = RestResultEnum(value.status_code)
+    if status not in (RestResultEnum.OK, RestResultEnum.CREATED):
+        reason = json.loads(value.body).get("reason", "No Reason Provided")
+        return status, reason
+    else:
+        return status, None
+
+
+@compute_node(overloads=convert)
+def convert_to_rest_list_response(
+    ts: TS[HttpResponse],
+    to: type[TS[RestListResponse]] = OUT,
+) -> TS[RestListResponse]:
+    value: HttpResponse = ts.value
+    status, reason = _process_response_error(value)
+    if reason:
+        return RestListResponse(status=status, reason=reason)
+    else:
+        ids = tuple(ids_ := json.loads(value.body))
+        if not isinstance(ids_, (tuple, list)):
+            return RestListResponse(status=RestResultEnum.BAD_REQUEST, reason="Invalid response body")
+        return RestListResponse(status=status, ids=ids)
+
+
+@compute_node(overloads=convert)
+def convert_to_rest_read_response(
+    ts: TS[HttpResponse],
+    to: type[TS[RestReadResponse[COMPOUND_SCALAR]]] = OUT,
+    _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[RestReadResponse[COMPOUND_SCALAR]]:
+    value: HttpResponse = ts.value
+    status, reason = _process_response_error(value)
+    if reason:
+        return RestReadResponse[_cs_tp](status=status, reason=reason)
+    else:
+        value_ = json.loads(value.body)
+        v = from_json_builder(RestIdValueReqResp[_cs_tp])(value_)
+        return RestReadResponse[_cs_tp](status=status, id=v.id, value=v.value)
 
 
 @compute_node(overloads=convert)

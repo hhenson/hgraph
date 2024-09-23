@@ -108,8 +108,8 @@ def _(value: HgTSTypeMetaData) -> Callable[[Any], Any]:
 def _(value: HgCompoundScalarType) -> Callable[[Any], Any]:
     fns = []
     for k, tp in value.meta_data_schema.items():
-        fns.append((k, lambda v, tp=tp, k=k: from_json_builder(tp)(v.get(k, None))))
-    return lambda v, fns=fns, tp=value.py_type: tp(**{k: v_ for k, fn in fns if (v_ := fn(v)) is not None})
+        fns.append((k, lambda v1, tp=tp, k=k: from_json_builder(tp)(v1.get(k, None))))
+    return lambda v2, fns=fns, tp=value.py_type: tp(**{k: v_ for k, fn in fns if (v_ := fn(v2)) is not None})
 
 
 @from_json_converter.register(HgAtomicType)

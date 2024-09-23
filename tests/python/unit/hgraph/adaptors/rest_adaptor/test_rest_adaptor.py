@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
+from os import readv
 from random import randrange
 from threading import Thread
 
@@ -14,13 +15,17 @@ from hgraph import (
     sink_node,
     combine,
     TIME_SERIES_TYPE,
-    register_adaptor,
     run_graph,
     EvaluationMode,
     compute_node,
     TSD,
     STATE,
+    GraphConfiguration,
+    evaluate_graph,
+    EvaluationEngineApi,
+    SCHEDULER,
 )
+from hgraph.adaptors.tornado import rest_list, register_rest_client, rest_read
 from hgraph.adaptors.tornado._rest_handler import (
     RestListRequest,
     RestRequest,
@@ -45,7 +50,7 @@ from hgraph.adaptors.tornado.http_server_adaptor import (
     HttpDeleteRequest,
     HttpResponse,
     http_server_handler,
-    http_server_adaptor_impl,
+    register_http_server_adaptor,
 )
 from hgraph.nodes import stop_engine
 from hgraph.test import eval_node
@@ -84,7 +89,7 @@ def _convert_to_request(ts: TS[HttpRequest]) -> TS[RestRequest]:
     ],
 )
 def test_to_request(value, expected):
-    result = eval_node(_convert_to_request, [value], __trace_wiring__=True)
+    result = eval_node(_convert_to_request, [value])
     assert result == [expected]
 
 
@@ -171,7 +176,7 @@ def test_single_rest_request_graph(port):
 
     @graph
     def g():
-        register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+        register_http_server_adaptor(port=port)
         q(True)
 
     response1 = None
@@ -226,7 +231,7 @@ def test_multiple_request_graph(port):
 
     @graph
     def g():
-        register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
+        register_http_server_adaptor(port=port)
         q(True)
 
     response1 = None
@@ -255,3 +260,60 @@ def test_multiple_request_graph(port):
     assert response2 is not None
     assert response2.status_code == 404
     assert "Hello, world #1!" in response2.text
+
+
+BASE_URL = "/test_rest_client"
+
+
+@rest_handler(url=BASE_URL, data_type=MyCS)
+@compute_node
+def x(request: TS[RestRequest]) -> TS[RestResponse]:
+    request = request.value
+    if isinstance(request, RestListRequest):
+        return RestListResponse(
+            status=RestResultEnum.OK,
+            ids=(
+                "1",
+                "2",
+            ),
+        )
+    elif isinstance(request, RestReadRequest):
+        return RestReadResponse(status=RestResultEnum.OK, id=request.id, value=MyCS(a=1, b="a"))
+    else:
+        return RestReadResponse(status=RestResultEnum.BAD_REQUEST, reason=f"Unknown Request {request}")
+
+
+@graph
+def g(port: int):
+    register_rest_client()
+    register_http_server_adaptor(port=port)
+
+
+def test_rest_list_client(port):
+    URL = f"http://localhost:{port}{BASE_URL}"
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+
+    @graph
+    def rest_list_test() -> TS[tuple[str, ...]]:
+        g(port)
+        out = rest_list(URL)
+        stop_engine(out)
+        return out.ids
+
+    result = evaluate_graph(rest_list_test, config)
+    assert len(result) == 1
+    assert result[0][1] == ("1", "2")
+
+
+def test_rest_read_client(port):
+    URL = f"http://localhost:{port}{BASE_URL}"
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+
+    @graph
+    def rest_get_test() -> TS[MyCS]:
+        g(port)
+        out = rest_read(URL, "1", MyCS)
+        stop_engine(out)
+        return out.value
+
+    assert evaluate_graph(rest_get_test, config)[0][1] == MyCS(a=1, b="a")
