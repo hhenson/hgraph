@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from os import readv
 from random import randrange
 from threading import Thread
 
@@ -22,10 +21,8 @@ from hgraph import (
     STATE,
     GraphConfiguration,
     evaluate_graph,
-    EvaluationEngineApi,
-    SCHEDULER,
 )
-from hgraph.adaptors.tornado import rest_list, register_rest_client, rest_read
+from hgraph.adaptors.tornado import rest_list, register_rest_client, rest_read, rest_create, rest_update, rest_delete
 from hgraph.adaptors.tornado._rest_handler import (
     RestListRequest,
     RestRequest,
@@ -278,7 +275,13 @@ def x(request: TS[RestRequest]) -> TS[RestResponse]:
             ),
         )
     elif isinstance(request, RestReadRequest):
-        return RestReadResponse(status=RestResultEnum.OK, id=request.id, value=MyCS(a=1, b="a"))
+        return RestReadResponse[MyCS](status=RestResultEnum.OK, id=request.id, value=MyCS(a=1, b="a"))
+    elif isinstance(request, RestCreateRequest):
+        return RestCreateResponse[MyCS](status=RestResultEnum.CREATED, id=request.id, value=request.value)
+    elif isinstance(request, RestUpdateRequest):
+        return RestUpdateResponse[MyCS](status=RestResultEnum.OK, id=request.id, value=request.value)
+    elif isinstance(request, RestDeleteRequest):
+        return RestDeleteResponse(status=RestResultEnum.OK)
     else:
         return RestReadResponse(status=RestResultEnum.BAD_REQUEST, reason=f"Unknown Request {request}")
 
@@ -310,10 +313,54 @@ def test_rest_read_client(port):
     config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     @graph
-    def rest_get_test() -> TS[MyCS]:
+    def rest_read_test() -> TS[MyCS]:
         g(port)
         out = rest_read(URL, "1", MyCS)
         stop_engine(out)
         return out.value
 
-    assert evaluate_graph(rest_get_test, config)[0][1] == MyCS(a=1, b="a")
+    assert evaluate_graph(rest_read_test, config)[0][1] == MyCS(a=1, b="a")
+
+
+def test_rest_create_client(port):
+    URL = f"http://localhost:{port}{BASE_URL}"
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+
+    @graph
+    def rest_create_test() -> TS[MyCS]:
+        g(port)
+        out = rest_create(URL, "1", MyCS(a=1, b="a"))
+        stop_engine(out)
+        return out.value
+
+    assert evaluate_graph(rest_create_test, config)[0][1] == MyCS(a=1, b="a")
+
+
+def test_rest_update_client(port):
+    URL = f"http://localhost:{port}{BASE_URL}"
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+
+    @graph
+    def rest_update_test() -> TS[MyCS]:
+        g(port)
+        out = rest_update(URL, "1", MyCS(a=1, b="a"))
+        stop_engine(out)
+        return out.value
+
+    assert evaluate_graph(rest_update_test, config)[0][1] == MyCS(a=1, b="a")
+
+
+def test_rest_delete_client(port):
+    URL = f"http://localhost:{port}{BASE_URL}"
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+
+    @graph
+    def rest_delete_test() -> TS[RestResultEnum]:
+        g(port)
+        out = rest_delete(URL, "1")
+        stop_engine(out)
+        return out.status
+
+    result = evaluate_graph(rest_delete_test, config)
+    assert len(result) == 1
+    assert result[0][1] == RestResultEnum.OK

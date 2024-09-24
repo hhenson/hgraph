@@ -63,7 +63,7 @@ class HttpRequest(CompoundScalar):
     """
 
     url: str
-    url_parsed_args: tuple[str] = ()
+    url_parsed_args: tuple[str, ...] = ()
     query: dict[str, str] = frozendict()
     headers: dict[str, str] = frozendict()
     cookies: dict[str, str] = frozendict()
@@ -180,7 +180,7 @@ class HttpHandler(tornado.web.RequestHandler):
         await self._handle_request(request_obj)
 
     async def put(self, *args):
-        request_obj = HttpPostRequest(
+        request_obj = HttpPutRequest(
             url=self.path,
             url_parsed_args=args,
             headers=self.request.headers,

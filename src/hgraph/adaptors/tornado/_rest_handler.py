@@ -366,6 +366,18 @@ def convert_to_rest_list_response(
         return RestListResponse(status=status, ids=ids)
 
 
+def _extract_id_value_rest_response(
+    tp: type[REST_RESPONSE], cs_tp: type[COMPOUND_SCALAR], value: HttpResponse
+) -> RestResponse:
+    status, reason = _process_response_error(value)
+    if reason:
+        return tp(status=status, reason=reason)
+    else:
+        value_ = json.loads(value.body)
+        v = from_json_builder(RestIdValueReqResp[cs_tp])(value_)
+        return tp(status=status, id=v.id, value=v.value)
+
+
 @compute_node(overloads=convert)
 def convert_to_rest_read_response(
     ts: TS[HttpResponse],
@@ -373,13 +385,40 @@ def convert_to_rest_read_response(
     _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
 ) -> TS[RestReadResponse[COMPOUND_SCALAR]]:
     value: HttpResponse = ts.value
+    return _extract_id_value_rest_response(RestReadResponse[_cs_tp], _cs_tp, value)
+
+
+@compute_node(overloads=convert)
+def convert_to_rest_create_response(
+    ts: TS[HttpResponse],
+    to: type[TS[RestCreateResponse[COMPOUND_SCALAR]]] = OUT,
+    _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[RestCreateResponse[COMPOUND_SCALAR]]:
+    value: HttpResponse = ts.value
+    return _extract_id_value_rest_response(RestCreateResponse[_cs_tp], _cs_tp, value)
+
+
+@compute_node(overloads=convert)
+def convert_to_rest_update_response(
+    ts: TS[HttpResponse],
+    to: type[TS[RestUpdateResponse[COMPOUND_SCALAR]]] = OUT,
+    _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[RestUpdateResponse[COMPOUND_SCALAR]]:
+    value: HttpResponse = ts.value
+    return _extract_id_value_rest_response(RestUpdateResponse[_cs_tp], _cs_tp, value)
+
+
+@compute_node(overloads=convert)
+def convert_to_rest_delete_response(
+    ts: TS[HttpResponse],
+    to: type[TS[RestDeleteResponse]] = OUT,
+) -> TS[RestDeleteResponse]:
+    value: HttpResponse = ts.value
     status, reason = _process_response_error(value)
     if reason:
-        return RestReadResponse[_cs_tp](status=status, reason=reason)
+        return RestDeleteResponse(status=status, reason=reason)
     else:
-        value_ = json.loads(value.body)
-        v = from_json_builder(RestIdValueReqResp[_cs_tp])(value_)
-        return RestReadResponse[_cs_tp](status=status, id=v.id, value=v.value)
+        return RestDeleteResponse(status=status)
 
 
 @compute_node(overloads=convert)
@@ -394,9 +433,6 @@ def convert_from_rest_response(
     elif isinstance(value, RestListResponse):
         values = (f'"{v}"' for v in value.ids)
         body = f'[ {", ".join(values)} ]'
-    elif isinstance(value, RestReadResponse):
-        v = value.value
-        body = f'{{ "id": "{value.id}", "value": {to_json_builder(type(v))(v)} }}'
     elif isinstance(value, (RestCreateResponse, RestUpdateResponse, RestReadResponse)):
         v = value.value
         body = f'{{ "id": "{value.id}", "value": {to_json_builder(type(v))(v)} }}'

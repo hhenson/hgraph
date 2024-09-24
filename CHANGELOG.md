@@ -724,3 +724,10 @@ Version 0.3.19 (20-09-2024)
 ---------------------------
 
 * More fixes to rest and http logic
+
+Version 0.3.20 (24-09-2024)
+---------------------------
+
+* Clean up http adaptor handler logic and documentation.
+* Add a single registration function for the http adaptor.
+* Add rest client support
