@@ -21,6 +21,7 @@ from hgraph import (
     from_table,
     EvaluationEngineApi,
     get_as_of,
+    LOGGER,
 )
 from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
@@ -61,6 +62,7 @@ def _record_to_data_frame(
     recordable_id: str = None,
     _state: STATE = None,
     _traits: Traits = None,
+    _logger: LOGGER = None,
 ):
     _state.value.append(ts.value)
 
@@ -69,24 +71,33 @@ def _record_to_data_frame(
 def _record_to_data_frame_start(key: str, recordable_id: str, _state: STATE, _traits: Traits = None):
     _state.value = []
     recordable_id = recordable_id if recordable_id is not None else _traits.get_trait_or("recordable_id", None)
-    _state.recordable_id = f":data_frame:{recordable_id}"
+    _state.recordable_id = f"{recordable_id}::{key}"
 
 
 @_record_to_data_frame.stop
-def _record_to_data_frame_stop(_state: STATE, schema: TS[TableSchema]):
+def _record_to_data_frame_stop(_state: STATE, schema: TS[TableSchema], _logger: LOGGER):
     schema: TableSchema = schema.value
-    df = pl.from_records(_state.value, schema=[(k, t) for k, t in zip(schema.keys, schema.types)], orient="row")
+    if schema.partition_keys:
+        rows = list(i for row in _state.value for i in row)
+    else:
+        rows = _state.value
+    df = pl.from_records(rows, schema=[(k, t) for k, t in zip(schema.keys, schema.types)], orient="row")
     path: Path = GlobalState.instance().get(DATA_FRAME_RECORD_REPLAY_PATH, Path("."))
-    _write_df(df, path, _state.recordable_id)
+    _write_df(df, path, _state.recordable_id, _logger)
 
 
-def _write_df(df: pl.DataFrame, path: Path, recordable_id: str):
+def _write_df(df: pl.DataFrame, path: Path, recordable_id: str, logger: LOGGER = None):
     """Separate the writing logic into a function to simplify testing"""
     file_path: Path = path / f"{recordable_id}.parquet"
+    path.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
     if file_path.exists():
+        if logger:
+            logger.info("Reading in old parquet file: %s", file_path)
         # If there is already data here, just add to the data frame.
         df_old = pl.read_parquet(file_path)
         df = pl.concat([df_old, df])
+    if logger:
+        logger.info("Writing: %s", file_path)
     df.write_parquet(file_path)
 
 
@@ -104,7 +115,7 @@ def replay_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id
 def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
     recordable_id = traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     path: Path = GlobalState.instance().get(DATA_FRAME_RECORD_REPLAY_PATH, Path("."))
-    return _read_df(path, recordable_id)
+    return _read_df(path, f"{recordable_id}::{key}")
 
 
 def _replay_from_data_frame_output_shape(m, s):
