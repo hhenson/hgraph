@@ -13,5 +13,6 @@ Contents
     Home <self>
     getting_started
     quick_start/index
+    programming_model/index
     concepts/index
     reference/index

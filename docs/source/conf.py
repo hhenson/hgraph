@@ -28,6 +28,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
     "sphinxcontrib.plantuml",
+    "sphinx.ext.graphviz",
 ]
 
 intersphinx_mapping = {
