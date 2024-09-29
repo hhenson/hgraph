@@ -6,6 +6,8 @@ When approaching the design of your new project here are some things to consider
 * Think about the problem from the view point of information flow.
 * Prioritise the use of ``graph`` elements.
 * Nodes such be small and preferably general purpose
+* Focus on extensive testing at the node / component level.
+* Decouple the logic from the deployment.
 
 Describing the problems / solution
 ----------------------------------
@@ -78,11 +80,18 @@ So now we can extend the description of the problem as follows:
 Here we just try and create stubs for the key concepts of the behaviour to try and
 get a feel of code required.
 
+Move from top down to bottom up
+-------------------------------
+
 Now we can start looking at the requirements of each of the steps in isolation of the overall
 problem.
 
 The ``rank`` graph looks like it could be a useful re-usable component. So the next step
 may be to expand this component.
+
+Always start using a ``graph`` decorator, then write out the pseudo code assuming
+that each line of code exists (using those items that do when possible). Below is
+an example:
 
 ::
 
@@ -96,17 +105,15 @@ may be to expand this component.
         values = range_(-1.0, step=2.0/sz)
         return combine[TSD[str, TS[float]](keys, values)
 
-This may be the first psuedo code attempt to capture the computation.
-
 We can now review how hard this would be to implement. We know for example that ``len_``
 exists in the standard library, but ``sort`` and ``range_`` may not, and ``combine``
 probably exists, will need to test.
 
 There is an option to write this as a node, always think carefully about this as nodes
-require more testing and debugging. Also these will not benefit from performance improvements
+require more testing and debugging. Additionally, these will not benefit from performance improvements
 made when the runtime is converted to C++ / Rust.
 
-For this example, lets assume we decide to start with a prototype as a node. The code can
+That said, let's consider implementing this as a compute node to further this example. The code can
 then be converted as follows:
 
 ::
@@ -117,10 +124,13 @@ then be converted as follows:
         Takes a raw_signal that needs to be evenly normalised over the range [-1.0,1.0].
         """
         sz = len(raw_signal)
-        keys = (k for _, k in sorted((v, k) for k, v in raw_signal.value))
-        return {k: (-1.0 + i*2.0/sz) for k, i in zip(keys, range(sz))}
+        keys = (k for _, k in sorted((v, k) for k, v in raw_signal.value.items()))
+        return {k: -1.0 + i * 2.0 / sz for k, i in zip(keys, range(sz))}
 
 Now we have the rank defined, we need to write a test pack for the node.
+
+.. note:: The testing approach is suitable for node's as well as graph components.
+
 For node testing, HGrpah provides a simple testing wrapper called ``eval_node``.
 
 To use this with pytest, do the following:
@@ -128,17 +138,17 @@ To use this with pytest, do the following:
 ::
 
     import pytest
-    from hgraph.testing import eval_node
+    from hgraph.test import eval_node
     from frozendict import frozendict as fd
 
     @pytest.mark.parametrize(
-    ["raw_signal, expected"],
+    ["raw_signal", "expected"],
     [
-       [[fd(a=0.1, b=0.3, c=-3.0], [fd(c=-1.0, a=0.0, b=1.0]],
+       [[fd(a=0.1, b=0.3, c=-3.0)], [fd(c=-1.0, a=0.0, b=1.0)]],
        ...
     ])
     def test_rank(raw_signal, expected):
-        assert eval_node(rank, [raw_signal]) == [expected]
+        assert eval_node(rank, raw_signal) == expected
 
 Running this test will cause the rank node to be evaluated with a time-series input
 of raw_signal for the first tick and then evaluate it's response. In this case expecting
@@ -146,10 +156,16 @@ a first tick response of expected.
 
 When we run this code should get a failure as we had a bug in the rank value calculation.
 
+::
+
+    >>>  Expected :[frozendict.frozendict({'c': -1.0, 'a': 0.0, 'b': 1.0})]
+    >>>  Actual   :[frozendict.frozendict({'c': -1.0, 'a': -0.33333333333333337, 'b': 0.33333333333333326})]
+
+
 This allows us to cycle and fix, try and find a good number of examples that will touch
 normal as well as boundary conditions.
 
-In this case if we correct the node as follows we should get a correct result:
+In this case if we correct the node as follows we get a correct result:
 
 ::
 
@@ -164,4 +180,64 @@ In this case if we correct the node as follows we should get a correct result:
 
 
 NOTE the adjustment of the divisor ``(sz-1.0)`` to get the correct offset alignment.
+
+Integration Testing / Runtime Wiring
+------------------------------------
+
+Once the bottom end components are coded and tested, move up the stack. With a final
+set of tests that validate the overall behaviour. Depending on the complexity of the
+application, you may reqrire some integration tests that run up more of the stack for
+testing. Keep these separate from the unit tests.
+
+In this case integration testing will involve creating a main wiring class with
+real data sources and sinks.
+
+This could be the same as the final wiring class. The idea here is to separate
+the logic (in this case the signal generation logic) from the physical sources of
+data used to drive the logic. This allows for using back-test data separately from
+real time data sources.
+
+For example, perhaps the backtest data is retrieved from a database, but the real-time
+data is sourced from a messaging bus. In this case it is easy to create a main wiring
+class using data-base sourced information and a main wiring class using the messaging
+bus data sources.
+
+An example of this may look something similar to the code below:
+
+::
+
+    @graph
+    def back_test_main_graph():
+        market_data = db_reader("select * from market_data_tbl")
+        sentiment = db_reader("select * from sentiment_tbl")
+        signal = generate_signal(market_data, sentiment)
+        db_writer("signal_tbl", signal)
+
+This assumes that there are components: ``db_reader`` and ``db_writer`` that
+can read and write from/to a database.
+
+This would allow us to run this graph in simulation mode.
+
+The other main wiring class may look more like the graph below:
+
+::
+
+    @graph
+    def real_time_main_graph():
+        market_data = subscribe_kafka("market_data")
+        sentiment = subscribe_kafka("sentiment")
+        signal = generate_signal(market_data, sentiment)
+        publish_kafka("signal", signal)
+
+In this scenario we assume there are publish and subscribe components that
+we can use to access a stream of data and to publish the data to.
+
+This approach allows for great flexibility and re-use of the code.
+
+When constructing back-test or integration testing it is possible to collect
+multiple graphs into a single process, and in production split the processes up
+into multiple processes. This approach insures deployment is decoupled from
+the business logic implementation.
+
+
 
