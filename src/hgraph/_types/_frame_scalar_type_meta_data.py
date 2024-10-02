@@ -36,8 +36,8 @@ try:
             return Frame[self.schema.py_type]
 
         @property
-        def typevars(self):
-            return self.schema.typevars
+        def type_vars(self):
+            return self.schema.type_vars
 
         @property
         def generic_rank(self) -> dict[type, float]:
@@ -105,8 +105,8 @@ try:
             return Series[self.value_tp.py_type]
 
         @property
-        def typevars(self):
-            return self.value_tp.typevars
+        def type_vars(self):
+            return self.value_tp.type_vars
 
         @property
         def generic_rank(self) -> dict[type, float]:

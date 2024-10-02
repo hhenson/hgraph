@@ -61,7 +61,7 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @property
-    def typevars(self):
+    def type_vars(self):
         return {self.py_type}
 
     @property
@@ -70,12 +70,9 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
         # discriminate between typevars with different constraints
 
         avg_constraints_rank = fmean(
-            itertools.chain(
-                *(
-                    c.generic_rank.values() if isinstance(c, HgTimeSeriesTypeMetaData) else [1.0]
-                    for c in self.constraints
-                )
-            )
+            itertools.chain(*(
+                c.generic_rank.values() if isinstance(c, HgTimeSeriesTypeMetaData) else [1.0] for c in self.constraints
+            ))
         )
 
         return {self.py_type: 0.9 + avg_constraints_rank / 10.0}

@@ -57,8 +57,8 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.py_type._schema_is_resolved()
 
     @property
-    def typevars(self):
-        return set().union(*(t.typevars for t in self.meta_data_schema.values())) | set(
+    def type_vars(self):
+        return set().union(*(t.type_vars for t in self.meta_data_schema.values())) | set(
             getattr(self.py_type, "__parameters__", ())
         )
 
@@ -233,8 +233,8 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @property
-    def typevars(self):
-        return self.bundle_schema_tp.typevars
+    def type_vars(self):
+        return self.bundle_schema_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:

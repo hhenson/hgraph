@@ -25,8 +25,8 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_scalar_tp.is_resolved
 
     @property
-    def typevars(self):
-        return self.value_scalar_tp.typevars
+    def type_vars(self):
+        return self.value_scalar_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -65,7 +65,8 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
             scalar = HgScalarTypeMetaData.parse_type(value_tp.__args__[0])
             if scalar is None:
                 raise ParseError(
-                    f"While parsing 'TS[{str(value_tp.__args__[0])}]' unable to parse scalar type from '{str(value_tp.__args__[0])}'"
+                    f"While parsing 'TS[{str(value_tp.__args__[0])}]' unable to parse scalar type from"
+                    f" '{str(value_tp.__args__[0])}'"
                 )
             return HgTSTypeMetaData(scalar)
 

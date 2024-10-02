@@ -159,7 +159,7 @@ def _dispatch_impl(
 
         try:
             o.resolve_signature(**stub_args)
-            if o.signature.typevars:
+            if o.signature.type_vars:
                 resolved_dict = o.resolved_types if isinstance(o, PreResolvedWiringNodeWrapper) else {}
                 o = o.resolve_with(
                     extract_resolution_dict(o.signature, __pre_resolved_types__=resolved_dict, **stub_args)

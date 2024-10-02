@@ -108,8 +108,8 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
             return self
 
     @property
-    def typevars(self):
-        return self.key_tp.typevars | self.value_tp.typevars
+    def type_vars(self):
+        return self.key_tp.type_vars | self.value_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:

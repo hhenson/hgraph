@@ -88,7 +88,8 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
             value_tp = HgTypeMetaData.parse_type(value_tp.__args__[0])
             if value_tp is None:
                 raise ParseError(
-                    f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]' unable to parse time series type from '{str(value_tp.__args__[0])}'"
+                    f"While parsing 'CONTEXT[{str(value_tp.__args__[0])}]' unable to parse time series type from"
+                    f" '{str(value_tp.__args__[0])}'"
                 )
             if value_tp.has_references:
                 raise ParseError(
@@ -104,8 +105,8 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
         return self
 
     @property
-    def typevars(self):
-        return self.value_tp.typevars
+    def type_vars(self):
+        return self.value_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:

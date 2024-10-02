@@ -158,7 +158,10 @@ class HgTypeMetaData:
         """
         Converts the type meta-data to a reference type if the type is not already a reference type.
         If the type is already a reference type, it will be returned as is.
-        This DOES NOT recurse the type hierarchy.
+
+        .. note:: This DOES NOT recurse the type hierarchy.
+
+        :return: The reference variation of this type (or itself).
         """
         from hgraph._types._ref_meta_data import HgREFTypeMetaData
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
@@ -166,7 +169,10 @@ class HgTypeMetaData:
         return self if isinstance(self, (HgREFTypeMetaData, HgScalarTypeMetaData)) else HgREFTypeMetaData(self)
 
     @property
-    def typevars(self):
+    def type_vars(self) -> set[TypeVar]:
+        """
+        :return: The set of type-vars that are associated to this type instance.
+        """
         return set()
 
     @property
@@ -181,15 +187,16 @@ class HgTypeMetaData:
 
     def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """
-        Attempts to resolve any un-resolved types using the wired type supplied. Any resolutions made are added to the
-        resolution_dict. This is used to:
-        1. Validate that resolutions made previously for the same type-var instances are still valid.
-        2. When resolution is made to a different type, determine if the types are convertible, if so pick the lowest
+        Attempts to resolve any unresolved types using the wired type supplied. Any resolutions made are added to the
+        ``resolution_dict``. This is used to:
+
+        1. Validate that resolutions made previously for the same ``TypeVar`` instances are still valid.
+        2. When resolution is made to a different type, determine if the types are convertible, if so, pick the lowest
            conversion to bind to.
-        Once all the types have had a go at determining the resolution_dict, the types are resolved for real in a second
-        pass.
-        The outputs are fully reliant on types to be resolved using the wired_types on the inputs to resolve the output
-        types.
+
+        Once all the types have had a go at determining the ``resolution_dict``, the types are resolved for real in a
+        second pass. The outputs are fully reliant on types to be resolved using the ``wired_type`` s on the inputs to
+        resolve the output types.
         """
         if self.is_resolved:
             return
@@ -199,7 +206,8 @@ class HgTypeMetaData:
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         """
-        Implementation method for build_resolution_dict - to be overriden by the derived classes
+        Implementation method for ``build_resolution_dict`` - to be overridden by the derived classes.
+        Do not override the ``build_resolution_dict`` method in derived classes.
         """
         if wired_type is not None and type(self) != type(wired_type):
             from hgraph._wiring._wiring_errors import IncorrectTypeBinding

@@ -28,8 +28,8 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
         return self.value_scalar_tp.is_resolved
 
     @property
-    def typevars(self):
-        return self.value_scalar_tp.typevars
+    def type_vars(self):
+        return self.value_scalar_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:

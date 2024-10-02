@@ -133,7 +133,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         return self.py_type
 
     @property
-    def typevars(self):
+    def type_vars(self):
         return {self.py_type}
 
     @property
@@ -600,8 +600,8 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         return self.py_collection_type[self.element_type.py_type, ...]
 
     @property
-    def typevars(self):
-        return self.element_type.typevars
+    def type_vars(self):
+        return self.element_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -664,8 +664,8 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
         return Array[self.element_type.py_type, *(tp.py_type for tp in self.shape_types)]
 
     @property
-    def typevars(self):
-        return self.element_type.typevars
+    def type_vars(self):
+        return self.element_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -743,8 +743,8 @@ class HgTupleFixedScalarType(HgTupleScalarType):
         )
 
     @property
-    def typevars(self):
-        return set().union(*(t.typevars for t in self.element_types))
+    def type_vars(self):
+        return set().union(*(t.type_vars for t in self.element_types))
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -809,8 +809,8 @@ class HgSetScalarType(HgCollectionType):
         return self.element_type.is_resolved
 
     @property
-    def typevars(self):
-        return self.element_type.typevars
+    def type_vars(self):
+        return self.element_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -879,8 +879,8 @@ class HgDictScalarType(HgCollectionType):
         return self.key_type.is_resolved and self.value_type.is_resolved
 
     @property
-    def typevars(self):
-        return self.key_type.typevars | self.value_type.typevars
+    def type_vars(self):
+        return self.key_type.type_vars | self.value_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -959,8 +959,8 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     @property
-    def typevars(self):
-        return set().union(*(t.typevars for t in self.py_type.__meta_data_schema__.values())) | set(
+    def type_vars(self):
+        return set().union(*(t.type_vars for t in self.py_type.__meta_data_schema__.values())) | set(
             getattr(self.py_type, "__parameters__", ())
         )
 
@@ -970,7 +970,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
         hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
 
-        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.typevars), 0.01)
+        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.type_vars), 0.01)
 
         return generic_rank | hierarchy_rank
 
@@ -1057,8 +1057,8 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         return type[self.value_tp.py_type]
 
     @property
-    def typevars(self):
-        return self.value_tp.typevars
+    def type_vars(self):
+        return self.value_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:

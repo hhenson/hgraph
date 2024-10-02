@@ -188,7 +188,7 @@ class AbstractSchema:
             for p in cls.__parameters__:
                 r = resolution_dict.get(p, cls.__parameters_meta_data__.get(p))
                 if not r.is_resolved:
-                    parameters.extend(r.typevars)
+                    parameters.extend(r.type_vars)
 
             r_cls = type(cls_name, bases, type_dict)
             r_cls.__root__ = cls._root_cls()
