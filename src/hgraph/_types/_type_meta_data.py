@@ -10,6 +10,8 @@ __all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE")
 
 AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
 
+TYPE = TypeVar("TYPE", bound=type)
+
 
 class ParseError(RuntimeError):
     """
@@ -126,31 +128,39 @@ class HgTypeMetaData:
         """
         return self.py_type == tp.py_type  # By default, if the python types are the same, then the types match.
 
-    def matches_type(self, tp: type):
+    def matches_type(self, tp: TYPE):
         """
         Will match a standard python type (``tp``) to this HGraph type.
         The function is effectively a call to ``parse_type`` and then calls ``match`` on the result.
         """
         return self.matches(self.parse_type(tp))
 
-    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
+    def resolve(self, resolution_dict, weak: bool = False) -> "HgTypeMetaData":
         """
-        Return a resolve type instance using the resolution dictionary supplied to map type var instances
-        to resolved types.
-        If there are missing types an appropriate exception should be thrown.
-        :param weak:
+        Resolve any ``TypeVar``s that are found in this type using the ``resolution_dict`` provided. If weak is
+        ``False`` and a type can't be resolved, it will raise an Exception. If weak is set to ``True`` then
+        any types that are unresolved remain unresolved in the returned type.
+
+        :param resolution_dict: The dictionary containing the currently resolved types so far (TypeVar->HgTypeMetaData).
+        :param weak: When ``True`` this will self when an exact resolution is not possible.
+        :return: The resolved HGraph type instance.
         """
         if self.is_resolved:
             return self
 
     @property
     def has_references(self) -> bool:
+        """
+        :return: True if this type is or has a reference in it.
+        """
         return False
 
     def dereference(self) -> "HgTypeMetaData":
         """
-        Returns the dereferenced value of the type, this is performed recursively. The resultant type will represent
-        the type without any reference value included.
+        Returns the dereferenced the type.
+
+        :return: The dereferenced value of the type, this is performed recursively. The resultant type will represent
+                 the type without any reference value included.
         """
         return self
 
@@ -169,7 +179,7 @@ class HgTypeMetaData:
         return self if isinstance(self, (HgREFTypeMetaData, HgScalarTypeMetaData)) else HgREFTypeMetaData(self)
 
     @property
-    def type_vars(self) -> set[TypeVar]:
+    def type_vars(self) -> set:
         """
         :return: The set of type-vars that are associated to this type instance.
         """
@@ -185,7 +195,7 @@ class HgTypeMetaData:
         """
         return {}
 
-    def build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+    def build_resolution_dict(self, resolution_dict, wired_type: "HgTypeMetaData"):
         """
         Attempts to resolve any unresolved types using the wired type supplied. Any resolutions made are added to the
         ``resolution_dict``. This is used to:
@@ -197,6 +207,9 @@ class HgTypeMetaData:
         Once all the types have had a go at determining the ``resolution_dict``, the types are resolved for real in a
         second pass. The outputs are fully reliant on types to be resolved using the ``wired_type`` s on the inputs to
         resolve the output types.
+
+        :param resolution_dict: A dictionary of TypeVar to HgTypeMetaData instances.
+        :param wired_type: The wired type provided to assist in building the type-resolution dictionary.
         """
         if self.is_resolved:
             return
@@ -204,10 +217,13 @@ class HgTypeMetaData:
         if self != wired_type:
             self.do_build_resolution_dict(resolution_dict, wired_type.dereference() if wired_type else None)
 
-    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+    def do_build_resolution_dict(self, resolution_dict, wired_type: "HgTypeMetaData"):
         """
         Implementation method for ``build_resolution_dict`` - to be overridden by the derived classes.
         Do not override the ``build_resolution_dict`` method in derived classes.
+
+        :param resolution_dict: A dictionary of TypeVar to HgTypeMetaData instances.
+        :param wired_type: The wired type provided to assist in building the type-resolution dictionary.
         """
         if wired_type is not None and type(self) != type(wired_type):
             from hgraph._wiring._wiring_errors import IncorrectTypeBinding
