@@ -11,15 +11,62 @@ __all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE")
 AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
 
 
-class ParseError(RuntimeError): ...
+class ParseError(RuntimeError):
+    """
+    Generated if a parsing error occurs when extracting type metadata from a given input.
+    """
 
 
 class HgTypeMetaData:
+    """
+    The type meta-data provides reflective information describing a supplied type. It contains
+    a collection of useful methods and properties that are used when wiring and reasoning about
+    HGraph signatures.
+
+    The key entry-point into this class is the parse_type and parse_value methods. These methods construct
+    instances of ``HgTypeMetaData`` from the given inputs. This is the top level class and can construct
+    any of the supported types. It is possible to use either the ``HgScalarTypeMetaData`` or ``HgTimeSeriesTypeMetaData``
+    to parse the types with if you know what type is expected.
+
+    This defines the following useful properties:
+
+    is_resolved
+        If this instance of type is resolved, or in other words, does this type or any of its children
+        contain an unresolved type. (Unresolved means has a TypeVar in the type declaration)
+
+    is_scalar
+        True if this represents a scalar type.
+
+    is_atomic
+        True if this represents a type has no child elements. For example, a str or int type.
+        An example of a NON-ATOMIC element could be tuple[int, ...] where this has additional
+        child type information (in this case an int type).
+
+    is_generic
+        True if this represents a generic type or in other words, a TypeVar element.
+
+    is_injectable
+        True if this represents an injectable type. These are types that are required to be
+        injected into the function signature, for example, STATE.
+
+    is_reference
+        True if this type is a reference type.
+
+    is_context_manager
+        True if this type represents a context manager.
+
+    is_context_wired
+        Is this an auto-wired input from a context.
+
+    py_type
+        The python type this meta-data type represents.
+    """
+
     is_resolved: bool  # Does this instance of metadata contain a generic entry, i.e. requires resolution
     is_scalar: bool
     is_atomic: bool = False
     is_generic: bool = False  # Is this instance of metadata representing a template type (i.e. TypeVar)
-    is_injectable: bool = False  # This indicates the type represent an injectable property (such as ExecutionContext)
+    is_injectable: bool = False  # This indicates the type represents an injectable property (such as ExecutionContext)
     is_reference: bool = False
     is_context_manager: bool = False  # Is this a context manager type
     is_context_wired: bool = False  # Is this auto-wiring from context
@@ -28,6 +75,10 @@ class HgTypeMetaData:
     @classmethod
     @lru_cache(maxsize=None)
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        """
+        This accepts a python type (``value_tp``) and returns the ``HgTypeMetaData`` instance that represents
+        the type supplied. If the type does not resolve to a valid HGraph type, ``ParseError`` is raised.
+        """
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
@@ -41,6 +92,12 @@ class HgTypeMetaData:
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        """
+        Attempts to determine the HGraph type from the value supplied.
+        This is not as reliable as parsing the type and could result in an
+        incorrect result or may be unable to extract the type at all.
+        But it is useful for auto-resolution and validation.
+        """
         from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
         from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
@@ -57,31 +114,24 @@ class HgTypeMetaData:
         Can this instance of meta-data match the supplied type?
         This is used to determine if a type can be wired to another type.
         It does not provide a guarantee that the types are compatible, only that they could match.
-        For example: add_(lhs: TS[NUMERIC], rhs: TS[NUMERIC]), in this case TS[int] and TS[float] could match,
-        but if the inputs to lhs and rhs were TS[int] and TS[float] respectively, then the types would not be a match
-        for each individual input but not for the function as a whole.
+        For example:
+
+        ::
+
+            add_(lhs: TS[NUMERIC], rhs: TS[NUMERIC])
+
+        in this case ``TS[int]`` and ``TS[float]`` could match,
+        but if the inputs to lhs and rhs were ``TS[int]`` and ``TS[float]`` respectively,
+        then the types would not be a match for each input but not for the function as a whole.
         """
-        return self.py_type == tp.py_type  # By default if the python types are the same, then the types match.
+        return self.py_type == tp.py_type  # By default, if the python types are the same, then the types match.
 
     def matches_type(self, tp: type):
         """
-        Helper to match a type that has not been parsed.
+        Will match a standard python type (``tp``) to this HGraph type.
+        The function is effectively a call to ``parse_type`` and then calls ``match`` on the result.
         """
         return self.matches(self.parse_type(tp))
-
-    def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
-        """
-        If this meta data a sub-class of the other, determines convertibility. That is in a wiring context,
-        it is possible to supply a sub-class of a type into an input constrained by the type.
-        """
-        raise NotImplementedError()
-
-    def is_convertable(self, tp: "HgTypeMetaData") -> bool:
-        """
-        Is it possible to convert from the source type to the destination *type*. This is used to support
-        automatic type conversions where it makes sense.
-        """
-        raise NotImplementedError()
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         """

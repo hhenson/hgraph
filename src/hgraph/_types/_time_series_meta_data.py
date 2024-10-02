@@ -17,22 +17,13 @@ __all__ = ("HgTimeSeriesTypeMetaData",)
 
 
 class HgTimeSeriesTypeMetaData(HgTypeMetaData):
+    """
+    Marker to indicate this represents a time-series type. This sets ``is_scalar`` to False and
+    ``is_atomic`` to False.
+    """
+
     is_scalar = False
     is_atomic = False
-
-    # Begin Node constructor helper methods.
-
-    def create_input(self) -> "TimeSeriesInput":
-        raise NotImplementedError()
-
-    def create_push_queue(self) -> "TimeSeriesPushQueue":
-        raise NotImplementedError()
-
-    def create_pull_queue(self) -> "TimeSeriesPullQueue":
-        raise NotImplementedError()
-
-    def create_output(self) -> "TimeSeriesOutput":
-        raise NotImplementedError()
 
     # End of Node constructor helper methods
 
@@ -88,7 +79,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
     ):
         """
-        To be override by derived classes
+        To be overridden by derived classes
         """
         from hgraph._wiring._wiring_errors import IncorrectTypeBinding
 
