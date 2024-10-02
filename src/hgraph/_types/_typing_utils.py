@@ -1,10 +1,10 @@
 import itertools
 from typing import TypeVar
 
-__all__ = ("clone_typevar", "nth", "with_signature")
+__all__ = ("clone_type_var", "nth", "with_signature")
 
 
-def clone_typevar(tp: TypeVar, name: str) -> TypeVar:
+def clone_type_var(tp: TypeVar, name: str) -> TypeVar:
     """Creates a copy of a typevar and sets the name to the copies name"""
     if tp.__constraints__:
         rv = TypeVar(name, *tp.__constraints__, covariant=tp.__covariant__, contravariant=tp.__contravariant__)
@@ -86,12 +86,14 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
 
     if args is not None:
         raise ValueError(
-            f"with_signature was provided annotaitons for *args however there is no *argument in the current function signature"
+            f"with_signature was provided annotaitons for *args however there is no *argument in the current function"
+            f" signature"
         )
 
     if kwargs is not None:
         raise ValueError(
-            f"with_signature was provided annotaitons for **kwargs however there is no **argument in the current function signature"
+            f"with_signature was provided annotaitons for **kwargs however there is no **argument in the current"
+            f" function signature"
         )
 
     if return_annotation is not None:

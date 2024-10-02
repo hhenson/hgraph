@@ -1,15 +1,14 @@
 from types import GenericAlias
-from typing import Type, TypeVar, Generic, Optional, _GenericAlias, _SpecialGenericAlias, Mapping
+from typing import Type, TypeVar, Optional, _GenericAlias, _SpecialGenericAlias
 
 from hgraph._types._generic_rank_util import scale_rank
-from hgraph._types._type_meta_data import ParseError
-from hgraph._types._scalar_types import CompoundScalar, COMPOUND_SCALAR
 from hgraph._types._scalar_type_meta_data import (
     HgCollectionType,
     HgCompoundScalarType,
     HgScalarTypeMetaData,
-    HgScalarTypeVar,
 )
+from hgraph._types._scalar_types import CompoundScalar
+from hgraph._types._type_meta_data import ParseError
 
 try:
     import polars as pl

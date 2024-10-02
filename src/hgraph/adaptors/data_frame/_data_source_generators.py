@@ -16,7 +16,7 @@ from hgraph import (
     Array,
     SIZE,
     TSL,
-    clone_typevar,
+    clone_type_var,
     Size,
     SCALAR_2,
     HgScalarTypeMetaData,
@@ -332,7 +332,7 @@ def tsl_from_data_source(
             yield dt + offset, values
 
 
-SIZE_1 = clone_typevar(SIZE, "SIZE_1")
+SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 
 
 @generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m, s: Size[-1]})

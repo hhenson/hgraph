@@ -3,9 +3,39 @@ from typing import Type
 
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._impl._types._tss import PythonSetDelta
-from hgraph._operators import sub_, getitem_, min_, max_, sum_, mean, var, str_, std, div_, bit_and, bit_or, bit_xor, \
-    not_, eq_, len_, zero, add_, floordiv_, pow_, lshift_, rshift_, ne_, neg_, pos_, invert_, abs_, union, mul_, mod_, \
-    all_
+from hgraph._operators import (
+    sub_,
+    getitem_,
+    min_,
+    max_,
+    sum_,
+    mean,
+    var,
+    str_,
+    std,
+    div_,
+    bit_and,
+    bit_or,
+    bit_xor,
+    not_,
+    eq_,
+    len_,
+    zero,
+    add_,
+    floordiv_,
+    pow_,
+    lshift_,
+    rshift_,
+    ne_,
+    neg_,
+    pos_,
+    invert_,
+    abs_,
+    union,
+    mul_,
+    mod_,
+    all_,
+)
 from hgraph._types._ref_type import REF
 from hgraph._types._scalar_types import NUMBER, KEYABLE_SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -13,7 +43,7 @@ from hgraph._types._ts_type import TS
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS, TSS_OUT
 from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._types._typing_utils import clone_typevar
+from hgraph._types._typing_utils import clone_type_var
 from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._reduce import reduce
 
@@ -43,7 +73,7 @@ def getitem_tsl_scalar(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TI
 
 @compute_node(overloads=getitem_)
 def getitem_tsl_ts(
-        ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE
+    ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: TS[int], _sz: Type[SIZE] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced
@@ -73,7 +103,7 @@ def _sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], zero_ts: TS[NUMBER]) -> TS[NUMBER
     return sum((t.value for t in tsl.valid_values()), start=zero_ts.value)
 
 
-SIZE_1 = clone_typevar(SIZE, "SIZE_1")
+SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 
 
 @graph(overloads=sum_)
@@ -140,7 +170,7 @@ def pow_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE])
     """
     Item-wise lhs ** rhs of the elements.  A missing value on either lhs or rhs causes a gap on the output
     """
-    return TSL.from_ts(*(a ** b for a, b in zip(lhs, rhs)))
+    return TSL.from_ts(*(a**b for a, b in zip(lhs, rhs)))
 
 
 @graph(overloads=lshift_)

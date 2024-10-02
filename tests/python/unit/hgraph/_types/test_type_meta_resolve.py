@@ -6,7 +6,7 @@ import pytest
 from hgraph import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar, K, KEYABLE_SCALAR
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB, REF
-from hgraph._types._typing_utils import clone_typevar
+from hgraph._types._typing_utils import clone_type_var
 
 
 @dataclass
@@ -19,7 +19,7 @@ class UnResolvedSchema(TimeSeriesSchema, Generic[TIME_SERIES_TYPE]):
     p2: TIME_SERIES_TYPE
 
 
-TIME_SERIES_TYPE_2 = clone_typevar(TIME_SERIES_TYPE, 'TIME_SERIES_TYPE_2')
+TIME_SERIES_TYPE_2 = clone_type_var(TIME_SERIES_TYPE, "TIME_SERIES_TYPE_2")
 
 
 @dataclass
@@ -33,7 +33,7 @@ class UnResolvedCompoundScalar(CompoundScalar, Generic[SCALAR]):
     s1: SCALAR
 
 
-SCALAR_2 = clone_typevar(SCALAR, 'SCALAR_2')
+SCALAR_2 = clone_type_var(SCALAR, "SCALAR_2")
 
 
 @dataclass
@@ -43,7 +43,7 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
 
 
 @pytest.mark.parametrize(
-    ('ts', 'wiring_ts', 'expected_dict'),
+    ("ts", "wiring_ts", "expected_dict"),
     [
         [TS[int], TS[int], {}],
         [TS[SCALAR], TS[int], {SCALAR: int}],
@@ -64,17 +64,33 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
         [REF[TIME_SERIES_TYPE], REF[TS[int]], {TIME_SERIES_TYPE: TS[int]}],
         [TSB[SimpleSchema], TSB[SimpleSchema], {}],
         [TSB[UnResolvedSchema], TSB[UnResolvedSchema[TS[int]]], {TIME_SERIES_TYPE: TS[int]}],
-        [TSB[UnResolvedSchema2], TSB[UnResolvedSchema2[TS[int], TS[str]]], {TIME_SERIES_TYPE: TS[int], TIME_SERIES_TYPE_2: TS[str]}],
-        [TSB[UnResolvedSchema2[TS[int]]], TSB[UnResolvedSchema2[TS[int], TS[str]]], {TIME_SERIES_TYPE: TS[int], TIME_SERIES_TYPE_2: TS[str]}],
+        [
+            TSB[UnResolvedSchema2],
+            TSB[UnResolvedSchema2[TS[int], TS[str]]],
+            {TIME_SERIES_TYPE: TS[int], TIME_SERIES_TYPE_2: TS[str]},
+        ],
+        [
+            TSB[UnResolvedSchema2[TS[int]]],
+            TSB[UnResolvedSchema2[TS[int], TS[str]]],
+            {TIME_SERIES_TYPE: TS[int], TIME_SERIES_TYPE_2: TS[str]},
+        ],
         [TS[UnResolvedCompoundScalar], TS[UnResolvedCompoundScalar[int]], {SCALAR: int}],
-        [TS[UnResolvedCompoundScalar2], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2:str}],
-        [TS[UnResolvedCompoundScalar2[int]], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2:str}],
-        [TS[UnResolvedCompoundScalar2[SCALAR_2: str]], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2:str}],
-        [TS[UnResolvedCompoundScalar2[SCALAR_2: str, SCALAR: int]], TS[UnResolvedCompoundScalar2[int, str]], {}],  # This is fully resolved
+        [TS[UnResolvedCompoundScalar2], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2: str}],
+        [TS[UnResolvedCompoundScalar2[int]], TS[UnResolvedCompoundScalar2[int, str]], {SCALAR: int, SCALAR_2: str}],
+        [
+            TS[UnResolvedCompoundScalar2[SCALAR_2:str]],
+            TS[UnResolvedCompoundScalar2[int, str]],
+            {SCALAR: int, SCALAR_2: str},
+        ],
+        [
+            TS[UnResolvedCompoundScalar2[SCALAR_2:str, SCALAR:int]],
+            TS[UnResolvedCompoundScalar2[int, str]],
+            {},
+        ],  # This is fully resolved
         [type[SCALAR], type[int], {SCALAR: int}],
-        [type[int], type[int], {}], # Already fully resolved
-        [type[TS[SCALAR]], type[TS[int]], {SCALAR: int}]
-    ]
+        [type[int], type[int], {}],  # Already fully resolved
+        [type[TS[SCALAR]], type[TS[int]], {SCALAR: int}],
+    ],
 )
 def test_build_resolve_dict(ts, wiring_ts, expected_dict):
     # Convert to HgTypeMetaData values
@@ -91,13 +107,13 @@ def test_build_resolve_dict(ts, wiring_ts, expected_dict):
 
 
 @pytest.mark.parametrize(
-    ('ts', 'wiring_ts', 'expected_dict', 'resolved_ts'),
+    ("ts", "wiring_ts", "expected_dict", "resolved_ts"),
     [
         [REF[TS[SCALAR]], TS[int], {SCALAR: int}, REF[TS[int]]],
         [TS[SCALAR], REF[TS[int]], {SCALAR: int}, TS[int]],
         [REF[TIME_SERIES_TYPE], TS[int], {TIME_SERIES_TYPE: TS[int]}, REF[TS[int]]],
         [TIME_SERIES_TYPE, REF[TS[int]], {TIME_SERIES_TYPE: TS[int]}, TS[int]],
-    ]
+    ],
 )
 def test_build_resolve_dict_ref(ts, wiring_ts, expected_dict, resolved_ts):
     # Convert to HgTypeMetaData values

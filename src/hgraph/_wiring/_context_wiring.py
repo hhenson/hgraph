@@ -6,7 +6,7 @@ from typing import Mapping, Any, TYPE_CHECKING
 from frozendict import frozendict
 
 from hgraph._runtime._global_state import GlobalState
-from hgraph._types import TS, SCALAR, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData, clone_typevar
+from hgraph._types import TS, SCALAR, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData, clone_type_var
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_port import WiringPort
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 __all__ = ("TimeSeriesContextTracker", "CONTEXT_TIME_SERIES_TYPE")
 
 
-CONTEXT_TIME_SERIES_TYPE = clone_typevar(TIME_SERIES_TYPE, name="CONTEXT_TIME_SERIES_TYPE")
+CONTEXT_TIME_SERIES_TYPE = clone_type_var(TIME_SERIES_TYPE, name="CONTEXT_TIME_SERIES_TYPE")
 
 ContextInfo = namedtuple(
     "ContextInfo", ["context", "scope", "depth", "path", "frame", "inner_graph_use", "wiring_context"]

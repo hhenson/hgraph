@@ -137,7 +137,7 @@ class HgTypeMetaData:
 
     def resolve(self, resolution_dict, weak: bool = False) -> "HgTypeMetaData":
         """
-        Resolve any ``TypeVar``s that are found in this type using the ``resolution_dict`` provided. If weak is
+        Resolve any ``TypeVar`` s that are found in this type using the ``resolution_dict`` provided. If weak is
         ``False`` and a type can't be resolved, it will raise an Exception. If weak is set to ``True`` then
         any types that are unresolved remain unresolved in the returned type.
 

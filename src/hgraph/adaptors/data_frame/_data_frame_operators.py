@@ -2,8 +2,18 @@ from typing import TypeVar
 
 import polars as pl
 
-from hgraph import TS, Frame, COMPOUND_SCALAR, compute_node, CompoundScalar, TSD
-from hgraph._types._scalar_types import COMPOUND_SCALAR_1, COMPOUND_SCALAR_2, compound_scalar, KEYABLE_SCALAR
+from hgraph import (
+    TS,
+    Frame,
+    COMPOUND_SCALAR,
+    compute_node,
+    CompoundScalar,
+    TSD,
+    COMPOUND_SCALAR_1,
+    COMPOUND_SCALAR_2,
+    compound_scalar,
+    KEYABLE_SCALAR,
+)
 
 __all__ = ("join", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_")
 
@@ -62,9 +72,7 @@ def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...
     return ts.value.filter(predicate)
 
 
-@compute_node(
-    resolvers={KEYABLE_SCALAR: lambda m, s: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[s['by']]}
-)
+@compute_node(resolvers={KEYABLE_SCALAR: lambda m, s: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[s["by"]]})
 def group_by(ts: TS[Frame[COMPOUND_SCALAR]], by: str) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
     return {k: v for (k,), v in ts.value.group_by(by)}
 

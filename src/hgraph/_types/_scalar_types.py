@@ -22,7 +22,7 @@ from typing import TypeVar, Type
 from frozendict import frozendict
 
 from hgraph._types._schema_type import AbstractSchema
-from hgraph._types._typing_utils import clone_typevar, nth
+from hgraph._types._typing_utils import clone_type_var, nth
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
@@ -164,14 +164,14 @@ class Hashable(Protocol):
 
 SIZE = TypeVar("SIZE", bound=Size)
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
-COMPOUND_SCALAR_1 = clone_typevar(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
-COMPOUND_SCALAR_2 = clone_typevar(COMPOUND_SCALAR, "COMPOUND_SCALAR_2")
+COMPOUND_SCALAR_1 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
+COMPOUND_SCALAR_2 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_2")
 SCALAR = TypeVar("SCALAR", bound=object)
 KEYABLE_SCALAR = TypeVar("KEYABLE_SCALAR", bound=Hashable)
-SCALAR_1 = clone_typevar(SCALAR, "SCALAR_1")
-SCALAR_2 = clone_typevar(SCALAR, "SCALAR_2")
+SCALAR_1 = clone_type_var(SCALAR, "SCALAR_1")
+SCALAR_2 = clone_type_var(SCALAR, "SCALAR_2")
 NUMBER = TypeVar("NUMBER", int, float, Decimal)
-NUMBER_2 = clone_typevar(NUMBER, "NUMBER_2")
+NUMBER_2 = clone_type_var(NUMBER, "NUMBER_2")
 
 
 class STATE(Generic[COMPOUND_SCALAR]):
