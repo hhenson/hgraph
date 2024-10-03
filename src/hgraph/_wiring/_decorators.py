@@ -452,7 +452,7 @@ def push_queue(
 ):
     """
     Creates a push source node that supports injecting values into the graph asynchronously.
-    The function that is wrapped by this decorator will be called as a start lifecycle method.
+    The function wrapped by this decorator will be called as a start lifecycle method.
     The function must take as its first parameter the sender callable.
     It is possible to take additional scalar values that will be provided as kwargs.
 
@@ -460,7 +460,7 @@ def push_queue(
     ::
 
         @push_queue(TS[bool])
-        def my_message_sender(sender: Callable[[SCALAR], None):
+        def my_message_sender(sender: Callable[[SCALAR], None]):
             ...
     """
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonPushQueueWiringNodeClass
