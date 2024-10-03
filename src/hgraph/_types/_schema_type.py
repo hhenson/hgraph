@@ -122,7 +122,7 @@ class AbstractSchema:
     @classmethod
     def _create_resolved_class(cls, schema: dict[str, "HgTypeMetaData"]) -> Type["AbstractSchema"]:
         """Create a 'resolved' instance class and cache as appropriate"""
-        suffix = ",".join(f"{k}:{str(schema[k])}" for k in sorted(schema))
+        suffix = ",".join(f"{k}:{str(schema[k])}" for k in schema)
         root_cls = cls._root_cls()
         cls_name = f"{root_cls.__name__}_{shake_256(bytes(suffix, 'utf8')).hexdigest(6)}"
         r_cls: Type["AbstractSchema"]

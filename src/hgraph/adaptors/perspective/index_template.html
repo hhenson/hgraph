@@ -2,7 +2,7 @@
 <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no" />
-        <link rel="stylesheet" crossorigin="anonymous" href="http://{{host}}:{{port}}/node_modules/@finos/perspective-viewer/dist/css/themes.css" />
+        <link rel="stylesheet" crossorigin="anonymous" href="/node_modules/@finos/perspective-viewer/dist/css/themes.css" />
     </head>
 
     <body>
@@ -17,21 +17,21 @@
             <tr>
                 <td>
                     {% for table in mgr.get_table_names() %}
-                        <div></div><a href="http://{{host}}:{{port}}/table/{{table}}">{{table}}</a></div>
+                        <div></div><a href="/table/{{table}}">{{table}}</a></div>
                     {% end %}
                 </td>
                 <td>
                     {% for layout in layouts %}
-                        <div></div><a href="http://{{host}}:{{port}}/workspace/{{layout}}">{{layout}}</a></div>
+                        <div></div><a href="/workspace/{{layout}}">{{layout}}</a></div>
                     {% end %}
                 </td>
                 <td>
                     {% for version in versions %}
-                        <div></div><a href="http://{{host}}:{{port}}/workspace/{{layouts[0]}}.{{version}}">{{version}}</a></div>
+                        <div></div><a href="/workspace/{{layouts[0]}}.{{version}}">{{version}}</a></div>
                     {% end %}
                     {% if not versions %}
                         {% for layout in layouts %}
-                            <div></div><a href="http://{{host}}:{{port}}/{{layout}}">{{layout}}</a></div>
+                            <div></div><a href="/versions/{{layout}}">{{layout}}</a></div>
                         {% end %}
                     {% end %}
                 </td>

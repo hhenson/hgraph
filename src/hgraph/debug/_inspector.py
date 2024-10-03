@@ -3,6 +3,7 @@ import tempfile
 from datetime import datetime
 
 from _socket import gethostname
+import tornado.web
 
 from hgraph._wiring._decorators import sink_node
 from hgraph._types import TS, STATE
@@ -99,10 +100,31 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
                 {
                     "queue": _state.requests,
                 }
-            )
+            ),
+            (
+            r"/inspect_frame/(.*)",
+            FramePageHandler,
+            {
+                "template": os.path.join(os.path.dirname(__file__), "frame_template.html")
+            },
+        ),
+
         ]
     )
 
     print(f"Inspector running on http://{gethostname()}:{port}/inspector/view")
 
     app.start()
+
+
+class FramePageHandler(tornado.web.RequestHandler):
+    def initialize(self, template: str):
+        self.template = template
+
+    def get(self, table_name):
+        tornado.log.app_log.info(f"requesting table {table_name}")
+        self.render(
+            self.template,
+            table_name=table_name,
+        )
+

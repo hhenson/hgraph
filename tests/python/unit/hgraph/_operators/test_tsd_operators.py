@@ -97,6 +97,20 @@ def test_tsd_get_items():
     assert eval_node(
         getitem_,
         [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
+        [None, {1}, {2, 5}, {Removed(2)}, None],
+        resolution_dict={"ts": TSD[int, TS[int]], "key": TSS[int]},
+        __trace__=True,
+    ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
+
+
+def test_tsd_get_items_refs():
+    @graph
+    def g(ts: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
+        return getitem_(max_(lambda x: x, ts), keys)
+
+    assert eval_node(
+        getitem_,
+        [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
         [None, {1}, {2}, {Removed(2)}, None],
         resolution_dict={"ts": TSD[int, TS[int]], "key": TSS[int]},
     ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
@@ -154,6 +168,20 @@ def test_flip():
         fd({"c": 1, "a": REMOVE}),
         fd({"b": REMOVE}),
     ]
+
+
+def test_flip_tsd_non_unique():
+    @graph
+    def g(ts: TSD[int, TS[str]]) -> TSD[str, TSS[int]]:
+        return flip(ts, unique=False)
+
+    assert eval_node(g, [{1: "a", 2: "b"},
+                         {1: "c", 2: "b"},
+                         {1: "c", 4: "c"},
+                         {1: REMOVE, 4: REMOVE}]) == [{"a": {1}, "b": {2}},
+                                                                {"c": {1}, 'a': REMOVE},
+                                                                {"c": {4}},
+                                                                {"c": REMOVE}]
 
 
 def test_flip_keys():
@@ -286,7 +314,7 @@ def test_bit_and_tsds():
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
         return tsd1 & tsd2
 
-    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}]) == [None, frozendict({2: 2})]
+    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}]) == [{}, frozendict({2: 2})]
 
 
 def test_bit_xor_tsds():
@@ -294,7 +322,7 @@ def test_bit_xor_tsds():
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
         return tsd1 ^ tsd2
 
-    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}]) == [
+    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}], __trace__=True) == [
         frozendict({1: 1, 2: 3}),
         frozendict({3: 2, 2: REMOVE}),
     ]
@@ -311,7 +339,7 @@ def test_eq_tsds():
 @pytest.mark.parametrize(
     ["tp", "expected", "values"],
     [
-        [TSD[int, TS[int]], [None, 1, 0], [{}, {0: 1}, {0: REMOVE}]],
+        [TSD[int, TS[int]], [0, 1, 0], [{}, {0: 1}, {0: REMOVE}]],
     ],
 )
 def test_len_tsd(tp, expected, values):

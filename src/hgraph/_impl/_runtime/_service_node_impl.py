@@ -41,6 +41,7 @@ class PythonServiceNodeImpl(PythonNestedNodeImpl):
         self.mark_evaluated()
         self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._active_graph.evaluate_graph()
+        self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
 
     def do_stop(self):
         self._active_graph.stop()

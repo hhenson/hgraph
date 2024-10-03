@@ -2,6 +2,8 @@ import re
 from asyncio import Future
 from collections import deque
 
+import pyarrow
+
 from hgraph import Node, PythonNestedNodeImpl, TimeSeriesInput, PythonTimeSeriesReferenceOutput, \
     PythonTimeSeriesReference, PythonTimeSeriesReferenceInput
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
@@ -249,6 +251,29 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
     return "", []
 
 
+def inspector_read_frame(state, item_id):
+    graph, value = graph_object_from_id(state, item_id)
+
+    import polars as pl
+
+    from hgraph import PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput
+    if isinstance(value, (PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput)):
+        value = value.value
+
+    if isinstance(value, pl.DataFrame):
+        batches = value._df.to_arrow(compat_level=False)
+        stream = pyarrow.BufferOutputStream()
+
+        with pyarrow.ipc.new_stream(stream, batches[0].schema) as writer:
+            for batch in batches:
+                writer.write_batch(batch)
+
+        return stream.getvalue().to_pybytes(), []
+
+    else:
+        raise ValueError(f"Item {item_id} is not a DataFrame")
+
+
 def handle_requests(state: InspectorState):
     publish = False
     while f_r := state.requests.dequeue():
@@ -262,7 +287,11 @@ def handle_requests(state: InspectorState):
 def handle_inspector_request(state: InspectorState, request: HttpGetRequest, f: Future):
     command = request.url_parsed_args[0]
     item_str = request.url_parsed_args[1]
-    item_id = InspectorItemId.from_str(item_str)
+    try:
+        item_id = InspectorItemId.from_str(item_str)
+    except Exception as e:
+        set_result(f, HttpResponse(500, body=f"Invalid item {item_str}"))
+        return
 
     commands = deque()
     commands.append((command, item_id))
@@ -317,15 +346,24 @@ def handle_inspector_request(state: InspectorState, request: HttpGetRequest, f: 
                     response, new_commands = inspector_pin_ref(state, item_id)
                 case "unpin":
                     response, new_commands = inspector_unpin_item(state, item_id)
+                case "frame":
+                    response, new_commands = inspector_read_frame(state, item_id)
                 case _:  # pragma: no cover
                     set_result(f, HttpResponse(404, body="Invalid command"))
                     return
         except Exception as e:
             set_result(f, HttpResponse(500, body=f"Error: {e}"))
-            # return
-            raise e
+            print(f"Inspector error {e}")
+            return
+            # raise e
 
-        total_response += response if not total_response else (f"\n{response}" if response else "")
+        if isinstance(response, str):
+            total_response += response if not total_response else (f"\n{response}" if response else "")
+        else:
+            assert not total_response
+            assert not new_commands
+            total_response = response
+
         commands.extend(new_commands)
 
     set_result(f, HttpResponse(200, body=total_response))

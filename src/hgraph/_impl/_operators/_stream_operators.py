@@ -1,6 +1,6 @@
 import sys
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 
 from frozendict import frozendict
@@ -183,11 +183,17 @@ def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
         return ts.value if condition.modified else ts.delta_value
 
 
+@dataclass
+class _ThrottleState(CompoundScalar):
+    tick: dict = field(default_factory=dict)
+
+
 @compute_node(overloads=throttle)
 def throttle(ts: TIME_SERIES_TYPE,
              period: TS[timedelta],
-             sched: SCHEDULER = None,
-             state: STATE = None) -> TIME_SERIES_TYPE:
+             delay_first_tick: bool = False,
+             _sched: SCHEDULER = None,
+             _state: STATE[_ThrottleState] = None) -> TIME_SERIES_TYPE:
     from multimethod import multimethod
     from hgraph import PythonTimeSeriesValueInput
     from hgraph import PythonTimeSeriesDictInput
@@ -210,17 +216,20 @@ def throttle(ts: TIME_SERIES_TYPE,
         return input.value
 
     if ts.modified:
-        if sched.is_scheduled:
-            state.tick = collect_tick(ts, state.tick)
+        if _sched.is_scheduled:
+            _state.tick = collect_tick(ts, _state.tick)
+        elif delay_first_tick:
+            _state.tick = collect_tick(ts, _state.tick)
+            _sched.schedule(period.value)
         else:
-            state.tick = {}
-            sched.schedule(period.value)
-            return ts.value
+            _state.tick = {}
+            _sched.schedule(period.value)
+            return ts.delta_value
 
-    if sched.is_scheduled_now:
-        if tick := state.tick:
-            state.tick = {}
-            sched.schedule(period.value)
+    if _sched.is_scheduled_now:
+        if tick := _state.tick:
+            _state.tick = {}
+            _sched.schedule(period.value)
             return tick
 
 

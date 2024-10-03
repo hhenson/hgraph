@@ -5,7 +5,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import OUT, TSS, \
-    Removed, values_, rekey, flip, partition, flip_keys, keys_, collapse_keys, uncollapse_keys
+    Removed, values_, rekey, flip, partition, flip_keys, keys_, collapse_keys, uncollapse_keys, TSD, REMOVE
 from hgraph import sub_, getitem_, TS, and_, graph, KEYABLE_SCALAR, SCALAR, or_, min_, max_, sum_, str_, WiringError, \
     mean, std, var
 from hgraph.test import eval_node

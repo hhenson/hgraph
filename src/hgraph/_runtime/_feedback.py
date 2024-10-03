@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, TYPE_CHECKING
+from typing import Generic, TYPE_CHECKING, Union
 
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -36,7 +36,7 @@ class FeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
         return self
 
 
-def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> FeedbackWiringPort[TIME_SERIES_TYPE]:
+def feedback(tp_or_wp: Union[type[TIME_SERIES_TYPE], "WiringPort"], default: SCALAR = None) -> FeedbackWiringPort[TIME_SERIES_TYPE]:
     """
     Provides a mechanism to allow for cycles in the code without breaking the DAG nature of the graph.
     The ``feedback`` method creates a special node that can be used to wire into nodes prior to the value
@@ -56,9 +56,14 @@ def feedback(tp_: type[TIME_SERIES_TYPE], default: SCALAR = None) -> FeedbackWir
     fb(out)  # Bind the value to the feedback node
     ```
     """
-    from hgraph._wiring._wiring_port import _wiring_port_for
+    from hgraph._wiring._wiring_port import WiringPort, _wiring_port_for
     from hgraph._wiring._wiring_node_class._pull_source_node_class import last_value_source_node
 
-    node_instance = last_value_source_node("feedback", tp_, default)
-    real_wiring_port = _wiring_port_for(node_instance.output_type, node_instance, tuple())
-    return FeedbackWiringPort(_delegate=real_wiring_port)
+    if isinstance(tp_or_wp, WiringPort):
+        node_instance = last_value_source_node("feedback", tp_or_wp.output_type.dereference(), default)
+        real_wiring_port = _wiring_port_for(node_instance.output_type, node_instance, tuple())
+        return FeedbackWiringPort(_delegate=real_wiring_port)(tp_or_wp)
+    else:
+        node_instance = last_value_source_node("feedback", tp_or_wp, default)
+        real_wiring_port = _wiring_port_for(node_instance.output_type, node_instance, tuple())
+        return FeedbackWiringPort(_delegate=real_wiring_port)

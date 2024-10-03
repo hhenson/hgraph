@@ -129,3 +129,19 @@ def test_generic_tsb():
 
     assert eval_node(g, [1, 2], ["a", "b"]) == [fd({"p1": "a"}), fd({"p1": "b"})]
 
+
+def test_tsb_order_preservation():
+    @compute_node
+    def n1(a: TS[str], b: TS[str]) -> TS[str]:
+        return a.value + b.value
+
+    @compute_node
+    def n2(b: TS[str], a: TS[str]) -> TS[str]:
+        return a.value + b.value
+
+
+    @graph
+    def g(a: TS[str], b: TS[str]) -> TS[str]:
+        return n1(a, b) + n2(a, b)
+
+    assert eval_node(g, "a", "b") == ["abba"]

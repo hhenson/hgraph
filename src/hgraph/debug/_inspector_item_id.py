@@ -10,7 +10,7 @@ from enum import Enum
 from typing import ClassVar
 
 from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput, TimeSeriesSet
-from hgraph.debug._inspector_util import format_name, base62
+from hgraph.debug._inspector_util import format_name, base62, inspect_item
 
 
 class InspectorItemType(Enum):
@@ -197,7 +197,7 @@ class InspectorItemId:
 
         for i in self.value_path:
             try:
-                value = value[i]
+                value = inspect_item(value, i)
             except:
                 if isinstance(value, (set, frozenset, TimeSeriesSet)):
                     if i in value:
@@ -236,8 +236,8 @@ class InspectorItemId:
     def sort_key(self):
         value_type_order = {
             NodeValueType.Inputs: "X01",
-            NodeValueType.Output: "X02",
-            NodeValueType.Graphs: "X03",
+            NodeValueType.Graphs: "X02",
+            NodeValueType.Output: "X03",
             NodeValueType.Scalars: "X04",
         }
 

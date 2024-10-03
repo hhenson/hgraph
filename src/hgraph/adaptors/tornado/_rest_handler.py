@@ -4,7 +4,6 @@ from enum import Enum
 from typing import Callable, Generic, TypeVar
 
 from frozendict import frozendict
-from mypy.build import json_dumps
 
 from hgraph import (
     CompoundScalar,

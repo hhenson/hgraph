@@ -35,11 +35,11 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
         # First we make sure the key is correctly scheduled, then we call super, which will ensure the
         # node is scheduled if required.
         node: PythonMeshNodeImpl = self._nested_node
-        if next_time < node.last_evaluation_time:
+        if (let := node.last_evaluation_time) and let > next_time or node.is_stopping:
             return
 
         rank = node._active_graphs_rank[self._key]
-        if next_time == node.last_evaluation_time and (
+        if next_time == let and (
             rank == node.current_eval_rank or self.key == node.current_eval_graph
         ):
             return
@@ -48,8 +48,7 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
         if tm is None or tm > next_time or tm < node.graph.evaluation_clock.evaluation_time:
             node.schedule_graph(self._key, next_time)
 
-        if next_time > node.last_evaluation_time:
-            super().update_next_scheduled_evaluation_time(next_time)
+        super().update_next_scheduled_evaluation_time(next_time)
 
 
 class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
@@ -176,7 +175,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
 
     def _create_new_graph(self, key: K, rank=None):
         """Create new graph instance and wire it into the node"""
-        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (self._count,), self, str(key))
+        graph: Graph = self.nested_graph_builder.make_instance(self.node_id + (-self._count,), self, str(key))
         self._count += 1
         self._active_graphs[key] = graph
         self._active_graphs_rank[key] = self.max_rank if rank is None else rank

@@ -61,33 +61,32 @@ def publish_table_editable_impl(
 
 
 @service_adaptor
-def publish_multitable(path: str, key: TS[SCALAR], ts: TIME_SERIES_TYPE, index_col_name: str, history: int = None): ...
+def publish_multitable(path: str, key: TS[SCALAR], ts: TIME_SERIES_TYPE, unique: bool, index_col_name: str, history: int = None): ...
 
 
 @service_adaptor_impl(interfaces=publish_multitable)
 def publish_multitable_impl(
-    path: str, key: TSD[int, TS[SCALAR]], ts: TSD[int, TIME_SERIES_TYPE], index_col_name: str, history: int = None
+    path: str, key: TSD[int, TS[SCALAR]], ts: TSD[int, TIME_SERIES_TYPE], unique: bool, index_col_name: str, history: int = None
 ):
     _assert_unique_type_per_path(publish_multitable)
 
-    @graph
-    def merge_references(keys: TSS[int], ts: TSD[int, REF[TSB[TS_SCHEMA]]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> TSB[TS_SCHEMA]:
-        selection = map_(lambda t: t, ts, __keys__=keys)
+    if not unique:
+        @graph
+        def merge_references(keys: TSS[int], ts: TSD[int, REF[TSB[TS_SCHEMA]]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> TSB[TS_SCHEMA]:
+            selection = ts[keys]
+            return race(tsd=selection)
 
-        out = {}
-        for k, t in _schema.__meta_data_schema__.items():
-            out[k] = getattr(selection, k).reduce(lambda x, y: race(x, y), nothing(REF[t]))
+        @graph(overloads=merge_references)
+        def merge_references_no_tsb(keys: TSS[int], ts: TSD[int, REF[TS[SCALAR]]]) -> REF[TS[SCALAR]]:
+            assert_(len_(keys), 1, "Only bundles are allowed to be published as multi-tables with repeating keys")
+            return ts[emit(keys)]
 
-        return combine[TSB[_schema]](**out)
+        keys = flip(key, unique=False)
+        table = map_(merge_references, keys, pass_through(ts))
+        _publish_table(path, table, index_col_name=index_col_name, history=history)
 
-    @graph(overloads=merge_references)
-    def merge_references_no_tsb(keys: TSS[int], ts: TSD[int, REF[TS[SCALAR]]]) -> REF[TS[SCALAR]]:
-        assert_(len_(keys), 1, "Only bundles are allowed to be published as multi-tables with repeating keys")
-        return ts[emit(keys)]
-
-    keys = flip(key, unique=False)
-    table = map_(merge_references, keys, pass_through(ts))
-    _publish_table(path, table, index_col_name=index_col_name, history=history)
+    else:
+        _publish_table(path, rekey(ts, key), index_col_name=index_col_name, history=history)
 
 
 def _assert_unique_type_per_path(adaptor_type):

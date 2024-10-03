@@ -2,6 +2,9 @@ import sys
 from abc import ABC
 from datetime import datetime, timedelta
 from threading import Condition
+from typing import Callable
+
+from sortedcontainers import SortedList
 
 from hgraph._runtime._constants import MAX_DT, MIN_TD, MIN_DT
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
@@ -100,6 +103,9 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         self._push_node_requires_scheduling_condition = Condition()
         self._ready_to_push: bool = False
         self._last_time_allowed_push: datetime = MIN_DT
+        self._alarms: SortedList[tuple[datetime, str]] = SortedList[tuple[datetime, str]]()
+        self._alarms_cb: dict[tuple[datetime, str], Callable] = dict[tuple[datetime, str], Callable]()
+
 
     @property
     def now(self) -> datetime:
@@ -133,6 +139,19 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         # however if we've been busy like that for more than a second, let push values in.
         now = datetime.utcnow()
 
+        while self._alarms:  # Process all alarms that are due and reschedule for the upcoming ones
+            next_alarm_time = self._alarms[0][0]
+            if now >= next_alarm_time:  # Alarm is due
+                t, name = self._alarms.pop(0)
+                next_scheduled_time = self.evaluation_time + MIN_TD
+                if (callback := self._alarms_cb.pop((t, name), None)) is not None:
+                    callback(next_scheduled_time)
+            elif next_scheduled_time > next_alarm_time:
+                next_scheduled_time = next_alarm_time
+                break
+            else:
+                break
+
         self._ready_to_push = False
         if next_scheduled_time > self.evaluation_time + MIN_TD or now > self._last_time_allowed_push + timedelta(seconds=1):
             with self._push_node_requires_scheduling_condition:
@@ -149,9 +168,31 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
             # print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
         self.evaluation_time = min(next_scheduled_time, max(self.next_cycle_evaluation_time, now))
 
+        while self._alarms:  # Check if any alarms have gone off while we slept
+            next_alarm_time = self._alarms[0][0]
+            if now >= next_alarm_time:  # Alarm is due
+                t, name = self._alarms.pop(0)
+                if (callback := self._alarms_cb.pop((t, name), None)) is not None:
+                    callback(self.evaluation_time)
+            else:
+                break
+
     def reset_push_node_requires_scheduling(self):
         """
         Reset the push_has_pending_values property.
         """
         with self._push_node_requires_scheduling_condition:
             self._push_node_requires_scheduling = False
+
+    def set_alarm(self, time: datetime |  timedelta, name: str, callback: Callable):
+        if type(time) is timedelta:
+            time = self.now + time
+        elif time <= self.evaluation_time:
+            raise ValueError(f"Cannot set alarm in the engine's past: {time} <= {self.evaluation_time}")
+
+        self._alarms.add((time, name))
+        self._alarms_cb[(time, name)] = callback
+
+    def cancel_alarm(self, name: str):
+        self._alarms = SortedList((t, n) for t, n in self._alarms
+                                  if (n != name or (self._alarms_cb.pop((t, n), None) and False)))  # alarm_cb.pop is here so we dont have to iterate twice

@@ -76,7 +76,7 @@ def test_inspector_sort_key():
 
     InspectorItemId.__reset__()
 
-    assert eval_node(g2, [{1: 1}]) == [{1: "001X03001001X01001"}]
+    assert eval_node(g2, [{1: 1}]) == [{1: "001X02001001X01001"}]
 
     InspectorItemId.__reset__()
 
@@ -86,7 +86,7 @@ def test_inspector_sort_key():
 
     InspectorItemId.__reset__()
 
-    assert eval_node(g3, 1) == ["001X03001001X01001"]
+    assert eval_node(g3, 1) == ["001X02001001X01001"]
 
     InspectorItemId.__reset__()
 
@@ -100,6 +100,6 @@ def test_inspector_sort_key():
 
     InspectorItemId.__reset__()
 
-    assert eval_node(g4, 1) == ["001X03000001X01001"]
+    assert eval_node(g4, 1) == ["001X02000001X01001"]
 
     InspectorItemId.__reset__()

@@ -31,11 +31,14 @@ class MapNestedEngineEvaluationClock(NestedEngineEvaluationClock):
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
         # First we make sure the key is correctly scheduled, then we call super, which will ensure the
         # node is scheduled if required.
-        if next_time <= self._nested_node.last_evaluation_time or self._nested_node.is_stopping:
+        node: PythonTsdMapNodeImpl = self._nested_node
+        if (let := node.last_evaluation_time) and let >= next_time or node.is_stopping:
             return
-        tm = self._nested_node._scheduled_keys.get(self._key)
+
+        tm = node._scheduled_keys.get(self._key)
         if tm is None or tm > next_time:
-            self._nested_node._scheduled_keys[self._key] = next_time
+            node._scheduled_keys[self._key] = next_time
+
         super().update_next_scheduled_evaluation_time(next_time)
 
 
@@ -144,7 +147,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         else:
             graph.evaluate_graph()
 
-        return graph.evaluation_clock.next_scheduled_evaluation_time
+        next = graph.evaluation_clock.next_scheduled_evaluation_time
+        graph.evaluation_clock.reset_next_scheduled_evaluation_time()
+        return next
 
     def _un_wire_graph(self, key: K, graph: Graph):
         if self.output_node_id:

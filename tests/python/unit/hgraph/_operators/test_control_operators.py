@@ -1,7 +1,8 @@
 import pytest
 
 from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const, BoolResult, if_, \
-    route_by_index, race, if_true, if_then_else, nothing
+    route_by_index, race, if_true, if_then_else, nothing, compute_node, TSD, map_, PythonTimeSeriesReference, REMOVE, \
+    combine, switch_, filter_
 from hgraph.test import eval_node
 
 
@@ -144,3 +145,90 @@ def test_race_tsbs():
         return race(tsb1, tsb2)
 
     assert eval_node(app, [False, True]) == [{'a': 11, 'b': 12}, {'a': 21, 'b': 22}]
+
+
+def test_race_tsd():
+    @compute_node
+    def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
+        return ref.value if ts.value != 0 else PythonTimeSeriesReference()
+
+    @graph
+    def g(tsd: TSD[int, TS[int]]) -> REF[TS[int]]:
+        refs = map_(make_ref, tsd, tsd)
+        return race(tsd=refs)
+
+    assert eval_node(g, [None, {1: 0, 2: 0}, {1: 1}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}]) == [None, None, 1, None, 2, 3]
+
+
+def test_race_tsd_of_bundles_all_free_bundles():
+    class S(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @compute_node
+    def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
+        return ref.value if ts.value != 0 else PythonTimeSeriesReference()
+
+    @graph
+    def g(a: TSD[int, TS[int]], b: TSD[int, TS[int]]) -> REF[TSB[S]]:
+        refs = map_(lambda a, b: combine[TSB[S]](a=make_ref(a, a), b=make_ref(b, b)), a, b)
+        return race(tsd=refs)
+
+    assert eval_node(g,
+                     a=[None, {1: 0, 2: 0}, {2: 2}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}],
+                     b=[None, {1: 0, 2: 0}, {1: 1}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}],
+                     ) == [
+        None, None, {'a': 2, 'b': 1}, {'a': 2}, {'b': 2}, {'a': 3, 'b': 3}
+    ]
+
+
+def test_race_tsd_of_bundles_switch_bundle_types():
+    class S(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    class SC(S):
+        free: TS[bool]
+        cond: TS[bool]
+
+    @compute_node
+    def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
+        return ref.value if ts.value != 0 else PythonTimeSeriesReference()
+
+    @graph
+    def make_bundle(ts: TSB[SC]) -> TSB[S]:
+        return switch_(key=ts.free, reload_on_ticked=True,
+                       switches={
+                           False: lambda a, b, cond: filter_(cond, combine[TSB[S]](a=a, b=b)),  # normal bundle
+                           True: lambda a, b, cond: combine[TSB[S]](a=make_ref(a, a), b=make_ref(b, b)),  # free bundle
+                       },
+                       a=ts.a, b=ts.b, cond=ts.cond)
+
+    @graph
+    def g(ts: TSD[int, TSB[SC]]) -> REF[TSB[S]]:
+        refs = map_(make_bundle, ts)
+        return race(tsd=refs)
+
+    assert eval_node(g, __trace__=True,
+                     ts=[
+                         {1: {'free': False}, 2: {'free': True}},
+                         {1: {'a': 0, 'cond': False}},
+                         {1: {'a': 0, 'cond': True}},
+                         {2: {'a': 2, 'b': 1}},
+                         {1: {'a': 1, 'b': 2}},
+                         {1: {'free': False, 'cond': False}},  # reset the switch
+                         {1: {'a': 3, 'b': 3, 'cond': True}},  # rebuild the bundle
+                         {2: REMOVE},
+                         {2: {'a': 0, 'b': 0}}
+                     ]
+                     ) == [
+        None,
+        None,
+        {'a': 0},
+        {'b': 1},
+        {'a': 1},
+        {'a': 2},
+        None,
+        {'a': 3, 'b': 3},
+        None,
+    ]

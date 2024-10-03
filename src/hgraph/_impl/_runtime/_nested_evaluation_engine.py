@@ -35,15 +35,17 @@ class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
         self._nested_next_scheduled_evaluation_time = MAX_DT
 
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
-        if (let := self._nested_node.last_evaluation_time) and let >= next_time:
+        if (let := self._nested_node.last_evaluation_time) and let >= next_time or self._nested_node.is_stopping:
             return
 
-        self._nested_next_scheduled_evaluation_time = min(next_time,
-                                                          max(
-                                                              self._nested_next_scheduled_evaluation_time,
-                                                              (let or MIN_DT) + MIN_TD))
+        proposed_next_time = min(next_time,
+                                 max(
+                                     self._nested_next_scheduled_evaluation_time,
+                                     (let or MIN_DT) + MIN_TD))
 
-        self._nested_node.graph.schedule_node(self._nested_node.node_ndx, next_time)
+        if proposed_next_time != self._nested_next_scheduled_evaluation_time:
+            self._nested_next_scheduled_evaluation_time = proposed_next_time
+            self._nested_node.graph.schedule_node(self._nested_node.node_ndx, proposed_next_time)
 
 
 class NestedEvaluationEngine(EvaluationEngineDelegate):
@@ -85,7 +87,7 @@ class PythonNestedNodeImpl(NodeImpl):
         stop_fn: Callable = None,
     ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
-        self._last_evaluation_time = MIN_DT
+        self._last_evaluation_time = None
 
     @property
     def last_evaluation_time(self) -> datetime:

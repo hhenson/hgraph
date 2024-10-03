@@ -52,15 +52,22 @@ right end and make them smaller if you want to hide them.
 Operating inspector
 ===================
 
-- Click + to expend an element of the graph, it could be a node, graph, input, output, or a value like dict.
+- Click + to expand an element of the graph, it could be a node, graph, input, output, or a value like dict.
 - Click - to collapse an element of the graph
-- Double click on a name to expend/collapse
+- Double-click on a name to expand/collapse
 - Ctrl-click an input value to navigate to the output it is getting its value from
 - Ctrl-click an REF output value to navigate to the output that the reference points to
+- Double-click on a Frame XxY value to open the frame in a new window (the new window is static i.e. does not update)
 - Click on an item to select it (it will highlight)
 - Hitting enter expands/collapses the selected item
-- Typing '?' or '/' will open a search box over the selected item, type the name of the item you are looking for 
-and hit Enter to keep them shown, Esc to close the search box
+- Typing '?' will open a search box at the top of the grid, type the name of the item you are looking for 
+in the items already shown in the grid. THe search string will be highlighted in the items that match. Use the Up and 
+Down arrows to jump between the matching items and Enter/Escape to close the search  
+- Typing '/' when there is a highlighted item in the grid will open a search box over the selected item, allowing you to 
+search for items that are not shown on the grid that are children of the selected item up to 3 level deep. Type the name 
+of the item you are looking for and hit Enter to keep them shown, Esc to close the search box. THis type of search only 
+shows the first 10 items to avoid blocking the graph too long, narrow down the search string if the item you are looking 
+for it not shown  
 
 
 Graph performance table

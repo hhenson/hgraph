@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Iterable, Sequence
 
 from hgraph._impl._runtime._node import PythonPushQueueNodeImpl
+from hgraph._impl._runtime._node import _SenderReceiverState
 from hgraph._runtime._constants import MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngineApi
@@ -11,8 +12,6 @@ from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeTypeEnum, Node
 from hgraph._runtime._traits import Traits
-
-from hgraph._impl._runtime._node import _SenderReceiverState
 
 if typing.TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
@@ -219,47 +218,49 @@ class PythonGraph(Graph):
     def evaluate_graph(self):
         self._evaluation_engine.notify_before_graph_evaluation(self)
 
-        now = (clock := self._evaluation_engine.engine_evaluation_clock).evaluation_time
-        nodes = self._nodes
-        schedule = self._schedule
+        try:
+            now = (clock := self._evaluation_engine.engine_evaluation_clock).evaluation_time
+            nodes = self._nodes
+            schedule = self._schedule
 
-        # self._evaluated_times.append(now)
+            # self._evaluated_times.append(now)
 
-        if self.push_source_nodes_end > 0 and clock.push_node_requires_scheduling:
-            clock.reset_push_node_requires_scheduling()
-            while self.receiver:
-                i, message = self.receiver.dequeue()
-                # TODO: Extract the generic inteface description as this code can be generic, not depending on the impl
-                node: PythonPushQueueNodeImpl = self.nodes[i]
-                self._evaluation_engine.notify_before_node_evaluation(node)
-                success = node.apply_message(message)
-                self._evaluation_engine.notify_after_node_evaluation(node)
-                if not success:
-                    with self.receiver:
-                        # The message was not applied, put it back up the queue.
-                        self.receiver.queue.appendleft((i, message))
-                        self.engine_evaluation_clock.mark_push_node_requires_scheduling()
-                    break
+            if self.push_source_nodes_end > 0 and clock.push_node_requires_scheduling:
+                clock.reset_push_node_requires_scheduling()
+                while self.receiver:
+                    i, message = self.receiver.dequeue()
+                    # TODO: Extract the generic inteface description as this code can be generic, not depending on the impl
+                    node: PythonPushQueueNodeImpl = self.nodes[i]
+                    self._evaluation_engine.notify_before_node_evaluation(node)
+                    success = node.apply_message(message)
+                    self._evaluation_engine.notify_after_node_evaluation(node)
+                    if not success:
+                        with self.receiver:
+                            # The message was not applied, put it back up the queue.
+                            self.receiver.queue.appendleft((i, message))
+                            self.engine_evaluation_clock.mark_push_node_requires_scheduling()
+                        break
 
-        for i in range(self.push_source_nodes_end, len(nodes)):
-            scheduled_time, node = schedule[i], nodes[i]
-            if scheduled_time == now:
-                self._evaluation_engine.notify_before_node_evaluation(node)
-                # self._evaluated_node_times.append((node.node_ndx, now))
-                from hgraph._types._error_type import NodeException
+            for i in range(self.push_source_nodes_end, len(nodes)):
+                scheduled_time, node = schedule[i], nodes[i]
+                if scheduled_time == now:
+                    self._evaluation_engine.notify_before_node_evaluation(node)
+                    # self._evaluated_node_times.append((node.node_ndx, now))
+                    from hgraph._types._error_type import NodeException
 
-                try:
-                    node.eval()
-                except NodeException as e:
-                    raise e
-                except Exception as e:
-                    raise NodeException.capture_error(e, node, "During evaluation") from e
-                self._evaluation_engine.notify_after_node_evaluation(node)
-                # self._evaluated_node_times.append(
-                #     (node.node_ndx, now, schedule[i], clock.next_scheduled_evaluation_time)
-                # )
-            elif scheduled_time > now:
-                # If the node has a scheduled time in the future, we need to let the execution context know.
-                clock.update_next_scheduled_evaluation_time(scheduled_time)
-
-        self._evaluation_engine.notify_after_graph_evaluation(self)
+                    try:
+                        node.eval()
+                    except NodeException as e:
+                        raise e
+                    except Exception as e:
+                        raise NodeException.capture_error(e, node, "During evaluation") from e
+                    finally:
+                        self._evaluation_engine.notify_after_node_evaluation(node)
+                    # self._evaluated_node_times.append(
+                    #     (node.node_ndx, now, schedule[i], clock.next_scheduled_evaluation_time)
+                    # )
+                elif scheduled_time > now:
+                    # If the node has a scheduled time in the future, we need to let the execution context know.
+                    clock.update_next_scheduled_evaluation_time(scheduled_time)
+        finally:
+            self._evaluation_engine.notify_after_graph_evaluation(self)

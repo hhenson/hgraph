@@ -83,7 +83,7 @@ def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 @operator
-def throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta]) -> TIME_SERIES_TYPE:
+def throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = False) -> TIME_SERIES_TYPE:
     """
     Reduces the rate of ticks in a time series to the given period. It works like ``resample`` if the rate of ticks is
     higher than the period but unlike ``resample`` does not produce ticks when the source time series does not tick.

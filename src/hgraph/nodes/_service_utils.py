@@ -82,7 +82,7 @@ def write_subscription_key(path: str, key: TS[SCALAR], _state: STATE = None):
     svc_node_in = GlobalState.instance().get(f"{path}/subs")
     (s := _state.tracker[(v := key.value)]).add(_state.subscription_id)
     set_delta = set()
-    if _state.previous_key:
+    if _state.previous_key and _state.previous_key != v:
         (s_old := _state.tracker[_state.previous_key]).discard(_state.subscription_id)
         if not s_old:
             set_delta.add(Removed(_state.previous_key))

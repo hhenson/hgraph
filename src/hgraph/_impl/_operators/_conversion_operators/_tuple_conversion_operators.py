@@ -24,6 +24,7 @@ from hgraph import (
     convert,
     TSS,
     graph,
+    Series,
 )
 
 __all__ = ()
@@ -61,6 +62,14 @@ def convert_tss_to_tuple(ts: TSS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
 )
 def convert_tsl_to_tuple(ts: TSL[TS[SCALAR], SIZE], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = True) -> OUT:
     return combine[to](tsl=ts, __strict__=__strict__)
+
+
+@compute_node(
+    overloads=convert,
+    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+)
+def convert_series_to_tuple(ts: TS[Series[SCALAR]]) -> OUT:
+    return tuple(ts.value)
 
 
 @compute_node(
