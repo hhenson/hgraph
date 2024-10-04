@@ -35,7 +35,7 @@ def test_schema_base_generic():
 
     meta = HgTypeMetaData.parse_type(tp)
     assert not meta.is_resolved
-    assert meta.typevars == {COMPOUND_SCALAR}
+    assert meta.type_vars == {COMPOUND_SCALAR}
 
     tp1 = tp[SimpleCompoundScalar]
 
@@ -44,14 +44,14 @@ def test_schema_base_generic():
 
     meta1 = HgTypeMetaData.parse_type(tp1)
     assert meta1.is_resolved is True
-    assert meta1.typevars == set()
+    assert meta1.type_vars == set()
 
     tp2 = GenericallyDerivedCompoundScalar[COMPOUND_SCALAR_1]
     assert tp2.__parameters__ == (COMPOUND_SCALAR_1,)
 
     meta2 = HgTypeMetaData.parse_type(tp2)
     assert not meta2.is_resolved
-    assert meta2.typevars == {COMPOUND_SCALAR_1}
+    assert meta2.type_vars == {COMPOUND_SCALAR_1}
 
     tp3 = tp2[SimpleCompoundScalar]
 
@@ -61,13 +61,13 @@ def test_schema_base_generic():
 
     meta3 = HgTypeMetaData.parse_type(tp3)
     assert meta3.is_resolved is True
-    assert meta3.typevars == set()
+    assert meta3.type_vars == set()
 
     tp4 = TimeSeriesSchema.from_scalar_schema(tp2)
 
     meta4 = HgTypeMetaData.parse_type(tp4)
     assert not meta4.is_resolved
-    assert meta4.typevars == {COMPOUND_SCALAR_1}
+    assert meta4.type_vars == {COMPOUND_SCALAR_1}
 
     tp5 = tp4[SimpleCompoundScalar]
     assert tp5.__base_resolution_meta__ == HgTypeMetaData.parse_type(
@@ -80,7 +80,7 @@ def test_schema_base_generic():
 
     meta5 = HgTypeMetaData.parse_type(tp5)
     assert meta5.is_resolved is True
-    assert meta5.typevars == set()
+    assert meta5.type_vars == set()
 
     resolution_dict = {}
     meta4.build_resolution_dict(resolution_dict, meta5)

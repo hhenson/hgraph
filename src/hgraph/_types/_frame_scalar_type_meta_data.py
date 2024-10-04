@@ -1,15 +1,14 @@
 from types import GenericAlias
-from typing import Type, TypeVar, Generic, Optional, _GenericAlias, _SpecialGenericAlias, Mapping
+from typing import Type, TypeVar, Optional, _GenericAlias, _SpecialGenericAlias
 
 from hgraph._types._generic_rank_util import scale_rank
-from hgraph._types._type_meta_data import ParseError
-from hgraph._types._scalar_types import CompoundScalar, COMPOUND_SCALAR
 from hgraph._types._scalar_type_meta_data import (
     HgCollectionType,
     HgCompoundScalarType,
     HgScalarTypeMetaData,
-    HgScalarTypeVar,
 )
+from hgraph._types._scalar_types import CompoundScalar
+from hgraph._types._type_meta_data import ParseError
 
 try:
     import polars as pl
@@ -36,8 +35,8 @@ try:
             return Frame[self.schema.py_type]
 
         @property
-        def typevars(self):
-            return self.schema.typevars
+        def type_vars(self):
+            return self.schema.type_vars
 
         @property
         def generic_rank(self) -> dict[type, float]:
@@ -105,8 +104,8 @@ try:
             return Series[self.value_tp.py_type]
 
         @property
-        def typevars(self):
-            return self.value_tp.typevars
+        def type_vars(self):
+            return self.value_tp.type_vars
 
         @property
         def generic_rank(self) -> dict[type, float]:

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Generic, TypeVar, Protocol, Iterable, Tuple, Optional, TYPE_CHECKING, Union, Any
 
 from hgraph._types._scalar_types import SCALAR, KEYABLE_SCALAR
-from hgraph._types._typing_utils import clone_typevar
+from hgraph._types._typing_utils import clone_type_var
 
 if TYPE_CHECKING:
     from hgraph._runtime._graph import Graph
@@ -129,7 +129,7 @@ TIME_SERIES_TYPE_1 = TypeVar("TIME_SERIES_TYPE_1", bound=TimeSeries)
 TIME_SERIES_TYPE_2 = TypeVar("TIME_SERIES_TYPE_2", bound=TimeSeries)
 OUT = TypeVar("OUT", bound=TimeSeries)
 OUT_1 = TypeVar("OUT_1", bound=TimeSeries)
-DELTA_SCALAR: TypeVar = clone_typevar(SCALAR, "DELTA_SCALAR")
+DELTA_SCALAR: TypeVar = clone_type_var(SCALAR, "DELTA_SCALAR")
 OUTPUT_TYPE = TypeVar("OUTPUT_TYPE", bound="TimeSeriesOutput")
 
 
@@ -362,10 +362,10 @@ class TimeSeriesDeltaValue(TimeSeries, Generic[SCALAR, DELTA_SCALAR]):
         """
 
 
-K = clone_typevar(KEYABLE_SCALAR, "K")
-K_1 = clone_typevar(KEYABLE_SCALAR, "K_1")
-K_2 = clone_typevar(KEYABLE_SCALAR, "K_2")
-V = clone_typevar(TIME_SERIES_TYPE, "V")
+K = clone_type_var(KEYABLE_SCALAR, "K")
+K_1 = clone_type_var(KEYABLE_SCALAR, "K_1")
+K_2 = clone_type_var(KEYABLE_SCALAR, "K_2")
+V = clone_type_var(TIME_SERIES_TYPE, "V")
 
 
 class TimeSeriesIterable(Generic[K, V]):

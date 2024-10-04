@@ -189,16 +189,16 @@ class WiringNodeSignature:
         return not self.unresolved_args
 
     @property
-    def typevars(self):
+    def type_vars(self):
         typevars = set()
         if not self.is_resolved:
             for arg, v in self.input_types.items():
-                typevars.update(v.typevars)
+                typevars.update(v.type_vars)
             for k, v in self.defaults.items():
                 if isinstance(v, TypeVar):
                     typevars.add(v)
             if self.output_type is not None:
-                typevars.update(self.output_type.typevars)
+                typevars.update(self.output_type.type_vars)
         return frozenset(typevars)
 
     @property
@@ -333,7 +333,7 @@ class WiringNodeSignature:
                 with WiringContext(current_arg=arg):
                     kwt = kwarg_types.get(arg)
                     kwarg = kwargs.get(arg)
-                    if isinstance(kwarg, TypeVar) and (kwarg in self.typevars or kwarg in resolution_dict):
+                    if isinstance(kwarg, TypeVar) and (kwarg in self.type_vars or kwarg in resolution_dict):
                         if kwarg in resolution_dict:
                             kwt = HgTypeOfTypeMetaData(resolution_dict[kwarg])
                             kwarg_types[arg] = kwt

@@ -4,7 +4,6 @@ from abc import abstractmethod
 from collections.abc import Mapping, Set
 from datetime import date, datetime, time, timedelta
 from enum import Enum
-from functools import reduce
 from statistics import fmean
 from types import GenericAlias
 from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
@@ -133,14 +132,8 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
     def type_var(self) -> TypeVar:
         return self.py_type
 
-    def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
-        return False
-
-    def is_convertable(self, tp: "HgTypeMetaData") -> bool:
-        return False
-
     @property
-    def typevars(self):
+    def type_vars(self):
         return {self.py_type}
 
     @property
@@ -213,9 +206,8 @@ class HgAtomicType(HgScalarTypeMetaData):
     is_atomic = True
     is_resolved = True
 
-    def __init__(self, py_type: Type, convertable_types: tuple[Type, ...] = ()):
+    def __init__(self, py_type: Type):
         self.py_type = py_type
-        self.convertable_types = convertable_types
 
     def __eq__(self, o: object) -> bool:
         return type(o) is HgAtomicType and self.py_type is o.py_type
@@ -236,12 +228,6 @@ class HgAtomicType(HgScalarTypeMetaData):
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return ((tp_ := type(tp)) is HgAtomicType and self.py_type == tp.py_type) or tp_ is HgScalarTypeVar
 
-    def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
-        return issubclass(tp.py_type, self.py_type) if tp is HgAtomicType else False
-
-    def is_convertable(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgAtomicType and (self.py_type == tp.py_type or self.py_type in tp.convertable_types)
-
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
         if not issubclass(wired_type.py_type, self.py_type):
@@ -253,33 +239,25 @@ class HgAtomicType(HgScalarTypeMetaData):
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         if isinstance(value_tp, type):
             if issubclass(value_tp, Size):
-                return HgAtomicType(value_tp, tuple())
+                return HgAtomicType(value_tp)
             if issubclass(value_tp, Enum):
-                return HgAtomicType(value_tp, (str, int))
+                return HgAtomicType(value_tp)
             return {
-                bool: lambda: HgAtomicType(bool, (int, float, str)),
-                int: lambda: HgAtomicType(int, (bool, float, str)),
-                float: lambda: HgAtomicType(float, (bool, int, str, datetime, timedelta)),
-                date: lambda: HgAtomicType(date, (str,)),
-                datetime: lambda: HgAtomicType(datetime, (float, str)),
-                time: lambda: HgAtomicType(time, (str,)),
-                timedelta: lambda: HgAtomicType(
-                    timedelta,
-                    (
-                        float,
-                        str,
-                    ),
-                ),
-                str: lambda: HgAtomicType(str, (bool, int, float, date, datetime, time)),
-                ScalarValue: lambda: HgAtomicType(
-                    ScalarValue, (bool, int, float, str, date, datetime, time, timedelta)
-                ),
+                bool: lambda: HgAtomicType(bool),
+                int: lambda: HgAtomicType(int),
+                float: lambda: HgAtomicType(float),
+                date: lambda: HgAtomicType(date),
+                datetime: lambda: HgAtomicType(datetime),
+                time: lambda: HgAtomicType(time),
+                timedelta: lambda: HgAtomicType(timedelta),
+                str: lambda: HgAtomicType(str),
+                ScalarValue: lambda: HgAtomicType(ScalarValue),
             }.get(value_tp, lambda: None)()
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         if isinstance(value, type) and issubclass(value, Size):
-            return HgAtomicType(value, tuple())
+            return HgAtomicType(value)
         return HgAtomicType.parse_type(type(value))
 
 
@@ -299,7 +277,7 @@ class HgObjectType(HgAtomicType):
 
     @classmethod
     def parse_type(cls, tp) -> Optional["HgTypeMetaData"]:
-        return HgObjectType(tp, tuple())
+        return HgObjectType(tp)
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
@@ -622,8 +600,8 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
         return self.py_collection_type[self.element_type.py_type, ...]
 
     @property
-    def typevars(self):
-        return self.element_type.typevars
+    def type_vars(self):
+        return self.element_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -686,8 +664,8 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
         return Array[self.element_type.py_type, *(tp.py_type for tp in self.shape_types)]
 
     @property
-    def typevars(self):
-        return self.element_type.typevars
+    def type_vars(self):
+        return self.element_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -764,15 +742,9 @@ class HgTupleFixedScalarType(HgTupleScalarType):
             and all(e.matches(w_e) for e, w_e in zip(self.element_types, tp.element_types))
         )
 
-    def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
-        return False
-
-    def is_convertable(self, tp: "HgTypeMetaData") -> bool:
-        return False
-
     @property
-    def typevars(self):
-        return set().union(*(t.typevars for t in self.element_types))
+    def type_vars(self):
+        return set().union(*(t.type_vars for t in self.element_types))
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -837,8 +809,8 @@ class HgSetScalarType(HgCollectionType):
         return self.element_type.is_resolved
 
     @property
-    def typevars(self):
-        return self.element_type.typevars
+    def type_vars(self):
+        return self.element_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -907,8 +879,8 @@ class HgDictScalarType(HgCollectionType):
         return self.key_type.is_resolved and self.value_type.is_resolved
 
     @property
-    def typevars(self):
-        return self.key_type.typevars | self.value_type.typevars
+    def type_vars(self):
+        return self.key_type.type_vars | self.value_type.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:
@@ -987,8 +959,8 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     @property
-    def typevars(self):
-        return set().union(*(t.typevars for t in self.py_type.__meta_data_schema__.values())) | set(
+    def type_vars(self):
+        return set().union(*(t.type_vars for t in self.py_type.__meta_data_schema__.values())) | set(
             getattr(self.py_type, "__parameters__", ())
         )
 
@@ -998,7 +970,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
         hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
 
-        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.typevars), 0.01)
+        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.type_vars), 0.01)
 
         return generic_rank | hierarchy_rank
 
@@ -1010,13 +982,6 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return all(tp.is_resolved for tp in self.meta_data_schema.values()) and not getattr(
             self.py_type, "__parameters__", False
         )
-
-    def is_sub_class(self, tp: "HgTypeMetaData") -> bool:
-        return isinstance(tp, HgScalarTypeMetaData) and issubclass(self.py_type, tp.py_type)
-
-    def is_convertable(self, tp: "HgTypeMetaData") -> bool:
-        # Can also look at supporting conversions from similarly schema'd TSB's later.
-        return self.is_sub_class(tp)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
@@ -1092,8 +1057,8 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         return type[self.value_tp.py_type]
 
     @property
-    def typevars(self):
-        return self.value_tp.typevars
+    def type_vars(self):
+        return self.value_tp.type_vars
 
     @property
     def generic_rank(self) -> dict[type, float]:

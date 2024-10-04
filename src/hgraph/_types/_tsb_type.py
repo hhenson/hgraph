@@ -19,7 +19,9 @@ from typing import (
     ValuesView,
     cast,
     ClassVar,
-    _GenericAlias, Iterable, Tuple,
+    _GenericAlias,
+    Iterable,
+    Tuple,
 )
 
 from frozendict import frozendict
@@ -34,7 +36,7 @@ from hgraph._types._time_series_types import (
     TimeSeries,
 )
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
-from hgraph._types._typing_utils import nth, clone_typevar
+from hgraph._types._typing_utils import nth, clone_type_var
 
 if TYPE_CHECKING:
     from hgraph import (
@@ -226,7 +228,7 @@ class EmptyTimeSeriesSchema(TimeSeriesSchema):
 
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
-TS_SCHEMA_1 = clone_typevar(TS_SCHEMA, "TS_SCHEMA_1")
+TS_SCHEMA_1 = clone_type_var(TS_SCHEMA, "TS_SCHEMA_1")
 
 
 class UnNamedTimeSeriesSchema(TimeSeriesSchema):

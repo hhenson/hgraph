@@ -56,7 +56,7 @@ class WiringNodeClass:
         elif isinstance(item, slice):
             item = (item,)  # Normalise all items into a tuple
         elif isinstance(item, (type, GenericAlias, _GenericAlias, HgTypeMetaData)):
-            if len(tpv := self.signature.typevars) == 1:
+            if len(tpv := self.signature.type_vars) == 1:
                 item = (slice(tuple(tpv)[0], item),)
             elif self.signature.default_type_arg:
                 item = (slice(self.signature.default_type_arg, item),)

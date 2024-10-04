@@ -1,7 +1,6 @@
 from abc import abstractmethod, ABC
 from datetime import datetime
 from functools import cached_property
-from itertools import chain
 from typing import Iterator, TypeVar, Optional, OrderedDict, Any
 
 import polars as pl
