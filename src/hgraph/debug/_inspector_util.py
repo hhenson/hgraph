@@ -1,6 +1,8 @@
 import re
 from typing import Union
 
+import polars as pl
+
 from frozendict import frozendict
 from multimethod import multimethod
 
@@ -8,7 +10,7 @@ from hgraph import Node, Graph, PythonTimeSeriesValueInput, PythonTimeSeriesValu
     PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput, PythonTimeSeriesReference, \
     TimeSeriesList, TimeSeriesDict, TimeSeriesBundle, TimeSeriesSet, TimeSeriesInput, TimeSeriesOutput, \
     PythonNestedNodeImpl, PythonTsdMapNodeImpl, PythonServiceNodeImpl, PythonReduceNodeImpl, PythonSwitchNodeImpl, \
-    PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl
+    PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl, CompoundScalar
 from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
 from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
@@ -91,13 +93,7 @@ def _(value: PythonPushQueueNodeImpl):
 def _(value: Union[PythonTimeSeriesValueOutput]):
     # Very specific types here because want to check the _tp attribute to avoid potentially costly .value call
     if value.valid:
-        if value._tp in (frozendict, frozenset):
-            return f"{len(value.value)} items"
-        else:
-            s = str(value.value)
-            if len(s) > 256:
-                s = s[:253] + "..."
-            return s
+        return format_value(value.value)
     else:
         return "INVALID"
 
@@ -140,6 +136,11 @@ def _(value: Union[TimeSeriesList, TimeSeriesSet, TimeSeriesBundle, TimeSeriesDi
         return f"{len(value)} items"
     else:
         return "INVALID"
+
+
+@format_value.register
+def _(value: pl.DataFrame):
+    return f"Frame {value.width}x{value.height}"
 
 
 @multimethod
@@ -188,6 +189,18 @@ def _(value: frozenset):
 @enum_items.register
 def _(value: set):
     yield from ((k, k) for k in value)
+
+
+@enum_items.register
+def _(value: CompoundScalar):
+    yield from ((k, v) for k, v in value.to_dict().items())
+
+
+@enum_items.register
+def _(value: Union[PythonTimeSeriesValueOutput, PythonTimeSeriesValueInput]):
+    if value.valid:
+        yield from enum_items(value.value)
+    yield from ()
 
 
 @enum_items.register
@@ -299,6 +312,11 @@ def inspect_item(value, key):
     return value[key]
 
 
+@multimethod
+def inspect_item(value: CompoundScalar, key):
+    return getattr(value, key)
+
+
 @inspect_item.register
 def _(value: PythonNestedNodeImpl, key):
     return value.nested_graphs().get(key)
@@ -312,3 +330,9 @@ def _(value: PythonTimeSeriesReference, key):
 @inspect_item.register
 def _(value: Union[PythonTimeSeriesReferenceInput | PythonTimeSeriesReferenceOutput], key):
     return value.value.items[key]
+
+
+@inspect_item.register
+def _(value: Union[PythonTimeSeriesValueInput | PythonTimeSeriesValueOutput], key):
+    if value.valid:
+        return inspect_item(value.value, key)

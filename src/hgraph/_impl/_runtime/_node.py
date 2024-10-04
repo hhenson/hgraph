@@ -196,7 +196,7 @@ class BaseNodeImpl(Node, ABC):
 
         if scheduled:
             self._scheduler.advance()
-        elif self.scheduler.is_scheduled:
+        elif self.scheduler.requires_scheduling:
             self.graph.schedule_node(self.node_ndx, self.scheduler.next_scheduled_time)
 
     @abstractmethod
@@ -223,6 +223,8 @@ class BaseNodeImpl(Node, ABC):
         self.do_stop()
         if self.input:
             self.input.un_bind_output()
+        if self._scheduler:
+            self._scheduler.reset()
 
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.
@@ -310,14 +312,19 @@ class NodeSchedulerImpl(NodeScheduler):
         self._node = node
         self._scheduled_events: SortedList[tuple[datetime, str]] = SortedList[tuple[datetime, str]]()
         self._tags: dict[str, datetime] = {}
+        self._alarm_tags: dict[str, datetime] = {}
 
     @property
     def next_scheduled_time(self) -> datetime:
         return self._scheduled_events[0][0] if self._scheduled_events else MIN_DT
 
     @property
-    def is_scheduled(self) -> bool:
+    def requires_scheduling(self) -> bool:
         return bool(self._scheduled_events)
+
+    @property
+    def is_scheduled(self) -> bool:
+        return bool(self._scheduled_events) or bool(self._alarm_tags)
 
     @property
     def is_scheduled_now(self) -> bool:
@@ -336,11 +343,19 @@ class NodeSchedulerImpl(NodeScheduler):
         else:
             return default
 
-    def schedule(self, when: datetime | timedelta, tag: str = None):
+    def schedule(self, when: datetime | timedelta, tag: str = None, on_wall_clock: bool = False):
+        from hgraph import RealTimeEvaluationClock
         original_time = None
         if tag is not None and tag in self._tags:
             original_time = self.next_scheduled_time
             self._scheduled_events.remove((self._tags[tag], tag))
+
+        if on_wall_clock and isinstance(clock := self._node.graph.evaluation_clock, RealTimeEvaluationClock):
+            alarm_tag = f"{id(self)}:{tag}"
+            clock.set_alarm(when, alarm_tag, lambda et: self._on_alarm(et, tag))
+            self._alarm_tags[alarm_tag] = when
+            return
+
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
         if when > (
@@ -353,6 +368,12 @@ class NodeSchedulerImpl(NodeScheduler):
                 force_set = original_time is not None and original_time < when
                 self._node.graph.schedule_node(self._node.node_ndx, next_, force_set)
 
+    def _on_alarm(self, when: datetime, tag: str):
+        self._tags[tag] = when
+        self._alarm_tags.pop(f"{id(self)}:{tag}")
+        self._scheduled_events.add((when, tag))
+        self._node.graph.schedule_node(self._node.node_ndx, when)
+
     def un_schedule(self, tag: str = None):
         if tag is not None:
             if tag in self._tags:
@@ -364,6 +385,8 @@ class NodeSchedulerImpl(NodeScheduler):
     def reset(self):
         self._scheduled_events.clear()
         self._tags.clear()
+        for alarm in self._alarm_tags:
+            self._node.graph.evaluation_clock.cancel_alarm(alarm)
 
     def advance(self):
         until = self._node.graph.evaluation_clock.evaluation_time

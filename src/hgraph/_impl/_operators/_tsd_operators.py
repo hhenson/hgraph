@@ -42,7 +42,7 @@ from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT, K_1, V
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
-from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, REMOVE
+from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, TSD_OUT
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import AUTO_RESOLVE
@@ -99,19 +99,75 @@ def tsd_get_item_default(
     return result
 
 
-@compute_node(overloads=getitem_)
-def tsd_get_items(ts: TSD[K, REF[TIME_SERIES_TYPE]], key: TSS[K]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+@compute_node(overloads=getitem_, valid=())
+def tsd_get_items(
+    ts: REF[TSD[K, TIME_SERIES_TYPE]],
+    key: TSS[K],
+    _ref: TSD[K, REF[TIME_SERIES_TYPE]] = None,
+    _ref_ref: TSD[K, REF[TIME_SERIES_TYPE]] = None,
+    _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _state: STATE[KeyValueRefState] = None,
+) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
-    Filters the tsd to the given keys.
+    Returns TSD of the time-series associated to the keys provided.
     """
-    out = {
-        **{k: v.value for k, v in ts.modified_items() if k in key},
-        **{k: REMOVE_IF_EXISTS for k in ts.removed_keys()},
-        **{k: ts[k].value for k in key.added() if k in ts},
-        **{k: REMOVE_IF_EXISTS for k in key.removed()},
-    }
-    if out:
-        return out
+    # Use tsd as a reference to avoid the cost of the input wrapper
+    # If we got here something was modified so release any previous value and replace
+    if ts.modified:
+        if _state.tsd is not None:
+            for k in _state.key:
+                _ref.on_key_removed(k)
+                _ref_ref.on_key_removed(k)
+                _state.tsd.release_ref(k, _state.reference)
+
+        if ts.valid and ts.value.valid:
+            _state.tsd = ts.value.output
+            _state.key = (key.value - key.added()) if key.valid else set()
+        else:
+            _state.tsd = None
+            _state.key = set()
+
+        if _state.tsd is not None:
+            for k in _state.key:
+                output = _state.tsd.get_ref(k, _state.reference)
+                _ref._create(k)
+                _ref[k].bind_output(output)
+                _ref[k].make_active()
+
+    if _state.tsd is None or not key.valid:
+        return
+
+    for k in key.added():
+        output = _state.tsd.get_ref(k, _state.reference)
+        _ref._create(k)
+        _ref[k].bind_output(output)
+        _ref[k].make_active()
+
+    out = {}
+
+    for k in key.removed():
+        _state.tsd.release_ref(k, _state.reference)
+        _ref.on_key_removed(k)
+        _ref_ref.on_key_removed(k)
+        out[k] = REMOVE_IF_EXISTS
+
+    # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
+    # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
+    # and the below 'if' deals with that by subscribing to the inner reference too
+    for k, v in _ref.modified_items():
+        if k in _state.tsd.key_set.removed():
+            out[k] = REMOVE_IF_EXISTS
+        elif v.value.has_peer and isinstance(v.value.output, TimeSeriesReferenceOutput):
+            _ref_ref._create(k)
+            _ref_ref[k].bind_output(v.value.output)
+            _ref_ref[k].make_active()
+        elif v.value.valid or k in _state.tsd.key_set:
+            out[k] = v.value
+
+    for k, v in _ref_ref.modified_items():
+        out[k] = v.value
+
+    return out
 
 
 @compute_node(
@@ -155,9 +211,9 @@ def is_empty_tsd(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
     return is_empty(ts.key_set)
 
 
-@graph(overloads=len_)
+@compute_node(overloads=len_)
 def len_tsd(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
-    return len_(ts.key_set)
+    return len(ts)
 
 
 @graph(overloads=sub_)
@@ -285,8 +341,9 @@ def uncollapse_keys_tsd(
     return out
 
 
+@dataclass
 class TsdRekeyState(CompoundScalar):
-    prev: dict = {}  # Copy of previous ticks
+    prev: dict = field(default_factory=dict)  # Copy of previous ticks
 
 
 @compute_node(overloads=rekey, valid=("new_keys",))
@@ -357,30 +414,29 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
 
 @compute_node(overloads=flip, requires=lambda m, s: s["unique"] is False)
-def flip_tsd_non_unique(ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None) -> TSD[K_1, TSS[K]]:
+def flip_tsd_non_unique(ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None) -> TSD[K_1, TSS[K]]:
     """
     Flip the TSD to have the time-series as the key and the key as the time-series. Collect keys for duplicate values into TSS
     """
-    from hgraph import Removed
-
-    out = defaultdict(set)
     prev = _state.prev
 
     # Clear up existing mapping before we track new key mappings
     for k in ts.removed_keys():
-        k_new = prev.pop(k, None)
-        if k_new is not None:
-            out[k_new].add(Removed(k))
+        k_old = prev.pop(k, None)
+        if k_old is not None:
+            _output[k_old].remove(k)
 
     for k, v in ts.modified_items():
         v = v.value
-        k_new = prev.pop(k, None)
-        if k_new is not None:
-            out[k_new].add(Removed(k))
-        out[v].add(k)
+        k_old = prev.pop(k, None)
+        if k_old is not None and k_old != v:
+            _output[k_old].remove(k)
+        _output.get_or_create(v).add(k)
         prev[k] = v
 
-    return out
+    drop = {k for k, v in _output.modified_items() if not v}
+    for k in drop:
+        del _output[k]
 
 
 @compute_node(overloads=flip_keys)

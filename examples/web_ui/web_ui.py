@@ -122,14 +122,14 @@ def host_web_server():
 
     map_(
         lambda key, c: publish_multitable(
-            "data", key, random_values(c, 100), index_col_name="sensor", history=sys.maxsize
+            "data", key, random_values(c, 100), unique=False, index_col_name="sensor", history=sys.maxsize
         ),
         config,
     )
 
     map_(
         lambda key, c: publish_multitable(
-            "data", key, random_events(c, 100), index_col_name="sensor", history=sys.maxsize
+            "data", key, random_events(c, 100), unique=False, index_col_name="sensor", history=sys.maxsize
         ),
         config,
     )

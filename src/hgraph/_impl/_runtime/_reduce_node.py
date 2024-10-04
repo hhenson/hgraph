@@ -90,6 +90,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
         self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._nested_graph.evaluate_graph()
+        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
 
         # Now we just need to detect the change in graph shape, so we can propagate it on.
         # The output as well as the last_output are reference time-series so this should

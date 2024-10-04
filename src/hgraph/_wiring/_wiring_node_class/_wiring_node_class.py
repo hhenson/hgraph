@@ -478,6 +478,7 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
             resolved_types = underlying_node.resolved_types | resolved_types
         self.underlying_node = underlying_node
         self.resolved_types = resolved_types
+        self.skip_overload_check = getattr(underlying_node, "skip_overload_check", False)
 
     def resolve_signature(self, *args, __pre_resolved_types__=None, **kwargs) -> "WiringNodeSignature":
         more_resolved_types = __pre_resolved_types__ or {}
@@ -498,6 +499,15 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
         more_resolved_types = kwargs.pop("__pre_resolved_types__", None) or {}
         pre_resolved_types = {**self.resolved_types, **more_resolved_types}
 
+        # AB: I have doubts having this here is a good idea. It segregates overloads added to the underlying node
+        # from the overloads added to the wrapper. This could lead to unexpected behaviour where an overload is
+        # chosen from an incomplete set. It also breaks dispatch as dispatch relies on 'skip_overload_check' being set
+        # to True and then overloads on the wrapper will not be seen at all (or if the check is not bubbled up, dispatch
+        # does not work). I think the best way to handle this is to have the wrapper pass-through overloads to
+        # the underlying node and have all overloads on the underlying node. This potentially makes overloads available
+        # for picking that where not supposed to be available - maybe that can be solved by attaching additional
+        # requirements to those overloads that would check resolved types against __pre_resolved__types__.
+        # In the meanwhile I bubble up the skip_overload_check to the underlying node to make dispatch_ work.
         found_overload, r = self._check_overloads(*args, **kwargs, __pre_resolved_types__=pre_resolved_types)
         if found_overload:
             return r

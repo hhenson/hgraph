@@ -12,10 +12,10 @@ def test_convert_ts_to_mapping():
     assert eval_node(g, "a", 1) == [{"a": 1}]
 
     @graph
-    def g(k: TS[str], v: TS[int]) -> TS[Mapping[str, int]]:
-        return convert[TS[Mapping[str, int]]](k, v)
+    def g(k: TS[str], v: TS[str]) -> TS[Mapping[str, str]]:
+        return convert[TS[Mapping[str, str]]](key=k, ts=v)
 
-    assert eval_node(g, "a", 1) == [{"a": 1}]
+    assert eval_node(g, "a", "b") == [{"a": "b"}]
 
 
 def test_convert_tuples_to_mapping():

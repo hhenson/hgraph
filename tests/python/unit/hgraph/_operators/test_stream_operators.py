@@ -208,6 +208,15 @@ def test_throttle_tsd():
                      ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
 
 
+def test_throttle_tsd_delay_first():
+    @graph
+    def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:
+        return throttle(ts, period, delay_first_tick=True)
+
+    assert eval_node(g, [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}], 3 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD
+                     ) == [None, None, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
+
+
 def test_take():
     @graph
     def g(ts: TS[int], count: int) -> TS[int]:

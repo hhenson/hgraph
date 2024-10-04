@@ -25,13 +25,20 @@
 
         <script type="module">
             import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.js";
+
+            const frame = async (url) => {
+                const request = fetch(url);
+                const worker = await perspective.worker();
+                const response = await request;
+                const buffer = await response.arrayBuffer();
+                return await worker.table(buffer);
+            };
+
+
             window.addEventListener("DOMContentLoaded", async function () {
                 const viewer = document.getElementById("viewer");
-                let ws = "ws"
-                if (location.protocol === 'https:'){ ws = "wss"; }
-                const websocket = perspective.websocket(ws + "://" + location.host + "/websocket{{'_readonly' if not editable else '_editable'}}");
-                const table = websocket.open_table("{{table_name}}");
-                viewer.load(table);
+
+                viewer.load(frame("/inspect/frame/{{table_name}}"));
                 viewer.toggleConfig();
             });
         </script>

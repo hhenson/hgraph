@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Type, Callable
@@ -62,20 +63,41 @@ def _publish_table_from_tsd(
     to be tuples in which case the index_col_name is expected to be a comma separated list (no spaces) of the key names
     in order. index_col_name can also include names of columns from the value in case of Frame value type.
     """
+    data = None
     if state.multi_row:
-        data = [{**state.process_key(k), **row} for k, v in ts.modified_items() for row in state.process_row(v)]
+        for k in ts.removed_keys():
+            state.removed.update(state.key_tracker.pop(k, set()))
+
+        for k, v in ts.modified_items():
+            data = [{**state.process_key(k), **row} for row in state.process_row(v)]
+            if state.create_index:
+                data = [{**i, **state.create_index(i)} for i in data]
+
+            index = state.index
+            updated_indices = set(i[index] for i in data)
+            state.removed.update(state.key_tracker[k] - updated_indices)
+            state.removed -= updated_indices
+            state.key_tracker[k] = updated_indices
+            state.data += data
     else:
-        data = [{**state.process_key(k), **state.process_row(v)} for k, v in ts.modified_items()]
+        for k in ts.removed_keys():
+            if v := state.key_tracker.pop(k, None):
+                state.removed.add(v)
 
-    if state.create_index:
-        data = [{**i, **state.create_index(i)} for i in data]
+        for k, v in ts.modified_items():
+            data = {**state.process_key(k), **state.process_row(v)}
+            if state.create_index:
+                data = {**data, **state.create_index(data)}
 
-    state.data += data
-    state.removed.update(ts.removed_keys())
-    state.removed -= ts.added_keys()
+            index = state.index
+            if (old_i := state.key_tracker.get(k)) is not None and old_i != data[index]:
+                state.removed.add(old_i)
+            state.removed.discard(data[index])
+            state.key_tracker[k] = data[index]
+            state.data.append(data)
 
     if not sched.is_scheduled and data:
-        sched.schedule(timedelta(milliseconds=250))
+        sched.schedule(timedelta(milliseconds=250), on_wall_clock=True)
 
     if sched.is_scheduled_now:
         state.manager.update_table(name, state.data, state.removed)
@@ -162,7 +184,8 @@ def _publish_table_from_tsd_start(
     else:
         raise ValueError(f"Unsupported schema type '{_schema}'")
 
-    table = Table({**state.key_schema, **{k: v for k, v in state.schema.items()}}, index=(index_col_name or "index"))
+    state.index = (index_col_name or "index")
+    table = Table({**state.key_schema, **{k: v for k, v in state.schema.items()}}, index=state.index)
 
     if empty_row:
         empty_values = [
@@ -174,6 +197,7 @@ def _publish_table_from_tsd_start(
     manager.add_table(name, table, editable)
     state.data = []
     state.removed = set()
+    state.key_tracker = defaultdict(set) if state.multi_row else {}
 
     if history:
         history_table = Table(

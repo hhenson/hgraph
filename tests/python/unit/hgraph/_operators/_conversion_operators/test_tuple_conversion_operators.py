@@ -1,6 +1,21 @@
 from typing import Tuple, Set
 
-from hgraph import TIME_SERIES_TYPE, combine, TS, graph, HgTypeMetaData, collect, convert, TSS, Removed, TSL, Size, emit
+import polars as pl
+
+from hgraph import (
+    TIME_SERIES_TYPE,
+    combine,
+    TS,
+    graph,
+    collect,
+    convert,
+    TSS,
+    Removed,
+    TSL,
+    Size,
+    emit,
+    Series,
+)
 from hgraph.test import eval_node
 
 
@@ -60,6 +75,28 @@ def test_convert_tsl_to_tuple():
     assert eval_node(g, [None, {0: 1}, {0: 2, 1: 3}]) == [None, (1, None), (2, 3)]
 
 
+def test_convert_series_to_tuple():
+    @graph
+    def g(a: TS[Series[int]]) -> TIME_SERIES_TYPE:
+        return convert[TS[Tuple]](a)
+
+    assert eval_node(g, [pl.Series("vals", ()), pl.Series("vals", (1,)), pl.Series("vals", (2, 3))]) == [
+        tuple(),
+        (1,),
+        (2, 3),
+    ]
+
+    @graph
+    def h(a: TS[Series[int]]) -> TIME_SERIES_TYPE:
+        return convert[TS[Tuple[int, ...]]](a)
+
+    assert eval_node(h, [pl.Series("vals", ()), pl.Series("vals", (1,)), pl.Series("vals", (2, 3))]) == [
+        tuple(),
+        (1,),
+        (2, 3),
+    ]
+
+
 def test_combine_tuple():
     @graph
     def g(a: TS[int], b: TS[int]) -> TIME_SERIES_TYPE:
@@ -93,7 +130,7 @@ def test_combine_tuple_nonuniform():
     def g(a: TS[int], b: TS[str]) -> TIME_SERIES_TYPE:
         return combine[TS[Tuple[int, str]]](a, b, __strict__=False)
 
-    assert eval_node(g, [None, 1], '2') == [(None, '2'), (1, '2')]
+    assert eval_node(g, [None, 1], "2") == [(None, "2"), (1, "2")]
 
 
 def test_collect_tuple():
@@ -116,4 +153,3 @@ def test_emit_tuple():
         return emit(m)
 
     assert eval_node(g, [(1, 2, 3), None, (4,)]) == [1, 2, 3, 4]
-

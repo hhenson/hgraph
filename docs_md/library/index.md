@@ -122,7 +122,7 @@ type arguments as it can derive the output type from the input arguments.
 #### Example
 
 ```python
-from hgraph.nodes import emit, print
+from hgraph import emit, print
 
 values = emit( (1, 2, 3) )
 print(values)

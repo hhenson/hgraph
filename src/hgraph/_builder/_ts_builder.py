@@ -1,13 +1,10 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
-from _pytest.nodes import Node
-
-from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._builder._input_builder import InputBuilder
 from hgraph._builder._output_builder import OutputBuilder
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._runtime import Node
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData

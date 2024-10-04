@@ -10,6 +10,15 @@ from hgraph.debug._inspector_util import format_value, format_timestamp
 def process_tick(state: InspectorState, node: Node):
     start = time.perf_counter_ns()
 
+    if item_id := state.node_subscriptions.get(node.node_id):
+        v = item_id.find_item_on_graph(node.graph)
+        str_id = item_id.to_str()
+        state.tick_data[str_id] = dict(
+            id=str_id,
+            value=format_value(v),
+            timestamp=format_timestamp(v),
+        )
+
     for item_id in state.node_item_subscriptions.get(node.node_id, ()):
         v = item_id.find_item_on_graph(node.graph)
         str_id = item_id.to_str()

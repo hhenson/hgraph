@@ -119,6 +119,7 @@ def try_except(
             {
                 k: kwargs_[k]
                 for k, v in resolved_signature.input_types.items()
+                if v != resolved_signature.defaults.get(k)
             },
             resolved_signature_outer,
             None,

@@ -92,6 +92,19 @@ class PythonTimeSeriesReference(TimeSeriesReference):
         if reactivate:
             ts_input.make_active()
 
+    def __eq__(self, other):
+        if not isinstance(other, PythonTimeSeriesReference):
+            return False
+        if self.valid != other.valid:
+            return False
+        if self.valid:
+            if self.has_peer != other.has_peer:
+                return False
+            if self.has_peer:
+                return self.output == other.output
+            return self.items == other.items
+        return True
+
     def __str__(self) -> str:
         if self.output is not None:
             return (

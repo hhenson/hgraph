@@ -412,7 +412,7 @@ class NodeScheduler(ABC):
         """
 
     @abstractmethod
-    def schedule(self, when: datetime | timedelta, tag: str = None):
+    def schedule(self, when: datetime | timedelta, tag: str = None, on_wall_clock: bool = False):
         """
         Schedule the node to be evaluated at the time specified. If tag is set, then the scheduled event will be
         associated to the tag, if a schedule is already set against the tag, it will be replaced with the new entry.

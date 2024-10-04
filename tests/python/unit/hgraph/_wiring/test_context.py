@@ -22,7 +22,7 @@ from hgraph import (
     lag,
     SCHEDULER,
     MIN_TD,
-    combine,
+    combine, try_except,
 )
 from hgraph.test import eval_node
 
@@ -290,3 +290,26 @@ def test_graph_contexts():
             return f()
 
     assert eval_node(g, ["Hello", None], [None, "World"]) == ["Hello None", "Hello World"]
+
+
+def test_stacked_contexts():
+    @compute_node
+    def use_context(a: CONTEXT[TIME_SERIES_TYPE] = REQUIRED["a"]) -> TS[str]:
+        return f"{a.value}"
+
+    @graph
+    def f() -> TS[str]:
+        return use_context()
+
+    @graph
+    def h(ts1: TS[str], ts2: TS[str]) -> TS[str]:
+        with ts2 as a:
+            return try_except(f).out
+
+    @graph
+    def g(ts1: TS[str], ts2: TS[str]) -> TS[str]:
+        with ts1 as a:
+            return try_except(h, ts1, ts2).out
+
+    assert eval_node(g, ["Hello", None], [None, "World"]) == [None, "World"]
+

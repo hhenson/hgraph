@@ -151,6 +151,7 @@ def run_graph(
     __trace__: bool | dict = False,
     __profile__: bool | dict = False,
     __trace_wiring__: bool | dict = False,
+    __logger__: Logger = None,
     **kwargs,
 ):
     """
@@ -170,7 +171,14 @@ def run_graph(
     :param life_cycle_observers: A list of observers to register with the runtime engine prior to evaluation.
     :param kwargs: Any additional kwargs to pass to the graph.
     """
-    kwargs_ = {"run_mode": run_mode, "trace": __trace__, "profile": __profile__, "trace_wiring": __trace_wiring__}
+    kwargs_ = {"run_mode": run_mode,
+               "trace": __trace__,
+               "profile": __profile__,
+               "trace_wiring": __trace_wiring__,
+               }
+
+    if __logger__ is not None:
+        kwargs_["graph_logger"] = __logger__
     if start_time is not None:
         kwargs_["start_time"] = start_time
     if end_time is not None:
