@@ -3,7 +3,7 @@ A functional reactive programming engine with a Python front-end.
 
 This provides a DSL and runtime to support the computation of results over time, featuring
 a graph based directed acyclic dependency graph and the concept of time-series properties.
-The language is function based, and promotes composition to extend behaviour.
+The language is function-based, and promotes composition to extend behaviour.
 
 Here is a simple example:
 
@@ -30,21 +30,30 @@ See [this](https://hgraph.readthedocs.io/en/latest/) for more information.
 
 The project is currently configured to make use of [Poetry](https://python-poetry.org) for dependency management. 
 Take a look at the website to see how best to install the tool.
-Once you have checked out the project, you can install the project for development using the following command:
 
-This is optional, but you can ensure python uses the version of python you require.
+Here are some useful commands:
+
+First, this will cause the virtual environment to be installed in the same folder as the project (in .venv folder)
+
+```bash
+poetry config virtualenvs.in-project true
+```
+
+Use this command to set the version of Python to make use of if you want a specific version of Python.
 
 ```bash
 poetry env use 3.11
 ```
 
-Then use the following command to install the project and it's depenencies:
+Then use the following command to install the project and its dependencies. Note that the ``--with docs`` installs
+the dependencies to build the documentation set which is not required otherwise, also the ``--all-extras`` is only
+required for the adaptors.
 
 ```bash
-poetry install
+poetry install --with docs --all-extras
 ```
 
-Then you can find the location of the installation using:
+If you did not use the first command, you can find the location of the installation using:
 
 ```bash
 poetry env info
