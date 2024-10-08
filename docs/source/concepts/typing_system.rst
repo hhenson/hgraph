@@ -55,6 +55,9 @@ Python object as the type. This is a catch-all type and is available to support 
 The fundamental types are intended to be supported via native types when the runtime is implemented in a native
 language such as C++, whereas the python object support is intended to be limited to Python code only.
 
+Schema Based Types
+------------------
+
 Besides the standard types listed above there are two special types that are derived from the ``AbstractSchema``
 type, namely: ``CompoundScalar`` and ``TimeSeriesSchema``. These types support the ability to define
 named collection types, the ``CompoundScalar`` class supports defining scalar values made up of simple types
@@ -108,6 +111,8 @@ attribute syntax.
 
 The use of this strategy also ensures that the type-system is able to track the type of each usage (for example, in the
 above example it can validate that the type of ``p2`` is ``TS[int]`` matching the expected return type of the graph).
+
+See the details of the schema properties here: :class:`hgraph.AbstractSchema`.
 
 Generics
 --------

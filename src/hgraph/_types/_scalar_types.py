@@ -99,6 +99,29 @@ class Size:
 
 
 class CompoundScalar(AbstractSchema):
+    """
+    Use this to construct scalar values with more complex structure. Below is an example of the use of this:
+
+    ::
+
+        @dataclass(frozen=True)
+        class MyCompoundScalar(CompoundScalar):
+            p1: str
+            p2: int
+
+    The compound scalar can contain other compound scalar types, but as of now it cannot support a recursive
+    definition, i.e. not possible to have a property of type ``MyCompoundScalar``.
+
+    It is possible to create a generic compound scalar, for example:
+
+    ::
+
+        @dataclass(frozen=True)
+        class MyTemplateScalar(CompoundScalar, Generic[SCALAR]):
+            p1: SCALAR
+
+
+    """
 
     @classmethod
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
@@ -107,6 +130,17 @@ class CompoundScalar(AbstractSchema):
         return HgScalarTypeMetaData.parse_type(tp)
 
     def to_dict(self):
+        """
+        Converts the value of the compound scalar into a dictionary. This will allow for construction of the type
+        using ``**kwargs`` pattern. For example:
+
+        ::
+
+            my_cs = MyCompundScalar(p1="test", p2=42)
+            my_cs_copy = MyCompundScalar(**my_cs.to_dict())
+
+        :return: The dictionary of the values.
+        """
         d = {}
         for k in self.__meta_data_schema__:
             v = getattr(self, k, None)

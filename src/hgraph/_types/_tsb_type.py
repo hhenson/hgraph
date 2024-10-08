@@ -69,14 +69,46 @@ __all__ = (
 
 class TimeSeriesSchema(AbstractSchema):
     """
-    Describes a time series schema, this is similar to a data class, and produces a data class to represent
-    it's point-in-time value.
+    Describes a time series schema that can be used to describe the structure of a ``TSB`` time-series composite.
+    To construct a schema, do something along the lines of:
+
+    ::
+
+        @dataclass(frozen=True)
+        class MySchema(TimeSeriesSchema):
+            p1: TS[int]
+            p2: TS[str]
+
+        ...
+        tsb: TSB[MySchema]
+
+    The ``TSB`` type takes the schema type as an input to describe the structure.
+
+    The schema can also make use of template types to describe the structure, for example:
+
+    ::
+
+        @dataclass(frozen=True)
+        class MySchema(TimeSeriesSchema, Generic[SCALAR, TIME_SERIES_TYPE]):
+            p1: TS[SCALAR]
+            p2: TIME_SERIES_TYPE
+
+    This can then be resolved to specific types when used.
+
     """
 
     __scalar_type__: ClassVar[Type[SCALAR] | None] = None
 
     @classmethod
     def scalar_type(cls) -> Type[SCALAR]:
+        """
+        The scalar type that represents the CompoundScalar of the time-series schema.
+        This is generated using the method: ``to_scalar_schema``.
+
+        This allows for mapping from a TSB to a scalar value.
+
+        :return: The CompoundScalar type representing this schema.
+        """
         return cls.__dict__.get("__scalar_type__")
 
     def __init_subclass__(cls, **kwargs):
@@ -102,7 +134,8 @@ class TimeSeriesSchema(AbstractSchema):
     @staticmethod
     def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
         """
-        Creates a new schema from the scalar schema provided.
+        Creates a new time-series schema from the scalar schema provided.
+        This has some limitations since it is hard to distinguish between TS[frozendict] and TSD[...,...].
         """
         if schema is CompoundScalar:
             return TimeSeriesSchema

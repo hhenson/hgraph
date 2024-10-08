@@ -14,11 +14,16 @@ __all__ = ("AbstractSchema", "Base")
 
 class AbstractSchema:
     """
-    Describes the core concepts of a schema based object. The object contains a view of the schema in terms
-    of the ``HgTypeMetaData`` representation. This provides additional information such as the resolved state
-    (if any of the attributes are TypeVar templates) and con contain partial specialisations of templated types.
-    There are two key implementations, namely the ``CompoundScalar`` and the ``TimeSeriesSchema``. These provide
-    a scalar and time-series aggregated type information.
+    The base class for the two schema-based types supported by HGraph, namely: ``CompoundScalar`` and
+    ``TimeSeriesSchema``.
+
+    This class provides the key meta-data describing the schema which is extracted from the class type annotations.
+    The information is tracked at class level and is stored in the attribute ``__meta_data_schema__``.
+    This attribute contains the name of the property, and it's ``HgTypeMetaData`` representation.
+
+    Schemas can also contain unresolved generic types. The resolution and any partial information is also tracked
+    on class level attributes in this class. These make use of the attributes: ``__resolved__``,
+    ``__partial_resolution__`` and ``__partial_resolution_parent__``.
     """
 
     __meta_data_schema__: frozendict[str, "HgTypeMetaData"] = {}
