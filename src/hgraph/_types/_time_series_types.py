@@ -48,6 +48,11 @@ class TimeSeriesPullQueue(Protocol):
 
 
 class TimeSeries(ABC):
+    """
+    The base of all time-series types in HGraph. The time-series types provide the ports to connect the output of
+    a function to inputs of other functions (or nodes in the graph). The type also provides a collection of useful
+    methods and properties that can be found in all time-series values.
+    """
 
     @property
     @abstractmethod
@@ -67,19 +72,17 @@ class TimeSeries(ABC):
     @abstractmethod
     def value(self):
         """
-        All time-series objects should support a value property that returns a python object representation
-        of the current (point-in-time) state. In C++ implementation this is the ScalarValue concept that supports
-        type erased values allowing for generic operations without knowledge of the underlying type. In Python
-        a python object is the equivalent.
+        All time-series objects must support a value property that returns a python object representation
+        of the current (point-in-time) state. For strongly typed runtime engines (for example, one implemented in C++)
+        this is effectively a type erased value.
         """
 
     @property
     @abstractmethod
     def delta_value(self):
         """
-        All time-series objects should support a delta_value property that returns a python object representation
-        of the changes between the last tick and the current tick. In C++ implementation this is the ScalarValue which
-        holds a delta representation.
+        All time-series objects must support a ``delta_value`` property that returns a python object representation
+        of the changes between the last tick and the current tick.
         """
 
     @property
@@ -94,18 +97,19 @@ class TimeSeries(ABC):
     @abstractmethod
     def valid(self) -> bool:
         """
-        Is there a valid value associated to this time-series input, or more generally has this property
-        ever ticked.
-        :return: True is there is a valid value associated to this time-series.
+        Is there a valid value associated to this time-series input, or loosely, "has this property
+        ever ticked?". Note that it is possible for the time-series to become invalid after it has been made valid.
+        The invalidation occurs mostly when working with REF values.
+        :return: True if there is a valid value associated with this time-series.
         """
 
     @property
     @abstractmethod
     def all_valid(self) -> bool:
         """
-        For some time-series types, valid is not sufficient if we require all elements of the
-        time-series to have ticked and not just some of them. This will return true if all time-series
-        values are valid and not just some.
+        For collection time-series types, ``valid`` will be ``True`` if any of the time-series elements are valid.
+        If this is not enough, and we require all elements of the time-series collection to have ticked and not just
+        some of them, use this method. This method will return ``True`` if all time-series elements are valid.
         """
 
     @property
@@ -118,6 +122,8 @@ class TimeSeries(ABC):
     @abstractmethod
     def re_parent(self, parent: Union["Node", "TimeSeries"]):
         """
+        FOR USE IN LIBRARY CODE.
+
         Change the owning node / time-series container of this time-series.
         This is used when grafting a time-series input from one node / time-series container to another.
         For example, see use in map implementation.
@@ -134,6 +140,11 @@ OUTPUT_TYPE = TypeVar("OUTPUT_TYPE", bound="TimeSeriesOutput")
 
 
 class TimeSeriesOutput(TimeSeries):
+    """
+    Output time-series types hold the actual value and can be set / modified.
+    These types are also the observable implementations in the graph (as in the Observer pattern, with the
+    exception that when the output changes it schedules subscribed input nodes instead of actually calling them).
+    """
 
     @property
     @abstractmethod
@@ -224,6 +235,11 @@ class TimeSeriesOutput(TimeSeries):
 
 
 class TimeSeriesInput(TimeSeries):
+    """
+    The time-series inputs are wrappers around an output. Inputs can either wrap a single output (when peered)
+    or a collection of outputs (when non-peered). The inputs can be made active (subscribed to changes of the output)
+    or passive (not subscribed to changes of the output).
+    """
 
     @property
     @abstractmethod
@@ -241,10 +257,9 @@ class TimeSeriesInput(TimeSeries):
     @abstractmethod
     def bound(self) -> bool:
         """
-        Is this time-series input bound directly to an output?
-        For collections time-series values such as TSL and TSB it is possible that the input is actually not directly
-        connected to a single time-series value and as such it will return False, the elements of the input, are likely
-        to be bound to multiple different outputs.
+        Is this time-series input bound to an output?
+        It is possible for an input to be unbound, for example, when dealing with reference types, where the node
+        may not have a valid reference yet, in which case no output will be bound to the input.
         :return: True if this is bound to an output
         """
 
@@ -252,12 +267,12 @@ class TimeSeriesInput(TimeSeries):
     @abstractmethod
     def has_peer(self) -> bool:
         """
-        If the input is bound directly to a single output then this input is peered, however if the input
+        If the input is bound directly to a single output then this input is peered, however, if the input
         is bound to more then one output making up the structure of this input, then the input is not peered.
-        This is generally only going to related to collection types such as TSL and TSB where the input may be
+        This is generally only going to affect collection types such as TSL, TSB, and TSD where the input may be
         a collection of independent time-series outputs.
 
-        Note that if the input is not bound, it has no peer.
+        Note: If the input is not bound, then it has no peer.
 
         :return: True if this input is peered.
         """
@@ -266,18 +281,22 @@ class TimeSeriesInput(TimeSeries):
     @abstractmethod
     def output(self) -> Optional[TimeSeriesOutput]:
         """
-        The output bound to this input. If no input is bound this will be None.
+        The output bound to this input. If the input is not bound then this will be None.
         """
 
     @abstractmethod
     def bind_output(self, value: Optional[TimeSeriesOutput]) -> bool:
         """
+        FOR LIBRARY USE ONLY.
+
         Binds the output provided to this input.
         """
 
     @abstractmethod
     def un_bind_output(self):
         """
+        FOR LIBRARY USE ONLY.
+
         Unbinds the output from this input.
         """
 
@@ -320,10 +339,10 @@ class TimeSeriesInput(TimeSeries):
         get the most recent value. The utility to mark passive is to reduce activations in circumstances
         where the particular input is required, but the driver of a process is not this input.
 
-        For example, a node that process a credit card transaction only needs to be woken up when the
+        For example, a node that processes a credit card transaction only needs to be woken up when the
         transaction request is received, but may depend on things such as credit history, exchange rates,
-        transaction fee's etc. There is no need to evaluate the node if the transaction request has not ticked.
-        Thus all other inputs can be treated as passive.
+        transaction fees, etc. There is no need to evaluate the node if the transaction request has not ticked.
+        Thus, all other inputs can be treated as passive.
         """
 
 

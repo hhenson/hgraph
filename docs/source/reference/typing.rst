@@ -26,3 +26,13 @@ For time-series schema to be used with ``TSD`` use this as a base:
 .. autoclass:: hgraph.TimeSeriesSchema
     :members:
     :undoc-members:
+
+
+To assist with dynamic schema construction the following are provided:
+
+.. autofunction:: hgraph.compound_scalar
+
+and for time-series schemas:
+
+.. autofunction:: hgraph.ts_schema
+

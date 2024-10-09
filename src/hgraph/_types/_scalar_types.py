@@ -183,7 +183,16 @@ class UnNamedCompoundScalar(CompoundScalar):
 
 def compound_scalar(**kwargs) -> Type["CompoundScalar"]:
     """
-    Creates an un-named time-series schema using the kwargs provided.
+    Provides a mechanism to create a ``CompoundScalar`` instance without creating a class first. This is useful
+    for either dynamically creating a compound scalar or when creating a convenience result. Here is an example
+    of its use:
+
+    ::
+
+        @compute_node
+        def combine_inputs(ts_1: TS[int], ts_2: TS[str]) -> TS[compound_scalar(p1=int, p2=str)]:
+            return {"p1": ts_1.value, "p2": ts_2.value}
+
     """
     return UnNamedCompoundScalar.create(**kwargs)
 

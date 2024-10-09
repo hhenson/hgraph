@@ -290,7 +290,32 @@ class UnNamedTimeSeriesSchema(TimeSeriesSchema):
 
 def ts_schema(**kwargs) -> Type["TimeSeriesSchema"]:
     """
-    Creates an un-named time-series schema using the kwargs provided.
+    Provides a mechanism to create a ``TimeSeriesSchema`` instance without creating a class first. This is useful
+    for either dynamically creating a compound time-series schema or when creating a convenience result. Here is an example
+    of its use:
+
+    ::
+
+        @compute_node
+        def route(condition: TS[bool], ts: TS[int]) -> TSB[ts_schema(on_true=TS[int], on_false=TS[int])]:
+            if condition.value:
+                return {"on_true": ts.value}
+            else:
+                return {"on_false": ts.value}
+
+    This can also be useful to dynamically create an input or output for example:
+
+    ::
+
+        def process(**kwargs):
+            input_schema = ts_schema(**{k: v.output_type for k, v in kwargs.items()})
+
+            @graph
+            def _process(tsb: TSB[input_schema]) -> TS[str]:
+                ...
+
+    In the above example, the input schema is dynamically constructed from the supplied inputs to allow us to create
+    a valid input.
     """
     return UnNamedTimeSeriesSchema.create(**kwargs)
 
