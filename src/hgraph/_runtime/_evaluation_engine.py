@@ -49,6 +49,7 @@ class EvaluationMode(Enum):
 class EvaluationLifeCycleObserver:
     """
     Provide the callbacks that can be received during the evaluation of the graph.
+    Use this with care as each additional life-cycle observer will slow down the evaluation of the graph.
     """
 
     def on_before_start_graph(self, graph: "Graph"):

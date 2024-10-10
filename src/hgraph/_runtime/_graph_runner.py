@@ -71,7 +71,7 @@ class GraphConfiguration:
 
     trace_wiring
         This indicates an interest in observing the wiring choices made during the wiring stage of the graph.
-        As with tracing and profiling, a dictionary of options can also be supplied see :class:hgraph.test.WiringTracer
+        As with tracing and profiling, a dictionary of options can also be supplied see :class:`hgraph.test.WiringTracer`
         for more information on the options.
 
     wiring_observers
@@ -134,6 +134,20 @@ class GraphConfiguration:
 
 
 def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs) -> list[tuple[datetime, Any]] | None:
+    """
+    Wires the ``graph`` supplied, constructs the evaluation engine using the configuration supplied and starts the
+    engines' run loop. If the ``graph`` has an ouput, this will collect the results in memory and return them
+    as the end, once the run loop exists.
+
+    .. note: Recording results can be memory intensive, don't use top level graphs with outputs unless you intend
+             on using the results.
+
+    :param graph: The graph to evaluate.
+    :param config: The configuration used to construct the evaluation engine.
+    :param args:  Any arguments to supply to the graph.
+    :param kwargs: Any kwargs to supply to the graph.
+    :return: The list of engine time and value for each tick returned by the graph if an output is present, None otherwise.
+    """
     from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._wiring._graph_builder import wire_graph
     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext

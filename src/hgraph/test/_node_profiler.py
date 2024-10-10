@@ -17,7 +17,34 @@ __all__ = ("EvaluationProfiler",)
 
 
 class EvaluationProfiler(EvaluationLifeCycleObserver):
+    """
+    Prints out some useful metrics of the running graph, this can be used to help trace down memory leaks.
+    Takes the following inputs to configure:
+
+    start
+        Log start related events.
+
+    eval
+        Log eval related events.
+
+    stop
+        Log stop related events
+
+    node
+        Log node related events
+
+    graph
+        Log graph related events
+    """
+
     def __init__(self, start: bool = True, eval: bool = True, stop: bool = True, node: bool = True, graph: bool = True):
+        """
+        :param start: Log start related events.
+        :param eval: Log node evaluation related events
+        :param stop: Log stop related events.
+        :param node: Log node events.
+        :param graph: Log graph level events.
+        """
         self.start = start
         self.eval = eval
         self.stop = stop

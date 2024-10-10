@@ -16,6 +16,31 @@ from hgraph import EvaluationLifeCycleObserver
 
 
 class EvaluationTrace(EvaluationLifeCycleObserver):
+    """
+    Logs out the different steps as the engine evaluates the graph. This is voluminous but can be helpful tracing
+    down unexpected behaviour.
+
+    filter
+        Used to restrict which node and graph events to report using a simple containment check of the node and
+        its path.
+
+    start
+        Log start related events.
+
+    eval
+        Log eval related events.
+
+    stop
+        Log stop related events
+
+    node
+        Log node related events
+
+    graph
+        Log graph related events
+
+    """
+
     def __init__(
         self,
         filter: str = None,

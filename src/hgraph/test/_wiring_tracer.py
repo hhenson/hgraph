@@ -10,6 +10,22 @@ __all__ = ("WiringTracer",)
 
 
 class WiringTracer(WiringObserver):
+    """
+    Prints out details of wiring resolutions performed whilst building the graph.
+    This is helpful to work out why an overload may not be resolving as expected.
+
+    The tracer takes the following parameters:
+
+    filter
+        A simple containment check of the filter string with the wiring path name.
+
+    graph
+        Log graph level information
+
+    node
+        Log node level information
+    """
+
     def __init__(self, filter: str = None, graph: bool = True, node: bool = True):
         self.filter = filter
         self.graph = graph
