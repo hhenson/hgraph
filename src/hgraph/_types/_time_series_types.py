@@ -206,12 +206,16 @@ class TimeSeriesOutput(TimeSeries):
     def copy_from_output(self, output: "TimeSeriesOutput"):
         """
         Copy the value from the output provided to this output.
+        This pattern makes it easier to implement generic behaviour relying on the copying of inputs or outputs
+        to self, this code will require that the supplied output is of the same type as this output.
         """
 
     @abstractmethod
     def copy_from_input(self, input: "TimeSeriesInput"):
         """
         Copy the value from the input provided to this output.
+        This pattern makes it easier to implement generic behaviour relying on the copying of inputs or outputs
+        to self, this code will require that the supplied input is of the same/compatible type as this output.
         """
 
     @abstractmethod
@@ -348,9 +352,9 @@ class TimeSeriesInput(TimeSeries):
 
 class TimeSeriesSignalInput(TimeSeriesInput):
     """
-    An input type that be bound to any output type. The value of the output is ignored and the signal will
+    An input type that be bound to any output type. The value of the output is ignored, and the signal will
     allow for usages where only the ticked state is required to be known. There is no equivalent to this on the
-    output side. If only a "ticked" state is required, the convention is to use a TS[bool].
+    output side. If only a "ticked" state is required, the convention is to use a ``TS[bool]`` for the output type.
     """
 
     @property
@@ -364,6 +368,8 @@ class TimeSeriesSignalInput(TimeSeriesInput):
 class TimeSeriesDeltaValue(TimeSeries, Generic[SCALAR, DELTA_SCALAR]):
     """
     A time-series that is able to express the changes between this and the last tick as a delta object.
+    All time-series values support this, this utility class provides the ability to describe the expected type
+    of the ``value`` and ``delta_value`` properties.
     """
 
     @property
@@ -389,7 +395,7 @@ V = clone_type_var(TIME_SERIES_TYPE, "V")
 
 class TimeSeriesIterable(Generic[K, V]):
     """
-    All collection time-series objects should support this set of elements.
+    All collection time-series objects support this set of methods over the elements of the collection.
     """
 
     @abstractmethod
@@ -407,13 +413,13 @@ class TimeSeriesIterable(Generic[K, V]):
     @abstractmethod
     def items(self) -> Iterable[Tuple[K, V]]:
         """
-        Iterator over all of the key value pairs in this collection.
+        Iterator over the key value pairs in this collection.
         """
 
     @abstractmethod
     def modified_keys(self) -> Iterable[K]:
         """
-        Iterator over the keys associted to values that have been modified in this engine cycle
+        Iterator over the keys associated to values that have been modified in this engine cycle
         """
 
     @abstractmethod

@@ -9,7 +9,10 @@ __all__ = ("TS", "TS_OUT", "TimeSeriesValueOutput", "TimeSeriesValueInput")
 
 class TimeSeriesValueOutput(TimeSeriesOutput, TimeSeriesDeltaValue[SCALAR, SCALAR], ABC, Generic[SCALAR]):
     """
-    The time-series output that manages and atomic value.
+    The time-series output that contains a scalar value. This is the most fundamental time-series output type.
+
+    This can be represented as ``TS_OUT[SCALAR]`` when typing an ``_output`` injectable argument to a node.
+    When returning the value from a node, use the ``TS[SCALAR]`` annotation to the return value.
     """
 
     @property
@@ -27,8 +30,8 @@ class TimeSeriesValueOutput(TimeSeriesOutput, TimeSeriesDeltaValue[SCALAR, SCALA
 
 class TimeSeriesValueInput(TimeSeriesInput, TimeSeriesDeltaValue[SCALAR, SCALAR], ABC, Generic[SCALAR]):
     """
-    This is the wrapper class of the TimeSeriesValueOutput. It is not able to modify
-    the value. It also supports the input behaviours of the TimeSeriesInput
+    The time-series input of a SCALAR value. This peers with a ``TimeSeriesValueOutput`` instance. Use ``TS[SCALAR]``
+    as the type annotation. Note, as this is an input, the ``value`` is not settable.
     """
 
 

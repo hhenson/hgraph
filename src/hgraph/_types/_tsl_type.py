@@ -36,7 +36,7 @@ class TimeSeriesList(
         self._ts_values: list[TIME_SERIES_TYPE] = [None] * __size__.SIZE if __size__.FIXED_SIZE else []
 
     def __class_getitem__(cls, item) -> Any:
-        # For now limit to validation of item
+        # For now, limit to validation of item
         is_tuple = type(item) is tuple
         if is_tuple and len(item) != 2:
             item = (item[0] if len(item) == 1 else TIME_SERIES_TYPE), SIZE
@@ -58,22 +58,23 @@ class TimeSeriesList(
     def __getitem__(self, item: int) -> TIME_SERIES_TYPE:
         """
         Returns the time series at this index position
-        :param item:
-        :return:
         """
         return self._ts_values[item]
 
     def __iter__(self) -> Iterable[TIME_SERIES_TYPE]:
         """
         Iterator over the time-series values
-        :return:
         """
         return iter(self._ts_values)
 
     def key_from_value(self, value: TIME_SERIES_TYPE) -> int:
+        """
+        They key for a given value.
+        """
         return self._ts_values.index(value)
 
     def keys(self) -> Iterable[K]:
+        """The list of indices (effectively ``range(len(self._ts_values)``)"""
         return range(len(self._ts_values))
 
     def values(self) -> Iterable[V]:
@@ -83,21 +84,29 @@ class TimeSeriesList(
         return enumerate(self._ts_values)
 
     def modified_keys(self) -> Iterable[K]:
+        """
+        The indices that have been modified in this engine cycle.
+        """
         return (i for i in self.keys() if self._ts_values[i].modified)
 
     def modified_values(self) -> Iterable[V]:
+        """The values that have been modified in this engine cycle."""
         return (v for v in self.values() if v.modified)
 
     def modified_items(self) -> Iterable[Tuple[K, V]]:
+        """The pair of index and value for the values that have been modified in this engine cycle."""
         return ((i, v) for i, v in self.items() if v.modified)
 
     def valid_keys(self) -> Iterable[K]:
+        """The indices containing valid time-series values."""
         return (i for i in self.keys() if self._ts_values[i].valid)
 
     def valid_values(self) -> Iterable[V]:
+        """The valid time-series values."""
         return (v for v in self.values() if v.valid)
 
     def valid_items(self) -> Iterable[Tuple[K, V]]:
+        """The indices and value pairs containing valid time-series values."""
         return ((i, v) for i, v in self.items() if v.valid)
 
 
@@ -199,7 +208,8 @@ class TimeSeriesListInput(
                         from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
                         raise CustomMessageWiringError(
-                            f"Input types must be the same type, expected: {tp_} but found [{ ', '.join(str(v.output_type) for v in args)}]"
+                            f"Input types must be the same type, expected: {tp_} but found"
+                            f" [{ ', '.join(str(v.output_type) for v in args)}]"
                         )
             elif tp_.scalar_type().matches(HgTypeMetaData.parse_value(v)):
                 from hgraph import const
@@ -233,7 +243,7 @@ class TimeSeriesListOutput(
     TimeSeriesList[TIME_SERIES_TYPE, SIZE], TimeSeriesOutput, ABC, Generic[TIME_SERIES_TYPE, SIZE]
 ):
     """
-    The output type of a time series list
+    The output of the time series list
     """
 
     value: TimeSeriesOutput

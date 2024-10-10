@@ -44,7 +44,10 @@ KEY_SET_ID = "__key_set__"
 
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):
     """
-    A TSD is a collection of time-series values keyed off of a scalar key K.
+    A TSD is a dynamic collection of time-series values keyed off of a scalar key K. The dynamic nature of the TSD
+    is very powerful, but comes with additional complexity and cost. The TSD is used to process collections where the
+    structure is not known at wiring time. It supports the concept of a TSS key-set as well as methods to detect
+    the addition and removal of time-series values. These tick over time as well as the elements themselves.
     """
 
     def __init__(
@@ -106,8 +109,8 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
     def get_or_create(self, key: K) -> V:
         """
         Returns the time series at this index position
-        If the key does not yet exist, it will be created, in the case of an input, this will create a stub input
-        that will only be bound when the corresponding output is created. In the case of an output the
+        If the key does not yet exist, it will be created. In the case of an input, this will create a stub input
+        that will only be bound when the corresponding output is created. In the case of an output, the
         output is constructed but will be in an invalid state until it is set with a value.
         """
         if key not in self._ts_values:
@@ -162,48 +165,42 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
     @abstractmethod
     def added_keys(self) -> Iterable[K]:
         """
-        Returns the keys that were added since the last tick.
-        :return:
+        :return: The keys that were added since the last tick.
         """
         pass
 
     @abstractmethod
     def added_values(self) -> Iterable[V]:
         """
-        Returns the values that were added since the last tick.
-        :return:
+        :return: The values that were added since the last tick.
         """
         pass
 
     @abstractmethod
     def added_items(self) -> Iterable[Tuple[K, V]]:
         """
-        Returns the items that were added since the last tick.
-        :return:
+        :return: The items that were added since the last tick.
         """
         pass
 
     @abstractmethod
     def removed_keys(self) -> Iterable[K]:
         """
-        Returns the keys that were removed since the last tick.
-        :return:
+        :return: The keys that were removed since the last tick.
         """
         pass
 
     @abstractmethod
     def removed_values(self) -> Iterable[V]:
         """
-        Returns the values that were removed since the last tick.
-        :return:
+        :return: The values that were removed since the last tick.
         """
         pass
 
     @abstractmethod
     def removed_items(self) -> Iterable[Tuple[K, V]]:
         """
-        Returns the items that were removed since the last tick.
-        :return:
+        :return: The items that were removed since the last tick.
         """
         pass
 
@@ -261,10 +258,10 @@ class TimeSeriesDictOutput(TimeSeriesOutput, TimeSeriesDict[K, V], ABC, Generic[
 
     def get_ref(self, key: K, requester: Any) -> "TimeSeriesReferenceOutput":
         """
-        Returns a reference time-series output for the key supplied, this will not actually create the time-series.
+        Returns a reference time-series output for the key supplied, this will not create the time-series.
         This is useful to subscribe to a time-series where the coming and going of the time-series can be tracked.
-        The requester is provided to assist with tracking the reference count, many requesters can request a key
-        and when they are no longer interested they will release the reference. We need to ensure that we only remove
+        The requester is provided to assist with tracking the reference count. Many requesters can request a key,
+        and when they are no longer interested, they will release the reference. We need to ensure that we only remove
         the reference once all requesters have gone. We could just leave them dangling, but that could cause a memory
         leak. When requesting this from the input perspective, the reference is not provided.
         """

@@ -326,6 +326,8 @@ class TimeSeriesBundle(
     """
     Represents a non-homogenous collection of time-series values.
     We call this a time-series bundle.
+
+    This contains the core methods shared between input and output types.
     """
 
     def __init__(self, __schema__: TS_SCHEMA, **kwargs):
@@ -394,6 +396,10 @@ class TimeSeriesBundle(
             return self._ts_values[item]
 
     def key_from_value(self, value: Any) -> str:
+        """
+        This is a linear search for the first value, in the collection of time-series values, that matches
+        the supplied ``value`` argument. This can be very heavy, use with care.
+        """
         return next((k for k, v in self._ts_values.items() if v is value), None)
 
     def keys(self) -> KeysView[str]:
@@ -409,29 +415,36 @@ class TimeSeriesBundle(
         return self._ts_values.values()
 
     def modified_keys(self) -> Iterable[str]:
+        """The keys of the time-series elements that have been modified in this engine cycle"""
         return (i for i in self.keys() if self._ts_values[i].modified)
 
     def modified_values(self) -> Iterable[TimeSeries]:
+        """The time-series elements that have been modified in this engine cycle"""
         return (v for v in self.values() if v.modified)
 
     def modified_items(self) -> Iterable[Tuple[str, TimeSeries]]:
+        """The key / value pairs of the time-series elements that have been modified in this engine cycle"""
         return ((i, v) for i, v in self.items() if v.modified)
 
     def valid_keys(self) -> Iterable[str]:
+        """The keys of the time-series elements that are marked as valid"""
         return (i for i in self.keys() if self._ts_values[i].valid)
 
     def valid_values(self) -> Iterable[TimeSeries]:
+        """The time-series elements that are marked as valid"""
         return (v for v in self.values() if v.valid)
 
     def valid_items(self) -> Iterable[Tuple[str, TimeSeries]]:
+        """The key / value pairs of the time-series elements that are marked as valid"""
         return ((i, v) for i, v in self.items() if v.valid)
 
 
 class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generic[TS_SCHEMA]):
     """
-    The input form of the bundle. This serves two purposes, one to describe the shape of the code.
-    The other is to use as a Marker class for typing system. To make this work we need to implement
-    the abstract methods.
+    The input form of the bundle.
+
+    .. note:: This class is used at wiring time to implement the wiring logic of the ``TSB``, this additionally
+              represents the behaviours present in the TSB input type.
     """
 
     @staticmethod

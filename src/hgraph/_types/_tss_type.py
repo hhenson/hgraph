@@ -10,6 +10,11 @@ __all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", 
 
 @runtime_checkable
 class SetDelta(Protocol[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
+    """
+    Represent the delta value of an operation performed on the TSS type.
+    This contains the added and removed elements of the set (those added and removed in this engine cycle).
+    This can also be used to apply the change to a TSS output.
+    """
 
     @property
     @abstractmethod
@@ -28,7 +33,13 @@ class SetDelta(Protocol[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
 
 class TimeSeriesSet(TimeSeriesDeltaValue[KEYABLE_SCALAR, SetDelta[KEYABLE_SCALAR]], Generic[KEYABLE_SCALAR]):
     """
-    The representation of a set over time.
+    The core methods common to both input and output instances of the ``TSS``.
+    The time-series set represents a set of SCALAR values over time. The set will tick when an item is added or removed
+    from the set. If an item is added that already exists, or removed when it did not exist, the set will not tick.
+
+    The set will tick if it has no elements added if the set is not yet valid. That is, the set will become valid
+    if an empty output is set. Once valid, the set will not tick again for this condition, unless there were values
+    already present and they are removed.
     """
 
     @abstractmethod
