@@ -2,7 +2,7 @@ HGraph Reference
 ================
 
 .. toctree::
-    graph_configuration
+    graph_run_loop
     decorator
     time_series_types
     typing

@@ -1,3 +1,11 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from hgraph import WiringNodeSignature
+
+__all__ = ("WiringObserver", "WiringObserverContext")
+
+
 class WiringObserver:
     """
     Observer for wiring events. When installed in the wiring engine, the observer will receive notifications from wiring process

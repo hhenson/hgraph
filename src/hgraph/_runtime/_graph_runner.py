@@ -42,6 +42,49 @@ def warn_with_log(message, category, filename, lineno, file=None, line=None):
 
 @dataclass
 class GraphConfiguration:
+    """
+    The configuration to be supplied to ``evaluate_graph``.
+    The following properties are defined:
+
+    run_mode
+        Either ``REAL_TIME`` or ``SIMULATION``.
+
+    start_time
+        The first time to evaluate the engine for, this cannot be earlier than MIN_ST.
+
+    end_time
+        The last time to evaluate the engine for (inclusive), this cannot be later than MAX_ET.
+
+    trace
+        Turn on tracing by setting this to ``True``. It is also possible to be selective with tracing by
+        setting this to a dict of the form ``{"start": False, "stop": False, "eval": False}``. Setting the value
+        to be ``True`` will turn on tracing of this element, ``False`` will turn off tracing of the particular
+        life-cycle. For more information on available options see: :class:`hgraph.test.EvaluationTrace`
+
+    profile
+        Similar to tracing, except setting this will turn on profiling of the graph.
+        See :class:`hgraph.test.EvaluationProfiler` for more information as to the options.
+
+    life_cycle_observers
+        This allows for additional life-cycle observers to be registered. This should be supplied as a tuple of
+        :class:`hgraph.EvaluationLifeCycleObserver` instances.
+
+    trace_wiring
+        This indicates an interest in observing the wiring choices made during the wiring stage of the graph.
+        As with tracing and profiling, a dictionary of options can also be supplied see :class:hgraph.test.WiringTracer
+        for more information on the options.
+
+    wiring_observers
+        This allows for custom wiring observers to be registered. This should be supplied as a tuple of
+        :class:`hgraph.WiringObserver` instances.
+
+    graph_logger
+        The instance of the Python ``Logger`` to use for graph logging, by default an instance of the logger
+        will be setup and registered under the 'hgraph' name. (Can be retrieved using ``getLogger('hgraph')``)
+
+    recorder
+    """
+
     run_mode: EvaluationMode = EvaluationMode.SIMULATION
     start_time: datetime = MIN_DT
     end_time: datetime = MAX_ET
@@ -51,7 +94,6 @@ class GraphConfiguration:
     trace_wiring: bool | dict = False
     wiring_observers: tuple[WiringObserver, ...] = tuple()
     graph_logger: Logger = field(default_factory=_default_logger)
-    recorder: GraphRecorder | None = None
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
@@ -171,11 +213,12 @@ def run_graph(
     :param life_cycle_observers: A list of observers to register with the runtime engine prior to evaluation.
     :param kwargs: Any additional kwargs to pass to the graph.
     """
-    kwargs_ = {"run_mode": run_mode,
-               "trace": __trace__,
-               "profile": __profile__,
-               "trace_wiring": __trace_wiring__,
-               }
+    kwargs_ = {
+        "run_mode": run_mode,
+        "trace": __trace__,
+        "profile": __profile__,
+        "trace_wiring": __trace_wiring__,
+    }
 
     if __logger__ is not None:
         kwargs_["graph_logger"] = __logger__

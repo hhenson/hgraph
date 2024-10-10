@@ -1,5 +1,10 @@
+from typing import TYPE_CHECKING
+
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_observer import WiringObserver
+
+if TYPE_CHECKING:
+    from hgraph import WiringNodeSignature
 
 __all__ = ("WiringTracer",)
 
