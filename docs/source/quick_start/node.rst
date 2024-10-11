@@ -34,7 +34,7 @@ by the library.
 
 .. note:: Generators are PULL source nodes, these are not suitable for handling asynchronous sources.
 
-For more details on pull source nodes see: :doc:`../concepts/pull_source_node`
+For more details on pull source nodes see: :doc:`../concepts/node_based_computation`
 
 To handle asynchronous sources, there is the concept of a PUSH source node. These nodes
 are used to process events that occur at times that are not pre-determined. The best
@@ -67,7 +67,7 @@ It is then possible to call the sender each time a new event is to be dispatched
 event will be queued and delivered within the graph's event loop. Push events are
 delivered as soon as is practical, the event time will be the time the event loop is
 started (or the next engine time when running behind). For more information refer to
-:doc:`../concepts/push_source_node`.
+:doc:`../concepts/node_based_computation`.
 
 compute_node
 ------------
@@ -90,7 +90,7 @@ single time-series response. Time-series inputs are time-series types. The time-
 type have properties, in this case one of the properties is the value, representing last
 value that was placed in the time-series.
 
-See :doc:`../concepts/compute_node` for more details on compute nodes.
+See :doc:`../concepts/node_based_computation` for more details on compute nodes.
 
 sink_node
 ---------

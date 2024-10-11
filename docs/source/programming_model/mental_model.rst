@@ -98,8 +98,8 @@ to sink nodes (leaves), but in this model information changes cause an immediate
 of the graph.
 
 Additionally the user does not request a node to be computed, when information changes at
-one of the source nodes, the graph computes all dependent nodes and all leave values are always
-kept up to date.
+one of the source nodes, the graph computes all dependent nodes and all leaf values are always
+re-computed (if necessary).
 
 This avoids the invalidation / request cycles in the backward propagation graph. It does
 have the weakness that all values are computed whether or not they are required. It
@@ -109,7 +109,7 @@ would be free in the BPG.
 
 In both graph styles evaluation of nodes ensures that a node in the graph is only ever
 evaluated once for a given change. In the FPG graph, the evaluation is typically performed
-by evaluating node in rank order, where the rank of a node is determined by it's topological
+by evaluating nodes in rank order, where the rank of a node is determined by it's topological
 ordering.
 
 Observer Pattern
@@ -283,7 +283,7 @@ This is a softer requirement, in general the expectation is that, given the same
 
 There are some obvious potential exceptions, such as a cryptographically secure random
 number generator. However, as a rule, ensure this constraint is maintained as back-testing /
-simulation depends on repeatability to be able to useful.
+simulation depends on repeatability in order to be useful.
 
 The advantage of state being supplied means that the functions can even be simulated
 in testing with different states without needing to be run through the paths required

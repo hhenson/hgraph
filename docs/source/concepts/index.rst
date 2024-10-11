@@ -7,9 +7,7 @@ that make up the framework.
 
 .. toctree::
     run_loop_concept
-    pull_source_node
-    push_source_node
-    compute_node
+    node_based_computation
     typing_system
     time_series_types
 
