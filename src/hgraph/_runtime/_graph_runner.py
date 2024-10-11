@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from logging import Logger, getLogger, DEBUG, StreamHandler, Formatter
 from typing import Callable, Any
+from typing_extensions import deprecated
 
 from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
@@ -196,6 +197,7 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
             config.graph_logger.debug("Finished running graph")
 
 
+@deprecated("Use evaluate_graph instead")
 def run_graph(
     graph: Callable,
     *args,

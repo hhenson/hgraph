@@ -350,6 +350,8 @@ def graph(
     Or visa-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but ``graph`` s are far
     better at re-use of existing components. The preference should always be to use graph logic before constructing
     node functions.
+
+    :return: The wrapped function
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 

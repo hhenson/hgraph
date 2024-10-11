@@ -37,12 +37,56 @@ def eval_node(
     **kwargs,
 ):
     """
-    Evaluates a node using the supplied arguments.
-    This will detect time-series inputs in the node and will convert array inputs into time-series inputs.
-    If the node returns a result, the results will be collected and returned as an array.
+    Evaluates a node using the supplied arguments. This will construct a graph to wrap the node or graph supplied
+    with logic to feed in the supplied inputs into the node and capture the results. The function will then run the
+    graph and return the captured results.
+
+    .. note:: This only works with SIMULATION mode graphs.
+
+    The inputs to the node are lists of values (or None) that can be supplied to an output of the inputs' type.
+    If the node returns a result, the results will be collected and returned as an array. Results are captured
+    as ``delta_value`` s.
+
+    For example:
+
+    ::
+
+        @compute_node
+        def my_func(ts: TS[int]) -> TS[int]:
+            return ts.value
+
+        assert eval_node(my_func, [1, 2, 3]) == [1, 2, 3]
+
+    The ``eval_node`` takes the ``graph`` or node to evaluate, and then any parameters to pass to the node.
+    The parameters are supplied as a list of values. The node interprets the list as the values to tick into the node
+    starting from ``MIN_ST`` and incrementing by ``MIN_TD`` for each entry. If the list has ``None`` as an element
+    this is interpreted as the input not receiving a tick at that time.
+
+    The result returned are the ticks as they appeared, with ``None`` representing no value ticked at the time-point.
+    The result will be padded to the last input time.
+
 
     For nodes that require resolution, it is possible to supply a resolution dictionary to assist
-    in resolving correct types when setting up the replay nodes.
+    in resolving the correct types when setting up the replay nodes.
+    This is an example using the resolution dictionary:
+
+    ::
+
+        @compute_node
+        def my_func(ts: OUT) -> OUT:
+            return ts.value
+
+        assert eval_node(my_func, [1, 2, 3], resolution_dict={OUT: TS[int]}) == [1, 2, 3]
+
+    There are a number of additional modifiers that can be supplied, these affect the calling of the run loop or
+    the presentation of the results.
+
+    The most useful of these include ``__elide__`` which, when set to ``True``, will reduce the result to only the
+    values that actually ticked. Note that this does not provide when the values ticked, just the order in which they
+    ticked. This can be useful when the time between ticks is large.
+
+    Another useful option is ``__start_time__`` which will allow the start time to be adjusted, this can be useful
+    when performing a test that requires a particular start time.
 
     :param node: The node to evaluate
     :param args: Arguments to pass to the node

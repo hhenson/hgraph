@@ -13,6 +13,10 @@ The graph run loop consists of a configuration and a run loop function.
 
 .. autofunction:: hgraph.evaluate_graph
 
+For testing there is this dedicated run function that will allow for easy evaluation of a ``graph`` or ``node``:
+
+.. autofunction:: hgraph.test.eval_node
+
 The graph supports observing the state transitions, this allows for some useful utilities to be added, the extensions
 must implement the ``EvaluationLifeCycleObserver`` interface shown below:
 
