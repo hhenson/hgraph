@@ -325,7 +325,111 @@ value, then if it does it does a simple equality check to see if this value has 
 return the value it received, otherwise it is returning a None value. For the ``_output`` injectable the type does
 not care what the type is, but it is nice to use the ``_OUT`` as it provides more context support in the IDE.
 
+Using REF to reduce activations
+-------------------------------
 
+Another tool to reduce necessary activations of nodes is the make use of ``REF`` time-series types. The reference
+type ticks references to an output rather than the values of an output. This can be used when the value of the input
+is not required, for example:
 
+::
 
+    @compute_node
+    def select(condition: TS[bool], on_true: OUT, on_false: OUT) -> OUT:
+        if condition.value:
+            if on_true.ticked or condition.ticked:
+                return on_true.value
+        else:
+            if on_false.ticked or condition.ticked:
+                return on_false.value
+
+This is the base case where we use normal inputs, in this case the ``select`` function will be evaluated if any
+of the inputs tick and will produce a result based on a combination of the value of the condition and if the
+input associated to the condition ticked or the condition ticked.
+
+The current version of the function will be evaluated as often as the inputs tick, this is wasted when the ticked value
+is not going to be processed, but also, there is no need for the function to know the value of the ``on_true`` and
+``on_false`` inputs. In this case the function is prime to benefit from using the ``REF`` type, this is the refactored
+version:
+
+::
+
+    @compute_node
+    def select(condition: TS[bool], on_true: REF[OUT], on_false: REF[OUT]) -> REF[OUT]:
+        if condition.value:
+            if on_true.ticked or condition.ticked:
+                return on_true.value
+        else:
+            if on_false.ticked or condition.ticked:
+                return on_false.value
+
+On first pass there seems to be very little different, the logic looks the same, the only difference is the change
+to the ``on_true``, ``on_false`` and output types. The difference is in the activation of the code, the code will
+now activate when the ``condition`` ticks, but will be additionally activated if the output associated to the ``on_true``
+or the ``on_false`` inputs change, that is not when the value of the outputs change, just when the output pointed to
+by the ``REF`` changes. This typically does not happen often, especially if the source passed to this code is the
+output.
+
+This can make a significant change in how often this node is activated.
+
+This pattern is useful when working with logic that manipulates the selection of time-series, but does not depend on
+the actual value. Operations that benefit include:
+
+* Pivoting time-series (such as TSD)
+* Selection of TSD values based on keys
+* Manipulation of TSB values such as modifying an individual element or selection.
+
+References do add complexity to debugging as the ultimate consumer (dereferenced input) becomes connected to a part
+of the graph that may not be immediately obvious from the code.
+
+References are used extensively in library code so being aware of them and how the work is important to debugging
+graphs.
+
+Tracing issues
+--------------
+
+Graph programming changes how we can debug code, the advantages of modularity and the powerful mechanisms introduced
+to manage change come with some complications in debugging. These complications are not very different from code
+using messaging systems or other event based architectures, but the fine grained nature of the nodes can make this
+problem more tricky to handle.
+
+HGraph attempts to make debugging the graph as easy as possible, here are some typical debugging problems and tools
+in place to assist with identifying the issues.
+
+IDE / Python debugger
+.....................
+
+Code in nodes can be break-pointed, that is if you are trying to figure out what is going on in a node, then you can
+use standard Python debugging tools. By placing a breakpoint in the node you can inspect the code in the function as
+well as navigate from input to outputs (traversing the graph). This can allow you to see the value of nodes that are
+in the preceding tree of the node you are debugging.
+
+There is no callstack of nodes though, once a node is evaluated, all there is is the value it produced.
+
+Trace
+.....
+
+Sometimes the node you are expecting to be evaluated is not evaluated, this means that it is not possible use a
+break-point to see what is going on, in this case using the ``trace`` options in the graph runner config can be very
+helpful. This will dump out the evaluation trace of the graph as it gets evaluated. It will display information such
+as which functions are evaluated, what the input values were, which inputs were ticked, etc.
+
+The output from this tool can be very large as it is very details, so this is recommended mostly for small apps,
+or by filtering to hit specific paths through the graph. This is suitable for debugging test cases where the
+code can be limited to a reproducible test case as well.
+
+Introspector
+............
+
+If you are working with a large real-time graph, then you will want to use the introspector to be able to perform
+inspection of the live running graph, this tool allows you to see all of the nodes, their current state, as well
+as chart performance and latency of the graph.
+
+The tool allows for live inspection of the graph, this is helpful tracing down issues such as; "Why did my not not
+tick", "What is the state of nodes around the node of interest", as well as performance related issues.
+
+This is more intrusive and requires you to wire the component into your graph in order for this functionality to
+be available.
+
+For more information see :doc:`../tools/inspector`.
 

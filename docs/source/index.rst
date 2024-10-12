@@ -15,4 +15,5 @@ Contents
     quick_start/index
     programming_model/index
     concepts/index
+    tools/index
     reference/index
