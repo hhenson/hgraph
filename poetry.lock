@@ -440,13 +440,13 @@ web = ["perspective-python (<3.0.0)", "requests", "tornado"]
 
 [[package]]
 name = "holidays"
-version = "0.57"
+version = "0.58"
 description = "Generate and work with holidays in Python"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "holidays-0.57-py3-none-any.whl", hash = "sha256:bdfb2a6d58e4b7d819e049b469228e890a5ad42b8ea2bd2c150d8c10726ea82d"},
-    {file = "holidays-0.57.tar.gz", hash = "sha256:3f655f7ec290631a984beb0205120848b3e67c4ed0f3854321e3e437eca69d70"},
+    {file = "holidays-0.58-py3-none-any.whl", hash = "sha256:74eb0bd07db862c5b108d5e42cbd33c37ea066a2e8dc54f4858dd3cceef5ee8b"},
+    {file = "holidays-0.58.tar.gz", hash = "sha256:cbe5f3b862474b8f6e5f7ee423f17f3ebd7836fcc74b38540f97b27a7f92dca7"},
 ]
 
 [package.dependencies]
