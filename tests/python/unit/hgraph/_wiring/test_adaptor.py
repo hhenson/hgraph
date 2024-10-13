@@ -36,6 +36,8 @@ from hgraph import (
     subscription_service,
     service_impl,
     collect,
+    GraphConfiguration,
+    evaluate_graph,
 )
 from hgraph.test import eval_node
 
@@ -143,7 +145,8 @@ def test_multi_client_adaptor_w_parameters():
         a3 = my_adaptor("test_adaptor", True, count(schedule(timedelta(milliseconds=120), max_ticks=5)))
         return combine(a[100], a[110], a3)
 
-    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=1000))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2))
+    result = evaluate_graph(g, config)
 
     assert [x[1] for x in result] == list(
         chain(*zip([{0: x} for x in range(2, 7)], [{1: x} for x in range(2, 7)], [{2: x} for x in range(1, 6)]))
