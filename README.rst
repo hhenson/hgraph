@@ -3,7 +3,7 @@ HGraph
 
 A functional reactive programming engine with a Python front-end.
 
-This provides a DSL and runtime to support the computation of results over time, featuring
+This provides a Domain Specific Language (DSL) and runtime to support the computation of results over time, featuring
 a graph based directed acyclic dependency graph and the concept of time-series properties.
 The language is function based, and promotes composition to extend behaviour.
 

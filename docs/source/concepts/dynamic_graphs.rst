@@ -124,7 +124,33 @@ the set of keys that construct new graph instances. There are a couple of soluti
     Note that it is possible to construct any valid set of keys, this does not have to come from any of the inputs,
     but remember that only keys that match an entry in the key set will be de-multiplexed and made use of.
 
+    Using the ``__key_set__`` to set the de-multiplex keys is also helpful when multiple input are provided with
+    different key types (for example, ``TSD[int, ...]`` and ``TSD[str, ...]``) then it is difficult for the operator
+    to know which is the de-multiplexing key set and which is not (for example there is insufficient information in
+    the mapped signature to work this out).
 
+You can't touch this
+....................
 
+Finally, there are times, when an input fits with the correct key type, but the input is not intended to be
+de-multiplexed. When this can be determined by inspecting the mapped functions signature, this is not a problem, but
+that is not always the case.
 
+To ensure we don't de-multiplex the input, we use the ``pass_through`` marker to advice the ``map_`` operator not to
+de-multiplex the input, for example:
+
+::
+
+    @graph
+    def scale(a: TIME_SERIES_TYPE, b: TS[float]) -> TS[float]:
+        ...
+
+    a: TSD[str, TS[float]] = ...
+    b: TSD[str, TS[float]] = ...
+
+    result = map_(scale, pass_through(a), b)
+
+In this case, there is no way for the ``map_`` operator to guess what to do with a, and since we wish it to be
+supplied to the scale function as is, we mark it as ``pass_through``. This is then supplied to each instance of the
+newly constructed graph's as is and only ``b`` is de-multiplexed.
 
