@@ -147,10 +147,13 @@ def test_multi_client_adaptor_w_parameters():
 
     config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2))
     result = evaluate_graph(g, config)
-
-    assert [x[1] for x in result] == list(
+    final_result = [x[1] for x in result]
+    expected = list(
         chain(*zip([{0: x} for x in range(2, 7)], [{1: x} for x in range(2, 7)], [{2: x} for x in range(1, 6)]))
     )
+    print("final_result: ", final_result)
+    print("expected: ", expected)
+    assert final_result == expected
 
 
 def test_mutli_adaptor_sink_only():
