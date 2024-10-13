@@ -10,4 +10,6 @@ that make up the framework.
     node_based_computation
     typing_system
     time_series_types
+    dynamic_graphs
+
 

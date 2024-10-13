@@ -29,6 +29,9 @@ from hgraph._wiring._wiring_port import WiringPort, DelayedBindingWiringPort, TS
 from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 
 
+__all__ = ("mesh_", "MeshWiringPort", "get_mesh")
+
+
 def mesh_(func: Callable, *args, **kwargs):
     """
     Wrap the given graph into a calculation mesh - a structure that is akin to a map_ but allows instances of
