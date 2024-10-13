@@ -39,18 +39,21 @@ def switch_(
     they have ticked when the graph is wired in).
 
     The selector is part of the graph shaping operators. This allows for different shapes that operate on the same
-    inputs nad return the same output. An example of using this is when you have different order types, and then you
+    inputs and return the same output. An example of using this is when you have different order types, and then you
     dynamically choose which graph to evaluate based on the order type.
 
-    This node has the overhead of instantiating and tearing down the sub-graphs as the key changes. The use of switch
-    should consider this overhead, the positive side is that once the graph is instantiated the performance is the same
+    This node has the overhead of instantiating and tearing down the subgraphs as the key changes. The use of switch
+    should consider this overhead, the positive side is that once the graph is instantiated, the performance is the same
     as if it were wired in directly. This is great when the key changes infrequently.
 
-    The mapped graphs / nodes can have a first argument which is of the same type as the key. In this case the key
+    The mapped graphs / nodes can have a first argument which is of the same type as the key. In this case, the key
     will be mapped into this argument. If the first argument is not of the same type as the key, or the kwargs match
-    the argument name of the first argument, the key will be not be mapped into the argument.
+    the argument name of the first argument, the key will not be mapped into the argument.
 
     Example:
+
+    ::
+
         key: TS[str] = ...
         ts1: TS[int] = ...
         ts2: TS[int] = ...
@@ -59,6 +62,8 @@ def switch_(
     Which will perform the computation based on the key's value.
 
     A default option can be provided by using the DEFAULT marker. For example:
+
+    ::
 
         out = switch_({DEFAULT: add_}, ...)
 

@@ -29,7 +29,7 @@ def reduce(
 ) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
-    The zero must be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
+    The zero must-be compatible with the TIME_SERIES_TYPE value and be constructable as const(zero, TIME_SERIES_TYPE).
     If the function is associative, then TIME_SERIES_TYPE must be the same as TIME_SERIES_TYPE_1.
     When the function is associative, the 'reduce' will perform a tree reduction, otherwise it will perform a linear
     reduction. The tree reduction is much faster on change.
@@ -38,12 +38,18 @@ def reduce(
     inputs are not guaranteed. Only a TSL supports non-commutative reduce functions.
 
     Example [TSD]:
+
+    ::
+
         tsd: TSD[str, TS[int]] = ...
         out = reduce(add_, tsd, 0)
         >> tsd <- {'a': [1], 'b': [4], 'c': [7]}
         >> out -> 12
 
     Example [TSL]:
+
+    ::
+
         tsl: TSL[TS[int], SIZE] = ...
         out = reduce(add_, tsl, 0)
         >> tsl <- ([1], [2], [3], [4], [5])

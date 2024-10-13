@@ -34,9 +34,9 @@ __all__ = ("mesh_", "MeshWiringPort", "get_mesh")
 
 def mesh_(func: Callable, *args, **kwargs):
     """
-    Wrap the given graph into a calculation mesh - a structure that is akin to a map_ but allows instances of
+    Wrap the given graph into a calculation mesh - a structure that is akin to a ``map_`` but allows instances of
     the graph to access outputs of other instances of the graph. New instances will also be created on demand from
-    inner graphs as well as from the keys inputs.
+    inner graphs as well as from the keys' inputs.
     """
 
     if len(args) + len(kwargs) == 0:
