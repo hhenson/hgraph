@@ -2,13 +2,13 @@ import functools
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from functools import singledispatch
-from typing import Callable, Iterable, Any
+from typing import Callable, Iterable
 
 from frozendict import frozendict as fd
 
-from hgraph import (
+from hgraph._operators._to_table import TABLE
+from hgraph._types import (
     HgTypeMetaData,
-    TABLE,
     TIME_SERIES_TYPE,
     HgTSTypeMetaData,
     HgCompoundScalarType,
@@ -20,6 +20,8 @@ from hgraph import (
     V,
     REMOVE_IF_EXISTS,
 )
+
+__all__ = ("PartialSchema", "extract_table_schema", "extract_table_schema_raw_type")
 
 
 @dataclass(frozen=True)

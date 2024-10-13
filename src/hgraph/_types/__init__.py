@@ -11,6 +11,7 @@ from hgraph._types._ts_type_var_meta_data import *
 from hgraph._types._tsb_meta_data import *
 from hgraph._types._tsb_type import *
 from hgraph._types._tsd_type import *
+from hgraph._types._tsd_meta_data import *
 from hgraph._types._tsl_meta_data import *
 from hgraph._types._tsl_type import *
 from hgraph._types._tss_meta_data import *
