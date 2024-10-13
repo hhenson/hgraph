@@ -10,6 +10,7 @@ There are currently three key dynamic graph tools in HGraph, these are:
 
 * map\_
 * reduce
+* switch\_
 * mesh\_
 
 Map
