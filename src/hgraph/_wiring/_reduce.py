@@ -1,6 +1,7 @@
 import inspect
 from typing import Callable, cast
 
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._types._scalar_types import SIZE, ZERO
 from hgraph._types._scalar_types import STATE
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, K
@@ -24,7 +25,7 @@ def reduce(
     func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
     ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
     zero: TIME_SERIES_TYPE = ZERO,
-    is_associated: bool = True,
+    is_associative: bool = True,
 ) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
@@ -58,21 +59,23 @@ def reduce(
     _tp = ts.output_type.dereference()
     with WiringContext(current_signature=STATE(signature=f"reduce('{signature}', {_tp}, {zero})")):
         if type(_tp) is HgTSLTypeMetaData:
-            return _reduce_tsl(func, ts, zero, is_associated)
+            return _reduce_tsl(func, ts, zero, is_associative)
         elif type(_tp) is HgTSDTypeMetaData:
+            if not is_associative:
+                raise CustomMessageWiringError("Non-associative operators are not supported using TSD inputs")
             return _reduce_tsd(func, ts, zero)
         else:
             raise RuntimeError(f"Unexpected time-series type: {ts.output_type}")
 
 
-def _reduce_tsl(func, ts, zero, is_associated):
+def _reduce_tsl(func, ts, zero, is_associative):
     """For the moment, we only support fixed size TSLs. So we can lay out the reduction in the graph statically"""
     from hgraph import default
 
     tp_ = ts.output_type
     if (sz := tp_.size_tp.py_type.SIZE) == 0:
         return zero
-    if not is_associated or sz < 4:
+    if not is_associative or sz < 4:
         out = default(ts[0], zero)
         for i in range(1, sz):
             out = func(out, default(ts[i], zero))

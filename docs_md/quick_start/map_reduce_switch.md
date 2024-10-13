@@ -145,7 +145,7 @@ represent the process through the ``sub_`` function.
 The combination of ``map_``, ``reduce`` and ``switch_`` provide the basis for dynamic
 graph construction. With ``map_`` de-multiplexing the inputs and ``switch_`` providing
 the ability to switch between different functions based on a selection criteria. 
-Finally the ``reduce`` is able to convert a multiplexed result into an aggregate value.
+Finally, the ``reduce`` is able to convert a multiplexed result into an aggregate value.
 
 An example of this would be when dealing with a stream of various orders, then each
 order is de-multiplexed, then using the order-type the order is associated to 

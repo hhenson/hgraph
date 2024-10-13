@@ -154,3 +154,124 @@ In this case, there is no way for the ``map_`` operator to guess what to do with
 supplied to the scale function as is, we mark it as ``pass_through``. This is then supplied to each instance of the
 newly constructed graph's as is and only ``b`` is de-multiplexed.
 
+Reduce
+------
+
+Another common issues is to take a collection and repeatedly apply binary function to the items (and the results) to
+convert the collection to a single value. This is similar to the ``reduce`` function in functools package.
+
+The ``reduce`` operator can be applied to ``TSL`` and ``TSD`` collection types. When reducing ``TSL`` inputs, the
+reduce operator will statically build the reduction graph, but with the ``TSD`` result it must produce a dynamic
+graph that changes when items are added or removed.
+
+The current implementation will create a balanced binary tree to reduce the result, this means that the initial
+pass through the results will cost O(n.log(n)) but subsequent updates will take O(log(n)) to process (assuming that
+the number of changes are small).
+
+Reduction requires the provision of a ``zero`` value in order to correctly operate. The easiest way to supply a zero
+is to implement the ``zero`` operator for the payload data-type (for example, reducing ``TSD[..., TS[int]]`` using
+``add_``, an operator for ``zero(TS[int]], add_)`` would be required to return a valid zero value.
+
+Below is a simple example:
+
+::
+
+    values: TSD[str, TS[float]]
+    result: TS[float] = reduce(add_, values)
+
+This relies on the existence of the appropriate zero value.
+
+Alternatively try:
+
+::
+
+    values: TSD[str, TS[MyDataType]]
+    result: TS[MyDataType] = reduce(add_, values, MyDataType())
+
+Where ``MyDataType()`` represents a zero value.
+
+Switch
+------
+
+It is often a requirement to have different behavior based with the same input signature. To do this,
+we have the ``switch`` operator. This works a bit like a case statement, by providing a dictionary
+of keys and graphs (or nodes) which represents the options that could be evaluated and then provide
+the switch operator a key time-series that will select the graph to instantiate.
+
+For example:
+
+::
+
+    from hgraph import TS, graph, switch_, add_, sub_
+
+    @graph
+    def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return switch_({
+            "add": add_,
+            "sub": sub_,
+        }, selector, lhs, rhs)
+
+In this example we have two potential options, when the ``selector`` is set to 'add' then the ``add_``
+node is instantiated, the ``lhs`` and ``rhs`` are wired in, these are provided by reference, so if they have
+values, they will tick on construction. Each time the selector ticks the previous graph will be stopped (if
+there was one) and the new graph will be instantiated and started.
+
+Sometimes we only want a new graph instantiated if the value of the selector changes, but other times we
+may wish to cause the graph to be re-loaded if the selector changes, to do this use the ``reload_on_ticked``
+kwarg and set it to ``True`` (the default is ``False``).
+
+An example of how this can be useful is for things like order management where a collection of order requests are
+collected, then using a combination of ``map_`` and ``switch_`` the orders can be split up and then using the switch
+the correct graph for the type of order can be instantiated and the order can be correctly handled.
+
+Mesh
+----
+
+This is the most complex of the dynamic graph building tools. This allows for the dynamic construction of computational
+nodes.
+
+This bears some similarities to the ``mesh_`` operator. This takes as inputs the function (graph, node or lambda), then
+it is possible to provide multiplexed inputs (as with ``map_``) or to set the ``__key_set__`` to instantiate the graph
+instances.
+
+Up to this point there is no difference between ``map_`` and mesh, where the difference comes in is that the is possible
+to dynamically construct new requests without having them fed into the key set of requests. This is typically done
+from logic within the graph that is instantiated in the main ``mesh_`` call.
+
+Below is a simple example:
+
+::
+
+    from hgraph import graph, TS, switch_, const, mesh_
+
+    @graph
+    def f(k: TS[str]) -> TS[float]:
+        return switch_(
+            {
+                'a': lambda : const(1.0),
+                'b': lambda : const(2.0),
+                'a+b': lambda: mesh_('f')['a'] + mesh_('f')['b']
+            },
+            k
+        )
+
+    @graph
+    def compute_a_plus_b() -> TS[float]:
+        return mesh_(f,
+                     __key_arg__ = 'k',
+                     __key_set__ = const(frozenset({'a+b'}), TSS[str]),
+                     __name__='f')
+
+
+In the main graph ``compute_a_plus_b``, the top level ``mesh_`` operator is called. We use the ``__key_set__`` here to
+keep this very simple. Notice we also name this mesh instance using the ``__name__`` kwarg. Now, when the ``f`` graph is
+instantiated, it can recursively call the mesh dynamically, in this case using the dynamic call signature ``mesh_('f')``
+where 'f' is the name we gave the mesh instance and ``['a']`` and ``['b']`` are the new keys we wish to have
+instantiated.
+
+.. note:: It is not possible to add new entries to the mesh other than in the initial call, so if you use multiplexed
+          arguments it will likely limited the utility of mesh, so as a general rule either use ``__key_set__`` for
+          constructing graph instance and ``no_key`` for the multiplexed inputs to ensure that there are the keys
+          required, but instances are only created on demand.
+
+
