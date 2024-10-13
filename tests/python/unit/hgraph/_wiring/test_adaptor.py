@@ -4,8 +4,6 @@ from datetime import timedelta
 from itertools import chain
 from typing import Callable
 
-import pytest
-
 from hgraph import (
     push_queue,
     TS,
@@ -32,7 +30,6 @@ from hgraph import (
     CompoundScalar,
     const,
     TSS,
-    format_,
     subscription_service,
     service_impl,
     collect,
@@ -147,12 +144,14 @@ def test_multi_client_adaptor_w_parameters():
 
     config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2))
     result = evaluate_graph(g, config)
-    final_result = [x[1] for x in result]
-    expected = list(
-        chain(*zip([{0: x} for x in range(2, 7)], [{1: x} for x in range(2, 7)], [{2: x} for x in range(1, 6)]))
-    )
-    print("final_result: ", final_result)
-    print("expected: ", expected)
+    final_result = [(k, v) for d in [x[1] for x in result] for k, v in d.items()]
+    expected = [
+        (k, v)
+        for d in chain(
+            *zip([{0: x} for x in range(2, 7)], [{1: x} for x in range(2, 7)], [{2: x} for x in range(1, 6)])
+        )
+        for k, v in d.items()
+    ]
     assert final_result == expected
 
 
