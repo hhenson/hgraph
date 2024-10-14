@@ -14,7 +14,6 @@ __all__ = (
     "accumulate",
     "add_",
     "and_",
-    "and_",
     "average",
     "bit_and",
     "bit_or",
@@ -45,7 +44,6 @@ __all__ = (
     "neg_",
     "not_",
     "or_",
-    "or_",
     "pos_",
     "pow_",
     "rshift_",
@@ -64,8 +62,8 @@ __all__ = (
 @operator
 def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
     """
-    This represents the `+` operator for time series types.
-    To implement the add_ operator, do:
+    This represents the ``+`` operator for time series types.
+    To implement the ``add_`` operator, do:
     ::
 
         @compute_node(overloads=add_)
@@ -83,8 +81,8 @@ WiringPort.__radd__ = lambda x, y: add_(y, x)
 @operator
 def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
     """
-    This represents the `-` operator for time series types.
-    To implement the sub_ operator, do:
+    This represents the ``-`` operator for time series types.
+    To implement the ``sub_`` operator, do:
     ::
 
         @compute_node(overloads=sub_)
@@ -102,8 +100,8 @@ WiringPort.__rsub__ = lambda x, y: sub_(y, x)
 @operator
 def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the `*` operator for time series types.
-    To implement the mul_ operator, do:
+    This represents the ``*`` operator for time series types.
+    To implement the ``mul_`` operator, do:
     ::
 
         @compute_node(overloads=mul_)
@@ -131,7 +129,7 @@ class DivideByZero(Enum):
 def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
     """
     This represents the `/` operator for time series types.
-    To implement the div_ operator, do:
+    To implement the ``div_`` operator, do:
     ::
 
         @compute_node(overloads=div_)
@@ -150,7 +148,7 @@ WiringPort.__rtruediv__ = lambda x, y: div_(y, x)
 def floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_TYPE:
     """
     This represents the `//` operator for time series types.
-    To implement the floordiv_ operator, do:
+    To implement the ``floordiv_`` operator, do:
     ::
 
         @compute_node(overloads=floordiv_)
@@ -169,7 +167,7 @@ WiringPort.__rfloordiv__ = lambda x, y: floordiv_(y, x)
 def mod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the `%` operator for time series types.
-    To implement the mod_ operator, do:
+    To implement the ``mod_`` operator, do:
     ::
 
         @compute_node(overloads=mod_)
@@ -189,7 +187,7 @@ def divmod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_TYP
     """
     This represents the `divmod` operator for time series types.
     (This is defined in Python as the integer division with remainder, i.e. divmod(9, 4) == (2, 1))
-    To implement the divmod_ operator, do:
+    To implement the ``divmod_`` operator, do:
     ::
 
         @compute_node(overloads=divmod_)
@@ -208,7 +206,7 @@ WiringPort.__rdivmod__ = lambda x, y: divmod_(y, x)
 def pow_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the `**` operator for time series types.
-    To implement the pow_ operator, do:
+    To implement the ``pow_`` operator, do:
     ::
 
         @compute_node(overloads=pow_)
@@ -226,8 +224,8 @@ WiringPort.__rpow__ = lambda x, y: pow_(y, x)
 @operator
 def lshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the `<<` operator for time series types.
-    To implement the lshift_ operator, do:
+    This represents the ``<<`` operator for time series types.
+    To implement the ``lshift_`` operator, do:
     ::
 
         @compute_node(overloads=lshift_)
@@ -245,8 +243,8 @@ WiringPort.__rlshift__ = lambda x, y: lshift_(y, x)
 @operator
 def rshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the `>>` operator for time series types.
-    To implement the rshift_ operator, do:
+    This represents the ``>>`` operator for time series types.
+    To implement the ``rshift_`` operator, do:
     ::
 
         @compute_node(overloads=rshift_)
@@ -264,7 +262,7 @@ WiringPort.__rrshift__ = lambda x, y: rshift_(y, x)
 @operator
 def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
-    This represents the `&` operator for time series types.
+    This represents the ``&`` operator for time series types.
 
     To implement the & operator, do:
     ::
@@ -284,12 +282,12 @@ WiringPort.__rand__ = lambda x, y: bit_and(y, x)
 @operator
 def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `and` operator for time series types.
+    This represents the ``and`` operator for time series types.
 
     This operator does not substitute ``and`` (since that is not possible in Python), but can be used as a functional
     equivalent for ``and``.
 
-    To implement the and_ operator, do:
+    To implement the ``and_`` operator, do:
     ::
 
         @compute_node(overloads=and_)
@@ -303,9 +301,9 @@ def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 @operator
 def bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[TIME_SERIES_TYPE_1]:
     """
-    This represents the `|` operator for time series types.
+    This represents the ``|`` operator for time series types.
 
-    To implement the or_ operator, do:
+    To implement the ``or_`` operator, do:
     ::
 
         @compute_node(overloads=bit_or)
@@ -323,12 +321,12 @@ WiringPort.__ror__ = lambda x, y: bit_or(y, x)
 @operator
 def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `or` operator for time series types.
+    This represents the ``or`` operator for time series types.
 
     This operator does not substitute ``or`` (since that is not possible in Python), but can be used as a functional
     equivalent for ``or``.
 
-    To implement the or_ operator, do:
+    To implement the ``or_`` operator, do:
     ::
 
         @compute_node(overloads=or_)
@@ -342,9 +340,9 @@ def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
 @operator
 def bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
-    This represents the `^` operator for time series types.
+    This represents the ``^`` operator for time series types.
 
-    To implement the xor_ operator, do:
+    To implement the ``xor_`` operator, do:
     ::
 
         @compute_node(overloads=bit_xor)
@@ -362,9 +360,9 @@ WiringPort.__rxor__ = lambda x, y: bit_xor(y, x)
 @operator
 def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `==` operator for time series types.
+    This represents the ``==`` operator for time series types.
 
-    To implement the eq_ operator, do:
+    To implement the ``eq_`` operator, do:
     ::
 
         @compute_node(overloads=eq_)
@@ -384,9 +382,9 @@ WiringPort.__eq__ = lambda x, y: eq_(x, y)
 @operator
 def ne_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `!=` operator for time series types.
+    This represents the ``!=`` operator for time series types.
 
-    To implement the ne_ operator, do:
+    To implement the ``ne_`` operator, do:
     ::
 
         @compute_node(overloads=ne_)
@@ -403,8 +401,8 @@ WiringPort.__ne__ = lambda x, y: ne_(x, y)
 @operator
 def lt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `<` operator for time series types.
-    To implement the lt_ operator, do:
+    This represents the ``<`` operator for time series types.
+    To implement the ``lt_`` operator, do:
     ::
 
         @compute_node(overloads=lt_)
@@ -421,9 +419,9 @@ WiringPort.__lt__ = lambda x, y: lt_(x, y)
 @operator
 def le_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `<=` operator for time series types.
+    This represents the ``<=`` operator for time series types.
 
-    To implement the le_ operator, do:
+    To implement the ``le_`` operator, do:
     ::
 
         @compute_node(overloads=le_)
@@ -440,9 +438,9 @@ WiringPort.__le__ = lambda x, y: le_(x, y)
 @operator
 def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `>` operator for time series types.
+    This represents the ``>`` operator for time series types.
 
-    To implement the gt_ operator, do:
+    To implement the ``gt_`` operator, do:
     ::
 
         @compute_node(overloads=gt_)
@@ -459,9 +457,9 @@ WiringPort.__gt__ = lambda x, y: gt_(x, y)
 @operator
 def ge_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
-    This represents the `>=` operator for time series types.
+    This represents the ``>=`` operator for time series types.
 
-    To implement the ge_ operator, do:
+    To implement the ``ge_`` operator, do:
     ::
 
         @compute_node(overloads=ge_)
@@ -478,9 +476,9 @@ WiringPort.__ge__ = lambda x, y: ge_(x, y)
 @operator
 def neg_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the unary `-` operator for time series types.
+    This represents the unary ``-`` operator for time series types.
 
-    To implement the neg_ operator, do:
+    To implement the ``neg_`` operator, do:
     ::
 
         @compute_node(overloads=neg_)
@@ -497,9 +495,9 @@ WiringPort.__neg__ = lambda x: neg_(x)
 @operator
 def pos_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the unary `+` operator for time series types.
+    This represents the unary ``+`` operator for time series types.
 
-    To implement the pos_ operator, do:
+    To implement the ``pos_`` operator, do:
     ::
 
         @compute_node(overloads=pos_)
@@ -516,9 +514,9 @@ WiringPort.__pos__ = lambda x: pos_(x)
 @operator
 def abs_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the `abs` operator for time series types.
+    This represents the ``abs`` operator for time series types.
 
-    To implement the abs_ operator, do:
+    To implement the ``abs_`` operator, do:
     ::
 
         @compute_node(overloads=abs_)
@@ -535,9 +533,9 @@ WiringPort.__abs__ = lambda x: abs_(x)
 @operator
 def invert_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
-    This represents the unary `~` operator for time series types.
+    This represents the unary ``~`` operator for time series types.
 
-    To implement the pos_ operator, do:
+    To implement the ``pos_`` operator, do:
     ::
 
         @compute_node(overloads=pos_)
@@ -555,12 +553,12 @@ WiringPort.__invert__ = lambda x: invert_(x)
 def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
     """
     This represents the `in` operator for time series types, however, since ``__contains__`` always returns a bool
-    value, we can't overload the __contains__, so it is not possible to do ``item in ts``, instead use
+    value, we can't overload the ``__contains__``, so it is not possible to do ``item in ts``, instead use
     ``contains_(ts, item)``.
 
     This is logically: ``item in ts``
 
-    To implement the contains_ operator, do:
+    To implement the ``contains_`` operator, do:
     ::
 
         @compute_node(overloads=contains_)
@@ -578,7 +576,7 @@ def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
 
     This must be called as ``not_(ts)`` it is not possible to overload the standard ``not`` operator.
 
-    To implement the not_ operator, do:
+    To implement the ``not_`` operator, do:
     ::
 
         @compute_node(overloads=not_)
@@ -592,11 +590,11 @@ def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
 @operator
 def getitem_(ts: TIME_SERIES_TYPE, key: TS[SCALAR]) -> TIME_SERIES_TYPE_1:
     """
-    This represents the `[]` operator for time-series types.
+    This represents the ``[]`` operator for time-series types.
 
     Use this as: ``ts[key]``
 
-    To implement the getitem_ operator, do:
+    To implement the ``getitem_`` operator, do:
     ::
 
         @compute_node(overloads=getitem_)
@@ -613,11 +611,11 @@ WiringPort.__getitem__ = lambda x, y: getitem_(x, y)
 @operator
 def getattr_(ts: TIME_SERIES_TYPE, attr: str, default_value: SCALAR = None) -> TIME_SERIES_TYPE_1:
     """
-    This represents the `.` operator for time-series types.
+    This represents the ``.`` operator for time-series types.
 
     Use this as: ``ts.attr`` or more explicitly: ``getattr_(ts, attr)``
 
-    To implement the getattr_ operator, do:
+    To implement the ``getattr_`` operator, do:
     ::
 
         @compute_node(overloads=getattr_)
@@ -634,7 +632,7 @@ WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
 @operator
 def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE:
     """
-    This represents the `min` operator for time series types.
+    This represents the ``min`` operator for time series types.
 
     Unary implies the min over the latest TS value for collection types, or running min for non-collection types
     Binary or multi arg implies item-wise min over all the arguments for collection types,
@@ -645,7 +643,7 @@ def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_S
 @operator
 def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE:
     """
-    The `max` operator for time series types.
+    The ``max`` operator for time series types.
 
     Unary implies the max over the latest TS value for collection types, or running max for non-collection types
     Binary or multi arg implies item-wise max over all the arguments for collection types,
@@ -656,7 +654,7 @@ def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_S
 @operator
 def sum_(*ts: TSL[TS[SCALAR], SIZE]) -> DEFAULT[OUT]:
     """
-    This represents the `sum` operator for time series types, either as a binary or unary operator
+    This represents the ``sum`` operator for time series types, either as a binary or unary operator
 
     Unary implies the sum over the latest TS value for collection types, or running sum for non-collection types
     Binary or multi arg implies item-wise sum over all the arguments for collection types,
@@ -667,7 +665,7 @@ def sum_(*ts: TSL[TS[SCALAR], SIZE]) -> DEFAULT[OUT]:
 @operator
 def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     """
-    This represents the `mean` operator for time series types
+    This represents the ``mean`` operator for time series types
 
     Unary implies the mean over the latest TS value for collection types, or running sum for non-collection types
     Binary or multi arg implies item-wise sum over all the arguments for collection types,
@@ -711,7 +709,7 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
     """
     This represents the `len` operator for time series types.
 
-    To implement the len_ operator, do:
+    To implement the ``len_`` operator, do:
     ::
 
         @compute_node(overloads=len_)

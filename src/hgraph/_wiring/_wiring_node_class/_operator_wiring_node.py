@@ -1,3 +1,4 @@
+import functools
 from typing import Mapping, Any, TypeVar, Callable, TYPE_CHECKING, List, Tuple
 
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
@@ -26,6 +27,7 @@ class OperatorWiringNodeClass(WiringNodeClass):
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         super().__init__(signature, fn)
         self._overload_helper: OverloadedWiringNodeHelper = OverloadedWiringNodeHelper(self)
+        functools.update_wrapper(self, fn)
 
     def overload(self, other: "WiringNodeClass"):
         self._overload_helper.overload(other)

@@ -7,4 +7,5 @@ HGraph Reference
     time_series_types
     typing
     dynamic_graphs
+    operators
 
