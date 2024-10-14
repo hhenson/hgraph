@@ -731,3 +731,9 @@ Version 0.3.20 (24-09-2024)
 * Clean up http adaptor handler logic and documentation.
 * Add a single registration function for the http adaptor.
 * Add rest client support
+
+Version 0.3.21 (14-10-2024)
+---------------------------
+
+* Bug fixes
+* Documentation updates
