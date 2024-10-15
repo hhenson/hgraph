@@ -47,6 +47,8 @@ exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
 
 epub_show_urls = "footnote"
 
+latex_engine = "xelatex"
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
