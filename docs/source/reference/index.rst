@@ -8,4 +8,5 @@ HGraph Reference
     typing
     dynamic_graphs
     operators
+    operators_support
 

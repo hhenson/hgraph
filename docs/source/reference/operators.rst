@@ -2,7 +2,15 @@ Operators
 =========
 
 The operators are a set of interfaces describing an operation that can be applied over a number of potential inputs
-types. These are the operators that are provided by the HGraph library.
+types.
+
+Where possible the operators are mapped onto Python symbolic operators (for example +, -, /, etc.).
+When describing an operator that clashes with a builtin operator name such as ``add`` we add an ``_`` to the end of
+the name. In this case it would be ``add_``.
+
+See this for a quick guide of supported types and operators :doc:`operators_support`.
+
+These are the operators that are provided by the HGraph library.
 
 .. autofunction:: hgraph.abs_
 
