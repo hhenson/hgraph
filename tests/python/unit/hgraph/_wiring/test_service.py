@@ -293,7 +293,7 @@ def test_generic_multi_service():
     def receive(path: str) -> TSS[KEYABLE_SCALAR]: ...
 
     @subscription_service
-    def subscribe(path: str, ts: TS[KEYABLE_SCALAR]) -> TS[bool]: ...
+    def subscribe(ts: TS[KEYABLE_SCALAR], path: str = default_path) -> TS[bool]: ...
 
     @service_impl(interfaces=(submit, receive, subscribe))
     def impl(path: str, tp: Type[KEYABLE_SCALAR] = AUTO_RESOLVE):
@@ -314,7 +314,7 @@ def test_generic_multi_service():
         register_service("submit", impl)
         submit("submit", ts1)
         submit("submit", ts2)
-        return map_(lambda key: subscribe("submit", key), __keys__=receive[KEYABLE_SCALAR:tp]("submit"))
+        return map_(lambda key: subscribe(key, path="submit"), __keys__=receive[KEYABLE_SCALAR:tp]("submit"))
 
     assert eval_node(multiservice_test[SCALAR:int], [1, None], [None, 2]) == [None, {}, {1: True}, {2: True}]
 
