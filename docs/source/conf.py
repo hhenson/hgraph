@@ -47,6 +47,7 @@ exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
 
 epub_show_urls = "footnote"
 
+# This is to support Unicode characters in pdf and latex documentation generation
 latex_engine = "xelatex"
 
 # -- Options for HTML output -------------------------------------------------
