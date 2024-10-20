@@ -62,13 +62,13 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
         from hgraph._impl._builder._switch_builder import PythonSwitchNodeBuilder
 
         return PythonSwitchNodeBuilder(
-            node_signature,
-            scalars,
-            input_builder,
-            output_builder,
-            error_builder,
-            frozendict(nested_graphs),
-            frozendict(nested_graph_input_ids),
-            frozendict(nested_graph_output_ids),
-            self._reload_on_ticked,
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            nested_graphs=frozendict(nested_graphs),
+            input_node_ids=frozendict(nested_graph_input_ids),
+            output_node_id=frozendict(nested_graph_output_ids),
+            reload_on_ticked=self._reload_on_ticked,
         )

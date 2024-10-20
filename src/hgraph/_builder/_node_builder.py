@@ -20,6 +20,7 @@ class NodeBuilder(Builder[NODE]):
     input_builder: Optional[InputBuilder] = None
     output_builder: Optional[OutputBuilder] = None
     error_builder: Optional[OutputBuilder] = None
+    recordable_state_builder: Optional[OutputBuilder] = None
 
     @abstractmethod
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx) -> NODE:

@@ -32,15 +32,16 @@ class MeshWiringNodeClass(BaseWiringNodeClass):
             node_signature, self.error_output_type
         )
         return PythonMeshNodeBuilder(
-            node_signature,
-            scalars,
-            input_builder,
-            output_builder,
-            error_builder,
-            inner_graph,
-            input_node_ids,
-            output_node_id,
-            self.signature.multiplexed_args,
-            self.signature.key_arg,
-            self.signature.context_path,
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            recordable_state_builder=None,
+            nested_graph=inner_graph,
+            input_node_ids=input_node_ids,
+            output_node_id=output_node_id,
+            multiplexed_args=self.signature.multiplexed_args,
+            key_arg=self.signature.key_arg,
+            context_path=self.signature.context_path,
         )

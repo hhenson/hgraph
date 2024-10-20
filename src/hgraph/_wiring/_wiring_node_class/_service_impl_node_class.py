@@ -131,7 +131,15 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
             from hgraph._impl._builder._service_impl_builder import PythonServiceImplNodeBuilder
 
             inner_graph = scalars["inner_graph"]
-            return PythonServiceImplNodeBuilder(node_signature, scalars, None, None, None, inner_graph)
+            return PythonServiceImplNodeBuilder(
+                signature=node_signature,
+                scalars=scalars,
+                input_builder=None,
+                output_builder=None,
+                error_builder=None,
+                recordable_state_builder=None,
+                nested_graph=inner_graph,
+            )
 
     def __eq__(self, other):
         return super().__eq__(other) and self.interfaces == other.interfaces

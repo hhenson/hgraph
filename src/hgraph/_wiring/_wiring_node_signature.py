@@ -13,6 +13,7 @@ from hgraph._types._scalar_type_meta_data import (
     HgEvaluationClockType,
     HgEvaluationEngineApiType,
     HgStateType,
+    HgRecordableStateType,
     HgLoggerType,
     HgNodeType,
 )
@@ -139,6 +140,10 @@ class WiringNodeSignature:
     @property
     def uses_state(self) -> bool:
         return InjectableTypes.STATE in self.injectable_inputs
+
+    @property
+    def uses_recordable_state(self) -> bool:
+        return InjectableTypes.RECORDABLE_STATE in self.injectable_inputs
 
     @property
     def uses_output_feedback(self) -> bool:
@@ -716,6 +721,7 @@ def extract_injectable_inputs(**kwargs) -> InjectableTypes:
                 HgEvaluationClockType: InjectableTypes.CLOCK,
                 HgEvaluationEngineApiType: InjectableTypes.ENGINE_API,
                 HgStateType: InjectableTypes.STATE,
+                HgRecordableStateType: InjectableTypes.RECORDABLE_STATE,
                 HgOutputType: InjectableTypes.OUTPUT,
                 HgLoggerType: InjectableTypes.LOGGER,
                 HgNodeType: InjectableTypes.NODE,

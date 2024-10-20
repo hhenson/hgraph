@@ -108,14 +108,15 @@ class ComponentNodeClass(BaseWiringNodeClass):
         from hgraph._impl._builder._component_builder import PythonComponentNodeBuilder
 
         return PythonComponentNodeBuilder(
-            node_signature,
-            scalars,
-            input_builder,
-            output_builder,
-            error_builder,
-            resolved_wiring_signature.inner_graph,
-            frozendict(nested_graph_input_ids),
-            nested_graph_output_id,
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            recordable_state_builder=None,
+            nested_graph=resolved_wiring_signature.inner_graph,
+            input_node_ids=frozendict(nested_graph_input_ids),
+            output_node_id=nested_graph_output_id,
         )
 
 

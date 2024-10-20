@@ -49,12 +49,12 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             node_signature, self.error_output_type
         )
         return PythonReduceNodeBuilder(
-            node_signature,
-            scalars,
-            input_builder,
-            output_builder,
-            error_builder,
-            inner_graph,
-            tuple(input_node_ids.values()),
-            output_node_id,
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            nested_graph=inner_graph,
+            input_node_ids=tuple(input_node_ids.values()),
+            output_node_id=output_node_id,
         )

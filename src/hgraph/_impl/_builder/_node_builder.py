@@ -42,6 +42,10 @@ class PythonBaseNodeBuilder(NodeBuilder, ABC):
             ts_error_output: TimeSeriesOutput = self.error_builder.make_instance(owning_node=node)
             node.error_output = ts_error_output
 
+        if self.recordable_state_builder:
+            ts_output: TimeSeriesOutput = self.recordable_state_builder.make_instance(owning_node=node)
+            node.recordable_state = ts_output
+
         return node
 
 
