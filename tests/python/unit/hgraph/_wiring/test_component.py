@@ -157,12 +157,12 @@ def test_record_recovery():
 def test_recorded_state():
 
     class SimpleState(TimeSeriesSchema, Generic[SCALAR]):
-        last_value: TS_OUT[SCALAR]
+        last_value_: TS[SCALAR]
 
     @compute_node()
     def de_dup_simple(ts: TS[SCALAR], _state: RECORDABLE_STATE[SimpleState[SCALAR]] = None) -> TS[SCALAR]:
-        if not _state.last_value.valid or _state.last_value.value != ts.value:
-            _state.last_value = ts.value
+        if not _state.last_value_.valid or _state.last_value_.value != ts.value:
+            _state.last_value_.value = ts.value
             return ts.value
 
     @component(recordable_id="test_id")

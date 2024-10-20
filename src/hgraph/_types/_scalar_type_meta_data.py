@@ -18,7 +18,7 @@ from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 if TYPE_CHECKING:
-    from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData
+    from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 
 __all__ = (
     "HgScalarTypeMetaData",
@@ -40,6 +40,7 @@ __all__ = (
     "HgOutputType",
     "HgSchedulerType",
     "Injector",
+    "RecordableStateInjector",
     "HgArrayScalarTypeMetaData",
 )
 
@@ -500,11 +501,11 @@ class HgStateType(HgInjectableType):
 
 class RecordableStateInjector(Injector):
 
-    def __init__(self, schema):
-        self.schema = schema
+    def __init__(self, tsb_type):
+        self.tsb_type: HgTSBTypeMetaData = tsb_type
 
     def __call__(self, node):
-        return RECORDABLE_STATE(__schema__=self.schema, **node.recordable_state)
+        return RECORDABLE_STATE(__schema__=self.tsb_type.bundle_schema_tp.py_type, **node.recordable_state)
 
 
 class HgRecordableStateType(HgInjectableType):
@@ -523,7 +524,9 @@ class HgRecordableStateType(HgInjectableType):
 
     @property
     def injector(self):
-        return RecordableStateInjector(self.state_type.py_type if self.state_type is not None else None)
+        from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+
+        return RecordableStateInjector(HgTSBTypeMetaData(self.state_type) if self.state_type is not None else None)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

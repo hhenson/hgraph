@@ -2,7 +2,8 @@ import inspect
 import types
 from typing import TYPE_CHECKING, Callable, Any, Mapping
 
-from hgraph._types._typing_utils import with_signature
+from hgraph._types._scalar_type_meta_data import HgRecordableStateType, RecordableStateInjector
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
@@ -91,12 +92,25 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
             node_signature, self.error_output_type
         )
 
+        recordable_state_builder = None
+        if node_signature.uses_recordable_state:
+            from hgraph import TimeSeriesBuilderFactory
+
+            for v in scalars.values():
+                if type(v) == RecordableStateInjector:
+                    v: RecordableStateInjector
+                    recordable_state_builder = TimeSeriesBuilderFactory.instance().make_output_builder(v.tsb_type)
+                    break
+            if recordable_state_builder is None:
+                raise CustomMessageWiringError("Recordable state injectable not found")
+
         return PythonNodeBuilder(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
+            recordable_state_builder=recordable_state_builder,
             eval_fn=self.fn,
             start_fn=self.start_fn,
             stop_fn=self.stop_fn,
