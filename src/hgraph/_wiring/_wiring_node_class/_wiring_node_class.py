@@ -273,14 +273,28 @@ class BaseWiringNodeClass(WiringNodeClass):
         *args,
         __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
         __return_sink_wp__: bool = False,
+        __record_id__: str = None,
         **kwargs,
     ) -> "WiringPort":
+        """
+        Supports most use-cases of extracting the call args and preparing the appropriate wiring port.
+        :param args: Args as defined by the wiring signature.
+        :param __pre_resolved_types__: A dictionary of TypeVars that have been pre-resolved.
+        :param __return_sink_wp__:  If True will return a stub wiring port when the node is sink node.
+        :param __record_id__: The id (or partial id) to use when recording this element.
+        :param kwargs: The kwargs to supply to the function
+        :return: A WiringPort (or None in the case of a sink_node and not stub requested)
+        """
 
         # TODO: Capture the call site information (line number / file etc.) for better error reporting.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             # Now validate types and resolve any un-resolved types and provide an updated signature.
             kwargs_, resolved_signature, _ = validate_and_resolve_signature(
-                self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
+                self.signature,
+                *args,
+                __pre_resolved_types__=__pre_resolved_types__,
+                __record_id__=__record_id__,
+                **kwargs,
             )
 
             if self.signature.deprecated:
@@ -351,13 +365,14 @@ def validate_and_resolve_signature(
     *args,
     __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable],
     __enforce_output_type__: bool = True,
+    __record_id__: str = None,
     **kwargs,
 ) -> tuple[dict[str, Any], WiringNodeSignature, dict[TypeVar, HgTypeMetaData]]:
     """
     Insure the inputs wired in match the signature of this node and resolve any missing types.
     """
     # Validate that all inputs have been received and apply the defaults.
-    record_replay_id = kwargs.pop("__record_id__", None)
+    record_replay_id = __record_id__
     kwargs = prepare_kwargs(signature, *args, **kwargs)
     WiringContext.current_kwargs = kwargs
     try:

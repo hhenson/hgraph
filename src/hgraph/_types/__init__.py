@@ -1,4 +1,5 @@
 from hgraph._types._error_type import *
+from hgraph._types._recordable_state import *
 from hgraph._types._scalar_type_meta_data import *
 from hgraph._types._scalar_types import *
 from hgraph._types._scalar_value import *

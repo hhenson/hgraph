@@ -9,12 +9,11 @@ from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGra
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 from hgraph._wiring._wiring_port import WiringPort
-from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
+from hgraph._wiring._wiring_utils import extract_stub_node_indices
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
     from hgraph._builder._graph_builder import GraphBuilder
-    from hgraph._runtime._node import NodeSignature
 
 __all__ = ("TsdMapWiringNodeClass", "TslMapWiringNodeClass", "TsdMapWiringSignature", "TslMapWiringSignature")
 
@@ -56,16 +55,17 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             node_signature, self.error_output_type
         )
         return PythonTsdMapNodeBuilder(
-            node_signature,
-            scalars,
-            input_builder,
-            output_builder,
-            error_builder,
-            inner_graph,
-            input_node_ids,
-            output_node_id,
-            self.signature.multiplexed_args,
-            self.signature.key_arg,
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            recordable_state_builder=None,
+            nested_graph=inner_graph,
+            input_node_ids=input_node_ids,
+            output_node_id=output_node_id,
+            multiplexed_args=self.signature.multiplexed_args,
+            key_arg=self.signature.key_arg,
         )
 
     @property

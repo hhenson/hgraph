@@ -36,6 +36,7 @@ class NodeTypeEnum(Enum):
 
 class InjectableTypes(IntFlag):
     STATE = auto()
+    RECORDABLE_STATE = auto()
     SCHEDULER = auto()
     OUTPUT = auto()
     CLOCK = auto()
@@ -85,6 +86,10 @@ class NodeSignature:
     @property
     def uses_state(self) -> bool:
         return InjectableTypes.STATE in self.injectable_inputs
+
+    @property
+    def uses_recordable_state(self) -> bool:
+        return InjectableTypes.RECORDABLE_STATE in self.injectable_inputs
 
     @property
     def uses_output_feedback(self) -> bool:
@@ -254,6 +259,18 @@ class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
+    def recordable_state(self) -> Optional["RECORDABLE_STATE"]:
+        """
+        The recordable state associated to this node.
+        """
+
+    @recordable_state.setter
+    @abstractmethod
+    def recordable_state(self, value: "RECORDABLE_STATE"):
+        """Set the recordable state instance for this node if present."""
+
+    @property
+    @abstractmethod
     def error_output(self) -> Optional["TimeSeriesOutput"]:
         """
         An error output of this node. This will tick when the eval method produces an exception
@@ -279,22 +296,6 @@ class Node(ComponentLifeCycle, ABC):
     @abstractmethod
     def notify_next_cycle(self):
         """Notify the node to be evaluated in the next evaluation cycle"""
-
-    @abstractmethod
-    def prepare_to_replay(self, graph_recorder: "GraphRecorder"):
-        """Called before the graph will start to evaluate in replay mode"""
-
-    @abstractmethod
-    def prepare_to_record(self, graph_recorder: "GraphRecorder"):
-        """Called after replay (if appropriate) and is about to run in record mode."""
-
-    @abstractmethod
-    def suspend(self, data_writer: "DataWriter"):
-        """Suspend the node to the data_writer"""
-
-    @abstractmethod
-    def resume(self, data_reader: "DataReader"):
-        """Resume the node"""
 
 
 class NodeDelegate(Node):

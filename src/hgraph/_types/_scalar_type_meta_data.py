@@ -6,15 +6,19 @@ from datetime import date, datetime, time, timedelta
 from enum import Enum
 from statistics import fmean
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List, TYPE_CHECKING
 
 import numpy as np
 from frozendict import frozendict
 
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
+from hgraph._types._recordable_state import RECORDABLE_STATE
 from hgraph._types._scalar_types import Size, STATE, CompoundScalar, LOGGER, UnNamedCompoundScalar
 from hgraph._types._scalar_value import ScalarValue, Array
 from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
+
+if TYPE_CHECKING:
+    from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
 
 __all__ = (
     "HgScalarTypeMetaData",
@@ -32,9 +36,11 @@ __all__ = (
     "HgEvaluationClockType",
     "HgEvaluationEngineApiType",
     "HgStateType",
+    "HgRecordableStateType",
     "HgOutputType",
     "HgSchedulerType",
     "Injector",
+    "RecordableStateInjector",
     "HgArrayScalarTypeMetaData",
 )
 
@@ -72,6 +78,7 @@ class HgScalarTypeMetaData(HgTypeMetaData):
             HgArrayScalarTypeMetaData,
             HgInjectableType,
             HgStateType,
+            HgRecordableStateType,
             HgObjectType,
         ]
         return cls._parsers_list
@@ -490,6 +497,72 @@ class HgStateType(HgInjectableType):
         if self.is_resolved:
             return self
         return HgStateType(self.state_type.resolve(resolution_dict, weak))
+
+
+class RecordableStateInjector(Injector):
+
+    def __init__(self, tsb_type):
+        self.tsb_type: HgTSBTypeMetaData = tsb_type
+
+    def __call__(self, node):
+        return RECORDABLE_STATE(__schema__=self.tsb_type.bundle_schema_tp.py_type, **node.recordable_state)
+
+
+class HgRecordableStateType(HgInjectableType):
+    """
+    RecordableState is similar to a TSB and is represented as a special output
+    value associated to ta node. The value is made available to the node instance
+    and when inside-of a recordable ``component`` this is attached to a recorder.
+    It is also re-constituted when re-started in the appropriate mode.
+    """
+
+    state_type: "HgTimeSeriesSchemaTypeMetaData"
+
+    def __init__(self, state_type: "HgTimeSeriesSchemaTypeMetaData"):
+        super().__init__(STATE)
+        self.state_type = state_type
+
+    @property
+    def injector(self):
+        from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+
+        return RecordableStateInjector(HgTSBTypeMetaData(self.state_type) if self.state_type is not None else None)
+
+    @classmethod
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._recordable_state import RECORDABLE_STATE
+        from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData
+
+        if isinstance(value_tp, _GenericAlias) and value_tp.__origin__ is RECORDABLE_STATE:
+            bundle_tp = HgTimeSeriesSchemaTypeMetaData.parse_type(value_tp.__args__[0])
+            if bundle_tp is None:
+                raise ParseError(f"'{value_tp.__args__[0]}' is not a valid input to RECORDABLE_STATE")
+            return HgRecordableStateType(bundle_tp)
+        if value_tp is RECORDABLE_STATE:
+            raise ParseError("RECORDABLE_STATE must be provided a schema to define the structure")
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        return cls.parse_type(type(value))
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.state_type is None or self.state_type.is_resolved
+
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
+        if self.is_resolved:
+            return self
+        tp = self.state_type.resolve(resolution_dict, weak)
+        from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData
+
+        if isinstance(tp, HgTimeSeriesSchemaTypeMetaData):
+            return HgRecordableStateType(tp)
+        else:
+            from hgraph import CustomMessageWiringError
+
+            raise CustomMessageWiringError(
+                f"'{tp}' is not a valid resolution, need to be HgTimeSeriesSchemaTypeMetaData"
+            )
 
 
 class OutputInjector(Injector):

@@ -1,3 +1,5 @@
+from typing import Generic
+
 import pytest
 from frozendict import frozendict as fd
 
@@ -17,6 +19,12 @@ from hgraph import (
     debug_print,
     MIN_ST,
     MIN_TD,
+    TimeSeriesSchema,
+    SCALAR,
+    compute_node,
+    RECORDABLE_STATE,
+    TS_OUT,
+    DEFAULT,
 )
 from hgraph.test import eval_node
 
@@ -144,3 +152,21 @@ def test_record_recovery():
             assert len(a_ts := gs.get(f":memory:my_component.a")) == 4
             assert len(b_ts := gs.get(f":memory:my_component.b")) == 4
             assert len(b_ts := gs.get(f":memory:my_component.__out__")) == 4
+
+
+def test_recorded_state():
+
+    class SimpleState(TimeSeriesSchema, Generic[SCALAR]):
+        last_value_: TS[SCALAR]
+
+    @compute_node()
+    def de_dup_simple(ts: TS[SCALAR], _state: RECORDABLE_STATE[SimpleState[SCALAR]] = None) -> TS[SCALAR]:
+        if not _state.last_value_.valid or _state.last_value_.value != ts.value:
+            _state.last_value_.value = ts.value
+            return ts.value
+
+    @component(recordable_id="test_id")
+    def simple_de_dup_component(ts: TS[int]) -> TS[int]:
+        return de_dup_simple(ts, __record_id__="de_dup_1")
+
+    assert eval_node(simple_de_dup_component, [1, 2, 3, 3, 4]) == [1, 2, 3, None, 4]

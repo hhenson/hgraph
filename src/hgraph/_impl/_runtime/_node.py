@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from hgraph._types._ts_type import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
     from hgraph._types._scalar_types import SCALAR
+    from hgraph._types._recordable_state import RECORDABLE_STATE
 
 
 __all__ = (
@@ -53,6 +54,7 @@ class BaseNodeImpl(Node, ABC):
         self._scheduler: Optional["NodeSchedulerImpl"] = None
         self._kwargs: dict[str, Any] | None = None
         self._start_inputs: list["TimeSeriesInput"] = []
+        self._recordable_state: Optional["RECORDABLE_STATE"] = None
 
     @property
     def node_ndx(self) -> int:
@@ -100,6 +102,16 @@ class BaseNodeImpl(Node, ABC):
     @output.setter
     def output(self, value: "TimeSeriesOutput"):
         self._output = value
+        if self._kwargs is not None:
+            self._initialise_kwargs()
+
+    @property
+    def recordable_state(self) -> Optional["RECORDABLE_STATE"]:
+        return self._recordable_state
+
+    @recordable_state.setter
+    def recordable_state(self, value: Optional["RECORDABLE_STATE"]):
+        self._recordable_state = value
         if self._kwargs is not None:
             self._initialise_kwargs()
 
@@ -245,22 +257,6 @@ class BaseNodeImpl(Node, ABC):
         else:
             self.notify()
 
-    def prepare_to_replay(self, graph_recorder: "GraphRecorder"):
-        # By default, do nothing
-        ...
-
-    def prepare_to_record(self, graph_recorder: "GraphRecorder"):
-        # By default, do nothing
-        ...
-
-    def suspend(self, data_writer: "DataWriter"):
-        # By default, do nothing
-        ...
-
-    def resume(self, data_reader: "DataReader"):
-        # By default, do nothing
-        ...
-
 
 class NodeImpl(BaseNodeImpl):
     """
@@ -345,6 +341,7 @@ class NodeSchedulerImpl(NodeScheduler):
 
     def schedule(self, when: datetime | timedelta, tag: str = None, on_wall_clock: bool = False):
         from hgraph import RealTimeEvaluationClock
+
         original_time = None
         if tag is not None and tag in self._tags:
             original_time = self.next_scheduled_time
