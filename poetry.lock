@@ -401,13 +401,13 @@ test = ["objgraph", "psutil"]
 
 [[package]]
 name = "hgraph"
-version = "0.3.20"
+version = "0.3.21"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 optional = false
 python-versions = ">=3.11"
 files = [
-    {file = "hgraph-0.3.20-py3-none-any.whl", hash = "sha256:ec3622faaedd36aad9fcb4b009d9699bd8a538276c9b4d4830de9052b5999158"},
-    {file = "hgraph-0.3.20.tar.gz", hash = "sha256:b21eff1c5fc824a749d3c5e70d81af7b52a6f6a759d59721c0a0d59a1827bf32"},
+    {file = "hgraph-0.3.21-py3-none-any.whl", hash = "sha256:2526acdd7eb3423f78a119bd908f6392d750552f6330cdf10530fa3a6c2cf523"},
+    {file = "hgraph-0.3.21.tar.gz", hash = "sha256:8702407fc8a91d421670202bc751d0743e81b2c947a60a4b28617f7c2a3edced"},
 ]
 
 [package.dependencies]
