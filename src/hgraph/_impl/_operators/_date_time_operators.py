@@ -181,7 +181,7 @@ def std_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
 
 
 @graph(overloads=std)
-def std_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+def std_date_unary(ts: TS[date]) -> TS[datetime]:
     raise WiringError("Cannot calculate the standard deviation of dates")
 
 
@@ -191,5 +191,5 @@ def var_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
 
 
 @graph(overloads=var)
-def var_datetime_unary(ts: TS[datetime]) -> TS[datetime]:
+def var_date_unary(ts: TS[date]) -> TS[datetime]:
     raise WiringError("Cannot calculate the variance of dates")

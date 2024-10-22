@@ -145,10 +145,7 @@ class BaseNodeImpl(Node, ABC):
     def _initialise_kwargs(self):
         from hgraph._types._scalar_type_meta_data import Injector
 
-        extras = {}
-        for k, s in self.scalars.items():
-            if isinstance(s, Injector):
-                extras[k] = s(self)
+        extras = {k: s(self) for k, s in self.scalars.items() if isinstance(s, Injector)}
         self._kwargs = {
             k: v for k, v in {**(self.input or {}), **self.scalars, **extras}.items() if k in self.signature.args
         }
