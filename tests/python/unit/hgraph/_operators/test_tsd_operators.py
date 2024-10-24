@@ -40,6 +40,12 @@ from hgraph import (
     merge,
     TSL,
     unpartition,
+    reference_service,
+    default_path,
+    service_impl,
+    MIN_TD,
+    register_service,
+    map_,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -175,13 +181,12 @@ def test_flip_tsd_non_unique():
     def g(ts: TSD[int, TS[str]]) -> TSD[str, TSS[int]]:
         return flip(ts, unique=False)
 
-    assert eval_node(g, [{1: "a", 2: "b"},
-                         {1: "c", 2: "b"},
-                         {1: "c", 4: "c"},
-                         {1: REMOVE, 4: REMOVE}]) == [{"a": {1}, "b": {2}},
-                                                                {"c": {1}, 'a': REMOVE},
-                                                                {"c": {4}},
-                                                                {"c": REMOVE}]
+    assert eval_node(g, [{1: "a", 2: "b"}, {1: "c", 2: "b"}, {1: "c", 4: "c"}, {1: REMOVE, 4: REMOVE}]) == [
+        {"a": {1}, "b": {2}},
+        {"c": {1}, "a": REMOVE},
+        {"c": {4}},
+        {"c": REMOVE},
+    ]
 
 
 def test_flip_keys():
@@ -395,3 +400,36 @@ def test_keys_as_set():
         return keys_[OUT : TS[Set[int]]](tsd)
 
     assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {2, 3}]
+
+
+@reference_service
+def example_service(path: str = default_path) -> TSD[str, TS[float]]: ...
+
+
+@service_impl(interfaces=[example_service])
+def example_service_1() -> TSD[str, TS[float]]:
+    return const(fd({"a": 1.0}), tp=TSD[str, TS[float]], delay=MIN_TD)
+
+
+@service_impl(interfaces=[example_service])
+def example_service_2() -> TSD[str, TS[float]]:
+    return const(fd({"a": 2.0}), tp=TSD[str, TS[float]], delay=MIN_TD * 2)
+
+
+@service_impl(interfaces=[example_service])
+def example_service_3() -> TSD[str, TS[float]]:
+    return merge(example_service("1"), example_service("2"))
+
+
+@pytest.mark.xfail(strict=True, reason="Failure to untangle reference for map")
+def test_merge_references_map_failure():
+
+    @graph
+    def g() -> TSD[str, TS[float]]:
+        register_service("1", example_service_1)
+        register_service("2", example_service_2)
+        register_service(default_path, example_service_3)
+        out = map_(lambda x: x + 1.0, example_service())
+        return out
+
+    assert eval_node(g) == [None, fd({"a": 2.0}), fd({"a": 3.0})]
