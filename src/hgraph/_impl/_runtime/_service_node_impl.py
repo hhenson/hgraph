@@ -47,8 +47,9 @@ class PythonServiceNodeImpl(PythonNestedNodeImpl):
         self._active_graph.stop()
 
     def dispose(self):
-        self._active_graph.dispose()
-        self._active_graph = None
+        if self._active_graph is not None:
+            self._active_graph.dispose()
+            self._active_graph = None
 
     def nested_graphs(self):
         return {0: self._active_graph}

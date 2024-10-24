@@ -154,19 +154,33 @@ def test_record_recovery():
             assert len(b_ts := gs.get(f":memory:my_component.__out__")) == 4
 
 
+class SimpleState(TimeSeriesSchema, Generic[SCALAR]):
+    last_value_: TS[SCALAR]
+
+
+@compute_node()
+def de_dup_simple(ts: TS[SCALAR], _state: RECORDABLE_STATE[SimpleState[SCALAR]] = None) -> TS[SCALAR]:
+    if not _state.last_value_.valid or _state.last_value_.value != ts.value:
+        _state.last_value_.value = ts.value
+        return ts.value
+
+
+@component(recordable_id="test_id")
+def simple_de_dup_component(ts: TS[int]) -> TS[int]:
+    return de_dup_simple(ts, __record_id__="de_dup_1")
+
+
 def test_recorded_state():
 
-    class SimpleState(TimeSeriesSchema, Generic[SCALAR]):
-        last_value_: TS[SCALAR]
-
-    @compute_node()
-    def de_dup_simple(ts: TS[SCALAR], _state: RECORDABLE_STATE[SimpleState[SCALAR]] = None) -> TS[SCALAR]:
-        if not _state.last_value_.valid or _state.last_value_.value != ts.value:
-            _state.last_value_.value = ts.value
-            return ts.value
-
-    @component(recordable_id="test_id")
-    def simple_de_dup_component(ts: TS[int]) -> TS[int]:
-        return de_dup_simple(ts, __record_id__="de_dup_1")
-
     assert eval_node(simple_de_dup_component, [1, 2, 3, 3, 4]) == [1, 2, 3, None, 4]
+
+
+def test_record_replay_recorded_state():
+
+    with GlobalState() as gs:
+        set_record_replay_model(IN_MEMORY)
+
+        with RecordReplayContext(mode=RecordReplayEnum.RECORD):
+            assert eval_node(simple_de_dup_component, [1, 2, 3, 3, 4]) == [1, 2, 3, None, 4]
+        assert len(ts_r := gs.get(f":memory:test_id.ts")) == 5
+        assert len(out_r := gs.get(f":memory:test_id.__out__")) == 4

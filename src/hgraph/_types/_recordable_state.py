@@ -70,7 +70,7 @@ class RECORDABLE_STATE(Generic[TS_SCHEMA]):
 
     def __getitem__(self, item: Union[int, str]) -> "TimeSeriesOutput":
         """
-        If item is of type int, will return the item defined by the sequence of the schema. If it is a str, then
+        If ``item`` is of type int, will return the item defined by the sequence of the schema. If it is a str, then
         the item as named.
         """
         if type(item) is int:
