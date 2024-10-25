@@ -36,3 +36,9 @@ Version 0.1.5 (25-10-2024)
 
 * Small bug-fixes and updates to dependencies.
 
+Version 0.1.6 (25-10-2024)
+--------------------------
+
+* Change Calendar to have a simple is_business_day property and create the DetailedCalendar which knows about holidays
+  and weekends.
+* Add business_days service
