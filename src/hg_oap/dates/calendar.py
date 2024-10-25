@@ -7,6 +7,25 @@ __all__ = ('Calendar', 'WeekendCalendar', 'HolidayCalendar')
 
 
 class Calendar:
+    """
+    The most basic calendar can determine if a day is a working day or not.
+    """
+
+    @abstractmethod
+    def is_business_day(self, d: date) -> bool:
+        """
+        Is this a working or business day?
+        """
+
+class DetailedCalendar(Calendar):
+    """
+    The detailed calendar can describe the difference between a holiday and a weekend non-working day.
+    """
+
+    def is_business_day(self, d: date) -> bool:
+        # By default, a working day is neither a holiday not a weekend.
+        return not self.is_holiday_or_weekend(d)
+
     @abstractmethod
     def weekend_days(self) -> Tuple[int, ...]:
         """
@@ -52,7 +71,7 @@ class Calendar:
         """
 
 
-class WeekendCalendar(Calendar):
+class WeekendCalendar(DetailedCalendar):
     _weekend_days: Tuple[int, ...]
 
     def __init__(self, weekend_days: Tuple[int, ...] = (5, 6)):
