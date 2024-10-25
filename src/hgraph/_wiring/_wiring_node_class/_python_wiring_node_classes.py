@@ -34,6 +34,7 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
             scalars=scalars,
             input_builder=None,
             output_builder=factory.make_output_builder(output_type),
+            # FIXME - make_error_builder needs a type
             error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
             eval_fn=self.fn,
         )

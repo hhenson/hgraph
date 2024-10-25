@@ -97,10 +97,9 @@ class TimeSeries(ABC):
     @abstractmethod
     def valid(self) -> bool:
         """
-        Is there a valid value associated to this time-series input, or loosely, "has this property
-        ever ticked?". Note that it is possible for the time-series to become invalid after it has been made valid.
-        The invalidation occurs mostly when working with REF values.
-        :return: True if there is a valid value associated with this time-series.
+        Is there a valid value associated to this time-series input, or more generally has this property
+        ever ticked.
+        :return: True if there is a valid value associated to this time-series
         """
 
     @property

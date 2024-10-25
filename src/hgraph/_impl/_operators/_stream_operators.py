@@ -3,8 +3,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 
-from frozendict import frozendict
-
 from hgraph import (
     compute_node,
     TIME_SERIES_TYPE,
@@ -133,13 +131,13 @@ def resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
 
 
 @compute_node(overloads=dedup)
-def drop_dups_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
     """
     from multimethod import multimethod
-    from hgraph import PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput
-    from hgraph import PythonTimeSeriesDictInput, PythonTimeSeriesDictOutput
+    from hgraph import PythonTimeSeriesValueInput
+    from hgraph import PythonTimeSeriesDictInput
 
     @multimethod
     def dedup_item(input, output):
@@ -166,11 +164,12 @@ def drop_dups_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) ->
 
 
 @compute_node(overloads=dedup)
-def drop_dups_float(ts: TS[float], abs_tol: float = 1e-15, _output: TS[float] = None) -> TS[float]:
+def dedup_float(ts: TS[float], abs_tol: TS[float] = 1e-15, _output: TS[float] = None) -> TS[float]:
     """
     Drops 'duplicate' float values from a time-series which are almost equal
     """
     if _output.valid:
+        abs_tol = abs_tol.value
         if not (-abs_tol < ts.value - _output.value < abs_tol):
             return ts.delta_value
     else:
