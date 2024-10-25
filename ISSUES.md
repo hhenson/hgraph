@@ -12,3 +12,4 @@
 13. Improve error handling for '.' operator on TS[CompoundScalar] if the attribute does not exist.  Currently a long list of overloads is quoted and the actual field in error is not reported. Similarly for combine().
 14. It is currently not possible to have a map_ over a graph/node which has default values in it, unless the lambda form is used
 15. convert() from date to datetime picks the wrong operator (should be convert_date_to_datetime but uses convert_ts_scalar_downcast). Also it is not timezone aware. Likewise datetime to date does not work.
+16. registering services should only include type-resolution information for inputs that are part of the interface signature and not all inputs.
