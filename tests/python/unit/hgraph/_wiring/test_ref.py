@@ -15,7 +15,7 @@ from hgraph import (
     Removed,
     K,
     KEYABLE_SCALAR,
-    if_,
+    if_, TSB,
 )
 from hgraph._impl._operators._tss_operators import contains_tss
 from hgraph.test import eval_node
@@ -102,6 +102,15 @@ def test_merge_ref_set():
     ) == [{1, 2}, None, {-2, -3, Removed(1), Removed(2)}, {-4}]
 
 
+def test_merge_ref_set1():
+    assert eval_node(
+        merge_ref_non_peer[TIME_SERIES_TYPE : TSS[int]],
+        index=[0, None, 1, None],
+        ts1=[{1, 2}, None, None, {4}],
+        ts2=[{1}, None, {2}, {4}],
+    ) == [{1, 2}, None, set(), {4}]
+
+
 def test_tss_ref_contains():
     assert eval_node(
         contains_tss[KEYABLE_SCALAR:int], ts=[{1}, {2}, None, {Removed(2)}], item=[2, None, None, None, 1]
@@ -135,3 +144,21 @@ def test_merge_tsd():
         tsd1=[{1: 1}, {2: 2}, {3: 3}, {1: REMOVE}, {1: 11}],
         tsd2=[{1: -1}, {-2: -2}, {1: -1, 3: -3}, None, {-2: REMOVE, 3: REMOVE}],
     ) == [{1: 1}, {2: 2, -2: -2}, {3: 3}, {1: -1}, {-2: REMOVE, 1: 11}]
+
+
+def test_free_bundle_ref():
+    from hgraph import TimeSeriesSchema
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @compute_node
+    def ref_signal(ts: REF[TSB[AB]]) -> TS[bool]:
+        return ts.valid
+
+    @graph
+    def g(a: TS[int], b: TS[int]) -> TS[bool]:
+        from hgraph import combine
+        return ref_signal(combine[TSB[AB]](a=a, b=b))
+
+    assert eval_node(g, a=[1, 2], b=[3, 4]) == [True, None]

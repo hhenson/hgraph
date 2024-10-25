@@ -59,6 +59,24 @@ def test_combine_named_tsb():
     assert eval_node(g, 1, "a") == [dict(a=1, b="a")]
 
 
+def test_combine_named_tsb2():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    class C(TimeSeriesSchema):
+        c: TS[int]
+
+    class ABC(AB, C):
+        ...
+
+    @graph
+    def g(a: TS[int], b: TS[str]) -> TSB[ABC]:
+        return combine[TSB[ABC]](a=a, b=b, c=1)
+
+    assert eval_node(g, 1, "a") == [dict(a=1, b="a", c=1)]
+
+
 def test_combine_named_tsb_partial():
     class AB(TimeSeriesSchema):
         a: TS[int]

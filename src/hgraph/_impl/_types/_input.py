@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
 
-from hgraph._runtime._constants import MIN_DT, MAX_DT
-from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
+from hgraph._runtime._constants import MIN_DT
 from hgraph._runtime._node import Node
+from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
 
 if TYPE_CHECKING:
     from hgraph._builder._graph_builder import Graph
@@ -136,7 +136,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
         return peer
 
     def un_bind_output(self):
-        valid = self.valid
+        was_valid = self.valid
         if self.bound:
             from hgraph import TimeSeriesReferenceOutput
 
@@ -146,7 +146,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
                 self._reference_output = None
             self.do_un_bind_output()
 
-            if self.owning_node.is_started and valid:
+            if self.owning_node.is_started and was_valid:
                 self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
                 if self.active:
                     # Notify as the state of the node has changed from bound to un_bound

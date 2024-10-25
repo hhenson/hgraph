@@ -18,6 +18,7 @@ class InspectorState(CompoundScalar):
     total_cycle_table: Table = None
 
     requests: _SenderReceiverState = field(default_factory=_SenderReceiverState)
+    last_request_process_time: datetime = None
 
     graph_subscriptions: dict = field(default_factory=lambda: dict())  # graph_id -> item_id
     node_subscriptions: dict = field(default_factory=lambda: defaultdict(set))  # node_id -> item_id

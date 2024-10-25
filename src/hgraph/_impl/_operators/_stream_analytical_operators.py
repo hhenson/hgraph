@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 
-from hgraph import graph, TS, NUMBER, compute_node, SIGNAL, TS_OUT, CompoundScalar, STATE, diff, count, clip, ewma
+from hgraph import graph, TS, NUMBER, compute_node, SIGNAL, TS_OUT, CompoundScalar, STATE, diff, count, clip, ewma, \
+    SCALAR
 
 __all__ = tuple()
 
 
 @graph(overloads=diff)
-def diff_number(ts: TS[NUMBER]) -> TS[NUMBER]:
+def diff_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     """
     Computes the difference between the current value and the previous value in the time-series.
     """

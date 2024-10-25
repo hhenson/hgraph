@@ -8,11 +8,12 @@ from frozendict import frozendict
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._types._typing_utils import nth
 
-from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
+from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType, HgScalarTypeVar
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 from hgraph._types._scalar_types import CompoundScalar
+from hgraph._types._tsb_type import TimeSeriesSchema
 
 __all__ = (
     "HgTimeSeriesSchemaTypeMetaData",
@@ -61,6 +62,16 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         return set().union(*(t.type_vars for t in self.meta_data_schema.values())) | set(
             getattr(self.py_type, "__parameters__", ())
         )
+
+    @property
+    def generic_rank(self) -> dict[type, float]:
+        inheritance_depth = self.py_type.__mro__.index(TimeSeriesSchema)
+        hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
+        hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
+
+        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.type_vars), 0.01)
+
+        return generic_rank | hierarchy_rank
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
@@ -241,7 +252,7 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         if isinstance(self.bundle_schema_tp, HgTsTypeVarTypeMetaData):
             return scale_rank(self.bundle_schema_tp.generic_rank, 0.1)
         else:
-            return combine_ranks((t.generic_rank for t in self.bundle_schema_tp.meta_data_schema.values()), 0.01)
+            return scale_rank(self.bundle_schema_tp.generic_rank, 0.01)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgTSBTypeMetaData and self.bundle_schema_tp.matches(tp.bundle_schema_tp)

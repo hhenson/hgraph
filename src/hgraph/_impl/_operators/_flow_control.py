@@ -8,7 +8,7 @@ from hgraph._operators._flow_control import race, BoolResult, if_, route_by_inde
 from hgraph._operators._operators import bit_and, bit_or
 from hgraph._runtime._constants import MAX_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
-from hgraph._types._ref_type import REF
+from hgraph._types._ref_type import REF, REF_OUT
 from hgraph._types._scalar_types import CompoundScalar, STATE
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K
 from hgraph._types._ts_type import TS, TS_OUT
@@ -323,7 +323,8 @@ def if_true_impl(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
 
 @compute_node(overloads=if_then_else, valid=("condition",))
 def if_then_else_impl(
-    condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]
+        condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE],
+        _output: REF_OUT[TIME_SERIES_TYPE] = None
 ) -> REF[TIME_SERIES_TYPE]:
     """
     If the condition is true the output ticks with the true_value, otherwise it ticks with the false_value.
@@ -331,10 +332,10 @@ def if_then_else_impl(
     condition_value = condition.value
     if condition.modified:
         if condition_value:
-            if true_value.valid:
+            if true_value.valid and _output.value != true_value.value:
                 return true_value.value
         else:
-            if false_value.valid:
+            if false_value.valid and _output.value != false_value.value:
                 return false_value.value
 
     if condition_value and true_value.modified:

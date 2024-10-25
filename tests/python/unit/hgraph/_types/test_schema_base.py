@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Generic
 
-from hgraph import CompoundScalar, COMPOUND_SCALAR, Base, HgTypeMetaData, TimeSeriesSchema
+from hgraph import CompoundScalar, COMPOUND_SCALAR, Base, HgTypeMetaData, TimeSeriesSchema, TS
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 
 
@@ -104,3 +104,18 @@ def test_deep_schema_base():
     p2 = p1[SimpleCompoundScalar]
 
     assert p2
+
+
+def test_mixed_schema_base():
+    @dataclass
+    class SimpleCompoundScalar(TimeSeriesSchema):
+        m1: TS[int]
+
+    @dataclass
+    class GenericallyDerivedCompoundScalar(Base[COMPOUND_SCALAR], Generic[COMPOUND_SCALAR]):
+        m2: int
+
+    p1 = GenericallyDerivedCompoundScalar[COMPOUND_SCALAR]
+    p2 = p1[SimpleCompoundScalar]
+
+    assert p2.__meta_data_schema__ == {"m1": HgTypeMetaData.parse_type(TS[int]), "m2": HgTypeMetaData.parse_type(TS[int])}

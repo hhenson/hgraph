@@ -21,7 +21,7 @@ class TornadoWeb:
 
     def __init__(self, port):
         self._port = port
-        self._app = Application(websocket_ping_interval=1)
+        self._app = Application(websocket_ping_interval=1, debug=True)
         self._started = 0
 
     @classmethod

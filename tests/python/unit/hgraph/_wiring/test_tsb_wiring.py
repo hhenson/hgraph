@@ -5,7 +5,7 @@ import pytest
 from frozendict import frozendict
 
 from hgraph import TSB, TimeSeriesSchema, TS, compute_node, graph, IncorrectTypeBinding, ParseError, TIME_SERIES_TYPE, \
-    SCALAR, SCALAR_1, AUTO_RESOLVE, CompoundScalar
+    SCALAR, SCALAR_1, AUTO_RESOLVE, CompoundScalar, SIGNAL
 
 from hgraph.test import eval_node
 
@@ -145,3 +145,40 @@ def test_tsb_order_preservation():
         return n1(a, b) + n2(a, b)
 
     assert eval_node(g, "a", "b") == ["abba"]
+
+
+def test_free_tsb_signal():
+    @compute_node
+    def s(ts: SIGNAL) -> TS[bool]:
+        return True
+
+    @graph
+    def tsb_non_peered(ts1: TS[int], ts2: TS[str]) -> TSB[MyTsb]:
+        return TSB[MyTsb].from_ts(p1=ts1, p2=ts2)
+
+    @graph
+    def g(ts1: TS[int], ts2: TS[str]) -> TS[bool]:
+        return s(tsb_non_peered(ts1, ts2))
+
+    assert eval_node(g, [None, 1, None], [None, None, "b"], __trace__=True) == [None, True, True]
+
+
+def test_free_tsb_ref_signal():
+    @compute_node
+    def s(ts: SIGNAL) -> TS[bool]:
+        return True
+
+    @compute_node(valid=())
+    def tsb_peered(ts1: TS[int], ts2: TS[str]) -> TSB[MyTsb]:
+        return dict(p1=ts1.value, p2=ts2.value)
+
+    @graph
+    def tsb_non_peered(ts1: TS[int], ts2: TS[str]) -> TSB[MyTsb]:
+        return TSB[MyTsb].from_ts(p1=ts1, p2=ts2)
+
+    @graph
+    def g(c: TS[bool], ts1: TS[int], ts2: TS[str]) -> TS[bool]:
+        from hgraph import switch_
+        return s(switch_({True: tsb_non_peered, False: tsb_peered}, c, ts1, ts2))
+
+    assert eval_node(g, [None, False, True, False], [None, 1, None], [None, None, "b"], __trace__=True) == [None, True, True, True]

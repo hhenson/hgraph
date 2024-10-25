@@ -106,6 +106,27 @@ def test_unresolved_compound_scalar():
     assert not hg_meta.is_resolved
 
 
+def test_multiple_inheritance():
+    @dataclass(frozen=True)
+    class SimpleCompoundScalar(CompoundScalar):
+        p1: int
+
+    @dataclass(frozen=True)
+    class AnotherCompoundScalar(CompoundScalar):
+        p2: str
+
+    @dataclass(frozen=True)
+    class MultipleInheritance(SimpleCompoundScalar, AnotherCompoundScalar):
+        p3: int
+
+    meta = MultipleInheritance.__meta_data_schema__
+    assert len(meta) == 3
+    assert meta["p1"] == HgScalarTypeMetaData.parse_type(int)
+    assert meta["p2"] == HgScalarTypeMetaData.parse_type(str)
+    assert meta["p3"] == HgScalarTypeMetaData.parse_type(int)
+
+
+
 # def test_recursive_scalar():
 #     @dataclass(frozen=True)
 #     class RecursiveCompoundScalar(CompoundScalar):

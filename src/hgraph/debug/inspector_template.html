@@ -186,10 +186,8 @@
                                 const [meta, stuff, row] = await targetInfo(event.target);
 
                                 if (meta.column_header[0] === 'value') {
-                                    if (row.value.startsWith("Frame")) {
-                                        event.target.style.cursor = "";
-                                        window.open("/inspect_frame/" + row.id, "_blank");
-                                    }
+                                    event.target.style.cursor = "";
+                                    window.open("/inspect_value/" + row.id, "_blank");
                                 }
                             }
                         });

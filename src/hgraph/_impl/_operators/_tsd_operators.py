@@ -217,7 +217,7 @@ def len_tsd(ts: TSD[K, TIME_SERIES_TYPE]) -> TS[int]:
 
 
 @graph(overloads=sub_)
-def sub_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+def sub_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     keys = lhs.key_set - rhs.key_set
     return tsd_get_items(lhs, keys)
 

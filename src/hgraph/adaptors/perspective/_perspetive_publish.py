@@ -166,7 +166,10 @@ def _publish_table_from_tsd_start(
     _schema = HgTimeSeriesTypeMetaData.parse_type(_schema)
     if isinstance(_schema, HgTSBTypeMetaData):
         state.schema = {k: t.scalar_type().py_type for k, t in _schema.bundle_schema_tp.meta_data_schema.items()}
-        state.process_row = lambda v: v.delta_value
+        if residual_index_col_names:
+            state.process_row = lambda v: v.delta_value | {k: v[k].value for k in residual_index_col_names}
+        else:
+            state.process_row = lambda v: v.delta_value
         state.multi_row = False
     elif isinstance(_schema, HgTSTypeMetaData):
         if isinstance(_schema.value_scalar_tp, HgCompoundScalarType):

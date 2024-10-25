@@ -34,7 +34,9 @@ from hgraph import (
     lag,
     TSL,
     SIZE,
-    INT_OR_TIME_DELTA, REMOVE_IF_EXISTS,
+    INT_OR_TIME_DELTA,
+    REMOVE_IF_EXISTS,
+    EvaluationClock,
 )
 
 __all__ = ()
@@ -59,13 +61,13 @@ class LagState:
 
 
 @compute_node(overloads=lag)
-def lag_tick(ts: TS[SCALAR], period: int, _state: STATE[LagState] = None) -> TS[SCALAR]:
+def lag_tick(ts: TIME_SERIES_TYPE, period: int, _state: STATE[LagState] = None) -> TIME_SERIES_TYPE:
     buffer: deque[SCALAR] = _state.buffer
     try:
         if len(buffer) == period:
             return buffer.popleft()
     finally:
-        buffer.append(ts.value)
+        buffer.append(ts.delta_value)
 
 
 @lag_tick.start
@@ -75,12 +77,12 @@ def lag_tick_start(period: int, _state: STATE[LagState]):
 
 @compute_node(overloads=lag)
 def lag_timedelta(
-    ts: TS[SCALAR], period: timedelta, _scheduler: SCHEDULER = None, _state: STATE[LagState] = None
-) -> TS[SCALAR]:
+    ts: TIME_SERIES_TYPE, period: timedelta, _scheduler: SCHEDULER = None, _state: STATE[LagState] = None
+) -> TIME_SERIES_TYPE:
     # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
     buffer: deque[SCALAR] = _state.buffer
     if ts.modified:
-        buffer.append(ts.value)
+        buffer.append(ts.delta_value)
         _scheduler.schedule(ts.last_modified_time + period)
 
     if _scheduler.is_scheduled_now:
@@ -108,17 +110,29 @@ class TickCount(CompoundScalar):
 @compute_node(overloads=schedule)
 def schedule_ts(
     delay: TS[timedelta],
+    *,
+    start: TS[datetime] = None,
     initial_delay: bool = True,
+    use_wall_clock: bool = False,
     max_ticks: int = sys.maxsize,
     _scheduler: SCHEDULER = None,
     _state: STATE[TickCount] = None,
+    _clock: EvaluationClock = None,
 ) -> TS[bool]:
     if _state.count == max_ticks:
         return
 
     scheduled = _scheduler.is_scheduled_now
 
-    _scheduler.schedule(delay.value, "_")
+    if start.valid:
+        if _clock.evaluation_time < start.value and not initial_delay:
+            _scheduler.schedule(start.value, "_", on_wall_clock=use_wall_clock)
+        else:
+            next = (1 + (max(_clock.evaluation_time, start.value) - start.value) // delay.value) * delay.value + start.value
+            _scheduler.schedule(next, "_", on_wall_clock=use_wall_clock)
+    else:
+        _scheduler.schedule(delay.value, "_", on_wall_clock=use_wall_clock)
+
     if (delay.modified and not initial_delay) or (scheduled and not delay.modified):
         if _state.count < max_ticks:
             _state.count += 1
@@ -191,6 +205,7 @@ class _ThrottleState(CompoundScalar):
 def throttle(ts: TIME_SERIES_TYPE,
              period: TS[timedelta],
              delay_first_tick: bool = False,
+             use_wall_clock: bool = False,
              _sched: SCHEDULER = None,
              _state: STATE[_ThrottleState] = None) -> TIME_SERIES_TYPE:
     from multimethod import multimethod
@@ -228,7 +243,7 @@ def throttle(ts: TIME_SERIES_TYPE,
     if _sched.is_scheduled_now:
         if tick := _state.tick:
             _state.tick = {}
-            _sched.schedule(period.value)
+            _sched.schedule(period.value, on_wall_clock=use_wall_clock)
             return tick
 
 

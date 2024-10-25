@@ -10,7 +10,7 @@ from enum import Enum
 from typing import ClassVar
 
 from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput, TimeSeriesSet
-from hgraph.debug._inspector_util import format_name, base62, inspect_item
+from hgraph.debug._inspector_util import format_name, base62, inspect_item, inspect_type
 
 
 class InspectorItemType(Enum):
@@ -205,6 +205,47 @@ class InspectorItemId:
                 return None
 
         return value
+
+    def find_item_type(self, graph):
+        # graph is a graph object that matches this object's graph id
+        assert graph.graph_id == self.graph
+
+        from hgraph import PythonNestedNodeImpl
+        from hgraph import HgTypeMetaData
+
+        if self.node is None:
+            return Graph
+
+        node = graph.nodes[self.node]
+
+        if self.value_type is None:
+            return Node
+
+        if self.value_type == NodeValueType.Inputs:
+            value = node.signature.time_series_inputs
+            tp = HgTypeMetaData.parse_type(dict[str, TimeSeriesInput])
+        elif self.value_type == NodeValueType.Output:
+            value = node.signature.time_series_output
+            tp = value
+        elif self.value_type == NodeValueType.Graphs:
+            value = node.nested_graphs() if isinstance(node, PythonNestedNodeImpl) else {}
+            tp = HgTypeMetaData.parse_type(dict[str, Graph])
+        elif self.value_type == NodeValueType.Scalars:
+            value = node.scalars
+            tp = value.__schema__ or HgTypeMetaData.parse_type(dict[str, object])
+
+        for i in self.value_path:
+            try:
+                tp = value = inspect_type(value, i)
+            except:
+                return None
+
+        if isinstance(tp, HgTypeMetaData):
+            return tp
+        elif isinstance(tp, type):
+            return HgTypeMetaData.parse_type(tp)
+        else:
+            return HgTypeMetaData.parse_value(value)
 
     def indent(self, graph: "Graph"):
         # graph is a graph object that matches this object's graph id

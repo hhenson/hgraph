@@ -3,7 +3,6 @@ from typing import Callable
 
 from frozendict import frozendict
 
-from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._ref_type import REF
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -107,7 +106,8 @@ def _stub(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
     This is the basic implementation of a stub.
     The stub will either be connected in the graph as an input or an output ranked on the outer-side of the graph.
     """
-    return ts.value if ts.valid else None
+    from hgraph import PythonTimeSeriesReference
+    return ts.value if ts.valid else PythonTimeSeriesReference()
 
 
 class KeyStubEvalFn:

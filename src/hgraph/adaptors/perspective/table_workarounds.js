@@ -65,19 +65,46 @@ function addTooltips(table) {
 function hideColumns(table) {
     const hide_cols = new Set();
     const parts = []
+    const col_map = new Map();
+    const fg_copy= new Map();
+    const bg_copy= new Map();
+    const row_fg_copy = new Set();
+    const row_bg_copy = new Set();
 
     for (const h of table.children[0].children[0].children) {
-        if (h.id === "psp-column-titles") {
+        if (h.id !== "psp-column-edit-buttons") {
             parts.push(h)
             let i = 0;
             for (const c of h.children) {
                 const metadata = table.getMeta(c);
                 if (metadata.size_key >= i) {
                     let hide = false
+                    let col_name = ""
                     for (const n of metadata.column_header) {
-                        if (n.substring(n.length-7) === "-hidden")
-                            hide = true;
+                        if (n !== "") {
+                            if (n.substring(n.length - 7) === "-hidden") {
+                                hide = true;
+                                if (n.substring(n.length - 18) === "-foreground-hidden") {
+                                    let key = n.substring(0, n.length - 18);
+                                    if (key === "row") {
+                                        row_fg_copy.add(metadata.size_key);
+                                    } else {
+                                        fg_copy.set(metadata.size_key, col_name + "/" + key);
+                                    }
+                                }
+                                if (n.substring(n.length - 18) === "-background-hidden") {
+                                    let key = n.substring(0, n.length - 18);
+                                    if (key === "row") {
+                                        row_bg_copy.add(metadata.size_key);
+                                    } else {
+                                        bg_copy.set(metadata.size_key, col_name + "/" + key);
+                                    }
+                                }
+                            }
+                            col_name += "/" + n;
+                        }
                     }
+                    col_map.set(col_name, metadata.size_key);
                     if (hide) {
                         hide_cols.add(metadata.size_key);
                     }
@@ -85,7 +112,7 @@ function hideColumns(table) {
                 i += 1;
             }
         }
-        if (h.id === "psp-column-edit-buttons") {
+        else {
             parts.push(h)
         }
     }
@@ -111,6 +138,42 @@ function hideColumns(table) {
                     td.style.maxWidth = "0";
                     td.style.paddingLeft = "1px";
                     td.style.paddingRight = "0";
+
+                    if (tr.parentElement === tbody && td.innerText) {
+                        if (fg_copy.has(metadata.size_key)) {
+                            const copy_to_key = col_map.get(bg_copy.get(metadata.size_key));
+                            let copy_to = td.previousElementSibling;
+                            while (copy_to && table.getMeta(copy_to).size_key !== copy_to_key) {
+                                copy_to = copy_to.previousElementSibling;
+                            }
+                            if (copy_to) {
+                                copy_to.style.color = td.style.color;
+                                td.style.color = "";
+                            }
+                        }
+                        if (bg_copy.has(metadata.size_key)) {
+                            const copy_to_key = col_map.get(bg_copy.get(metadata.size_key));
+                            let copy_to = td.previousElementSibling;
+                            while (copy_to && table.getMeta(copy_to).size_key !== copy_to_key) {
+                                copy_to = copy_to.previousElementSibling;
+                            }
+                            if (copy_to) {
+                                copy_to.style.backgroundColor = td.style.backgroundColor;
+                                td.style.backgroundColor = "";
+                            }
+                        }
+                        if (row_fg_copy.has(metadata.size_key)) {
+                            tr.style.color = td.style.color;
+                        }
+                        if (row_bg_copy.has(metadata.size_key)) {
+                            tr.style.backgroundColor = td.style.backgroundColor;
+                        }
+                    } else {
+                        td.style.color = ""
+                        tr.style.color = ""
+                        td.style.backgroundColor = ""
+                        tr.style.backgroundColor = ""
+                    }
                 }
             }
         }

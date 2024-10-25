@@ -221,7 +221,7 @@ def test_uncollapse_keys():
         return uncollapse_keys(ts)
 
     fd = frozendict
-    assert eval_node(g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}]) == [
+    assert eval_node(g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}], __trace__=True) == [
         fd(
             {1: fd({"a": 5}), 2: fd({"b": 6})},
         ),

@@ -1,3 +1,5 @@
+import builtins
+import datetime
 import re
 from asyncio import Future
 from collections import deque
@@ -5,7 +7,8 @@ from collections import deque
 import pyarrow
 
 from hgraph import Node, PythonNestedNodeImpl, TimeSeriesInput, PythonTimeSeriesReferenceOutput, \
-    PythonTimeSeriesReference, PythonTimeSeriesReferenceInput
+    PythonTimeSeriesReference, PythonTimeSeriesReferenceInput, to_table
+from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
 from hgraph.debug._inspector_item_id import InspectorItemId, NodeValueType
 from hgraph.debug._inspector_state import InspectorState
@@ -24,6 +27,20 @@ def graph_object_from_id(state: InspectorState, item_id: InspectorItemId):
         raise ValueError(f"Item {item_id} not found")
 
     return graph, value
+
+
+def graph_type_from_id(state: InspectorState, item_id: InspectorItemId):
+    gi = state.observer.get_graph_info(item_id.graph)
+    if gi is None:
+        raise ValueError(f"Graph {item_id.graph} not found")
+
+    graph = gi.graph
+
+    tp = item_id.find_item_type(graph)
+    if tp is None:
+        raise ValueError(f"Item {item_id} not found or its type is not known")
+
+    return tp
 
 
 def item_iterator(item_id, value):
@@ -251,16 +268,50 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
     return "", []
 
 
-def inspector_read_frame(state, item_id):
+def inspector_read_value(state, item_id):
     graph, value = graph_object_from_id(state, item_id)
 
     import polars as pl
 
     from hgraph import PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput
-    if isinstance(value, (PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput)):
-        value = value.value
 
-    if isinstance(value, pl.DataFrame):
+    if isinstance(value, Node):
+        value = value.output
+        item_id = item_id.sub_item("OUTPUT", NodeValueType.Output)
+
+    if isinstance(value, (PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput)):
+        value = value.value if isinstance(value.value, pl.DataFrame) else value
+
+    if not isinstance(value, pl.DataFrame):
+        tp = graph_type_from_id(state, item_id)
+        schema = extract_table_schema(tp)
+        table = schema.to_table_snap(value)
+
+        def map_type(t: type, values):
+            match t:
+                case builtins.int: return pyarrow.int64(), values
+                case builtins.str: return pyarrow.string(), values
+                case builtins.float: return pyarrow.float64(), values
+                case builtins.bool: return pyarrow.bool_(), values
+                case datetime.date: return pyarrow.date32(), values
+                case datetime.datetime: return pyarrow.timestamp('us'), values
+                case datetime.time: return pyarrow.time64('us'), values
+                case datetime.timedelta: return pyarrow.duration('us'), values
+                case _: return pyarrow.string(), [str(v) for v in values]
+
+        mapped_types, mapped_values = zip(*(map_type(t, v) for t, v in zip(schema.types, zip(*table))))
+
+        pyarrow_schema = pyarrow.schema([
+            (k, v)
+            for k, v in zip(schema.keys, mapped_types)])
+
+        batch = pyarrow.record_batch(list(mapped_values),
+                                     schema=pyarrow_schema)
+        stream = pyarrow.BufferOutputStream()
+
+        with pyarrow.ipc.new_stream(stream, batch.schema) as writer:
+            writer.write_batch(batch)
+    else:
         batches = value._df.to_arrow(compat_level=False)
         stream = pyarrow.BufferOutputStream()
 
@@ -268,10 +319,7 @@ def inspector_read_frame(state, item_id):
             for batch in batches:
                 writer.write_batch(batch)
 
-        return stream.getvalue().to_pybytes(), []
-
-    else:
-        raise ValueError(f"Item {item_id} is not a DataFrame")
+    return stream.getvalue().to_pybytes(), []
 
 
 def handle_requests(state: InspectorState):
@@ -346,8 +394,8 @@ def handle_inspector_request(state: InspectorState, request: HttpGetRequest, f: 
                     response, new_commands = inspector_pin_ref(state, item_id)
                 case "unpin":
                     response, new_commands = inspector_unpin_item(state, item_id)
-                case "frame":
-                    response, new_commands = inspector_read_frame(state, item_id)
+                case "value":
+                    response, new_commands = inspector_read_value(state, item_id)
                 case _:  # pragma: no cover
                     set_result(f, HttpResponse(404, body="Invalid command"))
                     return

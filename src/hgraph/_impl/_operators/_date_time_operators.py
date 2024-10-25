@@ -16,6 +16,7 @@ from hgraph import (
     mean,
     std,
     var,
+    floordiv_,
 )
 
 __all__ = tuple()
@@ -150,9 +151,24 @@ def mul_timedelta_number(lhs: TS[timedelta], rhs: TS[NUMBER]) -> TS[timedelta]:
     return lhs.value * rhs.value
 
 
+@compute_node(overloads=mul_)
+def mul_number_timedelta(lhs: TS[NUMBER], rhs: TS[timedelta]) -> TS[timedelta]:
+    return lhs.value * rhs.value
+
+
 @compute_node(overloads=div_)
 def div_timedelta_number(lhs: TS[timedelta], rhs: TS[NUMBER]) -> TS[timedelta]:
     return lhs.value / rhs.value
+
+
+@compute_node(overloads=div_)
+def div_timedeltas(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[float]:
+    return lhs.value / rhs.value
+
+
+@compute_node(overloads=floordiv_)
+def div_timedeltas(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[int]:
+    return lhs.value // rhs.value
 
 
 @graph(overloads=sum_)

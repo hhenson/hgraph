@@ -80,15 +80,27 @@ def write_subscription_key(path: str, key: TS[SCALAR], _state: STATE = None):
     the appropriate reference counting.
     """
     svc_node_in = GlobalState.instance().get(f"{path}/subs")
-    (s := _state.tracker[(v := key.value)]).add(_state.subscription_id)
+
+    key_value = key.value
     set_delta = set()
-    if _state.previous_key and _state.previous_key != v:
-        (s_old := _state.tracker[_state.previous_key]).discard(_state.subscription_id)
-        if not s_old:
-            set_delta.add(Removed(_state.previous_key))
-    _state.previous_key = v
-    if len(s) == 1:
-        set_delta.add(v)
+
+    if _state.previous_key is not None:
+        if _state.previous_key != key_value:
+            prev_subscriptions = _state.tracker[_state.previous_key]
+            prev_subscriptions.discard(_state.subscription_id)
+            if not prev_subscriptions:
+                set_delta.add(Removed(_state.previous_key))
+        else:
+            return  # No change in key, no need to update
+
+    _state.previous_key = key_value
+
+    if key_value is not None:
+        subscriptions = _state.tracker[key_value]
+        subscriptions.add(_state.subscription_id)
+        if len(subscriptions) == 1:
+            set_delta.add(key_value)
+
     if set_delta:
         svc_node_in.apply_value(set_delta)
 
@@ -105,7 +117,7 @@ def write_subscription_key_start(path: str, _state: STATE):
 
 @write_subscription_key.stop
 def write_subscription_key_stop(path: str, _state: STATE):
-    if key := _state.previous_key:
+    if (key := _state.previous_key) is not None:
         (s := _state.tracker[key]).discard(_state.subscription_id)
         if not s:
             del _state.tracker[key]

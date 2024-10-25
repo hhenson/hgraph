@@ -32,6 +32,7 @@ class PartialSchema:
     partition_keys: tuple[str, ...]
     remove_partition_keys: tuple[str, ...]
     to_table: Callable[[TIME_SERIES_TYPE], TABLE]
+    to_table_snap: Callable[[TIME_SERIES_TYPE], TABLE]
     from_table: Callable[[Iterable], TIME_SERIES_TYPE]
 
 
@@ -71,6 +72,7 @@ def _(tp: HgCompoundScalarType) -> PartialSchema:
         partition_keys=tuple(),
         remove_partition_keys=tuple(),
         to_table=lambda v: tuple(i for fn in to_table for i in fn(v)),
+        to_table_snap=lambda v: tuple(i for fn in to_table for i in fn(v)),
         from_table=lambda it: tp.py_type(**{k: v(it) for k, v in zip(tp.meta_data_schema.keys(), from_table)}),
     )
 
@@ -87,6 +89,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             partition_keys=tuple(),
             remove_partition_keys=tuple(),
             to_table=lambda ts, schema=schema: schema.to_table(ts.value) if ts.modified else (None,) * len(schema.keys),
+            to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.value),
             from_table=schema.from_table,
         )
     else:
@@ -97,6 +100,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             partition_keys=tuple(),
             remove_partition_keys=tuple(),
             to_table=lambda v: (v.value if v.modified else None,),
+            to_table_snap=lambda v: (v.value,),
             from_table=lambda iter: next(iter),
         )
 
@@ -109,6 +113,7 @@ def _(tp: HgTSBTypeMetaData) -> PartialSchema:
     types = []
     from_table = []
     to_table = []
+    to_table_snap = []
     for k, v in schema.items():
         tp_ = type(v)
         if tp_ is HgTSBTypeMetaData:
@@ -116,6 +121,7 @@ def _(tp: HgTSBTypeMetaData) -> PartialSchema:
             keys.extend(f"{k}.{k_}" for k_ in schema.keys)
             types.extend(schema.types)
             to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
+            to_table_snap.append(lambda value, k=k, schema=schema: schema.to_table_snap(getattr(value, k)))
             from_table.append(schema.from_table)
         elif tp_ in (HgTSTypeMetaData, HgTSSTypeMetaData):
             schema = extract_table_schema(v)
@@ -126,6 +132,7 @@ def _(tp: HgTSBTypeMetaData) -> PartialSchema:
                 keys.append(k)
                 types.append(schema.types[0])
             to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
+            to_table_snap.append(lambda value, k=k, schema=schema: schema.to_table_snap(getattr(value, k)))
             from_table.append(schema.from_table)
         else:
             raise RuntimeError(f"Cannot extract table schema from '{tp}' as {k}: {v} is not convertable")
@@ -136,6 +143,7 @@ def _(tp: HgTSBTypeMetaData) -> PartialSchema:
         partition_keys=tuple(),
         remove_partition_keys=tuple(),
         to_table=lambda v: tuple(i for fn in to_table for i in fn(v)),
+        to_table_snap=lambda v: tuple(i for fn in to_table_snap for i in fn(v)),
         from_table=lambda it, key_s=schema_keys, f_t=from_table,: fd(
             **{k: v_ for k, v in zip(key_s, f_t) if (v_ := v(it)) is not None}
         ),
@@ -178,16 +186,17 @@ def _(tp: HgTSDTypeMetaData) -> PartialSchema:
         partition_keys=(key_name,) + schema.partition_keys,
         remove_partition_keys=(removed_name,) + schema.remove_partition_keys,
         to_table=lambda tsd, k=key_name, schema=schema: _tsd_to_table(tsd, schema),
+        to_table_snap=lambda tsd, k=key_name, schema=schema: _tsd_to_table(tsd, schema, True),
         from_table=lambda it, schema=schema: _tsd_from_table(it, schema),
     )
 
 
-def _tsd_to_table(tsd: TSD[K, V], schema: PartialSchema) -> TABLE:
+def _tsd_to_table(tsd: TSD[K, V], schema: PartialSchema, snap=False) -> TABLE:
     if schema.partition_keys:
         # If there are partial keys in the value, then we will potentially get multiple rows
         out = []
-        for k, v in tsd.modified_items():
-            for row in schema.to_table(v):
+        for k, v in (tsd.modified_items() if not snap else tsd.valid_items()):
+            for row in (schema.to_table(v) if not snap else schema.to_table_snap(v)):
                 out.append(
                     (
                         False,
@@ -195,8 +204,9 @@ def _tsd_to_table(tsd: TSD[K, V], schema: PartialSchema) -> TABLE:
                     )
                     + row
                 )
-        for k in tsd.removed_keys():
-            out.append((True, k) + (None,) * len(schema.keys))
+        if not snap:
+            for k in tsd.removed_keys():
+                out.append((True, k) + (None,) * len(schema.keys))
         return tuple(out)
     else:
         return tuple(
@@ -205,10 +215,10 @@ def _tsd_to_table(tsd: TSD[K, V], schema: PartialSchema) -> TABLE:
                     False,
                     k,
                 )
-                + schema.to_table(v)
+                + (schema.to_table(v) if not snap else schema.to_table_snap(v))
             )
-            for k, v in tsd.modified_items()
-        ) + tuple(((True, k) + (None,) * len(schema.keys)) for k in tsd.removed_keys())
+            for k, v in (tsd.modified_items() if not snap else tsd.valid_items())
+        ) + tuple(((True, k) + (None,) * len(schema.keys)) for k in (tsd.removed_keys() if not snap else ()))
 
 
 def _tsd_from_table(it, schema: PartialSchema) -> fd:

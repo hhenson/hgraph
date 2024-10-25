@@ -6,35 +6,111 @@
     </head>
 
     <body>
+        <script>
+            function copyLayout(name){
+                let copy_name = prompt("Enter new name", name + ".copy");
+                if (!copy_name) return;
+                fetch(`/layout/${name}`)
+                    .then(response => response.json())
+                    .then(layout => {
+                        fetch(`/layout/${copy_name}`, {method: "post", body: JSON.stringify(layout)})
+                            .then(() => window.location.reload());
+                    });
+            }
+
+            function deleteLayout(name){
+                let confirm1 = confirm("Are you sure you want to delete layout " + name + "?");
+                if (!confirm1) return;
+                fetch(`/layout/${name}`, {method: "delete"})
+                    .then(() => window.location.reload());
+            }
+
+            function uploadLayout(){
+                let form = document.forms.upload;
+                let name = form.name.value;
+                let content = form.content.files[0];
+                if (!name || !content) return;
+                let reader = new FileReader();
+                reader.onload = function(){
+                    fetch(`/layout/${name}`, {method: "post", body: reader.result})
+                        .then(() => window.location.reload());
+                };
+                reader.readAsText(content);
+                return false;
+            }
+
+            function newLayout(){
+                let form = document.forms.new;
+                let name = form.name.value;
+                if (!name) return;
+                window.location.href = `/workspace/${name}`;
+                return false;
+            }
+
+            function restoreVersion(name, version){
+                fetch(`/layout/${name}.${version}`)
+                    .then(response => response.json())
+                    .then(layout => {
+                        fetch(`/layout/${name}`, {method: "post", body: JSON.stringify(layout)})
+                            .then(() => window.location.reload());
+                    });
+            }
+        </script>
+
         <table>
             <thead>
                 <tr>
                     <th>Tables</th>
                     <th>Layouts</th>
+                    {% if versions %}
                     <th>Versions</th>
+                    {% end %}
                 </tr>
             <tbody>
             <tr>
                 <td>
                     {% for table in mgr.get_table_names() %}
-                        <div></div><a href="/table/{{table}}">{{table}}</a></div>
+                        <div><a href="/table/{{table}}">{{table}}</a></div>
                     {% end %}
                 </td>
                 <td>
                     {% for layout in layouts %}
-                        <div></div><a href="/workspace/{{layout}}">{{layout}}</a></div>
+                    <div>
+                        <a href="/workspace/{{layout}}">{{layout}}</a>
+                        &nbsp;(
+                        {% if not versions %}
+                        <a style="font-size: smaller" href="/versions/{{layout}}">versions</a>
+                        &nbsp;
+                        {% end %}
+                        <button style="font-size: xx-small" onclick="copyLayout('{{layout}}')">copy</button>
+                        &nbsp;
+                        <button style="font-size: xx-small" onclick="deleteLayout('{{layout}}')">delete</button>
+                        )
+                    </div>
                     {% end %}
+                    <div>
+                        <br/>
+                        <form name="upload" action="/layout" method="post" onsubmit="return uploadLayout()">
+                            <input style="font-size: xx-small" type="file" name="content"><br/>
+                            <input style="font-size: xx-small" type="text" name="name" placeholder="Uploaded layout name" />
+                            <input style="font-size: xx-small" type="submit" value="Upload"/>
+                        </form>
+                        <br/>
+                        <form name="new" action="/workspace" method="post" onsubmit="return newLayout()">
+                            <input style="font-size: xx-small" type="text" name="name" placeholder="New layout name" />
+                            <input style="font-size: xx-small" type="submit" value="Create"/>
+                        </form>
+                    </div>
                 </td>
+                {% if versions %}
                 <td>
                     {% for version in versions %}
-                        <div></div><a href="/workspace/{{layouts[0]}}.{{version}}">{{version}}</a></div>
-                    {% end %}
-                    {% if not versions %}
-                        {% for layout in layouts %}
-                            <div></div><a href="/versions/{{layout}}">{{layout}}</a></div>
-                        {% end %}
+                    <div><a href="/workspace/{{layouts[0]}}.{{version}}">{{version}}</a>
+                    &nbsp;
+                    <button style="font-size: xx-small" onclick="restoreVersion('{{layouts[0]}}', '{{version}}')">restore</button></div>
                     {% end %}
                 </td>
+                {% end %}
             </tr>
             </tbody>
             <thead><tr></tr></thead>
