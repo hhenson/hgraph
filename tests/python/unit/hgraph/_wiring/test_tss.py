@@ -1,4 +1,4 @@
-from hgraph import graph, TS, TSS, compute_node, PythonSetDelta, Removed, contains_
+from hgraph import graph, TS, TSS, compute_node, PythonSetDelta, Removed, contains_, SIGNAL
 from hgraph.nodes import pass_through
 from hgraph.test import eval_node
 
@@ -12,9 +12,9 @@ def create_tss(key: TS[str], add: TS[bool]) -> TSS[str]:
 
 
 def test_tss_strait():
-
-    assert eval_node(create_tss, key=["a", "b", "a"], add=[True, True, False]) == [
+    assert eval_node(create_tss, key=["a", "a", "b", "a"], add=[True, True, True, False]) == [
         PythonSetDelta(frozenset("a"), frozenset()),
+        None,
         PythonSetDelta(frozenset("b"), frozenset()),
         PythonSetDelta(frozenset(), frozenset("a"))]
 
@@ -42,3 +42,9 @@ def test_tss_contains():
            == [False, True, False, False, True]
 
 
+def test_tss_empty():
+    @compute_node
+    def empty(s: TS[bool]) -> TSS[int]:
+        return set()
+
+    assert eval_node(empty, [True]) == [set()]

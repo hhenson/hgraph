@@ -98,6 +98,8 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
                 if len(self._added) != len(v)
                 else set()
             )
+            if self._removed.intersection(self._added):
+                raise ValueError("Cannot remove and add the same element")
             self._value.update(self._added)
             self._value.difference_update(self._removed)
         self._post_modify()
@@ -260,7 +262,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def added(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
-            return self.output.added() | (self.values() - self._prev_output.values())
+            return self.values() - self._prev_output.values()
         else:
             return self.values() if self._sampled else self.output.added()
 

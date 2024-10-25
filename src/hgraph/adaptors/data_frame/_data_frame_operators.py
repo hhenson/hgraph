@@ -12,10 +12,10 @@ from hgraph import (
     COMPOUND_SCALAR_1,
     COMPOUND_SCALAR_2,
     compound_scalar,
-    KEYABLE_SCALAR,
+    KEYABLE_SCALAR, TS_SCHEMA, TSB,
 )
 
-__all__ = ("join", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_")
+__all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_")
 
 ON_TYPE = TypeVar("ON_TYPE", str, tuple[str, ...], pl.Expr)
 
@@ -56,9 +56,16 @@ def join(
     return lhs.join(rhs.value, on=on, how=how, suffix=suffix)
 
 
+# TODO: find a new name for 'filter' to disambiguate with the filter_ operator/
 @compute_node
-def filter_cs(ts: TS[Frame[COMPOUND_SCALAR]], predicate: COMPOUND_SCALAR) -> TS[Frame[COMPOUND_SCALAR]]:
-    kwargs = {k: v for k, v in predicate.to_dict().items() if v is not None}
+def filter_frame(ts: TS[Frame[COMPOUND_SCALAR]], **predicate: TSB[TS_SCHEMA]) -> TS[Frame[COMPOUND_SCALAR]]:
+    kwargs = {k: v for k, v in predicate.value.items() if v is not None}
+    return ts.value.filter(**kwargs)
+
+
+@compute_node
+def filter_cs(ts: TS[Frame[COMPOUND_SCALAR]], predicate: TS[COMPOUND_SCALAR]) -> TS[Frame[COMPOUND_SCALAR]]:
+    kwargs = {k: v for k, v in predicate.value.to_dict().items() if v is not None}
     return ts.value.filter(**kwargs)
 
 

@@ -14,6 +14,7 @@ from hgraph import (
     DEFAULT,
     OUT,
     TS_SCHEMA_1,
+    HgTypeMetaData,
 )
 
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
@@ -40,6 +41,15 @@ def _combine_tsb_partial_requirements(mapping, scalars):
 @graph(overloads=combine, requires=_combine_tsb_partial_requirements)
 def combine_named_tsb_partial(tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA_1]) -> TSB[TS_SCHEMA]:
     return TSB.from_ts(__type__=tp_, **bundle.as_dict())
+
+
+@graph(overloads=convert)
+def convert_tsbs(ts: TSB[TS_SCHEMA], to: type[TSB[TS_SCHEMA_1]] = DEFAULT[OUT]) -> TSB[TS_SCHEMA_1]:
+    """
+    Converts a TSB to another TSB if the keys and types match.
+    """
+    return combine[to](**{k: v for k, v in ts.as_dict().items() if k in
+                          HgTypeMetaData.parse_type(to).bundle_schema_tp.meta_data_schema.keys()})
 
 
 @compute_node(overloads=convert)

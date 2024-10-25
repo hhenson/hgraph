@@ -1,4 +1,6 @@
+import operator
 from dataclasses import KW_ONLY, Field, InitVar, dataclass
+from functools import reduce
 from hashlib import shake_256
 from inspect import get_annotations
 from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar, Generic
@@ -85,7 +87,7 @@ class AbstractSchema:
         super().__init_subclass__(**kwargs)
         from hgraph._types._type_meta_data import ParseError
 
-        schema = getattr(cls, "__base_meta_data_schema__", {}) | dict(cls.__meta_data_schema__)
+        schema = dict(reduce(operator.or_, [getattr(c, '__meta_data_schema__', {}) for c in cls.__bases__]))
         for k, v in get_annotations(cls, eval_str=True).items():
             if getattr(v, "__origin__", None) == ClassVar:
                 continue
@@ -182,6 +184,7 @@ class AbstractSchema:
                 base = cls._parse_type(base_py)
                 if (base := base.resolve(resolution_dict, weak=True)).is_resolved:
                     base_py = cls._schema_convert_base(base.py_type)
+                    cls = base_py._schema_convert_base(cls)
                     bases = (cls, base_py)
                     type_dict["__base_meta_data_schema__"] = base_py.__meta_data_schema__
                     type_dict["__base_resolution_meta__"] = cls._parse_type(base_py)

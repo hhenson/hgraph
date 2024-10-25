@@ -14,6 +14,7 @@ from hgraph import (
     mul_,
     graph,
     cast_,
+    contains_,
 )
 
 __all__ = tuple()
@@ -107,3 +108,8 @@ def add_series_int_series_int(lhs: TS[Series[NUMBER]], rhs: TS[Series[NUMBER_2]]
 @compute_node(overloads=add_)
 def add_series_float_series_int(lhs: TS[Series[float]], rhs: TS[Series[int]]) -> TS[Series[float]]:
     return lhs.value + rhs.value
+
+
+@compute_node(overloads=contains_)
+def contains_series(series: TS[Series[SCALAR]], value: TS[SCALAR]) -> TS[bool]:
+    return value.value in series.value

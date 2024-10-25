@@ -57,15 +57,7 @@ def process_graph(state: InspectorState, graph: Graph, publish_interval: float):
         state.total_data["cycles"].append(root_graph.eval_count)
         state.total_data["graph_time"].append(root_graph.eval_time)
 
-        from hgraph.debug._inspector_handler import handle_requests
-        publish_values = handle_requests(state)
-
-        if publish_values or state.last_publish_time is None or (datetime.utcnow() - state.last_publish_time).total_seconds() > 2.5:
-            state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
-            start = time.perf_counter_ns()
-            publish_stats(state)
-            state.inspector_time = 0.0
-
+        start = check_requests_and_publish(state, start)
     else:
         # not a root graph
         gi = state.observer.get_graph_info(graph.graph_id)
@@ -85,7 +77,30 @@ def process_graph(state: InspectorState, graph: Graph, publish_interval: float):
     state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
 
 
-def publish_stats(state: InspectorState):
+def check_requests_and_publish(state: InspectorState, start: int = None, stats_period=2.5):
+    if start is None:
+        start_ = time.perf_counter_ns()
+
+    from hgraph.debug._inspector_handler import handle_requests
+    if state.last_request_process_time is None or (datetime.utcnow() - state.last_request_process_time).total_seconds() > 0.1:
+        publish_values = handle_requests(state)
+        state.last_request_process_time = datetime.utcnow()
+
+        publish = state.last_publish_time is None or (datetime.utcnow() - state.last_publish_time).total_seconds() > stats_period
+        if publish_values or publish:
+            if start is not None:
+                state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
+                start = time.perf_counter_ns()
+            publish_tables(state, include_stats=publish)
+            state.inspector_time = 0.0
+
+    if start is None:
+        state.inspector_time += (time.perf_counter_ns() - start_) / 1_000_000_000
+
+    return start
+
+
+def publish_tables(state: InspectorState, include_stats=True):
     state.manager.update_table(
         "inspector",
         [i for i in state.value_data if i["id"] not in state.value_removals],

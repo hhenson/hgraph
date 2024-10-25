@@ -36,11 +36,36 @@ async function connectWorkspaceTables(workspace){
         { mode: "row" }
     );
     // {% end %}
-    // {% end %}
     workspace.tables.set(
         "{{table_name}}",
         client_{{tbl}}
     );
+    // {% end %}
     //{% end %}
     //{% end %}
+
+    const heartbeat = await websocket_ro.open_table("heartbeat");
+    const heartbeat_view = await heartbeat.view();
+    let heartbeat_timer = undefined;
+
+    heartbeat_view.on_update(
+        async (updated) => {
+            const update_table = await worker.table(updated.delta);
+            const update_view = await update_table.view();
+            const update_data = await update_view.to_columns();
+            const hb_index = update_data['name'].indexOf("heartbeat");
+            if (hb_index !== -1) {
+                console.log("Heartbeat received");
+
+                if (heartbeat_timer)
+                    window.clearTimeout(heartbeat_timer);
+
+                heartbeat_timer = window.setTimeout(() => {
+                    console.log("Heartbeat timeout");
+                    window.location.reload();
+                }, 30000);
+            }
+        },
+        { mode: "row" }
+    );
 }

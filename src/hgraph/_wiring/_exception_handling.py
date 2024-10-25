@@ -129,6 +129,9 @@ def try_except(
         # noinspection PyTypeChecker
         port = TryExceptWiringNodeClass(resolved_signature_outer, graph, resolved_signature)(**kwargs_)
 
+        port.node_instance.trace_back_depth = __trace_back_depth__
+        port.node_instance.capture_values = __capture_values__
+
         from hgraph import WiringGraphContext
 
         WiringGraphContext.instance().reassign_items(reassignables, port.node_instance)

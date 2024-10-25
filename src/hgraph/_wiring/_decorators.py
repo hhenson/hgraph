@@ -626,9 +626,6 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
 
     from hgraph import WiringGraphContext
 
-    if len(implementation.interfaces) > 1 and path is None:
-        raise RuntimeError("A service implementation with multiple interface bindings need to have a path defined")
-
     for i in implementation.interfaces:
         if i is not None:
             WiringGraphContext.instance().register_service_impl(i, path, implementation, kwargs, resolution_dict)
@@ -927,6 +924,10 @@ def _node_decorator(
         else:
             return lambda fn: _node_decorator(impl_fn=fn, **kwargs, resolvers=resolvers)
     elif overloads is not None:
+        from hgraph._wiring._wiring_node_class._operator_wiring_node import OperatorWiringNodeClass
+        if not isinstance(overloads, OperatorWiringNodeClass) and overloads.allow_overloads is False:
+            raise ValueError("Overloads can only be used with operators and dispatch")
+
         overload = _create_node(impl_fn, **kwargs)
         if resolvers is not None:
             overload = overload[tuple(slice(k, v) for k, v in resolvers.items())]

@@ -26,8 +26,7 @@ def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars["key"]].py_type]},
 )
 def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
-    if not ts.value.is_empty():
-        return ts.value[key]
+    return ts.value[key]
 
 
 @compute_node(overloads=getitem_)

@@ -47,6 +47,7 @@ def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
             raise CustomMessageWiringError(f"{fn.signature} has no overloads to dispatch to")
 
     dispatch_graph = graph(dispatch_)
+    dispatch_graph.allow_overloads = True
     dispatch_graph.skip_overload_check = True
     return dispatch_graph
 

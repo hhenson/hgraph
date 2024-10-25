@@ -6,7 +6,7 @@ from hgraph._operators._graph_operators import default, nothing, null_sink, debu
 from hgraph._operators._string import format_
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF
-from hgraph._types._scalar_types import CompoundScalar, STATE, LOGGER
+from hgraph._types._scalar_types import CompoundScalar, STATE, LOGGER, DEFAULT
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1
@@ -39,7 +39,7 @@ def _default(
 
 
 @generator(overloads=nothing)
-def nothing_impl(tp: type[OUT] = AUTO_RESOLVE) -> OUT:
+def nothing_impl(tp: type[OUT] = AUTO_RESOLVE) -> DEFAULT[OUT]:
     """
     Produces no ticks ever
 

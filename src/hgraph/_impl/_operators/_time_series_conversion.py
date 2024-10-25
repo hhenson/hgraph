@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from hgraph._wiring._decorators import generator
-from hgraph._types._scalar_types import SCALAR
+from hgraph._types._scalar_types import SCALAR, DEFAULT
 from hgraph._types._ts_type import TS
 from hgraph._types._time_series_types import OUT
 from hgraph._runtime._evaluation_engine import EvaluationEngineApi
@@ -16,7 +16,7 @@ def const_default(
     tp: type[OUT] = TS[SCALAR],
     delay: timedelta = timedelta(),
     _api: EvaluationEngineApi = None,
-) -> OUT:
+) -> DEFAULT[OUT]:
     """
     Produces a single tick at the start of the graph evaluation after which this node does nothing.
 

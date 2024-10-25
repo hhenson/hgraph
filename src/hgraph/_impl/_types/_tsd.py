@@ -5,16 +5,16 @@ from typing import Generic, Any, Iterable, Tuple, TYPE_CHECKING, cast
 
 from frozendict import frozendict
 
-from hgraph._runtime._constants import MIN_DT
-from hgraph._types._tss_type import TimeSeriesSetInput
 from hgraph._impl._types._feature_extension import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._impl._types._ref import PythonTimeSeriesReference
+from hgraph._runtime._constants import MIN_DT
 from hgraph._types._ref_type import TimeSeriesReferenceOutput
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import K, V
 from hgraph._types._tsd_type import TimeSeriesDictOutput, TimeSeriesDictInput, REMOVE_IF_EXISTS, REMOVE
+from hgraph._types._tss_type import TimeSeriesSetInput
 from hgraph._types._tss_type import TimeSeriesSetOutput
 
 if TYPE_CHECKING:
@@ -92,7 +92,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             self.invalidate()
             return
         if not self.valid and not v:
-            self.mark_modified()  # Even if we tick an empty set, we still need to mark this as modified
+            self.key_set.mark_modified()  # Even if we tick an empty set, we still need to mark this as modified
         # Expect a mapping of some sort or an iterable of k, v pairs
         for k, v_ in v.items() if isinstance(v, (dict, frozendict)) else v:
             if v_ is None:
@@ -259,7 +259,6 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def do_bind_output(self, output: "TimeSeriesOutput"):
         output: PythonTimeSeriesDictOutput
         key_set: "TimeSeriesSetInput" = self.key_set
-        key_set.bind_output(output.key_set)
 
         if output.__value_tp__ != self.__value_tp__ and (
             output.__value_tp__.has_references or self.__value_tp__.has_references
@@ -268,9 +267,14 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             #  that contains REFs but there are other items that are of different but compatible non-REF types.
             #  It would be very esoteric and I cannot think of an example so will leave the check as is
             peer = False
+            self.key_set.set_subscribe_method(subscribe_input=True)
         else:
             peer = True
+            self.key_set.set_subscribe_method(subscribe_input=self._subscribe_input)
+
         self._has_peer = peer
+
+        key_set.bind_output(output.key_set)
 
         if self.owning_node.is_started and self.output:
             self.output.remove_key_observer(self)
@@ -280,12 +284,14 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         super().do_bind_output(output)
 
         if self._ts_values:
-            self._removed_items = self._ts_values
-            self._ts_values = {}
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
         for key in key_set.values():
             self.on_key_added(key)
+
+        if not self.has_peer:
+            for key in key_set.removed():
+                self.on_key_removed(key)
 
         output.add_key_observer(self)
         return peer
@@ -311,6 +317,24 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self.output.remove_key_observer(self)
         super().do_un_bind_output()
 
+    def make_active(self):
+        if self.has_peer:
+            super().make_active()
+        else:
+            self._active = True
+            self.key_set.make_active()
+            for v in self._ts_values.values():
+                v.make_active()
+
+    def make_passive(self):
+        if self.has_peer:
+            super().make_passive()
+        else:
+            self._active = False
+            self.key_set.make_passive()
+            for v in self._ts_values.values():
+                v.make_passive()
+
     def _create(self, key: K):
         item = self._ts_builder.make_instance(owning_input=self)
         item.set_subscribe_method(subscribe_input=not self.has_peer)
@@ -322,7 +346,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             self._last_notified_time = modified_time
             self._modified_items = []
 
-        self._modified_items.append((self._ts_values_to_keys[id(child)], child))
+        if child is not self._key_set:
+            self._modified_items.append((self._ts_values_to_keys[id(child)], child))
+
         super().notify_parent(self, modified_time)
 
     def _reset_prev(self):
@@ -441,7 +467,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         return self.key_set.removed()
 
     def removed_values(self) -> Iterable[V]:
-        return (self._removed_items[key] for key in self.removed_keys())
+        return (self._removed_items.get(key) or self._ts_values.get(key) for key in self.removed_keys())
 
     def removed_items(self) -> Iterable[Tuple[K, V]]:
-        return ((key, self._removed_items[key]) for key in self.removed_keys())
+        return ((key, self._removed_items.get(key) or self._ts_values.get(key)) for key in self.removed_keys())

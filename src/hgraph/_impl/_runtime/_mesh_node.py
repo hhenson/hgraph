@@ -257,7 +257,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
                     )
 
     def _remove_graph_dependency(self, key: K, depends_on: K):
-        self._active_graphs_dependencies[depends_on].remove(key)
+        self._active_graphs_dependencies[depends_on].discard(key)
         if not self._active_graphs_dependencies[depends_on] and depends_on not in self._kwargs[KEYS_ARG]:
             # no more dependencies and this was not asked for externally (through the keys)
             self._graphs_to_remove.add(depends_on)

@@ -38,13 +38,23 @@ class GraphInfo:
 
 
 class InspectionObserver(EvaluationLifeCycleObserver):
-    def __init__(self, graph: "Graph" = None, callback_node: Callable = None, callback_graph: Callable = None):
+    def __init__(self,
+                 graph: "Graph" = None,
+                 callback_node: Callable = None,
+                 callback_graph: Callable = None,
+                 callback_progress: Callable = None,
+                 progress_interval: float = 0.1,
+                 ):
         self.graphs = {}
         self.graphs_by_id = {}
         self.current_graph: GraphInfo = None
 
         self.callback_node = callback_node
         self.callback_graph = callback_graph
+        self.callback_progress = callback_progress
+        self.progress_interval = progress_interval
+        self.progress_last_time = time.perf_counter_ns()
+
         self.graph_subscriptions = set()
         self.node_subscriptions = set()
 
@@ -77,6 +87,11 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def unsubscribe_node(self, node_id: tuple[int, ...]):
         self.node_subscriptions.discard(node_id)
+
+    def check_progress(self):
+        if self.callback_progress and time.perf_counter_ns() - self.progress_last_time > self.progress_interval:
+            self.progress_last_time = time.perf_counter_ns()
+            self.callback_progress()
 
     def on_before_start_graph(self, graph: "Graph"):
         gi = GraphInfo(
@@ -127,6 +142,8 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         if self.callback_graph and graph.graph_id in self.graph_subscriptions:
             self.callback_graph(graph)
+
+        self.check_progress()
 
     def on_after_stop_graph(self, graph: "Graph"):
         if gi := self.graphs.get(id(graph)):

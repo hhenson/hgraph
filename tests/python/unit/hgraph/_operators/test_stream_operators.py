@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Tuple
 
 import pytest
@@ -27,7 +27,10 @@ from hgraph import (
     NodeException,
     batch,
     step,
-    slice_, TSD, REMOVE,
+    slice_,
+    TSD,
+    REMOVE,
+    MIN_DT, Removed, TSS,
 )
 from hgraph.test import eval_node
 
@@ -52,6 +55,22 @@ def test_lag_tick():
         return lag(ts, delay)
 
     assert eval_node(g, [1, 2, 3, 4, 5], 2) == [None, None, 1, 2, 3]
+
+
+def test_lag_tick_tss():
+    @graph
+    def g(ts: TSS[int], delay: int) -> TSS[int]:
+        return lag(ts, delay)
+
+    assert eval_node(g, [{1}, {2}, {Removed(1)}, {4}, {Removed(4)}], 2) == [None, None, {1}, {2}, {Removed(1)}]
+
+
+def test_lag_tick_tsd():
+    @graph
+    def g(ts: TSD[int, TS[int]], delay: int) -> TSD[int, TS[int]]:
+        return lag(ts, delay)
+
+    assert eval_node(g, [{1: 1}, {2: 2, 1: 2}, None, {1: REMOVE}, {4: 1}, {4: REMOVE}], 2) == [None, None, None, {1: 1}, {2: 2, 1: 2}, {1: REMOVE}]
 
 
 def test_lag_timedelta():
@@ -79,7 +98,7 @@ def test_schedule():
 def test_schedule_ts():
     @graph
     def g(delay: TS[timedelta], initial_delay: bool = True, max_ticks: int = 1) -> TS[bool]:
-        return schedule(delay, initial_delay, max_ticks)
+        return schedule(delay, initial_delay=initial_delay, max_ticks=max_ticks)
 
     assert eval_node(g, delay=MIN_TD * 2, max_ticks=2, initial_delay=False) == [True, None, True]
 
@@ -95,6 +114,27 @@ def test_schedule_ts():
     ]
 
     assert eval_node(g, delay=MIN_TD, max_ticks=1, initial_delay=False) == [True]
+
+
+def test_schedule_ts_with_start():
+    @graph
+    def g(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = True, max_ticks: int = 1) -> TS[bool]:
+        return schedule(delay, start=start, initial_delay=initial_delay, max_ticks=max_ticks)
+
+    assert eval_node(g, delay=MIN_TD * 2, start=MIN_ST + MIN_TD*3, max_ticks=2, initial_delay=False) == [True, None, None, True]
+
+    assert eval_node(g, delay=[MIN_TD, None, None, MIN_TD * 2], start=MIN_DT + MIN_TD*2, max_ticks=4, initial_delay=True) == [
+        None,
+        None,
+        True,
+        None,
+        None,
+        True,
+        None,
+        True,
+        None,
+        True,
+    ]
 
 
 def test_resample():

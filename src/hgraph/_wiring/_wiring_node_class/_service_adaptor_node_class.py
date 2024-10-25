@@ -68,12 +68,13 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
 
                 id = __request_id__ or request_id(hash((path, frozendict(inputs), frozendict(scalars))))
                 for k, v in inputs.items():
-                    client = write_adaptor_request(
-                        from_graph_typed_path, k, v, requestor_id=id, __return_sink_wp__=True
-                    )
-                    g.register_service_client(
-                        self, from_graph_full_path, resolution_dict, client.node_instance, receive=False
-                    )
+                    if v is not None:
+                        client = write_adaptor_request(
+                            from_graph_typed_path, k, v, requestor_id=id, __return_sink_wp__=True
+                        )
+                        g.register_service_client(
+                            self, from_graph_full_path, resolution_dict, client.node_instance, receive=False
+                        )
 
                 return id
 

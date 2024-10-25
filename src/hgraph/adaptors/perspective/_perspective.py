@@ -1,3 +1,4 @@
+import asyncio
 import concurrent.futures
 import logging
 import os
@@ -8,7 +9,7 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 from threading import Thread
-from typing import Dict, Optional, Callable, List
+from typing import Dict, Optional, Callable, List, Awaitable
 
 import pyarrow
 import tornado
@@ -21,11 +22,17 @@ __all__ = ["perspective_web", "PerspectiveTablesManager"]
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 
+logger = logging.getLogger(__name__)
+
+
 class PerspectiveTableUpdatesHandler:
     _table: Table
     _view: View
     _updates_table: Table
-    _queue: Optional[Callable] = None
+    _queue: Optional[Callable]
+
+    def __init__(self, allow_self_updates: bool):
+        self._allow_self_updates = allow_self_updates
 
     @property
     def table(self):
@@ -48,7 +55,7 @@ class PerspectiveTableUpdatesHandler:
         self._queue = value
 
     def on_update(self, x, y):
-        if x != 0:
+        if x != 0 or self._allow_self_updates:
             self._updates_table.replace(y)
             if self._queue:
                 self._queue(self._updates_table.view())
@@ -92,11 +99,11 @@ class PerspectiveTablesManager:
             # client tables need removes sent separately (because bug in perspective)
             self.add_table(name + "_removes", Table({"i": table.schema()[table.get_index()]}))
 
-    def subscribe_table_updates(self, name, cb):
+    def subscribe_table_updates(self, name, cb, self_updates: bool = False):
         if (table := self._tables.get(name)) and not table[1]:
             raise ValueError(f"Table '{name}' is not editable")
 
-        updater = self._updaters.setdefault(name, PerspectiveTableUpdatesHandler())
+        updater = self._updaters.setdefault(name, PerspectiveTableUpdatesHandler(self_updates))
         updater.queue = cb
         if self._started and table:
             updater.table = table[0]
@@ -105,6 +112,7 @@ class PerspectiveTablesManager:
         self._start_manager()
         self._start_editable_manager()
         self._started = True
+
 
     def _start_manager(self):
         self._manager = PerspectiveManager(lock=True)
@@ -178,12 +186,12 @@ class PerspectiveTablesManager:
         return [
             (
                 r"/websocket_readonly",
-                PerspectiveTornadoHandler,
+                PerspectiveTornadoHandlerWithLog,
                 {"manager": self._manager, "check_origin": True},
             ),
             (
                 r"/websocket_editable",
-                PerspectiveTornadoHandler,
+                PerspectiveTornadoHandlerWithLog,
                 {"manager": self._editable_manager, "check_origin": True},
             ),
         ]
@@ -192,8 +200,35 @@ class PerspectiveTablesManager:
         self._manager.set_loop_callback(cb, *args)
         self._editable_manager.set_loop_callback(cb, *args)
 
+        if self._started:
+            self._publish_heartbeat_table()
+
     def is_table_editable(self, name):
         return self._tables[name][1]
+
+    async def _publish_heartbeat(self):
+        while True:
+            self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.utcnow()}])
+            await asyncio.sleep(1)
+
+    def _publish_heartbeat_table(self):
+        self.add_table("heartbeat", Table({"name": str, "time": datetime}, index="name"))
+        self._manager.call_loop(self._publish_heartbeat)
+
+
+class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
+    def _log_websocket_event(self, event: str) -> None:
+        logger.info(f"Websocket from {self.request.remote_ip} to {self.request.path} "
+                    f"with id {self.request.headers['Sec-Websocket-Key']}: {event}")
+
+    def open(self, *args: str, **kwargs: str) -> Optional[Awaitable[None]]:
+        self._log_websocket_event("opened")
+        return super().open(*args, **kwargs)
+
+    def on_close(self) -> None:
+        self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
+        super().on_close()
+
 
 @sink_node
 def perspective_web(
@@ -445,3 +480,16 @@ class WorkspacePageHandler(tornado.web.RequestHandler):
         with open(layout_path_hist, "w") as f:
             f.write(json)
         self.finish("ok")
+
+    def delete(self, url):
+        layout_path = os.path.join(self.path, f"{url}.json")
+        layout_path_hist = os.path.join(
+            self.path, f"{url}.{datetime.now().isoformat(timespec='seconds').replace(':', '-')}.version"
+        )
+
+        if os.path.isfile(layout_path):
+            os.rename(layout_path, layout_path_hist)
+            self.finish("ok")
+        else:
+            self.set_status(404)
+            self.finish("not found")

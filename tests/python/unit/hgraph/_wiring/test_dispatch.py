@@ -1,4 +1,4 @@
-from hgraph import graph, TS, CompoundScalar
+from hgraph import graph, TS, CompoundScalar, operator
 from hgraph import dispatch_, dispatch, format_, cast_
 from hgraph.test import eval_node
 
@@ -38,8 +38,12 @@ def test_dispatch_2():
     class Plant(Food): ...
     class Meat(Food): ...
 
-    @graph
+    @operator
     def eats(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
+        ...
+
+    @graph(overloads=eats)
+    def eats_default(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
         return False
 
     @graph(overloads=eats)
