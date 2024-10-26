@@ -32,6 +32,7 @@ __all__ = (
     "SCALAR",
     "Size",
     "SIZE",
+    "SIZE_1",
     "COMPOUND_SCALAR",
     "SCALAR",
     "CompoundScalar",
@@ -206,6 +207,7 @@ class Hashable(Protocol):
 
 
 SIZE = TypeVar("SIZE", bound=Size)
+SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 COMPOUND_SCALAR_1 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
 COMPOUND_SCALAR_2 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_2")
