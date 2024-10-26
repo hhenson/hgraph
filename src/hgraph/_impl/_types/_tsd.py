@@ -116,7 +116,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         cast(TimeSeriesSetOutput, self.key_set).remove(k)
         try:
             self._modified_items.remove((k, item))
-        except: pass
+        except:
+            pass
         for observer in self._key_observers:
             observer.on_key_removed(k)
 
@@ -166,7 +167,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
                 if self[k].modified:
                     return False
             else:
-                if k in self._removed_items:  # Unlike TSS, TSD should not allow re-adding a removed key in the same tick
+                if (
+                    k in self._removed_items
+                ):  # Unlike TSS, TSD should not allow re-adding a removed key in the same tick
                     return False
                 if (v := self.get(k)) and not v.can_apply_result(v_):
                     return False
@@ -372,7 +375,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             self._removed_items[key] = value
             try:
                 self._modified_items.remove((key, value))
-            except: pass
+            except:
+                pass
         else:
             self._ts_values[key] = value
             value.un_bind_output()
