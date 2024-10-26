@@ -737,3 +737,9 @@ Version 0.3.21 (14-10-2024)
 
 * Bug fixes
 * Documentation updates
+
+Version 0.3.22 (26-10-2024)
+---------------------------
+
+* Many bugfixes from AB/SY/TO including; issues with map_ inside a reduce, signal, tsd issues, operators, schema.
+* Fix to reference service interface signature.

@@ -221,7 +221,9 @@ def test_uncollapse_keys():
         return uncollapse_keys(ts)
 
     fd = frozendict
-    assert eval_node(g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}], __trace__=True) == [
+    assert eval_node(
+        g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}], __trace__=True
+    ) == [
         fd(
             {1: fd({"a": 5}), 2: fd({"b": 6})},
         ),
@@ -421,7 +423,7 @@ def example_service_3() -> TSD[str, TS[float]]:
     return merge(example_service("1"), example_service("2"))
 
 
-@pytest.mark.xfail(strict=True, reason="Failure to untangle reference for map")
+# @pytest.mark.xfail(strict=True, reason="Failure to untangle reference for map")
 def test_merge_references_map_failure():
 
     @graph

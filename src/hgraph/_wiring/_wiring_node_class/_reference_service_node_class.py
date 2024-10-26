@@ -1,12 +1,14 @@
-from typing import Mapping, Any, TYPE_CHECKING, TypeVar
+from typing import Mapping, Any, TYPE_CHECKING, TypeVar, Callable
 
-from hgraph._types._ref_meta_data import HgREFTypeMetaData, HgTypeMetaData
+from hgraph._types._ref_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     create_input_output_builders,
     validate_and_resolve_signature,
 )
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
 if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
@@ -16,6 +18,12 @@ __all__ = ("ReferenceServiceNodeClass",)
 
 
 class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
+
+    def __init__(self, signature: WiringNodeSignature, fn: Callable):
+        if signature.output_type is None:
+            raise CustomMessageWiringError("A reference service must have a return type.")
+        signature = signature.copy_with(output_type=signature.output_type.as_reference())
+        super().__init__(signature, fn)
 
     def full_path(self, user_path: str | None) -> str:
         if user_path is None:
@@ -29,8 +37,6 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
         node_signature: "NodeSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
-
         from hgraph._impl._builder import PythonNodeImplNodeBuilder
 
         input_builder, output_builder, error_builder = create_input_output_builders(
