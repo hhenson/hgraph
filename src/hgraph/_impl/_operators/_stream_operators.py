@@ -128,7 +128,9 @@ def schedule_ts(
         if _clock.evaluation_time < start.value and not initial_delay:
             _scheduler.schedule(start.value, "_", on_wall_clock=use_wall_clock)
         else:
-            next = (1 + (max(_clock.evaluation_time, start.value) - start.value) // delay.value) * delay.value + start.value
+            next = (
+                1 + (max(_clock.evaluation_time, start.value) - start.value) // delay.value
+            ) * delay.value + start.value
             _scheduler.schedule(next, "_", on_wall_clock=use_wall_clock)
     else:
         _scheduler.schedule(delay.value, "_", on_wall_clock=use_wall_clock)
@@ -140,7 +142,7 @@ def schedule_ts(
 
 
 @graph(overloads=resample)
-def resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
+def resample_default(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
     return sample(schedule(period), ts)
 
 
@@ -155,15 +157,19 @@ def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIM
 
     @multimethod
     def dedup_item(input, output):
-        return {k_new: v_new for k_new, v_new in
-                ((k, dedup_item(v, output[k])) for k, v in input.modified_items())
-                if v_new is not None}
+        return {
+            k_new: v_new
+            for k_new, v_new in ((k, dedup_item(v, output[k])) for k, v in input.modified_items())
+            if v_new is not None
+        }
 
     @dedup_item.register
     def dedup_dicts(input: PythonTimeSeriesDictInput, output):
-        out = {k_new: v_new for k_new, v_new in
-                ((k, dedup_item(v, output.get_or_create(k))) for k, v in input.modified_items())
-                if v_new is not None}
+        out = {
+            k_new: v_new
+            for k_new, v_new in ((k, dedup_item(v, output.get_or_create(k))) for k, v in input.modified_items())
+            if v_new is not None
+        }
         return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
 
     @dedup_item.register
@@ -191,7 +197,7 @@ def dedup_float(ts: TS[float], abs_tol: TS[float] = 1e-15, _output: TS[float] = 
 
 
 @compute_node(overloads=filter_)
-def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def filter_default(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     if condition.value:
         return ts.value if condition.modified else ts.delta_value
 
@@ -202,27 +208,33 @@ class _ThrottleState(CompoundScalar):
 
 
 @compute_node(overloads=throttle)
-def throttle(ts: TIME_SERIES_TYPE,
-             period: TS[timedelta],
-             delay_first_tick: bool = False,
-             use_wall_clock: bool = False,
-             _sched: SCHEDULER = None,
-             _state: STATE[_ThrottleState] = None) -> TIME_SERIES_TYPE:
+def throttle_default(
+    ts: TIME_SERIES_TYPE,
+    period: TS[timedelta],
+    delay_first_tick: bool = False,
+    use_wall_clock: bool = False,
+    _sched: SCHEDULER = None,
+    _state: STATE[_ThrottleState] = None,
+) -> TIME_SERIES_TYPE:
     from multimethod import multimethod
     from hgraph import PythonTimeSeriesValueInput
     from hgraph import PythonTimeSeriesDictInput
 
     @multimethod
     def collect_tick(input, out):
-        return {k_new: v_new for k_new, v_new in
-                ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
-                if v_new is not None}
+        return {
+            k_new: v_new
+            for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
+            if v_new is not None
+        }
 
     @collect_tick.register
     def collect_dict(input: PythonTimeSeriesDictInput, out):
-        out |= {k_new: v_new for k_new, v_new in
-               ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
-               if v_new is not None}
+        out |= {
+            k_new: v_new
+            for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
+            if v_new is not None
+        }
         return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
 
     @collect_tick.register
@@ -253,7 +265,7 @@ class CounterState(CompoundScalar):
 
 
 @compute_node(overloads=take)
-def take(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
+def take_default(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
     if count == 0:
         ts.make_passive
     else:
@@ -265,7 +277,7 @@ def take(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterState] = None
 
 
 @graph(overloads=drop)
-def drop(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
+def drop_default(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
     """
     Drops the first `count` ticks and then returns the remainder of the ticks
     """
@@ -326,7 +338,7 @@ def window_timedelta_start(_state: STATE):
 
 
 @compute_node(overloads=gate, valid=("ts",))
-def gate(
+def gate_default(
     condition: TS[bool],
     ts: TIME_SERIES_TYPE,
     delay: timedelta = MIN_TD,
@@ -347,13 +359,13 @@ def gate(
         return out
 
 
-@gate.start
-def gate_start(_state: STATE):
+@gate_default.start
+def gate_default_start(_state: STATE):
     _state.buffer = deque()
 
 
 @compute_node(overloads=batch)
-def batch(
+def batch_default(
     condition: TS[bool],
     ts: TS[SCALAR],
     delay: timedelta = MIN_TD,
@@ -373,13 +385,13 @@ def batch(
         return out
 
 
-@batch.start
-def batch_start(_state: STATE):
+@batch_default.start
+def batch_default_start(_state: STATE):
     _state.buffer = []  #
 
 
 @compute_node(overloads=step)
-def step(ts: TIME_SERIES_TYPE, step_size: int = 1, _state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
+def step_default(ts: TIME_SERIES_TYPE, step_size: int = 1, _state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
     out = None
     if _state.count % step_size == 0:
         out = ts.delta_value
