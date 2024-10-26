@@ -37,13 +37,12 @@ from hgraph._operators import (
     all_,
 )
 from hgraph._types._ref_type import REF
-from hgraph._types._scalar_types import NUMBER, KEYABLE_SCALAR
+from hgraph._types._scalar_types import NUMBER, KEYABLE_SCALAR, SIZE_1
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS, TSS_OUT
 from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._types._typing_utils import clone_type_var
 from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._reduce import reduce
 
@@ -101,9 +100,6 @@ def sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], tp: Type[TS[NUMBER]] = AUTO_RESOLV
 @compute_node(overloads=sum_)
 def _sum_tsl_unary(tsl: TSL[TS[NUMBER], SIZE], zero_ts: TS[NUMBER]) -> TS[NUMBER]:
     return sum((t.value for t in tsl.valid_values()), start=zero_ts.value)
-
-
-SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 
 
 @graph(overloads=sum_)
