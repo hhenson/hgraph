@@ -1,3 +1,4 @@
+from functools import wraps
 from inspect import signature, isfunction
 from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
 
@@ -827,6 +828,7 @@ def _node_decorator(
     requires: Callable[[..., ...], bool] = None,
     deprecated: bool | str = False,
     record_and_replay_id: str | None = None,
+    wrap_with_graph: bool = False,
 ) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
@@ -844,6 +846,7 @@ def _node_decorator(
         deprecated=deprecated,
         requires=requires,
         record_and_replay_id=record_and_replay_id,
+        wrap_with_graph=wrap_with_graph,
     )
     if node_impl is not None:
         if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
@@ -884,6 +887,7 @@ def _node_decorator(
 
             kwargs["node_class"] = ServiceImplNodeClass
             kwargs["interfaces"] = interfaces
+            kwargs["wrap_with_graph"] = True
             _assert_no_node_configs("Service Impl", kwargs)
         case WiringNodeType.ADAPTOR:
             from hgraph._wiring._wiring_node_class._adaptor_node_class import AdaptorNodeClass
@@ -925,6 +929,7 @@ def _node_decorator(
             return lambda fn: _node_decorator(impl_fn=fn, **kwargs, resolvers=resolvers)
     elif overloads is not None:
         from hgraph._wiring._wiring_node_class._operator_wiring_node import OperatorWiringNodeClass
+
         if not isinstance(overloads, OperatorWiringNodeClass) and overloads.allow_overloads is False:
             raise ValueError("Overloads can only be used with operators and dispatch")
 
@@ -972,12 +977,23 @@ def _create_node(
     deprecated: bool | str = False,
     requires: Callable[[..., ...], bool] = None,
     record_and_replay_id: str | None = None,
+    wrap_with_graph: bool = False,
 ) -> "WiringNodeClass":
     """
     Create the wiring node using the supplied node_type and impl_fn, for non-cpp types the impl_fn is assumed to be
     the signature fn as well.
     """
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeSignature, extract_signature
+
+    if wrap_with_graph and isinstance(signature_fn, WiringNodeClass):
+
+        @wraps(signature_fn.fn)
+        def service_wrapper(*args, __fn__=signature_fn, **kwargs):  # Capture the value of the signature_fn here
+            return __fn__(*args, **kwargs)
+
+        impl_fn = service_wrapper
+        signature_fn = signature_fn.fn
 
     if impl_fn is None:
         impl_fn = signature_fn

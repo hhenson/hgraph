@@ -8,6 +8,7 @@ from hgraph import (
     TS,
     service_impl,
     graph,
+    generator,
     register_service,
     default_path,
     TSS,
@@ -34,6 +35,7 @@ from hgraph import (
     mesh_,
     set_service_output,
     get_service_inputs,
+    MIN_ST,
 )
 from hgraph.nodes import pass_through
 from hgraph.test import eval_node
@@ -390,3 +392,37 @@ def test_service_in_a_mesh():
         return mesh_(lambda key: receive[KEYABLE_SCALAR:str](), __keys__=const(frozenset({1, 2}), TSS[int]))
 
     assert eval_node(g_test) == [{1: "", 2: ""}]
+
+
+def test_service_impl_with_generics():
+
+    @reference_service
+    def data(path: str = default_path) -> TS[str]: ...
+
+    @service_impl(interfaces=(data,))
+    def impl(tp: type[SCALAR]) -> TS[str]:
+        return const("Test", TS[str])
+
+    @graph
+    def g_test() -> TS[str]:
+        register_service(default_path, impl, tp=int)
+        return data()
+
+    assert eval_node(g_test) == ["Test"]
+
+
+def test_service_impl_over_node():
+    @reference_service
+    def data(path: str = default_path) -> TS[str]: ...
+
+    @service_impl(interfaces=(data,))
+    @generator
+    def impl() -> TS[str]:
+        yield MIN_ST, "Test"
+
+    @graph
+    def g_test() -> TS[str]:
+        register_service(default_path, impl)
+        return data()
+
+    assert eval_node(g_test) == ["Test"]
