@@ -21,7 +21,10 @@ class PythonGraphBuilder(GraphBuilder):
             raise RuntimeError("No path to find an output for")
         output = node.output
         for item in path:
-            output = output[item]
+            try:
+                output = output[item]
+            except:
+                ...
         return output
 
     @staticmethod

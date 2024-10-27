@@ -744,8 +744,11 @@ Version 0.3.22 (26-10-2024)
 * Many bugfixes from AB/SY/TO including; issues with map_ inside a reduce, signal, tsd issues, operators, schema.
 * Fix to reference service interface signature.
 
-Version 0.3.23 (TBD)
---------------------
+Version 0.3.23 (27-10-2024)
+---------------------------
 
 * Support nodes being wrapped by service_impl instead of having to create a stub graph to call them.
+* Correct implementations of merge
+* Fix bug in tsd_get_items when the input tsd goes away.
+
 

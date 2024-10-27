@@ -241,7 +241,7 @@ def test_merge_tsd():
         g,
         tsd1=[{1: 1, 2: 2}, {2: 4}, {1: REMOVE}, {}],
         tsd2=[{1: 5, 3: 6}, {3: 8}, {}, {1: REMOVE}],
-    ) == [{1: 1, 2: 2, 3: 6}, {2: 4, 3: 8}, {1: 5}, {1: REMOVE}]
+    ) == [fd({1: 1, 2: 2, 3: 6}), fd({2: 4, 3: 8}), fd({1: 5}), fd({1: REMOVE})]
 
 
 def test_merge_nested_tsd():
@@ -254,7 +254,12 @@ def test_merge_nested_tsd():
             ({}, {1: REMOVE}),
         ],
         resolution_dict={"tsl": TSL[TSD[int, TSD[int, TS[int]]], Size[2]]},
-    ) == [{1: {1: 1}, 2: {2: 2}, 3: {3: 6}}, {2: {2: 4}, 3: {3: 8}}, {1: {1: 5}, 2: {2: REMOVE}}, {1: REMOVE}]
+    ) == [
+        fd({1: fd({1: 1}), 2: fd({2: 2}), 3: fd({3: 6})}),
+        fd({2: fd({2: 4}), 3: fd({3: 8})}),
+        fd({1: fd({1: 5}), 2: fd({2: REMOVE})}),
+        fd({1: REMOVE}),
+    ]
 
 
 def test_tsd_partition():

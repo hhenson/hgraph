@@ -353,6 +353,7 @@ class TSLWiringPort(WiringPort):
             input_wiring_port = self.node_instance.inputs[arg]
             node_instance = input_wiring_port.node_instance
             path = input_wiring_port.path
+            tp_ = input_wiring_port.output_type
         return _wiring_port_for(tp_, node_instance, path)
 
     def edges_for(

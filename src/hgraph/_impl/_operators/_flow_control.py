@@ -1,19 +1,20 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from hgraph import TSD
+from hgraph import MIN_ST
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators._flow_control import all_, any_, merge, index_of
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
 from hgraph._operators._operators import bit_and, bit_or
-from hgraph._runtime._constants import MAX_DT
+from hgraph._runtime._constants import MAX_DT, MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF, REF_OUT
-from hgraph._types._scalar_types import CompoundScalar, STATE
+from hgraph._types._scalar_types import CompoundScalar, STATE, SCALAR, SIZE, SIZE_1
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K
 from hgraph._types._ts_type import TS, TS_OUT
-from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1, ts_schema
-from hgraph._types._tsl_type import TSL, SIZE
+from hgraph._types._tsb_type import TSB, TS_SCHEMA
+from hgraph._types._tsd_type import TSD
+from hgraph._types._tsl_type import TSL
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._reduce import reduce
@@ -34,14 +35,42 @@ def any_default(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     return reduce(bit_or, args, False)
 
 
-@compute_node(overloads=merge)
-def merge_default(*tsl: TSL[OUT, SIZE]) -> OUT:
+@compute_node(overloads=merge, valid=())
+def merge_ts_scalar(*tsl: TSL[TS[SCALAR], SIZE], _output: TS[SCALAR] = None) -> TS[SCALAR]:
     """
     Selects and returns the first of the values that tick (are modified) in the list provided.
     If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
     list.
     """
-    return next(tsl.modified_values()).delta_value
+    if tsl.modified:
+        return next(tsl.modified_values()).value
+    else:
+        # This implies a value has gone away, if this is the last ticked value, revert to the last ticked value that
+        # is still valid
+        out = None
+        last_ticked = MIN_DT
+        for ts in tsl:
+            if ts.valid and ts.last_modified_time > last_ticked:
+                last_ticked = ts.last_modified_time
+                out = ts.value
+        if out is not None and out != _output.value:
+            return out
+
+
+@graph(overloads=merge)
+def merge_tsb(*tsl: TSL[TSB[TS_SCHEMA], SIZE], _schema_tp: type[TS_SCHEMA] = AUTO_RESOLVE) -> TSB[TS_SCHEMA]:
+    """
+    Applies merge to each element of the schema.
+    """
+    kwargs = {k: merge(*[v[k] for v in tsl]) for k in _schema_tp._schema_keys()}
+    return TSB[_schema_tp].from_ts(**kwargs)
+
+
+@graph(overloads=merge)
+def merge_tsl(
+    *tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE_1], SIZE], sz_1: type[SIZE_1] = AUTO_RESOLVE
+) -> TSL[TIME_SERIES_TYPE, SIZE_1]:
+    return TSL[TIME_SERIES_TYPE, SIZE_1].from_ts(*[merge(item[i] for item in tsl) for i in range(sz_1.SIZE)])
 
 
 @dataclass
@@ -101,10 +130,7 @@ def _tsl_ref_item_valid(tsl, i):
 
 @compute_node(overloads=race, active=("tsd",))
 def race_tsd(
-    tsd: TSD[K, REF[OUT]],
-    _values: TSD[K, OUT] = None,
-    _state: STATE[_RaceState] = None,
-    _ec: EvaluationClock = None
+    tsd: TSD[K, REF[OUT]], _values: TSD[K, OUT] = None, _state: STATE[_RaceState] = None, _ec: EvaluationClock = None
 ) -> REF[OUT]:
     # Keep track of the first time each input goes valid (and invalid)
     pending_refs = {}
@@ -162,8 +188,8 @@ def _ref_valid(value):
 
 @dataclass
 class _RaceTsdOfBundlesState(CompoundScalar):
-    first_valid_hashes: dict = field(default_factory=lambda: defaultdict(lambda : defaultdict(lambda: MAX_DT)))
-    first_valid_times: dict = field(default_factory=lambda: defaultdict(lambda : defaultdict(lambda: MAX_DT)))
+    first_valid_hashes: dict = field(default_factory=lambda: defaultdict(lambda: defaultdict(lambda: MAX_DT)))
+    first_valid_times: dict = field(default_factory=lambda: defaultdict(lambda: defaultdict(lambda: MAX_DT)))
     winners: list[K] = None
 
 
@@ -174,7 +200,7 @@ def race_tsd_of_bundles(
     _state: STATE[_RaceTsdOfBundlesState] = None,
     _ec: EvaluationClock = None,
     _schema: type[TS_SCHEMA] = TS_SCHEMA,
-    _output: TS_OUT[REF[TSB[TS_SCHEMA]]] = None
+    _output: TS_OUT[REF[TSB[TS_SCHEMA]]] = None,
 ) -> REF[TSB[TS_SCHEMA]]:
     # Keep track of the first time each input goes valid (and invalid)
     pending_values = {}
@@ -323,8 +349,10 @@ def if_true_impl(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
 
 @compute_node(overloads=if_then_else, valid=("condition",))
 def if_then_else_impl(
-        condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE],
-        _output: REF_OUT[TIME_SERIES_TYPE] = None
+    condition: TS[bool],
+    true_value: REF[TIME_SERIES_TYPE],
+    false_value: REF[TIME_SERIES_TYPE],
+    _output: REF_OUT[TIME_SERIES_TYPE] = None,
 ) -> REF[TIME_SERIES_TYPE]:
     """
     If the condition is true the output ticks with the true_value, otherwise it ticks with the false_value.

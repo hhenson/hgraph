@@ -3,6 +3,7 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
+from hgraph import union, ts_schema
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import (
     add_,
@@ -47,6 +48,7 @@ from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
+from hgraph._wiring._map import map_
 from hgraph._wiring._reduce import reduce
 
 __all__ = tuple()
@@ -96,6 +98,9 @@ def tsd_get_item_default(
         _ref_ref.make_active()
 
     result = _ref_ref.value if _ref_ref.bound else _ref.value
+    if result is None or not ts.value.valid:
+        # We can't have a valid ref if the ts value is not valid.
+        result = PythonTimeSeriesReference()
     return result
 
 
@@ -414,7 +419,9 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
 
 @compute_node(overloads=flip, requires=lambda m, s: s["unique"] is False)
-def flip_tsd_non_unique(ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None) -> TSD[K_1, TSS[K]]:
+def flip_tsd_non_unique(
+    ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None
+) -> TSD[K_1, TSS[K]]:
     """
     Flip the TSD to have the time-series as the key and the key as the time-series. Collect keys for duplicate values into TSS
     """
@@ -474,63 +481,34 @@ def flip_keys_tsd(
     return out
 
 
-@compute_node(overloads=merge)
-def merge_tsds(*tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+@graph
+def _re_index(
+    key: TS[K],
+    tsl: REF[TSL[TSD[K, TIME_SERIES_TYPE], SIZE]],
+    _sz: type[SIZE] = AUTO_RESOLVE,
+    _v_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    return TSL[_v_tp, _sz].from_ts(*[tsl[i][key] for i in range(_sz.SIZE)])
+
+
+@graph
+def _merge(tsl: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
+    return merge(*[tsl[i] for i in range(_sz.SIZE)])
+
+
+@graph(overloads=merge)
+def merge_tsd(
+    *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
+    _k_tp: type[K] = AUTO_RESOLVE,
+    _v_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _sz: type[SIZE] = AUTO_RESOLVE,
+) -> TSD[K, TIME_SERIES_TYPE]:
     """
-    Merge TSDs.  If more than one TSD ticks, all items will tick to the output assuming they are on different keys.
-    If they are on the same key then the left-most item is preferred.
+    Merge TSD elements together
     """
-    out = {}
-    removals = set()
-
-    for v in reversed(list(tsl.modified_values())):
-        out.update({k: v.value for k, v in v.modified_items()})
-        removals.update(v.removed_keys())
-
-    for k in removals:
-        for v in tsl.values():
-            if k in v:
-                out[k] = v[k].value
-                break
-        else:
-            out[k] = REMOVE_IF_EXISTS
-
-    return out
-
-
-@compute_node(overloads=merge)
-def merge_nested_tsds(
-    *tsl: TSL[TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], SIZE]
-) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
-    out = defaultdict(dict)
-    removals = set()
-    nested_removals = defaultdict(set)
-
-    for tsd in reversed(list(tsl.modified_values())):
-        for k, v in tsd.modified_items():
-            for k1, v1 in v.modified_items():
-                out[k].update({k1: v1.value})
-            nested_removals[k].update(v.removed_keys())
-            out[k].update({k1: REMOVE_IF_EXISTS for k1 in v.removed_keys()})
-        removals.update(tsd.removed_keys())
-        for k, v1 in tsd.removed_items():
-            nested_removals[k].update(v1.keys())
-
-    for k in removals:
-        for v in reversed(tsl.values()):
-            if k in v:
-                break
-        else:
-            out[k] = REMOVE_IF_EXISTS
-
-    for k, v in nested_removals.items():
-        for v1 in reversed(tsl.values()):
-            if k in v1:
-                for k1 in v:
-                    if k1 in v1[k] and out[k].get(k1, REMOVE_IF_EXISTS) is REMOVE_IF_EXISTS:
-                        out[k][k1] = v1[k][k1].value
-
-    return out
+    keys = union(*[tsd.key_set for tsd in tsl])
+    re_index = map_(_re_index, tsl, __keys__=keys)
+    return map_(_merge, re_index)
 
 
 @compute_node(overloads=partition)
