@@ -21,18 +21,11 @@ jobs:
         run: |
           # Get the tag name without the leading 'v_'
           VERSION=${GITHUB_REF#refs/tags/v_}
-          echo "version=$VERSION" >> $GITHUB_ENV
           sed -i "s/^version = \".+\"/version = \"$VERSION\"/" pyproject.toml
-          cat pyproject.toml      
 
-#      - name: Commit Version Update
-#        run: |
-#          git config --local user.name "github-actions"
-#          git config --local user.email "github-actions@github.com"
-#          git commit -am "Update version to $VERSION based on tag"
-#          git push origin HEAD:main
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check pyproject.toml
+        run: |
+          cat pyproject.toml
 
       - name: Set up Python
         uses: actions/setup-python@v5
