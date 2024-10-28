@@ -37,7 +37,7 @@ jobs:
           git config --local user.email "github-actions@github.com"
           git add pyproject.toml
           git commit -m "Update version to $VERSION based on tag"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+          git push origin HEAD:main
 
       - name: Set up Python
         uses: actions/setup-python@v5
