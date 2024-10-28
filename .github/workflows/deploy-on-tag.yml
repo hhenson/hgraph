@@ -26,7 +26,17 @@ jobs:
           # Update the version in pyproject.toml
           sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
 
-          cat pyproject.toml
+          cat pyproject.toml | grep version
+
+      - name: Commit Version Update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --local user.name "github-actions"
+          git config --local user.email "github-actions@github.com"
+          git add pyproject.toml
+          git commit -m "Update version to $VERSION based on tag"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
 
       - name: Set up Python
         uses: actions/setup-python@v5
