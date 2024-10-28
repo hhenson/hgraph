@@ -21,10 +21,11 @@ jobs:
         run: |
           # Get the tag name without the leading 'v_'
           VERSION=${GITHUB_REF#refs/tags/v_}
-          sed -i "s/^version = \".+\"/version = \"$VERSION\"/" pyproject.toml
+          echo "version=$VERSION" >> $GITHUB_ENV
 
-      - name: Check pyproject.toml
-        run: |
+          # Update the version in pyproject.toml
+          sed -i '' "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+
           cat pyproject.toml
 
       - name: Set up Python
