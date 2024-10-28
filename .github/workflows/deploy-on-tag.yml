@@ -16,6 +16,27 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: Get Version from Tag
+        id: tag_version
+        run: |
+          # Get the tag name without the leading 'v_'
+          VERSION=${GITHUB_REF#refs/tags/v_}
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Update Version in pyproject.toml
+        run: |
+          # Update the version in pyproject.toml
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+
+      - name: Commit Version Update
+        run: |
+          git config --local user.name "github-actions"
+          git config --local user.email "github-actions@github.com"
+          git commit -am "Update version to $VERSION based on tag"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
