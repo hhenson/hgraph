@@ -42,3 +42,8 @@ Version 0.1.7 (25-10-2024)
 * Change Calendar to have a simple is_business_day property and create the DetailedCalendar which knows about holidays
   and weekends.
 * Add business_days service
+
+Version 0.1.8 (29-10-2024)
+--------------------------
+
+* Small bug-fix in business_day service
