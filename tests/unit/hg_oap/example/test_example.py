@@ -4,7 +4,7 @@ from typing import Generic, TypeVar
 
 from hgraph import CompoundScalar, TSB, TSD, Frame, graph, TS, map_, add_, switch_, compute_node, subscription_service, \
     request_reply_service, service_impl, register_service, combine, sample, flip, dedup, const
-from hgraph import merge
+from hgraph import merge, operator
 from hgraph.nodes import make_tsd
 from hgraph.test import eval_node
 
@@ -124,8 +124,12 @@ def convert_price_to_currency_units(price: TSB[Price], currency_unit: TS[Unit]) 
 
 ###################################################
 
-@graph
+@operator
 def calculate_notional(positions: Position[float], currency: TS[Unit]) -> TSB[Quantity[float]]:
+    ...
+
+@graph(overloads=calculate_notional)
+def calculate_notional_default(positions: Position[float], currency: TS[Unit]) -> TSB[Quantity[float]]:
     return calculate_notional_tsb(TSB[Position[float]].from_ts(
         qty=positions.qty,
         unit=dedup(const(positions.unit, TS[Unit])),

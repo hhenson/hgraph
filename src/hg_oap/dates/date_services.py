@@ -1,4 +1,4 @@
-__all__ = ()
+__all__ = ("business_days", "business_days_from_calendar")
 
 from datetime import date, datetime, timedelta
 from typing import TypeVar
@@ -31,7 +31,7 @@ CALENDAR_TYPE = TypeVar("CALENDAR_TYPE", bound=Calendar)
 
 @service_impl(interfaces=[business_days])
 @generator
-def _business_days_from_calendar(
+def business_days_from_calendar(
         calendar_tp: type[CALENDAR_TYPE], params: frozendict[str, object] = None, time_zone: str = "UTC",
         _api: EvaluationEngineApi = None
 ) -> TS[date]:
