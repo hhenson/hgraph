@@ -30,12 +30,6 @@ CALENDAR_TYPE = TypeVar("CALENDAR_TYPE", bound=Calendar)
 
 
 @service_impl(interfaces=[business_days])
-def business_days_from_calendar(
-        calendar_tp: object, params: frozendict[str, object] = None, time_zone: str = "UTC"
-) -> TS[date]:
-    return _business_days_from_calendar(calendar_tp, params, time_zone)
-
-
 @generator
 def _business_days_from_calendar(
         calendar_tp: type[CALENDAR_TYPE], params: frozendict[str, object] = None, time_zone: str = "UTC",
@@ -54,7 +48,7 @@ def _business_days_from_calendar(
         to_tz = lambda dt: datetime(dt.year, dt.month, dt.day)
     else:
         tz = ZoneInfo(time_zone)
-        to_tz = lambda dt: date_tz_to_utc(time_zone)
+        to_tz = lambda dt: date_tz_to_utc(dt, tz)
     current_date = date_time_utc_to_tz(_api.start_time, tz)
     last_date = date_time_utc_to_tz(_api.end_time, tz)
     # Yield out the current date if appropriate,

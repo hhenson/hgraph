@@ -27,7 +27,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.11"
-hgraph = ">=0.3.14"
+hgraph = ">=0.3.21"
 holidays = ">=0.56"
 
 [tool.poetry.urls]
