@@ -759,4 +759,4 @@ Version 0.3.24
 Version 0.3.25 (30-10-2024)
 ---------------------------
 
-* Fix issue with replay in repla record.
+* Fix issue with replay in replay record.
