@@ -751,4 +751,7 @@ Version 0.3.23 (27-10-2024)
 * Correct implementations of merge
 * Fix bug in tsd_get_items when the input tsd goes away.
 
+Version 0.3.24 (30-10-2024)
+---------------------------
 
+* Fix issue with replay in repla record.
