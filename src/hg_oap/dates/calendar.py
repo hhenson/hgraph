@@ -1,9 +1,9 @@
 from abc import abstractmethod
 from bisect import bisect, bisect_left
 from datetime import date, timedelta
-from typing import Tuple, Set
+from typing import Tuple, Set, Sequence
 
-__all__ = ('Calendar', 'WeekendCalendar', 'HolidayCalendar')
+__all__ = ('Calendar', 'WeekendCalendar', 'HolidayCalendar', 'DelegateCalendar', 'CalendarImpl', 'UnionCalendar')
 
 
 class Calendar:
@@ -188,3 +188,49 @@ class HolidayCalendar(WeekendCalendar):
             else:
                 days = i - j
                 i = j
+
+
+class CalendarImpl(Calendar):
+    """
+    A basic implementation of the calendar that takes a sequence of holiday dates representing the holidays in the date
+    range of interest.
+    """
+
+    def __init__(self, holidays: Sequence[date]):
+        self._holidays = set(holidays)
+
+    def is_business_day(self, d: date) -> bool:
+        return d not in self._holidays
+
+
+class DelegateCalendar(Calendar):
+    """
+    Supports wrapping a calendar implementation. This can be useful when creating wrapper calendars to simplify
+    instantiation of a calendar.
+    """
+
+    def __init__(self, delegate: Calendar):
+        self._delegate = delegate
+
+    def is_business_day(self, d: date) -> bool:
+        return self._delegate.is_business_day(d)
+
+
+
+class UnionCalendar(Calendar):
+    """
+    A calendar that is made up of a number of other calendars. This can be useful when building trading calendars
+    for instruments where the holidays are made up of a number of other calendars (e.g. currency calendar, exchange
+    calendars, etc.)
+    """
+
+    def __init__(self, *calendars: Calendar):
+        self._calendars = calendars
+
+    def is_business_day(self, d: date) -> bool:
+        return all(c.is_business_day(d) for c in self._calendars)
+
+
+
+
+

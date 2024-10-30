@@ -47,3 +47,9 @@ Version 0.1.8 (29-10-2024)
 --------------------------
 
 * Small bug-fix in business_day service
+
+Version 0.1.9 (30-10-2024)
+--------------------------
+
+* Add CalendarImpl, DelegateCalendar, UnionCalendar
+* Add price_mid subscription service and dataframe service impl

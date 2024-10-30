@@ -4,6 +4,7 @@ from typing import Optional
 
 from hg_oap.assets.asset import FinancialAsset
 from hg_oap.units import PrimaryUnit, Unit
+from hgraph import compute_node, cast_, TS
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -30,3 +31,9 @@ class Currencies(Enum):
     EUR = Currency(symbol="EUR", minor_currency_ratio=100)
     GBP = Currency(symbol="GBP", minor_currency_ratio=100)
     USD = Currency(symbol="USD", minor_currency_ratio=100)
+
+
+@compute_node(overloads=cast_)
+def cast_currency(tp: type[Currency], ts: TS[str]) -> TS[Currency]:
+    """Cast the string to the currency instance"""
+    return getattr(Currencies, ts.value.upper()).value
