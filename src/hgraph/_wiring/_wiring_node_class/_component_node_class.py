@@ -138,7 +138,7 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
     mode = RecordReplayContext.instance().mode
     if RecordReplayEnum.RECOVER in mode:
-        ts = merge(ts, replay_const(key, ts.output_type.py_type))
+        ts = merge(ts, replay_const(key, ts.output_type.dereference().py_type))
     if ((RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE) & mode) != RecordReplayEnum.NONE:
         if RecordReplayEnum.RECOVER in mode:
             raise RuntimeError("Can't recover and replay / compare at the same time")
