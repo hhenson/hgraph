@@ -143,7 +143,7 @@ def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
         if RecordReplayEnum.RECOVER in mode:
             raise RuntimeError("Can't recover and replay / compare at the same time")
         ts: WiringPort
-        ts = replay(key, ts.output_type.py_type)
+        ts = replay(key, ts.output_type.dereference().py_type)
     if RecordReplayEnum.RECORD in mode:
         record(ts, key)
     return ts
@@ -156,7 +156,7 @@ def output_wrapper(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
         record(ts, "__out__")
     if RecordReplayEnum.REPLAY_OUTPUT in mode:
         ts: WiringPort
-        ts = replay("__out__", ts.output_type.py_type)
+        ts = replay("__out__", ts.output_type.dereference().py_type)
     if RecordReplayEnum.COMPARE in mode:
-        compare(ts, replay("__out__", ts.output_type.py_type))
+        compare(ts, replay("__out__", ts.output_type.dereference().py_type))
     return ts
