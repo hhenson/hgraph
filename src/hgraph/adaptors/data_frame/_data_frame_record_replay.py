@@ -1,4 +1,6 @@
+from abc import abstractmethod, ABC
 from datetime import datetime
+from enum import Enum, auto
 from pathlib import Path
 
 import polars as pl
@@ -27,7 +29,8 @@ from hgraph._operators._record_replay import record_replay_model_restriction, re
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
 from hgraph._runtime._traits import Traits
 
-__all__ = ("DATA_FRAME_RECORD_REPLAY", "set_data_frame_record_path")
+__all__ = ("DATA_FRAME_RECORD_REPLAY", "set_data_frame_record_path", "MemoryDataFrameStorage", "DataFrameStorage",
+           "FileBasedDataFrameStorage", "BaseDataFrameStorage")
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
 DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
@@ -82,28 +85,7 @@ def _record_to_data_frame_stop(_state: STATE, schema: TS[TableSchema], _logger: 
     else:
         rows = _state.value
     df = pl.from_records(rows, schema=[(k, t) for k, t in zip(schema.keys, schema.types)], orient="row")
-    path: Path = GlobalState.instance().get(DATA_FRAME_RECORD_REPLAY_PATH, Path("."))
-    _write_df(df, path, _state.recordable_id, _logger)
-
-
-def _write_df(df: pl.DataFrame, path: Path, recordable_id: str, logger: LOGGER = None):
-    """Separate the writing logic into a function to simplify testing"""
-    file_path: Path = path / f"{recordable_id}.parquet"
-    path.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
-    if file_path.exists():
-        if logger:
-            logger.info("Reading in old parquet file: %s", file_path)
-        # If there is already data here, just add to the data frame.
-        df_old = pl.read_parquet(file_path)
-        df = pl.concat([df_old, df])
-    if logger:
-        logger.info("Writing: %s", file_path)
-    df.write_parquet(file_path)
-
-
-def _read_df(path: Path, recordable_id: str) -> pl.DataFrame:
-    """Separate the reading logic into a function to simplify testing"""
-    return pl.read_parquet(path.joinpath(recordable_id + ".parquet"))
+    DataFrameStorage.instance().write_frame(_state.recordable_id, df)
 
 
 @graph(overloads=replay, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
@@ -114,8 +96,7 @@ def replay_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id
 
 def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
     recordable_id = traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
-    path: Path = GlobalState.instance().get(DATA_FRAME_RECORD_REPLAY_PATH, Path("."))
-    return _read_df(path, f"{recordable_id}::{key}")
+    return DataFrameStorage.instance().read_frame(f"{recordable_id}::{key}")
 
 
 def _replay_from_data_frame_output_shape(m, s):
@@ -195,3 +176,165 @@ def replay_const_from_data_frame(
     results = tuple(df_.iter_rows())
     results = from_table_const[tp](results if schema.partition_keys else results[0]).value
     yield _api.start_time, results
+
+
+class WriteMode(Enum):
+    EXTEND = auto()  # Extend the existing data frame (if it exists) with the new data (only adds new data)
+    OVERWRITE = auto()  # Replaces the existing data frame (if it exists) with the new one
+    MERGE = auto()  # Replaces the values that overlap with the values from the new data frame.
+
+
+class DataFrameStorage(ABC):
+    """
+    Describes an abstract representation of a frame-store. Underlying implementations may not honour all the
+    characteristics defined here. Make sure the implementation will be sufficient for the expected use-case.
+    """
+
+    _INSTANCE: "DataFrameStorage" = None
+
+    def __init__(self):
+        self._previous_instance: "DataFrameStorage" = None
+
+    @classmethod
+    def instance(cls) -> "DataFrameStorage":
+        return cls._INSTANCE
+
+    def set_as_instance(self):
+        if DataFrameStorage._INSTANCE is not None:
+            self._previous_instance = DataFrameStorage._INSTANCE
+        DataFrameStorage._INSTANCE = self
+
+    def release_as_instance(self):
+        DataFrameStorage._INSTANCE = self._previous_instance
+        self._previous_instance = None
+
+    def __enter__(self) -> "DataFrameStorage":
+        self.set_as_instance()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release_as_instance()
+
+    @abstractmethod
+    def read_frame(self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None) -> pl.DataFrame:
+        """
+        Read the data frame from the source. Given most of our use-case is for temporal data-frames.
+        The read frame method will support time-range style queries as an optimisation. If the parameters
+        are not supplied, then the data frame is treated as a single piece of data.
+
+        If the data is stored with as_of information, then the return will contain the data including all relevant
+        rows as updated as_of. If the as_of time is specified, then the as_of column is removed and the data represents
+        a correct view as of the point in time.
+        """
+
+    @abstractmethod
+    def write_frame(self, path: str, df: pl.DataFrame,
+                    mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None) -> pl.DataFrame:
+        """
+        Write the data frame to the source. If the data schema includes as_of information, then if this schema has the
+        as_of field, it will make use of it. Alternatively, if the as_of argument is supplied, this is used for
+        updating the information.
+
+        If there is no schema information defined, the write_frame may attempt to heuristically determine if there
+        is a date or as_of column based on common patterns.
+        """
+
+
+    @abstractmethod
+    def set_schema_info(self, path: str, date_time_col: str = None, as_of_col: str = None):
+        """
+        Sets the relevant schema information for the data to be stored / retrieved.
+        If as_of_col is supplied but no date_time_col is provided, it is assumed that full copies of the data frame
+        are to be stored for each os_of epoc. If the schema information is not stored it is assumed that the data
+        frame is not time-based.
+        """
+
+class BaseDataFrameStorage(DataFrameStorage, ABC):
+    """Provide a common set of utilities for memory and file-based data frame storage"""
+
+    @abstractmethod
+    def _write(self, path: Path, df: pl.DataFrame):
+        """Perform the physical act of writing the resource"""
+
+    @abstractmethod
+    def _read(self, path: Path) -> pl.DataFrame:
+        """Read the raw resource"""
+
+    @abstractmethod
+    def _get_schema_info(self, path: str) -> tuple[str, str]:
+        """Get the underlying schema data"""
+
+
+    def read_frame(self, path: str, start_time: datetime = None, end_time: datetime = None,
+                   as_of: datetime = None) -> pl.DataFrame:
+        date_time_col, as_of_col = self._get_schema_info(path)
+        df = self._read(path).lazy()
+        # Ignore as_of for now
+        if start_time is not None or end_time is not None:
+            date_time_col = "date" if date_time_col is None else date_time_col
+            if start_time is not None:
+                df = df.filter(pl.col(date_time_col) >= start_time)
+            if end_time is not None:
+                df = df.filter(pl.col(date_time_col) <= end_time)
+        return df.collect()
+
+    def write_frame(self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE,
+                    as_of: datetime = None) -> pl.DataFrame:
+        date_time_col, as_of_col = self._get_schema_info(path)
+        if mode != WriteMode.OVERWRITE:
+            raise RuntimeError(f"Currently mode: {mode.name} is not supported")
+        self._write(path, df)
+
+
+class FileBasedDataFrameStorage(BaseDataFrameStorage):
+    """A simple file-system-based data frame store, useful for integration testing"""
+
+    def __init__(self, path: Path):
+        """Set the path for the entry-point for saving frames and related data"""
+        super().__init__()
+        self._path = path
+        path.mkdir(parents=True, exist_ok=True)
+
+    def _read(self, path: Path) -> pl.DataFrame:
+        path = self._path / f"{path}.parquet"
+        return pl.read_parquet(path)
+
+    def _write(self, path, df):
+        path = self._path / f"{path}.parquet"
+        df.write_parquet(path)
+
+    def set_schema_info(self, path: str, date_time_col: str = None, as_of_col: str = None):
+        schema = self._path / f"{path}.schema"
+        schema.write_text(f"date_time_col: {date_time_col}\nas_of_col: {as_of_col}", )
+
+    def _get_schema_info(self, path: str) -> tuple[str, str]:
+        schema = self._path / f"{path}.schema"
+        txt = schema.read_text()
+        row_1, row_2 = txt.split("\n")
+        date_time_col = row_1.replace("date_time_col: ", "")
+        as_of_col = row_2.replace("as_of_col: ", "")
+        return None if date_time_col == "None" else date_time_col, None if as_of_col == "None" else as_of_col
+
+
+class MemoryDataFrameStorage(BaseDataFrameStorage):
+    """
+    Provide an in memory data frame storage for unit testing.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._frames = {}
+        self._schema = {}
+
+    def _write(self, path: Path, df: pl.DataFrame):
+        self._frames[str(path)] = df
+
+    def _read(self, path: Path) -> pl.DataFrame:
+        return self._frames.get(str(path), None)
+
+    def _get_schema_info(self, path: str) -> tuple[str, str]:
+        return self._schema.get(str(path), (None, None))
+
+    def set_schema_info(self, path: str, date_time_col: str = None, as_of_col: str = None):
+        self._schema[str(path)] = date_time_col, as_of_col
+
