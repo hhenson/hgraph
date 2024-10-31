@@ -106,9 +106,10 @@ class TimeSeries(ABC):
     @abstractmethod
     def all_valid(self) -> bool:
         """
-        For collection time-series types, ``valid`` will be ``True`` if any of the time-series elements are valid.
-        If this is not enough, and we require all elements of the time-series collection to have ticked and not just
-        some of them, use this method. This method will return ``True`` if all time-series elements are valid.
+        Is there a valid value associated to this time-series input, or loosely, "has this property
+        ever ticked?". Note that it is possible for the time-series to become invalid after it has been made valid.
+        The invalidation occurs mostly when working with REF values.
+        :return: True if there is a valid value associated with this time-series.
         """
 
     @property

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from dataclasses import field, dataclass
+from datetime import datetime, date
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
@@ -583,6 +584,16 @@ def min_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], default_value: TS[NUMBER] = No
     return min((v.value for v in tsd.valid_values()), default=default_value.value)
 
 
+@compute_node(overloads=min_)
+def min_tsd_unary_datetime(tsd: TSD[K, TS[datetime]], default_value: TS[datetime] = None) -> TS[datetime]:
+    return min((v.value for v in tsd.valid_values()), default=default_value.value)
+
+
+@compute_node(overloads=min_)
+def min_tsd_unary_date(tsd: TSD[K, TS[date]], default_value: TS[date] = None) -> TS[date]:
+    return min((v.value for v in tsd.valid_values()), default=default_value.value)
+
+
 @compute_node(overloads=max_)
 def max_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
     return reduce(max_, tsd, zero(tp, max_))
@@ -590,6 +601,16 @@ def max_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
 
 @compute_node(overloads=max_)
 def max_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], default_value: TS[NUMBER] = None) -> TS[NUMBER]:
+    return max((v.value for v in tsd.valid_values()), default=default_value.value)
+
+
+@compute_node(overloads=max_)
+def max_tsd_unary_datetime(tsd: TSD[K, TS[datetime]], default_value: TS[datetime] = None) -> TS[datetime]:
+    return max((v.value for v in tsd.valid_values()), default=default_value.value)
+
+
+@compute_node(overloads=max_)
+def max_tsd_unary_date(tsd: TSD[K, TS[date]], default_value: TS[date] = None) -> TS[date]:
     return max((v.value for v in tsd.valid_values()), default=default_value.value)
 
 
