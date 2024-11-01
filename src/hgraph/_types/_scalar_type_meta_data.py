@@ -2,7 +2,6 @@ import itertools
 import logging
 from abc import abstractmethod
 from collections.abc import Mapping, Set
-from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from functools import partial
@@ -415,16 +414,16 @@ class HgTraitsType(HgInjectableType):
 HGRAPH_LOGGER = logging.getLogger('hgraph')
 HGRAPH_LOGGER_LOGGER = HGRAPH_LOGGER._log
 
-def _log(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node=None):
-    from hgraph._types._error_type import BackTrace
-    node_path = BackTrace.runtime_path_name(node)
+def _log(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node_path=None):
     return HGRAPH_LOGGER_LOGGER(level, f"{node_path}:\n{msg}", args, exc_info, extra, stack_info, stacklevel)
 
 
 class LoggerInjector(Injector):
     def __call__(self, node):
-        logger = deepcopy(HGRAPH_LOGGER)
-        logger._log = partial(_log, node=node)
+        from hgraph._types._error_type import BackTrace
+        node_path = BackTrace.runtime_path_name(node)
+        logger = logging.getLogger(node_path)
+        logger._log = partial(_log, node_path=node_path)
         return logger
 
 
