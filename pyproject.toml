@@ -32,7 +32,7 @@ holidays = ">=0.56"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/hhenson/hg_oap"
-Documentation = "https://github.com/hhenson/hg_oap/blob/main/docs/index.md"
+Documentation = "https://hhenson.readthedocs.io"
 Repository = "https://github.com/hhenson/hg_oap.git"
 Issues = "https://github.com/hhenson/hg_oap/blob/main/ISSUES.md"
 Changelog = "https://github.com/hhenson/hg_oap/blob/main/CHANGELOG.md"
