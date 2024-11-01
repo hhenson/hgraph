@@ -48,6 +48,19 @@ class BackTrace:
         return self._level_str()
 
     @staticmethod
+    def runtime_path_name(node: "Node", use_label: bool = True) -> str:
+        sig = node.signature
+        parent_node = node.graph.parent_node
+        if parent_node:
+            p_l = BackTrace.runtime_path_name(parent_node)
+            p_n = BackTrace.runtime_path_name(parent_node, use_label=False)
+            return f"{p_l}[{node.graph.label}].{sig.wiring_path_name.replace(p_n + '.', '')}.{sig.label or sig.name}"
+        elif use_label:
+            return f"{sig.wiring_path_name}.{sig.label or sig.name}"
+        else:
+            return f"{sig.wiring_path_name}.{sig.name}"
+
+    @staticmethod
     def capture_back_trace(node: "Node", capture_values: bool = False, depth: int = 4) -> "BackTrace":
         signature = BacktraceSignature(node.signature.name, node.signature.args) if node else None
         if depth > 0:
