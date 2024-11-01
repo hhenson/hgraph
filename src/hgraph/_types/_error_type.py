@@ -50,15 +50,14 @@ class BackTrace:
     @staticmethod
     def runtime_path_name(node: "Node", use_label: bool = True) -> str:
         sig = node.signature
+        suffix = (sig.label or sig.name) if use_label else sig.name
         parent_node = node.graph.parent_node
         if parent_node:
             p_l = BackTrace.runtime_path_name(parent_node)
             p_n = BackTrace.runtime_path_name(parent_node, use_label=False)
-            return f"{p_l}[{node.graph.label}].{sig.wiring_path_name.replace(p_n + '.', '')}.{sig.label or sig.name}"
-        elif use_label:
-            return f"{sig.wiring_path_name}.{sig.label or sig.name}"
+            return f"{p_l}[{node.graph.label}].{sig.wiring_path_name.replace(p_n, '')}.{suffix}".replace('..', '.')
         else:
-            return f"{sig.wiring_path_name}.{sig.name}"
+            return f"{sig.wiring_path_name}.{suffix}"
 
     @staticmethod
     def capture_back_trace(node: "Node", capture_values: bool = False, depth: int = 4) -> "BackTrace":
