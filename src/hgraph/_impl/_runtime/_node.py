@@ -9,6 +9,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
+from hgraph._runtime._constants import MIN_TD
 from hgraph._impl._types._tss import PythonSetDelta, Removed
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
@@ -159,6 +160,21 @@ class BaseNodeImpl(Node, ABC):
                 if self.signature.active_inputs is None or k in self.signature.active_inputs:
                     ts.make_active()
 
+    def _initialise_state(self):
+        if self.recordable_state is not None:
+            from hgraph._operators._record_replay import RecordReplayContext, RecordReplayEnum, replay_const
+            mode = RecordReplayContext.instance().mode
+            if RecordReplayEnum.RECOVER in mode:
+                # TODO: make recordable_id unique by using parent node context information.
+                from hgraph._operators._to_table import get_as_of
+                self.recordable_state.value = replay_const(
+                    "__state__",
+                    self.signature.recordable_state.tsb_type.py_type,
+                    recordable_id=self.signature.record_replay_id,
+                    tm = (clock := self.graph.evaluation_clock).evaluation_time - MIN_TD,  # We want the state just before now
+                    as_of = get_as_of(clock)
+                ).value
+
     def do_eval(self): ...
 
     def eval(self):
@@ -215,6 +231,7 @@ class BaseNodeImpl(Node, ABC):
     def start(self):
         self._initialise_kwargs()
         self._initialise_inputs()
+        self._initialise_state()
         self.do_start()
         if self._scheduler is not None:
             if self._scheduler.pop_tag("start", None) is not None:

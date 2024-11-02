@@ -7,7 +7,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Any, Set
 from hgraph._runtime._lifecycle import ComponentLifeCycle
 
 if TYPE_CHECKING:
-    from hgraph._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData
+    from hgraph._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, HgRecordableStateType, RecordableStateInjector
     from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
     from hgraph._runtime._graph import Graph
@@ -24,6 +24,8 @@ __all__ = (
     "NodeScheduler",
     "InjectableTypes",
     "NodeDelegate",
+    "ERROR_PATH",
+    "STATE_PATH"
 )
 
 
@@ -91,6 +93,18 @@ class NodeSignature:
     def uses_recordable_state(self) -> bool:
         return InjectableTypes.RECORDABLE_STATE in self.injectable_inputs
 
+    def _recordable_state(self) -> tuple[str, "HgRecordableStateType"] | tuple[None, None]:
+        from hgraph._types._scalar_type_meta_data import RecordableStateInjector
+        return next(((arg, tp) for arg, tp in self.scalars.items() if type(tp) is RecordableStateInjector), (None, None))
+
+    @property
+    def recordable_state_arg(self) -> str | None:
+        return self._recordable_state()[0]
+
+    @property
+    def recordable_state(self) -> "HgRecordableStateType":
+        return self._recordable_state()[1]
+
     @property
     def uses_output_feedback(self) -> bool:
         return InjectableTypes.OUTPUT in self.injectable_inputs
@@ -151,6 +165,8 @@ class NodeSignature:
         kwargs_ = self.to_dict() | kwargs
         return NodeSignature(**kwargs_)
 
+ERROR_PATH: int = -1  # The path in the wiring edges representing the error output of the node
+STATE_PATH: int = -2  # The path in the wiring edges representing the recordable state output of the node
 
 class Node(ComponentLifeCycle, ABC):
 

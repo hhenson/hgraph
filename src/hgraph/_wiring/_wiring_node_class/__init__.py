@@ -1,7 +1,6 @@
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import *
 from hgraph._wiring._wiring_node_class._map_wiring_node import *
 from hgraph._wiring._wiring_node_class._mesh_wiring_node import *
-from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import *
 from hgraph._wiring._wiring_node_class._operator_wiring_node import *
 from hgraph._wiring._wiring_node_class._pull_source_node_class import *
 from hgraph._wiring._wiring_node_class._python_wiring_node_classes import *

@@ -4,7 +4,7 @@ from typing import Iterable
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._runtime._graph import Graph
-from hgraph._runtime._node import Node
+from hgraph._runtime._node import Node, ERROR_PATH, STATE_PATH
 
 __all__ = ("PythonGraphBuilder",)
 
@@ -48,9 +48,11 @@ class PythonGraphBuilder(GraphBuilder):
             dst_node: Node = nodes[edge.dst_node]
             # TODO: Should we normalise outputs to always be an UnnamedBundleOutput? For now if the path is tuple() assume
             #  the output is the node output [This would be useful dealing with special outputs like error.
-            if edge.output_path == (-1,):
+            if edge.output_path == (ERROR_PATH,):
                 # This is an error handler
                 output = src_node.error_output
+            elif edge.output_path == (STATE_PATH,):
+                output = src_node.recordable_state
             else:
                 output = (
                     src_node.output if edge.output_path == tuple() else self._extract_output(src_node, edge.output_path)

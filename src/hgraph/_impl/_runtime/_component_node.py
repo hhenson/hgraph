@@ -2,7 +2,7 @@ from datetime import datetime
 from string import Formatter
 from typing import Mapping, Any
 
-from hgraph import GlobalState, start_guard, stop_guard
+from hgraph import GlobalState
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,

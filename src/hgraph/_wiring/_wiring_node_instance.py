@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
         NodeBuilder,
         Edge,
         WiringPort,
+        HgTSBTypeMetaData
     )
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
@@ -193,6 +194,10 @@ class WiringNodeInstance:
     @property
     def error_output_type(self) -> "HgTimeSeriesTypeMetaData":
         return self.node.error_output_type
+
+    @property
+    def recordable_state_output_type(self) -> "HgTSBTypeMetaData":
+        return self.resolved_signature.recordable_state.tsb_type
 
     def create_node_builder_and_edges(
         self, node_map: MutableMapping["WiringNodeInstance", int], nodes: ["NodeBuilder"]

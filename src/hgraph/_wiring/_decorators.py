@@ -831,7 +831,6 @@ def _node_decorator(
     wrap_with_graph: bool = False,
 ) -> Callable:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
-    from hgraph._wiring._wiring_node_class._node_impl_wiring_node_class import NodeImplWiringNodeClass
     from hgraph._wiring._wiring_node_class._graph_wiring_node_class import GraphWiringNodeClass
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
@@ -852,7 +851,6 @@ def _node_decorator(
         if isinstance(node_impl, type) and issubclass(node_impl, WiringNodeClass):
             kwargs["node_class"] = node_impl
         else:
-            kwargs["node_class"] = NodeImplWiringNodeClass
             kwargs["impl_fn"] = node_impl
 
     interfaces = kwargs.pop("interfaces")
@@ -1017,9 +1015,15 @@ def _create_node(
         )
     )
     if interfaces is None:
-        return node_class(signature, impl_fn)
+        out = node_class(signature, impl_fn)
     else:
         return node_class(signature, impl_fn, interfaces=interfaces)
+
+    if signature.uses_recordable_state:
+        from hgraph._wiring._wiring_node_class._component_node_class import wrap_recorded_state
+        return wrap_recorded_state(out, signature)
+
+    return out
 
 
 def _create_node_signature(

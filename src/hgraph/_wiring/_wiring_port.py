@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Mapping, Generic
 
+from hgraph._runtime._node import ERROR_PATH, STATE_PATH
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._scalar_types import SCALAR, ZERO
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -101,11 +102,20 @@ class WiringPort:
             return ErrorWiringPort(
                 self.node_instance,
                 tuple([
-                    -1,
+                    ERROR_PATH,
                 ]),
             )
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
+
+    def __state__(self) -> "WiringPort":
+        if self.path == tuple():
+            return RecordableStateWiringPort(
+                self.node_instance,
+                tuple([
+                    STATE_PATH,
+                ])
+            )
 
     @property
     def value(self):
@@ -125,6 +135,20 @@ class ErrorWiringPort(WiringPort):
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
         return self.node_instance.error_output_type
+
+
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
+class RecordableStateWiringPort(WiringPort):
+
+    def __state__(self) -> "WiringPort":
+        raise CustomMessageWiringError("This is the recordable state wiring Port")
+
+    def __error__(self, *args, **kwargs) -> "WiringPort":
+        raise CustomMessageWiringError("This is the recordable state wiring Port")
+
+    @property
+    def output_type(self) -> HgTimeSeriesTypeMetaData:
+        return self.node_instance.recordable_state_output_type
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)

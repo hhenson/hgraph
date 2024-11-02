@@ -19,12 +19,11 @@ from hgraph import (
     CompoundScalar,
     LOGGER,
     TimeSeriesOutput,
-    EvaluationEngineApi,
+    EvaluationEngineApi, const_fn, HgTimeSeriesTypeMetaData, Node,
 )
-from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
 from hgraph._runtime._traits import Traits
-
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 
 __all__ = (
     "ReplaySource",
@@ -104,36 +103,43 @@ def replay_from_memory(
             yield ts, v
 
 
-@generator(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY, True))
+@const_fn(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_const_from_memory(
     key: str,
     tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     is_operator: bool = False,
     recordable_id: str = None,
+    tm: datetime = None,
+    as_of: datetime = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
-    _output: TIME_SERIES_TYPE = None,
+    _node: Node = None
 ) -> TIME_SERIES_TYPE:
     recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
     recordable_id = f":memory:{recordable_id}"
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
-    tm = _clock.evaluation_time
-    if source is None:
-        yield tm, None  # No data to process
-    else:
-        _output: TimeSeriesOutput
+    tm = _clock.evaluation_time if tm is None else tm
+    if source is not None:
+        from hgraph import TimeSeriesBuilderFactory
+        # Create an output to match type so we can determine the value through repeated processing of the deltas.
+        output: TimeSeriesOutput = TimeSeriesBuilderFactory.instance().make_output_builder(
+            HgTimeSeriesTypeMetaData.parse_type(tp)).make_instance(_node, None)
         for ts, v in source:
             # This is a slow approach, but since we don't have an index, this is the best we can do.
             # Additionally, since we are recording delta values, we need to apply the successive results to form the
             # full picture of state.
             if ts <= tm:
                 # Combine results when dealing with Collection results
-                _output.apply_result(v)
+                output.apply_result(v)
             else:
                 break
-        if _output.last_modified_time != tm:
+        if output.last_modified_time != tm:
             # This should only occur if the value was not modified
-            yield tm, None
+            out = None
+        else:
+            out = output.value
+        return out
+
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))

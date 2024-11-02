@@ -14,6 +14,7 @@ from hgraph._types._scalar_type_meta_data import (
     HgEvaluationEngineApiType,
     HgStateType,
     HgRecordableStateType,
+    RecordableStateInjector,
     HgLoggerType,
     HgNodeType,
 )
@@ -144,6 +145,17 @@ class WiringNodeSignature:
     @property
     def uses_recordable_state(self) -> bool:
         return InjectableTypes.RECORDABLE_STATE in self.injectable_inputs
+
+    def _recordable_state(self) -> tuple[str, HgRecordableStateType] | tuple[None, None]:
+        return next(((arg, tp) for arg, tp in self.input_types.items() if type(tp) is HgRecordableStateType), (None, None))
+
+    @property
+    def recordable_state_arg(self) -> str | None:
+        return self._recordable_state()[0]
+
+    @property
+    def recordable_state(self) -> RecordableStateInjector | None:
+        return self._recordable_state()[1]
 
     @property
     def uses_output_feedback(self) -> bool:

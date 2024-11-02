@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import auto, IntFlag
 
 from hgraph._types._type_meta_data import AUTO_RESOLVE
@@ -136,11 +137,17 @@ def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) ->
 
 
 @operator
-def replay_const(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) -> OUT:
+def replay_const(key: str, tp: type[OUT] = AUTO_RESOLVE,
+                 recordable_id: str = None, tm: datetime = None,
+                 as_of: datetime = None) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.
     If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
+
+    This must be implemented as a const_fn.
+
+    When called as a value and not as a node, the user MUST supply the recordable_id, tm and as_of values.
     """
 
 

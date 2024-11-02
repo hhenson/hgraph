@@ -10,8 +10,7 @@ from hgraph import (
     record,
     replay,
     compare,
-    replay_const,
-)
+    replay_const, )
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -132,6 +131,18 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
         return output_wrapper(out)
 
     return component_wrapper
+
+
+def wrap_recorded_state(fn: Callable, signature: WiringNodeSignature) -> Callable:
+
+    def record_state_wrapper(*args, **kwargs):
+        mode = RecordReplayContext.instance().mode
+        out = fn(*args, **kwargs)
+        if RecordReplayEnum.RECORD in mode:
+            record(out.__state__, "__state__")
+        return out
+
+    return record_state_wrapper
 
 
 @graph

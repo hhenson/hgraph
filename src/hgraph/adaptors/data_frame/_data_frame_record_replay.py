@@ -23,7 +23,7 @@ from hgraph import (
     from_table,
     EvaluationEngineApi,
     get_as_of,
-    LOGGER,
+    LOGGER, const_fn,
 )
 from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
@@ -145,11 +145,13 @@ def _replay_from_data_frame(
                 yield dt, out[0]  # If there are no partition keys we should only return a single value
 
 
-@generator(overloads=replay_const, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
+@const_fn(overloads=replay_const, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
 def replay_const_from_data_frame(
     key: str,
     tp: type[OUT] = AUTO_RESOLVE,
     recordable_id: str = None,
+    tm: datetime = None,
+    as_of: datetime = None,
     _traits: Traits = None,
     _api: EvaluationEngineApi = None,
 ) -> OUT:
@@ -160,8 +162,8 @@ def replay_const_from_data_frame(
     as_of_str = get_table_schema_as_of_key()
     as_of_col = pl.col(as_of_str)
     partition_keys = [dt_col] + [pl.col(k) for k in schema.partition_keys]
-    start_time = _api.start_time
-    as_of_time = get_as_of(_api.evaluation_clock)
+    start_time = _api.start_time if tm is None else tm
+    as_of_time = get_as_of(_api.evaluation_clock) if as_of is None else as_of
     df = (
         df_source.lazy()
         .filter(dt_col >= start_time, as_of_col <= as_of_time)
@@ -174,8 +176,7 @@ def replay_const_from_data_frame(
     )
     dt, df_ = next(iter(df))
     results = tuple(df_.iter_rows())
-    results = from_table_const[tp](results if schema.partition_keys else results[0]).value
-    yield _api.start_time, results
+    return from_table_const[tp](results if schema.partition_keys else results[0]).value
 
 
 class WriteMode(Enum):

@@ -20,7 +20,7 @@ from hgraph import (
     set_replay_values,
     replay_from_memory,
     record_to_memory,
-    get_recorded_value,
+    get_recorded_value, evaluate_graph, GraphConfiguration, MAX_ET,
 )
 
 
@@ -168,13 +168,15 @@ def eval_node(
                 continue
             # Dealing with scalar to time-series support
             max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
-        run_graph(
+        evaluate_graph(
             eval_node_graph,
-            life_cycle_observers=__observers__,
-            start_time=__start_time__,
-            end_time=__end_time__,
-            __trace__=__trace__,
-            __trace_wiring__=__trace_wiring__,
+            GraphConfiguration(
+                life_cycle_observers=__observers__ if __observers__ is not None else tuple(),
+                start_time=__start_time__ if __start_time__ is not None else MIN_ST,
+                end_time=__end_time__ if __end_time__ is not None else MAX_ET,
+                trace=__trace__,
+                trace_wiring=__trace_wiring__,
+            )
         )
 
         results = get_recorded_value() if node.signature.output_type is not None else []

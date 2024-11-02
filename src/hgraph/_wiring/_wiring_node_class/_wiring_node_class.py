@@ -6,11 +6,12 @@ from typing import Callable, Any, TypeVar, _GenericAlias, Mapping, TYPE_CHECKING
 
 from frozendict import frozendict
 
+from hgraph._types._scalar_type_meta_data import RecordableStateInjector
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
-from hgraph._wiring._wiring_errors import WiringError, MissingInputsError, WiringFailureError
+from hgraph._wiring._wiring_errors import WiringError, MissingInputsError, WiringFailureError, CustomMessageWiringError
 from hgraph._wiring._wiring_node_instance import (
     WiringNodeInstance,
     create_wiring_node_instance,
@@ -122,6 +123,14 @@ class WiringNodeClass:
         from hgraph import TS
 
         return HgTimeSeriesTypeMetaData.parse_type(TS[NodeError])
+
+    @property
+    def state_output_type(self) -> "HgTSBTypeMetaData":
+        if self.signature.uses_recordable_state:
+            state_tp: RecordableStateInjector = self.signature.input_types[self.signature.recordable_state_arg]
+            return state_tp.tsb_type
+        else:
+            raise CustomMessageWiringError(f"This node does not make use of recordable state")
 
 
 def extract_kwargs(

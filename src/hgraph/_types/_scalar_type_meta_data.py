@@ -523,10 +523,13 @@ class HgRecordableStateType(HgInjectableType):
         self.state_type = state_type
 
     @property
-    def injector(self):
+    def tsb_type(self) -> "HgTSBTypeMetaData":
         from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+        return HgTSBTypeMetaData(self.state_type) if self.state_type is not None else None
 
-        return RecordableStateInjector(HgTSBTypeMetaData(self.state_type) if self.state_type is not None else None)
+    @property
+    def injector(self):
+        return RecordableStateInjector(self.tsb_type)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
