@@ -1019,10 +1019,6 @@ def _create_node(
     else:
         return node_class(signature, impl_fn, interfaces=interfaces)
 
-    if signature.uses_recordable_state:
-        from hgraph._wiring._wiring_node_class._component_node_class import wrap_recorded_state
-        return wrap_recorded_state(out, signature)
-
     return out
 
 

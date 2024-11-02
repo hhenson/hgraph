@@ -2,7 +2,7 @@ import inspect
 import types
 from typing import TYPE_CHECKING, Callable, Any, Mapping
 
-from hgraph._types._scalar_type_meta_data import HgRecordableStateType, RecordableStateInjector
+from hgraph._types._scalar_type_meta_data import RecordableStateInjector
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature

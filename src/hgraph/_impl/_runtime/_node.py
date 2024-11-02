@@ -167,10 +167,11 @@ class BaseNodeImpl(Node, ABC):
             if RecordReplayEnum.RECOVER in mode:
                 # TODO: make recordable_id unique by using parent node context information.
                 from hgraph._operators._to_table import get_as_of
+                recordable_id = self.traits.get_trait_or("recordable_id", None) if self.signature.record_replay_id is None else self.signature.record_replay_id
                 self.recordable_state.value = replay_const(
                     "__state__",
                     self.signature.recordable_state.tsb_type.py_type,
-                    recordable_id=self.signature.record_replay_id,
+                    recordable_id=recordable_id,
                     tm = (clock := self.graph.evaluation_clock).evaluation_time - MIN_TD,  # We want the state just before now
                     as_of = get_as_of(clock)
                 ).value

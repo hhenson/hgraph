@@ -167,6 +167,6 @@ def test_recorded_state():
 
     @component(recordable_id="test_id")
     def simple_de_dup_component(ts: TS[int]) -> TS[int]:
-        return de_dup_simple(ts, __record_id__="de_dup_1")
+        return de_dup_simple(ts, __recordable_id__="de_dup_1")
 
     assert eval_node(simple_de_dup_component, [1, 2, 3, 3, 4]) == [1, 2, 3, None, 4]

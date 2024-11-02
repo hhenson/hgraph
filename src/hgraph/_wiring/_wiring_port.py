@@ -108,6 +108,7 @@ class WiringPort:
         else:
             raise CustomMessageWiringError("Wiring ports are only accessible on the main return value")
 
+    @property
     def __state__(self) -> "WiringPort":
         if self.path == tuple():
             return RecordableStateWiringPort(

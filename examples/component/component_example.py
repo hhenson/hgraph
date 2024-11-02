@@ -21,13 +21,30 @@ from hgraph import (
     RecordReplayContext,
     RecordReplayEnum,
     IN_MEMORY,
-    get_recorded_value,
+    get_recorded_value, compute_node, SIGNAL, RECORDABLE_STATE, TimeSeriesSchema,
 )
+
+class CountState(TimeSeriesSchema):
+    current_count: TS[int]
+
+
+@compute_node
+def count_(signal: SIGNAL, _state: RECORDABLE_STATE[CountState] = None) -> TS[int]:
+    _state.current_count.value += 1
+    return _state.current_count.value
+
+
+@count_.start
+def count_start(_state: RECORDABLE_STATE[CountState]):
+    if not _state.current_count.valid:
+        _state.current_count.value = 0
 
 
 @component
 def compute_signal(returns: TSD[str, TS[float]], factors: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
     # Start with a very simple idea
+    count = count_(returns, __recordable_id__="count_")
+    debug_print("Count", count)
     return map_(mul_, returns, factors)
 
 

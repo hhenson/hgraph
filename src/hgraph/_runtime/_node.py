@@ -94,8 +94,8 @@ class NodeSignature:
         return InjectableTypes.RECORDABLE_STATE in self.injectable_inputs
 
     def _recordable_state(self) -> tuple[str, "HgRecordableStateType"] | tuple[None, None]:
-        from hgraph._types._scalar_type_meta_data import RecordableStateInjector
-        return next(((arg, tp) for arg, tp in self.scalars.items() if type(tp) is RecordableStateInjector), (None, None))
+        from hgraph._types._scalar_type_meta_data import HgRecordableStateType
+        return next(((arg, tp) for arg, tp in self.scalars.items() if type(tp) is HgRecordableStateType), (None, None))
 
     @property
     def recordable_state_arg(self) -> str | None:

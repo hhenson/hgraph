@@ -116,8 +116,8 @@ def replay_const_from_memory(
     _node: Node = None
 ) -> TIME_SERIES_TYPE:
     recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
-    recordable_id = f":memory:{recordable_id}"
-    source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
+    recordable_id = f":memory:{recordable_id}.{key}"
+    source = GlobalState.instance().get(recordable_id, None)
     tm = _clock.evaluation_time if tm is None else tm
     if source is not None:
         from hgraph import TimeSeriesBuilderFactory
@@ -133,13 +133,7 @@ def replay_const_from_memory(
                 output.apply_result(v)
             else:
                 break
-        if output.last_modified_time != tm:
-            # This should only occur if the value was not modified
-            out = None
-        else:
-            out = output.value
-        return out
-
+        return output.value
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))

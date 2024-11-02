@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from hgraph import MAX_ET
 from hgraph._runtime._constants import MIN_DT
 from hgraph._impl._runtime._common import TimeSeriesSubscriber, SUBSCRIBER
 from hgraph._types._time_series_types import TimeSeriesOutput
@@ -40,8 +41,11 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
 
     def mark_modified(self, modified_time: datetime = None):
         if modified_time is None:
-            clock = self.owning_graph.evaluation_clock
-            modified_time = clock.evaluation_time
+            if self.owning_node is None:
+                modified_time = MAX_ET
+            else:
+                clock = self.owning_graph.evaluation_clock
+                modified_time = clock.evaluation_time
         if self._last_modified_time < modified_time:
             self._last_modified_time = modified_time
             if self._parent_output is not None:

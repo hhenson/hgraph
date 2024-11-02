@@ -133,18 +133,6 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
     return component_wrapper
 
 
-def wrap_recorded_state(fn: Callable, signature: WiringNodeSignature) -> Callable:
-
-    def record_state_wrapper(*args, **kwargs):
-        mode = RecordReplayContext.instance().mode
-        out = fn(*args, **kwargs)
-        if RecordReplayEnum.RECORD in mode:
-            record(out.__state__, "__state__")
-        return out
-
-    return record_state_wrapper
-
-
 @graph
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
     mode = RecordReplayContext.instance().mode

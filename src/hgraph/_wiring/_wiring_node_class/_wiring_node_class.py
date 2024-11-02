@@ -283,7 +283,7 @@ class BaseWiringNodeClass(WiringNodeClass):
         *args,
         __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None,
         __return_sink_wp__: bool = False,
-        __record_id__: str = None,
+        __recordable_id__: str = None,
         **kwargs,
     ) -> "WiringPort":
         """
@@ -291,7 +291,7 @@ class BaseWiringNodeClass(WiringNodeClass):
         :param args: Args as defined by the wiring signature.
         :param __pre_resolved_types__: A dictionary of TypeVars that have been pre-resolved.
         :param __return_sink_wp__:  If True will return a stub wiring port when the node is sink node.
-        :param __record_id__: The id (or partial id) to use when recording this element.
+        :param __recordable_id__: The id (or partial id) to use when recording this element.
         :param kwargs: The kwargs to supply to the function
         :return: A WiringPort (or None in the case of a sink_node and not stub requested)
         """
@@ -303,7 +303,7 @@ class BaseWiringNodeClass(WiringNodeClass):
                 self.signature,
                 *args,
                 __pre_resolved_types__=__pre_resolved_types__,
-                __record_id__=__record_id__,
+                __recordable_id__=__recordable_id__,
                 **kwargs,
             )
 
@@ -335,6 +335,13 @@ class BaseWiringNodeClass(WiringNodeClass):
                 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 
                 WiringGraphContext.instance().add_node(port)
+
+                if resolved_signature.uses_recordable_state:
+                    from hgraph._operators._record_replay import RecordReplayContext, RecordReplayEnum, record
+                    mode = RecordReplayContext.instance().mode
+                    if RecordReplayEnum.RECORD in mode:
+                        record(port.__state__, "__state__", recordable_id=resolved_signature.record_and_replay_id)
+
                 return port
 
     def _validate_signature(self, fn):
@@ -363,7 +370,7 @@ def extract_resolution_dict(
     Performs the logic of extracting the resolution dictionary as is used by the dispatch operator to deal
     with ensuring overloads are correctly captured upfront.
     """
-    _ = kwargs.pop("__record_id__", None)  # Remove if preset
+    _ = kwargs.pop("__recordable_id__", None)  # Remove if preset
     kwargs = prepare_kwargs(signature, *args, **kwargs)
     # Extract any additional required type resolution information from inputs
     kwarg_types = signature.convert_kwargs_to_types(**kwargs)
@@ -375,14 +382,14 @@ def validate_and_resolve_signature(
     *args,
     __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable],
     __enforce_output_type__: bool = True,
-    __record_id__: str = None,
+    __recordable_id__: str = None,
     **kwargs,
 ) -> tuple[dict[str, Any], WiringNodeSignature, dict[TypeVar, HgTypeMetaData]]:
     """
     Insure the inputs wired in match the signature of this node and resolve any missing types.
     """
     # Validate that all inputs have been received and apply the defaults.
-    record_replay_id = __record_id__
+    record_replay_id = __recordable_id__
     kwargs = prepare_kwargs(signature, *args, **kwargs)
     WiringContext.current_kwargs = kwargs
     try:
