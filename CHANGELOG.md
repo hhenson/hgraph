@@ -761,9 +761,14 @@ Version 0.3.25 (30-10-2024)
 
 * Fix issue with replay in replay record.
 
-
 Version 0.3.26 (31-10-2024)
 ---------------------------
 
 * Provide abstraction for a DataFrameStorage facility. Use this to support data frame reading and writing in the
   record-replay infrastructure.
+
+Version 0.3.27 (2-11-2024)
+--------------------------
+
+* Initial recovery of recordable state. Limited to cases where the recordable_id can be provided.
+
