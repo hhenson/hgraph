@@ -81,15 +81,12 @@ class WeekendCalendar(DetailedCalendar):
     def weekend_days(self) -> Tuple[int, ...]:
         return self._weekend_days
 
-    @abstractmethod
     def is_holiday(self, d: date) -> bool:
         return False
 
-    @abstractmethod
     def is_holiday_or_weekend(self, d: date) -> bool:
         return d.weekday() in self._weekend_days
 
-    @abstractmethod
     def add_business_days(self, d: date, days: int):
         if days < 0: return self.sub_business_days(d, -days)
 
@@ -118,7 +115,6 @@ class WeekendCalendar(DetailedCalendar):
 
         return (d + timedelta(days=days)) if days else d
 
-    @abstractmethod
     def sub_business_days(self, d: date, days: int):
         if days < 0: return self.add_business_days(d, -days)
 
