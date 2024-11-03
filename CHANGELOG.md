@@ -772,3 +772,7 @@ Version 0.3.27 (2-11-2024)
 
 * Initial recovery of recordable state. Limited to cases where the recordable_id can be provided.
 
+Version 0.3.28 (3-11-2024)
+--------------------------
+
+* Add the ability to plot a time-series in a notebook.
