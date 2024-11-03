@@ -12,9 +12,32 @@ jobs:
     permissions:
       # IMPORTANT: this permission is mandatory for trusted publishing
       id-token: write
+      contents: write
     steps:
       - name: checkout
         uses: actions/checkout@v4
+
+      - name: Get Version from Tag
+        id: tag_version
+        run: |
+          # Get the tag name without the leading 'v_'
+          VERSION=${GITHUB_REF#refs/tags/v_}
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+          # Update the version in pyproject.toml
+          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+
+          cat pyproject.toml | grep version
+
+      - name: Commit Version Update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --local user.name "github-actions"
+          git config --local user.email "github-actions@github.com"
+          git add pyproject.toml
+          git commit -m "Update version to $VERSION based on tag"
+          git push origin HEAD:main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,7 +53,7 @@ jobs:
       - name: Install dependencies
         run: poetry install --all-extras
 
-      - name: Build hgraph
+      - name: Build hg_oap
         run: poetry build
 
       - name: Run tests
