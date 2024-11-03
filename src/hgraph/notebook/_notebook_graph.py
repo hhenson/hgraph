@@ -1,4 +1,5 @@
 from datetime import datetime
+from logging import ERROR
 from typing import Sequence, Any
 
 from hgraph import (
@@ -54,6 +55,7 @@ def notebook_evaluate_graph():
     sink_nodes = context.sink_nodes
     graph_builder = create_graph_builder(sink_nodes)
     config = GraphConfiguration(start_time=_START_TIME, end_time=_END_TIME)
+    config.graph_logger.setLevel(ERROR)
     evaluate_graph(graph_builder, config)
 
 
