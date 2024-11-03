@@ -777,7 +777,7 @@ Version 0.3.28 (3-11-2024)
 
 * Add the ability to plot a time-series in a notebook.
 
-Version 0.3.29 (3-11-2024)
+Version 0.3.30 (3-11-2024)
 --------------------------
 
 * Reduce logging when using eval and plot
