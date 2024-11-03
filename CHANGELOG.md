@@ -53,3 +53,9 @@ Version 0.1.9 (30-10-2024)
 
 * Add CalendarImpl, DelegateCalendar, UnionCalendar
 * Add price_mid subscription service and dataframe service impl
+
+Version 0.1.10 (3-11-2024)
+--------------------------
+
+* Clean up calendar
+
