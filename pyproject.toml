@@ -48,6 +48,7 @@ packages = [
     sphinx_rtd_theme = { version = ">=2.0.0", optional = true  }
     sphinx-autodoc-typehints = { version = ">=2.3.0", optional = true }
     sphinxcontrib-plantuml = { version = ">=0.30", optional = true }
+    matplotlib = { version = "*", optional = true }
 
 
 [tool.poetry.extras]
@@ -55,6 +56,9 @@ web = [
     "perspective-python",
     "tornado",
     "requests"
+]
+notebook = [
+    "matplotlib",
 ]
 
 [tool.poetry.group.docs]

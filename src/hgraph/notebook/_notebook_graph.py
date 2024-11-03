@@ -29,6 +29,8 @@ def start_wiring_graph(name: str = "notebook-graph", start_time: datetime = MIN_
     from hgraph import WiringPort, WiringGraphContext
 
     WiringPort.eval = notebook_eval_node
+    WiringPort.plot = notebook_plot_node
+
     from hgraph._builder._ts_builder import TimeSeriesBuilderFactory
 
     if not TimeSeriesBuilderFactory.has_instance():
@@ -60,3 +62,14 @@ def notebook_eval_node(self) -> Sequence[tuple[datetime, Any]]:
     record(self)
     notebook_evaluate_graph()
     return get_recorded_value()
+
+
+def notebook_plot_node(self):
+    """
+    Adds the ability to plot the time-series.
+    Currently, this only supports single time-series values.
+    """
+    from matplotlib import pyplot as plt
+    values = notebook_eval_node(self)
+    data = {"date": [v[0] for v in values], "value": [v[1] for v in values]}
+    plt.plot(data["date"], data["value"])

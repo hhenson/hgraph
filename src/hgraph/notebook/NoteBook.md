@@ -33,3 +33,16 @@ To evaluate the graph in general, use the function:
 notebook_evaluate_graph()
 ```
 This would evaluate the current state of the graph.
+
+Plotting Time-Series values
+---------------------------
+
+It is possible to plot out the time-series. This will evaluate the node and then call matplot to plot the value.
+Currently, this is restricted to plotting a signal numerical value.
+
+```python
+from hgraph import const, emit, TS
+c = const((1, 2, 3, 4), TS[tuple[int, ...]])
+t = emit(c)
+t.plot()
+```
