@@ -1,5 +1,5 @@
 from datetime import datetime
-from logging import ERROR
+from logging import ERROR, getLogger
 from typing import Sequence, Any
 
 from hgraph import (
@@ -12,7 +12,7 @@ from hgraph import (
     MAX_ET,
     record,
     WiringNodeInstanceContext,
-    get_recorded_value,
+    get_recorded_value, WiringPort, HgTSTypeMetaData, HgTSBTypeMetaData, reset_recorded_value,
 )
 
 __all__ = (
@@ -23,6 +23,7 @@ __all__ = (
 
 _START_TIME: datetime = None
 _END_TIME: datetime = None
+_COUNTER: int = 0
 
 
 def start_wiring_graph(name: str = "notebook-graph", start_time: datetime = MIN_ST, end_time: datetime = MAX_ET):
@@ -60,18 +61,40 @@ def notebook_evaluate_graph():
 
 
 def notebook_eval_node(self) -> Sequence[tuple[datetime, Any]]:
-    global _START_TIME, _END_TIME
-    record(self)
+    global _START_TIME, _END_TIME, _COUNTER
+    id = f"Eval_{_COUNTER}"
+    _COUNTER += 1
+    record(self, key=id)
     notebook_evaluate_graph()
-    return get_recorded_value()
+    return get_recorded_value(key=id)
 
 
-def notebook_plot_node(self):
+def notebook_plot_node(self: WiringPort, title: str = None, ylabel: str = None):
     """
     Adds the ability to plot the time-series.
     Currently, this only supports single time-series values.
     """
-    from matplotlib import pyplot as plt
     values = notebook_eval_node(self)
-    data = {"date": [v[0] for v in values], "value": [v[1] for v in values]}
-    plt.plot(data["date"], data["value"])
+    from matplotlib import pyplot as plt
+    if type(self.output_type) is HgTSTypeMetaData:
+        data = {"date": [v[0] for v in values], "value": [v[1] for v in values]}
+        plt.plot(data["date"], data["value"])
+        plt.xlabel('datetime')
+        if ylabel:
+            plt.ylabel(ylabel)
+        if title:
+            plt.title(title)
+    elif type(self.output_type) is HgTSBTypeMetaData:
+        ndx, values = zip(*values)
+        schema = self.output_type.bundle_schema_tp.meta_data_schema
+        data = {key: [d.get(key, None) for d in values] for key in schema.keys()}
+        for key in schema.keys():
+            plt.plot(ndx, data[key], label=key)
+        plt.xlabel('datetime')
+        if ylabel:
+            plt.ylabel(ylabel)
+        if title:
+            plt.title(title)
+        plt.legend()
+    else:
+        getLogger("hgraph").error("Unable to plot type: %s", self.output_type)

@@ -33,6 +33,7 @@ __all__ = (
     "SimpleArrayReplaySource",
     "set_replay_values",
     "get_recorded_value",
+    "reset_recorded_value"
 )
 
 
@@ -182,7 +183,7 @@ def record_to_memory_stop(_state: STATE, _api: EvaluationEngineApi):
     global_state[_state.recordable_id] = result
 
 
-def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tuple[datetime, Any]]:
+def get_recorded_value(key: str = "out", recordable_id: str = None) -> list[tuple[datetime, Any]]:
     """
     Returns the recorded values for the given label.
     """
@@ -191,8 +192,17 @@ def get_recorded_value(label: str = "out", recordable_id: str = None) -> list[tu
     else:
         recordable_id = f":memory:{recordable_id}"
     global_state = GlobalState.instance()
-    return global_state[f"{recordable_id}.{label}"]
+    return global_state[f"{recordable_id}.{key}"]
 
+
+def reset_recorded_value(key: str = "out", recordable_id: str = None):
+    """Resets the recorded state"""
+    if recordable_id is None:
+        recordable_id = f"nodes.{record.signature.name}"
+    else:
+        recordable_id = f":memory:{recordable_id}"
+    global_state = GlobalState.instance()
+    global_state.pop(f"{recordable_id}.{key}")
 
 @graph(overloads=compare)
 def compare_generic(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
