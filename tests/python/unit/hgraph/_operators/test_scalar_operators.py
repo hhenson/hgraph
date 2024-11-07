@@ -35,7 +35,7 @@ from hgraph import (
     mean,
     std,
     var,
-    nothing,
+    nothing, CmpResult, cmp_,
 )
 from hgraph.test import eval_node
 
@@ -222,6 +222,10 @@ def test_bit_or_frozendicts():
 )
 def test_eq_scalars(lhs, rhs, expected_equal):
     assert eval_node(eq_, [lhs], [rhs]) == [expected_equal]
+    if expected_equal:
+        assert eval_node(cmp_, [lhs], [rhs]) == [CmpResult.EQ]
+    else:
+        assert eval_node(cmp_, [lhs], [rhs]) != [CmpResult.EQ]
 
 
 def test_neg_scalars():
@@ -497,6 +501,9 @@ def test_str_scalars():
         [ge_, 3, 2, True],
         [ge_, 3, 3, True],
         [ge_, 2, 3, False],
+        [cmp_, 3, 3, CmpResult.EQ],
+        [cmp_, 2, 3, CmpResult.LT],
+        [cmp_, 4, 3, CmpResult.GT],
     ],
 )
 def test_comparison_ops(op, d1, d2, expected):

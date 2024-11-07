@@ -1,5 +1,5 @@
 from statistics import stdev, variance
-from typing import Type
+from typing import Type, Mapping
 
 from hgraph import (
     SCALAR,
@@ -41,7 +41,7 @@ from hgraph import (
     zero,
     mean,
     std,
-    var,
+    var, cmp_, CmpResult,
 )
 
 __all__ = tuple()
@@ -126,6 +126,44 @@ def eq_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     Equality of two scalar timeseries
     """
     return bool(lhs.value == rhs.value)
+
+
+@compute_node(overloads=cmp_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__eq__") \
+                                                    and hasattr(m[SCALAR].py_type, "__lt__") )
+def cmp_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> TS[CmpResult]:
+    """
+    Cmp of two scalar timeseries
+    """
+    v1 = lhs.value
+    v2 = rhs.value
+    return CmpResult.EQ if v1==v2 else CmpResult.LT if v1<v2 else CmpResult.GT
+
+
+@compute_node(overloads=cmp_)
+def cmp_ts_dict(lhs: TS[Mapping[SCALAR, SCALAR_1]], rhs: TS[Mapping[SCALAR, SCALAR_1]]) -> TS[CmpResult]:
+    v1 = lhs.value
+    v2 = rhs.value
+    l1 = len(v1)
+    l2 = len(v2)
+    if l1 < l2:
+        return CmpResult.LT
+    elif l1 > l2:
+        return CmpResult.GT
+    else:
+        if (s1:=sorted(v1.keys())) == (s2:=sorted(v2.keys())):
+            for k in s1:
+                t1 = v1[k]
+                t2 = v2[k]
+                if t1 < t2:
+                    return CmpResult.LT
+                elif t1 != t2:
+                    return CmpResult.GT
+            return CmpResult.EQ
+        else:
+            if s1 < s2:
+                return CmpResult.LT
+            else:
+                return CmpResult.GT
 
 
 @compute_node(overloads=ne_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__ne__"))

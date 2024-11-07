@@ -2,7 +2,7 @@ import pytest
 
 from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const, BoolResult, if_, \
     route_by_index, race, if_true, if_then_else, nothing, compute_node, TSD, map_, PythonTimeSeriesReference, REMOVE, \
-    combine, switch_, filter_
+    combine, switch_, filter_, CmpResult, if_cmp
 from hgraph.test import eval_node
 
 
@@ -65,6 +65,15 @@ def test_if_then_else():
     ]
 
     assert eval_node(if_then_else, [None, True, False, True], [1, 2, 3], [4, 5, 6]) == expected
+
+
+def test_if_cmp():
+    lt = [1, 2, 3, 4, 5]
+    eq = [10, 20, 30, 40, 50]
+    gt = [100, 200, 300, 400, None]
+    cmp = [None, CmpResult.LT, CmpResult.EQ, CmpResult.GT, CmpResult.GT]
+    exp = [None, 2, 30, 400, None]
+    assert eval_node(if_cmp, cmp, lt, eq, gt) == exp
 
 
 @pytest.mark.parametrize("condition,tick_once_only,expected", [

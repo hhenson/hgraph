@@ -9,6 +9,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = (
+    "CmpResult",
     "DivideByZero",
     "abs_",
     "accumulate",
@@ -19,6 +20,7 @@ __all__ = (
     "bit_or",
     "bit_xor",
     "contains_",
+    "cmp_",
     "difference",
     "div_",
     "divmod_",
@@ -788,3 +790,17 @@ def accumulate(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> 
 @graph(deprecated="Prefer mean")
 def average(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     return mean(*ts)
+
+
+class CmpResult(Enum):
+    LT = -1
+    EQ = 0
+    GT = 1
+
+
+@operator
+def cmp_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[CmpResult]:
+    """
+    Return one of LT, EQ, GT as a comparison result.
+    This could be more efficient than performing a sequence of operations.
+    """

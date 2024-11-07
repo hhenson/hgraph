@@ -3,9 +3,9 @@ from dataclasses import dataclass, field
 
 from hgraph import MIN_ST
 from hgraph._impl._types._ref import PythonTimeSeriesReference
-from hgraph._operators._flow_control import all_, any_, merge, index_of
+from hgraph._operators._flow_control import all_, any_, merge, index_of, if_cmp
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
-from hgraph._operators._operators import bit_and, bit_or
+from hgraph._operators._operators import bit_and, bit_or, CmpResult
 from hgraph._runtime._constants import MAX_DT, MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF, REF_OUT
@@ -345,6 +345,27 @@ def if_true_impl(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
         if tick_once_only:
             condition.make_passive()
         return True
+
+
+@compute_node(overloads=if_cmp, valid=("cmp",))
+def if_cmp_impl(
+    cmp: TS[CmpResult],
+    lt: REF[OUT],
+    eq: REF[OUT],
+    gt: REF[OUT],
+    _output: REF_OUT[OUT] = None,
+) -> REF[OUT]:
+    """For now, implement using a simple .value and comparison of the .value"""
+    match cmp.value:
+        case CmpResult.LT:
+            if lt.valid and _output.value != lt.value:
+                return lt.value
+        case CmpResult.EQ:
+            if eq.valid and _output.value != eq.value:
+                return eq.value
+        case CmpResult.GT:
+            if gt.valid and _output.value != gt.value:
+                return gt.value
 
 
 @compute_node(overloads=if_then_else, valid=("condition",))
