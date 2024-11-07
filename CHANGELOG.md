@@ -781,3 +781,10 @@ Version 0.3.30 (3-11-2024)
 --------------------------
 
 * Reduce logging when using eval and plot
+
+Version 0.3.31 (7-11-2024)
+--------------------------
+
+* add cpm_ and if_cmp operators
+* Spelling fixes
+* additions to plotting
