@@ -186,7 +186,7 @@ Integration Testing / Runtime Wiring
 
 Once the bottom end components are coded and tested, move up the stack. With a final
 set of tests that validate the overall behaviour. Depending on the complexity of the
-application, you may reqrire some integration tests that run up more of the stack for
+application, you may require some integration tests that run up more of the stack for
 testing. Keep these separate from the unit tests.
 
 In this case integration testing will involve creating a main wiring class with

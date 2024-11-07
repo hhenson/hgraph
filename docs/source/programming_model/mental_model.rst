@@ -122,11 +122,11 @@ In the basic observer pattern, we have an observable and one or more observers.
 
 In the example above, the observables are the cells, the observers are the cells with dependencies.
 That is, ``A1`` and ``A2`` are observables, ``B2`` is observable and observer (observing ``A1`` and ``A2``) and
-``C2`` is acting as an observer (of ``B2`` and ``A1``).
+``C2`` is acting as an observer (of ``B2`` and ``A2``).
 
-If we followed the traditional observer pattern, when ``A1`` is modified it will notify (wlog) ``B2``,
+If we followed the traditional observer pattern, when ``A2`` is modified it will notify (wlog) ``B2``,
 which will re-compute it's value, then it will notify ``C2``, which will re-compute its value.
-Then ``A1`` will notify ``C2``, causing ``C2`` to be recomputed again.
+Then ``A2`` will notify ``C2``, causing ``C2`` to be recomputed again.
 
 This is a real problem, we have two negative consequences:
 
