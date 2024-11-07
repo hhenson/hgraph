@@ -45,7 +45,7 @@ The life-cycle of the graph is as below:
 The graph as well as each node in the graph are taken through this basic life-cycle.
 
 The master graph is started when the run-loop is started. Nested graphs (such as those used
-to implement ``map_``, are started when they are brough into existence, this is data driven.
+to implement ``map_``, are started when they are brought into existence, this is data driven.
 
 The observer will be notified prior to the graph starting or stopping calling the methods:
 

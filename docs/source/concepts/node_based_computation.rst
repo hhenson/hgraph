@@ -48,7 +48,7 @@ engine. This function will perform basic checks to ensure the function's pre-con
 call the function and take the result and apply it to the output (if present).
 
 As a user though, a node is a decorated Python function. There are a number of decorators that can be used to indicate
-the function is in fact a node, these depenend on the nature of the node you are creating.
+the function is in fact a node, these depend on the nature of the node you are creating.
 
 There are three key types of nodes, namely: source, compute and sink nodes.
 
@@ -69,7 +69,7 @@ a next tick to evaluate) and this will not change over the passage of time.
 
 By contrast, the **push** nodes are able to introduce ticks (or events) into the graph at any time, even after the
 evaluation cycle of a graph has ended. In all cases a **push** node will be associated to a thread which is not the
-engines thread. These nodes are able to introduce events, in a thread-safe manor, to the graph at any point in time.
+engines thread. These nodes are able to introduce events, in a thread-safe manner, to the graph at any point in time.
 As such **push** nodes are only meaningful when evaluated under the ``REAL_TIME`` engine.
 
 Pull Source Node
