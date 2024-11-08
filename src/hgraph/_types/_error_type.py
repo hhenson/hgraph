@@ -48,6 +48,19 @@ class BackTrace:
         return self._level_str()
 
     @staticmethod
+    def runtime_path_name(node: "Node", use_label: bool = True) -> str:
+        sig = node.signature
+        suffix = (sig.label or sig.name) if use_label else sig.name
+        parent_node = node.graph.parent_node
+        if parent_node:
+            p_l = BackTrace.runtime_path_name(parent_node)
+            p_n = BackTrace.runtime_path_name(parent_node, use_label=False)
+            p_n = _remove_indices(p_n)
+            return f"{p_l}[{node.graph.label}].{sig.wiring_path_name.replace(p_n, '')}.{suffix}".replace('..', '.')
+        else:
+            return f"{sig.wiring_path_name}.{suffix}"
+
+    @staticmethod
     def capture_back_trace(node: "Node", capture_values: bool = False, depth: int = 4) -> "BackTrace":
         signature = BacktraceSignature(node.signature.name, node.signature.args) if node else None
         if depth > 0:
@@ -79,6 +92,15 @@ class BackTrace:
                 active_inputs[input_name] = BackTrace.capture_back_trace(
                     input.value.output.owning_node, capture_values, depth - 1
                 )
+
+def _remove_indices(s):
+    # Remove [xyz] and [123] from "a[xyz].b.c.d[123].e.f.g" leaving "a.b.c.d.e.f.g"
+    while "[" in s:
+        pieces = s.split("[", maxsplit=1)
+        prior = pieces[0]
+        pieces = pieces[1].split("]", maxsplit=1)
+        s = f"{prior}{pieces[-1]}"
+    return s
 
 
 @dataclass(frozen=True)
