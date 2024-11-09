@@ -1,20 +1,15 @@
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from hgraph._impl._runtime._node import SkipEvalDelegate
-from hgraph._runtime._evaluation_clock import EngineEvaluationClock
-from hgraph._runtime._lifecycle import initialise_dispose_context
 from hgraph._impl._runtime._evaluation_clock import RealTimeEvaluationClock, SimulationEvaluationClock
 from hgraph._impl._runtime._evaluation_engine import PythonEvaluationEngine
+from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._graph_executor import GraphExecutor
+from hgraph._runtime._lifecycle import initialise_dispose_context
 from hgraph._runtime._lifecycle import start_stop_context
-from hgraph._runtime._node import Node, NodeTypeEnum
-from hgraph._runtime._graph_recorder import GraphRecorder
-
 
 __all__ = ("PythonGraphExecutor",)
 
@@ -30,12 +25,10 @@ class PythonGraphExecutor(GraphExecutor):
         graph: Graph,
         run_mode: EvaluationMode,
         observers: Iterable[EvaluationLifeCycleObserver] = None,
-        recorder: GraphRecorder = None,
     ):
         self._graph = graph
         self._run_mode = run_mode
         self.observers = observers or []
-        self._recorder: GraphRecorder = recorder
 
     @property
     def run_mode(self) -> EvaluationMode:

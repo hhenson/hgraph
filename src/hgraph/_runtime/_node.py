@@ -2,17 +2,15 @@ from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, IntFlag, auto
-from typing import Optional, Mapping, TYPE_CHECKING, Any, Set
+from typing import Optional, Mapping, TYPE_CHECKING, Any
 
 from hgraph._runtime._lifecycle import ComponentLifeCycle
 
 if TYPE_CHECKING:
-    from hgraph._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, HgRecordableStateType, RecordableStateInjector
+    from hgraph._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, HgRecordableStateType
     from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
     from hgraph._runtime._graph import Graph
-    from hgraph._runtime._data_writer import DataWriter, DataReader
-    from hgraph._runtime._graph_recorder import GraphRecorder
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
 __all__ = (
@@ -373,18 +371,6 @@ class NodeDelegate(Node):
 
     def notify_next_cycle(self):
         self._node.notify_next_cycle()
-
-    def prepare_to_replay(self, graph_recorder: "GraphRecorder"):
-        self._node.prepare_to_replay(graph_recorder)
-
-    def prepare_to_record(self, graph_recorder: "GraphRecorder"):
-        self._node.prepare_to_record(graph_recorder)
-
-    def suspend(self, data_writer: "DataWriter"):
-        self._node.suspend(data_writer)
-
-    def resume(self, data_reader: "DataReader"):
-        self._node.resume(data_reader)
 
 
 class NodeScheduler(ABC):
