@@ -54,7 +54,7 @@ def record_to_data_frame(
     """
     tbl = to_table(ts)
     schema = table_schema(tp)
-    _record_to_data_frame(tbl, schema, key)
+    _record_to_data_frame(tbl, schema, key, recordable_id)
 
 
 @sink_node
