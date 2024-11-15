@@ -9,6 +9,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
+from hgraph import get_fq_recordable_id
 from hgraph._runtime._constants import MIN_TD
 from hgraph._impl._types._tss import PythonSetDelta, Removed
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
@@ -167,13 +168,13 @@ class BaseNodeImpl(Node, ABC):
             if RecordReplayEnum.RECOVER in mode:
                 # TODO: make recordable_id unique by using parent node context information.
                 from hgraph._operators._to_table import get_as_of
-                recordable_id = self.traits.get_trait_or("recordable_id", None) if self.signature.record_replay_id is None else self.signature.record_replay_id
+                recordable_id = get_fq_recordable_id(self.graph.traits, self.signature.record_replay_id)
                 self.recordable_state.value = replay_const(
                     "__state__",
                     self.signature.recordable_state.tsb_type.py_type,
                     recordable_id=recordable_id,
                     tm = (clock := self.graph.evaluation_clock).evaluation_time - MIN_TD,  # We want the state just before now
-                    as_of = get_as_of(clock)
+                    as_of = get_as_of(clock),
                 ).value
 
     def do_eval(self): ...

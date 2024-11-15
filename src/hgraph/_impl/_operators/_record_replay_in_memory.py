@@ -2,28 +2,13 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Protocol, Iterable, Any
 
-from hgraph import (
-    MIN_ST,
-    MIN_TD,
-    GlobalState,
-    generator,
-    replay,
-    IN_MEMORY,
-    TIME_SERIES_TYPE,
-    sink_node,
-    record,
-    EvaluationClock,
-    STATE,
-    TS,
-    graph,
-    CompoundScalar,
-    LOGGER,
-    TimeSeriesOutput,
-    EvaluationEngineApi, const_fn, HgTimeSeriesTypeMetaData, Node,
-)
-from hgraph._operators._record_replay import record_replay_model_restriction, compare, replay_const
-from hgraph._runtime._traits import Traits
-from hgraph._types._type_meta_data import AUTO_RESOLVE
+from hgraph import get_fq_recordable_id
+from hgraph._operators import replay, IN_MEMORY, record, record_replay_model_restriction, compare, replay_const
+from hgraph._runtime import Traits, MIN_ST, MIN_TD, GlobalState, EvaluationClock, EvaluationEngineApi, Node, Graph
+from hgraph._types import AUTO_RESOLVE, TS, CompoundScalar, LOGGER, STATE, TIME_SERIES_TYPE, TimeSeriesOutput, \
+    HgTimeSeriesTypeMetaData
+from hgraph._wiring import generator, sink_node, graph, const_fn
+
 
 __all__ = (
     "ReplaySource",
@@ -33,9 +18,8 @@ __all__ = (
     "SimpleArrayReplaySource",
     "set_replay_values",
     "get_recorded_value",
-    "reset_recorded_value"
+    "reset_recorded_value",
 )
-
 
 class ReplaySource(Protocol):
     """
@@ -88,11 +72,13 @@ def replay_from_memory(
     # TODO: At some point it would be useful to support a time-indexed collection of values to provide
     # More complex replay scenarios.
     """
-    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
-    if recordable_id is None:
-        recordable_id = f"nodes.{replay_from_memory.signature.name}"
-    else:
+    try:
+        recordable_id = get_fq_recordable_id(_traits, recordable_id)
         recordable_id = f":memory:{recordable_id}"
+    except RuntimeError:
+        # If there are no parent recordable id's and this was None then we need to catch the exception and set
+        recordable_id = f"nodes.{replay_from_memory.signature.name}"
+
     source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
@@ -116,7 +102,7 @@ def replay_const_from_memory(
     _clock: EvaluationClock = None,
     _node: Node = None
 ) -> TIME_SERIES_TYPE:
-    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
+    recordable_id = get_fq_recordable_id(_traits, recordable_id)
     recordable_id = f":memory:{recordable_id}.{key}"
     source = GlobalState.instance().get(recordable_id, None)
     tm = _clock.evaluation_time if tm is None else tm

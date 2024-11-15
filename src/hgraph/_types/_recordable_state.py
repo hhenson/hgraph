@@ -1,11 +1,10 @@
-import functools
 from typing import Generic, Mapping, Any, Union
 
-from hgraph._types._typing_utils import nth
-from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_types import CompoundScalar
 from hgraph._types._time_series_types import TimeSeriesOutput
-from hgraph._types._tsb_type import TS_SCHEMA, TimeSeriesSchema, TimeSeriesBundle
+from hgraph._types._tsb_type import TS_SCHEMA, TimeSeriesSchema
+from hgraph._types._type_meta_data import ParseError
+from hgraph._types._typing_utils import nth
 
 __all__ = ("RECORDABLE_STATE",)
 

@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from hgraph import OutputBuilder
-from hgraph._impl._builder._node_builder import PythonBaseNodeBuilder, PythonNodeBuilder
+from hgraph._impl._builder._node_builder import PythonBaseNodeBuilder
 
 if TYPE_CHECKING:
     from hgraph._runtime._node import Node

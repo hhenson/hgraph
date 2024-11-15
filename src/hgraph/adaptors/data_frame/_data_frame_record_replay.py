@@ -23,7 +23,7 @@ from hgraph import (
     from_table,
     EvaluationEngineApi,
     get_as_of,
-    LOGGER, const_fn,
+    LOGGER, const_fn, get_fq_recordable_id,
 )
 from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
@@ -73,7 +73,7 @@ def _record_to_data_frame(
 @_record_to_data_frame.start
 def _record_to_data_frame_start(key: str, recordable_id: str, _state: STATE, _traits: Traits = None):
     _state.value = []
-    recordable_id = recordable_id if recordable_id is not None else _traits.get_trait_or("recordable_id", None)
+    recordable_id = get_fq_recordable_id(_traits, recordable_id)
     _state.recordable_id = f"{recordable_id}::{key}"
 
 
@@ -95,7 +95,7 @@ def replay_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id
 
 
 def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
-    recordable_id = traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
+    recordable_id = get_fq_recordable_id(traits, recordable_id) if traits is not None else recordable_id
     return DataFrameStorage.instance().read_frame(f"{recordable_id}::{key}")
 
 

@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import auto, IntFlag
+from typing import TYPE_CHECKING, Union
 
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._types._scalar_types import DEFAULT
@@ -7,10 +8,16 @@ from hgraph._runtime._global_state import GlobalState
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
 from hgraph._wiring._decorators import operator
 
+if TYPE_CHECKING:
+    from hgraph import Graph, Traits
+
 __all__ = (
     "RecordReplayEnum",
     "RecordReplayContext",
+    "get_fq_recordable_id",
+    "record_replay_model_restriction",
     "set_record_replay_model",
+    "set_parent_recordable_id",
     "record_replay_model",
     "record",
     "replay",
@@ -87,10 +94,33 @@ def set_record_replay_model(model: str):
 
 IN_MEMORY = "InMemory"
 
+RECORDABLE_ID_TRAIT = "recordable_id"
 
 def record_replay_model() -> str:
     """Get the recordable model to make use of"""
     return GlobalState.instance().get("::record_replay_model::", IN_MEMORY)
+
+
+def get_fq_recordable_id(traits: "Traits", recordable_id: str) -> str:
+    """
+    resolves the recordable id by collecting the full path or recordable id's from this recordable_id to the
+    outer component graph.
+    """
+    parent_id = traits.get_trait_or(RECORDABLE_ID_TRAIT, None) if traits else None
+    if parent_id is None:
+        if recordable_id is None:
+            raise RuntimeError("No recordable id provided and no parent order id found")
+        return recordable_id
+    else:
+        if recordable_id is None:
+            return parent_id
+        else:
+            return f"{parent_id}.{recordable_id}"
+
+
+def set_parent_recordable_id(graph: "Graph", recordable_id: str):
+    """Set the recordable id trait on the graph"""
+    graph.traits.set_traits(RECORDABLE_ID_TRAIT, recordable_id)
 
 
 def record_replay_model_restriction(model: str, check_operator: bool = False):

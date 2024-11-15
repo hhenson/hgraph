@@ -10,3 +10,4 @@ from hgraph._runtime._graph_executor import *
 from hgraph._runtime._graph_runner import *
 from hgraph._runtime._lifecycle import *
 from hgraph._runtime._node import *
+from hgraph._runtime._traits import *
