@@ -141,13 +141,13 @@ def record_to_memory(
 
 @record_to_memory.start
 def record_to_memory_start(key: str, is_operator: bool, recordable_id: str, _state: STATE, _traits: Traits):
-    recordable_id = _traits.get_trait_or("recordable_id", None) if recordable_id is None else recordable_id
-    if recordable_id is None:
-        recordable_id = f"nodes.{record.signature.name}.{key}"
-        _state.is_operator = False
-    else:
+    try:
+        recordable_id = get_fq_recordable_id(_traits, recordable_id)
         recordable_id = f":memory:{recordable_id}.{key}"
         _state.is_operator = True
+    except:
+        recordable_id = f"nodes.{record.signature.name}.{key}"
+        _state.is_operator = False
     _state.recordable_id = recordable_id
     _state.record_value = []
 

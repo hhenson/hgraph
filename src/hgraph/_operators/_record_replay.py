@@ -15,6 +15,7 @@ __all__ = (
     "RecordReplayEnum",
     "RecordReplayContext",
     "get_fq_recordable_id",
+    "has_recordable_id_trait",
     "record_replay_model_restriction",
     "set_record_replay_model",
     "set_parent_recordable_id",
@@ -101,6 +102,9 @@ def record_replay_model() -> str:
     return GlobalState.instance().get("::record_replay_model::", IN_MEMORY)
 
 
+def has_recordable_id_trait(trait: "Traits") -> bool:
+    return trait.get_trait_or(RECORDABLE_ID_TRAIT, None) is not None
+
 def get_fq_recordable_id(traits: "Traits", recordable_id: str) -> str:
     """
     resolves the recordable id by collecting the full path or recordable id's from this recordable_id to the
@@ -120,7 +124,7 @@ def get_fq_recordable_id(traits: "Traits", recordable_id: str) -> str:
 
 def set_parent_recordable_id(graph: "Graph", recordable_id: str):
     """Set the recordable id trait on the graph"""
-    graph.traits.set_traits(RECORDABLE_ID_TRAIT, recordable_id)
+    graph.traits.set_traits(recordable_id=recordable_id)
 
 
 def record_replay_model_restriction(model: str, check_operator: bool = False):

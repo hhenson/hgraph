@@ -1,3 +1,5 @@
+from pprint import pprint
+
 from frozendict import frozendict as fd
 
 from hgraph import (
@@ -21,7 +23,7 @@ from hgraph import (
     RecordReplayContext,
     RecordReplayEnum,
     IN_MEMORY,
-    get_recorded_value, compute_node, SIGNAL, RECORDABLE_STATE, TimeSeriesSchema,
+    get_recorded_value, compute_node, SIGNAL, RECORDABLE_STATE, TimeSeriesSchema, switch_,
 )
 
 class CountState(TimeSeriesSchema):
@@ -44,7 +46,16 @@ def count_start(_state: RECORDABLE_STATE[CountState]):
 def compute_signal(returns: TSD[str, TS[float]], factors: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
     # Start with a very simple idea
     count = count_(returns, __recordable_id__="count_")
+    sub_count = switch_(
+        {
+            True: lambda c: count_(c, __recordable_id__="count_"),
+            False: lambda c: count_(c, __recordable_id__="count_"),
+        },
+        count < 4,
+        count
+    )
     debug_print("Count", count)
+    debug_print("Sub Count", sub_count)
     return map_(mul_, returns, factors)
 
 
@@ -125,6 +136,7 @@ def main():
 
         print("\nRun Replay\n")
         run_replay()
+        print(gs.keys())
 
         print("\nRun Replay Output\n")
         run_replay_output()

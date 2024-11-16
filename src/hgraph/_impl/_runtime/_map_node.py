@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, date, time, timedelta
 from typing import Mapping, Any, Callable, cast
 
+from hgraph import get_fq_recordable_id, set_parent_recordable_id, has_recordable_id_trait
 from hgraph._runtime._constants import MAX_DT
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
@@ -68,7 +69,14 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self._scheduled_keys: dict[K, datetime] = {}
         self._active_graphs: dict[K, Graph] = {}
         self._pending_keys: set[K] = set()
-        self._count = 1
+        self._count: int = 1
+        self._recordable_id: str | None = None
+
+    def do_start(self):
+        super().do_start()
+        if has_recordable_id_trait(self.graph.traits):
+            recordable_id = self.signature.record_replay_id
+            self._recordable_id = get_fq_recordable_id(self.graph.traits, recordable_id if recordable_id else f"map_")
 
     def eval(self):
         self.mark_evaluated()
@@ -117,6 +125,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             MapNestedEngineEvaluationClock(self.graph.evaluation_engine.engine_evaluation_clock, key, self),
         )
         graph.initialise()
+        if self._recordable_id:
+            recordable_id = f"{self._recordable_id}[{str(key)}]"
+            set_parent_recordable_id(graph, recordable_id)
         self._wire_graph(key, graph)
         graph.start()
         self._scheduled_keys[key] = self.last_evaluation_time

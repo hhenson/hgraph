@@ -1,5 +1,6 @@
 from typing import Mapping, Any, Callable, Optional, cast
 
+from hgraph import set_parent_recordable_id, has_recordable_id_trait, get_fq_recordable_id
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,
@@ -43,6 +44,14 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         from hgraph._wiring._switch import DEFAULT
 
         self._default_graph_builder: GraphBuilder = self.nested_graph_builders.get(DEFAULT)
+        self._recordable_id: str | None = None
+
+    def do_start(self):
+        super().do_start()
+        if has_recordable_id_trait(self.graph.traits):
+            recordable_id = self.signature.record_replay_id
+            self._recordable_id = get_fq_recordable_id(self.graph.traits,
+                                                       recordable_id if recordable_id else f"switch_")
 
     def eval(self):
         self.mark_evaluated()
@@ -88,6 +97,9 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         from hgraph._wiring._switch import DEFAULT
 
         graph_key = self._active_key if self._active_key in self.nested_graph_builders else DEFAULT
+        if self._recordable_id:
+            recordable_id = f"{self._recordable_id}[{str(graph_key)}]"
+            set_parent_recordable_id(graph, recordable_id)
 
         for arg, node_ndx in self.input_node_ids[graph_key].items():
             node: NodeImpl = graph.nodes[node_ndx]
