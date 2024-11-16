@@ -788,3 +788,8 @@ Version 0.3.31 (7-11-2024)
 * add cpm_ and if_cmp operators
 * Spelling fixes
 * additions to plotting
+
+Version 0.3.32 (16-11-2024)
+---------------------------
+
+* add initial support for nested graph state recovery.
