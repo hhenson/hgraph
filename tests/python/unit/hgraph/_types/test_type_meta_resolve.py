@@ -3,7 +3,8 @@ from typing import Generic
 
 import pytest
 
-from hgraph import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar, K, KEYABLE_SCALAR
+from hgraph import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar, K, KEYABLE_SCALAR, BUFF, BUFF_OUT, BUFF_SIZE, \
+    BUFF_SIZE_MIN, BuffSize
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB, REF
 from hgraph._types._typing_utils import clone_type_var
@@ -48,6 +49,8 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
         [TS[int], TS[int], {}],
         [TS[SCALAR], TS[int], {SCALAR: int}],
         [TS_OUT[SCALAR], TS_OUT[int], {SCALAR: int}],
+        [BUFF[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN], BUFF[int, BuffSize[10]], {SCALAR: int, BUFF_SIZE: BuffSize[10], BUFF_SIZE_MIN: BuffSize[10]}],
+        [BUFF_OUT[SCALAR], BUFF_OUT[int, BuffSize[10], BuffSize[5]], {SCALAR: int, BUFF_SIZE: BuffSize[10], BUFF_SIZE_MIN: BuffSize[5]}],
         [TSL[TS[int], Size[2]], TSL[TS[int], Size[2]], {}],
         [TSL[TS[SCALAR], Size[2]], TSL[TS[int], Size[2]], {SCALAR: int}],
         [TSL[TIME_SERIES_TYPE, Size[2]], TSL[TS[int], Size[2]], {TIME_SERIES_TYPE: TS[int]}],

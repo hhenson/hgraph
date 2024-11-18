@@ -1,4 +1,6 @@
+from collections import deque
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Mapping, cast
 
 from frozendict import frozendict
@@ -17,7 +19,7 @@ from hgraph._builder._ts_builder import (
     TSDOutputBuilder,
     TSDInputBuilder,
     REFOutputBuilder,
-    REFInputBuilder,
+    REFInputBuilder, BuffInputBuilder, BuffOutputBuilder,
 )
 from hgraph._runtime._node import Node
 from hgraph._types._context_meta_data import HgCONTEXTTypeMetaData
@@ -54,6 +56,53 @@ class PythonTSInputBuilder(TSInputBuilder):
         from hgraph import PythonTimeSeriesValueInput
 
         return PythonTimeSeriesValueInput(_owning_node=owning_node, _parent_input=owning_input)
+
+    def release_instance(self, item):
+        """Nothing to do"""
+
+
+@dataclass(frozen=True)
+class PythonIBuffOutputBuilder(BuffOutputBuilder):
+
+    _size: int
+    _min_size: int
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph import PythonTimeSeriesIBufferValueOutput
+
+        return PythonTimeSeriesIBufferValueOutput(
+            _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
+            _min_size=self._min_size
+        )
+
+    def release_instance(self, item):
+        """Nothing to do"""
+
+
+@dataclass(frozen=True)
+class PythonTBuffOutputBuilder(BuffOutputBuilder):
+
+    _size: timedelta
+    _min_size: timedelta
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph import PythonTimeSeriesTBufferValueOutput
+
+        return PythonTimeSeriesTBufferValueOutput(
+            _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
+            _min_size=self._min_size
+        )
+
+    def release_instance(self, item):
+        """Nothing to do"""
+
+
+class PythonBuffInputBuilder(BuffInputBuilder):
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph import PythonTimeSeriesBufferValueInput
+
+        return PythonTimeSeriesBufferValueInput(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
         """Nothing to do"""
@@ -308,6 +357,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
     def make_input_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSInputBuilder:
         return {
             HgTSTypeMetaData: lambda: PythonTSInputBuilder(value_tp=cast(HgTSTypeMetaData, value_tp).value_scalar_tp),
+
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
                 schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type
             ),

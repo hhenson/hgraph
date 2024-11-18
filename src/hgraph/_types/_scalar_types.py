@@ -29,6 +29,9 @@ if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = (
+    "BUFF_SIZE",
+    "BUFF_SIZE_MIN",
+    "BuffSize",
     "SCALAR",
     "Size",
     "SIZE",
@@ -97,6 +100,54 @@ class Size:
 
     def __str__(self):
         return f"Size[{str(self.SIZE) if self.FIXED_SIZE else ''}]"  # NOSONAR
+
+
+__CACHED_BUFF_SIZES__: dict[int, Type["BuffSize"]] = {}
+
+
+class BuffSize:
+    """
+    BuffSize class is used to provide the buffer dimensions to the buffer class via the templating mechanism.
+    BuffSize can represent a number of ticks to buffer or a time-delta to record.
+
+    Use this as BuffSize[n] where n is the size represented as an integer value or a time-delta
+
+    For example:
+    ::
+
+        @compute_node
+        def my_node(...) -> BUFF[int, BuffSize[63]]:
+            ...
+
+    or
+
+        @compute_node
+        def my_node(ts: BUFF[int, BuffSize[timedelta(seconds=20)]]) -> TS[int]:
+            ...
+
+    """
+
+    SIZE: int = -1  # NOSONAR
+    FIXED_SIZE: bool = False
+    TIME_RANGE: timedelta = None
+
+    @classmethod
+    def __class_getitem__(cls, item):
+        assert type(item) is int
+        global __CACHED_BUFF_SIZES__
+        tp = __CACHED_BUFF_SIZES__.get(item)
+        if tp is None:
+            if type(item) is int:
+                tp = type(f"BuffSize_{item}", (BuffSize,), {"SIZE": item, "FIXED_SIZE": True, "TIME_RANGE": None})
+            elif type(item) is timedelta:
+                tp = type(f"BuffSize_{item}", (BuffSize,), {"SIZE": -1, "FIXED_SIZE": False, "TIME_RANGE": item})
+            else:
+                raise TypeError(f"Unexpected type {type(item)}")
+            __CACHED_BUFF_SIZES__[item] = tp
+        return tp
+
+    def __str__(self):
+        return f"BuffSize[{str(self.SIZE) if self.FIXED_SIZE else self.TIME_RANGE}]"  # NOSONAR
 
 
 class CompoundScalar(AbstractSchema):
@@ -208,6 +259,10 @@ class Hashable(Protocol):
 
 SIZE = TypeVar("SIZE", bound=Size)
 SIZE_1 = clone_type_var(SIZE, "SIZE_1")
+
+BUFF_SIZE = TypeVar("BUFF_SIZE", bound=BuffSize)
+BUFF_SIZE_MIN = TypeVar("BUFF_SIZE_MIN", bound=BuffSize)
+
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 COMPOUND_SCALAR_1 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
 COMPOUND_SCALAR_2 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_2")

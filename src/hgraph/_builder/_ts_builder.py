@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     from hgraph._types._tsb_type import TimeSeriesSchema
 
 __all__ = (
+    "BuffInputBuilder",
+    "BuffOutputBuilder",
     "TSOutputBuilder",
     "TSInputBuilder",
     "TimeSeriesBuilderFactory",
@@ -58,6 +60,28 @@ class TSInputBuilder(InputBuilder):
         raise NotImplementedError()
 
     def release_instance(self, item: "TimeSeriesInput"):
+        raise NotImplementedError()
+
+
+@dataclass(frozen=True)
+class BuffInputBuilder(InputBuilder):
+    value_tp: "HgScalarTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
+        raise NotImplementedError()
+
+    def release_instance(self, item: "TimeSeriesInput"):
+        raise NotImplementedError()
+
+
+@dataclass(frozen=True)
+class BuffOutputBuilder(OutputBuilder):
+    value_tp: "HgScalarTypeMetaData"
+
+    def make_instance(self, owning_node=None, owning_output=None) -> "TimeSeriesOutput":
+        raise NotImplementedError()
+
+    def release_instance(self, item: "TimeSeriesOutput"):
         raise NotImplementedError()
 
 

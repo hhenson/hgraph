@@ -1,27 +1,28 @@
 from collections.abc import Mapping as Mapping_, Set as Set_
 from datetime import time, datetime, date, timedelta
 from enum import Enum
-
-from frozendict import frozendict
 from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
 
 import pytest
+from frozendict import frozendict
 
-from hgraph._types._scalar_types import SIZE, Size
-from hgraph._types._scalar_value import Array
 from hgraph._runtime import EvaluationClock
+from hgraph._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
+from hgraph._types._buff_meta_data import HgBuffTypeMetaData, HgBuffOutTypeMetaData
+from hgraph._types._buff_type import BUFF, BUFF_OUT
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._ref_type import REF
-from hgraph._types._ts_type import TS, TS_OUT
-from hgraph._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
 from hgraph._types._scalar_type_meta_data import HgAtomicType, HgScalarTypeMetaData, HgTupleCollectionScalarType, \
     HgTupleFixedScalarType, HgSetScalarType, HgDictScalarType, HgTypeOfTypeMetaData, HgInjectableType, \
     HgArrayScalarTypeMetaData
+from hgraph._types._scalar_types import SIZE, Size, BuffSize
+from hgraph._types._scalar_value import Array
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
-from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
-from hgraph._types._tsl_meta_data import HgTSLTypeMetaData, HgTSLOutTypeMetaData
 from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
+from hgraph._types._ts_type import TS, TS_OUT
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData, HgTSLOutTypeMetaData
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
 from hgraph._types._type_meta_data import HgTypeMetaData
 
 
@@ -42,7 +43,8 @@ class MyEnum(Enum):
         [timedelta, timedelta],
         [str, str],
         [MyEnum, MyEnum],
-        [Size, Size]
+        [Size, Size],
+        [BuffSize, BuffSize],
     ]
 )
 def test_atomic_scalars_type(value, expected: Type):
@@ -67,7 +69,8 @@ def test_atomic_scalars_type(value, expected: Type):
         [timedelta(days=1), timedelta],
         ["Test", str],
         [MyEnum.A, MyEnum],
-        [Size[3], Size[3]]
+        [Size[3], Size[3]],
+        [BuffSize[10], BuffSize[10]],
     ]
 )
 def test_atomic_scalars_value(value, expected: Type):
@@ -107,6 +110,14 @@ def test_special_atomic_scalars(value, expected: Type):
         [frozendict[int, str], HgDictScalarType(HgScalarTypeMetaData.parse_type(int), HgScalarTypeMetaData.parse_type(str))],
         [TS[bool], HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
         [TS_OUT[bool], HgTSOutTypeMetaData(HgScalarTypeMetaData.parse_type(bool))],
+        [BUFF[bool, BuffSize[10]], HgBuffTypeMetaData(HgScalarTypeMetaData.parse_type(bool),
+                                                      HgScalarTypeMetaData.parse_type(BuffSize[10]),
+                                                      HgScalarTypeMetaData.parse_type(BuffSize[10]))],
+        [BUFF_OUT[bool, BuffSize[10], BuffSize[5]], HgBuffOutTypeMetaData(
+            HgScalarTypeMetaData.parse_type(bool),
+            HgScalarTypeMetaData.parse_type(BuffSize[10]),
+            HgScalarTypeMetaData.parse_type(BuffSize[5])
+        )],
         [TSL[TS[bool], SIZE],
          HgTSLTypeMetaData(HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(bool)), HgScalarTypeMetaData.parse_type(SIZE))],
         [TSL_OUT[TS[bool], SIZE],
