@@ -10,7 +10,7 @@ from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._scalar_value import Array
-from hgraph._runtime._constants import MIN_TD
+from hgraph._runtime._constants import MIN_TD, MIN_DT
 from hgraph._impl._impl_configuration import HG_TYPE_CHECKING
 from hgraph._types._buff_type import TimeSeriesBufferOutput, BUFF_SIZE, BUFF_SIZE_MIN, TimeSeriesBufferInput
 
@@ -29,18 +29,12 @@ class PythonTimeSeriesIBufferValueOutput(
     _times: Optional[Array[datetime]] = None
     _size: int = -1
     _min_size: int  = -1
-    _start: int = -1
-    _length: int = -1
+    _start: int = 0
+    _length: int = 0
 
     def __post_init__(self):
         self._value = np.ndarray(shape=[self._size], dtype=self._tp)
-        self._times = np.full(shape=[self._size], fill_value=MIN_TD, dtype=datetime)
-
-    def _roll(self):
-        if (start:=self._start) != 0:
-            self._value[:] = np.roll(self._value, -start)
-            self._times[:] = np.roll(self._times, -start)
-            self._start = 0
+        self._times = np.full(shape=[self._size], fill_value=MIN_DT, dtype=datetime)
 
     @property
     def value(self) -> SCALAR:
@@ -48,13 +42,12 @@ class PythonTimeSeriesIBufferValueOutput(
         capacity: int = self._size
         start: int = self._start
         length: int = self._length
-        if self._min_size < length:
+        if length < self._min_size:
             return None
-        self._roll()
         if length != capacity:
-            return self._value[:length]
+            return buffer[:length]
         else:
-            return self._value
+            return np.roll(buffer, -start)
 
     @value.setter
     def value(self, value: Array[SCALAR]) -> None:
@@ -72,23 +65,27 @@ class PythonTimeSeriesIBufferValueOutput(
 
     @property
     def delta_value(self) -> Optional[SCALAR]:
-        if (tm := self._times[-1]) == self.owning_graph.evaluation_clock.evaluation_time:
-            return self._value[-1]
-        elif tm == MIN_TD:
-            # Should not need to roll as we are still filling the array in this scenario
-            for i in range(self._size-2, -1, -1):
-                if (tm := self._times[i]) == MIN_TD:
-                    continue
-                elif tm == self.owning_graph.evaluation_clock.evaluation_time:
-                    return self._value[i]
-                else:
-                    return None
+        if self._length < self._min_size:
+            return None
+        elif self._length < self._size:
+            pos = self._length - 1
+        else:
+            pos = (self._start + self._length - 1) % self._size
+        if (tm := self._times[pos]) == self.owning_graph.evaluation_clock.evaluation_time:
+            return self._value[pos]
         else:
             return None
 
     @property
     def value_times(self) -> tuple[datetime, ...]:
-        return self._times
+        if self._length < self._min_size:
+            return None
+        elif self._length < self._size:
+            return self._times[:self._length]
+        if self._start == 0:
+            return self._times
+        else:
+            return np.roll(self._times, -self._start)
 
     @value_times.setter
     def value_times(self, value: Array[SCALAR]) -> None:
@@ -146,6 +143,18 @@ class PythonTimeSeriesIBufferValueOutput(
         assert isinstance(input.output, PythonTimeSeriesIBufferValueOutput)
         self.value = input.output._value
         self.value_times = input.output._times
+
+    @property
+    def first_modified_time(self) -> datetime:
+        return self._times[0] if self._times else MIN_DT
+
+    @property
+    def size(self) -> int | timedelta:
+        return self._size
+
+    @property
+    def min_size(self) -> int | timedelta:
+        return self._min_size
 
     def __len__(self) -> int:
         return self._size
@@ -273,3 +282,15 @@ class PythonTimeSeriesBufferValueInput(PythonBoundTimeSeriesInput,
     def first_modified_time(self) -> datetime:
         output: TimeSeriesBufferOutput[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN] = self.output
         return output.first_modified_time
+
+    @property
+    def min_size(self) -> int | timedelta:
+        return self.output.min_size
+
+    @property
+    def size(self) -> int | timedelta:
+        return self.output.size
+
+    def __len__(self) -> int:
+        return len(self.output)
+

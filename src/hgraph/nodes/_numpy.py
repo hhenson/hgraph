@@ -18,9 +18,8 @@ from hgraph import (
     NUMBER,
     COMPOUND_SCALAR,
     Frame,
-    Size,
+    Size, BUFF, BUFF_SIZE_MIN, BUFF_SIZE,
 )
-
 
 __all__ = ("NpRollingWindowResult", "NpRollingWindowState", "np_rolling_window", "np_quantile", "np_std")
 
@@ -119,3 +118,13 @@ def _compute_data_tp(compound_type: COMPOUND_SCALAR) -> type:
 def frame_to_1d_array(
     frame: TS[Frame[COMPOUND_SCALAR]], _sz: type[SIZE] = Size, _tp: SCALAR = float
 ) -> TS[Array[SCALAR, SIZE]]: ...
+
+
+@compute_node(resolvers={
+    BUFF_SIZE_MIN: lambda m, s: s["min_window_period"] if s["min_window_period"] is not None else s["period"]
+})
+def rolling_window_exp(ts: TS[SCALAR], period: BUFF_SIZE,
+                   min_window_period: BUFF_SIZE_MIN = None) -> BUFF[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]:
+    """
+    """
+    return ts.value

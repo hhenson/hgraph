@@ -793,3 +793,8 @@ Version 0.3.32 (16-11-2024)
 ---------------------------
 
 * add initial support for nested graph state recovery.
+
+Version 0.3.33 (20-11-2024)
+---------------------------
+
+* BUFF time-series type.
