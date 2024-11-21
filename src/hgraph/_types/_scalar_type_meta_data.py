@@ -891,7 +891,10 @@ class HgSetScalarType(HgCollectionType):
         self.element_type = element_type
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgSetScalarType and self.element_type.matches(tp.element_type)
+        if (t := type(tp)) is HgSetScalarType and self.element_type.matches(tp.element_type):
+            return True
+        else:
+            return t is HgObjectType and tp.py_type == frozenset  # accept empty sets
 
     @property
     def py_type(self) -> Type:

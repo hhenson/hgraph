@@ -29,7 +29,6 @@ from hgraph import (
 )
 from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState, KeyValue
 
-
 __all__ = []
 
 
@@ -61,6 +60,24 @@ def convert_tuple_to_tsd(
 ) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
     remove = {k: REMOVE for k in _output.keys() if k not in key.value} if _output.valid and key.modified else {}
     return {key.value: ts.value, **remove}
+
+
+@compute_node(overloads=convert,
+              requires=lambda m, s: m[OUT].py_type is TSD
+              or m[OUT].matches_type(TSD[int, TS[m[SCALAR].py_type]]))
+def convert_tuple_to_enumerated_tsd(
+        ts: TS[Tuple[SCALAR, ...]],
+        _output: TSD_OUT[int, TS[SCALAR]] = None) -> TSD[int, TS[SCALAR]]:
+    ts = ts.value
+    out = {}
+    for i, v in enumerate(ts):
+        ov = _output.get(i)
+        if ov is None or ov.value != v:
+            out[i] = v
+    if len(_output) > len(ts):
+        for i in range(len(ts), len(_output)):
+            out[i] = REMOVE
+    return out
 
 
 @compute_node(

@@ -64,6 +64,18 @@ def test_type_cs():
     assert eval_node(g, [TestCS(a=1)]) == [TestCS]
 
 
+def test_getattr_type():
+    @dataclass
+    class Test(CompoundScalar):
+        b: str = None
+
+    @graph
+    def g(ts: TS[Test]) -> TS[str]:
+        return getattr_(type_(ts), "name")
+
+    assert eval_node(g, [Test()]) == ["Test"]
+
+
 def test_str_cs():
     @graph
     def g(ts: TS[TestCS]) -> TS[str]:
