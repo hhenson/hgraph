@@ -133,7 +133,6 @@ class BuffSize:
 
     @classmethod
     def __class_getitem__(cls, item):
-        assert type(item) is int
         global __CACHED_BUFF_SIZES__
         tp = __CACHED_BUFF_SIZES__.get(item)
         if tp is None:

@@ -1,6 +1,7 @@
 from datetime import timedelta, datetime
 from typing import Tuple
 
+import numpy as np
 import pytest
 
 from hgraph import (
@@ -30,7 +31,7 @@ from hgraph import (
     slice_,
     TSD,
     REMOVE,
-    MIN_DT, Removed, TSS,
+    MIN_DT, Removed, TSS, buffered_window, SCALAR, compute_node, BUFF, BuffSize, Array,
 )
 from hgraph.test import eval_node
 
@@ -338,6 +339,45 @@ def test_window_timedelta():
 
     assert eval_node(g, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected
 
+def test_buffered_window_delta():
+    result = eval_node(buffered_window[SCALAR: int], [1, 2, 3, 4, 5], 3)
+    assert result == [None, None, 3, 4, 5]
+
+def test_buffered_window_delta_td():
+    result = eval_node(buffered_window[SCALAR: int], [1, 2, 3, 4, 5], MIN_TD*2)
+    assert result == [None, None, 3, 4, 5]
+
+def test_buffered_window_value():
+
+    @compute_node
+    def _as_value(ts: BUFF[int, BuffSize[3]]) -> TS[Array[int, Size[3]]]:
+        return ts.value
+
+    @graph
+    def g(ts: TS[int]) -> TS[Array[int, Size[3]]]:
+        return _as_value(buffered_window(ts, 3))
+
+    result = eval_node(g, [1, 2, 3, 4, 5])
+    assert all((a == b).all() for a, b in zip(
+        result,
+        [None, None, np.array((1.0, 2.0, 3.0)), np.array((2, 3, 4)), np.array((3, 4, 5))]) if
+               not (a is None and b is None))
+
+def test_buffered_window_value_td():
+
+    @compute_node
+    def _as_value(ts: BUFF[int, BuffSize[MIN_TD*2]]) -> TS[Array[int, Size[-1]]]:
+        return ts.value
+
+    @graph
+    def g(ts: TS[int]) -> TS[Array[int, Size[-1]]]:
+        return _as_value(buffered_window(ts, MIN_TD*2))
+
+    result = eval_node(g, [1, 2, 3, 4, 5])
+    assert all((a == b).all() for a, b in zip(
+        result,
+        [None, None, np.array((1.0, 2.0, 3.0)), np.array((2, 3, 4)), np.array((3, 4, 5))]) if
+               not (a is None and b is None))
 
 def test_gate():
     @graph

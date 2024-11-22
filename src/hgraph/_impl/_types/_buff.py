@@ -77,7 +77,7 @@ class PythonTimeSeriesIBufferValueOutput(
             return None
 
     @property
-    def value_times(self) -> tuple[datetime, ...]:
+    def value_times(self) -> Array[datetime]:
         if self._length < self._min_size:
             return None
         elif self._length < self._size:
@@ -171,6 +171,7 @@ class PythonTimeSeriesTBufferValueOutput(
     _times: deque[timedelta] = field(default_factory=deque)
     _size: timedelta = None
     _min_size: timedelta = None
+    _ready: bool = False
 
     def _roll(self):
         tm = self.owning_graph.evaluation_clock.evaluation_time - self._size
@@ -180,10 +181,24 @@ class PythonTimeSeriesTBufferValueOutput(
                 self._value.popleft()
 
     @property
+    def ready(self) -> bool:
+        """
+        Make sure we have been running long enough (min_size) to capture enough data to meet the minimum requirement
+        of time to capture ticks. This does not ensure there are ticks within or without of this scope.
+        """
+        if not self._ready:
+            self._ready = self.owning_graph.evaluation_clock.evaluation_time - \
+                          self.owning_graph.evaluation_engine_api.start_time >= self._min_size
+        return self._ready
+
+    @property
     def value(self) -> SCALAR:
-        self._roll()
-        buffer = np.array(self._value)
-        return buffer
+        if self.ready:
+            self._roll()
+            buffer = np.array(self._value)
+            return buffer
+        else:
+            return None
 
     @value.setter
     def value(self, value: Array[SCALAR]) -> None:
@@ -196,13 +211,13 @@ class PythonTimeSeriesTBufferValueOutput(
 
     @property
     def delta_value(self) -> Optional[SCALAR]:
-        if self._times and (tm := self._times[-1]) == self.owning_graph.evaluation_clock.evaluation_time:
+        if self.ready and self._times and (tm := self._times[-1]) == self.owning_graph.evaluation_clock.evaluation_time:
             return self._value[-1]
         else:
             return None
 
     @property
-    def value_times(self) -> tuple[datetime, ...]:
+    def value_times(self) -> Array[datetime]:
         self._roll()
         return self._times
 

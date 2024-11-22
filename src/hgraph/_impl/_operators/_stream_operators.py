@@ -4,39 +4,43 @@ from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 
 from hgraph import (
-    compute_node,
-    TIME_SERIES_TYPE,
-    STATE,
+    BUFF,
+    BUFF_SIZE,
+    BUFF_SIZE_MIN,
+    CompoundScalar,
+    EvaluationClock,
+    INT_OR_TIME_DELTA,
+    MIN_TD,
+    REF,
+    REMOVE_IF_EXISTS,
+    SCALAR,
     SCHEDULER,
     SIGNAL,
-    generator,
-    TS,
-    schedule,
-    sample,
-    MIN_TD,
-    graph,
-    resample,
-    dedup,
-    filter_,
-    throttle,
-    SCALAR,
-    take,
-    CompoundScalar,
-    REF,
-    drop,
-    window,
-    WindowResult,
-    TSB,
-    gate,
-    batch,
-    step,
-    slice_,
-    lag,
-    TSL,
     SIZE,
-    INT_OR_TIME_DELTA,
-    REMOVE_IF_EXISTS,
-    EvaluationClock,
+    STATE,
+    TIME_SERIES_TYPE,
+    TS,
+    TSB,
+    TSL,
+    WindowResult,
+    batch,
+    buffered_window,
+    compute_node,
+    dedup,
+    drop,
+    filter_,
+    gate,
+    generator,
+    graph,
+    lag,
+    resample,
+    sample,
+    schedule,
+    slice_,
+    step,
+    take,
+    throttle,
+    window, BuffSize,
 )
 
 __all__ = ()
@@ -335,6 +339,21 @@ def window_timedelta(
 def window_timedelta_start(_state: STATE):
     _state.buffer = deque[SCALAR]()
     _state.index = deque[datetime]()
+
+
+@compute_node(
+    overloads=buffered_window,
+    resolvers={
+        BUFF_SIZE: lambda m, s: BuffSize[s["period"]],
+    BUFF_SIZE_MIN: lambda m, s: BuffSize[s["min_window_period"] if s["min_window_period"] is not None else s["period"]],
+    }
+)
+def buffered_window_impl(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
+        -> BUFF[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]:
+    """
+    Basic implementation of the `buffered_window` operator.
+    """
+    return ts.value
 
 
 @compute_node(overloads=gate, valid=("ts",))

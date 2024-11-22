@@ -798,3 +798,8 @@ Version 0.3.33 (20-11-2024)
 ---------------------------
 
 * BUFF time-series type.
+
+Version 0.3.34 (22-11-2024)
+---------------------------
+
+* buffered_window provides the window function logic using the new BUFF time-series type.

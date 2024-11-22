@@ -14,7 +14,15 @@ class TimeSeriesBuffer(
     Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN],
 ):
     """
-    Provides a time-series buffer over stream of scalar values.
+    Provides a time-series buffer over a stream of scalar values. When the size is in terms of ticks, this will provide
+    an array of length at least BUFF_SIZE_MIN and at most BUFF_SIZE. By default, the BUFF_MIN_SIZE is set to BUFF_SIZE
+    if the min size is not set.
+
+    When the size is set to a timedelta, this will produce values with a maximum size of size.microseconds (the number
+    of microseconds making up the time-delta set to BUFF_SIZE) and a minimum size of 0. The BUFF_MIN_SIZE is used to
+    ensure that the graph has been up and running for at least the BUFF_SIZE_MIN time. This ensures have captured at
+    least that duration of time's ticks. This provides no guarantee as to the number of ticks available. To ensure a
+    sample size, use the integer-based size and min size.
     """
 
     def __init__(self, __type__: SCALAR, __size__: BUFF_SIZE, __min_size__: BUFF_SIZE_MIN):
@@ -65,7 +73,7 @@ class TimeSeriesBuffer(
 
     @property
     @abstractmethod
-    def value_times(self) -> tuple[datetime, ...]:
+    def value_times(self) -> Array[datetime]:
         """
         The times associated to the value array. These are the times when the values were updated.
         """

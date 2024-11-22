@@ -42,7 +42,7 @@ SINK_NODE_SIGNATURE = TypeVar("SINK_NODE_SIGNATURE", bound=Callable)
 GRAPH_SIGNATURE = TypeVar("GRAPH_SIGNATURE", bound=Callable)
 
 
-def operator(fn: GRAPH_SIGNATURE, deprecated: bool | str = False) -> GRAPH_SIGNATURE:
+def operator(fn: GRAPH_SIGNATURE = None, deprecated: bool | str = False) -> GRAPH_SIGNATURE:
     """
     Used to define a name and partial signature of a graph operator. A graph operator is a function that
     operates on more or more time-series values, typically producing a time-series value.

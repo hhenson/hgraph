@@ -2,10 +2,11 @@ import sys
 from datetime import timedelta, datetime
 from typing import TypeVar, Generic, Tuple
 
-from hgraph._types import TS, TIME_SERIES_TYPE, SIGNAL, SCALAR, TSB, TimeSeriesSchema
+from hgraph._types import TS, TIME_SERIES_TYPE, SIGNAL, SCALAR, TSB, TimeSeriesSchema, BUFF, BUFF_SIZE, BUFF_SIZE_MIN
 from hgraph._wiring._decorators import operator
 
 __all__ = (
+    "buffered_window",
     "sample",
     "lag",
     "schedule",
@@ -110,18 +111,33 @@ class WindowResult(TimeSeriesSchema, Generic[SCALAR]):
     index: TS[tuple[datetime, ...]]
 
 
-@operator
+@operator(deprecated="Prefer buffered_window")
 def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TSB[WindowResult]:
     """
     Buffers the time-series. Emits a tuple of values representing the elements in the buffer.
     and a tuple of corresponding time-stamps representing the time-points at which the elements
     in the buffer correspond.
 
-    When the window is an int, a cyclic buffer is created, if the window is a timedelta, then
+    When the window is an int, a cyclic buffer is created. If the window is a timedelta, then
     a deque is used to buffer the elements.
 
-    Note with time-deltas the buffer will contain at most the elements that fit within the window so
-    if you have 3 ticks at 1 microsecond intervals, and a window of 3 millisecond, then the buffer will
+    Note with time-deltas the buffer will contain at most the elements that fit within the window, so
+    if you have 3 ticks at 1 microsecond intervals, and a window of 3 milliseconds, then the buffer will
+    not be full until the 4th tick.
+    """
+
+@operator
+def buffered_window(
+        ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
+) -> BUFF[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]:
+    """
+    Buffers the time-series. The output is a BUFF time-series of the input time-series.
+
+    When the window is an int, a cyclic buffer is created. If the window is a timedelta, then
+    a deque is used to buffer the elements.
+
+    Note with time-deltas the buffer will contain at most the elements that fit within the window, so
+    if you have 3 ticks at 1 microsecond intervals, and a window of 3 milliseconds, then the buffer will
     not be full until the 4th tick.
     """
 
