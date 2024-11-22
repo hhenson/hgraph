@@ -174,6 +174,7 @@ def replay_const_from_data_frame(
         .collect()
         .group_by(dt_col, maintain_order=True)
     )
+    # TODO: For schema's that hold buffered data, need to replay more than one row of data now
     dt, df_ = next(iter(df))
     results = tuple(df_.iter_rows())
     return from_table_const[tp](results if schema.partition_keys else results[0]).value

@@ -18,7 +18,7 @@ from hgraph import (
     NUMBER,
     COMPOUND_SCALAR,
     Frame,
-    Size, BUFF, BUFF_SIZE_MIN, BUFF_SIZE,
+    Size, TSW, WINDOW_SIZE_MIN, WINDOW_SIZE,
 )
 
 __all__ = ("NpRollingWindowResult", "NpRollingWindowState", "np_rolling_window", "np_quantile", "np_std")

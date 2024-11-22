@@ -30,7 +30,7 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTimeSeriesTypeMetaData"]:
         from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTSOutTypeMetaData
-        from hgraph._types._buff_meta_data import HgBuffTypeMetaData, HgBuffOutTypeMetaData
+        from hgraph._types._tsw_meta_data import HgTSWTypeMetaData, HgTSWOutTypeMetaData
         from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
         from hgraph._types._tsb_meta_data import HgTimeSeriesSchemaTypeMetaData, HgTSBTypeMetaData
         from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
@@ -43,8 +43,8 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
         parsers = (
             HgTSTypeMetaData,
             HgTSOutTypeMetaData,
-            HgBuffTypeMetaData,
-            HgBuffOutTypeMetaData,
+            HgTSWTypeMetaData,
+            HgTSWOutTypeMetaData,
             HgTSLTypeMetaData,
             HgTSLOutTypeMetaData,
             HgTSSTypeMetaData,

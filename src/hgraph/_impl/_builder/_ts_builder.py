@@ -19,10 +19,10 @@ from hgraph._builder._ts_builder import (
     TSDOutputBuilder,
     TSDInputBuilder,
     REFOutputBuilder,
-    REFInputBuilder, BuffInputBuilder, BuffOutputBuilder,
+    REFInputBuilder, TSWInputBuilder, TSWOutputBuilder,
 )
 from hgraph._runtime._node import Node
-from hgraph._types._buff_meta_data import HgBuffTypeMetaData
+from hgraph._types._tsw_meta_data import HgTSWTypeMetaData
 from hgraph._types._context_meta_data import HgCONTEXTTypeMetaData
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
@@ -63,15 +63,15 @@ class PythonTSInputBuilder(TSInputBuilder):
 
 
 @dataclass(frozen=True)
-class PythonIBuffOutputBuilder(BuffOutputBuilder):
+class PythonITSWOutputBuilder(TSWOutputBuilder):
 
     _size: int
     _min_size: int
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
-        from hgraph import PythonTimeSeriesIBufferValueOutput
+        from hgraph import PythonTimeSeriesIWindowValueOutput
 
-        return PythonTimeSeriesIBufferValueOutput(
+        return PythonTimeSeriesIWindowValueOutput(
             _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
             _min_size=self._min_size
         )
@@ -81,15 +81,15 @@ class PythonIBuffOutputBuilder(BuffOutputBuilder):
 
 
 @dataclass(frozen=True)
-class PythonTBuffOutputBuilder(BuffOutputBuilder):
+class PythonTTSWOutputBuilder(TSWOutputBuilder):
 
     _size: timedelta
     _min_size: timedelta
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
-        from hgraph import PythonTimeSeriesTBufferValueOutput
+        from hgraph import PythonTimeSeriesTWindowValueOutput
 
-        return PythonTimeSeriesTBufferValueOutput(
+        return PythonTimeSeriesTWindowValueOutput(
             _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
             _min_size=self._min_size
         )
@@ -98,12 +98,12 @@ class PythonTBuffOutputBuilder(BuffOutputBuilder):
         """Nothing to do"""
 
 
-class PythonBuffInputBuilder(BuffInputBuilder):
+class PythonTSWInputBuilder(TSWInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
-        from hgraph import PythonTimeSeriesBufferValueInput
+        from hgraph import PythonTimeSeriesWindowValueInput
 
-        return PythonTimeSeriesBufferValueInput(_owning_node=owning_node, _parent_input=owning_input)
+        return PythonTimeSeriesWindowValueInput(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
         """Nothing to do"""
@@ -358,7 +358,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
     def make_input_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSInputBuilder:
         return {
             HgTSTypeMetaData: lambda: PythonTSInputBuilder(value_tp=cast(HgTSTypeMetaData, value_tp).value_scalar_tp),
-            HgBuffTypeMetaData: lambda: PythonBuffInputBuilder(value_tp=value_tp.value_scalar_tp),
+            HgTSWTypeMetaData: lambda: PythonTSWInputBuilder(value_tp=value_tp.value_scalar_tp),
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
                 schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type
             ),
@@ -379,7 +379,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
     def make_output_builder(self, value_tp: HgTimeSeriesTypeMetaData) -> TSOutputBuilder:
         return {
             HgTSTypeMetaData: lambda: PythonTSOutputBuilder(value_tp=value_tp.value_scalar_tp),
-            HgBuffTypeMetaData: lambda: _make_buff_output(value_tp),
+            HgTSWTypeMetaData: lambda: _make_buff_output(value_tp),
             HgTSBTypeMetaData: lambda: PythonTSBOutputBuilder(schema=value_tp.bundle_schema_tp.py_type),
             HgTSSTypeMetaData: lambda: PythonTSSOutputBuilder(value_tp=value_tp.value_scalar_tp),
             HgTSLTypeMetaData: lambda: PythonTSLOutputBuilder(
@@ -392,25 +392,25 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
 
-def _make_buff_output(meta_data: HgBuffTypeMetaData) -> TSOutputBuilder:
-    return PythonIBuffOutputBuilder(
+def _make_buff_output(meta_data: HgTSWTypeMetaData) -> TSOutputBuilder:
+    return PythonITSWOutputBuilder(
         value_tp=meta_data.value_scalar_tp,
         _size=meta_data.size_tp.py_type.SIZE,
         _min_size=meta_data.min_size_tp.py_type.SIZE
     ) if meta_data.size_tp.py_type.FIXED_SIZE else \
-        PythonTBuffOutputBuilder(
+        PythonTTSWOutputBuilder(
             value_tp=meta_data.value_scalar_tp,
             _size=meta_data.size_tp.py_type.TIME_RANGE,
             _min_size=meta_data.min_size_tp.py_type.TIME_RANGE
         )
 
-def _make_buff_input(meta_data: HgBuffTypeMetaData) -> TSInputBuilder:
-    return PythonBuffInputBuilder(
+def _make_buff_input(meta_data: HgTSWTypeMetaData) -> TSInputBuilder:
+    return PythonTSWInputBuilder(
         value_tp=meta_data.value_scalar_tp,
         _size=meta_data.size_tp.py_type.SIZE,
         _min_size=meta_data.min_size_tp.py_type.SIZE
     ) if meta_data.size_tp.py_type.FIXED_SIZE else \
-        PythonBuffInputBuilder(
+        PythonTSWInputBuilder(
             value_tp=meta_data.value_scalar_tp,
             _size=meta_data.size_tp.py_type.TIME_RANGE,
             _min_size=meta_data.min_size_tp.py_type.TIME_RANGE

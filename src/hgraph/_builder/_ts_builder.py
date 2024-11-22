@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from hgraph._types._tsb_type import TimeSeriesSchema
 
 __all__ = (
-    "BuffInputBuilder",
-    "BuffOutputBuilder",
+    "TSWInputBuilder",
+    "TSWOutputBuilder",
     "TSOutputBuilder",
     "TSInputBuilder",
     "TimeSeriesBuilderFactory",
@@ -64,7 +64,7 @@ class TSInputBuilder(InputBuilder):
 
 
 @dataclass(frozen=True)
-class BuffInputBuilder(InputBuilder):
+class TSWInputBuilder(InputBuilder):
     value_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_input: "TimeSeriesInput" = None) -> "TimeSeriesInput":
@@ -75,7 +75,7 @@ class BuffInputBuilder(InputBuilder):
 
 
 @dataclass(frozen=True)
-class BuffOutputBuilder(OutputBuilder):
+class TSWOutputBuilder(OutputBuilder):
     value_tp: "HgScalarTypeMetaData"
 
     def make_instance(self, owning_node=None, owning_output=None) -> "TimeSeriesOutput":

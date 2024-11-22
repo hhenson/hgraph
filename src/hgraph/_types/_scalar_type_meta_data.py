@@ -12,7 +12,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List,
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._scalar_types import BuffSize
+from hgraph._types._scalar_types import WindowSize
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._types._recordable_state import RECORDABLE_STATE
 from hgraph._types._scalar_types import Size, STATE, CompoundScalar, LOGGER, UnNamedCompoundScalar
@@ -249,7 +249,7 @@ class HgAtomicType(HgScalarTypeMetaData):
         if isinstance(value_tp, type):
             if issubclass(value_tp, Size):
                 return HgAtomicType(value_tp)
-            if issubclass(value_tp, BuffSize):
+            if issubclass(value_tp, WindowSize):
                 return HgAtomicType(value_tp)
             if issubclass(value_tp, Enum):
                 return HgAtomicType(value_tp)
@@ -269,7 +269,7 @@ class HgAtomicType(HgScalarTypeMetaData):
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         if isinstance(value, type) and issubclass(value, Size):
             return HgAtomicType(value)
-        if isinstance(value, type) and issubclass(value, BuffSize):
+        if isinstance(value, type) and issubclass(value, WindowSize):
             return HgAtomicType(value)
         return HgAtomicType.parse_type(type(value))
 

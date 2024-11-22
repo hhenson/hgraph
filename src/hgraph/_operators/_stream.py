@@ -2,11 +2,11 @@ import sys
 from datetime import timedelta, datetime
 from typing import TypeVar, Generic, Tuple
 
-from hgraph._types import TS, TIME_SERIES_TYPE, SIGNAL, SCALAR, TSB, TimeSeriesSchema, BUFF, BUFF_SIZE, BUFF_SIZE_MIN
+from hgraph._types import TS, TIME_SERIES_TYPE, SIGNAL, SCALAR, TSB, TimeSeriesSchema, TSW, WINDOW_SIZE, WINDOW_SIZE_MIN
 from hgraph._wiring._decorators import operator
 
 __all__ = (
-    "buffered_window",
+    "to_window",
     "sample",
     "lag",
     "schedule",
@@ -111,7 +111,7 @@ class WindowResult(TimeSeriesSchema, Generic[SCALAR]):
     index: TS[tuple[datetime, ...]]
 
 
-@operator(deprecated="Prefer buffered_window")
+@operator(deprecated="Prefer to_window")
 def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) -> TSB[WindowResult]:
     """
     Buffers the time-series. Emits a tuple of values representing the elements in the buffer.
@@ -127,11 +127,11 @@ def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_
     """
 
 @operator
-def buffered_window(
+def to_window(
         ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
-) -> BUFF[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]:
+) -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
     """
-    Buffers the time-series. The output is a BUFF time-series of the input time-series.
+    Converts the time-series to a time-series window.
 
     When the window is an int, a cyclic buffer is created. If the window is a timedelta, then
     a deque is used to buffer the elements.

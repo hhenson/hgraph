@@ -11,6 +11,7 @@ from hgraph._types import (
     HgTypeMetaData,
     TIME_SERIES_TYPE,
     HgTSTypeMetaData,
+    HgTSWTypeMetaData,
     HgCompoundScalarType,
     HgTSBTypeMetaData,
     HgTSSTypeMetaData,
@@ -88,8 +89,8 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             types=tuple(schema.types),
             partition_keys=tuple(),
             remove_partition_keys=tuple(),
-            to_table=lambda ts, schema=schema: schema.to_table(ts.value) if ts.modified else (None,) * len(schema.keys),
-            to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.value),
+            to_table=lambda ts, schema=schema: schema.to_table(ts.delta_value) if ts.modified else (None,) * len(schema.keys),
+            to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.vaue),
             from_table=schema.from_table,
         )
     else:
@@ -99,11 +100,15 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             types=(item_tp.py_type,),
             partition_keys=tuple(),
             remove_partition_keys=tuple(),
-            to_table=lambda v: (v.value if v.modified else None,),
+            to_table=lambda v: (v.delta_value if v.modified else None,),
             to_table_snap=lambda v: (v.value,),
             from_table=lambda iter: next(iter),
         )
 
+@extract_table_schema.register(HgTSWTypeMetaData)
+def _(tp: HgTSWTypeMetaData) -> PartialSchema:
+    schema = extract_table_schema(HgTSTypeMetaData(tp.value_scalar_tp))
+    return schema
 
 @extract_table_schema.register(HgTSBTypeMetaData)
 def _(tp: HgTSBTypeMetaData) -> PartialSchema:

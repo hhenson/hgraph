@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 
 from hgraph import (
-    BUFF,
-    BUFF_SIZE,
-    BUFF_SIZE_MIN,
+    TSW,
+    WINDOW_SIZE,
+    WINDOW_SIZE_MIN,
     CompoundScalar,
     EvaluationClock,
     INT_OR_TIME_DELTA,
@@ -24,7 +24,7 @@ from hgraph import (
     TSL,
     WindowResult,
     batch,
-    buffered_window,
+    to_window,
     compute_node,
     dedup,
     drop,
@@ -40,7 +40,7 @@ from hgraph import (
     step,
     take,
     throttle,
-    window, BuffSize,
+    window, WindowSize,
 )
 
 __all__ = ()
@@ -342,16 +342,16 @@ def window_timedelta_start(_state: STATE):
 
 
 @compute_node(
-    overloads=buffered_window,
+    overloads=to_window,
     resolvers={
-        BUFF_SIZE: lambda m, s: BuffSize[s["period"]],
-    BUFF_SIZE_MIN: lambda m, s: BuffSize[s["min_window_period"] if s["min_window_period"] is not None else s["period"]],
+        WINDOW_SIZE: lambda m, s: WindowSize[s["period"]],
+    WINDOW_SIZE_MIN: lambda m, s: WindowSize[s["min_window_period"] if s["min_window_period"] is not None else s["period"]],
     }
 )
-def buffered_window_impl(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
-        -> BUFF[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]:
+def to_window_impl(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
+        -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
     """
-    Basic implementation of the `buffered_window` operator.
+    Basic implementation of the `to_window` operator.
     """
     return ts.value
 

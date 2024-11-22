@@ -12,16 +12,17 @@ from hgraph._types._scalar_types import SCALAR
 from hgraph._types._scalar_value import Array
 from hgraph._runtime._constants import MIN_TD, MIN_DT
 from hgraph._impl._impl_configuration import HG_TYPE_CHECKING
-from hgraph._types._buff_type import TimeSeriesBufferOutput, BUFF_SIZE, BUFF_SIZE_MIN, TimeSeriesBufferInput
+from hgraph._types._tsw_type import TimeSeriesWindowOutput, WINDOW_SIZE, WINDOW_SIZE_MIN, TimeSeriesWindowInput
 
-__all__ = ("PythonTimeSeriesIBufferValueOutput", "PythonTimeSeriesTBufferValueOutput", "PythonTimeSeriesBufferValueInput")
+__all__ = ("PythonTimeSeriesIWindowValueOutput", "PythonTimeSeriesTWindowValueOutput",
+           "PythonTimeSeriesWindowValueInput")
 
 
 @dataclass
-class PythonTimeSeriesIBufferValueOutput(
+class PythonTimeSeriesIWindowValueOutput(
     PythonTimeSeriesOutput,
-    TimeSeriesBufferOutput[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN],
-    Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]
+    TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
 ):
 
     _tp: type | None = None
@@ -134,13 +135,13 @@ class PythonTimeSeriesIBufferValueOutput(
         super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        assert isinstance(output, PythonTimeSeriesIBufferValueOutput)
+        assert isinstance(output, PythonTimeSeriesIWindowValueOutput)
         self.value = output._value
         self.value_times = output._times
 
     def copy_from_input(self, input: "TimeSeriesInput"):
-        assert isinstance(input, PythonTimeSeriesBufferValueInput)
-        assert isinstance(input.output, PythonTimeSeriesIBufferValueOutput)
+        assert isinstance(input, PythonTimeSeriesWindowValueInput)
+        assert isinstance(input.output, PythonTimeSeriesIWindowValueOutput)
         self.value = input.output._value
         self.value_times = input.output._times
 
@@ -161,10 +162,10 @@ class PythonTimeSeriesIBufferValueOutput(
 
 
 @dataclass
-class PythonTimeSeriesTBufferValueOutput(
+class PythonTimeSeriesTWindowValueOutput(
     PythonTimeSeriesOutput,
-    TimeSeriesBufferOutput[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN],
-    Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]
+    TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
 ):
     _tp: type | None = None
     _value: deque[SCALAR] = field(default_factory=deque)
@@ -264,13 +265,13 @@ class PythonTimeSeriesTBufferValueOutput(
         super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        assert isinstance(output, PythonTimeSeriesIBufferValueOutput)
+        assert isinstance(output, PythonTimeSeriesIWindowValueOutput)
         self.value = output._value
         self.value_times = output._times
 
     def copy_from_input(self, input: "TimeSeriesInput"):
-        assert isinstance(input, PythonTimeSeriesBufferValueInput)
-        assert isinstance(input.output, PythonTimeSeriesIBufferValueOutput)
+        assert isinstance(input, PythonTimeSeriesWindowValueInput)
+        assert isinstance(input.output, PythonTimeSeriesIWindowValueOutput)
         self.value = input.output._value
         self.value_times = input.output._times
 
@@ -280,9 +281,9 @@ class PythonTimeSeriesTBufferValueOutput(
 
 
 @dataclass
-class PythonTimeSeriesBufferValueInput(PythonBoundTimeSeriesInput,
-                                       TimeSeriesBufferInput[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN],
-                                       Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]):
+class PythonTimeSeriesWindowValueInput(PythonBoundTimeSeriesInput,
+                                       TimeSeriesWindowInput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+                                       Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]):
     """
     The only difference between a PythonBoundTimeSeriesInput and a PythonTimeSeriesValueInput is that the
     signature of value etc.
@@ -290,12 +291,12 @@ class PythonTimeSeriesBufferValueInput(PythonBoundTimeSeriesInput,
 
     @property
     def value_times(self) -> tuple[datetime, ...]:
-        output: TimeSeriesBufferOutput[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN] = self.output
+        output: TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN] = self.output
         return output.value_times
 
     @property
     def first_modified_time(self) -> datetime:
-        output: TimeSeriesBufferOutput[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN] = self.output
+        output: TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN] = self.output
         return output.first_modified_time
 
     @property

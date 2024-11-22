@@ -2,16 +2,16 @@ from abc import ABC, abstractmethod
 from datetime import timedelta, datetime
 from typing import Generic, Any
 
-from hgraph._types._scalar_types import SCALAR, BUFF_SIZE, BUFF_SIZE_MIN
+from hgraph._types._scalar_types import SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN
 from hgraph._types._scalar_value import Array
 from hgraph._types._time_series_types import TimeSeriesDeltaValue, TimeSeriesInput, TimeSeriesOutput
 
-__all__ = ("TimeSeriesBuffer", "BUFF", "BUFF_OUT", "TimeSeriesBufferInput",
-           "TimeSeriesBufferOutput")
+__all__ = ("TimeSeriesWindow", "TSW", "TSW_OUT", "TimeSeriesWindowInput",
+           "TimeSeriesWindowOutput")
 
-class TimeSeriesBuffer(
+class TimeSeriesWindow(
     TimeSeriesDeltaValue[Array[SCALAR], SCALAR],
-    Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN],
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
 ):
     """
     Provides a time-series buffer over a stream of scalar values. When the size is in terms of ticks, this will provide
@@ -25,10 +25,10 @@ class TimeSeriesBuffer(
     sample size, use the integer-based size and min size.
     """
 
-    def __init__(self, __type__: SCALAR, __size__: BUFF_SIZE, __min_size__: BUFF_SIZE_MIN):
+    def __init__(self, __type__: SCALAR, __size__: WINDOW_SIZE, __min_size__: WINDOW_SIZE_MIN):
         self.__type__: SCALAR = __type__
-        self.__size__: BUFF_SIZE = __size__
-        self.__min_size__: BUFF_SIZE_MIN = __min_size__
+        self.__size__: WINDOW_SIZE = __size__
+        self.__min_size__: WINDOW_SIZE_MIN = __min_size__
 
     def __class_getitem__(cls, item) -> Any:
         # For now, limit to validation of item
@@ -36,12 +36,12 @@ class TimeSeriesBuffer(
         if is_tuple:
             if len(item) != 3:
                 item = (item[0] if len(item) >= 1 else SCALAR), \
-                (item[1] if len(item) == 2 else BUFF_SIZE), \
-                (item[1] if len(item) == 2 else BUFF_SIZE_MIN)
+                (item[1] if len(item) == 2 else WINDOW_SIZE), \
+                (item[1] if len(item) == 2 else WINDOW_SIZE_MIN)
         else:
-            item = item, BUFF_SIZE, BUFF_SIZE_MIN
-        out = super(TimeSeriesBuffer, cls).__class_getitem__(item)
-        if item != (SCALAR, BUFF_SIZE, BUFF_SIZE_MIN):
+            item = item, WINDOW_SIZE, WINDOW_SIZE_MIN
+        out = super(TimeSeriesWindow, cls).__class_getitem__(item)
+        if item != (SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN):
             from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
             if HgScalarTypeMetaData.parse_type(item[0]) is None:
@@ -86,16 +86,16 @@ class TimeSeriesBuffer(
         """
 
 
-class TimeSeriesBufferInput(
-    TimeSeriesBuffer[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN], TimeSeriesInput, ABC, Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]
+class TimeSeriesWindowInput(
+    TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], TimeSeriesInput, ABC, Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
 ):
     """
     The input of a time series buffer.
     """
 
 
-class TimeSeriesBufferOutput(
-    TimeSeriesBuffer[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN], TimeSeriesOutput, ABC, Generic[SCALAR, BUFF_SIZE, BUFF_SIZE_MIN]
+class TimeSeriesWindowOutput(
+    TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], TimeSeriesOutput, ABC, Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
 ):
     """
     The output of the time series list
@@ -104,5 +104,10 @@ class TimeSeriesBufferOutput(
     value: TimeSeriesOutput
 
 
-BUFF = TimeSeriesBufferInput
-BUFF_OUT = TimeSeriesBufferOutput
+TSW = TimeSeriesWindowInput
+TSW_OUT = TimeSeriesWindowOutput
+
+
+# TSW (TimeSeriesWindow)
+# add removed item
+

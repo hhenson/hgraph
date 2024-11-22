@@ -29,9 +29,9 @@ if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = (
-    "BUFF_SIZE",
-    "BUFF_SIZE_MIN",
-    "BuffSize",
+    "WINDOW_SIZE",
+    "WINDOW_SIZE_MIN",
+    "WindowSize",
     "SCALAR",
     "Size",
     "SIZE",
@@ -102,27 +102,27 @@ class Size:
         return f"Size[{str(self.SIZE) if self.FIXED_SIZE else ''}]"  # NOSONAR
 
 
-__CACHED_BUFF_SIZES__: dict[int, Type["BuffSize"]] = {}
+__CACHED_BUFF_SIZES__: dict[int, Type["WindowSize"]] = {}
 
 
-class BuffSize:
+class WindowSize:
     """
-    BuffSize class is used to provide the buffer dimensions to the buffer class via the templating mechanism.
-    BuffSize can represent a number of ticks to buffer or a time-delta to record.
+    WindowSize class is used to provide the buffer dimensions to the buffer class via the templating mechanism.
+    WindowSize can represent a number of ticks to buffer or a time-delta to record.
 
-    Use this as BuffSize[n] where n is the size represented as an integer value or a time-delta
+    Use this as WindowSize[n] where n is the size represented as an integer value or a time-delta
 
     For example:
     ::
 
         @compute_node
-        def my_node(...) -> BUFF[int, BuffSize[63]]:
+        def my_node(...) -> BUFF[int, WindowSize[63]]:
             ...
 
     or
 
         @compute_node
-        def my_node(ts: BUFF[int, BuffSize[timedelta(seconds=20)]]) -> TS[int]:
+        def my_node(ts: BUFF[int, WindowSize[timedelta(seconds=20)]]) -> TS[int]:
             ...
 
     """
@@ -137,16 +137,16 @@ class BuffSize:
         tp = __CACHED_BUFF_SIZES__.get(item)
         if tp is None:
             if type(item) is int:
-                tp = type(f"BuffSize_{item}", (BuffSize,), {"SIZE": item, "FIXED_SIZE": True, "TIME_RANGE": None})
+                tp = type(f"WindowSize_{item}", (WindowSize,), {"SIZE": item, "FIXED_SIZE": True, "TIME_RANGE": None})
             elif type(item) is timedelta:
-                tp = type(f"BuffSize_{item}", (BuffSize,), {"SIZE": -1, "FIXED_SIZE": False, "TIME_RANGE": item})
+                tp = type(f"WindowSize_{item}", (WindowSize,), {"SIZE": -1, "FIXED_SIZE": False, "TIME_RANGE": item})
             else:
                 raise TypeError(f"Unexpected type {type(item)}")
             __CACHED_BUFF_SIZES__[item] = tp
         return tp
 
     def __str__(self):
-        return f"BuffSize[{str(self.SIZE) if self.FIXED_SIZE else self.TIME_RANGE}]"  # NOSONAR
+        return f"WindowSize[{str(self.SIZE) if self.FIXED_SIZE else self.TIME_RANGE}]"  # NOSONAR
 
 
 class CompoundScalar(AbstractSchema):
@@ -259,8 +259,8 @@ class Hashable(Protocol):
 SIZE = TypeVar("SIZE", bound=Size)
 SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 
-BUFF_SIZE = TypeVar("BUFF_SIZE", bound=BuffSize)
-BUFF_SIZE_MIN = TypeVar("BUFF_SIZE_MIN", bound=BuffSize)
+WINDOW_SIZE = TypeVar("WINDOW_SIZE", bound=WindowSize)
+WINDOW_SIZE_MIN = TypeVar("WINDOW_SIZE_MIN", bound=WindowSize)
 
 COMPOUND_SCALAR = TypeVar("COMPOUND_SCALAR", bound=CompoundScalar)
 COMPOUND_SCALAR_1 = clone_type_var(COMPOUND_SCALAR, "COMPOUND_SCALAR_1")
