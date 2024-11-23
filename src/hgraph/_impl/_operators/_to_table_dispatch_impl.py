@@ -108,6 +108,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
 @extract_table_schema.register(HgTSWTypeMetaData)
 def _(tp: HgTSWTypeMetaData) -> PartialSchema:
     schema = extract_table_schema(HgTSTypeMetaData(tp.value_scalar_tp))
+    #TODO: ensure the from_table loads historical data
     return schema
 
 @extract_table_schema.register(HgTSBTypeMetaData)

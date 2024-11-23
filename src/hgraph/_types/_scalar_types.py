@@ -116,13 +116,13 @@ class WindowSize:
     ::
 
         @compute_node
-        def my_node(...) -> BUFF[int, WindowSize[63]]:
+        def my_node(...) -> TSW[int, WindowSize[63]]:
             ...
 
     or
 
         @compute_node
-        def my_node(ts: BUFF[int, WindowSize[timedelta(seconds=20)]]) -> TS[int]:
+        def my_node(ts: TSW[int, WindowSize[timedelta(seconds=20)]]) -> TS[int]:
             ...
 
     """

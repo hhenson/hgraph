@@ -15,12 +15,12 @@ class TimeSeriesWindow(
 ):
     """
     Provides a time-series buffer over a stream of scalar values. When the size is in terms of ticks, this will provide
-    an array of length at least BUFF_SIZE_MIN and at most BUFF_SIZE. By default, the BUFF_MIN_SIZE is set to BUFF_SIZE
+    an array of length at least WINDOW_SIZE_MIN and at most WINDOW_SIZE. By default, the WINDOW_MIN_SIZE is set to WINDOW_SIZE
     if the min size is not set.
 
     When the size is set to a timedelta, this will produce values with a maximum size of size.microseconds (the number
-    of microseconds making up the time-delta set to BUFF_SIZE) and a minimum size of 0. The BUFF_MIN_SIZE is used to
-    ensure that the graph has been up and running for at least the BUFF_SIZE_MIN time. This ensures have captured at
+    of microseconds making up the time-delta set to WINDOW_SIZE) and a minimum size of 0. The WINDOW_MIN_SIZE is used to
+    ensure that the graph has been up and running for at least the WINDOW_SIZE_MIN time. This ensures have captured at
     least that duration of time's ticks. This provides no guarantee as to the number of ticks available. To ensure a
     sample size, use the integer-based size and min size.
     """

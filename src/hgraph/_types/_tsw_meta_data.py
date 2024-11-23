@@ -16,7 +16,7 @@ __all__ = ("HgTSWTypeMetaData", "HgTSWOutTypeMetaData")
 
 
 class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
-    """Parses BUFF[...]"""
+    """Parses TSW[...]"""
 
     value_scalar_tp: HgScalarTypeMetaData
     size_tp: HgScalarTypeMetaData
@@ -78,21 +78,21 @@ class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
             min_size = HgScalarTypeMetaData.parse_type(value_tp.__args__[2])
             if scalar is None:
                 raise ParseError(
-                    f"While parsing 'BUFF[{str(value_tp.__args__[0])}, "
+                    f"While parsing 'TSW[{str(value_tp.__args__[0])}, "
                     f"{str(value_tp.__args__[1])}, "
                     f"{str(value_tp.__args__[2])}]' unable to parse scalar type from"
                     f" '{str(value_tp.__args__[0])}'"
                 )
             if size is None:
                 raise ParseError(
-                    f"While parsing 'BUFF[{str(value_tp.__args__[0])}, "
+                    f"While parsing 'TSW[{str(value_tp.__args__[0])}, "
                     f"{str(value_tp.__args__[1])}, "
                     f"{str(value_tp.__args__[2])}]' unable to parse size type from"
                     f" '{str(value_tp.__args__[1])}'"
                 )
             if min_size is None:
                 raise ParseError(
-                    f"While parsing 'BUFF[{str(value_tp.__args__[0])}, "
+                    f"While parsing 'TSW[{str(value_tp.__args__[0])}, "
                     f"{str(value_tp.__args__[1])}, "
                     f"{str(value_tp.__args__[2])}]' unable to parse min_size type from"
                     f" '{str(value_tp.__args__[2])}'"
@@ -112,7 +112,7 @@ class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
             self.min_size_tp == o.min_size_tp
 
     def __str__(self) -> str:
-        return f"BUFF[{str(self.value_scalar_tp)}]"
+        return f"TSW[{str(self.value_scalar_tp)}]"
 
     def __repr__(self) -> str:
         return f"HgTSWTypeMetaData({repr(self.value_scalar_tp)}, {repr(self.size_tp)}, {repr(self.min_size_tp)})"
