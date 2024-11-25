@@ -804,8 +804,8 @@ Version 0.3.34 (22-11-2024)
 
 * buffered_window provides the window function logic using the new BUFF time-series type.
 
-Version 0.3.35 (TBD)
---------------------
+Version 0.3.35 (25-11-2024)
+---------------------------
 
 * Rename BUFF to TSW (TimeSeriesWindow) after discussion with AB.
 
