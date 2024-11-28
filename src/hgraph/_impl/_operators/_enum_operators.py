@@ -1,4 +1,4 @@
-from hgraph._operators._operators import min_, max_, eq_, lt_, gt_, le_, ge_
+from hgraph._operators._operators import min_, max_, eq_, lt_, gt_, le_, ge_, getattr_
 from hgraph._types._scalar_types import ENUM
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types._tsl_type import TSL, SIZE
@@ -110,3 +110,11 @@ def le_enum(lhs: TS[ENUM], rhs: TS[ENUM]) -> TS[bool]:
 @compute_node(overloads=ge_)
 def ge_enum(lhs: TS[ENUM], rhs: TS[ENUM]) -> TS[bool]:
     return bool(lhs.value.value >= rhs.value.value)
+
+
+@compute_node(overloads=getattr_)
+def getattr_enum_name(ts: TS[ENUM], attribute: str) -> TS[str]:
+    if attribute == "name":
+        return ts.value.name
+    else:
+        raise AttributeError(f"Cannot get {attribute} from TS[Enum]")

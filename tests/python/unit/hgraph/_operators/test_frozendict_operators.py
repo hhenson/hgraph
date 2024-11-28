@@ -244,7 +244,7 @@ def test_flip_keys():
                                                                                          "d": frozendict({1: 4})})]
 
 
-def test_collapse_keys():
+def test_collapse_keys_frozendict():
     @graph
     def g(ts: TS[frozendict[int, frozendict[str, int]]]) -> TS[frozendict[Tuple[int, str], int]]:
         return collapse_keys(ts)
@@ -258,7 +258,7 @@ def test_collapse_keys():
                                                                      frozendict({(1, "c"): 5})]
 
 
-def test_uncollapse_keys():
+def test_uncollapse_keys_frozendict():
     @graph
     def g(ts: TS[frozendict[Tuple[int, str], int]]) -> TS[frozendict[int, frozendict[str, int]]]:
         return uncollapse_keys(ts)

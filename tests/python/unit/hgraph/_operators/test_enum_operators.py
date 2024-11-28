@@ -143,3 +143,11 @@ def test_ge_enums():
         return lhs >= rhs
 
     assert eval_node(app, [TestEnum.A, None], [TestEnum.B, TestEnum.A]) == [False, True]
+
+
+def test_enum_name():
+    @graph
+    def app(enum: TS[ENUM]) -> TS[str]:
+        return enum.name
+
+    assert eval_node(app, [TestEnum.A])[0] == "A"

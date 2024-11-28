@@ -1,6 +1,6 @@
 from typing import Type
 
-from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, CompoundScalar, getattr_, type_, COMPOUND_SCALAR_1
+from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, CompoundScalar, type_, COMPOUND_SCALAR_1
 
 __all__ = tuple()
 
@@ -12,4 +12,9 @@ def type_cs_schema(ts: TS[COMPOUND_SCALAR_1]) -> TS[Type[CompoundScalar]]:
 
 @compute_node(overloads=type_)
 def type_cs_typevar(ts: TS[COMPOUND_SCALAR_1]) -> TS[Type[COMPOUND_SCALAR]]:
+    return ts.value.__class__
+
+
+@compute_node(overloads=type_)
+def type_scalar(ts: TS[SCALAR]) -> TS[Type[SCALAR]]:
     return ts.value.__class__

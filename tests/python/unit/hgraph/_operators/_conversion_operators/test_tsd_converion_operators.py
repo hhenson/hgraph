@@ -117,3 +117,12 @@ def test_emit_tsd():
     assert eval_node(h, [{'a': (1, 1), 'b': (2, 2), 'c': (3, 3)}, None, {'a': (4, 4)}]) == [
         {'key': 'a', 'value': {0: 1, 1: 1}}, {'key': 'b', 'value': {0: 2, 1: 2}},
         {'key': 'c', 'value': {0: 3, 1: 3}}, {'key': 'a', 'value': {0: 4, 1: 4}}]
+
+
+def test_convert_tuple_to_enumerated_tsd():
+    @graph
+    def g(ts: TS[Tuple[str, ...]]) -> TSD[int, TS[str]]:
+        return convert[TSD[int, TS[str]]](ts)
+
+    assert (eval_node(g, [None, ("0",),   ("0", "1"), ("1",),               ("3",)]) ==
+                         [None, {0: "0"}, {1: "1"},   {0: "1", 1: REMOVE},  {0: "3"}])
