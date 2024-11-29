@@ -1,30 +1,34 @@
-from pprint import pprint
-
 from frozendict import frozendict as fd
 
 from hgraph import (
-    component,
-    TSD,
-    TS,
-    mul_,
-    map_,
-    GraphConfiguration,
     EvaluationMode,
-    evaluate_graph,
-    graph,
-    debug_print,
+    GlobalState,
+    GraphConfiguration,
+    IN_MEMORY,
     MIN_ST,
     MIN_TD,
-    replay_from_memory,
-    set_replay_values,
-    SimpleArrayReplaySource,
-    set_record_replay_model,
-    GlobalState,
+    RECORDABLE_STATE,
     RecordReplayContext,
     RecordReplayEnum,
-    IN_MEMORY,
-    get_recorded_value, compute_node, SIGNAL, RECORDABLE_STATE, TimeSeriesSchema, switch_,
+    SIGNAL,
+    SimpleArrayReplaySource,
+    TS,
+    TSD,
+    TimeSeriesSchema,
+    component,
+    compute_node,
+    debug_print,
+    evaluate_graph,
+    get_recorded_value,
+    graph,
+    map_,
+    mul_,
+    replay_from_memory,
+    set_record_replay_model,
+    set_replay_values,
+    switch_, to_window,
 )
+
 
 class CountState(TimeSeriesSchema):
     current_count: TS[int]
@@ -54,6 +58,8 @@ def compute_signal(returns: TSD[str, TS[float]], factors: TSD[str, TS[float]]) -
         count < 4,
         count
     )
+    window = map_(lambda x: to_window(x, period=3), returns)
+    debug_print("window", window)
     debug_print("Count", count)
     debug_print("Sub Count", sub_count)
     return map_(mul_, returns, factors)

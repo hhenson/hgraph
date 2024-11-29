@@ -171,8 +171,9 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         self.value = result
 
     def mark_modified(self, modified_time: datetime = None):
-        super().mark_modified(modified_time or self.owning_graph.evaluation_clock.evaluation_time)
-        self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset)
+        super().mark_modified(modified_time)
+        if node := self.owning_node:
+            node.graph.evaluation_engine_api.add_after_evaluation_notification(self._reset)
 
     def _reset(self):
         self._added = None

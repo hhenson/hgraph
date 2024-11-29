@@ -25,6 +25,12 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     _subscribers: TimeSeriesSubscriber = field(default_factory=TimeSeriesSubscriber)
     _last_modified_time: datetime = MIN_DT
 
+    def __post_init__(self):
+        if self._owning_node is None and self._parent_output is None:
+            # If there is not owning now or parrent output, then this is orphaned so ignore
+            # modification notifications.
+            self._last_modified_time = MAX_ET
+
     @property
     def modified(self) -> bool:
         context = self.owning_graph.evaluation_clock

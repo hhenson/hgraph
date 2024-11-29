@@ -429,7 +429,7 @@ def is_keyable_scalar(value) -> bool:
 
 
 def is_compound_scalar(value) -> bool:
-    """Is the value an instance of CompoundScalar or is a type which is a subclass of CompoundScalar"""
+    """Is the value an instance of CompoundScalar or is a type, which is a subclass of CompoundScalar"""
     return isinstance(value, CompoundScalar) or (isinstance(value, type) and issubclass(value, CompoundScalar))
 
 
