@@ -31,6 +31,7 @@ class GraphInfo:
     stopped: bool = False
     eval_count: int
     eval_begin_time: float
+    cycle_time: float
     eval_time: float
     node_eval_counts: []
     node_eval_begin_times: []
@@ -101,6 +102,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             parent_graph=id(graph.parent_node.graph) if graph.parent_node else 0,
             eval_count=0,
             eval_begin_time=time.perf_counter_ns(),
+            cycle_time=0.,
             eval_time=0.,
             node_eval_counts=[0] * len(graph.nodes),
             node_eval_begin_times=[0.] * len(graph.nodes),
@@ -137,7 +139,8 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def on_after_graph_evaluation(self, graph: "Graph"):
         self.current_graph.eval_count += 1
-        self.current_graph.eval_time += time.perf_counter_ns() - self.current_graph.eval_begin_time
+        self.current_graph.cycle_time = time.perf_counter_ns() - self.current_graph.eval_begin_time
+        self.current_graph.eval_time += self.current_graph.cycle_time
         self.current_graph = self.graphs.get(self.current_graph.parent_graph, None)
 
         if self.callback_graph and graph.graph_id in self.graph_subscriptions:

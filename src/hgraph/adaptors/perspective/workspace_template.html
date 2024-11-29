@@ -33,29 +33,63 @@
             }
 
         </style>
+
+        <script type="module" src="/workspace_code/workspace_tables.js"></script>
+        <script type="module" src="/workspace_code/table_workarounds.js"></script>
     </head>
 
     <body>
         <perspective-workspace id="workspace"></perspective-workspace>
 
         <script type="module">
-            import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.js";
+            import {connectWorkspaceTables} from "/workspace_code/workspace_tables.js";
+            import {installTableWorkarounds} from "/workspace_code/table_workarounds.js";
 
-            //{% include table_workarounds.js %}
-            //{% include workspace_tables.js %}
+            {% if mgr.get_table_config_file() %}
+                {% autoescape None %}
+                {% import json %}
+                const table_config = {{ json.dumps(mgr.read_table_config(), indent=4) }};
+            {% else %}
+                const table_config = {};
+            {% end %}
 
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
 
-                await connectWorkspaceTables(workspace);
+                let mode = { editable: false };
+
+                window.workspace.addEventListener("workspace-layout-update", async () => {
+                    installTableWorkarounds(mode);
+                });
+
+                window.setTimeout(async () => {
+                    window.workspace.addEventListener("workspace-layout-update", async () => {
+                        if (mode.editable) {
+                            const config = await window.workspace.save()
+                            const has_viewers = Object.keys(config.viewers).length;
+                            if (has_viewers) {  // prevent saving broken empty views
+                                await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(config)});
+                            }
+                        }
+                    });
+                }, 10000);  // not saving anything for a bit
+
+                const tables = connectWorkspaceTables(workspace, table_config);
 
                 const req = await fetch("/layout/{{url}}");
                 const json = await req.json();
                 window.workspace.restore(json);
 
-                window.workspace.addEventListener("workspace-layout-update", async () => {
-                    await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(await window.workspace.save())});
-                    installTableWorkarounds();
+                await tables;
+
+                window.workspace.addEventListener("workspace-new-view", (event) => {
+                    if (!mode.editable) {
+                        const yes = window.confirm("This layout is open readonly, would you like to make it editable? If you click OK any changes you make from now on will be automatically saved otherwise they will not be saved");
+                        if (yes) {
+                            mode.editable = true;
+                        }
+                    }
+                    event.stopImmediatePropagation();
                 });
             });
         </script>

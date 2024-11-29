@@ -25,7 +25,7 @@ from hgraph import (
     const,
     debug_print,
     switch_,
-    nothing, default,
+    nothing, default, Removed,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
@@ -454,6 +454,39 @@ def test_map_restricted_keys():
         ],
         [{"a": 1, "b": 2}, {"c": 3}],
     ) == [frozendict({"a": "a_1", "b": "b_2"}), None]
+
+
+def test_map_re_added_keys():
+    @graph
+    def g(keys: TSS[str], value: TSD[str, TS[int]]) -> TSD[str, TS[str]]:
+        return map_(lambda key, v: format_("{}_{}", key, v), value, __keys__=keys)
+
+    assert eval_node(
+        g,
+        [
+            {"a", "b"},
+            {Removed("a")},
+            {"a"},
+        ],
+        [{"a": 1, "b": 2}, {"c": 3}],
+    ) == [{"a": "a_1", "b": "b_2"}, {"a": REMOVE}, {"a": "a_1"}]
+
+
+def test_map_re_added_references():
+    @graph
+    def g(keys: TSS[str], value: TSD[str, TS[int]]) -> TSD[str, TS[str]]:
+        value = map_(lambda v: v, value)
+        return map_(lambda key, v: format_("{}_{}", key, v), value, __keys__=keys)
+
+    assert eval_node(
+        g,
+        [
+            {"a", "b"},
+            {Removed("a")},
+            {"a"},
+        ],
+        [{"a": 1, "b": 2}, {"c": 3}],
+    ) == [{"a": "a_1", "b": "b_2"}, {"a": REMOVE}, {"a": "a_1"}]
 
 
 def test_map_preexisting_keys():

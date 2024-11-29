@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Type
+from typing import Type, Mapping
 
 from hgraph import (
     adaptor,
@@ -16,11 +16,10 @@ from hgraph import (
     WiringNodeInstance,
     CustomMessageWiringError,
     register_adaptor, flip, map_, TSS, graph, REF, TSB, SCHEMA, TS_SCHEMA, race, nothing, combine, len_, emit, assert_,
-    pass_through,
+    pass_through, sink_node, reduce_tsd_with_race, reduce_tsd_of_bundles_with_race, operator,
 )
 from hgraph._wiring._wiring_node_class._service_adaptor_node_class import ServiceAdaptorNodeClass
-from hgraph.adaptors.perspective._perspetive_publish import _publish_table, _receive_table_edits
-
+from hgraph.adaptors.perspective._perspetive_publish import _publish_table, _receive_table_edits, TableEdits
 
 __all__ = (
     "publish_table",
@@ -47,17 +46,33 @@ def publish_table_impl(path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: 
 @adaptor
 def publish_table_editable(
     path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None, empty_row: bool = False
-) -> TSD[K, TIME_SERIES_TYPE]: ...
+) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]: ...
+
+
+@graph
+def publish_join_table(path: str, schema: Mapping[str, type], index: str, description: object):
+    _publish_join_table(path, schema, index, description, nothing(TS[bool]))
+
+
+@sink_node
+def _publish_join_table(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]):
+    ...
+
+
+@_publish_join_table.start
+def _publish_join_table_start(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]):
+    from hgraph.adaptors.perspective import PerspectiveTablesManager
+    PerspectiveTablesManager.current().add_join(path, schema, index, description)
 
 
 @adaptor_impl(interfaces=publish_table_editable)
 def publish_table_editable_impl(
     path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None, empty_row: bool = False
-) -> TSD[K, TIME_SERIES_TYPE]:
+) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]:
     _assert_unique_type_per_path(publish_table_editable)
 
     _publish_table(path, ts, index_col_name=index_col_name, history=history, editable=True, empty_row=empty_row)
-    return _receive_table_edits(path, type=ts.output_type.dereference().py_type, index_col_name=index_col_name)
+    return _receive_table_edits(path, tp=ts.output_type.dereference().py_type, index_col_name=index_col_name, empty_row=empty_row)
 
 
 @service_adaptor
@@ -71,10 +86,14 @@ def publish_multitable_impl(
     _assert_unique_type_per_path(publish_multitable)
 
     if not unique:
-        @graph
-        def merge_references(keys: TSS[int], ts: TSD[int, REF[TSB[TS_SCHEMA]]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> TSB[TS_SCHEMA]:
+        @operator
+        def merge_references(keys: TSS[int], ts: TSD[int, REF[TIME_SERIES_TYPE]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> REF[TIME_SERIES_TYPE]:
+            ...
+
+        @graph(overloads=merge_references)
+        def merge_references_tsb(keys: TSS[int], ts: TSD[int, REF[TSB[TS_SCHEMA]]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> TSB[TS_SCHEMA]:
             selection = ts[keys]
-            return race(tsd=selection)
+            return reduce_tsd_of_bundles_with_race(tsd=selection)
 
         @graph(overloads=merge_references)
         def merge_references_no_tsb(keys: TSS[int], ts: TSD[int, REF[TS[SCALAR]]]) -> REF[TS[SCALAR]]:
@@ -82,7 +101,7 @@ def publish_multitable_impl(
             return ts[emit(keys)]
 
         keys = flip(key, unique=False)
-        table = map_(merge_references, keys, pass_through(ts))
+        table = map_(lambda keys, ts: merge_references(keys, ts), keys, pass_through(ts))
         _publish_table(path, table, index_col_name=index_col_name, history=history)
 
     else:

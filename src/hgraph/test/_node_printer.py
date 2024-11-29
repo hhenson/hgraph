@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, UTC
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,9 @@ if TYPE_CHECKING:
 __all__ = ("EvaluationTrace",)
 
 from hgraph import EvaluationLifeCycleObserver
+
+
+logger = logging.getLogger(__name__)
 
 
 class EvaluationTrace(EvaluationLifeCycleObserver):
@@ -58,7 +62,7 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         self.graph = graph
 
     def _print(self, evaluation_clock: "EvaluationClock", msg: str) -> None:
-        print(f"[{datetime.now(UTC)}][{evaluation_clock.evaluation_time}] {msg}")
+        logger.info(f"[{evaluation_clock.evaluation_time}] {msg}")
 
     def _graph_name(self, graph: "Graph") -> str:
         graph_str = []

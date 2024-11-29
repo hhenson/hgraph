@@ -1,5 +1,6 @@
 from typing import cast
 
+import pytest
 from frozendict import frozendict
 
 from hgraph import (
@@ -9,10 +10,38 @@ from hgraph import (
     exception_time_series,
     div_,
     TIME_SERIES_TYPE,
-    TIME_SERIES_TYPE_2,
+    TIME_SERIES_TYPE_2, NodeException, run_graph, const, null_sink,
 )
 from hgraph import graph, TS, TSB, NodeError, ts_schema, TSD, map_, REF, sink_node
 from hgraph.test import eval_node
+
+
+def test_error_not_handling(caplog):
+    @graph
+    def main():
+        out = (1.0 + const(1.0)) / (const(0.0) + const(0.0))
+        null_sink(out)
+
+    with pytest.raises(NodeException):
+        run_graph(main, __capture_values__=True, __trace_back_depth__=3)
+
+    assert "ZeroDivisionError" in caplog.text
+    assert "main.div_numbers" in caplog.text
+
+
+def test_error_not_handling_in_switch(caplog):
+    from hgraph import switch_
+
+    @graph
+    def main():
+        out = switch_({True: lambda x, y: x / y}, const(True),  (1.0 + const(1.0)), (const(0.0) + const(0.0)))
+        null_sink(out)
+
+    with pytest.raises(NodeException):
+        run_graph(main, __capture_values__=True, __trace_back_depth__=3)
+
+    assert "ZeroDivisionError" in caplog.text
+    assert "main.switch[True].<lambda>.div_numbers" in caplog.text
 
 
 def test_error_handling():

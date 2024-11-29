@@ -48,7 +48,8 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
             "name": str,
             "type": str,
             "value": str,
-            "timestamp": datetime,
+            "modified": datetime,
+            "scheduled": datetime,
             "evals": int,
             "time": float,
             "of_graph": float,
@@ -63,11 +64,15 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
         "time": datetime,
         "evaluation_time": datetime,
         "cycles": float,
+        "avg_cycle": float,
+        "max_cycle": float,
         "graph_time": float,
         "graph_load": float,
         "avg_lag": float,
         "max_lag": float,
-        "inspection_time": float
+        "inspection_time": float,
+        "memory": int,
+        "virt_memory": int,
     }, limit=24*3600)
 
     _state.manager.add_table("graph_performance", _state.total_cycle_table)

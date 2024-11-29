@@ -20,6 +20,8 @@ from hgraph._types import (
     K,
     V,
     REMOVE_IF_EXISTS,
+    HgREFTypeMetaData,
+    STATE,
 )
 
 __all__ = ("PartialSchema", "extract_table_schema", "extract_table_schema_raw_type")
@@ -90,7 +92,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             partition_keys=tuple(),
             remove_partition_keys=tuple(),
             to_table=lambda ts, schema=schema: schema.to_table(ts.delta_value) if ts.modified else (None,) * len(schema.keys),
-            to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.vaue),
+            to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.value),
             from_table=schema.from_table,
         )
     else:
@@ -111,6 +113,30 @@ def _(tp: HgTSWTypeMetaData) -> PartialSchema:
     #TODO: ensure the from_table loads historical data
     return schema
 
+@extract_table_schema.register(HgREFTypeMetaData)
+def _(tp: HgREFTypeMetaData) -> PartialSchema:
+    item_tp = tp.value_tp
+    schema = extract_table_schema(item_tp)
+    return PartialSchema(
+        tp.py_type,
+        keys=schema.keys,
+        types=schema.types,
+        partition_keys=schema.partition_keys,
+        remove_partition_keys=schema.remove_partition_keys,
+        to_table=lambda v, schema=schema: schema.to_table(
+            v.value.output
+            if v.value.output is not None
+            else STATE(**{k: v.output for k, v in zip(schema.keys, v.value.items)})
+        ),
+        to_table_snap=lambda v, schema=schema: schema.to_table_snap(
+            v.value.output
+            if v.value.output is not None
+            else STATE(**{k: v.output for k, v in zip(schema.keys, v.value.items)})
+        ),
+        from_table=lambda iter: next(iter),
+    )
+
+
 @extract_table_schema.register(HgTSBTypeMetaData)
 def _(tp: HgTSBTypeMetaData) -> PartialSchema:
     schema = tp.bundle_schema_tp.meta_data_schema
@@ -121,27 +147,16 @@ def _(tp: HgTSBTypeMetaData) -> PartialSchema:
     to_table = []
     to_table_snap = []
     for k, v in schema.items():
-        tp_ = type(v)
-        if tp_ is HgTSBTypeMetaData:
-            schema = extract_table_schema(v)
+        schema = extract_table_schema(v)
+        if len(schema.keys) > 1:  # If the type is a CompoundScalar
             keys.extend(f"{k}.{k_}" for k_ in schema.keys)
             types.extend(schema.types)
-            to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
-            to_table_snap.append(lambda value, k=k, schema=schema: schema.to_table_snap(getattr(value, k)))
-            from_table.append(schema.from_table)
-        elif tp_ in (HgTSTypeMetaData, HgTSSTypeMetaData):
-            schema = extract_table_schema(v)
-            if len(schema.keys) > 1:  # If the type is a CompoundScalar
-                keys.extend(f"{k}.{k_}" for k_ in schema.keys)
-                types.extend(schema.types)
-            else:
-                keys.append(k)
-                types.append(schema.types[0])
-            to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
-            to_table_snap.append(lambda value, k=k, schema=schema: schema.to_table_snap(getattr(value, k)))
-            from_table.append(schema.from_table)
         else:
-            raise RuntimeError(f"Cannot extract table schema from '{tp}' as {k}: {v} is not convertable")
+            keys.append(k)
+            types.append(schema.types[0])
+        to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
+        to_table_snap.append(lambda value, k=k, schema=schema: schema.to_table_snap(getattr(value, k)))
+        from_table.append(schema.from_table)
     return PartialSchema(
         tp,
         keys=tuple(keys),

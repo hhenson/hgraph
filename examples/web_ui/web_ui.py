@@ -31,14 +31,14 @@ from hgraph import (
     combine,
     last_modified_time,
     convert,
-    drop,
+    drop, collect, TSS, default,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
     publish_table_editable,
     publish_table,
     register_perspective_adaptors,
-    publish_multitable,
+    publish_multitable, TableEdits,
 )
 from hgraph.adaptors.perspective import perspective_web, PerspectiveTablesManager
 from hgraph.debug import trace_controller
@@ -112,29 +112,30 @@ def random_events(
 def host_web_server():
     register_perspective_adaptors()
     PerspectiveTablesManager.set_current(PerspectiveTablesManager(host_server_tables=False))
-    perspective_web(gethostname(), 8080, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
+    perspective_web(gethostname(), 8082, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
 
     initial_config = const(deepfreeze(refdata()), TSD[str, TSB[Config]])
-    config_updates = feedback(TSD[str, TSB[Config]])
+    config_updates = feedback(TSB[TableEdits[str, TSB[Config]]])
     debug_print("config updates", config_updates())
-    config = merge(initial_config, config_updates())
-    config_updates(publish_table_editable("config", config, index_col_name="sensor"))
+    config = merge(initial_config, config_updates().edits)
+    config = config[config.key_set - default(config_updates().removes, const(frozenset(), TSS[str]))]
+    config_updates(publish_table_editable("config", config, index_col_name="sensor", empty_row=True))
 
     map_(
         lambda key, c: publish_multitable(
-            "data", key, random_values(c, 100), unique=False, index_col_name="sensor", history=sys.maxsize
+            "data", key, random_values(c, 10000), unique=False, index_col_name="sensor", history=sys.maxsize
         ),
         config,
     )
 
     map_(
         lambda key, c: publish_multitable(
-            "data", key, random_events(c, 100), unique=False, index_col_name="sensor", history=sys.maxsize
+            "data", key, random_events(c, 10000), unique=False, index_col_name="sensor", history=sys.maxsize
         ),
         config,
     )
 
-    engine_ticks = drop(schedule(timedelta(milliseconds=100)), 100)
+    engine_ticks = drop(schedule(timedelta(milliseconds=10000)), 100)
     publish_table(
         "engine_lag",
         convert[TSD]("lag", (wall_clock_time(engine_ticks) - last_modified_time(engine_ticks)).total_seconds),
@@ -142,8 +143,8 @@ def host_web_server():
         history=sys.maxsize,
     )
 
-    trace_controller()
-    inspector()
+    trace_controller(port=8082)
+    inspector(port=8082)
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:

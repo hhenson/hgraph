@@ -37,7 +37,7 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     def mark_invalid(self):
         if self._last_modified_time > MIN_DT:
             self._last_modified_time = MIN_DT
-            self._notify(self._last_modified_time)
+            self._notify(self.owning_graph.evaluation_clock.evaluation_time)
 
     def mark_modified(self, modified_time: datetime = None):
         if modified_time is None:

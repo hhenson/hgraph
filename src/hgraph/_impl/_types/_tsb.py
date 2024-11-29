@@ -50,6 +50,10 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
                     if v_ is not None:
                         cast(TimeSeriesOutput, self[k]).value = v_
 
+    def clear(self):
+        for v in self.values():
+            v.clear()
+
     def invalidate(self):
         if self.valid:
             for v in self.values():

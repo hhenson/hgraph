@@ -20,7 +20,7 @@
 
             function deleteLayout(name){
                 let confirm1 = confirm("Are you sure you want to delete layout " + name + "?");
-                if (!confirm1) return;
+                if (!confirm1) return false;
                 fetch(`/layout/${name}`, {method: "delete"})
                     .then(() => window.location.reload());
             }
@@ -29,7 +29,7 @@
                 let form = document.forms.upload;
                 let name = form.name.value;
                 let content = form.content.files[0];
-                if (!name || !content) return;
+                if (!name || !content) return false;
                 let reader = new FileReader();
                 reader.onload = function(){
                     fetch(`/layout/${name}`, {method: "post", body: reader.result})
@@ -42,7 +42,7 @@
             function newLayout(){
                 let form = document.forms.new;
                 let name = form.name.value;
-                if (!name) return;
+                if (!name) return false;
                 window.location.href = `/workspace/${name}`;
                 return false;
             }
@@ -60,7 +60,6 @@
         <table>
             <thead>
                 <tr>
-                    <th>Tables</th>
                     <th>Layouts</th>
                     {% if versions %}
                     <th>Versions</th>
@@ -68,12 +67,12 @@
                 </tr>
             <tbody>
             <tr>
-                <td>
-                    {% for table in mgr.get_table_names() %}
-                        <div><a href="/table/{{table}}">{{table}}</a></div>
-                    {% end %}
-                </td>
-                <td>
+                <td style="vertical-align: top">
+                    <form name="new" action="/workspace" method="post" onsubmit="return newLayout()">
+                        <input style="font-size: xx-small" type="text" name="name" placeholder="New layout" />
+                        <input style="font-size: xx-small" type="submit" value="Create"/>
+                    </form>
+                    <br/>
                     {% for layout in layouts %}
                     <div>
                         <a href="/workspace/{{layout}}">{{layout}}</a>
@@ -85,6 +84,8 @@
                         <button style="font-size: xx-small" onclick="copyLayout('{{layout}}')">copy</button>
                         &nbsp;
                         <button style="font-size: xx-small" onclick="deleteLayout('{{layout}}')">delete</button>
+                        &nbsp;
+                        <a  style="font-size: xx-small" href="/layout/{{layout}}" download="{{layout}}.json">download</a>
                         )
                     </div>
                     {% end %}
@@ -92,29 +93,35 @@
                         <br/>
                         <form name="upload" action="/layout" method="post" onsubmit="return uploadLayout()">
                             <input style="font-size: xx-small" type="file" name="content"><br/>
-                            <input style="font-size: xx-small" type="text" name="name" placeholder="Uploaded layout name" />
+                            <input style="font-size: xx-small" type="text" name="name" placeholder="Upload layout" />
                             <input style="font-size: xx-small" type="submit" value="Upload"/>
-                        </form>
-                        <br/>
-                        <form name="new" action="/workspace" method="post" onsubmit="return newLayout()">
-                            <input style="font-size: xx-small" type="text" name="name" placeholder="New layout name" />
-                            <input style="font-size: xx-small" type="submit" value="Create"/>
                         </form>
                     </div>
                 </td>
                 {% if versions %}
                 <td>
                     {% for version in versions %}
-                    <div><a href="/workspace/{{layouts[0]}}.{{version}}">{{version}}</a>
+                    <div>
+                    <a href="/workspace/{{layouts[0]}}.{{version[0]}}">{{version[0]}}</a>&nbsp;{{version[1]}}
                     &nbsp;
-                    <button style="font-size: xx-small" onclick="restoreVersion('{{layouts[0]}}', '{{version}}')">restore</button></div>
+                    <button style="font-size: xx-small" onclick="restoreVersion('{{layouts[0]}}', '{{version[0]}}')">restore</button>
+                    &nbsp;
+                    <a  style="font-size: xx-small" href="/layout/{{layouts[0]}}.{{version[0]}}" download="{{layouts[0]}}.{{version[0]}}.json">download</a>
+                    </div>
                     {% end %}
                 </td>
                 {% end %}
             </tr>
-            </tbody>
-            <thead><tr></tr></thead>
+            <tr >
+                <td colspan="2" style="padding-top: 50pt">
+                    <div style="font-size: xx-small;">
+                        {% for table in mgr.get_table_names() %}
+                        <a href="/table/{{table}}">{{table}}</a>,
+                        {% end %}
+                    </div>
+                </td>
+            </tr>
+        </tbody>
         </table>
-
     </body>
 </html>

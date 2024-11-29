@@ -163,6 +163,18 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         return next
 
     def _un_wire_graph(self, key: K, graph: Graph):
+        for arg, node_ndx in self.input_node_ids.items():
+            node: NodeImpl = graph.nodes[node_ndx]
+            if arg != self.key_arg:
+                if arg in self.multiplexed_args:  # Is this a multiplexed input?
+                    from hgraph import PythonTimeSeriesReferenceInput
+                    tsd = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg])
+                    node.input.ts.re_parent(tsd)
+                    node.input = node.input.copy_with(__init_args__=dict(owning_node=node),
+                                                      ts=PythonTimeSeriesReferenceInput())
+                    if not tsd.key_set.__contains__(key):
+                        tsd.on_key_removed(key)
+
         if self.output_node_id:
             # Replace the nodes output with the map node's output for the key
             del self.output[key]

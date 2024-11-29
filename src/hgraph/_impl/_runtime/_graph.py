@@ -40,6 +40,8 @@ class PythonGraph(Graph):
 
         self._receiver: _SenderReceiverState = None
 
+        self._last_evaluation_time: datetime | None = None
+
         # these are for debugging scheduling issues
         # self._scheduled_times = []
         # self._evaluated_times = []
@@ -223,6 +225,7 @@ class PythonGraph(Graph):
             nodes = self._nodes
             schedule = self._schedule
 
+            self._last_evaluation_time = now
             # self._evaluated_times.append(now)
 
             if self.push_source_nodes_end > 0 and clock.push_node_requires_scheduling:

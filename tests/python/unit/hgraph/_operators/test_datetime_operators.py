@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from hgraph import sub_, add_, WiringError, mul_, div_, lt_
+from hgraph import sub_, add_, WiringError, mul_, div_, lt_, graph, TS, SCALAR
 from hgraph.test import eval_node
 
 
@@ -44,3 +44,20 @@ def test_div_timedelta_number():
 
 def test_lt_timedelta():
     assert eval_node(lt_, timedelta(seconds=5), timedelta(minutes=1)) == [True]
+
+
+@pytest.mark.parametrize("attr,expected",
+    (
+            ("year", 2024),
+            ("month", 11),
+            ("day", 1),
+            ("weekday", 4),
+            ("isoformat", "2024-11-01"),
+            ("isoweekday", 5),
+    )
+)
+def test_date_operators(attr, expected):
+    @graph
+    def g(d: TS[date]) -> TS[SCALAR]:
+        return getattr(d, attr)
+    assert eval_node(g, date(2024,11,1)) == [expected]

@@ -14,12 +14,12 @@ from hgraph._runtime._constants import MIN_TD, MIN_DT
 from hgraph._impl._impl_configuration import HG_TYPE_CHECKING
 from hgraph._types._tsw_type import TimeSeriesWindowOutput, WINDOW_SIZE, WINDOW_SIZE_MIN, TimeSeriesWindowInput
 
-__all__ = ("PythonTimeSeriesIWindowValueOutput", "PythonTimeSeriesTWindowValueOutput",
-           "PythonTimeSeriesWindowValueInput")
+__all__ = ("PythonTimeSeriesFixedWindowOutput", "PythonTimeSeriesTimeWindowOutput",
+           "PythonTimeSeriesWindowInput")
 
 
 @dataclass
-class PythonTimeSeriesIWindowValueOutput(
+class PythonTimeSeriesFixedWindowOutput(
     PythonTimeSeriesOutput,
     TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
     Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
@@ -29,7 +29,7 @@ class PythonTimeSeriesIWindowValueOutput(
     _value: Optional[Array[SCALAR]] = None
     _times: Optional[Array[datetime]] = None
     _size: int = -1
-    _min_size: int  = -1
+    _min_size: int = -1
     _start: int = 0
     _length: int = 0
 
@@ -129,19 +129,23 @@ class PythonTimeSeriesIWindowValueOutput(
             raise TypeError(f"Cannot apply node output {result} of "
                             f"type {result.__class__.__name__} to {self}: {e}") from e
 
+    def clear(self):
+        # TODO: what is the right semantics here? Value time series don't do anything, collections remove all items
+        pass
+
     def mark_invalid(self):
         self._value = np.ndarray(shape=[self._size], dtype=self._tp)
         self._times = np.full(shape=[self._size], fill_value=MIN_TD, dtype=datetime)
         super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        assert isinstance(output, PythonTimeSeriesIWindowValueOutput)
+        assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
         self.value = output._value
         self.value_times = output._times
 
     def copy_from_input(self, input: "TimeSeriesInput"):
-        assert isinstance(input, PythonTimeSeriesWindowValueInput)
-        assert isinstance(input.output, PythonTimeSeriesIWindowValueOutput)
+        assert isinstance(input, PythonTimeSeriesWindowInput)
+        assert isinstance(input.output, PythonTimeSeriesFixedWindowOutput)
         self.value = input.output._value
         self.value_times = input.output._times
 
@@ -162,7 +166,7 @@ class PythonTimeSeriesIWindowValueOutput(
 
 
 @dataclass
-class PythonTimeSeriesTWindowValueOutput(
+class PythonTimeSeriesTimeWindowOutput(
     PythonTimeSeriesOutput,
     TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
     Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
@@ -259,19 +263,23 @@ class PythonTimeSeriesTWindowValueOutput(
             raise TypeError(f"Cannot apply node output {result} of "
                             f"type {result.__class__.__name__} to {self}: {e}") from e
 
+    def clear(self):
+        # TODO: what is the right semantics here? Value time series don't do anything, collections remove all items
+        pass
+
     def mark_invalid(self):
         self._value = deque()
         self._times = deque()
         super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        assert isinstance(output, PythonTimeSeriesIWindowValueOutput)
+        assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
         self.value = output._value
         self.value_times = output._times
 
     def copy_from_input(self, input: "TimeSeriesInput"):
-        assert isinstance(input, PythonTimeSeriesWindowValueInput)
-        assert isinstance(input.output, PythonTimeSeriesIWindowValueOutput)
+        assert isinstance(input, PythonTimeSeriesWindowInput)
+        assert isinstance(input.output, PythonTimeSeriesFixedWindowOutput)
         self.value = input.output._value
         self.value_times = input.output._times
 
@@ -281,9 +289,9 @@ class PythonTimeSeriesTWindowValueOutput(
 
 
 @dataclass
-class PythonTimeSeriesWindowValueInput(PythonBoundTimeSeriesInput,
-                                       TimeSeriesWindowInput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
-                                       Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]):
+class PythonTimeSeriesWindowInput(PythonBoundTimeSeriesInput,
+                                  TimeSeriesWindowInput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+                                  Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]):
     """
     The only difference between a PythonBoundTimeSeriesInput and a PythonTimeSeriesValueInput is that the
     signature of value etc.

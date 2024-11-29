@@ -41,6 +41,7 @@ from hgraph import (
     take,
     throttle,
     window, WindowSize,
+    EvaluationClock,
 )
 
 __all__ = ()
@@ -123,19 +124,25 @@ def schedule_ts(
     _state: STATE[TickCount] = None,
     _clock: EvaluationClock = None,
 ) -> TS[bool]:
-    if _state.count == max_ticks:
+    if _state.count == max_ticks and not start.modified:
         return
 
     scheduled = _scheduler.is_scheduled_now
 
+    if use_wall_clock:
+        now = _clock.now
+    else:
+        now = _clock.evaluation_time
+
     if start.valid:
-        if _clock.evaluation_time < start.value and not initial_delay:
+        if now < start.value and not initial_delay:
             _scheduler.schedule(start.value, "_", on_wall_clock=use_wall_clock)
         else:
-            next = (
-                1 + (max(_clock.evaluation_time, start.value) - start.value) // delay.value
-            ) * delay.value + start.value
+            next = (1 + (max(now, start.value) - start.value) // delay.value) * delay.value + start.value
             _scheduler.schedule(next, "_", on_wall_clock=use_wall_clock)
+
+        if start.modified:
+            _state.count = 0  # Reset the count if the start time changes
     else:
         _scheduler.schedule(delay.value, "_", on_wall_clock=use_wall_clock)
 
@@ -201,9 +208,12 @@ def dedup_float(ts: TS[float], abs_tol: TS[float] = 1e-15, _output: TS[float] = 
 
 
 @compute_node(overloads=filter_)
-def filter_default(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def filter_default(condition: TS[bool], ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     if condition.value:
-        return ts.value if condition.modified else ts.delta_value
+        if condition.modified:
+            _output.copy_from_input(ts)
+        else:
+            return ts.delta_value
 
 
 @dataclass

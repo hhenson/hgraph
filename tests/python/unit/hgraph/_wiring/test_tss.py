@@ -6,9 +6,9 @@ from hgraph.test import eval_node
 @compute_node
 def create_tss(key: TS[str], add: TS[bool]) -> TSS[str]:
     if add.value:
-        return PythonSetDelta(frozenset([key.value]), frozenset())
+        return PythonSetDelta(added=frozenset([key.value]), removed=frozenset())
     else:
-        return PythonSetDelta(frozenset(), frozenset([key.value]))
+        return PythonSetDelta(added=frozenset(), removed=frozenset([key.value]))
 
 
 def test_tss_strait():

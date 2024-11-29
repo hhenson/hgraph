@@ -23,21 +23,22 @@
             }
 
         </style>
+
+        <script type="module" src="/workspace_code/workspace_tables.js"></script>
+        <script type="module" src="/workspace_code/table_workarounds.js"></script>
     </head>
 
     <body>
         <perspective-workspace id="workspace"></perspective-workspace>
 
         <script type="module">
-            import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.js";
-
-            //{% include table_workarounds.js %}
-            //{% include workspace_tables.js %}
+            import {connectWorkspaceTables} from "/workspace_code/workspace_tables.js";
+            import {installTableWorkarounds} from "/workspace_code/table_workarounds.js";
 
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
 
-                await connectWorkspaceTables(workspace);
+                const tables = connectWorkspaceTables(workspace, {});
 
                 const req = await fetch("/layout/{{url}}");
                 const json = await req.json();
@@ -46,7 +47,9 @@
                 window.workspace.addEventListener("workspace-layout-update", async () => {
                     await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(await window.workspace.save())});
 
-                    installTableWorkarounds();
+                    let mode = { editable: false };
+
+                    installTableWorkarounds(mode);
 
                     for (const g of document.querySelectorAll("perspective-viewer[table='inspector'] perspective-viewer-datagrid")){
                         const table = g.shadowRoot.querySelector("regular-table")
@@ -350,6 +353,7 @@
                 });
 
                 const observe = await fetch("/inspect/expand/", {cache: "no-store"});
+                await tables;
             });
         </script>
     </body>

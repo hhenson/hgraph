@@ -308,7 +308,7 @@ def collapse_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
     out = {}
 
     for k, v in ts.removed_items():
-        out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.keys()})
+        out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
 
     for k, v in ts.modified_items():
         out.update({(k, k1): v1.value for k1, v1 in v.modified_items()})
@@ -581,6 +581,16 @@ def min_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
 
 @compute_node(overloads=min_)
 def min_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], default_value: TS[NUMBER] = None) -> TS[NUMBER]:
+    return min((v.value for v in tsd.valid_values()), default=default_value.value)
+
+
+@compute_node(overloads=min_)
+def min_tsd_unary_datetime(tsd: TSD[K, TS[datetime]], default_value: TS[datetime] = None) -> TS[datetime]:
+    return min((v.value for v in tsd.valid_values()), default=default_value.value)
+
+
+@compute_node(overloads=min_)
+def min_tsd_unary_date(tsd: TSD[K, TS[date]], default_value: TS[date] = None) -> TS[date]:
     return min((v.value for v in tsd.valid_values()), default=default_value.value)
 
 

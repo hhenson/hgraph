@@ -325,6 +325,7 @@ class NodeSchedulerImpl(NodeScheduler):
         self._scheduled_events: SortedList[tuple[datetime, str]] = SortedList[tuple[datetime, str]]()
         self._tags: dict[str, datetime] = {}
         self._alarm_tags: dict[str, datetime] = {}
+        self._last_scheduled_time: datetime = MIN_DT
 
     @property
     def next_scheduled_time(self) -> datetime:

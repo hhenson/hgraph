@@ -19,7 +19,7 @@ from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import graph, compute_node
 from hgraph._wiring._reduce import reduce
 
-__all__ = tuple()
+__all__ = ("reduce_tsd_with_race", "reduce_tsd_of_bundles_with_race")
 
 
 @graph(overloads=all_)
@@ -128,8 +128,8 @@ def _tsl_ref_item_valid(tsl, i):
     return _ref_input_valid(tsl[i])
 
 
-@compute_node(overloads=race, active=("tsd",))
-def race_tsd(
+@compute_node(active=("tsd",))
+def reduce_tsd_with_race(
     tsd: TSD[K, REF[OUT]], _values: TSD[K, OUT] = None, _state: STATE[_RaceState] = None, _ec: EvaluationClock = None
 ) -> REF[OUT]:
     # Keep track of the first time each input goes valid (and invalid)
@@ -193,8 +193,8 @@ class _RaceTsdOfBundlesState(CompoundScalar):
     winners: list[K] = None
 
 
-@compute_node(overloads=race, active=("tsd",))
-def race_tsd_of_bundles(
+@compute_node(active=("tsd",))
+def reduce_tsd_of_bundles_with_race(
     tsd: TSD[K, REF[TSB[TS_SCHEMA]]],
     _values: TSD[K, TSB[TS_SCHEMA]] = None,
     _state: STATE[_RaceTsdOfBundlesState] = None,

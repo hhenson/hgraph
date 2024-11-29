@@ -69,9 +69,9 @@ class PythonITSWOutputBuilder(TSWOutputBuilder):
     _min_size: int
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
-        from hgraph import PythonTimeSeriesIWindowValueOutput
+        from hgraph import PythonTimeSeriesFixedWindowOutput
 
-        return PythonTimeSeriesIWindowValueOutput(
+        return PythonTimeSeriesFixedWindowOutput(
             _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
             _min_size=self._min_size
         )
@@ -87,9 +87,9 @@ class PythonTTSWOutputBuilder(TSWOutputBuilder):
     _min_size: timedelta
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
-        from hgraph import PythonTimeSeriesTWindowValueOutput
+        from hgraph import PythonTimeSeriesTimeWindowOutput
 
-        return PythonTimeSeriesTWindowValueOutput(
+        return PythonTimeSeriesTimeWindowOutput(
             _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
             _min_size=self._min_size
         )
@@ -101,9 +101,9 @@ class PythonTTSWOutputBuilder(TSWOutputBuilder):
 class PythonTSWInputBuilder(TSWInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
-        from hgraph import PythonTimeSeriesWindowValueInput
+        from hgraph import PythonTimeSeriesWindowInput
 
-        return PythonTimeSeriesWindowValueInput(_owning_node=owning_node, _parent_input=owning_input)
+        return PythonTimeSeriesWindowInput(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
         """Nothing to do"""
