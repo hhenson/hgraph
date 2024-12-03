@@ -41,7 +41,7 @@ def set_as_of(dt: datetime):
     GlobalState.instance()[AS_OF_VALUE] = dt
 
 
-def get_as_of(clock: EvaluationClock) -> datetime:
+def get_as_of(clock: EvaluationClock | None = None) -> datetime:
     """
     Returns the as_of time
     """
