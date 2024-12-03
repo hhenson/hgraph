@@ -3,7 +3,6 @@ import typing
 from datetime import datetime
 from typing import Iterable, Sequence
 
-from hgraph import ComponentNode
 from hgraph._impl._runtime._node import PythonPushQueueNodeImpl
 from hgraph._impl._runtime._node import _SenderReceiverState
 from hgraph._runtime._constants import MIN_DT
@@ -215,12 +214,6 @@ class PythonGraph(Graph):
         """
         for node in self.nodes[start:end]:
             node.dispose()
-
-    def recover_graph(self):
-        # Find any components in the graph and recover them
-        for node in self.nodes:
-            if isinstance(node, ComponentNode):
-                node.recover()
 
     def evaluate_graph(self):
         self._evaluation_engine.notify_before_graph_evaluation(self)

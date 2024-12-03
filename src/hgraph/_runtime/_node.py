@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from hgraph._wiring._source_code_details import SourceCodeDetails
 
 __all__ = (
-    "ComponentNode",
     "Node",
     "NODE",
     "NodeTypeEnum",
@@ -439,14 +438,3 @@ class NodeScheduler(ABC):
 
 SCHEDULER = NodeScheduler
 NODE = Node
-
-
-class ComponentNode(Node):
-    """A component node supports recording and recovery"""
-
-    @abstractmethod
-    def recover(self):
-        """
-        This life-cycle method is called after the start lifecycle and before the first evaluation.
-        It is responsible for ensuring the graph is prepared with it's last good state prior to evaluation begining.
-        """

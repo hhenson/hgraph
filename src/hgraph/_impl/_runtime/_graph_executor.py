@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from hgraph._operators._record_replay import RecordReplayContext, RecordReplayEnum
 from hgraph._impl._runtime._evaluation_clock import RealTimeEvaluationClock, SimulationEvaluationClock
 from hgraph._impl._runtime._evaluation_engine import PythonEvaluationEngine
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
@@ -60,8 +59,6 @@ class PythonGraphExecutor(GraphExecutor):
         for observer in self.observers:
             evaluation_engine.add_life_cycle_observer(observer)
         with initialise_dispose_context(self.graph), start_stop_context(self.graph):
-            if RecordReplayEnum.RECOVER in RecordReplayContext.instance().mode:
-                self.recover_graph(evaluation_engine, graph)
             while clock.evaluation_time < end_time:
                 self.evaluate(evaluation_engine, graph)
 
@@ -71,7 +68,3 @@ class PythonGraphExecutor(GraphExecutor):
         graph.evaluate_graph()
         evaluation_engine.notify_after_evaluation()
         evaluation_engine.advance_engine_time()
-
-    @staticmethod
-    def recover_graph(evaluation_engine, graph):
-        graph.recover_graph()

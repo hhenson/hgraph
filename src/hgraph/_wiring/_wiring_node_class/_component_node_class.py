@@ -10,7 +10,7 @@ from hgraph import (
     record,
     replay,
     compare,
-    generator, MIN_DT, )
+    replay_const, )
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -133,15 +133,11 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
     return component_wrapper
 
 
-@generator
-def replay_stub(key: str, tp: type[TIME_SERIES_TYPE]) -> TIME_SERIES_TYPE:
-    yield MIN_DT, None
-
 @graph
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
     mode = RecordReplayContext.instance().mode
     if RecordReplayEnum.RECOVER in mode:
-        ts = merge(ts, replay_stub(key, ts.output_type.dereference().py_type))  # Place a stub here for later reovery logic
+        ts = merge(ts, replay_const(key, ts.output_type.dereference().py_type))
     if ((RecordReplayEnum.REPLAY | RecordReplayEnum.COMPARE) & mode) != RecordReplayEnum.NONE:
         if RecordReplayEnum.RECOVER in mode:
             raise RuntimeError("Can't recover and replay / compare at the same time")

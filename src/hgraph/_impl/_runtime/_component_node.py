@@ -2,7 +2,7 @@ from datetime import datetime
 from string import Formatter
 from typing import Mapping, Any
 
-from hgraph import GlobalState, replay_const
+from hgraph import GlobalState
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,
@@ -11,12 +11,12 @@ from hgraph._impl._runtime._nested_evaluation_engine import (
 )
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._graph import Graph
-from hgraph._runtime._node import NodeSignature, Node, ComponentNode
+from hgraph._runtime._node import NodeSignature, Node
 
 __all__ = ("PythonComponentNodeImpl",)
 
 
-class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
+class PythonComponentNodeImpl(PythonNestedNodeImpl):
 
     def __init__(
         self,
@@ -108,27 +108,6 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
             return {0: self._active_graph}
         else:
             return {}
-
-    def recover(self):
-        """
-        Recover by loading inputs, then set the time to be the most recent time that the last value was processed.
-        Then step through at that time, ensure the state can be recovered.
-        """
-        for node in self._active_graph.nodes:
-            if node.signature.name == "replay_stub":
-                output = node.output
-                key = node.scalars["key"]
-                recordable_id, _ready = self.recordable_id()
-                output.apply_result(
-                    replay_const(
-                        key,
-                        node.signature.time_series_output.py_type,
-                        recordable_id=recordable_id,
-                        tm=self.graph.evaluation_clock.evaluation_time,
-                    ).value
-                )
-            elif node.signature.uses_recordable_state:
-                ...
 
     def recordable_id(self) -> tuple[str, bool]:
         """The id and True or no id and False if required inputs are not ready yet"""
