@@ -60,8 +60,6 @@ class PythonGraphExecutor(GraphExecutor):
         for observer in self.observers:
             evaluation_engine.add_life_cycle_observer(observer)
         with initialise_dispose_context(self.graph), start_stop_context(self.graph):
-            if RecordReplayEnum.RECOVER in RecordReplayContext.instance().mode:
-                self.recover_graph(evaluation_engine, graph)
             while clock.evaluation_time < end_time:
                 self.evaluate(evaluation_engine, graph)
 

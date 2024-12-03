@@ -1,8 +1,9 @@
 from datetime import datetime
 from string import Formatter
-from typing import Mapping, Any
+from typing import Mapping, Any, Callable, List
 
-from hgraph import GlobalState, replay_const
+from hgraph import GlobalState, replay_const, recover_ts, get_fq_recordable_id, get_as_of, EngineEvaluationClock, \
+    HgTSWTypeMetaData, MIN_DT, MIN_TD, MIN_ST, EvaluationEngine
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,
@@ -14,6 +15,49 @@ from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature, Node, ComponentNode
 
 __all__ = ("PythonComponentNodeImpl",)
+
+
+class PythonComponentEvaluationEngine(NestedEvaluationEngine):
+
+    def __init__(self, engine: EvaluationEngine, evaluation_clock: EngineEvaluationClock):
+        super().__init__(engine, evaluation_clock)
+        self._before_evaluation_notification: List[callable] = []
+        self._after_evaluation_notification: List[callable] = []
+        self._recovering: bool = False
+
+    def mark_recovering(self):
+        self._recovering = True
+
+    def mark_recovered(self):
+        self._recovering = False
+
+    def add_before_evaluation_notification(self, fn: callable):
+        if self._recovering:
+            self._before_evaluation_notification.append(fn)
+        else:
+            super().add_before_evaluation_notification(fn)
+
+    def add_after_evaluation_notification(self, fn: callable):
+        if self._recovering:
+            self._after_evaluation_notification.append(fn)
+        else:
+            super().add_after_evaluation_notification(fn)
+
+    def notify_before_evaluation(self):
+        if self._recovering:
+            for notification_receiver in self._before_evaluation_notification:
+                notification_receiver()
+            self._before_evaluation_notification.clear()
+        else:
+            super().notify_before_evaluation()
+
+    def notify_after_evaluation(self):
+        if self._recovering:
+            for notification_receiver in reversed(self._after_evaluation_notification):
+                notification_receiver()
+            self._after_evaluation_notification.clear()
+        else:
+            super().notify_after_evaluation()
 
 
 class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
@@ -34,6 +78,9 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
         self.output_node_id: int = output_node_id
         self._active_graph: Graph | None = None
         self._last_evaluation_time: datetime | None = None
+        from hgraph import RecordReplayEnum
+        from hgraph import RecordReplayContext
+        self._recover: bool = RecordReplayEnum.RECOVER in RecordReplayContext.instance().mode
 
     def _wire_graph(self):
         """Connect inputs and outputs to the nodes inputs and outputs"""
@@ -49,10 +96,14 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
 
         self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self, label=id_)
         self._active_graph.traits.set_traits(recordable_id=id_)
-        self._active_graph.evaluation_engine = NestedEvaluationEngine(
+        self._active_graph.evaluation_engine = PythonComponentEvaluationEngine(
             self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
         )
         self._active_graph.initialise()
+
+        # Start, then when in recovery, this will cause the graph to recover at one engine tick prior to the desired
+        # start time, after which we can wire in the new inputs and connect the output up.
+        self._start_active_graph()
 
         for arg, node_ndx in self.input_node_ids.items():
             node: NodeImpl = self._active_graph.nodes[node_ndx]
@@ -67,19 +118,25 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
             # Replace the nodes output with the map node's output
             node.output = self.output
 
-        if self.is_started | self.is_starting:
-            self._active_graph.start()
-
-    def initialise(self):
-        self._wire_graph()
+    def _start_active_graph(self):
+        tm = self.graph.evaluation_clock.evaluation_time
+        if tm == MIN_ST:
+            self._recover = False
+        if self._recover:
+            # Set the current time back by one tick to support recovery
+            self._active_graph.engine_evaluation_clock.evaluation_time = tm - MIN_TD
+            self._active_graph.evaluation_engine.mark_recovering()
+        self._active_graph.start()
+        if self._recover:
+            self.recover()
+            self._active_graph.evaluation_engine.mark_recovered()
+            self._active_graph.engine_evaluation_clock.evaluation_time = tm
+            self.notify()
 
     def do_start(self):
-        if self._active_graph:
-            self._active_graph.start()
-        else:
-            self._wire_graph()
-            if not self._active_graph:
-                self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
+        self._wire_graph()
+        if not self._active_graph:
+            self.graph.schedule_node(self.node_ndx, self.graph.evaluation_clock.evaluation_time)
 
     def do_stop(self):
         if self._active_graph:
@@ -114,21 +171,79 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl, ComponentNode):
         Recover by loading inputs, then set the time to be the most recent time that the last value was processed.
         Then step through at that time, ensure the state can be recovered.
         """
+        traits = self._active_graph.traits
+        ec_clock = self.graph.engine_evaluation_clock
+        def _set_engine_time(dt):
+            ec_clock.evaluation_time = dt
+        tm = ec_clock.evaluation_time
+
         for node in self._active_graph.nodes:
             if node.signature.name == "replay_stub":
                 output = node.output
                 key = node.scalars["key"]
                 recordable_id, _ready = self.recordable_id()
-                output.apply_result(
-                    replay_const(
-                        key,
-                        node.signature.time_series_output.py_type,
-                        recordable_id=recordable_id,
-                        tm=self.graph.evaluation_clock.evaluation_time,
-                    ).value
-                )
-            elif node.signature.uses_recordable_state:
-                ...
+                recordable_id = get_fq_recordable_id(self.graph.traits, recordable_id)
+                recover_ts(
+                    key,
+                    recordable_id,
+                    tm,
+                    get_as_of(self.graph.evaluation_clock),
+                    _set_engine_time,
+                    lambda: output,
+                ).value
+                _set_engine_time(tm)
+
+        times = sorted(set(self._active_graph.schedule))
+        max_time = times[-1]
+        if times[0] == MIN_DT:
+            times = times[1:]
+        for time_ in times:
+            _set_engine_time(time_)
+            self._active_graph.evaluation_engine.notify_before_evaluation()
+            for s_time, node in zip(self._active_graph.schedule, self._active_graph.nodes):
+                if s_time == time_ or (force_ := time_ == max_time):
+                    if node.signature.uses_recordable_state:
+                        eval_node = s_time == time_
+                        if (state_time := s_time-MIN_TD) > MIN_DT or force_:
+                            output = node.recordable_state
+                            key = "__state__"
+                            recordable_id = get_fq_recordable_id(traits, node.signature.record_replay_id)
+                            recover_ts(
+                                key,
+                                recordable_id,
+                                state_time if eval_node else time_,
+                                get_as_of(self.graph.evaluation_clock),
+                                _set_engine_time,
+                                lambda: output,
+                            ).value
+                        if eval_node:
+                            node.eval()
+                    elif type(node.signature.time_series_output) is HgTSWTypeMetaData:
+                        eval_node = s_time == time_
+                        if (state_time := s_time - MIN_TD) > MIN_DT or force_:
+                            output = node.output
+                            key = "__OUT__"
+                            recordable_id = get_fq_recordable_id(traits, node.signature.record_replay_id)
+                            recover_ts(
+                                key,
+                                recordable_id,
+                                state_time if eval_node else time_,
+                                get_as_of(self.graph.evaluation_clock),
+                                _set_engine_time,
+                                lambda: output,
+                            ).value
+                        if eval_node: # Set the time to be the most recent input time
+                            node.eval()
+                    elif node.signature.is_compute_node or node.signature.is_sink_node:
+                        # This needs a bit of work since for some sink nodes we do want to re-inflate (for example, feedbacks)
+                        # For some we do not.
+                        if s_time == time_:
+                           node.eval()
+                    else:
+                        if s_time == time_:
+                            node.eval()
+            self._active_graph.evaluation_engine.notify_after_evaluation()
+        _set_engine_time(tm)
 
     def recordable_id(self) -> tuple[str, bool]:
         """The id and True or no id and False if required inputs are not ready yet"""

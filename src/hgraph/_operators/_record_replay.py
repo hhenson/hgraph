@@ -1,11 +1,12 @@
 from datetime import datetime
 from enum import auto, IntFlag
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Callable
 
-from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._types._scalar_types import DEFAULT
 from hgraph._runtime._global_state import GlobalState
+from hgraph._types._scalar_types import DEFAULT
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
+from hgraph._types._ts_type import TS
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ __all__ = (
     "record",
     "replay",
     "replay_const",
+    "recover_ts",
     "compare",
     "IN_MEMORY",
 )
@@ -182,6 +184,28 @@ def replay_const(key: str, tp: type[OUT] = AUTO_RESOLVE,
     This must be implemented as a const_fn.
 
     When called as a value and not as a node, the user MUST supply the recordable_id, tm and as_of values.
+    """
+
+@operator
+def recover_ts(
+    key: str,
+    recordable_id: str,
+    tm: datetime,
+    as_of: datetime,
+    clock_setter: Callable[[datetime], None],
+    output: Callable[[], OUT],
+) -> TS[bool]:
+    """
+    Will replay the historical data into the output to recover the current state as of ``tm`` using ``as_of`` as
+    the *asof* time to make of when recovering data.
+
+    Implementations of this code must be implemented as const_fn as they will only be called in a static context.
+
+    The output is the output to recover into. The recovery should ensure the data is recovered to have
+    the time-elements having the correct last tick timestamp left on the output.
+
+    The clock_setter allows the recovery process to ensure that the correct time-stamp is set on the recovered
+    output. Set the time, then apply the value to the output.
     """
 
 

@@ -1,14 +1,13 @@
 from abc import abstractmethod
 from datetime import datetime
-from typing import Protocol, Iterable, Any
+from typing import Protocol, Iterable, Any, Callable
 
-from hgraph import get_fq_recordable_id
-from hgraph._operators import replay, IN_MEMORY, record, record_replay_model_restriction, compare, replay_const
-from hgraph._runtime import Traits, MIN_ST, MIN_TD, GlobalState, EvaluationClock, EvaluationEngineApi, Node, Graph
+from hgraph._operators import replay, IN_MEMORY, record, record_replay_model_restriction, compare, replay_const, \
+    recover_ts, get_fq_recordable_id
+from hgraph._runtime import Traits, MIN_ST, MIN_TD, GlobalState, EvaluationClock, EvaluationEngineApi, Node
 from hgraph._types import AUTO_RESOLVE, TS, CompoundScalar, LOGGER, STATE, TIME_SERIES_TYPE, TimeSeriesOutput, \
-    HgTimeSeriesTypeMetaData
+    HgTimeSeriesTypeMetaData, OUT
 from hgraph._wiring import generator, sink_node, graph, const_fn
-
 
 __all__ = (
     "ReplaySource",
@@ -122,6 +121,30 @@ def replay_const_from_memory(
                 break
         return output.value
 
+
+@const_fn(overloads=recover_ts)
+def recover_ts_from_memory(
+    key: str,
+    recordable_id: str,
+    tm: datetime,
+    as_of: datetime,
+    clock_setter: Callable[[datetime], None],
+    output: Callable[[], OUT]
+) -> TS[bool]:
+    recordable_id = f":memory:{recordable_id}.{key}"
+    source = GlobalState.instance().get(recordable_id, None)
+    if source is not None:
+        _output = output()
+        for ts, v in source:
+            # This is a slow approach, but since we don't have an index, this is the best we can do.
+            # Additionally, since we are recording delta values, we need to apply the successive results to form the
+            # full picture of state.
+            if ts <= tm:
+                # Combine results when dealing with Collection results
+                clock_setter(ts)
+                _output.apply_result(v)
+            else:
+                break
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))
 def record_to_memory(
