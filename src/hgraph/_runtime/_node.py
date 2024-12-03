@@ -7,7 +7,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Any
 from hgraph._runtime._lifecycle import ComponentLifeCycle
 
 if TYPE_CHECKING:
-    from hgraph._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, HgRecordableStateType
+    from hgraph._types import HgTimeSeriesTypeMetaData, HgScalarTypeMetaData, HgRecordableStateType, RECORDABLE_STATE
     from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput
     from hgraph._types._tsb_type import TimeSeriesBundleInput
     from hgraph._runtime._graph import Graph
