@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import json
 import logging
 import os
 import tempfile
@@ -55,7 +56,7 @@ class PerspectiveTableUpdatesHandler:
         self._queue = value
 
     def on_update(self, x, y):
-        if x != 0 or self._allow_self_updates:
+        if (x != 0) ^ self._allow_self_updates:
             self._updates_table.replace(y)
             if self._queue:
                 self._queue(self._updates_table.view())
@@ -66,11 +67,28 @@ class PerspectiveTableUpdatesHandler:
 
 
 class PerspectiveTablesManager:
-    def __init__(self, host_server_tables=True):
+    def __init__(self, host_server_tables=True, table_config_file=None):
         self._host_server_tables = host_server_tables
+        self._table_config_file = table_config_file
         self._started = False
         self._tables = {}
         self._updaters = {}
+
+        self._index_table = Table({
+            "name": str,
+            "type": str,  # 'table', 'client_table', 'view', 'join'
+            "editable": bool,
+            "url": str,
+            "schema": str,
+            "index": str,
+            "description": str,
+        }, index="name")
+
+        self._tables["index"] = [self._index_table, False]
+
+        if table_config_file:
+            with open(self._table_config_file, "r") as f:
+                json.load(f)  # check if it is valid json
 
     @classmethod
     def set_current(cls, self):
@@ -90,14 +108,37 @@ class PerspectiveTablesManager:
     def server_tables(self):
         return self._host_server_tables
 
-    def add_table(self, name, table, editable=False):
+    def add_table(self, name, table, editable=False, user=True):
         self._tables[name] = [table, editable]
+
+        if user:
+            self._index_table.update([{
+                "name": name,
+                "type": "table" if self.server_tables or editable else "client_table",
+                "editable": editable,
+                "url": f"",
+                "schema": json.dumps({k: v.__name__ for k, v in table.schema().items()}),
+                "index": table.get_index(),
+                "description": ""
+            }])
+
         if self._started:
             self._start_table(name)
 
         if table.get_index() and not self.server_tables:
             # client tables need removes sent separately (because bug in perspective)
-            self.add_table(name + "_removes", Table({"i": table.schema()[table.get_index()]}))
+            self.add_table(name + "_removes", Table({"i": table.schema()[table.get_index()]}), user=False)
+
+    def add_join(self, name, schema, index, description):
+        self._index_table.update([{
+            "name": name,
+            "type": "join",
+            "editable": False,
+            "url": f"",
+            "schema": json.dumps({k: v.__name__ for k, v in schema.items()}),
+            "index": index,
+            "description": json.dumps(description)
+        }])
 
     def subscribe_table_updates(self, name, cb, self_updates: bool = False):
         if (table := self._tables.get(name)) and not table[1]:
@@ -181,6 +222,15 @@ class PerspectiveTablesManager:
 
     def get_table(self, name):
         return self._tables[name][0]
+
+    def get_table_config_file(self):
+        return self._table_config_file
+
+    def read_table_config(self):
+        if self._table_config_file:
+            with open(self._table_config_file, "r") as f:
+                return json.load(f)
+        return {}
 
     def tornado_config(self):
         return [
@@ -327,6 +377,11 @@ def perspective_web_start(
                 tornado.web.StaticFileHandler,
                 {"path": Path(_get_node_location())},
             ),
+            (
+                r"/workspace_code/(.*)",
+                tornado.web.StaticFileHandler,
+                {"path": os.path.dirname(__file__)},
+            ),
         ]
         + perspective_manager.tornado_config()
         + ([(k, tornado.web.StaticFileHandler, v) for k, v in static.items()] if static else [])
@@ -413,11 +468,13 @@ class IndexPageHandler(tornado.web.RequestHandler):
 
             if url:
                 versions = glob(os.path.join(self.layouts_path, f"{url}.*.version"))
-                versions = sorted([os.path.basename(f).split(".")[1] for f in versions], reverse=True)
+                sizes = [os.path.getsize(f) for f in versions]
+                vs = [(os.path.basename(f).split(".")[1], f"{s/1024:0.2}k") for f, s in zip(versions, sizes)]
+                version_size = sorted(vs, key=lambda x: x[0], reverse=True)
             else:
-                versions = []
+                version_size = []
 
-            self.render(self.index_template, url=url, **self.__dict__, layouts=layouts, versions=versions)
+            self.render(self.index_template, url=url, **self.__dict__, layouts=layouts, versions=version_size)
         else:
             self.set_status(404)
             self.write("not found")

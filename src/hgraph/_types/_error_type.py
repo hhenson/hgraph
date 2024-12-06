@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Mapping, TYPE_CHECKING
 
 from hgraph._types._ref_type import TimeSeriesReference
@@ -14,21 +15,27 @@ __all__ = ("NodeError", "NodeException", "raise_error")
 class BacktraceSignature(CompoundScalar):
     name: str
     args: tuple[str, ...]
+    wiring_path_name: str
+    runtime_path_name: str
+    node_id: str
 
 
 @dataclass(frozen=True)
 class BackTrace:
     signature: BacktraceSignature
     active_inputs: Mapping[str, "BackTrace"]
-    input_values: Mapping[str, str]
+    input_short_values: Mapping[str, str] = None
+    input_delta_values: Mapping[str, str] = None
+    input_last_modified_time: Mapping[str, datetime] = None
+    input_values: Mapping[str, str] = None
 
     def _arg_str(self, arg_name: str) -> str:
         if self.active_inputs and arg_name in self.active_inputs:
             return f"*{arg_name}*" + (
-                f"={self.input_values[arg_name]}" if (self.input_values and arg_name in self.input_values) else ""
+                f"={self.input_short_values[arg_name]}" if (self.input_short_values and arg_name in self.input_short_values) else ""
             )
         if self.input_values and arg_name in self.input_values:
-            return f"{arg_name}={self.input_values[arg_name]}"
+            return f"{arg_name}={self.input_short_values[arg_name]}"
         else:
             return arg_name
 
@@ -37,12 +44,31 @@ class BackTrace:
             return ""
         indent = " " * 2 * level
         args = ", ".join(self._arg_str(arg) for arg in self.signature.args if not arg.startswith("_"))
-        s = f"{indent}{self.signature.name}({args})\n"
-        s += "\n".join(
-            f"{indent}{arg}:\n{value._level_str(level + 1)}"
-            for arg, value in (self.active_inputs.items() if self.active_inputs else tuple())
-        )
-        return s
+        s = f"{indent}{self.signature.runtime_path_name}<{', '.join(str(i) for i in self.signature.node_id)}>: {self.signature.name}({args})\n"
+        arg_strs = []
+        if self.input_values:
+            for arg, value in self.input_values.items():
+                if arg in self.active_inputs:
+                    arg_str = f"{indent}*{arg}*:"
+                else:
+                    arg_str = f"{indent}{arg}:"
+
+                dv = self.input_delta_values.get(arg)
+                if dv is not None:
+                    arg_str += f"\n{indent}  delta_value={dv}"
+                if value != dv:
+                    arg_str += f"\n{indent}  value={value}"
+
+                arg_str += f"\n{indent}  last modified={self.input_last_modified_time.get(arg)}"
+
+                if arg in self.active_inputs:
+                    arg_str += "\n" + self.active_inputs[arg]._level_str(level + 1)
+
+                arg_strs.append(arg_str)
+        else:
+            for arg, value in (self.active_inputs.items() if self.active_inputs else tuple()):
+                arg_strs.append(f"{indent}{arg}:\n{value._level_str(level + 1)}")
+        return s + "\n".join(arg_strs)
 
     def __str__(self):
         return self._level_str()
@@ -62,19 +88,37 @@ class BackTrace:
 
     @staticmethod
     def capture_back_trace(node: "Node", capture_values: bool = False, depth: int = 4) -> "BackTrace":
-        signature = BacktraceSignature(node.signature.name, node.signature.args) if node else None
+        signature = BacktraceSignature(
+            name=node.signature.name,
+            args=node.signature.args,
+            wiring_path_name=node.signature.wiring_path_name,
+            runtime_path_name=BackTrace.runtime_path_name(node),
+            node_id=node.node_id,
+        ) if node else None
+
         if depth > 0:
             active_inputs = {}
             input_values = {}
+            input_delta_values = {}
+            input_short_values = {}
+            input_last_modified_time = {}
             for input_name, input in node.inputs.items() if node else tuple():
                 BackTrace.capture_input(active_inputs, input, input_name, capture_values, depth)
                 if capture_values:
-                    input_values[input_name] = (v := str(input.value))[0:256] + ("..." if len(v) > 255 else "")
+                    input_short_values[input_name] = (v := str(input.value).split('\n')[0])[0:32] + ("..." if len(v) > 32 else "")
+                    input_delta_values[input_name] = str(input.delta_value)
+                    input_values[input_name] = v
+                    input_last_modified_time[input_name] = input.last_modified_time
             return BackTrace(
-                signature=signature, active_inputs=active_inputs, input_values=input_values if capture_values else None
+                signature=signature,
+                active_inputs=active_inputs,
+                input_short_values=input_short_values,
+                input_delta_values=input_delta_values,
+                input_values=input_values,
+                input_last_modified_time=input_last_modified_time,
             )
         else:
-            return BackTrace(signature=signature, active_inputs=None, input_values=None)
+            return BackTrace(signature=signature, active_inputs=None)
 
     @staticmethod
     def capture_input(active_inputs, input, input_name, capture_values, depth):

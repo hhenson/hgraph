@@ -73,6 +73,39 @@ def datetime_getattr(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
         raise AttributeError(f"TS[datetime] has no property {attribute}")
 
 
+_date_properties = {
+    "year": int,
+    "month": int,
+    "day": int,
+}
+
+_date_methods = {
+    "weekday": int,
+    "isoweekday": int,
+    "isoformat": str,
+}
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: _date_properties[s["attribute"]]})
+def date_properties(ts: TS[date], attribute: str) -> TS[SCALAR]:
+    return getattr(ts.value, attribute)
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: _date_methods[s["attribute"]]})
+def date_methods(ts: TS[date], attribute: str) -> TS[SCALAR]:
+    return getattr(ts.value, attribute)()
+
+
+@graph(overloads=getattr_)
+def date_getattr(ts: TS[date], attribute: str) -> TS[SCALAR]:
+    if attribute in _date_properties:
+        return date_properties(ts, attribute)
+    elif attribute in _date_methods:
+        return date_methods(ts, attribute)
+    else:
+        raise AttributeError(f"TS[datetime] has no property {attribute}")
+
+
 _timedelta_properties = {
     "days": int,
     "seconds": int,

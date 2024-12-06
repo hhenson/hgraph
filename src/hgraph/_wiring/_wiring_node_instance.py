@@ -45,9 +45,10 @@ class WiringNodeInstanceContext:
 
     __stack__: ["WiringNodeInstanceContext"] = []
 
-    def __init__(self, depth=1):
+    def __init__(self, depth=1, error_capture_options=None):
         self._node_instances: dict[tuple, WiringNodeInstance] = {}
         self._depth = depth
+        self._error_capture_options = error_capture_options or (self.__stack__[-1]._error_capture_options if self.__stack__ else None)
 
     def create_wiring_node_instance(
         self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any]
@@ -61,6 +62,7 @@ class WiringNodeInstanceContext:
                 resolved_signature=resolved_signature,
                 inputs=inputs,
                 wiring_path_name=(WiringGraphContext.instance() or WiringGraphContext(None)).wiring_path_name(),
+                **(self._error_capture_options or {}),
             )
         return node_instance
 

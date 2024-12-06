@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Type, Callable
+from typing import Type, Callable, Generic
 
 from perspective import Table, View
 
@@ -24,7 +24,7 @@ from hgraph import (
     push_queue,
     OUT,
     nothing,
-    SCHEDULER, operator,
+    SCHEDULER, operator, REMOVE, TimeSeriesSchema, TS, TSB, TSS, Removed,
 )
 from ._perspective import PerspectiveTablesManager
 
@@ -64,6 +64,7 @@ def _publish_table_from_tsd(
     in order. index_col_name can also include names of columns from the value in case of Frame value type.
     """
     data = None
+    removes = 0
     if state.multi_row:
         for k in ts.removed_keys():
             state.removed.update(state.key_tracker.pop(k, set()))
@@ -79,6 +80,8 @@ def _publish_table_from_tsd(
             state.removed -= updated_indices
             state.key_tracker[k] = updated_indices
             state.data += data
+
+        removes = len(state.removed)
     else:
         for k in ts.removed_keys():
             if v := state.key_tracker.pop(k, None):
@@ -89,14 +92,17 @@ def _publish_table_from_tsd(
             if state.create_index:
                 data = {**data, **state.create_index(data)}
 
-            index = state.index
-            if (old_i := state.key_tracker.get(k)) is not None and old_i != data[index]:
+            new_index = data[state.index] if not state.map_index else data.setdefault("_id", state.index_to_id[data[state.index]])
+
+            if (old_i := state.key_tracker.get(k)) is not None and old_i != new_index:
                 state.removed.add(old_i)
-            state.removed.discard(data[index])
-            state.key_tracker[k] = data[index]
+            state.removed.discard(new_index)
+            state.key_tracker[k] = new_index
             state.data.append(data)
 
-    if not sched.is_scheduled and data:
+        removes = len(state.removed)
+
+    if not sched.is_scheduled and (data or removes):
         sched.schedule(timedelta(milliseconds=250), on_wall_clock=True)
 
     if sched.is_scheduled_now:
@@ -188,14 +194,29 @@ def _publish_table_from_tsd_start(
         raise ValueError(f"Unsupported schema type '{_schema}'")
 
     state.index = (index_col_name or "index")
-    table = Table({**state.key_schema, **{k: v for k, v in state.schema.items()}}, index=state.index)
 
     if empty_row:
+        state.map_index = True
+        state.running_id = 0
+
+        def _new_id():
+            state.running_id += 1
+            return state.running_id
+
+        state.index_to_id = defaultdict(_new_id)
+
+        if state.multi_row:
+            raise ValueError("Empty row is not supported for multi-row tables")
+
+        table = Table({"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}}, index="_id")
         empty_values = [
             "-" if i is str else i.py_type()
             for i in (_key.py_type.__args__ if isinstance(_key, HgTupleFixedScalarType) else [_key])
         ]
-        table.update([state.process_key(empty_values)])
+        table.update([{"_id": 0, **state.process_key(empty_values)}])
+    else:
+        state.map_index = False
+        table = Table({**state.key_schema, **{k: v for k, v in state.schema.items()}}, index=state.index)
 
     manager.add_table(name, table, editable)
     state.data = []
@@ -211,24 +232,30 @@ def _publish_table_from_tsd_start(
         manager.add_table(name + "_history", history_table)
 
 
-@push_queue(TSD[K, TIME_SERIES_TYPE], overloads=_receive_table_edits)
+class TableEdits(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
+    edits: TSD[K, TIME_SERIES_TYPE]
+    removes: TSS[K]
+
+
+@push_queue(TSB[TableEdits[K, TIME_SERIES_TYPE]], overloads=_receive_table_edits)
 def _receive_table_edits_tsd(
     sender: Callable,
     name: str,
-    type: Type[TSD[K, TIME_SERIES_TYPE]],
+    tp: Type[TSD[K, TIME_SERIES_TYPE]],
     index_col_name: str = None,
+    empty_row: bool = False,
     _key: Type[K] = AUTO_RESOLVE,
     _schema: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-) -> TSD[K, TIME_SERIES_TYPE]:
+) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]:
     _schema = HgTimeSeriesTypeMetaData.parse_type(_schema)
     if isinstance(_schema, HgTSBTypeMetaData):
         tp_schema = {k: v.scalar_type().py_type for k, v in _schema.bundle_schema_tp.meta_data_schema.items()}
-        process_row = lambda row, i: {k: row[k] for k in row if k not in i and k != "index"}
+        process_row = lambda row, i: {k: row[k] for k in row if k not in i and k not in ("index", "_id")}
     elif isinstance(_schema, HgTSTypeMetaData):
         if isinstance(_schema.value_scalar_tp, HgCompoundScalarType):
             tp = _schema.value_scalar_tp.py_type
             tp_schema = {k: v.py_type for k, v in _schema.value_scalar_tp.meta_data_schema.items()}
-            process_row = lambda row, i: tp(**{k: tp_schema[k](row[k]) for k in row if k not in i and k != "index"})
+            process_row = lambda row, i: tp(**{k: tp_schema[k](row[k]) for k in row if k not in i and k not in ("index", "_id")})
         else:
             process_row = lambda row, i: row["value"]
     else:
@@ -240,19 +267,28 @@ def _receive_table_edits_tsd(
             index = [s.strip() for s in index_col_name.split(",")]
         else:
             index = [f"index_{i}" for i in range(len(_key.py_type.__args__))]
-
-        def on_update(data: View):
-            # print(data.to_dict())
-            data = {tuple(row[i] for i in index): process_row(row, index) for row in data.to_records()}
-            sender(data)
-
     else:
-        index = [index_col_name or "index"]
+        index = index_col_name or "index"
 
-        def on_update(data: View):
-            # print(data.to_records())
-            data = {row[index[0]]: process_row(row, index) for row in data.to_records()}
-            sender(data)
+    def on_update(data: View):
+        print(data.to_records())
+        edits = {}
+        removes = set()
+        for row in data.to_records():
+            _id = row.get("_id")
+            key = row[index] if type(index) is str else tuple(row[i] for i in index)
+            if _id != 0:  # _id == 0 is for the `new row` in the editable table
+                edits[key] = process_row(row, index)
+            if _id == -1:  # this is a row being inserted, the graph is supposed to re-add it with proper _id handling
+                manager.update_table(name, data=None, removals=set((_id, 0)))
+                manager.update_table(name, data=[{"_id": 0}], removals=None)
+                removes.add(Removed(key))  # undo any previous removals of this key
+            if _id == -2:  # this is a row being deleted
+                manager.update_table(name, data=None, removals=set((_id,)))
+                removes.add(key)
+                edits.pop(key)
+
+        sender({"edits": edits, "removes": removes})
 
     manager = PerspectiveTablesManager.current()
     manager.subscribe_table_updates(name, on_update)

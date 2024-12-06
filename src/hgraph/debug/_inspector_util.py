@@ -11,7 +11,7 @@ from hgraph import Node, Graph, PythonTimeSeriesValueInput, PythonTimeSeriesValu
     TimeSeriesList, TimeSeriesDict, TimeSeriesBundle, TimeSeriesSet, TimeSeriesInput, TimeSeriesOutput, \
     PythonNestedNodeImpl, PythonTsdMapNodeImpl, PythonServiceNodeImpl, PythonReduceNodeImpl, PythonSwitchNodeImpl, \
     PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl, CompoundScalar, TimeSeriesReferenceInput, \
-    HgTSLTypeMetaData, HgTSDTypeMetaData, HgCompoundScalarType
+    HgTSLTypeMetaData, HgTSDTypeMetaData, HgCompoundScalarType, MIN_DT
 from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
 from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
@@ -147,26 +147,49 @@ def format_value_polars_data_frame(value: pl.DataFrame):
 
 
 @multimethod
-def format_timestamp(value):
+def format_modified(value):
     return None
 
 
-@format_timestamp.register
+@format_modified.register
 def format_timestamp_node(value: Node):
-    return value.graph._schedule[value.node_ndx]
+    return max(
+        value.input.last_modified_time if value.input else MIN_DT,
+        value.output.last_modified_time if value.output else MIN_DT,)
 
 
-@format_timestamp.register
+@format_modified.register
+def format_timestamp_node(value: PythonNestedNodeImpl):
+    return value._last_evaluation_time
+
+
+@format_modified.register
 def format_timestamp_graph(value: Graph):
-    return value.parent_node.last_evaluation_time if value.parent_node else None
+    return value._last_evaluation_time
 
 
-@format_timestamp.register
+@format_modified.register
 def format_timestamp_time_series_output(value: Union[TimeSeriesOutput, TimeSeriesInput]):
     if value.valid:
         return value.last_modified_time
     else:
         return None
+
+
+@multimethod
+def format_scheduled(value):
+    return None
+
+
+@format_scheduled.register
+def format_scheduled_node(value: Node):
+    return value.graph._schedule[value.node_ndx]
+
+
+@format_scheduled.register
+def format_scheduled_graph(value: Graph):
+    if value.parent_node is not None:
+        return format_scheduled(value.parent_node)
 
 
 @multimethod

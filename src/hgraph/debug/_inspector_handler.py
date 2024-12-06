@@ -1,5 +1,6 @@
 import builtins
 import datetime
+import logging
 import re
 from asyncio import Future
 from collections import deque
@@ -12,8 +13,10 @@ from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
 from hgraph.debug._inspector_item_id import InspectorItemId, NodeValueType
 from hgraph.debug._inspector_state import InspectorState
-from hgraph.debug._inspector_util import enum_items, format_type, format_value, format_timestamp, format_name
+from hgraph.debug._inspector_util import enum_items, format_type, format_value, format_modified, format_name, \
+    format_scheduled
 
+logger = logging.getLogger(__name__)
 
 def graph_object_from_id(state: InspectorState, item_id: InspectorItemId):
     gi = state.observer.get_graph_info(item_id.graph)
@@ -83,7 +86,8 @@ def inspector_expand_item(state: InspectorState, item_id: InspectorItemId):
             name=i.indent(graph) + format_name(v, k),
             type=format_type(v),
             value=format_value(v),
-            timestamp=format_timestamp(v)
+            modified=format_modified(v),
+            scheduled=format_scheduled(v)
         ))
 
         subscribe_item(state, i)
@@ -120,7 +124,8 @@ def inspector_show_item(state: InspectorState, item_id: InspectorItemId):
         name=item_id.indent(graph) + format_name(value, key),
         type=format_type(value),
         value=format_value(value),
-        timestamp=format_timestamp(value)
+        modified=format_modified(value),
+        scheduled=format_scheduled(value)
     ))
 
     subscribe_item(state, item_id)
@@ -254,7 +259,8 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
             name=i.indent(graph) + name,
             type=format_type(v),
             value=format_value(v),
-            timestamp=format_timestamp(v)
+            modified=format_modified(v),
+            scheduled=format_scheduled(v)
         ))
 
         items += 1
@@ -286,6 +292,11 @@ def inspector_read_value(state, item_id):
         tp = graph_type_from_id(state, item_id)
         schema = extract_table_schema(tp)
         table = schema.to_table_snap(value)
+        if not table:
+            return "", []
+        if not schema.partition_keys:
+            table = [table]
+
 
         def map_type(t: type, values):
             match t:
@@ -401,7 +412,7 @@ def handle_inspector_request(state: InspectorState, request: HttpGetRequest, f: 
                     return
         except Exception as e:
             set_result(f, HttpResponse(500, body=f"Error: {e}"))
-            print(f"Inspector error {e}")
+            logger.exception(f"Inspector error {e}")
             return
             # raise e
 

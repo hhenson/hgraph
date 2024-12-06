@@ -110,6 +110,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         if k not in self._ts_values:
             raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
         item = self._ts_values.pop(k)
+        item.clear()
         self._removed_items[k] = item
         self._ts_values_to_keys.pop(id(item))
         self._ref_ts_feature.update(k)
@@ -146,6 +147,16 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def key_from_value(self, value: V) -> K:
         return self._ts_values_to_keys.get(id(value))
+
+    def clear(self):
+        self.key_set.clear()
+        self._removed_items = self._ts_values
+        self._ts_values_to_keys.clear()
+        self._ref_ts_feature.update_all(self._removed_items.keys())
+        self._modified_items.clear()
+        for observer in self._key_observers:
+            for k in self._removed_items:
+                observer.on_key_removed(k)
 
     def invalidate(self):
         for v in self.values():
@@ -198,13 +209,17 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         output: PythonTimeSeriesDictOutput
+        for k in self.key_set.value - output.key_set.value:
+            del self[k]
         for k, v in output.items():
-            self[k].copy_from_output(v)
+            self.get_or_create(k).copy_from_output(v)
 
     def copy_from_input(self, input: "TimeSeriesInput"):
         input: PythonTimeSeriesDictInput
+        for k in self.key_set.value - input.key_set.value:
+            del self[k]
         for k, v in input.items():
-            self[k].copy_from_input(v)
+            self.get_or_create(k).copy_from_input(v)
 
     def added_keys(self) -> Iterable[K]:
         return self._added_keys
@@ -401,7 +416,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         elif self.active:
             return max(self._last_notified_time, self.key_set.last_modified_time, self._sample_time)
         else:
-            return max(self.key_set.last_modified_time, max(v.last_modified_time for v in self._ts_values.values()))
+            return max(self.key_set.last_modified_time,
+                       max((v.last_modified_time for v in self._ts_values.values()), default=MIN_DT))
 
     @property
     def value(self):
@@ -471,7 +487,13 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         return self.key_set.removed()
 
     def removed_values(self) -> Iterable[V]:
-        return (self._removed_items.get(key) or self._ts_values.get(key) for key in self.removed_keys())
+        for key in self.removed_keys():
+            if (v := self._removed_items.get(key)) is None:
+                v = self._ts_values.get(key)
+            yield v
 
     def removed_items(self) -> Iterable[Tuple[K, V]]:
-        return ((key, self._removed_items.get(key) or self._ts_values.get(key)) for key in self.removed_keys())
+        for key in self.removed_keys():
+            if (v := self._removed_items.get(key)) is None:
+                v = self._ts_values.get(key)
+            yield (key, v)

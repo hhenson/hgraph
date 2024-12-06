@@ -1,4 +1,4 @@
-from hgraph import graph, TSD, TS, mean, diff, count
+from hgraph import graph, TSD, TS, mean, diff, count, REMOVE
 from hgraph._impl._operators._stream_analytical_operators import ewma
 from hgraph.test import eval_node
 
@@ -37,3 +37,12 @@ def test_count():
     ]
 
     assert eval_node(count, [3, 2, 1,], resolution_dict={'ts': TS[int]}) == expected
+
+
+def test_count_tsd():
+    @graph
+    def app(tsd: TSD[int, TS[int]]) -> TS[int]:
+        from hgraph import map_
+        return count(map_(lambda v: v + 1, tsd))
+
+    assert eval_node(app, [{1: 10}, {2: 20}, None, {1: REMOVE}]) == [1, 2, None, 3]

@@ -193,16 +193,16 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         self._added = frozenset(output.value.difference(self._value))
-        self._removed = frozenset()
-        if self._added:
-            self._value.update(self._added)
+        self._removed = frozenset(self._value - output.value)
+        if self._added or self._removed:
+            self._value = set(output.value)
             self.mark_modified()
 
     def copy_from_input(self, input: "TimeSeriesInput"):
         self._added = frozenset(input.value.difference(self._value))
-        self._removed = frozenset()
-        if self._added:
-            self._value.update(self._added)
+        self._removed = frozenset(self._value - input.value)
+        if self._added or self._removed:
+            self._value = set(input.value)
             self.mark_modified()
 
     def __contains__(self, item: SCALAR) -> bool:

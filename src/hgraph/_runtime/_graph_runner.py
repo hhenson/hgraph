@@ -1,3 +1,4 @@
+import sys
 import warnings
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ def _default_logger() -> Logger:
         # If no handler exists, assume we need to create one.
         logger.setLevel(DEBUG)
         # create console handler and set level to debug
-        ch = StreamHandler()
+        ch = StreamHandler(sys.stdout)
         ch.setLevel(DEBUG)
         # create formatter
         formatter = Formatter("%(asctime)s [%(name)s][%(levelname)s] %(message)s")
@@ -95,6 +96,8 @@ class GraphConfiguration:
     trace_wiring: bool | dict = False
     wiring_observers: tuple[WiringObserver, ...] = tuple()
     graph_logger: Logger = field(default_factory=_default_logger)
+    trace_back_depth: int = 1
+    capture_values: bool = False
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
@@ -133,6 +136,10 @@ class GraphConfiguration:
                 WiringTracer(**(self.trace_wiring if type(self.trace_wiring) is dict else {})),
             )
 
+    @property
+    def error_capture_options(self):
+        return {"trace_back_depth": self.trace_back_depth, "capture_values": self.capture_values}
+
 
 def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs) -> list[tuple[datetime, Any]] | None:
     """
@@ -169,7 +176,7 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
                     record(out, "__out__")
 
                 graph = _record
-            with WiringNodeInstanceContext():
+            with WiringNodeInstanceContext(error_capture_options=config.error_capture_options):
                 from hgraph._wiring._wiring_observer import WiringObserverContext
 
                 with WiringObserverContext() as wiring_observer_context:
@@ -210,6 +217,8 @@ def run_graph(
     __profile__: bool | dict = False,
     __trace_wiring__: bool | dict = False,
     __logger__: Logger = None,
+    __trace_back_depth__: int = 1,
+    __capture_values__: bool = False,
     **kwargs,
 ):
     """
@@ -244,5 +253,5 @@ def run_graph(
         kwargs_["end_time"] = end_time
     if life_cycle_observers is not None:
         kwargs_["life_cycle_observers"] = life_cycle_observers
-    config = GraphConfiguration(**kwargs_)
+    config = GraphConfiguration(**kwargs_, trace_back_depth=__trace_back_depth__, capture_values=__capture_values__)
     return evaluate_graph(graph, config, *args, **kwargs)

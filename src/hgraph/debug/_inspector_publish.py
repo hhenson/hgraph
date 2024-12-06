@@ -1,10 +1,18 @@
+import logging
+import os
 import time
 from collections import defaultdict
 from datetime import datetime
 
+import perspective
+import psutil
+
 from hgraph import Node, Graph
 from hgraph.debug._inspector_state import InspectorState
-from hgraph.debug._inspector_util import format_value, format_timestamp
+from hgraph.debug._inspector_util import format_value, format_modified, format_scheduled
+
+
+logger = logging.getLogger(__name__)
 
 
 def process_tick(state: InspectorState, node: Node):
@@ -16,7 +24,8 @@ def process_tick(state: InspectorState, node: Node):
         state.tick_data[str_id] = dict(
             id=str_id,
             value=format_value(v),
-            timestamp=format_timestamp(v),
+            modified=format_modified(v),
+            scheduled=format_scheduled(v)
         )
 
     for item_id in state.node_item_subscriptions.get(node.node_id, ()):
@@ -25,7 +34,8 @@ def process_tick(state: InspectorState, node: Node):
         state.tick_data[str_id] = dict(
             id=str_id,
             value=format_value(v),
-            timestamp=format_timestamp(v),
+            modified=format_modified(v),
+            scheduled=format_scheduled(v)
         )
 
     state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
@@ -55,6 +65,7 @@ def process_graph(state: InspectorState, graph: Graph, publish_interval: float):
         state.total_data["time"].append(datetime.utcnow())
         state.total_data["evaluation_time"].append(root_graph.graph.evaluation_clock.evaluation_time)
         state.total_data["cycles"].append(root_graph.eval_count)
+        state.total_data["cycle_time"].append(root_graph.cycle_time)
         state.total_data["graph_time"].append(root_graph.eval_time)
 
         start = check_requests_and_publish(state, start)
@@ -128,18 +139,23 @@ def publish_tables(state: InspectorState, include_stats=True):
         total_graph_time = (data["graph_time"][-1] - state.total_data_prev.get("graph_time", 0)) / 1_000_000_000
         lags = [(data["time"][i] - data["evaluation_time"][i]).total_seconds() for i in range(len(data["time"]))]
 
-        state.total_cycle_table.update([
-            dict(
-                time=data["time"][-1],
-                evaluation_time=data["evaluation_time"][-1],
-                cycles=(data["cycles"][-1] - state.total_data_prev.get("cycles", 0)) / total_time,
-                graph_time=total_graph_time,
-                graph_load=total_graph_time / total_time,
-                avg_lag=sum(lags) / len(data["time"]),
-                max_lag=max(lags),
-                inspection_time=state.inspector_time / total_graph_time,
-            )
-        ])
+        proc = psutil.Process(os.getpid())
+        readings = dict(
+            time=data["time"][-1],
+            evaluation_time=data["evaluation_time"][-1],
+            cycles=(data["cycles"][-1] - state.total_data_prev.get("cycles", 0)) / total_time,
+            avg_cycle=sum(data["cycle_time"]) / (len(data["time"]) * 1_000_000_000),
+            max_cycle=max(data["cycle_time"]) / 1_000_000_000,
+            graph_time=total_graph_time,
+            graph_load=total_graph_time / total_time,
+            avg_lag=sum(lags) / len(data["time"]), max_lag=max(lags),
+            inspection_time=state.inspector_time / total_graph_time,
+            memory=proc.memory_info().rss / (1024 * 1024),
+            virt_memory=proc.memory_info().vms / (1024 * 1024),
+        )
+
+        state.total_cycle_table.update([readings])
+        logger.info(f"performance: {readings}")
 
         state.total_data_prev = {k: v[-1] for k, v in data.items()}
         state.total_data = defaultdict(list)

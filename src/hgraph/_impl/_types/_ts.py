@@ -43,6 +43,9 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
         self._value = v
         self.mark_modified()
 
+    def clear(self):
+        pass
+
     def invalidate(self):
         self.mark_invalid()
 

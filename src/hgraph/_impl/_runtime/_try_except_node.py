@@ -74,13 +74,13 @@ class PythonTryExceptNodeImpl(PythonNestedNodeImpl):
         except Exception as e:
             from hgraph._types._error_type import NodeError
 
-            self._active_graph.stop()
-
             err = NodeError.capture_error(e, self)
             if type(self.signature.time_series_output) is HgTSBTypeMetaData:
                 self.output.exception.value = err
             else:
                 self.output.value = err
+
+            self._active_graph.stop()
 
     def nested_graphs(self):
         return {0: self._active_graph}

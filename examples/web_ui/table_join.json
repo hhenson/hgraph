@@ -1,0 +1,211 @@
+{
+  "config": {
+    "locked_columns": [
+      "sensor"
+    ]
+  },
+  "events": {
+    "locked_columns": [
+      "sensor",
+      "type"
+    ],
+    "column_editors--": {
+      "type": {
+        "type": "select",
+        "options": [
+          "pop",
+          "push"
+        ]
+      }
+    }
+  },
+  "others": {
+    "locked_columns": [
+      "sensor"
+    ]
+  },
+  "total": {
+    "type": "join",
+    "schema": {
+      "sensor": "str",
+      "initial": "float",
+      "randomness": "float",
+      "trend": "float",
+      "units": "str",
+      "value": "float",
+      "type": "str",
+      "magnitude": "int"
+    },
+    "index": "sensor,units,type",
+    "description": {
+      "config": {
+        "mode": "inner",
+        "index": "sensor",
+        "keys": [
+          "sensor"
+        ]
+      },
+      "data": {
+        "mode": "inner",
+        "index": "index",
+        "keys": [
+          "sensor",
+          "units"
+        ],
+        "values": [
+          "value"
+        ]
+      },
+      "events": {
+        "mode": "outer",
+        "index": "index",
+        "keys": [
+          "sensor",
+          "type"
+        ],
+        "values": [
+          "type",
+          "magnitude"
+        ]
+      }
+    }
+  },
+  "outer": {
+    "type": "join",
+    "schema": {
+      "sensor": "str",
+      "type": "str",
+      "magnitude": "int",
+      "ping": "str"
+    },
+    "index": "sensor",
+    "description": {
+      "events": {
+        "view": {
+          "filter": [
+            [
+              "type",
+              "!=",
+              "pop"
+            ]
+          ]
+        },
+        "mode": "outer",
+        "index": "index",
+        "keys": [
+          "sensor",
+          "type"
+        ],
+        "values": [
+          "type",
+          "magnitude"
+        ]
+      },
+      "others": {
+        "columns": {
+          "value": "ping"
+        },
+        "mode": "outer",
+        "index": "index",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "ping"
+        ]
+      }
+    }
+  },
+  "join views": {
+    "type": "join",
+    "schema": {
+      "sensor": "str",
+      "ping": "str",
+      "value": "float"
+    },
+    "index": "sensor",
+    "description": {
+      "data": {
+        "view": {
+          "group_by": [
+            "sensor"
+          ],
+          "aggregates": {
+            "value": "mean"
+          }
+        },
+        "mode": "inner",
+        "index": "sensor",
+        "native_index": "sensor,units",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "value"
+        ]
+      },
+      "others": {
+        "columns": {
+          "value": "ping"
+        },
+        "mode": "outer",
+        "index": "index",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "ping"
+        ]
+      }
+    }
+  },
+  "join pivot": {
+    "type": "join",
+    "schema": {
+      "sensor": "str",
+      "F_value": "float",
+      "C_value": "float",
+      "ping": "str"
+    },
+    "index": "sensor",
+    "description": {
+      "data": {
+        "view": {
+          "group_by": [
+            "sensor"
+          ],
+          "split_by": [
+            "units"
+          ],
+          "aggregates": {
+            "value": "last"
+          }
+        },
+        "mode": "inner",
+        "index": "sensor",
+        "native_index": "sensor,units",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "F_value",
+          "C_value",
+          "ping"
+        ]
+      },
+      "others": {
+        "columns": {
+          "value": "ping"
+        },
+        "mode": "outer",
+        "index": "index",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "ping"
+        ]
+      }
+    }
+  }
+}

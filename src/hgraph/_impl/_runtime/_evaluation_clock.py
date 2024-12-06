@@ -153,7 +153,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
                 break
 
         self._ready_to_push = False
-        if next_scheduled_time > self.evaluation_time + MIN_TD or now > self._last_time_allowed_push + timedelta(seconds=1):
+        if next_scheduled_time > self.evaluation_time + MIN_TD or now > self._last_time_allowed_push + timedelta(seconds=15):
             with self._push_node_requires_scheduling_condition:
                 self._ready_to_push = True
                 self._last_time_allowed_push = now

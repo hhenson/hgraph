@@ -75,7 +75,7 @@ class TimeSeriesContextTracker(AbstractContextManager):
         for details in reversed(self.contexts):
             if tp.is_scalar and tp.matches(details.context.output_type.dereference().scalar_type()):
                 match = True
-            elif not tp.is_scalar and tp.matches(details.context.output_type):
+            elif not tp.is_scalar and tp.matches(details.context.output_type.dereference()):
                 match = True
             else:
                 match = False

@@ -75,6 +75,10 @@ class PythonTimeSeriesListOutput(
         for ts_self, ts_input in zip(self.values(), input.values()):
             ts_self.copy_from_input(ts_input)
 
+    def clear(self):
+        for v in self.values():
+            v.clear()
+
     def invalidate(self):
         for v in self.values():
             v.invalidate()

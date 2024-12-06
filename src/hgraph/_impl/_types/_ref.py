@@ -165,6 +165,9 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
     ):  # TODO: this would only be called from nested graphs but there is no stop() on inputs. How do we clean these up?
         self._reference_observers.pop(id(input_), None)
 
+    def clear(self):
+        pass
+
     def invalidate(self):
         self._value = None
         self.mark_invalid()
