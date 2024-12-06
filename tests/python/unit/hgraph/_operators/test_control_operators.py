@@ -2,7 +2,7 @@ import pytest
 
 from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const, BoolResult, if_, \
     route_by_index, race, if_true, if_then_else, nothing, compute_node, TSD, map_, PythonTimeSeriesReference, REMOVE, \
-    combine, switch_, filter_, CmpResult, if_cmp
+    combine, switch_, filter_, CmpResult, if_cmp, reduce_tsd_with_race, reduce_tsd_of_bundles_with_race
 from hgraph.test import eval_node
 
 
@@ -164,7 +164,7 @@ def test_race_tsd():
     @graph
     def g(tsd: TSD[int, TS[int]]) -> REF[TS[int]]:
         refs = map_(make_ref, tsd, tsd)
-        return race(tsd=refs)
+        return reduce_tsd_with_race(tsd=refs)
 
     assert eval_node(g, [None, {1: 0, 2: 0}, {1: 1}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}]) == [None, None, 1, None, 2, 3]
 
@@ -181,7 +181,7 @@ def test_race_tsd_of_bundles_all_free_bundles():
     @graph
     def g(a: TSD[int, TS[int]], b: TSD[int, TS[int]]) -> REF[TSB[S]]:
         refs = map_(lambda a, b: combine[TSB[S]](a=make_ref(a, a), b=make_ref(b, b)), a, b)
-        return race(tsd=refs)
+        return reduce_tsd_of_bundles_with_race(tsd=refs)
 
     assert eval_node(g,
                      a=[None, {1: 0, 2: 0}, {2: 2}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}],
@@ -216,7 +216,7 @@ def test_race_tsd_of_bundles_switch_bundle_types():
     @graph
     def g(ts: TSD[int, TSB[SC]]) -> REF[TSB[S]]:
         refs = map_(make_bundle, ts)
-        return race(tsd=refs)
+        return reduce_tsd_of_bundles_with_race(tsd=refs)
 
     assert eval_node(g, __trace__=True,
                      ts=[
