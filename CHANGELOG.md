@@ -818,3 +818,9 @@ Version 0.3.36 (6-12-2024)
 * Work on monitoring
 * Work on recovery logic
 * Renaming of TSW implementation code
+
+Version 0.3.37 (6-12-2024)
+--------------------------
+
+* Fix broken test
+* Update poetry.lock
