@@ -809,3 +809,12 @@ Version 0.3.35 (25-11-2024)
 
 * Rename BUFF to TSW (TimeSeriesWindow) after discussion with AB.
 
+Version 0.3.36 (6-12-2024)
+--------------------------
+
+* Bug fixes to TSD
+* Additional date operators
+* Work on perspective adaptors
+* Work on monitoring
+* Work on recovery logic
+* Renaming of TSW implementation code
