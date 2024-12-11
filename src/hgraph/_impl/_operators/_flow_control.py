@@ -1,7 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from hgraph import MIN_ST
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators._flow_control import all_, any_, merge, index_of, if_cmp
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
