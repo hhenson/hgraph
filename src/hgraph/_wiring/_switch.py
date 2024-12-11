@@ -10,7 +10,7 @@ from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
-from hgraph._wiring._map import _MappingMarker
+from hgraph._wiring._markers import _Marker
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError

@@ -15,10 +15,10 @@ from hgraph._wiring._map import (
     _deduce_signature_from_lambda_and_args,
     _extract_map_fn_key_arg_and_type,
     _split_inputs,
-    _MappingMarker,
     KEYS_ARG,
     _prepare_stub_inputs,
 )
+from hgraph._wiring._markers import _Marker
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class import extract_kwargs, WiringNodeClass
@@ -89,7 +89,7 @@ def _build_mesh_wiring_node_and_inputs(
     input_key_tp = tp
 
     input_types = {
-        k: v.output_type.dereference() if isinstance(v, (WiringPort, _MappingMarker)) else signature.input_types[k]
+        k: v.output_type.dereference() if isinstance(v, (WiringPort, _Marker)) else signature.input_types[k]
         for k, v in kwargs_.items()
     }
 

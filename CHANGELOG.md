@@ -824,3 +824,8 @@ Version 0.3.37 (6-12-2024)
 
 * Fix broken test
 * Update poetry.lock
+
+Version 0.3.38 (11-12-2024)
+---------------------------
+
+* add passive marker

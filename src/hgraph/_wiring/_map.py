@@ -4,15 +4,15 @@ from typing import Callable, cast, TYPE_CHECKING, List
 from frozendict import frozendict
 
 from hgraph._types._scalar_types import STATE, Size, SCALAR
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_meta_data import HgTSTypeMetaData
 from hgraph._types._ts_type import TS
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
-from hgraph._types._tsd_type import TSD, K
+from hgraph._types._tsd_type import K
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+from hgraph._wiring._markers import _Marker, _PassthroughMarker
 from hgraph._wiring._wiring_node_class._map_wiring_node import (
     TsdMapWiringNodeClass,
     TsdMapWiringSignature,
@@ -31,30 +31,10 @@ from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference, wire_ne
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgAtomicType
 
-__all__ = ("map_", "pass_through", "no_key", "KEYS_ARG")
+__all__ = ("map_", "KEYS_ARG")
 
 KEYS_ARG = "__keys__"
 _KEY_ARG = "__key_arg__"
-
-
-def pass_through(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
-    """
-    Marks the TSD input as a pass through value. This will ensure the TSD is not included in the key mapping in the
-    tsd_map function. This is useful when the function takes a template type and the TSD has the same SCALAR type as
-    the implied keys for the tsd_map function.
-    """
-    # noinspection PyTypeChecker
-    return _PassthroughMarker(tsd)
-
-
-def no_key(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
-    """
-    Marks the TSD input as not contributing to the keys of the tsd_map function.
-    This is useful when the input TSD is likely to be larger than the desired keys to process.
-    This is only required if no keys are supplied to the tsd_map function.
-    """
-    # noinspection PyTypeChecker
-    return _NoKeyMarker(tsd)
 
 
 def map_(func: Callable, *args, **kwargs):
@@ -89,23 +69,6 @@ def map_(func: Callable, *args, **kwargs):
             return _build_and_wire_map(graph, signature, *args, **kwargs)
     else:
         raise RuntimeError(f"The supplied function is not a graph or node function or lambda: '{func.__name__}'")
-
-
-class _MappingMarker:
-
-    def __init__(self, value: TSD[K, TIME_SERIES_TYPE]):
-        assert isinstance(value, WiringPort), "Marker must wrap a valid time-series input."
-        self.value = value
-
-    @property
-    def output_type(self):
-        return self.value.output_type
-
-
-class _PassthroughMarker(_MappingMarker): ...
-
-
-class _NoKeyMarker(_MappingMarker): ...
 
 
 def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg__="key", **kwargs) -> WiringNodeClass:
@@ -159,7 +122,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             i -= 1
 
         if i < len(args):  # provided as positional and not key
-            if isinstance(args[i], (WiringPort, _MappingMarker)):
+            if isinstance(args[i], (WiringPort, _Marker)):
                 tp = args[i].output_type.dereference()
                 if (
                     isinstance(tp, HgTSDTypeMetaData)
@@ -172,11 +135,11 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             else:
                 annotations[n] = HgTypeMetaData.parse_type(SCALAR)
 
-            values[n] = args[i] if not isinstance(args[i], _MappingMarker) else args[i].value
+            values[n] = args[i] if not isinstance(args[i], _Marker) else args[i].value
             continue
 
         if n in kwargs:  # provided as keyword
-            if isinstance(kwargs[n], (WiringPort, _MappingMarker)):
+            if isinstance(kwargs[n], (WiringPort, _Marker)):
                 tp = kwargs[n].output_type.dereference()
                 if (
                     isinstance(tp, HgTSDTypeMetaData)
@@ -189,7 +152,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             else:
                 annotations[n] = HgTypeMetaData.parse_type(SCALAR)
 
-            values[n] = kwargs[n] if not isinstance(kwargs[n], _MappingMarker) else kwargs[n].value
+            values[n] = kwargs[n] if not isinstance(kwargs[n], _Marker) else kwargs[n].value
             continue
 
         raise CustomMessageWiringError(f"no input for the parameter {n} of the lambda passed into map_")
@@ -260,7 +223,7 @@ def _build_map_wiring(
     #    We use the output_type of wiring ports, but for scalar values, they must take the form of the underlying
     #    function signature, so we just use from that signature.
     input_types = {
-        k: v.output_type.dereference() if isinstance(v, (WiringPort, _MappingMarker)) else signature.input_types[k]
+        k: v.output_type.dereference() if isinstance(v, (WiringPort, _Marker)) else signature.input_types[k]
         for k, v in kwargs_.items()
     }
 
@@ -382,13 +345,13 @@ def _split_inputs(
 
     Key type is only present if validate_type is True.
     """
-    if non_ts_inputs := [arg for arg in kwargs_ if not isinstance(kwargs_[arg], (WiringPort, _MappingMarker))]:
+    if non_ts_inputs := [arg for arg in kwargs_ if not isinstance(kwargs_[arg], (WiringPort, _Marker))]:
         if not all(k in signature.scalar_inputs for k in non_ts_inputs):
             raise CustomMessageWiringError(
                 f" The following args are not time-series inputs, but should be: {non_ts_inputs}"
             )
 
-    marker_args = frozenset(arg for arg in kwargs_ if isinstance(kwargs_[arg], _MappingMarker))
+    marker_args = frozenset(arg for arg in kwargs_ if isinstance(kwargs_[arg], _Marker))
     pass_through_args = frozenset(arg for arg in marker_args if isinstance(kwargs_[arg], _PassthroughMarker))
     no_key_args = frozenset(arg for arg in marker_args if arg not in pass_through_args)
 
@@ -499,8 +462,6 @@ def _create_tsd_map_wiring_node(
     input_key_tp: HgTSTypeMetaData,
     input_key_name: str | None,
 ) -> [TsdMapWiringNodeClass, tuple]:
-    from hgraph._types._ref_meta_data import HgREFTypeMetaData
-
     # Resolve the mapped function signature
     stub_inputs = _prepare_stub_inputs(kwargs_, input_types, multiplex_args, no_key_args, input_key_tp, input_key_name)
     resolved_signature = fn.resolve_signature(**stub_inputs)
@@ -571,8 +532,6 @@ def _create_tsl_map_signature(
     size_tp: "HgAtomicType",
     input_key_name: str | None,
 ):
-    from hgraph._types._ref_meta_data import HgREFTypeMetaData
-
     # Resolve the mapped function signature
     stub_inputs = _prepare_stub_inputs(
         kwargs_, input_types, multiplex_args, frozenset(), HgTSTypeMetaData.parse_type(TS[int]), input_key_name

@@ -393,6 +393,11 @@ def validate_and_resolve_signature(
     kwargs = prepare_kwargs(signature, *args, **kwargs)
     WiringContext.current_kwargs = kwargs
     try:
+        from hgraph._wiring._markers import _PassivateMarker
+        passive_keys = set(k for k, v in kwargs.items() if isinstance(v, _PassivateMarker))
+        if passive_keys:
+            # Unpack passive keys
+            kwargs = {k: v.value if k in passive_keys else v for k, v in kwargs.items()}
         # Extract any additional required type resolution information from inputs
         kwarg_types = signature.convert_kwargs_to_types(**kwargs)
         # Do the resolve to ensure types match as well as actually resolve the types.
@@ -402,6 +407,8 @@ def validate_and_resolve_signature(
         valid_inputs, has_valid_overrides = signature.resolve_valid_inputs(resolution_dict, **kwargs)
         all_valid_inputs, has_all_valid_overrides = signature.resolve_all_valid_inputs(resolution_dict, **kwargs)
         active_inputs, has_active_overrides = signature.resolve_active_inputs(resolution_dict, **kwargs)
+        if passive_keys:
+            active_inputs = _adjust_active_inputs(signature, active_inputs, passive_keys)
         resolved_inputs, valid_inputs, has_valid_overrides, all_valid_inputs, has_all_valid_overrides = (
             signature.resolve_context_kwargs(
                 kwargs,
@@ -424,6 +431,8 @@ def validate_and_resolve_signature(
             signature.resolve_auto_const_and_type_kwargs(kwarg_types, kwargs)
             signature.validate_resolved_types(kwarg_types, kwargs)
             signature.validate_requirements(resolution_dict, kwargs)
+            if passive_keys:
+                signature = signature.copy_with(active_inputs=active_inputs)
             return (
                 kwargs,
                 signature if record_replay_id is None else signature.copy_with(record_and_replay_id=record_replay_id),
@@ -456,6 +465,15 @@ def validate_and_resolve_signature(
         raise WiringFailureError(
             f"Failure resolving signature for {signature.signature} due to: {str(e)}, graph call stack:\n{path}"
         ) from e
+
+
+def _adjust_active_inputs(signature: WiringNodeSignature, active_inputs: tuple[str, ...], passive_inputs: set[str]) -> WiringNodeSignature:
+    if active_inputs is None:
+        active_inputs = tuple(signature.time_series_inputs.keys())
+    active_inputs = tuple(k for k in active_inputs if k not in passive_inputs)
+    if not active_inputs:
+        raise CustomMessageWiringError("There are not active inputs remaining")
+    return active_inputs
 
 
 def create_input_output_builders(
