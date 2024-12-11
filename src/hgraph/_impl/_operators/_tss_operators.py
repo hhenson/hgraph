@@ -1,18 +1,21 @@
+from collections import defaultdict
+from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type
 
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._operators import contains_, is_empty, len_, bit_or, sub_, bit_and, bit_xor, eq_, and_, or_, min_, max_, \
-    sum_, zero, std, var, str_, not_, mean
+    sum_, zero, std, var, str_, not_, mean, union
 from hgraph._types._ref_type import REF
-from hgraph._types._scalar_types import STATE, KEYABLE_SCALAR
+from hgraph._types._scalar_types import STATE, KEYABLE_SCALAR, CompoundScalar
 from hgraph._types._ts_type import TS
 from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._types._tss_type import TSS
+from hgraph._types._tss_type import TSS, TSS_OUT
+from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._wiring._decorators import compute_node, graph
 
-__all__ = ()
+__all__ = ("overlap_multiple_tss",)
 
 
 @compute_node(overloads=contains_)
@@ -208,3 +211,56 @@ def std_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
 @compute_node(overloads=str_)
 def str_tss(tss: TSS[KEYABLE_SCALAR]) -> TS[str]:
     return str(set(tss.value))
+
+
+@compute_node(valid=tuple(), overloads=union)
+def union_multiple_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
+    tss: TSS[KEYABLE_SCALAR, SIZE]
+    to_add: set[KEYABLE_SCALAR] = set()
+    to_remove: set[KEYABLE_SCALAR] = set()
+    for tss in tsl.modified_values():
+        to_add |= tss.added()
+        to_remove |= tss.removed()
+    if disputed := to_add.intersection(to_remove):
+        # These items are marked for addition and removal, so at least some set is hoping to add these items.
+        # Thus, overall these are an add, unless they are already added.
+        new_items = disputed.intersection(_output.value)
+        to_remove -= new_items
+    to_remove &= _output.value  # Only remove items that are already in the output.
+    if to_remove:
+        # Now we need to make sure there are no items that may be duplicated in other inputs.
+        for tss in tsl.valid_values():
+            to_remove -= to_remove.intersection(tss.value)  # Remove items that exist in an input
+            if not to_remove:
+                break
+    return PythonSetDelta(to_add, to_remove)
+
+
+@dataclass
+class OverlapState(CompoundScalar):
+    seen_items: dict = field(default_factory=lambda: defaultdict(int))
+
+
+@compute_node
+def overlap_multiple_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None) -> TSS[KEYABLE_SCALAR]:
+    """
+    Returns the set of items that are in more than one of the inputs.
+    """
+    tss: TSS[KEYABLE_SCALAR, SIZE]
+    items: dict = _state.seen_items
+
+    modified: set[KEYABLE_SCALAR] = set()
+    for tss in tsl.modified_values():
+        for k in tss.added():
+            items[k] += 1
+            if items[k] == 2:
+                modified.add(k)
+
+        for k in tss.removed():
+            items[k] -= 1
+            match items[k]:
+                case 1: modified.add(k)
+                case 0: items.pop(k)
+                case _: pass
+
+    return PythonSetDelta({k for k in modified if items[k] > 1}, {k for k in modified if items[k] <= 1})

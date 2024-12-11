@@ -45,7 +45,7 @@ from hgraph import (
     service_impl,
     MIN_TD,
     register_service,
-    map_,
+    map_, merge_tsd_disjoint,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -239,8 +239,20 @@ def test_merge_tsd():
 
     assert eval_node(
         g,
+        tsd1=[{1: 1, 2: 2}, None, {1: REMOVE}, {}],
+        tsd2=[{1: 5, 3: 6}, {3: 8, 2: 4}, {}, {1: REMOVE}],
+    ) == [fd({1: 1, 2: 2, 3: 6}), fd({2: 4, 3: 8}), fd({1: 5}), fd({1: REMOVE})]
+
+
+def test_merge_tsd_disjoint():
+    @graph
+    def g(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return merge_tsd_disjoint(tsd1, tsd2)
+
+    assert eval_node(
+        g,
         tsd1=[{1: 1, 2: 2}, {2: 4}, {1: REMOVE}, {}],
-        tsd2=[{1: 5, 3: 6}, {3: 8}, {}, {1: REMOVE}],
+        tsd2=[{1: 5, 3: 6}, {1: 5, 3: 8}, {}, {1: REMOVE}],
     ) == [fd({1: 1, 2: 2, 3: 6}), fd({2: 4, 3: 8}), fd({1: 5}), fd({1: REMOVE})]
 
 

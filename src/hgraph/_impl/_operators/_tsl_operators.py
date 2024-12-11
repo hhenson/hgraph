@@ -2,7 +2,6 @@ from statistics import stdev, variance
 from typing import Type
 
 from hgraph._impl._types._ref import PythonTimeSeriesReference
-from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._operators import (
     sub_,
     getitem_,
@@ -31,17 +30,15 @@ from hgraph._operators import (
     pos_,
     invert_,
     abs_,
-    union,
     mul_,
     mod_,
     all_,
 )
 from hgraph._types._ref_type import REF
-from hgraph._types._scalar_types import NUMBER, KEYABLE_SCALAR, SIZE_1
+from hgraph._types._scalar_types import NUMBER, SIZE_1
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
 from hgraph._types._tsl_type import TSL, SIZE
-from hgraph._types._tss_type import TSS, TSS_OUT
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._reduce import reduce
@@ -302,29 +299,6 @@ def max_tsl_multi(*tsl: TSL[TSL[TIME_SERIES_TYPE, SIZE], SIZE_1]) -> TSL[TIME_SE
 @compute_node(overloads=str_)
 def str_(ts: TSL[TIME_SERIES_TYPE, SIZE], tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TS[str]:
     return str(ts.value)
-
-
-@compute_node(valid=tuple(), overloads=union)
-def union_tsl_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
-    tss: TSS[KEYABLE_SCALAR, SIZE]
-    to_add: set[KEYABLE_SCALAR] = set()
-    to_remove: set[KEYABLE_SCALAR] = set()
-    for tss in tsl.modified_values():
-        to_add |= tss.added()
-        to_remove |= tss.removed()
-    if disputed := to_add.intersection(to_remove):
-        # These items are marked for addition and removal, so at least some set is hoping to add these items.
-        # Thus, overall these are an add, unless they are already added.
-        new_items = disputed.intersection(_output.value)
-        to_remove -= new_items
-    to_remove &= _output.value  # Only remove items that are already in the output.
-    if to_remove:
-        # Now we need to make sure there are no items that may be duplicated in other inputs.
-        for tss in tsl.valid_values():
-            to_remove -= to_remove.intersection(tss.value)  # Remove items that exist in an input
-            if not to_remove:
-                break
-    return PythonSetDelta(to_add, to_remove)
 
 
 @graph(overloads=mean)

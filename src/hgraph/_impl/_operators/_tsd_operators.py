@@ -52,7 +52,7 @@ from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._map import map_
 from hgraph._wiring._reduce import reduce
 
-__all__ = tuple()
+__all__ = ("merge_tsd_disjoint",)
 
 
 @dataclass
@@ -482,16 +482,6 @@ def flip_keys_tsd(
     return out
 
 
-@graph
-def _re_index(
-    key: TS[K],
-    tsl: REF[TSL[TSD[K, TIME_SERIES_TYPE], SIZE]],
-    _sz: type[SIZE] = AUTO_RESOLVE,
-    _v_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-) -> TSL[TIME_SERIES_TYPE, SIZE]:
-    return TSL[_v_tp, _sz].from_ts(*[tsl[i][key] for i in range(_sz.SIZE)])
-
-
 @graph(overloads=merge)
 def merge_tsd(
     *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
@@ -503,6 +493,40 @@ def merge_tsd(
     Merge TSD elements together
     """
     return map_(merge, *tsl)
+
+
+@compute_node
+def merge_tsd_disjoint(
+    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE], _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None
+) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    """
+    Merge TSD of references assuming there is no overlap in key sets, otherwise only the leftmost values will be forwarded
+    """
+    out = {}
+    modified = set()
+    removed = set()
+
+    for v in reversed(list(tsl.modified_values())):
+        modified.update(v.modified_keys())
+        removed.update(v.removed_keys())
+
+    for k in removed:
+        for v in tsl.values():
+            if k in v:
+                out[k] = v[k].value
+                break
+        else:
+            out[k] = REMOVE_IF_EXISTS
+
+    for k in modified - removed:
+        for v in tsl.values():
+            if k in v:
+                out[k] = v[k].value
+                break
+        if k in _output and _output[k].value == out[k]:
+            del out[k]
+
+    return out
 
 
 @compute_node(overloads=partition)
