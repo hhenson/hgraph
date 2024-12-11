@@ -2,11 +2,13 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+import operator
 import os
 import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime
+from functools import reduce
 from glob import glob
 from pathlib import Path
 from threading import Thread
@@ -14,9 +16,19 @@ from typing import Dict, Optional, Callable, List, Awaitable
 
 import pyarrow
 import tornado
-from perspective import PerspectiveManager, PerspectiveTornadoHandler, Table, View
+import perspective
 
-from hgraph import sink_node, GlobalState, TS
+if perspective.__version__ == "2.10.1":
+    from perspective import PerspectiveManager, Table, View
+    from perspective import PerspectiveTornadoHandler
+    table = Table
+    psp_new_api = False
+else:
+    from perspective import Server, table, Table, View
+    from perspective.handlers.tornado import PerspectiveTornadoHandler
+    psp_new_api = True
+
+from hgraph import sink_node, GlobalState, TS, STATE
 
 __all__ = ["perspective_web", "PerspectiveTablesManager"]
 
@@ -43,7 +55,7 @@ class PerspectiveTableUpdatesHandler:
     def table(self, value):
         self._table = value
         self._view = value.view()
-        self._updates_table = Table(value.view().to_arrow())
+        self._updates_table = table(value.view().to_arrow())
         self._view.on_update(self.on_update, mode="row")
         # self._view.on_remove(self.on_remove)
 
@@ -74,7 +86,14 @@ class PerspectiveTablesManager:
         self._tables = {}
         self._updaters = defaultdict(set)
 
-        self._index_table = Table({
+        if psp_new_api:
+            self._server = perspective.GLOBAL_SERVER
+            self._client = perspective.GLOBAL_CLIENT
+            n = {"name": "index"}
+        else:
+            n = {}
+
+        self._index_table = table({
             "name": str,
             "type": str,  # 'table', 'client_table', 'view', 'join'
             "editable": bool,
@@ -82,13 +101,16 @@ class PerspectiveTablesManager:
             "schema": str,
             "index": str,
             "description": str,
-        }, index="name")
+        }, index="name", **n)
 
         self._tables["index"] = [self._index_table, False]
 
         if table_config_file:
             with open(self._table_config_file, "r") as f:
                 json.load(f)  # check if it is valid json
+
+    def is_new_api(self):
+        return psp_new_api
 
     @classmethod
     def set_current(cls, self):
@@ -108,6 +130,11 @@ class PerspectiveTablesManager:
     def server_tables(self):
         return self._host_server_tables
 
+    def create_table(self, *args, name, editable=False, user=True, **kwargs):
+        tbl = table(*args, **kwargs, **({"name": name} if psp_new_api else {}))
+        self.add_table(name, tbl, editable=editable, user=user)
+        return tbl
+
     def add_table(self, name, table, editable=False, user=True):
         self._tables[name] = [table, editable]
 
@@ -117,7 +144,8 @@ class PerspectiveTablesManager:
                 "type": "table" if self.server_tables or editable else "client_table",
                 "editable": editable,
                 "url": f"",
-                "schema": json.dumps({k: v.__name__ for k, v in table.schema().items()}),
+                "schema": json.dumps({k: v if type(v) is str else v.__name__
+                                      for k, v in table.schema().items()}),
                 "index": table.get_index(),
                 "description": ""
             }])
@@ -127,7 +155,7 @@ class PerspectiveTablesManager:
 
         if table.get_index() and not self.server_tables:
             # client tables need removes sent separately (because bug in perspective)
-            self.add_table(name + "_removes", Table({"i": table.schema()[table.get_index()]}), user=False)
+            self.create_table({"i": table.schema()[table.get_index()]}, name=name + "_removes", user=False)
 
     def add_join(self, name, schema, index, description):
         self._index_table.update([{
@@ -157,70 +185,85 @@ class PerspectiveTablesManager:
 
     def start(self):
         self._start_manager()
-        self._start_editable_manager()
         self._started = True
 
 
     def _start_manager(self):
-        self._manager = PerspectiveManager(lock=True)
-        for name, (table, editable) in self._tables.items():
-            if editable is False:
-                self._start_table(name)
+        if not psp_new_api:
+            self._manager = PerspectiveManager(lock=True)
+            self._editable_manager = PerspectiveManager(lock=False)
 
-    def _start_editable_manager(self):
-        self._editable_manager = PerspectiveManager(lock=False)
-        for name, (table, editable) in self._tables.items():
-            if editable is True:
-                self._start_table(name)
+        for name in self._tables:
+            self._start_table(name)
+
 
     def _manager_for_table(self, name):
-        _, editable = self._tables[name]
-        return self._manager if not editable else self._editable_manager
+        if psp_new_api:
+            return self._client
+        else:
+            _, editable = self._tables[name]
+            return self._manager if not editable else self._editable_manager
 
     def _start_table(self, name):
-        table, editable = self._tables[name]
-        self._manager_for_table(name).host_table(name, table)
+        if not psp_new_api:
+            table, editable = self._tables[name]
+            self._manager_for_table(name).host_table(name, table)
+
         if name in self._updaters:
             for u in self._updaters[name]:
                 u.table = self._tables[name][0]
+
+    @staticmethod
+    def _table_update(table, update, data):
+        try:
+            table.update(update)
+        except Exception as e:
+            print(f"Error updating table {table} with {data}: {e}")
+            raise
 
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]
 
         if data:
             if isinstance(data, list):
-                d0 = {}
-                d1 = defaultdict(lambda: [None]*len(data))
+                prev = {}
+                batches = []
                 for i, r in enumerate(data):
+                    if r.keys() != prev.keys():
+                        batches.append(defaultdict(lambda: []))
+                        prev = r
                     for k, v in r.items():
-                        if v is not None:
-                            d1[k][i] = v
-                            d0[k] = True
-                data = {k: v for k, v in d1.items() if k in d0}
+                        batches[-1][k].append(v)
 
-            batch = pyarrow.record_batch(data)
-            stream = pyarrow.BufferOutputStream()
+                data = batches
 
-            with pyarrow.ipc.new_stream(stream, batch.schema) as writer:
-                writer.write_batch(batch)
+            if not isinstance(data, list):
+                data = [data]
 
-            arrow = stream.getvalue().to_pybytes()
+            for d in data:
+                batch = pyarrow.record_batch(d)
+                stream = pyarrow.BufferOutputStream()
 
-            def table_update(table, update, data):
-                try:
-                    table.update(update)
-                except Exception as e:
-                    print(f"Error updating table {table} with {data}: {e}")
-                    raise
+                with pyarrow.ipc.new_stream(stream, batch.schema) as writer:
+                    writer.write_batch(batch)
 
-            self._manager_for_table(name).call_loop(lambda: table_update(table, arrow, data))
+                arrow = stream.getvalue().to_pybytes()
+
+                if psp_new_api:
+                    self._callback(lambda: PerspectiveTablesManager._table_update(table, arrow, data))
+                else:
+                    self._manager_for_table(name).call_loop(lambda: PerspectiveTablesManager._table_update(table, arrow, data))
 
         if removals:
             if table.get_index() and not self.server_tables:
                 self.update_table(name + "_removes", {"i": list(removals)},
-                                  removals=data[table.get_index()] if data else [])
+                                  removals=reduce(operator.add, (d[table.get_index()] for d in data)) if data else [])
 
-            self._manager_for_table(name).call_loop(lambda: table.remove(removals))
+            if table.get_index():
+                if psp_new_api:
+                    self._callback(lambda: table.remove(list(removals)))
+                else:
+                    self._manager_for_table(name).call_loop(lambda: table.remove(removals))
 
         # table.update(data)
 
@@ -240,25 +283,42 @@ class PerspectiveTablesManager:
         return {}
 
     def tornado_config(self):
-        return [
-            (
-                r"/websocket_readonly",
-                PerspectiveTornadoHandlerWithLog,
-                {"manager": self._manager, "check_origin": True},
-            ),
-            (
-                r"/websocket_editable",
-                PerspectiveTornadoHandlerWithLog,
-                {"manager": self._editable_manager, "check_origin": True},
-            ),
-        ]
+        if psp_new_api:
+            return [
+                (
+                    r"/websocket",
+                    PerspectiveTornadoHandlerWithLogNewApi,
+                    {"perspective_server": self._server, "manager": self},
+                ),
+            ]
+        else:
+            return [
+                (
+                    r"/websocket_readonly",
+                    PerspectiveTornadoHandlerWithLog,
+                    {"manager": self._manager, "check_origin": True},
+                ),
+                (
+                    r"/websocket_editable",
+                    PerspectiveTornadoHandlerWithLog,
+                    {"manager": self._editable_manager, "check_origin": True},
+                ),
+            ]
 
     def set_loop_callback(self, cb, *args):
-        self._manager.set_loop_callback(cb, *args)
-        self._editable_manager.set_loop_callback(cb, *args)
+        if psp_new_api:
+            self._client.set_loop_callback(cb, *args)
+        else:
+            self._manager.set_loop_callback(cb, *args)
+            self._editable_manager.set_loop_callback(cb, *args)
+
+        self._callback = lambda *margs, **kwargs: cb(*args, *margs, **kwargs)
 
         if self._started:
             self._publish_heartbeat_table()
+
+    def get_loop_callback(self):
+        return self._callback
 
     def is_table_editable(self, name):
         return self._tables[name][1]
@@ -269,8 +329,8 @@ class PerspectiveTablesManager:
             await asyncio.sleep(1)
 
     def _publish_heartbeat_table(self):
-        self.add_table("heartbeat", Table({"name": str, "time": datetime}, index="name"))
-        self._manager.call_loop(self._publish_heartbeat)
+        self.create_table({"name": str, "time": datetime}, index="name", name="heartbeat")
+        self._callback(self._publish_heartbeat)
 
 
 class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
@@ -285,6 +345,37 @@ class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
     def on_close(self) -> None:
         self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
         super().on_close()
+
+
+class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
+    def _log_websocket_event(self, event: str) -> None:
+        logger.info(f"Websocket from {self.request.remote_ip} to {self.request.path} "
+                    f"with id {self.request.headers['Sec-Websocket-Key']}: {event}")
+
+    def initialize(self, perspective_server=None, manager=None):
+        self.server = perspective_server or perspective.GLOBAL_SERVER
+        self.callback = manager.get_loop_callback()
+        self.tornado_loop = TornadoWeb.get_loop()
+
+    def open(self, *args: str, **kwargs: str) -> Optional[Awaitable[None]]:
+        self._log_websocket_event("opened")
+
+        def inner(msg):
+            self.tornado_loop.add_callback(lambda: self.write_message(msg, binary=True))
+
+        self.session = self.server.new_session(inner)
+
+    def on_close(self) -> None:
+        self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
+        self.session.close()
+        del self.session
+
+    def on_message(self, msg: bytes):
+        if not isinstance(msg, bytes):
+            return
+
+        self.callback(self.session.handle_request, msg)
+        self.callback(self.session.poll)
 
 
 @sink_node
@@ -449,6 +540,7 @@ class TablePageHandler(tornado.web.RequestHandler):
             self.render(
                 self.template,
                 table_name=table_name,
+                is_new_api=self.mgr.is_new_api(),
                 table=self.mgr.get_table(table_name),
                 editable=self.mgr.is_table_editable(table_name),
                 host=self.host,
@@ -460,7 +552,7 @@ class TablePageHandler(tornado.web.RequestHandler):
 
 
 class IndexPageHandler(tornado.web.RequestHandler):
-    def initialize(self, mgr: PerspectiveManager, layouts_path: str, index_template: str, host: str, port: int):
+    def initialize(self, mgr: PerspectiveTablesManager, layouts_path: str, index_template: str, host: str, port: int):
         self.index_template = index_template
         self.layouts_path = layouts_path
         self.mgr = mgr

@@ -29,8 +29,9 @@
                 const viewer = document.getElementById("viewer");
                 let ws = "ws"
                 if (location.protocol === 'https:'){ ws = "wss"; }
-                const websocket = perspective.websocket(ws + "://" + location.host + "/websocket{{'_readonly' if not editable else '_editable'}}");
-                const table = websocket.open_table("{{table_name}}");
+                const ws_path = "/websocket{{'' if is_new_api else '_readonly' if not editable else '_editable'}}";
+                const websocket = await perspective.websocket(ws + "://" + location.host + ws_path);
+                const table = await websocket.open_table("{{table_name}}");
                 viewer.load(table);
                 viewer.toggleConfig();
             });

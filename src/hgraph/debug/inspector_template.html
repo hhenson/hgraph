@@ -38,7 +38,7 @@
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
 
-                const tables = connectWorkspaceTables(workspace, {});
+                const tables = connectWorkspaceTables(workspace, {}, "{{'true' if mgr.is_new_api() else 'false'}}");
 
                 const req = await fetch("/layout/{{url}}");
                 const json = await req.json();

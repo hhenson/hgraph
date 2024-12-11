@@ -31,7 +31,7 @@ from hgraph import (
     combine,
     last_modified_time,
     convert,
-    drop, collect, TSS, default,
+    drop, collect, TSS, default, MIN_DT,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
@@ -64,12 +64,16 @@ def refdata():
             "randomness": (random() * 40 + 10) / 100,
             "trend": (random() - 0.5) * 0.5,
         }
-        for _ in range(15)
+        for _ in range(150)
     }
 
 
 class RandomDataState(CompoundScalar):
     value: float = math.nan
+
+
+def round_time_up(t: datetime, to: timedelta):
+    return (1 + (t - MIN_DT) // to) * to + MIN_DT
 
 
 @compute_node(all_valid=("config",))
@@ -89,7 +93,8 @@ def random_values(
     }
 
     state.value = data["value"]
-    sched.schedule(ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)))
+    sched.schedule(round_time_up(
+        ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)))
     return data
 
 
@@ -104,7 +109,8 @@ def random_events(
         "events": floor(randint(0, 100)) if randint(0, 100) > 95 else 0,
     }
 
-    sched.schedule(ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)))
+    sched.schedule(round_time_up(
+        ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)))
     return data
 
 

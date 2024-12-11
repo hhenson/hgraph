@@ -74,7 +74,7 @@
                     });
                 }, 10000);  // not saving anything for a bit
 
-                const tables = connectWorkspaceTables(workspace, table_config);
+                const tables = connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}");
 
                 const req = await fetch("/layout/{{url}}");
                 const json = await req.json();

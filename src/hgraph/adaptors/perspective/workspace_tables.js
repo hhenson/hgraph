@@ -580,13 +580,14 @@ export function getWorkspaceTables() {
     return workspace_tables;
 }
 
-export async function connectWorkspaceTables(workspace, table_config){
-    const worker = perspective.worker();
+export async function connectWorkspaceTables(workspace, table_config, new_api){
+    const is_new_api = new_api === "true";
+    const worker = is_new_api ? await perspective.worker(): perspective.worker();
 
     let ws = "ws"
     if (location.protocol === 'https:'){ ws = "wss"; }
-    const websocket_ro = perspective.websocket(ws + "://" + location.host + "/websocket_readonly");
-    const websocket_rw = perspective.websocket(ws + "://" + location.host + "/websocket_editable");
+    const websocket_ro = await perspective.websocket(ws + "://" + location.host + (is_new_api ? "/websocket" : "/websocket_readonly"));
+    const websocket_rw = is_new_api ? websocket_ro : perspective.websocket(ws + "://" + location.host + "/websocket_editable");
 
     const index = await websocket_ro.open_table("index");
     const table_list = await (await index.view()).to_json();
