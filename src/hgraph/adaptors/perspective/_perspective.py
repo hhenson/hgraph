@@ -90,22 +90,6 @@ class PerspectiveTablesManager:
             with open(self._table_config_file, "r") as f:
                 json.load(f)  # check if it is valid json
 
-        self._index_table = Table({
-            "name": str,
-            "type": str,  # 'table', 'client_table', 'view', 'join'
-            "editable": bool,
-            "url": str,
-            "schema": str,
-            "index": str,
-            "description": str,
-        }, index="name")
-
-        self._tables["index"] = [self._index_table, False]
-
-        if table_config_file:
-            with open(self._table_config_file, "r") as f:
-                json.load(f)  # check if it is valid json
-
     @classmethod
     def set_current(cls, self):
         assert GlobalState.instance().get("perspective_manager") is None
