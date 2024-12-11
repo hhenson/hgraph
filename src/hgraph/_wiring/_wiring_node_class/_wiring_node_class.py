@@ -162,6 +162,12 @@ def extract_kwargs(
             kwargs_[k] = arg
             args_used += 1
 
+    if signature.var_arg:
+        j = 0
+        while f"{signature.var_arg}-{j}" in kwargs:
+            kwargs_[signature.var_arg] = kwargs_.get(signature.var_arg, []) + [kwargs.pop(f"{signature.var_arg}-{j}")]
+            j += 1
+
     if args_used < len(args):
         raise SyntaxError(
             f"[{signature.signature}] Too many positional arguments provided, expected {signature.args}, got {args}"

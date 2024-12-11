@@ -93,7 +93,7 @@ pytest-xdist = "*"
 # Configure pytest
 [tool.pytest.ini_options]
 minversion = "7.4.3"
-addopts = "-n auto -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
+#addopts = "-n auto -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 testpaths = [
     "tests",
 ]

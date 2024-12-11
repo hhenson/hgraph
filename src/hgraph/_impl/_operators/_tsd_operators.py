@@ -492,11 +492,6 @@ def _re_index(
     return TSL[_v_tp, _sz].from_ts(*[tsl[i][key] for i in range(_sz.SIZE)])
 
 
-@graph
-def _merge(tsl: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
-    return merge(*[tsl[i] for i in range(_sz.SIZE)])
-
-
 @graph(overloads=merge)
 def merge_tsd(
     *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
@@ -507,9 +502,7 @@ def merge_tsd(
     """
     Merge TSD elements together
     """
-    keys = union(*[tsd.key_set for tsd in tsl])
-    re_index = map_(_re_index, tsl, __keys__=keys)
-    return map_(_merge, re_index)
+    return map_(merge, *tsl)
 
 
 @compute_node(overloads=partition)

@@ -213,6 +213,16 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
                 self.owning_node.start_inputs.append(self)
             return False
 
+    def un_bind_output(self):
+        was_valid = self.valid
+        self.do_un_bind_output()
+
+        if self.owning_node.is_started and was_valid:
+            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
+            if self.active:
+                # Notify as the state of the node has changed from bound to un_bound
+                self.owning_node.notify(self._sample_time)
+
     def do_un_bind_output(self):
         if self._output is not None:
             super().do_un_bind_output()
