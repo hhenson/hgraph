@@ -72,7 +72,23 @@ class PerspectiveTablesManager:
         self._table_config_file = table_config_file
         self._started = False
         self._tables = {}
-        self._updaters = {}
+        self._updaters = defaultdict(set)
+
+        self._index_table = Table({
+            "name": str,
+            "type": str,  # 'table', 'client_table', 'view', 'join'
+            "editable": bool,
+            "url": str,
+            "schema": str,
+            "index": str,
+            "description": str,
+        }, index="name")
+
+        self._tables["index"] = [self._index_table, False]
+
+        if table_config_file:
+            with open(self._table_config_file, "r") as f:
+                json.load(f)  # check if it is valid json
 
         self._index_table = Table({
             "name": str,
@@ -144,10 +160,16 @@ class PerspectiveTablesManager:
         if (table := self._tables.get(name)) and not table[1]:
             raise ValueError(f"Table '{name}' is not editable")
 
-        updater = self._updaters.setdefault(name, PerspectiveTableUpdatesHandler(self_updates))
+        updater = PerspectiveTableUpdatesHandler(self_updates)
+        self._updaters[name].add(updater)
         updater.queue = cb
         if self._started and table:
             updater.table = table[0]
+
+        return updater
+
+    def unsubscribe_table_updates(self, name, updater):
+        self._updaters[name].remove(updater)
 
     def start(self):
         self._start_manager()
@@ -175,7 +197,8 @@ class PerspectiveTablesManager:
         table, editable = self._tables[name]
         self._manager_for_table(name).host_table(name, table)
         if name in self._updaters:
-            self._updaters[name].table = self._tables[name][0]
+            for u in self._updaters[name]:
+                u.table = self._tables[name][0]
 
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]

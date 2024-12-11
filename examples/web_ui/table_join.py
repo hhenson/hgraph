@@ -32,7 +32,7 @@ from hgraph import (
     combine,
     last_modified_time,
     convert,
-    drop, nothing, default, TSS, collapse_keys, MIN_DT,
+    drop, nothing, default, TSS, collapse_keys, MIN_DT, take,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
@@ -155,10 +155,10 @@ def host_web_server():
     )
     event_updates = feedback(TSB[TableEdits[str, TSB[Events]]])
     debug_print("event updates", event_updates())
-    events = merge(initial_events, event_updates().edits)
+    events = merge(take(initial_events, timedelta(seconds=5)), event_updates().edits)
     # events = event_updates().edits
     events = events[events.key_set - default(event_updates().removes, const(frozenset(), TSS[str]))]
-    event_updates(publish_table_editable("events", events, index_col_name="sensor"))
+    event_updates(publish_table_editable("events", events, index_col_name="sensor", empty_row=True))
 
     other_updates = feedback(TSB[TableEdits[str, TS[str]]])
     debug_print("other updates", other_updates())

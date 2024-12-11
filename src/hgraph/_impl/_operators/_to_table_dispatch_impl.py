@@ -137,6 +137,30 @@ def _(tp: HgREFTypeMetaData) -> PartialSchema:
     )
 
 
+@extract_table_schema.register(HgREFTypeMetaData)
+def _(tp: HgREFTypeMetaData) -> PartialSchema:
+    item_tp = tp.value_tp
+    schema = extract_table_schema(item_tp)
+    return PartialSchema(
+        tp.py_type,
+        keys=schema.keys,
+        types=schema.types,
+        partition_keys=schema.partition_keys,
+        remove_partition_keys=schema.remove_partition_keys,
+        to_table=lambda v, schema=schema: schema.to_table(
+            v.value.output
+            if v.value.output is not None
+            else STATE(**{k: v.output for k, v in zip(schema.keys, v.value.items)})
+        ),
+        to_table_snap=lambda v, schema=schema: schema.to_table_snap(
+            v.value.output
+            if v.value.output is not None
+            else STATE(**{k: v.output for k, v in zip(schema.keys, v.value.items)})
+        ),
+        from_table=lambda iter: next(iter),
+    )
+
+
 @extract_table_schema.register(HgTSBTypeMetaData)
 def _(tp: HgTSBTypeMetaData) -> PartialSchema:
     schema = tp.bundle_schema_tp.meta_data_schema

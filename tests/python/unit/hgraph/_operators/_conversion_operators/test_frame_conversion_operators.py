@@ -71,3 +71,17 @@ def test_combine_frame():
 
     frame = pl.DataFrame({"a": [1], "b": ["1"]})
     assert_frame_equal(eval_node(g, ts1=[(1,)], ts2=[("1",)])[-1], frame)
+
+
+def test_convert_cs_frame():
+    @dataclass
+    class ABStruct(CompoundScalar):
+        a: int
+        b: str
+
+    @graph
+    def g(ts: TS[ABStruct]) -> TS[Frame[ABStruct]]:
+        return convert[TS[Frame[ABStruct]]](ts)
+
+    frame = pl.DataFrame({"a": [1], "b": ["1"]})
+    assert_frame_equal(eval_node(g, ts=ABStruct(1, "1"))[-1], frame)

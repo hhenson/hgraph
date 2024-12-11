@@ -1,6 +1,7 @@
 import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.js";
 
-const DEBUG = false;
+let DEBUG = false;
+let DEBUG_LOCK = false;
 
  class DefaultMap extends Map {
    constructor(defaultFactory, iterable) {
@@ -29,15 +30,15 @@ class AsyncLock {
         this.queue.push([new Promise((resolve) => this_resolve = resolve), this_resolve, action]);
         if (this.queue.length > 1) {
             const prev_promise = this.queue[this.queue.length - 2][0];
-            DEBUG && console.log("Waiting for lock", this.name, this.queue.length, action);
+            DEBUG_LOCK && console.log("Waiting for lock", this.name, this.queue.length, action);
             await prev_promise;
         }
-        DEBUG && console.log("Lock acquired", this.name, this.queue.length, action);
+        DEBUG_LOCK && console.log("Lock acquired", this.name, this.queue.length, action);
     }
 
     exit() {
         const promises = this.queue.shift();
-        DEBUG && console.log("Lock released", this.name, this.queue.length, promises[2]);
+        DEBUG_LOCK && console.log("Lock released", this.name, this.queue.length, promises[2]);
         promises[1]();
     }
 }
@@ -108,7 +109,7 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
                 await client.update(updated.delta);
 
                 // wait for all views that registered for waiting to update
-                DEBUG && console.log("Waiting for", view_waits.length, "views to update", table_name);
+                DEBUG_LOCK && console.log("Waiting for", view_waits.length, "views to update", table_name);
                 await with_timeout(Promise.all(view_waits), 50, "timeout").catch((e) => {});
             } finally {
                 table_lock.exit("update");
@@ -151,7 +152,8 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
 async function connectJoinTable(workspace, table_name, schema, index, description, websocket_ro, worker) {
     const schema_mapping = {
         int: 'integer',
-        str: 'string'
+        str: 'string',
+        bool: 'boolean'
     };
     const adjusted_schema = Object.fromEntries(
         Object.entries(schema).map(([k, v]) => [k, v in schema_mapping ? schema_mapping[v] : v]));
@@ -168,6 +170,7 @@ async function connectJoinTable(workspace, table_name, schema, index, descriptio
     description._total.index = adjusted_index;
     description._total.keys = index.split(',');
     description._total.to_native = new DefaultMap(() => new Map()); // table name -> index map
+    description._total.lock = new AsyncLock(table_name);
 
     for (const k of description._total.keys) {
         console.assert(k in adjusted_schema, k, "must in in the table schema");
@@ -234,7 +237,7 @@ async function connectJoinTable(workspace, table_name, schema, index, descriptio
             }
 
             table_desc.select = new Set([table_desc.index, ...table_desc.keys, ...table_desc.values]);
-            table_desc.columns = Object.fromEntries([...table_desc.select].map(x => [x, x]));
+            table_desc.columns = {...Object.fromEntries([...table_desc.select].map(x => [x, x])), ...table_desc.columns};
 
         } else {
             table_desc.index = native_index;
@@ -267,8 +270,10 @@ async function connectJoinTable(workspace, table_name, schema, index, descriptio
         view.on_update(
             async (updated) => {
                 try {
+                    await description._total.lock.enter("update " + table_name);
                     await join_table_updated(join_table, description, table_name, workspace, worker, updated);
                 } finally {
+                    description._total.lock.exit();
                     if (parent_waits.length > 0){
                         parent_waits.shift()();
                     }
@@ -293,8 +298,10 @@ async function connectJoinTable(workspace, table_name, schema, index, descriptio
                 if (parent_lock)
                     await parent_lock.enter("remove from " + description._total.name);
                 try {
+                    await description._total.lock.enter("remove " + table_name);
                     await join_table_removed(join_table, description, table_name, workspace, worker, updated);
                 } finally {
+                    description._total.lock.exit();
                     if (parent_lock)
                         parent_lock.exit("remove from " + description._total.name);
                 }
@@ -407,7 +414,7 @@ async function join_table_updated(target, join_tables, table_name, workspace, wo
         update_data = await view.to_json();
     }
 
-    DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, update_data);
+    DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, structuredClone(update_data));
 
     const table = join_tables[table_name];
     const index_col_name = table.index;
@@ -422,17 +429,23 @@ async function join_table_updated(target, join_tables, table_name, workspace, wo
         if (table.view && table.view.split_by){
             row = Object.fromEntries(Object.entries(row)
                 .map(([k, v]) => [[k, k.split('|').slice(-1)[0]], v])
-                .map(([k, v]) => [table.keys.includes(k[1]) || k[1] === '__group_by_row__' ? k[1] : k[0].replace('|', '_'), v]));
+                .filter(([k, v]) => v !== null)
+                .map(([k, v]) => [table.keys.includes(k[1]) ? k[1] : k[0].replaceAll('|', '_'), v]));
         }
         if (table.view && table.view.group_by){
             delete row['__ROW_PATH__'];
-            if (row.__group_by_row__ !== 1) continue;
+            if (Object.entries(row).filter(([k, v]) => k.endsWith('__group_by_row__') && v > 1).length !== 0)
+                continue;
         }
 
         row = Object.fromEntries(
             Object.entries(row)
-                .map(([k, v]) => [table.columns[k], v])
-                .filter(([k, v]) => table.select.has(k)));
+                .filter(([k, v]) => table.select.has(k))
+                .map(([k, v]) => [table.columns[k], v]));
+
+        if (index_col_name.includes(',')){
+            row[index_col_name] = index_col_name.split(',').map(k => row[k]).join(',');
+        }
 
         const index = row[index_col_name];
         const exists = table['native'].get(index);
@@ -471,19 +484,21 @@ async function join_table_updated(target, join_tables, table_name, workspace, wo
                     for (row of total_rows) {
                         let matches = join_tables[other_table_name].cross_to_native.get(table_name).get(cross_key);
                         for (const other_index of matches) {
-                            const other_row = {...join_tables[other_table_name]['native'].get(other_index)};
-                            other_row[other_table_name + '_index'] = other_index;
-                            delete other_row['index'];
+                            const other_row = {...join_tables[other_table_name].native.get(other_index)};
+                            if (join_tables[other_table_name].keys.map(k => (other_row[k] === row[k]) || row[k] === undefined).every(x => x)) {
+                                other_row[other_table_name + '_index'] = other_index;
+                                delete other_row['index'];
 
-                            new_total_rows.push({...row, ...other_row});
+                                new_total_rows.push({...row, ...other_row});
 
-                            if (table.mode === 'outer') {
-                                // if this was previously missing so total table might have an entry with null key value, go drop it
-                                if (missed_crosses && missed_crosses.has(cross_key)) {
-                                    for (const total_index of missed_crosses.get(cross_key)) {
-                                        drop_rows_indices.add(total_index);
-                                        for (const n of join_tables[other_table_name].cross_to_native.get(table_name).get(cross_key)){
-                                            join_tables[other_table_name].native_to_total.get(n).delete(total_index);
+                                if (table.mode === 'outer') {
+                                    // if this was previously missing so total table might have an entry with null key value, go drop it
+                                    if (missed_crosses && missed_crosses.has(cross_key)) {
+                                        for (const total_index of missed_crosses.get(cross_key)) {
+                                            drop_rows_indices.add(total_index);
+                                            for (const n of join_tables[other_table_name].cross_to_native.get(table_name).get(cross_key)) {
+                                                join_tables[other_table_name].native_to_total.get(n).delete(total_index);
+                                            }
                                         }
                                     }
                                 }
@@ -500,7 +515,7 @@ async function join_table_updated(target, join_tables, table_name, workspace, wo
             for (const row of total_rows) {
                 row['total_index'] = join_tables['_total'].keys.map(k => k in row ? row[k]: '-').join(',');
             }
-            DEBUG && console.log("Found", total_rows.length, "rows for", table_name, "from", index, total_rows);
+            DEBUG && console.log("Found", total_rows.length, "rows for", table_name, "from", index, structuredClone(total_rows));
             for (const any_table_name in join_tables) {
                 if (any_table_name !== '_total') {
                     const indices = new Set();
@@ -524,11 +539,11 @@ async function join_table_updated(target, join_tables, table_name, workspace, wo
                     new_row_indices.get(any_table_name).push(...Array.from(indices));
                 }
             }
-            DEBUG && console.log("Translated into", new_row_indices, "item indices");
+            DEBUG && console.log("Translated into", structuredClone(new_row_indices), "item indices");
         }
     }
     if (join_data.length > 0) {
-        DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "of", join_data.length, join_data);
+        DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "of", join_data.length, structuredClone(join_data));
         await target.update(join_data);
     }
     if (new_row_indices.size > 0) {
@@ -548,13 +563,13 @@ async function join_table_updated(target, join_tables, table_name, workspace, wo
                         join_data.push(new_row);
                     }
                 }
-                DEBUG && console.log("Joining", join_tables._total.name, "from", any_table_name, join_data.length, "rows", "while processing update to", table_name, "of", update_data.length, join_data);
+                DEBUG && console.log("Joining", join_tables._total.name, "from", any_table_name, join_data.length, "rows", "while processing update to", table_name, "of", update_data.length, structuredClone(join_data));
                 await target.update(join_data);
             }
         }
     }
     if (drop_rows_indices.size > 0) {
-        DEBUG && console.log("Removing from", join_tables._total.name, "on outer join", table_name, "of", drop_rows_indices.size);
+        DEBUG && console.log("Removing from", join_tables._total.name, "on outer join", table_name, "of", drop_rows_indices.size, structuredClone(drop_rows_indices));
         await drop_join_rows(target, drop_rows_indices, join_tables);
     }
 }

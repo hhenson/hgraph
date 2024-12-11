@@ -214,7 +214,30 @@ def test_filter_int():
     def g(condition: TS[bool], ts: TS[int]) -> TS[int]:
         return filter_(condition, ts)
 
-    assert eval_node(g, [True, False, False, True, None], [1, 2, 3, None, 4]) == [1, None, None, 3, 4]
+    assert eval_node(g, [True, False, False, True, True, None], [1, 2, 3, None, None, 4]) == [1, None, None, 3, None, 4]
+
+
+def test_filter_tsd():
+    @graph
+    def g(condition: TS[bool], ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return filter_(condition, ts)
+
+    assert eval_node(g, [True, False, None, True], [{1: 1}, {2: 2, 1: 2}, {1: REMOVE}, {3: 3}, None, {0: 5}]) == [
+        {1: 1},
+        None,
+        None,
+        {3: 3, 2: 2, 1: REMOVE},
+        None,
+        {0: 5},
+    ]
+
+
+def test_filter_tss():
+    @graph
+    def g(condition: TS[bool], ts: TSS[int]) -> TSS[int]:
+        return filter_(condition, ts)
+
+    assert eval_node(g, [True, False, None, True], [{1}, {2, Removed(1)}, None, {3}, {4}]) == [{1}, None, None, {3, 2, Removed(1)}, {4}]
 
 
 def test_filter_tsd():
