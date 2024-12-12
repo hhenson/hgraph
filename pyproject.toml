@@ -43,7 +43,8 @@ packages = [
     multimethod = "*"
     psutil = "*"
     tornado = { version = "*", optional = true }
-    perspective-python = {version = "<3.0.0", optional=true}
+    perspective-python = {version = "<4.0.0", optional=true}
+    pandas = {version="*", optional=true}
     requests = { version = "*", optional = true }
     sphinx = { version = ">=7.4", optional = true }
     sphinx_rtd_theme = { version = ">=2.0.0", optional = true  }
@@ -56,7 +57,8 @@ packages = [
 web = [
     "perspective-python",
     "tornado",
-    "requests"
+    "requests",
+    "pandas"
 ]
 notebook = [
     "matplotlib",
@@ -93,7 +95,7 @@ pytest-xdist = "*"
 # Configure pytest
 [tool.pytest.ini_options]
 minversion = "7.4.3"
-#addopts = "-n auto -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
+addopts = "-n auto -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 testpaths = [
     "tests",
 ]
