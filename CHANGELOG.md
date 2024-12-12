@@ -829,3 +829,8 @@ Version 0.3.38 (11-12-2024)
 ---------------------------
 
 * add passive marker
+
+Version 0.3.39 (12-12-2024)
+---------------------------
+
+* Update the perspective adaptor to support the latest version of the library.
