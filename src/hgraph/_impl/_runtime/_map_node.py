@@ -172,7 +172,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                     node.input.ts.re_parent(tsd)
                     node.input = node.input.copy_with(__init_args__=dict(owning_node=node),
                                                       ts=PythonTimeSeriesReferenceInput())
-                    if not tsd.key_set.__contains__(key):
+                    if not tsd.key_set.valid or not tsd.key_set.__contains__(key):
                         tsd.on_key_removed(key)
 
         if self.output_node_id:

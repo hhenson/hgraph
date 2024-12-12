@@ -42,6 +42,8 @@ from hgraph import (
     throttle,
     window, WindowSize,
     EvaluationClock,
+    EvaluationClock,
+    MIN_DT,
 )
 
 __all__ = ()
@@ -211,8 +213,11 @@ def dedup_float(ts: TS[float], abs_tol: TS[float] = 1e-15, _output: TS[float] = 
 def filter_default(condition: TS[bool], ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     if condition.value:
         if condition.modified:
-            _output.copy_from_input(ts)
-        else:
+            if _output.last_modified_time < ts.last_modified_time:
+                _output.copy_from_input(ts)
+                return None
+
+        if ts.modified:
             return ts.delta_value
 
 
@@ -279,7 +284,7 @@ class CounterState(CompoundScalar):
 
 
 @compute_node(overloads=take)
-def take_default(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
+def take_by_count(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
     if count == 0:
         ts.make_passive
     else:
@@ -287,6 +292,22 @@ def take_default(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterState
         c = state.count
         if c == count:
             ts.make_passive()
+        return ts.delta_value
+
+
+@dataclass
+class TimeState(CompoundScalar):
+    time: datetime = MIN_DT
+
+
+@compute_node(overloads=take)
+def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[TimeState] = None) -> TIME_SERIES_TYPE:
+    if state.time == MIN_DT:  # First tick
+        state.time = ts.last_modified_time
+
+    if ts.last_modified_time - state.time > count:
+        ts.make_passive()
+    else:
         return ts.delta_value
 
 

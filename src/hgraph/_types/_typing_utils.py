@@ -68,13 +68,26 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
                 new_params.append(parameter)
                 new_annotations[n] = parameter.annotation
         if parameter.kind == Parameter.VAR_POSITIONAL:
-            for n, a in args.items():
-                new_params.append(
-                    Parameter(
-                        n, Parameter.POSITIONAL_OR_KEYWORD, annotation=a, default=defaults.get(n, Parameter.empty)
+            if args is None:
+                if n in annotations:
+                    new_params.append(
+                        Parameter(
+                            n, Parameter.VAR_POSITIONAL, annotation=annotations[n], default=defaults.get(n, Parameter.empty)
+                        )
                     )
-                )
-                new_annotations[n] = a
+                    new_annotations[n] = annotations[n]
+                else:
+                    raise ValueError(
+                        f"with_signature was not provided annotaitons for args however there is a *{n} and no entry in annotations"
+                    )
+            else:
+                for n, a in args.items():
+                    new_params.append(
+                        Parameter(
+                            n, Parameter.POSITIONAL_OR_KEYWORD, annotation=a, default=defaults.get(n, Parameter.empty)
+                        )
+                    )
+                    new_annotations[n] = a
             args = None
         if parameter.kind == Parameter.VAR_KEYWORD:
             for n, a in kwargs.items():

@@ -225,6 +225,12 @@ class TimeSeriesOutput(TimeSeries):
         """
 
     @abstractmethod
+    def clear(self):
+        """
+        Clear out the output, this removes all items from collection time series.
+        """
+
+    @abstractmethod
     def invalidate(self):
         """
         Invalidate the output, this removes all values and marks the output as invalid.

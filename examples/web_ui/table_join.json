@@ -9,13 +9,38 @@
       "sensor",
       "type"
     ],
-    "column_editors--": {
+    "column_editors": {
+      "sensor": {
+        "validate": {
+            "required": true,
+            "unique": true,
+            "in_options": true,
+            "min_length": 1
+        },
+        "type": "suggest",
+        "options": {
+          "source": "config",
+          "view": {
+            "filter": [
+              [
+                "sensor",
+                "!=",
+                ""
+              ]
+            ]
+          },
+          "column": "sensor"
+        }
+      },
       "type": {
         "type": "select",
         "options": [
           "pop",
           "push"
-        ]
+        ],
+        "validate": {
+            "required": true
+        }
       }
     }
   },

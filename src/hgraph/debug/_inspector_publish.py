@@ -154,7 +154,7 @@ def publish_tables(state: InspectorState, include_stats=True):
             virt_memory=proc.memory_info().vms / (1024 * 1024),
         )
 
-        state.total_cycle_table.update([readings])
+        state.manager.update_table("graph_performance", [readings])
         logger.info(f"performance: {readings}")
 
         state.total_data_prev = {k: v[-1] for k, v in data.items()}

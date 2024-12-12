@@ -265,6 +265,15 @@ def convert_df_to_frame(
     return df
 
 
+@compute_node(overloads=convert)
+def convert_cs_to_frame(
+        ts: TS[COMPOUND_SCALAR],
+        _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
+        _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    return pl.DataFrame(asdict(ts.value))
+
+
 def _check_schema(scalar, bundle):
     from hgraph import HgSeriesScalarTypeMetaData
     from hgraph import HgTupleCollectionScalarType

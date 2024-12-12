@@ -52,7 +52,7 @@ from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._map import map_
 from hgraph._wiring._reduce import reduce
 
-__all__ = tuple()
+__all__ = ("merge_tsd_disjoint",)
 
 
 @dataclass
@@ -482,21 +482,6 @@ def flip_keys_tsd(
     return out
 
 
-@graph
-def _re_index(
-    key: TS[K],
-    tsl: REF[TSL[TSD[K, TIME_SERIES_TYPE], SIZE]],
-    _sz: type[SIZE] = AUTO_RESOLVE,
-    _v_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-) -> TSL[TIME_SERIES_TYPE, SIZE]:
-    return TSL[_v_tp, _sz].from_ts(*[tsl[i][key] for i in range(_sz.SIZE)])
-
-
-@graph
-def _merge(tsl: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TIME_SERIES_TYPE:
-    return merge(*[tsl[i] for i in range(_sz.SIZE)])
-
-
 @graph(overloads=merge)
 def merge_tsd(
     *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
@@ -507,9 +492,41 @@ def merge_tsd(
     """
     Merge TSD elements together
     """
-    keys = union(*[tsd.key_set for tsd in tsl])
-    re_index = map_(_re_index, tsl, __keys__=keys)
-    return map_(_merge, re_index)
+    return map_(merge, *tsl)
+
+
+@compute_node
+def merge_tsd_disjoint(
+    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE], _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None
+) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    """
+    Merge TSD of references assuming there is no overlap in key sets, otherwise only the leftmost values will be forwarded
+    """
+    out = {}
+    modified = set()
+    removed = set()
+
+    for v in reversed(list(tsl.modified_values())):
+        modified.update(v.modified_keys())
+        removed.update(v.removed_keys())
+
+    for k in removed:
+        for v in tsl.values():
+            if k in v:
+                out[k] = v[k].value
+                break
+        else:
+            out[k] = REMOVE_IF_EXISTS
+
+    for k in modified - removed:
+        for v in tsl.values():
+            if k in v:
+                out[k] = v[k].value
+                break
+        if k in _output and _output[k].value == out[k]:
+            del out[k]
+
+    return out
 
 
 @compute_node(overloads=partition)
@@ -581,16 +598,6 @@ def min_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
 
 @compute_node(overloads=min_)
 def min_tsd_unary_number(tsd: TSD[K, TS[NUMBER]], default_value: TS[NUMBER] = None) -> TS[NUMBER]:
-    return min((v.value for v in tsd.valid_values()), default=default_value.value)
-
-
-@compute_node(overloads=min_)
-def min_tsd_unary_datetime(tsd: TSD[K, TS[datetime]], default_value: TS[datetime] = None) -> TS[datetime]:
-    return min((v.value for v in tsd.valid_values()), default=default_value.value)
-
-
-@compute_node(overloads=min_)
-def min_tsd_unary_date(tsd: TSD[K, TS[date]], default_value: TS[date] = None) -> TS[date]:
     return min((v.value for v in tsd.valid_values()), default=default_value.value)
 
 

@@ -42,7 +42,7 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
 
     _state.manager = PerspectiveTablesManager.current()
 
-    _state.table = Table(
+    _state.table = _state.manager.create_table(
         {
             "X": str,
             "name": str,
@@ -56,26 +56,23 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
             "of_total": float,
             "id": str,
             "ord": str,
-        }, index="id")
+        }, index="id", name="inspector")
 
-    _state.manager.add_table("inspector", _state.table)
-
-    _state.total_cycle_table = Table({
-        "time": datetime,
-        "evaluation_time": datetime,
-        "cycles": float,
-        "avg_cycle": float,
-        "max_cycle": float,
-        "graph_time": float,
-        "graph_load": float,
-        "avg_lag": float,
-        "max_lag": float,
-        "inspection_time": float,
-        "memory": int,
-        "virt_memory": int,
-    }, limit=24*3600)
-
-    _state.manager.add_table("graph_performance", _state.total_cycle_table)
+    _state.total_cycle_table = _state.manager.create_table(
+        {
+            "time": datetime,
+            "evaluation_time": datetime,
+            "cycles": float,
+            "avg_cycle": float,
+            "max_cycle": float,
+            "graph_time": float,
+            "graph_load": float,
+            "avg_lag": float,
+            "max_lag": float,
+            "inspection_time": float,
+            "memory": int,
+            "virt_memory": int,
+        }, limit=24 * 3600, name="graph_performance")
 
     _state.total_data_prev = dict(
         time=datetime.utcnow(),

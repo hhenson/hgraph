@@ -208,28 +208,24 @@ def _publish_table_from_tsd_start(
         if state.multi_row:
             raise ValueError("Empty row is not supported for multi-row tables")
 
-        table = Table({"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}}, index="_id")
-        empty_values = [
-            "-" if i is str else i.py_type()
-            for i in (_key.py_type.__args__ if isinstance(_key, HgTupleFixedScalarType) else [_key])
-        ]
+        table = manager.create_table({"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}},
+                                     index="_id", name=name, editable=editable)
+        empty_values = [i.py_type() for i in (_key.py_type.__args__)] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
         table.update([{"_id": 0, **state.process_key(empty_values)}])
     else:
         state.map_index = False
-        table = Table({**state.key_schema, **{k: v for k, v in state.schema.items()}}, index=state.index)
+        table = manager.create_table({**state.key_schema, **{k: v for k, v in state.schema.items()}},
+                                     index=state.index, name=name, editable=editable)
 
-    manager.add_table(name, table, editable)
     state.data = []
     state.removed = set()
     state.key_tracker = defaultdict(set) if state.multi_row else {}
 
     if history:
-        history_table = Table(
+        history_table = manager.create_table(
             {"time": datetime, **state.key_schema, **{k: v for k, v in state.schema.items()}},
-            limit=min(history, 4294967295),
+            limit=min(history, 4294967295), name=name + "_history"
         )
-
-        manager.add_table(name + "_history", history_table)
 
 
 class TableEdits(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
