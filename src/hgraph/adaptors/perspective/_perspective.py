@@ -228,12 +228,20 @@ class PerspectiveTablesManager:
             if isinstance(data, list):
                 prev = {}
                 batches = []
+                value_count = []
                 for i, r in enumerate(data):
                     if r.keys() != prev.keys():
-                        batches.append(defaultdict(lambda: []))
+                        batches.append({k: [] for k in r.keys()})
+                        value_count.append({k: 0 for k in r.keys()})
                         prev = r
                     for k, v in r.items():
                         batches[-1][k].append(v)
+                        value_count[-1][k] += 0 if v is None else 1
+
+                for b, c in zip(batches, value_count):
+                    for k, cv in c.items():
+                        if cv == 0:
+                            b.pop(k)
 
                 data = batches
 
