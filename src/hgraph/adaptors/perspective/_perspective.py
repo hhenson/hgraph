@@ -226,24 +226,34 @@ class PerspectiveTablesManager:
 
         if data:
             if isinstance(data, list):
-                prev = {}
-                batches = []
-                value_count = []
-                for i, r in enumerate(data):
-                    if r.keys() != prev.keys():
-                        batches.append({k: [] for k in r.keys()})
-                        value_count.append({k: 0 for k in r.keys()})
-                        prev = r
-                    for k, v in r.items():
-                        batches[-1][k].append(v)
-                        value_count[-1][k] += 0 if v is None else 1
+                if self.is_new_api():
+                    prev = {}
+                    batches = []
+                    value_count = []
+                    for i, r in enumerate(data):
+                        if r.keys() != prev.keys():
+                            batches.append({k: [] for k in r.keys()})
+                            value_count.append({k: 0 for k in r.keys()})
+                            prev = r
+                        for k, v in r.items():
+                            batches[-1][k].append(v)
+                            value_count[-1][k] += 0 if v is None else 1
 
-                for b, c in zip(batches, value_count):
-                    for k, cv in c.items():
-                        if cv == 0:
-                            b.pop(k)
+                    for b, c in zip(batches, value_count):
+                        for k, cv in c.items():
+                            if cv == 0:
+                                b.pop(k)
 
-                data = batches
+                    data = batches
+                else:
+                    d0 = {}
+                    d1 = defaultdict(lambda: [None] * len(data))
+                    for i, r in enumerate(data):
+                        for k, v in r.items():
+                            if v is not None:
+                                d1[k][i] = v
+                                d0[k] = True
+                    data = {k: v for k, v in d1.items() if k in d0}
 
             if not isinstance(data, list):
                 data = [data]
