@@ -33,7 +33,7 @@ class EvaluationClock:
     @abstractmethod
     def cycle_time(self) -> timedelta:
         """
-        The amount of time spend in computation since the beginning of the evaluation of the graph till the point
+        The amount of time spent in computation since the beginning of the evaluation of the graph till the point
         where this property is called.
         """
 

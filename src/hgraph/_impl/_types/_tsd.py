@@ -163,7 +163,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             v.invalidate()
         self.mark_invalid()
 
-    def can_apply_result(self, result: Any):
+    def can_apply_result(self, result: Any) -> bool:
         if result is None:
             return True
         if not result:

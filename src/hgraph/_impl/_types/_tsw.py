@@ -98,7 +98,7 @@ class PythonTimeSeriesFixedWindowOutput(
     def invalidate(self):
         self.mark_invalid()
 
-    def can_apply_result(self, result: SCALAR):
+    def can_apply_result(self, result: SCALAR) -> bool:
         return not self.modified
 
     def apply_result(self, result: SCALAR):

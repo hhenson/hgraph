@@ -181,7 +181,7 @@ class TimeSeriesOutput(TimeSeries):
         """
 
     @abstractmethod
-    def can_apply_result(self, result: Any):
+    def can_apply_result(self, result: Any) -> bool:
         """
         Return True if the result can be applies without overwriting any value modified in this engine cycle.
         """
@@ -216,12 +216,6 @@ class TimeSeriesOutput(TimeSeries):
         Copy the value from the input provided to this output.
         This pattern makes it easier to implement generic behaviour relying on the copying of inputs or outputs
         to self, this code will require that the supplied input is of the same/compatible type as this output.
-        """
-
-    @abstractmethod
-    def clear(self):
-        """
-        Clear out the output, this removes all items from collection time series.
         """
 
     @abstractmethod

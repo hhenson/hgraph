@@ -45,7 +45,7 @@ class PythonTimeSeriesListOutput(
     def delta_value(self) -> Optional[dict[int, Any]]:
         return {i: ts.delta_value for i, ts in enumerate(self._ts_values) if ts.modified}
 
-    def can_apply_result(self, result: Any):
+    def can_apply_result(self, result: Any) -> bool:
         if result is None:
             return True
         elif isinstance(result, (dict, frozendict)):

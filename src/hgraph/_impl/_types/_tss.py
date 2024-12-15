@@ -162,7 +162,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             self._is_empty_ref_output.value = True
         self.mark_modified()
 
-    def can_apply_result(self, result: Any):
+    def can_apply_result(self, result: Any) -> bool:
         return not self.modified
 
     def apply_result(self, result: Any):

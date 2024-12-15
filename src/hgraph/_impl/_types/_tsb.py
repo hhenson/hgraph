@@ -64,7 +64,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
     def delta_value(self):
         return {k: ts.delta_value for k, ts in self.items() if ts.modified}
 
-    def can_apply_result(self, result: Mapping[str, Any] | None):
+    def can_apply_result(self, result: Mapping[str, Any] | None) -> bool:
         if result is None:
             return True
         else:
