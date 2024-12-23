@@ -834,3 +834,9 @@ Version 0.3.39 (12-12-2024)
 ---------------------------
 
 * Update the perspective adaptor to support the latest version of the library.
+
+Version 0.3.40 (23-12-2024)
+---------------------------
+
+* clean-up to build script
+* update lock file.
