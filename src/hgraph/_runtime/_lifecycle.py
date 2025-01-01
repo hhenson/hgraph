@@ -21,8 +21,8 @@ class ComponentLifeCycle:
       reverse topological sort order.
 
     NOTE: The start and stop life-cycle methods can be called numerous times during the life-time of the component.
-          The code should ensure that it is able to start again cleanly after stop has be called. Stop is not dispose,
-          full clean-up is called only on dispose.
+          The code should ensure that it is able to start again cleanly after stop has be called. Stop is not ``dispose``,
+          full clean-up is called only on ``dispose``.
     """
 
     def __init__(self):
@@ -33,8 +33,8 @@ class ComponentLifeCycle:
         """
         Called once the component has been constructed and prepared.
         Use this life-cycle call to prepare cached data, etc. This is called once after construction and never again.
-        If this component creates life-cycle managed components then it should delegate this call to them at this point
-        in time, however if the component is provided with life-cycle managed components, then it is NOT the
+        If this component creates life-cycle managed components, then it should delegate this call to them at this point
+        in time. However, if the component is provided with life-cycle managed components, then it is NOT the
         responsibility of this component to send intialise or dispose calls.
         """
 
@@ -72,8 +72,8 @@ class ComponentLifeCycle:
 
     def dispose(self):
         """
-        Use this life-cycle call to clean up any resources held. This is called once only at the end of the components
-        life-cycle and it is expected the component will be released after this call completes. This ensures
+        Use this life-cycle call to clean up any resources held. This is called once only at the end of the components'
+        life-cycle, and it's expected the component will be released after this call completes. This ensures
         That any resources that are referenced are cleaned up in a timely fashion.
         When called in the graph context, the order of initialise and dispose are also ensured.
         It is the responsibility of this component to delegate this call to any life-cycle managed components
