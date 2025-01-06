@@ -3,12 +3,11 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Type, Callable, Generic
 
-from perspective import Table, View
+from perspective import View
 
 from hgraph import (
     TIME_SERIES_TYPE,
     sink_node,
-    graph,
     TSD,
     K,
     AUTO_RESOLVE,
@@ -22,9 +21,7 @@ from hgraph import (
     HgCompoundScalarType,
     HgDataFrameScalarTypeMetaData,
     push_queue,
-    OUT,
-    nothing,
-    SCHEDULER, operator, REMOVE, TimeSeriesSchema, TS, TSB, TSS, Removed,
+    SCHEDULER, operator, TimeSeriesSchema, TSB, TSS, Removed,
 )
 from ._perspective import PerspectiveTablesManager
 
@@ -210,7 +207,7 @@ def _publish_table_from_tsd_start(
 
         table = manager.create_table({"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}},
                                      index="_id", name=name, editable=editable)
-        empty_values = [i.py_type() for i in (_key.py_type.__args__)] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
+        empty_values = [i.py_type() for i in _key.element_types] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
         table.update([{"_id": 0, **state.process_key(empty_values)}])
     else:
         state.map_index = False
