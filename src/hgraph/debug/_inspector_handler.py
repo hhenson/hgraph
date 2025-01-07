@@ -12,6 +12,7 @@ from hgraph import Node, PythonNestedNodeImpl, TimeSeriesInput, PythonTimeSeries
 from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
 from hgraph.debug._inspector_item_id import InspectorItemId, NodeValueType
+from hgraph.debug._inspector_publish import process_graph_stats, process_node_stats, process_item_stats
 from hgraph.debug._inspector_state import InspectorState
 from hgraph.debug._inspector_util import enum_items, format_type, format_value, format_modified, format_name, \
     format_scheduled
@@ -87,7 +88,7 @@ def inspector_expand_item(state: InspectorState, item_id: InspectorItemId):
             type=format_type(v),
             value=format_value(v),
             modified=format_modified(v),
-            scheduled=format_scheduled(v)
+            scheduled=format_scheduled(v),
         ))
 
         subscribe_item(state, i)
@@ -432,13 +433,16 @@ def subscribe_item(state, sub_item_id):
     if sub_item_id.node is None:
         state.graph_subscriptions[sub_item_id.graph] = sub_item_id
         state.observer.subscribe_graph(sub_item_id.graph)
+        process_graph_stats(state, sub_item_id.graph, sub_item_id)
     elif sub_item_id.value_type is None:
         node_id = sub_item_id.graph + (sub_item_id.node,)
         state.node_subscriptions[node_id] = sub_item_id
         state.observer.subscribe_node(node_id)
+        process_node_stats(state, node_id, sub_item_id)
     else:
         node_id = sub_item_id.graph + (sub_item_id.node,)
         state.node_item_subscriptions[node_id].add(sub_item_id)
+        process_item_stats(state, sub_item_id)
         if node_id not in state.node_subscriptions:
             state.node_subscriptions[node_id] = sub_item_id
             state.observer.subscribe_node(node_id)

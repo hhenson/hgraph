@@ -243,6 +243,7 @@ class PythonGraph(Graph):
                             self.receiver.queue.appendleft((i, message))
                             self.engine_evaluation_clock.mark_push_node_requires_scheduling()
                         break
+                self._evaluation_engine.notify_after_push_nodes_evaluation(self)
 
             for i in range(self.push_source_nodes_end, len(nodes)):
                 scheduled_time, node = schedule[i], nodes[i]

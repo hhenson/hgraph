@@ -259,7 +259,12 @@ class PerspectiveTablesManager:
                 data = [data]
 
             for d in data:
-                batch = pyarrow.record_batch(d)
+                try:
+                    batch = pyarrow.record_batch(d)
+                except Exception as e:
+                    logger.error(f"Error creating record batch for {d}: {e}")
+                    continue
+
                 stream = pyarrow.BufferOutputStream()
 
                 with pyarrow.ipc.new_stream(stream, batch.schema) as writer:
