@@ -1,5 +1,4 @@
 import re
-import builtins
 import sys
 from abc import ABCMeta
 from collections import defaultdict
@@ -7,18 +6,15 @@ from types import GenericAlias
 from typing import Union, Sequence, Mapping, Set
 
 import polars as pl
-from duckdb import limit
-
 from frozendict import frozendict
 from multimethod import multimethod
-from pympler.asizeof import Asizer, flatsize, _NoneNone
 
 from hgraph import Node, Graph, PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput, \
     PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput, PythonTimeSeriesReference, \
     TimeSeriesList, TimeSeriesDict, TimeSeriesBundle, TimeSeriesSet, TimeSeriesInput, TimeSeriesOutput, \
     PythonNestedNodeImpl, PythonTsdMapNodeImpl, PythonServiceNodeImpl, PythonReduceNodeImpl, PythonSwitchNodeImpl, \
-    PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl, CompoundScalar, TimeSeriesReferenceInput, \
-    HgTSLTypeMetaData, HgTSDTypeMetaData, HgCompoundScalarType, MIN_DT, HgTypeMetaData, EvaluationEngine, \
+    PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl, CompoundScalar, HgTSLTypeMetaData, \
+    HgTSDTypeMetaData, HgCompoundScalarType, MIN_DT, HgTypeMetaData, EvaluationEngine, \
     EvaluationLifeCycleObserver, TimeSeries, Builder
 from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
 from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
