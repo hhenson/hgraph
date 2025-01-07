@@ -14,7 +14,6 @@ from hgraph._types import (
     HgTSWTypeMetaData,
     HgCompoundScalarType,
     HgTSBTypeMetaData,
-    HgTSSTypeMetaData,
     HgTSDTypeMetaData,
     TSD,
     K,
@@ -22,6 +21,7 @@ from hgraph._types import (
     REMOVE_IF_EXISTS,
     HgREFTypeMetaData,
     STATE,
+    HgDataFrameScalarTypeMetaData,
 )
 
 __all__ = ("PartialSchema", "extract_table_schema", "extract_table_schema_raw_type")
@@ -83,7 +83,7 @@ def _(tp: HgCompoundScalarType) -> PartialSchema:
 @extract_table_schema.register(HgTSTypeMetaData)
 def _(tp: HgTSTypeMetaData) -> PartialSchema:
     item_tp = tp.value_scalar_tp
-    if type(item_tp) is HgCompoundScalarType:
+    if type(item_tp) in (HgCompoundScalarType, HgDataFrameScalarTypeMetaData):
         schema = extract_table_schema(item_tp)
         return PartialSchema(
             tp.py_type,
@@ -112,6 +112,31 @@ def _(tp: HgTSWTypeMetaData) -> PartialSchema:
     schema = extract_table_schema(HgTSTypeMetaData(tp.value_scalar_tp))
     #TODO: ensure the from_table loads historical data
     return schema
+
+
+@extract_table_schema.register(HgREFTypeMetaData)
+def _(tp: HgREFTypeMetaData) -> PartialSchema:
+    item_tp = tp.value_tp
+    schema = extract_table_schema(item_tp)
+    return PartialSchema(
+        tp.py_type,
+        keys=schema.keys,
+        types=schema.types,
+        partition_keys=schema.partition_keys,
+        remove_partition_keys=schema.remove_partition_keys,
+        to_table=lambda v, schema=schema: schema.to_table(
+            v.value.output
+            if v.value.output is not None
+            else STATE(**{k: v.output for k, v in zip(schema.keys, v.value.items)})
+        ),
+        to_table_snap=lambda v, schema=schema: schema.to_table_snap(
+            v.value.output
+            if v.value.output is not None
+            else STATE(**{k: v.output for k, v in zip(schema.keys, v.value.items)})
+        ),
+        from_table=lambda iter: next(iter),
+    )
+
 
 @extract_table_schema.register(HgREFTypeMetaData)
 def _(tp: HgREFTypeMetaData) -> PartialSchema:
@@ -296,3 +321,32 @@ def _tsd_from_table(it, schema: PartialSchema) -> fd:
             else:
                 out[key] = schema.from_table(iter(r[2:]))
     return fd(out)
+
+
+@extract_table_schema.register(HgDataFrameScalarTypeMetaData)
+def _(tp: HgDataFrameScalarTypeMetaData) -> PartialSchema:
+    import polars as pl
+    if type(tp.schema) is HgCompoundScalarType:
+        schema = extract_table_schema(tp.schema)
+        return PartialSchema(
+            tp,
+            keys=schema.keys,
+            types=schema.types,
+            partition_keys=tuple(),
+            remove_partition_keys=tuple(),
+            to_table=lambda v: tuple(schema.to_table(tp.schema.py_type(**i)) for i in v.rows(named=True)),
+            to_table_snap=lambda v: tuple(schema.to_table(tp.schema.py_type(**i)) for i in v.rows(named=True)),
+            from_table=lambda it: pl.DataFrame(tuple(schema.from_table(iter(i)) for i in it))
+        )
+    else:
+        return PartialSchema(
+            tp,
+            keys=tuple(),
+            types=tuple(),
+            partition_keys=tuple(),
+            remove_partition_keys=tuple(),
+            to_table=lambda v: (v.value,) if v.modified else (None,),
+            to_table_snap=lambda v: (v.value,) if v.modified else (None,),
+            from_table=lambda iter: next(iter)
+        )
+

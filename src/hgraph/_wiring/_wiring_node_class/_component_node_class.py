@@ -10,7 +10,8 @@ from hgraph import (
     record,
     replay,
     compare,
-    replay_const, )
+    replay_const,
+)
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import HgTypeMetaData
