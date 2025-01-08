@@ -215,6 +215,19 @@ def test_collapse_keys_tsd():
     ]
 
 
+def test_collapse_more_keys_tsd():
+    @graph
+    def g(ts: TSD[int, TSD[str, TSD[bool, TS[int]]]]) -> TSD[Tuple[int, str, bool], TS[int]]:
+        return collapse_keys(ts)
+
+    fd = frozendict
+    assert eval_node(g, [{1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, {1: {"c": {True: 5}, "a": REMOVE}}, {2: REMOVE}], __trace__=True) == [
+        fd({(1, "a", True): 5, (2, "b", False): 6}),
+        fd({(1, "c", True): 5, (1, "a", True): REMOVE}),
+        fd({(2, "b", False): REMOVE}),
+    ]
+
+
 def test_uncollapse_keys_tsd():
     @graph
     def g(ts: TSD[Tuple[int, str], TS[int]]) -> TSD[int, TSD[str, TS[int]]]:
@@ -222,13 +235,28 @@ def test_uncollapse_keys_tsd():
 
     fd = frozendict
     assert eval_node(
-        g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}], __trace__=True
+        g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}]
     ) == [
         fd(
             {1: fd({"a": 5}), 2: fd({"b": 6})},
         ),
         fd({1: fd({"c": 5, "a": REMOVE})}),
         fd({2: REMOVE}),
+    ]
+
+
+def test_uncollapse_more_keys_tsd():
+    @graph
+    def g(ts: TSD[Tuple[int, str, bool], TS[int]]) -> TSD[int, TSD[str, TSD[bool, TS[int]]]]:
+        return uncollapse_keys(ts)
+
+    fd = frozendict
+    assert eval_node(
+        g, [{(1, "a", True): 5, (2, "b", False): 6}, {(1, "a", False): 5, (1, "a", True): REMOVE}, {(2, "b", False): REMOVE}]
+    ) == [
+        {1: {"a": {True: 5}}, 2: {"b": {False: 6}}},
+        {1: {"a": {True: REMOVE, False: 5}}},
+        {2: REMOVE},
     ]
 
 

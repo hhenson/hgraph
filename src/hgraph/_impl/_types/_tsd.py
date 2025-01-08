@@ -150,6 +150,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
 
     def clear(self):
         self.key_set.clear()
+        for v in self._ts_values.values():
+            v.clear()
         self._removed_items = self._ts_values
         self._ts_values_to_keys.clear()
         self._ref_ts_feature.update_all(self._removed_items.keys())
@@ -392,6 +394,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                 self._modified_items.remove((key, value))
             except:
                 pass
+            if not self.has_peer:
+                value.un_bind_output()
         else:
             self._ts_values[key] = value
             value.un_bind_output()

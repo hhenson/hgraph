@@ -259,7 +259,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
         return PythonSetDelta(self.added(), self.removed())
 
     def values(self) -> Iterable[SCALAR]:
-        return frozenset(self.output.values())
+        return frozenset(self.output.values()) if self.bound else frozenset()
 
     def added(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
@@ -277,7 +277,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def removed(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
-            return self._prev_output.values() - self.values()
+            return (self._prev_output.values() | self._prev_output.removed()) - self.values()
         elif self._sampled:
             return set()
         else:
