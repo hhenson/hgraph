@@ -583,9 +583,9 @@ def merge_tsd(
     return map_(merge, *tsl)
 
 
-@compute_node
+@compute_node(overloads=merge, requires=lambda m, s: s["disjoint"])
 def merge_tsd_disjoint(
-    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE], _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None
+    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE], disjoint: bool = False, _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None
 ) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Merge TSD of references assuming there is no overlap in key sets, otherwise only the leftmost values will be forwarded

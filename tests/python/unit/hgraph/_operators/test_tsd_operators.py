@@ -275,7 +275,7 @@ def test_merge_tsd():
 def test_merge_tsd_disjoint():
     @graph
     def g(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
-        return merge_tsd_disjoint(tsd1, tsd2)
+        return merge(tsd1, tsd2, disjoint=True)
 
     assert eval_node(
         g,
