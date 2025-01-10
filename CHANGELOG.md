@@ -840,3 +840,9 @@ Version 0.3.40 (23-12-2024)
 
 * clean-up to build script
 * update lock file.
+
+Version 0.3.41 (10-01-2025)
+---------------------------
+
+* Add support for the new perspective adaptor.
+* Improve merge support
