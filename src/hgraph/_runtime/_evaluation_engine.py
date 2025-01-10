@@ -87,6 +87,11 @@ class EvaluationLifeCycleObserver:
         Called after a node is evaluated.
         """
 
+    def on_after_graph_push_nodes_evaluation(self, graph: "Graph"):
+        """
+        Called after the graph has evaluated all its push nodes.
+        """
+
     def on_after_graph_evaluation(self, graph: "Graph"):
         """
         Called after the graph is evaluated.
@@ -237,6 +242,9 @@ class EvaluationEngine(EvaluationEngineApi, ABC):
 
     def notify_after_node_evaluation(self, node: "Node"):
         """Notify observers after node evaluation"""
+
+    def notify_after_push_nodes_evaluation(self, graph):
+        """Notify observers after the graph has evaluated all its push nodes"""
 
     def notify_before_start_graph(self, graph: "Graph"):
         """Notify observers that the graph is about to start"""

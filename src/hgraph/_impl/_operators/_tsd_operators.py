@@ -4,7 +4,7 @@ from datetime import datetime, date
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
-from hgraph import union, ts_schema
+from hgraph import union, ts_schema, HgTupleFixedScalarType, HgTSDTypeMetaData
 from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import (
     add_,
@@ -44,10 +44,10 @@ from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT, K_1, V
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
-from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, TSD_OUT
+from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, TSD_OUT, TimeSeriesDict
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS
-from hgraph._types._type_meta_data import AUTO_RESOLVE
+from hgraph._types._type_meta_data import AUTO_RESOLVE, HgTypeMetaData
 from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._map import map_
 from hgraph._wiring._reduce import reduce
@@ -300,8 +300,8 @@ def tsd_get_cs_item(tsd: TSD[K, TS[SCHEMA]], key: str, _schema: Type[SCHEMA] = A
     return out
 
 
-@compute_node(overloads=collapse_keys)
-def collapse_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]:
+@compute_node
+def _collapse_keys_tsd_impl(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]:
     """
     Collapse the nested TSDs to a TSD with a tuple key.
     """
@@ -315,6 +315,40 @@ def collapse_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[
         out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
 
     return out
+
+
+def _key_type_as_tuple(tp):
+    return tp.element_types if isinstance(tp, HgTupleFixedScalarType) else (tp.py_type,)
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: Tuple[*(_key_type_as_tuple(m[K]) + _key_type_as_tuple(m[K_1]))]})
+def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
+    """
+    Collapse the nested TSDs to a TSD with a tuple key, merging keys if they are tuples.
+    """
+    out = {}
+
+    def merge_key(a, b):
+        return ((a,) if not isinstance(a, tuple) else a) + ((b,) if not isinstance(b, tuple) else b)
+
+    for k, v in ts.removed_items():
+        out.update({merge_key(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
+
+    for k, v in ts.modified_items():
+        out.update({merge_key(k, k1): v1.value for k1, v1 in v.modified_items()})
+        out.update({merge_key(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
+
+    return out
+
+
+@graph(overloads=collapse_keys)
+def collapse_keys_tsd(ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], max_depth: int = -1, v_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> OUT:
+    assert max_depth >= 2 or max_depth == -1, "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
+
+    if max_depth == 2 or not isinstance(HgTypeMetaData.parse_type(v_tp), HgTSDTypeMetaData):
+        return _collapse_keys_tsd_impl(ts)
+    else:
+        return _collapse_merge_keys_tsd(map_(lambda x: collapse_keys(x, max_depth - 1 if max_depth > 0 else max_depth), ts))
 
 
 @compute_node(overloads=uncollapse_keys)
@@ -343,6 +377,60 @@ def uncollapse_keys_tsd(
 
     for k in removed:
         out[k] = REMOVE_IF_EXISTS
+
+    return out
+
+
+def _make_recursive_tsd_type(keys, value):
+    return _make_recursive_tsd_type(keys[:-1], TSD[keys[-1], value]) if len(keys) > 1 else TSD[keys[0], value]
+
+
+@compute_node(overloads=uncollapse_keys,
+              requires=lambda m, s: isinstance(m[K], HgTupleFixedScalarType),
+              resolvers={OUT: lambda m, s: _make_recursive_tsd_type(m[K].element_types, REF[m[TIME_SERIES_TYPE].py_type])}
+              )
+def uncollapse_more_keys_tsd(
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], _output: TSD = None) -> OUT:
+    """
+    Un-Collapse the nested TSDs to a TSD with a tuple key of any length.
+    """
+    nested_dict = lambda: defaultdict(nested_dict)
+    out = nested_dict()
+    removed_keys = nested_dict()
+
+    for k in ts.removed_keys():
+        r = removed_keys
+        o = out
+        for i in k[:-1]:
+            r = r[i]
+            o = o[i]
+        r[k[-1]] = True
+        o[k[-1]] = REMOVE_IF_EXISTS
+
+    removed = set()
+    def process_removed(k0, r, o):
+        for k, v in r.items():
+            if isinstance(v, dict):
+                if k in o and set(v.keys()) == o[k].key_set.value:
+                    removed.add(k0 + (k,))
+                else:
+                    process_removed(k0 + (k,), v, o[k])
+
+    process_removed((), removed_keys, _output)
+
+    for k, v in ts.modified_items():
+        o = out
+        for i in range(len(k) - 1):
+            if k[:i] in removed:
+                removed.remove(k[:i])
+            o = o[k[i]]
+        o[k[-1]] = v.value
+
+    for k in removed:
+        o = out
+        for i in range(len(k) - 1):
+            o = o[k[i]]
+        o[k[-1]] = REMOVE_IF_EXISTS
 
     return out
 
@@ -495,9 +583,9 @@ def merge_tsd(
     return map_(merge, *tsl)
 
 
-@compute_node
+@compute_node(overloads=merge, requires=lambda m, s: s["disjoint"])
 def merge_tsd_disjoint(
-    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE], _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None
+    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE], disjoint: bool = False, _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None
 ) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Merge TSD of references assuming there is no overlap in key sets, otherwise only the leftmost values will be forwarded

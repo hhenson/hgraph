@@ -53,3 +53,12 @@ def test_fast_non_peer_tsd():
 
     assert eval_node(g, [{"x": 1, "y": 2}, {}], [{}, {"x": 7, "y": 8}]) == \
            [{'x': {'a': 1}, 'y': {"a": 2}}, {'x': {'b': 7}, 'y': {"b": 8}}]
+
+
+def test_tsd_add_remove_in_same_cycle():
+    @compute_node
+    def add_remove(a: TS[bool], _output: TSD = None) -> TSD[str, TS[int]]:
+        _output.get_or_create("a").value = 1
+        del _output["a"]
+
+    assert eval_node(add_remove, [True]) == [{}]

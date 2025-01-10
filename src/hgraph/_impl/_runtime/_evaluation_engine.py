@@ -103,6 +103,10 @@ class PythonEvaluationEngine(EvaluationEngine):
         for life_cycle_observer in self._life_cycle_observers:
             life_cycle_observer.on_after_node_evaluation(node)
 
+    def notify_after_push_nodes_evaluation(self, graph):
+        for life_cycle_observer in self._life_cycle_observers:
+            life_cycle_observer.on_after_graph_push_nodes_evaluation(graph)
+
     def notify_before_start_graph(self, graph):
         for life_cycle_observer in self._life_cycle_observers:
             life_cycle_observer.on_before_start_graph(graph)

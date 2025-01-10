@@ -47,7 +47,12 @@ def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
 
 
 @operator
-def schedule(delay: timedelta, *, start: datetime = None, initial_delay: bool = True, max_ticks: int = sys.maxsize) -> TS[bool]:
+def schedule(
+        delay: timedelta,
+        *,
+        start: datetime = None,
+        initial_delay: bool = True,
+        max_ticks: int = sys.maxsize) -> TS[bool]:
     """
     Generates regular ticks in the graph that tick at the specified delay. For example,
     ``schedule(timedelta(seconds=3))`` will produce a time series of type TS[bool] that will tick True every three

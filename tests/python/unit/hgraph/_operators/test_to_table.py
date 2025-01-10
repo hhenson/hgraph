@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+import polars as pl
 from frozendict import frozendict as fd
+from polars.testing import assert_frame_equal
 
 from hgraph import (
     graph,
@@ -19,6 +21,9 @@ from hgraph import (
     CompoundScalar,
     TimeSeriesSchema,
     TSB,
+    Frame,
+    TABLE,
+    TableSchema,
 )
 from hgraph.test import eval_node
 
@@ -263,3 +268,51 @@ def test_from_table_tsd_tsd_simple_scalar():
         assert eval_node(
             table_test, [fd({"a": fd({"a1": 1})}), fd({"a": fd({"b": 2})}), fd({"a": REMOVE, "b": fd({"a": 3})})]
         ) == [fd({"a": fd({"a1": 1})}), fd({"a": fd({"b": 2})}), fd({"a": REMOVE, "b": fd({"a": 3})})]
+
+
+def test_to_table_from_table_frame():
+    @dataclass(frozen=True)
+    class MySchema(CompoundScalar):
+        a: int
+        b: int
+
+    @graph
+    def g(ts: TS[Frame[MySchema]]) -> TS[Frame[MySchema]]:
+        return from_table[TS[Frame[MySchema]]](to_table(ts))
+
+    df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    assert_frame_equal(eval_node(g, [df])[-1],df)
+
+
+def test_to_table_frame():
+    @dataclass(frozen=True)
+    class MySchema(CompoundScalar):
+        a: int
+        b: int
+
+    @graph
+    def g(ts: TS[Frame[MySchema]]) -> TS[TABLE]:
+        return to_table(ts)
+
+    with GlobalState() as gs:
+        as_of = MIN_ST + 10 * MIN_TD
+        set_as_of(as_of)
+        df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        assert eval_node(g, [df])[-1] == (MIN_ST, as_of, (1, 4), (2, 5), (3, 6))
+
+
+def test_to_table_schema_frame():
+    @dataclass(frozen=True)
+    class MySchema(CompoundScalar):
+        a: int
+        b: int
+
+    assert table_schema(TS[Frame[MySchema]]).value == TableSchema(
+        tp=TS[Frame[MySchema]],
+        keys=("__date_time__", "__as_of__", "a", "b"),
+        types=(datetime, datetime, int, int),
+        partition_keys=(),
+        removed_keys=(),
+        date_time_key="__date_time__",
+        as_of_key="__as_of__"
+    )

@@ -44,6 +44,8 @@ from hgraph import (
     EvaluationClock,
     EvaluationClock,
     MIN_DT,
+    EvaluationClock,
+    MIN_DT,
 )
 
 __all__ = ()
@@ -292,6 +294,22 @@ def take_by_count(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterStat
         c = state.count
         if c == count:
             ts.make_passive()
+        return ts.delta_value
+
+
+@dataclass
+class TimeState(CompoundScalar):
+    time: datetime = MIN_DT
+
+
+@compute_node(overloads=take)
+def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[TimeState] = None) -> TIME_SERIES_TYPE:
+    if state.time == MIN_DT:  # First tick
+        state.time = ts.last_modified_time
+
+    if ts.last_modified_time - state.time > count:
+        ts.make_passive()
+    else:
         return ts.delta_value
 
 

@@ -261,4 +261,4 @@ def websocket_server_adaptor_impl(path: str, port: int):
         responses[url] = websocket_server_adaptor.wire_impl_inputs_stub(path).response
         websocket_server_adaptor.wire_impl_out_stub(path, requests_by_url[url])
 
-    to_web(merge(*responses.values()), port)
+    to_web(merge(*responses.values(), disjoint=True), port)

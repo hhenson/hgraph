@@ -50,10 +50,20 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
             "value": str,
             "modified": datetime,
             "scheduled": datetime,
+
             "evals": int,
             "time": float,
             "of_graph": float,
             "of_total": float,
+
+            "value_size": int,
+            "size": int,
+            "total_value_size": int,
+            "total_size": int,
+
+            "subgraphs": int,
+            "nodes": int,
+
             "id": str,
             "ord": str,
         }, index="id", name="inspector")
@@ -64,14 +74,17 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
             "evaluation_time": datetime,
             "cycles": float,
             "avg_cycle": float,
+            "avg_os_cycle": float,
             "max_cycle": float,
             "graph_time": float,
+            "os_graph_time": float,
             "graph_load": float,
             "avg_lag": float,
             "max_lag": float,
             "inspection_time": float,
             "memory": int,
             "virt_memory": int,
+            "graph_memory": int,
         }, limit=24 * 3600, name="graph_performance")
 
     _state.total_data_prev = dict(

@@ -98,7 +98,11 @@
 
                         async function targetInfo(target) {
                             const meta = table.getMeta(target);
-                            const stuff = await table._view_cache.view(0, meta.y, {{len(mgr.get_table('inspector').schema())}}, meta.y + 1);
+                            const default_columns = {{len(mgr.get_table('inspector').schema())}};
+                            let stuff = await table._view_cache.view(0, meta.y, default_columns, meta.y + 1);
+                            if (stuff.num_columns !== default_columns){
+                                stuff = await table._view_cache.view(0, meta.y, stuff.num_columns, meta.y + 1);
+                            }
                             const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
                             console.log("event target is: " + meta + " row is: " + row)
                             return [meta, stuff, row]

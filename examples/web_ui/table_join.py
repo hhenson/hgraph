@@ -131,7 +131,7 @@ def host_web_server():
         table_config_file=os.path.join(os.path.dirname(__file__), "table_join.json")))
     perspective_web(gethostname(), 8082, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
 
-    count = 50
+    count = 5
 
     initial_config = const(deepfreeze(refdata(count)), TSD[str, TSB[Config]])
     config_updates = feedback(TSB[TableEdits[str, TSB[Config]]])

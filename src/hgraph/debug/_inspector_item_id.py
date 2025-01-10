@@ -187,7 +187,7 @@ class InspectorItemId:
             return node
 
         if self.value_type == NodeValueType.Inputs:
-            value = node.inputs
+            value = node.input
         elif self.value_type == NodeValueType.Output:
             value = node.output
         elif self.value_type == NodeValueType.Graphs:
