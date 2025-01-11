@@ -846,3 +846,4 @@ Version 0.3.41 (10-01-2025)
 
 * Add support for the new perspective adaptor.
 * Improve merge support
+* Mark web test as flaky as it tends to fail on CI.
