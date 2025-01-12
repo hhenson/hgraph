@@ -46,7 +46,7 @@ def is_empty_tss(ts: REF[TSS[KEYABLE_SCALAR]]) -> REF[TS[bool]]:
     A time-series ticking with the empty state of the TSS
     """
     # NOTE: Since the TSS output is currently a fixed output we don't need to track state.
-    return PythonTimeSeriesReference(ts.value.output.is_empty_output() if ts.value.valid else None)
+    return PythonTimeSeriesReference(ts.value.output.is_empty_output() if not ts.value.is_empty else None)
 
 
 @graph(overloads=not_)

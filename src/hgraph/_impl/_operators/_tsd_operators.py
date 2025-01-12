@@ -80,7 +80,7 @@ def tsd_get_item_default(
         if _state.tsd is not None:
             _ref.make_passive()
             _state.tsd.release_ref(_state.key, _state.reference)
-        if ts.valid and ts.value.valid:
+        if ts.valid and not ts.value.is_empty:
             _state.tsd = ts.value.output
             _state.key = key.value
         else:
@@ -94,12 +94,12 @@ def tsd_get_item_default(
     # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
     # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
     # and the below 'if' deals with that by subscribing to the inner reference too
-    if _ref.modified and _ref.value.has_peer and isinstance(_ref.value.output, TimeSeriesReferenceOutput):
+    if _ref.modified and _ref.value.has_output and isinstance(_ref.value.output, TimeSeriesReferenceOutput):
         _ref_ref.bind_output(_ref.value.output)
         _ref_ref.make_active()
 
     result = _ref_ref.value if _ref_ref.bound else _ref.value
-    if result is None or not ts.value.valid:
+    if result is None or ts.value.is_empty:
         # We can't have a valid ref if the ts value is not valid.
         result = PythonTimeSeriesReference()
     return result
@@ -126,7 +126,7 @@ def tsd_get_items(
                 _ref_ref.on_key_removed(k)
                 _state.tsd.release_ref(k, _state.reference)
 
-        if ts.valid and ts.value.valid:
+        if ts.valid and not ts.value.is_empty:
             _state.tsd = ts.value.output
             _state.key = (key.value - key.added()) if key.valid else set()
         else:
@@ -163,11 +163,11 @@ def tsd_get_items(
     for k, v in _ref.modified_items():
         if k in _state.tsd.key_set.removed():
             out[k] = REMOVE_IF_EXISTS
-        elif v.value.has_peer and isinstance(v.value.output, TimeSeriesReferenceOutput):
+        elif v.value.has_output and isinstance(v.value.output, TimeSeriesReferenceOutput):
             _ref_ref._create(k)
             _ref_ref[k].bind_output(v.value.output)
             _ref_ref[k].make_active()
-        elif v.value.valid or k in _state.tsd.key_set:
+        elif not v.value.is_empty or k in _state.tsd.key_set:
             out[k] = v.value
 
     for k, v in _ref_ref.modified_items():
@@ -184,7 +184,7 @@ def tsd_get_items(
 def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
     # Use tsd as a reference to avoid the cost of the input wrapper
     # If we got here the TSD got rebound so get the key set and return
-    if tsd.value.valid:
+    if not tsd.value.is_empty:
         return cast(REF, PythonTimeSeriesReference(tsd.value.output.key_set))
     else:
         return cast(REF, PythonTimeSeriesReference())
@@ -267,8 +267,8 @@ def tsd_get_bundle_item(
     """
     out = {}
     for k, v in tsd.modified_items():
-        if v.value.valid:
-            if v.value.has_peer:
+        if not v.value.is_empty:
+            if v.value.has_output:
                 out[k] = PythonTimeSeriesReference(v.value.output[key])
             else:
                 out[k] = v.value.items[_schema._schema_index_of(key)]

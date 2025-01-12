@@ -128,8 +128,8 @@ def format_value_python_time_series_reference_output(value: Union[PythonTimeSeri
 
 @format_value.register
 def format_value_python_time_series_reference(value: PythonTimeSeriesReference):
-    if value.valid:
-        if not value.has_peer and value.items:
+    if value.is_empty:
+        if not value.has_output and value.items:
             return f"{len(value.items)} items"
         else:
             return str(value)

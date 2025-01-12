@@ -180,7 +180,8 @@ def _ref_valid(value):
     if (output := value.output) is not None:
         return output.valid
     elif (items := getattr(value, "items", None)) is not None:
-        return any(i.valid for i in items if i is not None)
+        # TODO: This looks wrong, should we not be checking if the items are valid?
+        return any(not i.is_empty for i in items if i is not None)
     else:
         return False
 

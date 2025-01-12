@@ -1,7 +1,10 @@
 from abc import abstractmethod, ABC
-from typing import Generic, Optional
+from typing import Generic, Optional, Iterable, TYPE_CHECKING
 
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput, TimeSeriesDeltaValue, TIME_SERIES_TYPE
+
+if TYPE_CHECKING:
+    ...
 
 __all__ = ("REF", "REF_OUT", "TimeSeriesReference", "TimeSeriesReferenceOutput", "TimeSeriesReferenceInput")
 
@@ -11,11 +14,7 @@ class TimeSeriesReference:
     Contains a reference to a time-series output. This is the holder type used to tick references to outputs through the
     graph using the ``REF`` type.
     """
-
-    @abstractmethod
-    def __init__(self, input_: TimeSeriesInput = None):
-        """Creates an instance of Reference form an input object, captures both peer and non-peer bindings"""
-        pass
+    _BUILDER = None
 
     @abstractmethod
     def bind_input(self, input_: TimeSeriesInput):
@@ -23,8 +22,33 @@ class TimeSeriesReference:
 
     @property
     @abstractmethod
-    def output(self) -> TimeSeriesOutput:
-        """The output associated to this reference"""
+    def is_valid(self) -> bool:
+        """Indicates if the reference is valid, this is confirmed against the output or the list of items, Flase otherwise"""
+
+    # @property
+    # @abstractmethod
+    # def has_output(self) -> bool:
+    #     """Indicates if the reference has an output"""
+    #
+    # @property
+    # @abstractmethod
+    # def is_empty(self) -> bool:
+    #     """Indicates if the reference is empty"""
+
+    @staticmethod
+    def make(
+        ts: Optional[TimeSeriesInput | TimeSeriesOutput] = None,
+        from_items: Iterable["TimeSeriesReference"] = None,
+    ):
+        from hgraph._impl._types._ref import PythonTimeSeriesReference
+        return PythonTimeSeriesReference(ts=ts, from_items=from_items)
+        # if TimeSeriesReference._BUILDER is None:
+        #     from hgraph._impl._types._ref import python_time_series_reference_builder
+        #     TimeSeriesReference._BUILDER = python_time_series_reference_builder
+        # else:
+        #     return TimeSeriesReference._BUILDER(ts=ts, from_items=from_items)
+
+
 
 
 class TimeSeriesReferenceOutput(

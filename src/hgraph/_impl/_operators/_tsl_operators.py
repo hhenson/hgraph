@@ -77,8 +77,8 @@ def getitem_tsl_ts(
     if key.value < 0 or key.value >= _sz.SIZE:
         return PythonTimeSeriesReference()
 
-    if ts.value.valid:
-        if ts.value.has_peer:
+    if not ts.value.is_empty:
+        if ts.value.has_output:
             return PythonTimeSeriesReference(ts.value.output[key.value])
         else:
             return ts.value.items[key.value]

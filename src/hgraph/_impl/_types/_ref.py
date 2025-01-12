@@ -25,13 +25,13 @@ class PythonTimeSeriesReference(TimeSeriesReference):
         if from_items is not None:  # Put this first to make it clearer that
             self.items = from_items
             self.tp = None
-            self.has_peer = False
-            self.valid = True
+            self.has_output = False
+            self.is_empty = False
             return
 
         if ts is None:  # We have already validated that from_items is None, so now if ts is None as well, ...
-            self.valid = False
-            self.has_peer = False
+            self.is_empty = True
+            self.has_output = False
             return
 
         if isinstance(ts, TimeSeriesOutput):  # constructing from sn output
@@ -46,7 +46,7 @@ class PythonTimeSeriesReference(TimeSeriesReference):
                 self._output = ref.output
             else:
                 self.items = ref.items
-            self.has_peer = ref.has_peer
+            self.has_output = ref.has_peer
             tp = ref.tp
         elif has_peer := ts.has_peer:  # any input with a peer, construct from its output
             self._output = ts.output
@@ -58,16 +58,16 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             tp = type(ts)
             has_peer = False
 
-        self.has_peer = has_peer
+        self.has_output = has_peer
         self.tp = tp
-        self.valid = True
+        self.is_empty = False
 
     @property
     def output(self) -> TimeSeriesOutput:
         return self._output
 
     def bind_input(self, ts_input: TimeSeriesInput):
-        if not self.valid:
+        if self.is_empty:
             ts_input.un_bind_output()
             return
 
@@ -76,11 +76,11 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             raise TypeError(f"Cannot bind reference of type {self.tp} to {type(ts_input)}")
 
         reactivate = False
-        if ts_input.bound and self.has_peer != ts_input.has_peer:
+        if ts_input.bound and self.has_output != ts_input.has_peer:
             reactivate = ts_input.active
             ts_input.un_bind_output()
 
-        if self.has_peer:
+        if self.has_output:
             ts_input.bind_output(self.output)
         else:
             for item, r in zip(ts_input, self.items):
@@ -95,12 +95,12 @@ class PythonTimeSeriesReference(TimeSeriesReference):
     def __eq__(self, other):
         if not isinstance(other, PythonTimeSeriesReference):
             return False
-        if self.valid != other.valid:
+        if self.is_empty != other.is_empty:
             return False
-        if self.valid:
-            if self.has_peer != other.has_peer:
+        if not self.is_empty:
+            if self.has_output != other.has_output:
                 return False
-            if self.has_peer:
+            if self.has_output:
                 return self.output == other.output
             return self.items == other.items
         return True
@@ -111,7 +111,7 @@ class PythonTimeSeriesReference(TimeSeriesReference):
                 f"REF[{self.output.owning_node.signature.name}"
                 f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]"
             )
-        elif self.valid and not self.has_peer and self.items:
+        elif not self.is_empty and not self.has_output and self.items:
             return f"REF[{', '.join(str(i) for i in self.items)}]"
         else:
             return "REF[<UnSet>]"

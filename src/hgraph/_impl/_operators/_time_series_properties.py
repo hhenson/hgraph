@@ -25,7 +25,7 @@ def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> 
             ts_value.make_passive()
             ts_value.un_bind_output()
 
-    if not ts.value.valid:
+    if ts.value.is_empty:
         return False
 
     if not ts_value.bound:

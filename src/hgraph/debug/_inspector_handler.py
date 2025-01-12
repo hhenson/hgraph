@@ -203,7 +203,7 @@ def inspector_follow_ref(state, item_id):
         else:
             raise ValueError(f"TimeSeriesReference {item_id} references no output")
     elif isinstance(value, PythonTimeSeriesReference):
-        if value.valid and value.output:
+        if value.is_empty and value.output:
             item_id = InspectorItemId.from_object(value.output)
         else:
             raise ValueError(f"TimeSeriesReference {item_id} references no output")

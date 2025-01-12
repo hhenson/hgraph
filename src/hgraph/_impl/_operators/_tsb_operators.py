@@ -263,8 +263,8 @@ def tsb_get_item_by_name(
     """
     Return a reference to an item in the TSB referenced, by its name
     """
-    if tsb.value.valid:
-        if tsb.value.has_peer:
+    if not tsb.value.is_empty:
+        if tsb.value.has_output:
             return PythonTimeSeriesReference(tsb.value.output[key])
         else:
             item = tsb.value.items[_schema._schema_index_of(key)]
@@ -282,8 +282,8 @@ def tsb_get_item_by_index(
     """
     Return a reference to an item in the TSB referenced, by its name
     """
-    if tsb.value.valid:
-        if tsb.value.has_peer:
+    if not tsb.value.is_empty:
+        if tsb.value.has_output:
             return PythonTimeSeriesReference(tsb.value.output[key])
         else:
             return PythonTimeSeriesReference(tsb.value[key])
