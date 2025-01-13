@@ -1,8 +1,9 @@
 import pytest
 
 from hgraph import graph, TS, all_, any_, TSB, TimeSeriesSchema, Size, TSL, SIZE, merge, REF, const, BoolResult, if_, \
-    route_by_index, race, if_true, if_then_else, nothing, compute_node, TSD, map_, PythonTimeSeriesReference, REMOVE, \
-    combine, switch_, filter_, CmpResult, if_cmp, reduce_tsd_with_race, reduce_tsd_of_bundles_with_race
+    route_by_index, race, if_true, if_then_else, nothing, compute_node, TSD, map_, REMOVE, \
+    combine, switch_, filter_, CmpResult, if_cmp, reduce_tsd_with_race, reduce_tsd_of_bundles_with_race, \
+    TimeSeriesReference
 from hgraph.test import eval_node
 
 
@@ -159,7 +160,7 @@ def test_race_tsbs():
 def test_race_tsd():
     @compute_node
     def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
-        return ref.value if ts.value != 0 else PythonTimeSeriesReference()
+        return ref.value if ts.value != 0 else TimeSeriesReference.make()
 
     @graph
     def g(tsd: TSD[int, TS[int]]) -> REF[TS[int]]:
@@ -176,7 +177,7 @@ def test_race_tsd_of_bundles_all_free_bundles():
 
     @compute_node
     def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
-        return ref.value if ts.value != 0 else PythonTimeSeriesReference()
+        return ref.value if ts.value != 0 else TimeSeriesReference.make()
 
     @graph
     def g(a: TSD[int, TS[int]], b: TSD[int, TS[int]]) -> REF[TSB[S]]:
@@ -202,7 +203,7 @@ def test_race_tsd_of_bundles_switch_bundle_types():
 
     @compute_node
     def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
-        return ref.value if ts.value != 0 else PythonTimeSeriesReference()
+        return ref.value if ts.value != 0 else TimeSeriesReference.make()
 
     @graph
     def make_bundle(ts: TSB[SC]) -> TSB[S]:

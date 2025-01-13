@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
-from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, PythonTimeSeriesReference, MIN_TD
+from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, MIN_TD, TimeSeriesReference
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,
@@ -102,7 +102,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
     def do_start(self):
         super().do_start()
 
-        self.output["ref"].value = PythonTimeSeriesReference(self.output["out"])
+        self.output["ref"].value = TimeSeriesReference.make(self.output["out"])
         GlobalState.instance()[self._full_context_path] = self.output["ref"]
         self._output = self.output["out"]
 

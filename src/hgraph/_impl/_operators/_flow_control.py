@@ -1,13 +1,12 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators._flow_control import all_, any_, merge, index_of, if_cmp
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
 from hgraph._operators._operators import bit_and, bit_or, CmpResult
 from hgraph._runtime._constants import MAX_DT, MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
-from hgraph._types._ref_type import REF, REF_OUT
+from hgraph._types._ref_type import REF, REF_OUT, TimeSeriesReference
 from hgraph._types._scalar_types import CompoundScalar, STATE, SCALAR, SIZE, SIZE_1
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K
 from hgraph._types._ts_type import TS, TS_OUT
@@ -109,7 +108,7 @@ def race_default(
             _state.winner = winner[0]
             for v in _values:  # make all values passive and disconnect now that we have a winner
                 v.make_passive()
-                PythonTimeSeriesReference().bind_input(v)
+                TimeSeriesReference.make().bind_input(v)
             return tsl[_state.winner].value
         else:  # if no winner, track timeseries where we have reference but no value
             for i, r in enumerate(pending_refs):
@@ -156,7 +155,7 @@ def reduce_tsd_with_race(
             _state.winner = winner[0]
             for v in _values.valid_values():  # make all values passive and disconnect now that we have a winner
                 v.make_passive()
-                PythonTimeSeriesReference().bind_input(v)
+                TimeSeriesReference.make().bind_input(v)
             return tsd[_state.winner].value
         else:  # if no winner, track timeseries where we have reference but no value
             for i, r in pending_refs.items():
@@ -224,10 +223,10 @@ def reduce_tsd_of_bundles_with_race(
                     else:
                         _state.first_valid_times.get(n, {}).pop(k, None)
                         _state.first_valid_hashes.get(n, {}).pop(k, None)
-                        pending_items[n][k] = PythonTimeSeriesReference(r)
+                        pending_items[n][k] = TimeSeriesReference.make(r)
                 if k in _values:
                     _values[k].make_passive()
-                    PythonTimeSeriesReference().bind_input(_values[k])
+                    TimeSeriesReference.make().bind_input(_values[k])
             else:
                 for i, n in enumerate(_schema.__meta_data_schema__):
                     if (r := ref.items[i]) and _ref_valid(r):
@@ -267,7 +266,7 @@ def reduce_tsd_of_bundles_with_race(
                 for v in _values.valid_values():  # make all values passive and disconnect now that we have a winner
                     if v[n].bound:
                         v[n].make_passive()
-                        PythonTimeSeriesReference().bind_input(v[n])
+                        TimeSeriesReference.make().bind_input(v[n])
             else:  # if no winner, track timeseries where we have reference but no value
                 new_winners[i] = None
                 for k, r in pending_items.get(n, {}).items():
@@ -294,13 +293,13 @@ def reduce_tsd_of_bundles_with_race(
         if o is not None:
             value = tsd[o].value
             if value.output:
-                ref_items[i] = PythonTimeSeriesReference(value.output[n])
+                ref_items[i] = TimeSeriesReference.make(value.output[n])
             else:
                 ref_items[i] = value.items[i]
         else:
-            ref_items[i] = PythonTimeSeriesReference()
+            ref_items[i] = TimeSeriesReference.make()
 
-    result = PythonTimeSeriesReference(from_items=ref_items)
+    result = TimeSeriesReference.make(from_items=ref_items)
     if _output.valid:
         if _output.value != result:
             return result
@@ -315,9 +314,9 @@ def if_impl(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSB[BoolResult[TI
     the condition is true or false
     """
     if condition.value:
-        return {"true": ts.value if ts.valid else PythonTimeSeriesReference(), "false": PythonTimeSeriesReference()}
+        return {"true": ts.value if ts.valid else TimeSeriesReference.make(), "false": TimeSeriesReference.make()}
     else:
-        return {"false": ts.value if ts.valid else PythonTimeSeriesReference(), "true": PythonTimeSeriesReference()}
+        return {"false": ts.value if ts.valid else TimeSeriesReference.make(), "true": TimeSeriesReference.make()}
 
 
 @compute_node(valid=("index_ts",), overloads=route_by_index)
@@ -327,7 +326,7 @@ def route_by_index_impl(
     """
     Forwards a timeseries value to the 'nth' output according to the value of index_ts
     """
-    out = [PythonTimeSeriesReference()] * _sz.SIZE
+    out = [TimeSeriesReference.make()] * _sz.SIZE
     index_ts = index_ts.value
     if 0 <= index_ts < _sz.SIZE and ts.valid:
         out[index_ts] = ts.value

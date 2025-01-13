@@ -6,12 +6,11 @@ from hgraph import (
     graph,
     compute_node,
     REF,
-    PythonTimeSeriesReference,
     MIN_ST,
     MIN_TD,
     valid,
     last_modified_time,
-    modified,
+    modified, TimeSeriesReference,
 )
 from hgraph.test import eval_node
 
@@ -32,7 +31,7 @@ def test_modified():
 def test_valid_1():
     @compute_node
     def make_ref(a: REF[TS[int]], b: REF[TS[int]], i: TS[int]) -> REF[TS[int]]:
-        return [a.value, b.value, PythonTimeSeriesReference()][i.value]
+        return [a.value, b.value, TimeSeriesReference.make()][i.value]
 
     @graph
     def g(a: TS[int], b: TS[int], i: TS[int]) -> TS[bool]:

@@ -10,12 +10,12 @@ from frozendict import frozendict
 from multimethod import multimethod
 
 from hgraph import Node, Graph, PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput, \
-    PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput, PythonTimeSeriesReference, \
+    PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput, \
     TimeSeriesList, TimeSeriesDict, TimeSeriesBundle, TimeSeriesSet, TimeSeriesInput, TimeSeriesOutput, \
     PythonNestedNodeImpl, PythonTsdMapNodeImpl, PythonServiceNodeImpl, PythonReduceNodeImpl, PythonSwitchNodeImpl, \
     PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl, CompoundScalar, HgTSLTypeMetaData, \
     HgTSDTypeMetaData, HgCompoundScalarType, MIN_DT, HgTypeMetaData, EvaluationEngine, \
-    EvaluationLifeCycleObserver, TimeSeries, Builder
+    EvaluationLifeCycleObserver, TimeSeries, Builder, TimeSeriesReference
 from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
 from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
@@ -127,7 +127,7 @@ def format_value_python_time_series_reference_output(value: Union[PythonTimeSeri
 
 
 @format_value.register
-def format_value_python_time_series_reference(value: PythonTimeSeriesReference):
+def format_value_python_time_series_reference(value: TimeSeriesReference):
     if value.is_empty:
         if not value.has_output and value.items:
             return f"{len(value.items)} items"
@@ -289,7 +289,7 @@ def format_type_python_nested_node_impl(value: PythonNestedNodeImpl):
 
 
 @format_type.register
-def format_type_python_time_series_reference(value: PythonTimeSeriesReference):
+def format_type_python_time_series_reference(value: TimeSeriesReference):
     return "REF"
 
 
@@ -352,7 +352,7 @@ def inspect_item_python_nested_node_impl(value: PythonNestedNodeImpl, key):
 
 
 @inspect_item.register
-def inspect_item_python_time_series_reference(value: PythonTimeSeriesReference, key):
+def inspect_item_python_time_series_reference(value: TimeSeriesReference, key):
     return value.items[key]
 
 
@@ -621,7 +621,7 @@ def estimate_size_python_time_series_reference_output(value: PythonTimeSeriesRef
 
 
 @estimate_size_impl.register
-def estimate_size_python_time_series_reference(value: PythonTimeSeriesReference):
+def estimate_size_python_time_series_reference(value: TimeSeriesReference):
     with SizeOpts(_ignore_out_types):
         return estimate_size_object(value)
 

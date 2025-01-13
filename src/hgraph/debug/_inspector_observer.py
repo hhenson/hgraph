@@ -1,18 +1,9 @@
-import os
-import threading
 import time
 from dataclasses import dataclass
-from typing import Union, Callable
+from typing import Callable
 
-from frozendict import frozendict
-from multimethod import multimethod
-
-from hgraph.debug._inspector_util import str_node_id, estimate_size_impl, estimate_value_size, estimate_size
-
-from hgraph import Graph, PythonTimeSeriesValueOutput, \
-    PythonTimeSeriesListOutput, PythonTimeSeriesSetOutput, PythonTimeSeriesBundleOutput, PythonTimeSeriesDictOutput, \
-    PythonTimeSeriesReferenceOutput, Node, TimeSeriesOutput, PythonTimeSeriesReferenceInput, TimeSeriesList, \
-    TimeSeriesSet, TimeSeriesBundle, TimeSeriesDict, PythonTimeSeriesReference, PythonNestedNodeImpl, NodeTypeEnum
+from hgraph import Graph, Node, NodeTypeEnum
+from hgraph.debug._inspector_util import estimate_value_size, estimate_size
 
 __all__ = ("InspectionObserver",)
 

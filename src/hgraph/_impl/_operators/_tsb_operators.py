@@ -1,6 +1,5 @@
 from typing import Type
 
-from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import sub_, getitem_, min_, max_, sum_, mean, var, str_, std, add_, mul_, div_, floordiv_, pow_, \
     lshift_, rshift_, bit_and, bit_or, bit_xor, ne_, not_, neg_, pos_, invert_, eq_, all_, abs_
 from hgraph._types._ref_type import TimeSeriesReference, REF
@@ -265,12 +264,12 @@ def tsb_get_item_by_name(
     """
     if not tsb.value.is_empty:
         if tsb.value.has_output:
-            return PythonTimeSeriesReference(tsb.value.output[key])
+            return TimeSeriesReference.make(tsb.value.output[key])
         else:
             item = tsb.value.items[_schema._schema_index_of(key)]
-            return item if isinstance(item, TimeSeriesReference) else PythonTimeSeriesReference(item)
+            return item if isinstance(item, TimeSeriesReference) else TimeSeriesReference.make(item)
     else:
-        return PythonTimeSeriesReference()
+        return TimeSeriesReference.make()
 
 
 @compute_node(
@@ -284,11 +283,11 @@ def tsb_get_item_by_index(
     """
     if not tsb.value.is_empty:
         if tsb.value.has_output:
-            return PythonTimeSeriesReference(tsb.value.output[key])
+            return TimeSeriesReference.make(tsb.value.output[key])
         else:
-            return PythonTimeSeriesReference(tsb.value[key])
+            return TimeSeriesReference.make(tsb.value[key])
     else:
-        return PythonTimeSeriesReference()
+        return TimeSeriesReference.make()
 
 
 @compute_node(overloads=str_)

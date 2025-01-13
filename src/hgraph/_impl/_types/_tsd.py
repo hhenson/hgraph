@@ -8,9 +8,8 @@ from frozendict import frozendict
 from hgraph._impl._types._feature_extension import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
-from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._runtime._constants import MIN_DT
-from hgraph._types._ref_type import TimeSeriesReferenceOutput
+from hgraph._types._ref_type import TimeSeriesReferenceOutput, TimeSeriesReference
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import K, V
 from hgraph._types._tsd_type import TimeSeriesDictOutput, TimeSeriesDictInput, REMOVE_IF_EXISTS, REMOVE
@@ -63,7 +62,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._removed_items: dict[K, V] = {}
         self._added_keys: set[str] = set()
         self._ref_ts_feature: FeatureOutputExtension = FeatureOutputExtension(
-            self, self._ts_ref_builder, lambda output, key: PythonTimeSeriesReference(output.get(key))
+            self, self._ts_ref_builder, lambda output, key: TimeSeriesReference.make(output.get(key))
         )
         self._ts_values_to_keys: dict[int, K] = {}
         self._modified_items: list[Tuple[K, V]] = []

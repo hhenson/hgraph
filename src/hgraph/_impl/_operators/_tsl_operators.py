@@ -1,7 +1,6 @@
 from statistics import stdev, variance
 from typing import Type
 
-from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._operators import (
     sub_,
     getitem_,
@@ -34,7 +33,7 @@ from hgraph._operators import (
     mod_,
     all_,
 )
-from hgraph._types._ref_type import REF
+from hgraph._types._ref_type import REF, TimeSeriesReference
 from hgraph._types._scalar_types import NUMBER, SIZE_1
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
@@ -60,11 +59,11 @@ def getitem_tsl_scalar(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TI
     """
     if ts.value.valid:
         if ts.value.has_peer:
-            return PythonTimeSeriesReference(ts.value.output[key])
+            return TimeSeriesReference.make(ts.value.output[key])
         else:
             return ts.value.items[key]
     else:
-        return PythonTimeSeriesReference()
+        return TimeSeriesReference.make()
 
 
 @compute_node(overloads=getitem_)
@@ -75,15 +74,15 @@ def getitem_tsl_ts(
     Return a reference to an item in the TSL referenced
     """
     if key.value < 0 or key.value >= _sz.SIZE:
-        return PythonTimeSeriesReference()
+        return TimeSeriesReference.make()
 
     if not ts.value.is_empty:
         if ts.value.has_output:
-            return PythonTimeSeriesReference(ts.value.output[key.value])
+            return TimeSeriesReference.make(ts.value.output[key.value])
         else:
             return ts.value.items[key.value]
     else:
-        return PythonTimeSeriesReference()
+        return TimeSeriesReference.make()
 
 
 @graph(overloads=sum_)

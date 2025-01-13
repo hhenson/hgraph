@@ -11,10 +11,16 @@ from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
 
 
-__all__ = ("PythonTimeSeriesReference", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
+__all__ = ("python_time_series_reference_builder", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
 
 
-class PythonTimeSeriesReference(TimeSeriesReference):
+def python_time_series_reference_builder(
+        ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
+        from_items: typing.Iterable[TimeSeriesReference] = None) -> TimeSeriesReference:
+    return _PythonTimeSeriesReference(ts, from_items)
+
+
+class _PythonTimeSeriesReference(TimeSeriesReference):
     def __init__(
         self,
         ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
@@ -93,7 +99,7 @@ class PythonTimeSeriesReference(TimeSeriesReference):
             ts_input.make_active()
 
     def __eq__(self, other):
-        if not isinstance(other, PythonTimeSeriesReference):
+        if not isinstance(other, TimeSeriesReference):
             return False
         if self.is_empty != other.is_empty:
             return False
@@ -205,7 +211,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         if isinstance(output, TimeSeriesReferenceOutput):
             return super().do_bind_output(output)
         else:
-            self._value = PythonTimeSeriesReference(output)
+            self._value = TimeSeriesReference.make(output)
             if self.owning_node.is_started:
                 self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
                 self.notify(self._sample_time)
@@ -290,7 +296,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         elif self._value:
             return self._value
         elif self._items:
-            self._value = PythonTimeSeriesReference(from_items=[i.value for i in self._items])
+            self._value = TimeSeriesReference.make(from_items=[i.value for i in self._items])
             return self._value
         else:
             return None

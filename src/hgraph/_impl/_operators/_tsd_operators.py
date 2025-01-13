@@ -4,8 +4,7 @@ from datetime import datetime, date
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
-from hgraph import union, ts_schema, HgTupleFixedScalarType, HgTSDTypeMetaData
-from hgraph._impl._types._ref import PythonTimeSeriesReference
+from hgraph import HgTupleFixedScalarType, HgTSDTypeMetaData
 from hgraph._operators import (
     add_,
     bit_and,
@@ -39,12 +38,12 @@ from hgraph._operators import (
     zero,
 )
 from hgraph._types._frame_scalar_type_meta_data import SCHEMA
-from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput
+from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput, TimeSeriesReference
 from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT, K_1, V
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
-from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, TSD_OUT, TimeSeriesDict
+from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, TSD_OUT
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import AUTO_RESOLVE, HgTypeMetaData
@@ -101,7 +100,7 @@ def tsd_get_item_default(
     result = _ref_ref.value if _ref_ref.bound else _ref.value
     if result is None or ts.value.is_empty:
         # We can't have a valid ref if the ts value is not valid.
-        result = PythonTimeSeriesReference()
+        result = TimeSeriesReference.make()
     return result
 
 
@@ -185,9 +184,9 @@ def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
     # Use tsd as a reference to avoid the cost of the input wrapper
     # If we got here the TSD got rebound so get the key set and return
     if not tsd.value.is_empty:
-        return cast(REF, PythonTimeSeriesReference(tsd.value.output.key_set))
+        return cast(REF, TimeSeriesReference.make(tsd.value.output.key_set))
     else:
-        return cast(REF, PythonTimeSeriesReference())
+        return cast(REF, TimeSeriesReference.make())
 
 
 @compute_node(
@@ -269,11 +268,11 @@ def tsd_get_bundle_item(
     for k, v in tsd.modified_items():
         if not v.value.is_empty:
             if v.value.has_output:
-                out[k] = PythonTimeSeriesReference(v.value.output[key])
+                out[k] = TimeSeriesReference.make(v.value.output[key])
             else:
                 out[k] = v.value.items[_schema._schema_index_of(key)]
         else:
-            out[k] = PythonTimeSeriesReference()
+            out[k] = TimeSeriesReference.make()
 
     for k in tsd.removed_keys():
         out[k] = REMOVE_IF_EXISTS

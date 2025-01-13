@@ -3,11 +3,10 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type
 
-from hgraph._impl._types._ref import PythonTimeSeriesReference
 from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._operators import contains_, is_empty, len_, bit_or, sub_, bit_and, bit_xor, eq_, and_, or_, min_, max_, \
     sum_, zero, std, var, str_, not_, mean, union
-from hgraph._types._ref_type import REF
+from hgraph._types._ref_type import REF, TimeSeriesReference
 from hgraph._types._scalar_types import STATE, KEYABLE_SCALAR, CompoundScalar
 from hgraph._types._ts_type import TS
 from hgraph._types._type_meta_data import AUTO_RESOLVE
@@ -28,7 +27,7 @@ def contains_tss(ts: REF[TSS[KEYABLE_SCALAR]], item: TS[KEYABLE_SCALAR], _state:
         _state.tss.release_contains_output(_state.item, _state.requester)
     _state.tss = ts.value.output
     _state.item = item.value
-    return PythonTimeSeriesReference(
+    return TimeSeriesReference.make(
         None if _state.tss is None else _state.tss.get_contains_output(_state.item, _state.requester)
     )
 
@@ -46,7 +45,7 @@ def is_empty_tss(ts: REF[TSS[KEYABLE_SCALAR]]) -> REF[TS[bool]]:
     A time-series ticking with the empty state of the TSS
     """
     # NOTE: Since the TSS output is currently a fixed output we don't need to track state.
-    return PythonTimeSeriesReference(ts.value.output.is_empty_output() if not ts.value.is_empty else None)
+    return TimeSeriesReference.make(ts.value.output.is_empty_output() if not ts.value.is_empty else None)
 
 
 @graph(overloads=not_)
