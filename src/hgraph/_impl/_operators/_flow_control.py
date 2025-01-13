@@ -172,17 +172,7 @@ def reduce_tsd_with_race(
 def _ref_input_valid(v):
     if not v.valid:
         return False
-    return _ref_valid(v.value)
-
-
-def _ref_valid(value):
-    if (output := value.output) is not None:
-        return output.valid
-    elif (items := getattr(value, "items", None)) is not None:
-        # TODO: This looks wrong, should we not be checking if the items are valid?
-        return any(not i.is_empty for i in items if i is not None)
-    else:
-        return False
+    return v.value.is_valid
 
 
 @dataclass
@@ -229,7 +219,7 @@ def reduce_tsd_of_bundles_with_race(
                     TimeSeriesReference.make().bind_input(_values[k])
             else:
                 for i, n in enumerate(_schema.__meta_data_schema__):
-                    if (r := ref.items[i]) and _ref_valid(r):
+                    if (r := ref.items[i]) and r.is_valid:
                         if _state.first_valid_hashes.get(n, {}).get(k, None) != r:
                             _state.first_valid_hashes[n][k] = r
                             _state.first_valid_times[n][k] = _ec.now

@@ -17,7 +17,38 @@ __all__ = ("python_time_series_reference_builder", "PythonTimeSeriesReferenceOut
 def python_time_series_reference_builder(
         ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
         from_items: typing.Iterable[TimeSeriesReference] = None) -> TimeSeriesReference:
+    if ts is None and from_items is None:
+        return EmptyTimeSeriesReference()
     return _PythonTimeSeriesReference(ts, from_items)
+
+
+class EmptyTimeSeriesReference(TimeSeriesReference):
+
+    def bind_input(self, input_: TimeSeriesInput):
+        # If the input is bound, unbind it since there are now no associated time-series output values.
+        input_.un_bind_output()
+
+    @property
+    def is_valid(self) -> bool:
+        return False
+
+    @property
+    def has_output(self) -> bool:
+        return False
+
+    @property
+    def is_empty(self) -> bool:
+        return True
+
+    def __eq__(self, __value):
+        return type(__value) is EmptyTimeSeriesReference
+
+    def __str__(self):
+        return "REF[<UnSet>]"
+
+    def __repr__(self) -> str:
+        # For now, we should work on a better job for formatting later.
+        return self.__str__()
 
 
 class _PythonTimeSeriesReference(TimeSeriesReference):
@@ -60,7 +91,7 @@ class _PythonTimeSeriesReference(TimeSeriesReference):
         else:
             # Rely on the assumption that all time-series' that support peering are also iterable.
             # including a reference input that was bound to a free tsl/tsb
-            self.items = [PythonTimeSeriesReference(item) for item in ts]
+            self.items = [_PythonTimeSeriesReference(item) for item in ts]
             tp = type(ts)
             has_peer = False
 
@@ -71,6 +102,16 @@ class _PythonTimeSeriesReference(TimeSeriesReference):
     @property
     def output(self) -> TimeSeriesOutput:
         return self._output
+
+    @property
+    def is_valid(self) -> bool:
+        if self.has_output:
+            return self.output.valid
+        elif not self.is_empty:
+            # TODO: This looks wrong, should we not be checking if the items are valid?
+            return any(not i.is_empty for i in self.items if i is not None)
+        else:
+            return False
 
     def bind_input(self, ts_input: TimeSeriesInput):
         if self.is_empty:

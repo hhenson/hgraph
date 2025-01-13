@@ -40,13 +40,11 @@ class TimeSeriesReference:
         ts: Optional[TimeSeriesInput | TimeSeriesOutput] = None,
         from_items: Iterable["TimeSeriesReference"] = None,
     ):
-        from hgraph._impl._types._ref import python_time_series_reference_builder
-        return python_time_series_reference_builder(ts=ts, from_items=from_items)
-        # if TimeSeriesReference._BUILDER is None:
-        #     from hgraph._impl._types._ref import python_time_series_reference_builder
-        #     TimeSeriesReference._BUILDER = python_time_series_reference_builder
-        # else:
-        #     return TimeSeriesReference._BUILDER(ts=ts, from_items=from_items)
+        if TimeSeriesReference._BUILDER is None:
+            from hgraph._impl._types._ref import python_time_series_reference_builder
+            TimeSeriesReference._BUILDER = python_time_series_reference_builder
+
+        return TimeSeriesReference._BUILDER(ts=ts, from_items=from_items)
 
 
 
