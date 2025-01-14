@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hgraph"
-version = "0.3.41"
+version = "0.3.42"
 description = """ \
 A functional reactive platform used to process time-series streams. \
 Provides support for backtest (simulation) and realtime time-series processing. \
