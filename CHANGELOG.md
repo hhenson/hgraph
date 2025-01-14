@@ -847,3 +847,9 @@ Version 0.3.41 (10-01-2025)
 * Add support for the new perspective adaptor.
 * Improve merge support
 * Mark web test as flaky as it tends to fail on CI.
+
+Version 0.3.42 (14-01-2025)
+---------------------------
+
+* Clean up the TimeSeriesReference implementation to mirror the new C++ implementation.
+
