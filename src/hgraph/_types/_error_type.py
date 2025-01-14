@@ -132,7 +132,7 @@ class BackTrace:
                 else:
                     for n, i in input.items():
                         BackTrace.capture_input(active_inputs, i, f"{input_name}[{n}]", capture_values, depth - 1)
-            elif isinstance(input.value, TimeSeriesReference) and input.value.output:
+            elif TimeSeriesReference.is_instance(input.value) and input.value.output:
                 active_inputs[input_name] = BackTrace.capture_back_trace(
                     input.value.output.owning_node, capture_values, depth - 1
                 )

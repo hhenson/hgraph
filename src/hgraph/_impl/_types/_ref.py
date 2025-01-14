@@ -26,7 +26,6 @@ def python_time_series_reference_builder(
         else:
             return UnBoundTimeSeriesReference([python_time_series_reference_builder(i) for i in ts])
     elif from_items is not None:
-        #return _PythonTimeSeriesReference(from_items)
         return UnBoundTimeSeriesReference(from_items)
     else:
         return EmptyTimeSeriesReference()

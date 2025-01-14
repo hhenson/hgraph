@@ -14,7 +14,9 @@ class TimeSeriesReference:
     Contains a reference to a time-series output. This is the holder type used to tick references to outputs through the
     graph using the ``REF`` type.
     """
+    # Preparation for alternative engine implementations
     _BUILDER = None
+    _INSTANCE_OF = None
 
     @abstractmethod
     def bind_input(self, input_: TimeSeriesInput):
@@ -25,15 +27,15 @@ class TimeSeriesReference:
     def is_valid(self) -> bool:
         """Indicates if the reference is valid, this is confirmed against the output or the list of items, Flase otherwise"""
 
-    # @property
-    # @abstractmethod
-    # def has_output(self) -> bool:
-    #     """Indicates if the reference has an output"""
-    #
-    # @property
-    # @abstractmethod
-    # def is_empty(self) -> bool:
-    #     """Indicates if the reference is empty"""
+    @property
+    @abstractmethod
+    def has_output(self) -> bool:
+        """Indicates if the reference has an output"""
+
+    @property
+    @abstractmethod
+    def is_empty(self) -> bool:
+        """Indicates if the reference is empty"""
 
     @staticmethod
     def make(
@@ -45,6 +47,12 @@ class TimeSeriesReference:
             TimeSeriesReference._BUILDER = python_time_series_reference_builder
 
         return TimeSeriesReference._BUILDER(ts=ts, from_items=from_items)
+
+    @staticmethod
+    def is_instance(obj: object) -> bool:
+        if TimeSeriesReference._INSTANCE_OF is None:
+            TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, TimeSeriesReference)
+        return TimeSeriesReference._INSTANCE_OF(obj)
 
 
 
