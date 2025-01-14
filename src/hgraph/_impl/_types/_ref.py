@@ -5,21 +5,31 @@ from typing import Generic
 
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
-from hgraph._runtime._constants import MIN_DT, MIN_ST
+from hgraph._runtime._constants import MIN_ST
 from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceOutput, TimeSeriesReferenceInput
 from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput
-
+from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput, TimeSeriesIterable
 
 __all__ = ("python_time_series_reference_builder", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
 
 
 def python_time_series_reference_builder(
         ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
-        from_items: typing.Iterable[TimeSeriesReference] = None) -> TimeSeriesReference:
-    if ts is None and from_items is None:
+        from_items: typing.Iterable[TimeSeriesOutput] = None) -> TimeSeriesReference:
+    if ts is not None:
+        if isinstance(ts, TimeSeriesOutput):
+            return BoundTimeSeriesReference(ts)
+        if isinstance(ts, TimeSeriesReferenceInput):
+            return ts.value
+        if ts.has_peer:
+            return BoundTimeSeriesReference(ts.output)
+        else:
+            return UnBoundTimeSeriesReference([python_time_series_reference_builder(i) for i in ts])
+    elif from_items is not None:
+        #return _PythonTimeSeriesReference(from_items)
+        return UnBoundTimeSeriesReference(from_items)
+    else:
         return EmptyTimeSeriesReference()
-    return _PythonTimeSeriesReference(ts, from_items)
 
 
 class EmptyTimeSeriesReference(TimeSeriesReference):
@@ -51,117 +61,88 @@ class EmptyTimeSeriesReference(TimeSeriesReference):
         return self.__str__()
 
 
-class _PythonTimeSeriesReference(TimeSeriesReference):
-    def __init__(
-        self,
-        ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
-        from_items: typing.Iterable[TimeSeriesReference] = None,
-    ):
-        self._output = None
+class BoundTimeSeriesReference(TimeSeriesReference):
 
-        if from_items is not None:  # Put this first to make it clearer that
-            self.items = from_items
-            self.tp = None
-            self.has_output = False
-            self.is_empty = False
-            return
+    def __init__(self, output: TimeSeriesOutput):
+        self.output = output
 
-        if ts is None:  # We have already validated that from_items is None, so now if ts is None as well, ...
-            self.is_empty = True
-            self.has_output = False
-            return
+    def bind_input(self, input_: TimeSeriesInput):
+        reactivate = False
+        if input_.bound and not input_.has_peer:
+            reactivate = input_.active
+            input_.un_bind_output()
 
-        if isinstance(ts, TimeSeriesOutput):  # constructing from sn output
-            self._output = ts
-            tp = type(ts)
-            has_peer = True
-        elif isinstance(
-            ts, TimeSeriesReferenceInput
-        ):  # reference input gets the value from a ref output, copy construct
-            ref = ts.value
-            if has_peer := ref.has_peer:
-                self._output = ref.output
-            else:
-                self.items = ref.items
-            self.has_output = ref.has_peer
-            tp = ref.tp
-        elif has_peer := ts.has_peer:  # any input with a peer, construct from its output
-            self._output = ts.output
-            tp = type(ts)
-        else:
-            # Rely on the assumption that all time-series' that support peering are also iterable.
-            # including a reference input that was bound to a free tsl/tsb
-            self.items = [_PythonTimeSeriesReference(item) for item in ts]
-            tp = type(ts)
-            has_peer = False
+        input_.bind_output(self.output)
 
-        self.has_output = has_peer
-        self.tp = tp
-        self.is_empty = False
-
-    @property
-    def output(self) -> TimeSeriesOutput:
-        return self._output
+        if reactivate:
+            input_.make_active()
 
     @property
     def is_valid(self) -> bool:
-        if self.has_output:
-            return self.output.valid
-        elif not self.is_empty:
-            # TODO: This looks wrong, should we not be checking if the items are valid?
-            return any(not i.is_empty for i in self.items if i is not None)
-        else:
-            return False
+        return self.output.valid
 
-    def bind_input(self, ts_input: TimeSeriesInput):
-        if self.is_empty:
-            ts_input.un_bind_output()
-            return
-
-        # NOTE: The ctor remembers the type, this checks the target is the same type unless was constructed from an output
-        if self.tp and not issubclass(self.tp, TimeSeriesOutput) and not isinstance(ts_input, self.tp):
-            raise TypeError(f"Cannot bind reference of type {self.tp} to {type(ts_input)}")
-
-        reactivate = False
-        if ts_input.bound and self.has_output != ts_input.has_peer:
-            reactivate = ts_input.active
-            ts_input.un_bind_output()
-
-        if self.has_output:
-            ts_input.bind_output(self.output)
-        else:
-            for item, r in zip(ts_input, self.items):
-                if r:
-                    r.bind_input(item)
-                elif item.bound:
-                    item.un_bind_output()
-
-        if reactivate:
-            ts_input.make_active()
-
-    def __eq__(self, other):
-        if not isinstance(other, TimeSeriesReference):
-            return False
-        if self.is_empty != other.is_empty:
-            return False
-        if not self.is_empty:
-            if self.has_output != other.has_output:
-                return False
-            if self.has_output:
-                return self.output == other.output
-            return self.items == other.items
+    @property
+    def has_output(self) -> bool:
         return True
 
+    @property
+    def is_empty(self) -> bool:
+        return False
+
+    def __eq__(self, __value):
+        return type(__value) is BoundTimeSeriesReference and self.output == __value.output
+
+    def __str__(self):
+        return (
+            f"REF[{self.output.owning_node.signature.name}"
+            f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]"
+        )
+
+    def __repr__(self) -> str:
+        # For now, we should work on a better job for formatting later.
+        return self.__str__()
+
+
+class UnBoundTimeSeriesReference(TimeSeriesReference):
+
+    def __init__(self, items: typing.Iterable[TimeSeriesOutput]):
+        self.items = items
+
+    def bind_input(self, input_: typing.Union[TimeSeriesInput, TimeSeriesIterable]):
+        # We need to put some kind of validation here to ensure that the input is compatible with the references if
+        # possible.
+
+        reactivate = False
+        if input_.bound and input_.has_peer:
+            reactivate = input_.active
+            input_.un_bind_output()
+
+        for item, r in zip(input_, self.items):
+            if r:
+                r.bind_input(item)
+            elif item.bound:
+                item.un_bind_output()
+
+        if reactivate:
+            input_.make_active()
+
+    @property
+    def is_valid(self) -> bool:
+        return any(not i.is_empty for i in self.items if i is not None)
+
+    @property
+    def has_output(self) -> bool:
+        return False
+
+    @property
+    def is_empty(self) -> bool:
+        return False
+
+    def __eq__(self, other):
+        return type(other) is UnBoundTimeSeriesReference and self.items == other.items
+
     def __str__(self) -> str:
-        if self.output is not None:
-            return (
-                f"REF[{self.output.owning_node.signature.name}"
-                f"<{', '.join(str(i) for i in self.output.owning_node.node_id)}>.out<{hex(id(self.output))}>]"
-            )
-        elif not self.is_empty and not self.has_output and self.items:
-            return f"REF[{', '.join(str(i) for i in self.items)}]"
-        else:
-            return "REF[<UnSet>]"
+        return f"REF[{', '.join(str(i) for i in self.items)}]"
 
     def __repr__(self) -> str:
         # For now, we should work on a better job for formatting later.

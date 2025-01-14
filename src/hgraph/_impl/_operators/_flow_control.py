@@ -204,7 +204,7 @@ def reduce_tsd_of_bundles_with_race(
         v = tsd[k]
         if _ref_input_valid(v):
             ref = v.value
-            if ref.output:
+            if ref.has_output:
                 for n, r in ref.output.items():
                     if r.valid:
                         if _state.first_valid_hashes.get(n, {}).get(k, None) != id(r):
@@ -230,7 +230,7 @@ def reduce_tsd_of_bundles_with_race(
                     else:
                         _state.first_valid_times.get(n, {}).pop(k, None)
                         _state.first_valid_hashes.get(n, {}).pop(k, None)
-        elif v.valid and v.value.output:  # valid reference but invalid referee
+        elif v.valid and v.value.has_output:  # valid reference but invalid referee
             pending_values[k] = v.value
             for n in _schema.__meta_data_schema__:
                 _state.first_valid_times.get(n, {}).pop(k, None)
@@ -282,7 +282,7 @@ def reduce_tsd_of_bundles_with_race(
     for i, (n, o) in enumerate(zip(_schema.__meta_data_schema__, _state.winners)):
         if o is not None:
             value = tsd[o].value
-            if value.output:
+            if value.has_output:
                 ref_items[i] = TimeSeriesReference.make(value.output[n])
             else:
                 ref_items[i] = value.items[i]
