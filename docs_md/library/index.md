@@ -104,7 +104,7 @@ This operation collects values into a collection, Syntax `collect[TSS[int]](ts)`
 | from \ to                         | TS[tuple]            | TS[set] | TS[Mapping]                         | TSS[T]  | TSL[TST, S] | TSB[Schema] | TSD[K, V]                       |
 |-----------------------------------|----------------------|---------|-------------------------------------|---------|-------------|-------------|---------------------------------|
 | TS[T], T is int, float, bool, str | &#9989;              | &#9989; | &#9989; from two inputs for K and V | &#9989; |             |             | &#9989; for two inputs, K and V |
-| TS[tuple]                         | &#9989; same as sums | &#9989; | &#9989; from two inputs for K and V | &#9989; |             |             | &#9989; for two inputs, K and V |
+| TS[tuple]                         | &#9989; same as sum_ | &#9989; | &#9989; from two inputs for K and V | &#9989; |             |             | &#9989; for two inputs, K and V |
 | TS[set]                           |                      |         |                                     | &#9989; |             |             |                                 |
 | TS[Mapping]                       |                      |         |                                     |         |             |             | &#9989;                         |
 | TSS[T]                            |                      |         |                                     | &#9989; |             |             |                                 |
