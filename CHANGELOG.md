@@ -853,3 +853,7 @@ Version 0.3.42 (14-01-2025)
 
 * Clean up the TimeSeriesReference implementation to mirror the new C++ implementation.
 
+Version 0.3.43 (17-01-2025)
+---------------------------
+
+* Add stream operator
