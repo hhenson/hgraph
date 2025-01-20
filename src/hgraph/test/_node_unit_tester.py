@@ -33,7 +33,7 @@ def eval_node(
     __trace_wiring__: bool = False,
     __observers__: list[EvaluationLifeCycleObserver] = None,
     __elide__: bool = False,
-    __start_time__: datetime = None,
+    __start_time__: datetime = MIN_ST,
     __end_time__: datetime = None,
     **kwargs,
 ):
@@ -151,7 +151,7 @@ def eval_node(
                 ts_type = ts_type.py_type if not ts_type.is_context_wired else ts_type.ts_type.py_type
             inputs[ts_arg] = replay_from_memory(ts_arg, ts_type)
             is_list = hasattr(arg_value, "__len__")
-            set_replay_values(ts_arg, SimpleArrayReplaySource(arg_value if is_list else [arg_value]))
+            set_replay_values(ts_arg, SimpleArrayReplaySource((arg_value if is_list else [arg_value]), start_time=__start_time__))
         for scalar_args in node.signature.scalar_inputs.keys():
             inputs[scalar_args] = kwargs_[scalar_args]
 
@@ -168,7 +168,7 @@ def eval_node(
             if v is None:
                 continue
             # Dealing with scalar to time-series support
-            max_count = max(max_count, len(v) if (is_list := hasattr(v, "__len__")) else 1)
+            max_count = max(max_count, len(v) if hasattr(v, "__len__") else 1)
         evaluate_graph(
             eval_node_graph,
             GraphConfiguration(
@@ -183,14 +183,14 @@ def eval_node(
         results = get_recorded_value() if node.signature.output_type is not None else []
         if results:
             # For push nodes, there are no time-series inputs, so we compute size of the result from the result.
-            max_count = max(max_count, int((results[-1][0] - MIN_DT) / MIN_TD))
+            max_count = max(max_count, 1 + int((results[-1][0] - __start_time__) / MIN_TD))
         # Extract the results into a list of values without time-stamps, place a None when there is no recorded value.
         if results:
             out = []
             if not __elide__:
                 result_iter = iter(results)
                 result = next(result_iter)
-                for t in _time_iter(MIN_ST, MIN_ST + max_count * MIN_TD, MIN_TD):
+                for t in _time_iter(__start_time__, __start_time__ + max_count * MIN_TD, MIN_TD):
                     if result and t == result[0]:
                         out.append(result[1])
                         result = next(result_iter, None)
