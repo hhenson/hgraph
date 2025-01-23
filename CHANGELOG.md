@@ -857,3 +857,8 @@ Version 0.3.43 (17-01-2025)
 ---------------------------
 
 * Add stream operator
+
+Version 0.3.44 (23-01-2025)
+---------------------------
+
+* Add date operators and make count resettable
