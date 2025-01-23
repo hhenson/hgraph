@@ -1175,16 +1175,16 @@ xml = ["lxml (>=4.9.2)"]
 
 [[package]]
 name = "perspective-python"
-version = "3.2.1"
+version = "3.3.0"
 description = "A data visualization and analytics component, especially well-suited for large and/or streaming datasets."
 optional = true
 python-versions = ">=3.9"
 files = [
-    {file = "perspective_python-3.2.1-cp39-abi3-macosx_13_0_arm64.whl", hash = "sha256:d07f2d28aefb19180bb66c5f2bc8e63e71ef84acebbffed63d46933194a184e1"},
-    {file = "perspective_python-3.2.1-cp39-abi3-macosx_13_0_x86_64.whl", hash = "sha256:467c628280139dbcfcb85dd50214683b93de1d4b6f01279261293746f0eebefe"},
-    {file = "perspective_python-3.2.1-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:a6deff79cc6b01fff5c37715f80d90146803b0db43d0c9b684912893df624c8d"},
-    {file = "perspective_python-3.2.1-cp39-abi3-win_amd64.whl", hash = "sha256:bb980aa8d80d8fcb2af10fd8977ebe81b8c20382da5780240b200fe1655069ac"},
-    {file = "perspective_python-3.2.1.tar.gz", hash = "sha256:5162736f6e2c1a1d0b3e5386c003708b1528973f077f282e698f5801036dc42b"},
+    {file = "perspective_python-3.3.0-cp39-abi3-macosx_13_0_arm64.whl", hash = "sha256:2fe0386dfcf41a2e001fe8c29db1f2ed2c4f99e01785a120f40fecb68e529d93"},
+    {file = "perspective_python-3.3.0-cp39-abi3-macosx_13_0_x86_64.whl", hash = "sha256:e7dbb9f8c0b9e1e148ca6ab9cf385937febe38aca5782565f8e29cb379da670b"},
+    {file = "perspective_python-3.3.0-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:bbd49cb56046f2215c1c1a86a6d6618f7a05426e696aa2dbc0b04f0998846472"},
+    {file = "perspective_python-3.3.0-cp39-abi3-win_amd64.whl", hash = "sha256:858ecab6cd82520ef5c62077b69847ac352f64d716b6fa3935790d84e2e4d007"},
+    {file = "perspective_python-3.3.0.tar.gz", hash = "sha256:cf49a5e6521edbd05dbfb920f730412dbdbaabb2c8ac7cbcc1e919a3d4c41018"},
 ]
 
 [package.extras]
