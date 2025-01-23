@@ -12,7 +12,7 @@ def diff(ts: OUT) -> OUT:
 
 
 @operator
-def count(ts: SIGNAL) -> TS[int]:
+def count(ts: SIGNAL, reset: SIGNAL = None) -> TS[int]:
     """
     Performs a running count of the number of times the time-series has ticked (i.e. emitted a value).
     """

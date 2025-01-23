@@ -1,7 +1,20 @@
 from dataclasses import dataclass
 
-from hgraph import graph, TS, NUMBER, compute_node, SIGNAL, TS_OUT, CompoundScalar, STATE, diff, count, clip, ewma, \
-    SCALAR
+from hgraph import (
+    graph,
+    TS,
+    NUMBER,
+    compute_node,
+    SIGNAL,
+    TS_OUT,
+    CompoundScalar,
+    STATE,
+    diff,
+    count,
+    clip,
+    ewma,
+    SCALAR,
+)
 
 __all__ = tuple()
 
@@ -16,12 +29,13 @@ def diff_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     return ts - lag(ts, 1)
 
 
-@compute_node(overloads=count)
-def count_impl(ts: SIGNAL, _output: TS_OUT[int] = None) -> TS[int]:
+@compute_node(overloads=count, active=("ts",), valid=("ts",))
+def count_impl(ts: SIGNAL, reset: SIGNAL = None, _output: TS_OUT[int] = None) -> TS[int]:
     """
     Performs a running count of the number of times the time-series has ticked (i.e. emitted a value).
     """
-    return _output.value + 1 if _output.valid else 1
+    increment = _output.valid and reset.last_modified_time <= _output.last_modified_time
+    return _output.value + 1 if increment else 1
 
 
 @compute_node(overloads=clip)

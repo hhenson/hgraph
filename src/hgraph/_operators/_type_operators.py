@@ -4,6 +4,9 @@ from hgraph._types._ts_type import TS
 from hgraph._types._ref_type import REF
 
 
+__all__ = ("cast_", "downcast_", "downcast_ref")
+
+
 @operator
 def cast_(tp: type[SCALAR], ts: TS[SCALAR_1]) -> TS[SCALAR]:
     """
