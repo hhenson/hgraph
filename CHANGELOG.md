@@ -862,3 +862,8 @@ Version 0.3.44 (23-01-2025)
 ---------------------------
 
 * Add date operators and make count resettable
+
+Version 0.3.45 (23-01-2025)
+---------------------------
+
+* Make index_of more generic
