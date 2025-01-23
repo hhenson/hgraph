@@ -30,6 +30,7 @@ __all__ = (
     "getattr_",
     "getitem_",
     "gt_",
+    "index_of",
     "intersection",
     "invert_",
     "is_empty",
@@ -803,4 +804,18 @@ def cmp_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[CmpResult]:
     """
     Return one of LT, EQ, GT as a comparison result.
     This could be more efficient than performing a sequence of operations.
+    """
+
+
+@operator
+def index_of(ts: TIME_SERIES_TYPE_1, item: TIME_SERIES_TYPE_2) -> TS[int]:
+    """
+    Returns the index of a value within the ts provided.
+    Options include:
+
+    TS[tuple[SCALAR, ...]]
+        returns the index of the first occurrence of the item in the tuple
+
+    TSL[TIME_SERIES_TYPE_2, SIZE]
+        returns the index of the first occurrence of the item in the TSL
     """

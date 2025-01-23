@@ -1,14 +1,14 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from hgraph._operators._flow_control import all_, any_, merge, index_of, if_cmp
+from hgraph._operators._flow_control import all_, any_, merge, if_cmp
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
-from hgraph._operators._operators import bit_and, bit_or, CmpResult
+from hgraph._operators._operators import bit_and, bit_or, CmpResult, index_of
 from hgraph._runtime._constants import MAX_DT, MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF, REF_OUT, TimeSeriesReference
 from hgraph._types._scalar_types import CompoundScalar, STATE, SCALAR, SIZE, SIZE_1
-from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K
+from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K, TIME_SERIES_TYPE_2
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
 from hgraph._types._tsd_type import TSD
@@ -384,8 +384,8 @@ def if_then_else_impl(
 
 
 @compute_node(overloads=index_of)
-def index_of_impl(tsl: TSL[TIME_SERIES_TYPE, SIZE], ts: TIME_SERIES_TYPE) -> TS[int]:
+def index_of_impl(ts: TSL[TIME_SERIES_TYPE_2, SIZE], item: TIME_SERIES_TYPE_2) -> TS[int]:
     """
     Return the index of the leftmost time-series in the TSL with value equal to ts
     """
-    return next((i for i, t in enumerate(tsl) if t.valid and t.value == ts.value), -1)
+    return next((i for i, t in enumerate(ts) if t.valid and t.value == item.value), -1)

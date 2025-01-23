@@ -1,15 +1,40 @@
 import pytest
 
-from hgraph import Size, TS, TSL, MIN_TD, SIZE, TIME_SERIES_TYPE, add_, graph, eq_, ne_, neg_, pos_, abs_, \
-    invert_, len_, min_, max_, sum_, str_, lag, mean, std, index_of
+from hgraph import (
+    Size,
+    TS,
+    TSL,
+    MIN_TD,
+    SIZE,
+    TIME_SERIES_TYPE,
+    add_,
+    graph,
+    eq_,
+    ne_,
+    neg_,
+    pos_,
+    abs_,
+    invert_,
+    len_,
+    min_,
+    max_,
+    sum_,
+    str_,
+    lag,
+    mean,
+    std,
+    index_of,
+    TIME_SERIES_TYPE_2,
+    TIME_SERIES_TYPE_1,
+)
 from hgraph.nodes import tsl_to_tsd
 from hgraph.test import eval_node
 
 
 def test_tsl_lag():
-    assert eval_node(lag, [{1: 1}, {0: 2, 2: 3}, {1: 4, 2: 5}, None, {0: 6}], MIN_TD,
-                     resolution_dict={"ts": TSL[TS[int], Size[3]]}) == [None, {1: 1}, {0: 2, 2: 3}, {1: 4, 2: 5}, None,
-                                                                        {0: 6}]
+    assert eval_node(
+        lag, [{1: 1}, {0: 2, 2: 3}, {1: 4, 2: 5}, None, {0: 6}], MIN_TD, resolution_dict={"ts": TSL[TS[int], Size[3]]}
+    ) == [None, {1: 1}, {0: 2, 2: 3}, {1: 4, 2: 5}, None, {0: 6}]
 
 
 def test_add_tsls():
@@ -17,7 +42,7 @@ def test_add_tsls():
     def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return add_(lhs, rhs)
 
-    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={'ts': TS[int]}) == [{0:3, 1:5}]
+    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 3, 1: 5}]
 
 
 def test_add_tsls_gaps():
@@ -25,7 +50,7 @@ def test_add_tsls_gaps():
     def app(lhs: TSL[TS[int], Size[4]], rhs: TSL[TS[int], Size[4]]) -> TSL[TS[int], Size[4]]:
         return lhs + rhs
 
-    assert eval_node(app, [(1, None, 2, 5)], [(2, 3, None, 6)], resolution_dict={'ts': TS[int]}) == [{0:3, 3:11}]
+    assert eval_node(app, [(1, None, 2, 5)], [(2, 3, None, 6)], resolution_dict={"ts": TS[int]}) == [{0: 3, 3: 11}]
 
 
 def test_sub_tsls():
@@ -33,7 +58,7 @@ def test_sub_tsls():
     def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return lhs - rhs
 
-    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={'ts': TS[int]}) == [{0:-1, 1:-1}]
+    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={"ts": TS[int]}) == [{0: -1, 1: -1}]
 
 
 def test_mul_tsls():
@@ -41,7 +66,7 @@ def test_mul_tsls():
     def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return lhs * rhs
 
-    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={'ts': TS[int]}) == [{0: 2, 1:6}]
+    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 2, 1: 6}]
 
 
 def test_div_tsls():
@@ -49,7 +74,7 @@ def test_div_tsls():
     def app(lhs: TSL[TS[float], Size[2]], rhs: TSL[TS[float], Size[2]]) -> TSL[TS[float], Size[2]]:
         return lhs / rhs
 
-    assert eval_node(app, [(1.0, 2.0)], [(2.0, 1.0)], resolution_dict={'ts': TS[float]}) == [{0: 0.5, 1: 2.0}]
+    assert eval_node(app, [(1.0, 2.0)], [(2.0, 1.0)], resolution_dict={"ts": TS[float]}) == [{0: 0.5, 1: 2.0}]
 
 
 def test_floordiv_tsls():
@@ -57,7 +82,7 @@ def test_floordiv_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs // rhs
 
-    assert eval_node(app, [(3, 2, 100)], [(2, 2, 10)], resolution_dict={'ts': TS[int]}) == [{0: 1, 1: 1, 2: 10}]
+    assert eval_node(app, [(3, 2, 100)], [(2, 2, 10)], resolution_dict={"ts": TS[int]}) == [{0: 1, 1: 1, 2: 10}]
 
 
 def test_mod_tsls():
@@ -65,15 +90,15 @@ def test_mod_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs % rhs
 
-    assert eval_node(app, [(3, 2, 105)], [(2, 2, 10)], resolution_dict={'ts': TS[int]}) == [{0: 1, 1: 0, 2: 5}]
+    assert eval_node(app, [(3, 2, 105)], [(2, 2, 10)], resolution_dict={"ts": TS[int]}) == [{0: 1, 1: 0, 2: 5}]
 
 
 def test_pow_tsls():
     @graph
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
-        return lhs ** rhs
+        return lhs**rhs
 
-    assert eval_node(app, [(3, 4, 5)], [(3, 0, 1)], resolution_dict={'ts': TS[int]}) == [{0: 27, 1: 1, 2: 5}]
+    assert eval_node(app, [(3, 4, 5)], [(3, 0, 1)], resolution_dict={"ts": TS[int]}) == [{0: 27, 1: 1, 2: 5}]
 
 
 def test_lshift_tsls():
@@ -81,7 +106,7 @@ def test_lshift_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs << rhs
 
-    assert eval_node(app, [(2, 10, 8)], [(1, 2, 3)], resolution_dict={'ts': TS[int]}) == [{0: 4, 1: 40, 2: 64}]
+    assert eval_node(app, [(2, 10, 8)], [(1, 2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 4, 1: 40, 2: 64}]
 
 
 def test_rshift_tsls():
@@ -89,7 +114,7 @@ def test_rshift_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs >> rhs
 
-    assert eval_node(app, [(2, 10, 1024)], [(1, 2, 3)], resolution_dict={'ts': TS[int]}) == [{0: 1, 1: 2, 2: 128}]
+    assert eval_node(app, [(2, 10, 1024)], [(1, 2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 1, 1: 2, 2: 128}]
 
 
 def test_bit_and_tsls():
@@ -97,7 +122,7 @@ def test_bit_and_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs & rhs
 
-    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={'ts': TS[int]}) == [{0: 0, 1: 8, 2: 5}]
+    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={"ts": TS[int]}) == [{0: 0, 1: 8, 2: 5}]
 
 
 def test_bit_or_tsls():
@@ -105,7 +130,7 @@ def test_bit_or_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs | rhs
 
-    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={'ts': TS[int]}) == [{0: 3, 1: 9, 2: 7}]
+    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={"ts": TS[int]}) == [{0: 3, 1: 9, 2: 7}]
 
 
 def test_bit_xor_tsls():
@@ -113,16 +138,16 @@ def test_bit_xor_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs ^ rhs
 
-    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={'ts': TS[int]}) == [{0: 3, 1: 1, 2: 2}]
+    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={"ts": TS[int]}) == [{0: 3, 1: 1, 2: 2}]
 
 
 @pytest.mark.parametrize(
     ["tsl", "expected"],
     [
-        [(20,),     20],
-        [(20, 30),  50],
+        [(20,), 20],
+        [(20, 30), 50],
         [(3, 5, 2, 8, 10), 28],
-    ]
+    ],
 )
 def test_sum_tsl_unary(tsl, expected):
     @graph
@@ -135,12 +160,13 @@ def test_sum_tsl_unary(tsl, expected):
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [
-        [(1, 2),     (2, 3),     {0: 3, 1: 5}],
+        [(1, 2), (2, 3), {0: 3, 1: 5}],
         [(1.0, 2.0), (2.0, 3.0), {0: 3.0, 1: 5.0}],
-    ]
+    ],
 )
 def test_sum_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[tp], Size[2]]:
         return sum_(lhs, rhs)
@@ -151,10 +177,10 @@ def test_sum_tsls_multi(lhs, rhs, expected):
 @pytest.mark.parametrize(
     ["tsl", "expected"],
     [
-        [(20,),     20],
-        [(20, 30),  25],
+        [(20,), 20],
+        [(20, 30), 25],
         [(3, 5, 2, 8, 10), 5.6],
-    ]
+    ],
 )
 def test_mean_tsl_unary(tsl, expected):
     @graph
@@ -167,12 +193,13 @@ def test_mean_tsl_unary(tsl, expected):
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [
-        [(1, 2),     (2, 3),     {0: 1.5, 1: 2.5}],
+        [(1, 2), (2, 3), {0: 1.5, 1: 2.5}],
         [(1.0, 2.0), (2.0, 3.0), {0: 1.5, 1: 2.5}],
-    ]
+    ],
 )
 def test_mean_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[float], Size[2]]:
         return mean(lhs, rhs)
@@ -183,10 +210,10 @@ def test_mean_tsls_multi(lhs, rhs, expected):
 @pytest.mark.parametrize(
     ["tsl", "expected"],
     [
-        [(20,),     0.0],
-        [(20, 30),  7.0710678118654755],
+        [(20,), 0.0],
+        [(20, 30), 7.0710678118654755],
         [(3, 5, 2, 8, 10), 3.361547262794322],
-    ]
+    ],
 )
 def test_std_tsl_unary(tsl, expected):
     @graph
@@ -199,12 +226,13 @@ def test_std_tsl_unary(tsl, expected):
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [
-        [(1, 2),     (2, 3),     {0: 0.7071067811865476, 1: 0.7071067811865476}],
+        [(1, 2), (2, 3), {0: 0.7071067811865476, 1: 0.7071067811865476}],
         [(1.0, 2.0), (2.0, 3.0), {0: 0.7071067811865476, 1: 0.7071067811865476}],
-    ]
+    ],
 )
 def test_std_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[float], Size[2]]:
         return std(lhs, rhs)
@@ -213,13 +241,17 @@ def test_std_tsls_multi(lhs, rhs, expected):
 
 
 def test_tsl_to_tsd():
-    assert eval_node(tsl_to_tsd, [(1, 2, 3), {1: 3}], ('a', 'b', 'c'),
-                     resolution_dict={'tsl': TSL[TS[int], Size[3]]}) == [{'a': 1, 'b': 2, 'c': 3}, {'b': 3}]
+    assert eval_node(
+        tsl_to_tsd, [(1, 2, 3), {1: 3}], ("a", "b", "c"), resolution_dict={"tsl": TSL[TS[int], Size[3]]}
+    ) == [{"a": 1, "b": 2, "c": 3}, {"b": 3}]
 
 
 def test_index_of():
-    assert eval_node(index_of[TIME_SERIES_TYPE: TS[int], SIZE: Size[3]],
-                     [(1, 2, 3), None, (2, 3, 4), (-1, 0, 1)], [2, 1]) == [1, 0, -1, 2]
+    assert eval_node(
+        index_of[TIME_SERIES_TYPE_1 : TSL[TS[int], Size[3]], TIME_SERIES_TYPE_2 : TS[int]],
+        [(1, 2, 3), None, (2, 3, 4), (-1, 0, 1)],
+        [2, 1],
+    ) == [1, 0, -1, 2]
 
 
 @pytest.mark.parametrize(
@@ -228,10 +260,11 @@ def test_index_of():
         [(1, 2), (2, 3), False],
         [(1.0, 2.0), (2.0, 3.0), False],
         [(1.0, 2.0), (1.0, 2.0), True],
-    ]
+    ],
 )
 def test_eq_tsls(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TS[bool]:
         return eq_(lhs, rhs)
@@ -245,10 +278,11 @@ def test_eq_tsls(lhs, rhs, expected):
         [(1, 2), (2, 3), True],
         [(1.0, 2.0), (2.0, 3.0), True],
         [(1.0, 2.0), (1.0, 2.0), False],
-    ]
+    ],
 )
 def test_ne_tsl(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TS[bool]:
         return ne_(lhs, rhs)
@@ -289,25 +323,25 @@ def test_invert_tsl():
 
 
 @pytest.mark.parametrize(
-    ['tp', 'expected', 'values'],
+    ["tp", "expected", "values"],
     [
         [TSL[TS[int], Size[2]], [2, None, None], [{}, {0: 1}, {1: 2}]],
-    ]
+    ],
 )
 def test_len_tsl(tp, expected, values):
-    assert eval_node(len_, values, resolution_dict={'ts': tp}) == expected
+    assert eval_node(len_, values, resolution_dict={"ts": tp}) == expected
 
 
 @pytest.mark.parametrize(
     ["tsl", "expected"],
     [
-        [(20,),     20],
-        [(18, 20),     18],
-        [(20, 18),     18],
-        [(250, 20, 30),  20],
+        [(20,), 20],
+        [(18, 20), 18],
+        [(20, 18), 18],
+        [(250, 20, 30), 20],
         [(3, 2, 8, 10), 2],
         [(3, 5, 2, 8, 10), 2],
-    ]
+    ],
 )
 def test_min_tsl_unary(tsl, expected):
     @graph
@@ -320,12 +354,13 @@ def test_min_tsl_unary(tsl, expected):
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [
-        [(1, 2),     (2, 3),     {0: 1, 1: 2}],
+        [(1, 2), (2, 3), {0: 1, 1: 2}],
         [(1.0, 2.0), (2.0, 3.0), {0: 1.0, 1: 2.0}],
-    ]
+    ],
 )
 def test_min_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[tp], Size[2]]:
         return min_(lhs, rhs)
@@ -336,12 +371,13 @@ def test_min_tsls_multi(lhs, rhs, expected):
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [
-        [(1, 2),     (2, 3),     {0: 2, 1: 3}],
+        [(1, 2), (2, 3), {0: 2, 1: 3}],
         [(1.0, 2.0), (2.0, 3.0), {0: 2.0, 1: 3.0}],
-    ]
+    ],
 )
 def test_max_tsls_multi(lhs, rhs, expected):
     tp = type(lhs[0])
+
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[tp], Size[2]]:
         return max_(lhs, rhs)
@@ -352,10 +388,10 @@ def test_max_tsls_multi(lhs, rhs, expected):
 @pytest.mark.parametrize(
     ["tsl", "expected"],
     [
-        [(20,),     20],
-        [(250, 20, 30),  250],
+        [(20,), 20],
+        [(250, 20, 30), 250],
         [(3, 5, 2, 8, 10), 10],
-    ]
+    ],
 )
 def test_max_tsl_unary(tsl, expected):
     @graph
@@ -370,4 +406,4 @@ def test_str_tsl():
     def g(ts: TSL[TS[int], Size[5]]) -> TS[str]:
         return str_(ts)
 
-    assert eval_node(g, [(3, 5, 2, 8, 10)]) == ['(3, 5, 2, 8, 10)']
+    assert eval_node(g, [(3, 5, 2, 8, 10)]) == ["(3, 5, 2, 8, 10)"]

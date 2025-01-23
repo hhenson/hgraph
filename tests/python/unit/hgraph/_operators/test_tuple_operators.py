@@ -1,8 +1,28 @@
 import math
 from typing import Tuple
 
-from hgraph import mul_, getitem_, and_, TS, graph, or_, min_, max_, contains_, sum_, mean, std, var
+from hgraph import (
+    mul_,
+    getitem_,
+    and_,
+    TS,
+    graph,
+    or_,
+    min_,
+    max_,
+    contains_,
+    sum_,
+    mean,
+    std,
+    var,
+    index_of,
+    TIME_SERIES_TYPE_1,
+    TIME_SERIES_TYPE_2,
+    TSL,
+    Size,
+)
 from hgraph.test import eval_node
+
 
 def test_mul_tuples():
     assert eval_node(mul_, [(1, 2, 3)], [2]) == [(1, 2, 3, 1, 2, 3)]
@@ -25,7 +45,7 @@ def test_and_tuples():
     def app(lhs: TS[Tuple[int, ...]], rhs: TS[Tuple[int, ...]]) -> TS[bool]:
         return and_(lhs, rhs)
 
-    assert eval_node(app, [(1, 2), ()],  [(3, 4), (3, 4)]) == [True, False]
+    assert eval_node(app, [(1, 2), ()], [(3, 4), (3, 4)]) == [True, False]
 
 
 def test_or_tuples():
@@ -33,7 +53,7 @@ def test_or_tuples():
     def app(lhs: TS[Tuple[int, ...]], rhs: TS[Tuple[int, ...]]) -> TS[bool]:
         return or_(lhs, rhs)
 
-    assert eval_node(app, [(1, 2), (), ()],  [(3, 4), (3, 4), ()]) == [True, True, False]
+    assert eval_node(app, [(1, 2), (), ()], [(3, 4), (3, 4), ()]) == [True, True, False]
 
 
 def test_min_tuple_unary():
@@ -62,9 +82,7 @@ def test_min_tuple_binary():
 
 def test_min_tuple_multi():
     @graph
-    def app(ts1: TS[Tuple[int, ...]],
-            ts2: TS[Tuple[int, ...]],
-            ts3: TS[Tuple[int, ...]]) -> TS[Tuple[int, ...]]:
+    def app(ts1: TS[Tuple[int, ...]], ts2: TS[Tuple[int, ...]], ts3: TS[Tuple[int, ...]]) -> TS[Tuple[int, ...]]:
         return min_(ts1, ts2, ts3)
 
     assert eval_node(app, [(10, 100)], [(999,)], [(1, 2, 3, 4)]) == [(1, 2, 3, 4)]
@@ -126,3 +144,12 @@ def test_contains_tuple():
         return contains_(lhs, rhs)
 
     assert eval_node(app, [(1, 2, 3), None, ()], [4, 2, 3]) == [False, True, False]
+
+
+def test_index_of():
+    assert eval_node(
+        index_of,
+        [(1, 2, 3), None, (2, 3, 4), (-1, 0, 1)],
+        [2, 1],
+        resolution_dict={"ts": TSL[TS[int], Size[3]], "item": TS[int]},
+    ) == [1, 0, -1, 2]

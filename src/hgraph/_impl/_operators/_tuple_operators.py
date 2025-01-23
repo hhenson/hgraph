@@ -8,10 +8,6 @@ from hgraph import (
     compute_node,
     HgTupleFixedScalarType,
     HgTupleCollectionScalarType,
-    STATE,
-    CompoundScalar,
-    SCHEDULER,
-    MIN_TD,
     mul_,
     and_,
     or_,
@@ -26,8 +22,8 @@ from hgraph import (
     sum_,
     zero,
     TUPLE,
+    index_of,
 )
-
 
 __all__ = tuple()
 
@@ -131,3 +127,8 @@ def var_tuple_unary(ts: TS[Tuple[SCALAR, ...]]) -> TS[float]:
         return 0.0
     else:
         return float(variance(ts))
+
+
+@compute_node(overloads=index_of)
+def index_of_tuple(ts: TS[tuple[SCALAR, ...]], item: TS[SCALAR]) -> TS[int]:
+    return index_of(ts.value, item.value)
