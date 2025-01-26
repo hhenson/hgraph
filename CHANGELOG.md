@@ -867,3 +867,9 @@ Version 0.3.45 (23-01-2025)
 ---------------------------
 
 * Make index_of more generic
+
+Version 0.3.46 (26-01-2025)
+---------------------------
+
+* add operator to support TSL op TS
+
