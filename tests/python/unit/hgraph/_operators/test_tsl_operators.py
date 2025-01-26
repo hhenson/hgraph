@@ -42,7 +42,7 @@ def test_add_tsls():
     def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return add_(lhs, rhs)
 
-    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 3, 1: 5}]
+    assert eval_node(app, [(1, 2)], [(2, 3)]) == [{0: 3, 1: 5}]
 
 
 def test_add_tsls_gaps():
@@ -50,7 +50,7 @@ def test_add_tsls_gaps():
     def app(lhs: TSL[TS[int], Size[4]], rhs: TSL[TS[int], Size[4]]) -> TSL[TS[int], Size[4]]:
         return lhs + rhs
 
-    assert eval_node(app, [(1, None, 2, 5)], [(2, 3, None, 6)], resolution_dict={"ts": TS[int]}) == [{0: 3, 3: 11}]
+    assert eval_node(app, [(1, None, 2, 5)], [(2, 3, None, 6)]) == [{0: 3, 3: 11}]
 
 
 def test_sub_tsls():
@@ -58,7 +58,7 @@ def test_sub_tsls():
     def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return lhs - rhs
 
-    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={"ts": TS[int]}) == [{0: -1, 1: -1}]
+    assert eval_node(app, [(1, 2)], [(2, 3)]) == [{0: -1, 1: -1}]
 
 
 def test_mul_tsls():
@@ -66,7 +66,15 @@ def test_mul_tsls():
     def app(lhs: TSL[TS[int], Size[2]], rhs: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
         return lhs * rhs
 
-    assert eval_node(app, [(1, 2)], [(2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 2, 1: 6}]
+    assert eval_node(app, [(1, 2)], [(2, 3)]) == [{0: 2, 1: 6}]
+
+
+def test_mul_tsl_scalar():
+    @graph
+    def app(lhs: TSL[TS[int], Size[2]], rhs: TS[int]) -> TSL[TS[int], Size[2]]:
+        return lhs * rhs
+
+    assert eval_node(app, [(1, 2)], [2]) == [{0: 2, 1: 4}]
 
 
 def test_div_tsls():
@@ -74,7 +82,15 @@ def test_div_tsls():
     def app(lhs: TSL[TS[float], Size[2]], rhs: TSL[TS[float], Size[2]]) -> TSL[TS[float], Size[2]]:
         return lhs / rhs
 
-    assert eval_node(app, [(1.0, 2.0)], [(2.0, 1.0)], resolution_dict={"ts": TS[float]}) == [{0: 0.5, 1: 2.0}]
+    assert eval_node(app, [(1.0, 2.0)], [(2.0, 1.0)]) == [{0: 0.5, 1: 2.0}]
+
+
+def test_div_tsl_scalar():
+    @graph
+    def app(lhs: TSL[TS[int], Size[2]], rhs: TS[int]) -> TSL[TS[float], Size[2]]:
+        return lhs / rhs
+
+    assert eval_node(app, [(1, 2)], [2]) == [{0: 0.5, 1: 1.0}]
 
 
 def test_floordiv_tsls():
@@ -82,7 +98,15 @@ def test_floordiv_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs // rhs
 
-    assert eval_node(app, [(3, 2, 100)], [(2, 2, 10)], resolution_dict={"ts": TS[int]}) == [{0: 1, 1: 1, 2: 10}]
+    assert eval_node(app, [(3, 2, 100)], [(2, 2, 10)]) == [{0: 1, 1: 1, 2: 10}]
+
+
+def test_floordiv_tsl_scalar():
+    @graph
+    def app(lhs: TSL[TS[int], Size[2]], rhs: TS[int]) -> TSL[TS[int], Size[2]]:
+        return lhs // rhs
+
+    assert eval_node(app, [(1, 2)], [2]) == [{0: 0, 1: 1}]
 
 
 def test_mod_tsls():
@@ -90,7 +114,15 @@ def test_mod_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs % rhs
 
-    assert eval_node(app, [(3, 2, 105)], [(2, 2, 10)], resolution_dict={"ts": TS[int]}) == [{0: 1, 1: 0, 2: 5}]
+    assert eval_node(app, [(3, 2, 105)], [(2, 2, 10)]) == [{0: 1, 1: 0, 2: 5}]
+
+
+def test_mod_tsl_scalar():
+    @graph
+    def app(lhs: TSL[TS[int], Size[2]], rhs: TS[int]) -> TSL[TS[int], Size[2]]:
+        return lhs % rhs
+
+    assert eval_node(app, [(3, 2)], [2]) == [{0: 1, 1: 0}]
 
 
 def test_pow_tsls():
@@ -98,7 +130,15 @@ def test_pow_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs**rhs
 
-    assert eval_node(app, [(3, 4, 5)], [(3, 0, 1)], resolution_dict={"ts": TS[int]}) == [{0: 27, 1: 1, 2: 5}]
+    assert eval_node(app, [(3, 4, 5)], [(3, 0, 1)]) == [{0: 27, 1: 1, 2: 5}]
+
+
+def test_pow_tsl_scalar():
+    @graph
+    def app(lhs: TSL[TS[int], Size[2]], rhs: TS[int]) -> TSL[TS[int], Size[2]]:
+        return lhs**rhs
+
+    assert eval_node(app, [(3, 2)], [2]) == [{0: 9, 1: 4}]
 
 
 def test_lshift_tsls():
@@ -106,7 +146,7 @@ def test_lshift_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs << rhs
 
-    assert eval_node(app, [(2, 10, 8)], [(1, 2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 4, 1: 40, 2: 64}]
+    assert eval_node(app, [(2, 10, 8)], [(1, 2, 3)]) == [{0: 4, 1: 40, 2: 64}]
 
 
 def test_rshift_tsls():
@@ -114,7 +154,7 @@ def test_rshift_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs >> rhs
 
-    assert eval_node(app, [(2, 10, 1024)], [(1, 2, 3)], resolution_dict={"ts": TS[int]}) == [{0: 1, 1: 2, 2: 128}]
+    assert eval_node(app, [(2, 10, 1024)], [(1, 2, 3)]) == [{0: 1, 1: 2, 2: 128}]
 
 
 def test_bit_and_tsls():
@@ -122,7 +162,7 @@ def test_bit_and_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs & rhs
 
-    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={"ts": TS[int]}) == [{0: 0, 1: 8, 2: 5}]
+    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)]) == [{0: 0, 1: 8, 2: 5}]
 
 
 def test_bit_or_tsls():
@@ -130,7 +170,7 @@ def test_bit_or_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs | rhs
 
-    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={"ts": TS[int]}) == [{0: 3, 1: 9, 2: 7}]
+    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)]) == [{0: 3, 1: 9, 2: 7}]
 
 
 def test_bit_xor_tsls():
@@ -138,7 +178,7 @@ def test_bit_xor_tsls():
     def app(lhs: TSL[TS[int], Size[3]], rhs: TSL[TS[int], Size[3]]) -> TSL[TS[int], Size[3]]:
         return lhs ^ rhs
 
-    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)], resolution_dict={"ts": TS[int]}) == [{0: 3, 1: 1, 2: 2}]
+    assert eval_node(app, [(2, 8, 7)], [(1, 9, 5)]) == [{0: 3, 1: 1, 2: 2}]
 
 
 @pytest.mark.parametrize(

@@ -133,12 +133,24 @@ def mul_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE])
     return TSL.from_ts(*(a * b for a, b in zip(lhs, rhs)))
 
 
+@graph(overloads=mul_)
+def mul_tsl_scalar(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TS[NUMBER]) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    """Scale the TSL by the rhs supplied."""
+    return TSL.from_ts(*(l * rhs for l in lhs))
+
+
 @graph(overloads=div_)
 def div_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
     """
     Item-wise division of TSL elements.  A missing value on either lhs or rhs causes a gap on the output
     """
     return TSL.from_ts(*(a / b for a, b in zip(lhs, rhs)))
+
+
+@graph(overloads=div_)
+def div_tsl_scalar(lhs: TSL[TS[NUMBER], SIZE], rhs: TS[NUMBER]) -> TSL[TS[float], SIZE]:
+    """Item-wise division of TSL elements.  A missing value on either lhs or rhs causes a gap on the output"""
+    return TSL.from_ts(*(l / rhs for l in lhs))
 
 
 @graph(overloads=floordiv_)
@@ -149,6 +161,12 @@ def floordiv_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, S
     return TSL.from_ts(*(a // b for a, b in zip(lhs, rhs)))
 
 
+@graph(overloads=floordiv_)
+def floordiv_tsl_scalar(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TS[NUMBER]) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    """Item-wise floor division of TSL elements.  A missing value on either lhs or rhs causes a gap on the output"""
+    return TSL.from_ts(*(l // rhs for l in lhs))
+
+
 @graph(overloads=mod_)
 def mod_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
     """
@@ -157,12 +175,28 @@ def mod_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE])
     return TSL.from_ts(*(a % b for a, b in zip(lhs, rhs)))
 
 
+@graph(overloads=mod_)
+def mod_tsl_scalar(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    """
+    Item-wise lhs % rhs of TSL elements.  A missing value on either lhs or rhs causes a gap on the output
+    """
+    return TSL.from_ts(*(l % rhs for l in lhs))
+
+
 @graph(overloads=pow_)
 def pow_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
     """
     Item-wise lhs ** rhs of the elements.  A missing value on either lhs or rhs causes a gap on the output
     """
     return TSL.from_ts(*(a**b for a, b in zip(lhs, rhs)))
+
+
+@graph(overloads=pow_)
+def pow_tsl_scalar(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    """
+    Item-wise lhs ** rhs of TSL elements.  A missing value on either lhs or rhs causes a gap on the output
+    """
+    return TSL.from_ts(*(l**rhs for l in lhs))
 
 
 @graph(overloads=lshift_)
