@@ -4,8 +4,28 @@ from statistics import stdev, variance
 from typing import Type
 
 from hgraph._impl._types._tss import PythonSetDelta
-from hgraph._operators import contains_, is_empty, len_, bit_or, sub_, bit_and, bit_xor, eq_, and_, or_, min_, max_, \
-    sum_, zero, std, var, str_, not_, mean, union
+from hgraph._operators import (
+    contains_,
+    is_empty,
+    len_,
+    bit_or,
+    sub_,
+    bit_and,
+    bit_xor,
+    eq_,
+    and_,
+    or_,
+    min_,
+    max_,
+    sum_,
+    zero,
+    std,
+    var,
+    str_,
+    not_,
+    mean,
+    union,
+)
 from hgraph._types._ref_type import REF, TimeSeriesReference
 from hgraph._types._scalar_types import STATE, KEYABLE_SCALAR, CompoundScalar
 from hgraph._types._ts_type import TS
@@ -25,7 +45,8 @@ def contains_tss(ts: REF[TSS[KEYABLE_SCALAR]], item: TS[KEYABLE_SCALAR], _state:
     # If the tss is set then we should de-register the old contains.
     if _state.tss is not None:
         _state.tss.release_contains_output(_state.item, _state.requester)
-    _state.tss = ts.value.output
+    v = ts.value
+    _state.tss = v.output if v.has_output else None
     _state.item = item.value
     return TimeSeriesReference.make(
         None if _state.tss is None else _state.tss.get_contains_output(_state.item, _state.requester)
@@ -213,7 +234,9 @@ def str_tss(tss: TSS[KEYABLE_SCALAR]) -> TS[str]:
 
 
 @compute_node(valid=tuple(), overloads=union)
-def union_multiple_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
+def union_multiple_tss(
+    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None
+) -> TSS[KEYABLE_SCALAR]:
     tss: TSS[KEYABLE_SCALAR, SIZE]
     to_add: set[KEYABLE_SCALAR] = set()
     to_remove: set[KEYABLE_SCALAR] = set()
@@ -241,7 +264,9 @@ class OverlapState(CompoundScalar):
 
 
 @compute_node
-def overlap_multiple_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None) -> TSS[KEYABLE_SCALAR]:
+def overlap_multiple_tss(
+    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None
+) -> TSS[KEYABLE_SCALAR]:
     """
     Returns the set of items that are in more than one of the inputs.
     """
@@ -258,8 +283,11 @@ def overlap_multiple_tss(*tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[Ove
         for k in tss.removed():
             items[k] -= 1
             match items[k]:
-                case 1: modified.add(k)
-                case 0: items.pop(k)
-                case _: pass
+                case 1:
+                    modified.add(k)
+                case 0:
+                    items.pop(k)
+                case _:
+                    pass
 
     return PythonSetDelta({k for k in modified if items[k] > 1}, {k for k in modified if items[k] <= 1})
