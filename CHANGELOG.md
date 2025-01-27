@@ -873,3 +873,7 @@ Version 0.3.46 (26-01-2025)
 
 * add operator to support TSL op TS
 
+Version 0.3.47 (27-01-2025)
+---------------------------
+
+* Fix problem with tss contains operator.
