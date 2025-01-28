@@ -877,3 +877,8 @@ Version 0.3.47 (27-01-2025)
 ---------------------------
 
 * Fix problem with tss contains operator.
+
+Version 0.3.48 (28-01-2025)
+---------------------------
+
+* Fix a few issues
