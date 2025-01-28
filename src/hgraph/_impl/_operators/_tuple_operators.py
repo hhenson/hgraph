@@ -131,4 +131,7 @@ def var_tuple_unary(ts: TS[Tuple[SCALAR, ...]]) -> TS[float]:
 
 @compute_node(overloads=index_of)
 def index_of_tuple(ts: TS[tuple[SCALAR, ...]], item: TS[SCALAR]) -> TS[int]:
-    return index_of(ts.value, item.value)
+    try:
+        return ts.value.index(item.value)
+    except ValueError:
+        return -1

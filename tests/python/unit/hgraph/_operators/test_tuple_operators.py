@@ -151,5 +151,5 @@ def test_index_of():
         index_of,
         [(1, 2, 3), None, (2, 3, 4), (-1, 0, 1)],
         [2, 1],
-        resolution_dict={"ts": TSL[TS[int], Size[3]], "item": TS[int]},
+        resolution_dict={"ts": TS[tuple[int, ...]], "item": TS[int]},
     ) == [1, 0, -1, 2]
