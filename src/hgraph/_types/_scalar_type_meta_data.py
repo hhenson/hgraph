@@ -416,8 +416,9 @@ class HgTraitsType(HgInjectableType):
         return TraitsInjector()
 
 
-HGRAPH_LOGGER = logging.getLogger('hgraph')
+HGRAPH_LOGGER = logging.getLogger("hgraph")
 HGRAPH_LOGGER_LOGGER = HGRAPH_LOGGER._log
+
 
 def _log(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node_path=None):
     return HGRAPH_LOGGER_LOGGER(level, f"{node_path}:\n{msg}", args, exc_info, extra, stack_info, stacklevel)
@@ -426,6 +427,7 @@ def _log(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklev
 class LoggerInjector(Injector):
     def __call__(self, node):
         from hgraph._types._error_type import BackTrace
+
         node_path = BackTrace.runtime_path_name(node)
         logger = logging.getLogger(node_path)
         logger._log = partial(_log, node_path=node_path)
@@ -542,6 +544,7 @@ class HgRecordableStateType(HgInjectableType):
     @property
     def tsb_type(self) -> "HgTSBTypeMetaData":
         from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+
         return HgTSBTypeMetaData(self.state_type) if self.state_type is not None else None
 
     @property
@@ -829,6 +832,10 @@ class HgTupleFixedScalarType(HgTupleScalarType):
         return len(self.element_types)
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
+        if isinstance(tp, HgTupleCollectionScalarType):
+            # There is already logic in the HgTupleCollectionScalarType
+            # to handle fixed type matching
+            return tp.matches(self)
         return (
             type(tp) is HgTupleFixedScalarType
             and len(self.element_types) == len(tp.element_types)
