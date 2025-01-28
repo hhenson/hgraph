@@ -134,9 +134,11 @@ def mul_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE])
 
 
 @graph(overloads=mul_)
-def mul_tsl_scalar(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TS[NUMBER]) -> TSL[TIME_SERIES_TYPE, SIZE]:
+def mul_tsl_scalar(
+    lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TS[NUMBER], sz: type[SIZE] = AUTO_RESOLVE
+) -> TSL[TIME_SERIES_TYPE, SIZE]:
     """Scale the TSL by the rhs supplied."""
-    return TSL.from_ts(*(l * rhs for l in lhs))
+    return TSL.from_ts(*(lhs[i] * rhs for i in range(sz.SIZE)))
 
 
 @graph(overloads=div_)
