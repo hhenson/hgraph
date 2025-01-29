@@ -171,9 +171,9 @@ def test_rekey_tsd_set():
 
     fd = frozendict
     assert (eval_node(g,
-        [None,                  {1: 1, 3: 3},   {2: 2},         None,                                                   {2: REMOVE}       ],  # TSD
-        [{1: {"a"}, 2: {"b"}},  None,           None,           {1: PythonSetDelta(added={"c", "d"}, removed={"a"})},   None              ]) ==  # key mappings
-        [None,                  fd({"a": 1}),   fd({"b": 2}),   fd({"c": 1, "d": 1, "a": REMOVE}),                      fd({"b": REMOVE}),]) # expected results
+        [None,                  {1: 1, 3: 3},   {2: 2},         None,                                                   {2: REMOVE},        None],  # TSD
+        [{1: {"a"}, 2: {"b"}},  None,           None,           {1: PythonSetDelta(added={"c", "d"}, removed={"a"})},   None,               {1: REMOVE}]) ==  # key mappings
+        [None,                  fd({"a": 1}),   fd({"b": 2}),   fd({"c": 1, "d": 1, "a": REMOVE}),                      fd({"b": REMOVE}),  fd({"c": REMOVE, "d": REMOVE})]) # expected results
 
 
 def test_flip():

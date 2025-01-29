@@ -499,20 +499,19 @@ def rekey_tsd_with_set(
            for k in prev.get(tsd_key, ())}
 
     # Removed key mappings
-    for tsd_key, key_set in new_keys.removed_items():
-        for k in key_set.value:
+    for tsd_key in new_keys.removed_keys():
+        for k in prev.get(tsd_key, ()):
             out[k] = REMOVE_IF_EXISTS
         prev.pop(tsd_key, None)
 
     # Modified key mappings
     for tsd_key, key_set in new_keys.modified_items():
         key_set = key_set.value
-        prev_key_set = prev.get(tsd_key, ())
-        for k in prev_key_set:
-            if k not in key_set:
-                out[k] = REMOVE_IF_EXISTS
-        for k in key_set:
-            if k not in prev_key_set and tsd_key in tsd:
+        prev_key_set = prev.get(tsd_key, set())
+        for k in prev_key_set - key_set:
+            out[k] = REMOVE_IF_EXISTS
+        for k in key_set - prev_key_set:
+            if tsd_key in tsd:
                 out[k] = tsd[tsd_key].value
         prev[tsd_key] = {s for s in key_set}  # need a copy of the set
 
