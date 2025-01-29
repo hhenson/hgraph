@@ -45,7 +45,8 @@ from hgraph import (
     service_impl,
     MIN_TD,
     register_service,
-    map_, merge_tsd_disjoint,
+    map_,
+    PythonSetDelta,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -161,6 +162,18 @@ def test_rekey():
         fd({"c": 1, "a": REMOVE}),
         fd({"b": REMOVE}),
     ]
+
+
+def test_rekey_tsd_set():
+    @graph
+    def g(ts: TSD[int, TS[int]], new_keys: TSD[int, TSS[str]]) -> TSD[str, TS[int]]:
+        return rekey(ts, new_keys)
+
+    fd = frozendict
+    assert (eval_node(g,
+        [None,                  {1: 1, 3: 3},   {2: 2},         None,                                                   {2: REMOVE}       ],  # TSD
+        [{1: {"a"}, 2: {"b"}},  None,           None,           {1: PythonSetDelta(added={"c", "d"}, removed={"a"})},   None              ]) ==  # key mappings
+        [None,                  fd({"a": 1}),   fd({"b": 2}),   fd({"c": 1, "d": 1, "a": REMOVE}),                      fd({"b": REMOVE}),]) # expected results
 
 
 def test_flip():

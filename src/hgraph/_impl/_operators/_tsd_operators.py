@@ -436,7 +436,7 @@ def uncollapse_more_keys_tsd(
 
 @dataclass
 class TsdRekeyState(CompoundScalar):
-    prev: dict = field(default_factory=dict)  # Copy of previous ticks
+    prev: dict = field(default_factory=dict)  # Previous new keys
 
 
 @compute_node(overloads=rekey, valid=("new_keys",))
@@ -451,19 +451,21 @@ def rekey_tsd(
     out = {}
     prev = _state.prev
 
-    # Clear up existing mapping before we track new key mappings
+    # Removed tsd items
     for k in ts.removed_keys():
         k_new = prev.get(k)
         if k_new is not None:
             out[k_new] = REMOVE_IF_EXISTS
 
-    # Track changes in new keys
+    # Removed key mappings
     for ts_key in new_keys.removed_keys():
         prev_key = prev.pop(ts_key, None)
         if prev_key is not None:
             out[prev_key] = REMOVE_IF_EXISTS
+
+    # Modified key mappings
     for ts_key, new_key in new_keys.modified_items():
-        new_key = new_key.value  # Get the value from the ts
+        new_key = new_key.value
         prev_key = prev.get(ts_key, None)
         if prev_key is not None and new_key != prev_key:
             out[prev_key] = REMOVE_IF_EXISTS
@@ -472,12 +474,57 @@ def rekey_tsd(
         if v is not None:
             out[new_key] = v.value
 
-    for k, v in ts.modified_items() if ts.valid else ():
-        k_new = prev.get(k, None)
-        if k_new is not None:
-            out[k_new] = v.value
+    # Modified tsd items
+    if ts.valid:
+        for k, v in ts.modified_items():
+            k_new = prev.get(k, None)
+            if k_new is not None:
+                out[k_new] = v.value
 
-    return out if out else None
+    if out:
+        return out
+
+
+@compute_node(overloads=rekey, valid=("new_keys",))
+def rekey_tsd_with_set(
+        tsd: TSD[K, REF[TIME_SERIES_TYPE]],
+        new_keys: TSD[K, TSS[K_1]],
+        _state: STATE[TsdRekeyState] = None) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
+
+    prev = _state.prev
+
+    # Removed tsd items
+    out = {k: REMOVE_IF_EXISTS
+           for tsd_key in tsd.removed_keys()
+           for k in prev.get(tsd_key, ())}
+
+    # Removed key mappings
+    for tsd_key, key_set in new_keys.removed_items():
+        for k in key_set.value:
+            out[k] = REMOVE_IF_EXISTS
+        prev.pop(tsd_key, None)
+
+    # Modified key mappings
+    for tsd_key, key_set in new_keys.modified_items():
+        key_set = key_set.value
+        prev_key_set = prev.get(tsd_key, ())
+        for k in prev_key_set:
+            if k not in key_set:
+                out[k] = REMOVE_IF_EXISTS
+        for k in key_set:
+            if k not in prev_key_set and tsd_key in tsd:
+                out[k] = tsd[tsd_key].value
+        prev[tsd_key] = {s for s in key_set}  # need a copy of the set
+
+    # Modified tsd items
+    for tsd_key, v in tsd.modified_items():
+        key_set = new_keys.get(tsd_key)
+        if key_set:
+            for k in key_set.value:
+                out[k] = v.value
+
+    if out:
+        return out
 
 
 @compute_node(overloads=flip)
