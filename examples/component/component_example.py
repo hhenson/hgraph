@@ -23,11 +23,12 @@ from hgraph import (
     graph,
     map_,
     mul_,
-    replay_from_memory,
     set_record_replay_model,
     set_replay_values,
-    switch_, to_window,
+    switch_,
+    to_window,
 )
+from hgraph._impl._operators._record_replay_in_memory import replay_from_memory
 
 
 class CountState(TimeSeriesSchema):
@@ -56,7 +57,7 @@ def compute_signal(returns: TSD[str, TS[float]], factors: TSD[str, TS[float]]) -
             False: lambda c: count_(c, __recordable_id__="count_"),
         },
         count < 4,
-        count
+        count,
     )
     window = map_(lambda x: to_window(x, period=3), returns)
     debug_print("window", window)

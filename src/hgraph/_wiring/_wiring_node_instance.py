@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:
         NodeBuilder,
         Edge,
         WiringPort,
-        HgTSBTypeMetaData
+        HgTSBTypeMetaData,
     )
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
@@ -26,6 +26,12 @@ class InputsKey:
 
     def __init__(self, inputs):
         self._inputs = inputs
+        try:
+            self._hash = hash(inputs)
+        except TypeError:
+            # Degrade to best effort hash, this works around issues where some of the values are not hashable
+            # but are still logically immutable.
+            self._hash = hash(tuple((k, _safe_hash(v)) for k, v in self._inputs.items()))
 
     def __eq__(self, other: Any) -> bool:
         return all(
@@ -34,7 +40,14 @@ class InputsKey:
         )
 
     def __hash__(self) -> int:
-        return hash(self._inputs)
+        return self._hash
+
+
+def _safe_hash(v):
+    try:
+        return hash(v)
+    except TypeError:
+        return id(v)
 
 
 class WiringNodeInstanceContext:
@@ -48,7 +61,9 @@ class WiringNodeInstanceContext:
     def __init__(self, depth=1, error_capture_options=None):
         self._node_instances: dict[tuple, WiringNodeInstance] = {}
         self._depth = depth
-        self._error_capture_options = error_capture_options or (self.__stack__[-1]._error_capture_options if self.__stack__ else None)
+        self._error_capture_options = error_capture_options or (
+            self.__stack__[-1]._error_capture_options if self.__stack__ else None
+        )
 
     def create_wiring_node_instance(
         self, node: "WiringNodeClass", resolved_signature: "WiringNodeSignature", inputs: frozendict[str, Any]

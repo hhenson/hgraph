@@ -882,3 +882,8 @@ Version 0.3.48 (28-01-2025)
 ---------------------------
 
 * Fix a few issues
+
+Version 0.3.49 (29-01-2025)
+---------------------------
+
+* Cleanups to support replaying a data frame directly.

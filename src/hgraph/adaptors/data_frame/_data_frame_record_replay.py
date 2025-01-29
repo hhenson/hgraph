@@ -23,14 +23,26 @@ from hgraph import (
     from_table,
     EvaluationEngineApi,
     get_as_of,
-    LOGGER, const_fn, get_fq_recordable_id,
+    LOGGER,
+    const_fn,
+    get_fq_recordable_id,
+    Frame,
+    DEFAULT,
+    MAX_DT,
 )
 from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
 from hgraph._runtime._traits import Traits
 
-__all__ = ("DATA_FRAME_RECORD_REPLAY", "set_data_frame_record_path", "MemoryDataFrameStorage", "DataFrameStorage",
-           "FileBasedDataFrameStorage", "BaseDataFrameStorage")
+__all__ = (
+    "DATA_FRAME_RECORD_REPLAY",
+    "set_data_frame_record_path",
+    "MemoryDataFrameStorage",
+    "DataFrameStorage",
+    "FileBasedDataFrameStorage",
+    "BaseDataFrameStorage",
+    "replay_data_frame",
+)
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
 DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
@@ -94,6 +106,22 @@ def replay_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id
     return from_table[tp](values)
 
 
+@graph
+def replay_data_frame(
+    data_frame: Frame, schema: TableSchema = None, as_of_time: datetime = None, tp: type[OUT] = AUTO_RESOLVE
+) -> DEFAULT[OUT]:
+    """
+    Support replay of a raw polars data frame. Supports supplying a custom schema, if the schema is not supplied it
+    will be extracted from the output type. If an as_of_time is supplied then use it, otherwise the as_of time will
+    be set to either the globally set as_of time or the current time.
+    """
+    if schema is None:
+        schema = table_schema(tp).value
+    if as_of_time is None:
+        as_of_time = MAX_DT
+    return from_table[tp](_replay_from_data_frame_raw(data_frame, tp, schema, as_of_time))
+
+
 def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
     recordable_id = get_fq_recordable_id(traits, recordable_id) if traits is not None else recordable_id
     return DataFrameStorage.instance().read_frame(f"{recordable_id}::{key}")
@@ -118,13 +146,37 @@ def _replay_from_data_frame(
 ) -> TS[OUT]:
     schema: TableSchema = table_schema(tp).value
     df_source = _get_df(key, recordable_id, _traits)
+    start_time = _api.start_time
+    as_of_time = get_as_of(_api.evaluation_clock)
+    return _do_replay_from_data_frame(schema, df_source, start_time, as_of_time)
+
+
+@generator(resolvers={OUT: _replay_from_data_frame_output_shape})
+def _replay_from_data_frame_raw(
+    data_frame: Frame,
+    tp: type[TIME_SERIES_TYPE],
+    schema: TableSchema,
+    as_of_time: datetime,
+    _traits: Traits = None,
+    _api: EvaluationEngineApi = None,
+) -> TS[OUT]:
+    if as_of_time is MAX_DT:
+        as_of_time = get_as_of(_api.evaluation_clock)
+    start_time = _api.start_time
+    return _do_replay_from_data_frame(schema, data_frame, start_time, as_of_time)
+
+
+def _do_replay_from_data_frame(
+    schema: TableSchema,
+    df_source: pl.DataFrame,
+    start_time: datetime,
+    as_of_time: datetime,
+):
     dt_col_str = get_table_schema_date_key()
     dt_col = pl.col(dt_col_str)
     as_of_str = get_table_schema_as_of_key()
     as_of_col = pl.col(as_of_str)
     partition_keys = [dt_col] + [pl.col(k) for k in schema.partition_keys]
-    start_time = _api.start_time
-    as_of_time = get_as_of(_api.evaluation_clock)
     df_source: pl.DataFrame = (
         df_source.lazy()
         .filter(dt_col >= start_time, as_of_col <= as_of_time)
@@ -197,9 +249,9 @@ class DataFrameStorage(ABC):
     def __init__(self):
         self._previous_instance: "DataFrameStorage" = None
 
-    @classmethod
-    def instance(cls) -> "DataFrameStorage":
-        return cls._INSTANCE
+    @staticmethod
+    def instance() -> "DataFrameStorage":
+        return DataFrameStorage._INSTANCE
 
     def set_as_instance(self):
         if DataFrameStorage._INSTANCE is not None:
@@ -218,7 +270,9 @@ class DataFrameStorage(ABC):
         self.release_as_instance()
 
     @abstractmethod
-    def read_frame(self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None) -> pl.DataFrame:
+    def read_frame(
+        self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None
+    ) -> pl.DataFrame:
         """
         Read the data frame from the source. Given most of our use-case is for temporal data-frames.
         The read frame method will support time-range style queries as an optimisation. If the parameters
@@ -230,8 +284,9 @@ class DataFrameStorage(ABC):
         """
 
     @abstractmethod
-    def write_frame(self, path: str, df: pl.DataFrame,
-                    mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None) -> pl.DataFrame:
+    def write_frame(
+        self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
+    ) -> pl.DataFrame:
         """
         Write the data frame to the source. If the data schema includes as_of information, then if this schema has the
         as_of field, it will make use of it. Alternatively, if the as_of argument is supplied, this is used for
@@ -241,7 +296,6 @@ class DataFrameStorage(ABC):
         is a date or as_of column based on common patterns.
         """
 
-
     @abstractmethod
     def set_schema_info(self, path: str, date_time_col: str = None, as_of_col: str = None):
         """
@@ -250,6 +304,7 @@ class DataFrameStorage(ABC):
         are to be stored for each os_of epoc. If the schema information is not stored it is assumed that the data
         frame is not time-based.
         """
+
 
 class BaseDataFrameStorage(DataFrameStorage, ABC):
     """Provide a common set of utilities for memory and file-based data frame storage"""
@@ -266,9 +321,9 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
     def _get_schema_info(self, path: str) -> tuple[str, str]:
         """Get the underlying schema data"""
 
-
-    def read_frame(self, path: str, start_time: datetime = None, end_time: datetime = None,
-                   as_of: datetime = None) -> pl.DataFrame:
+    def read_frame(
+        self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None
+    ) -> pl.DataFrame:
         date_time_col, as_of_col = self._get_schema_info(path)
         df = self._read(path).lazy()
         # Ignore as_of for now
@@ -280,8 +335,9 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
                 df = df.filter(pl.col(date_time_col) <= end_time)
         return df.collect()
 
-    def write_frame(self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE,
-                    as_of: datetime = None) -> pl.DataFrame:
+    def write_frame(
+        self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
+    ) -> pl.DataFrame:
         date_time_col, as_of_col = self._get_schema_info(path)
         if mode != WriteMode.OVERWRITE:
             raise RuntimeError(f"Currently mode: {mode.name} is not supported")
@@ -307,7 +363,9 @@ class FileBasedDataFrameStorage(BaseDataFrameStorage):
 
     def set_schema_info(self, path: str, date_time_col: str = None, as_of_col: str = None):
         schema = self._path / f"{path}.schema"
-        schema.write_text(f"date_time_col: {date_time_col}\nas_of_col: {as_of_col}", )
+        schema.write_text(
+            f"date_time_col: {date_time_col}\nas_of_col: {as_of_col}",
+        )
 
     def _get_schema_info(self, path: str) -> tuple[str, str]:
         schema = self._path / f"{path}.schema"
@@ -339,4 +397,3 @@ class MemoryDataFrameStorage(BaseDataFrameStorage):
 
     def set_schema_info(self, path: str, date_time_col: str = None, as_of_col: str = None):
         self._schema[str(path)] = date_time_col, as_of_col
-

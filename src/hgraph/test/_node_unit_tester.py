@@ -5,7 +5,6 @@ from typing import Any
 
 from hgraph import (
     graph,
-    run_graph,
     GlobalState,
     MIN_TD,
     HgTypeMetaData,
@@ -18,10 +17,12 @@ from hgraph import (
     EvaluationLifeCycleObserver,
     SimpleArrayReplaySource,
     set_replay_values,
-    replay_from_memory,
-    record_to_memory,
-    get_recorded_value, evaluate_graph, GraphConfiguration, MAX_ET,
+    get_recorded_value,
+    evaluate_graph,
+    GraphConfiguration,
+    MAX_ET,
 )
+from hgraph._impl._operators._record_replay_in_memory import replay_from_memory, record_to_memory
 
 
 def eval_node(
@@ -176,7 +177,7 @@ def eval_node(
                 end_time=__end_time__ if __end_time__ is not None else MAX_ET,
                 trace=__trace__,
                 trace_wiring=__trace_wiring__,
-            )
+            ),
         )
 
         results = get_recorded_value() if node.signature.output_type is not None else []

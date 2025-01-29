@@ -5,21 +5,27 @@ from typing import Protocol, Iterable, Any
 from hgraph import get_fq_recordable_id
 from hgraph._operators import replay, IN_MEMORY, record, record_replay_model_restriction, compare, replay_const
 from hgraph._runtime import Traits, MIN_ST, MIN_TD, GlobalState, EvaluationClock, EvaluationEngineApi, Node, Graph
-from hgraph._types import AUTO_RESOLVE, TS, CompoundScalar, LOGGER, STATE, TIME_SERIES_TYPE, TimeSeriesOutput, \
-    HgTimeSeriesTypeMetaData
+from hgraph._types import (
+    AUTO_RESOLVE,
+    TS,
+    CompoundScalar,
+    LOGGER,
+    STATE,
+    TIME_SERIES_TYPE,
+    TimeSeriesOutput,
+    HgTimeSeriesTypeMetaData,
+)
 from hgraph._wiring import generator, sink_node, graph, const_fn
 
 
 __all__ = (
     "ReplaySource",
-    "replay_from_memory",
-    "record_to_memory",
-    "replay_const_from_memory",
     "SimpleArrayReplaySource",
     "set_replay_values",
     "get_recorded_value",
     "reset_recorded_value",
 )
+
 
 class ReplaySource(Protocol):
     """
@@ -100,7 +106,7 @@ def replay_const_from_memory(
     as_of: datetime = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
-    _node: Node = None
+    _node: Node = None,
 ) -> TIME_SERIES_TYPE:
     recordable_id = get_fq_recordable_id(_traits, recordable_id)
     recordable_id = f":memory:{recordable_id}.{key}"
@@ -108,9 +114,13 @@ def replay_const_from_memory(
     tm = _clock.evaluation_time if tm is None else tm
     if source is not None:
         from hgraph import TimeSeriesBuilderFactory
+
         # Create an output to match type so we can determine the value through repeated processing of the deltas.
-        output: TimeSeriesOutput = TimeSeriesBuilderFactory.instance().make_output_builder(
-            HgTimeSeriesTypeMetaData.parse_type(tp)).make_instance(_node, None)
+        output: TimeSeriesOutput = (
+            TimeSeriesBuilderFactory.instance()
+            .make_output_builder(HgTimeSeriesTypeMetaData.parse_type(tp))
+            .make_instance(_node, None)
+        )
         for ts, v in source:
             # This is a slow approach, but since we don't have an index, this is the best we can do.
             # Additionally, since we are recording delta values, we need to apply the successive results to form the
@@ -189,6 +199,7 @@ def reset_recorded_value(key: str = "out", recordable_id: str = None):
         recordable_id = f":memory:{recordable_id}"
     global_state = GlobalState.instance()
     global_state.pop(f"{recordable_id}.{key}")
+
 
 @graph(overloads=compare)
 def compare_generic(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
