@@ -887,3 +887,8 @@ Version 0.3.49 (29-01-2025)
 ---------------------------
 
 * Cleanups to support replaying a data frame directly.
+
+Version 0.4.50 (30-01-2025)
+---------------------------
+
+* add dependency to typing_extensions
