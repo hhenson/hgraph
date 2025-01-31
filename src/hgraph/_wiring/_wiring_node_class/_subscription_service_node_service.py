@@ -13,10 +13,9 @@ from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGra
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
 from hgraph._wiring._wiring_node_class._wiring_node_class import validate_and_resolve_signature
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+from hgraph._wiring._wiring_port import _wiring_port_for
 
 __all__ = ("SubscriptionServiceNodeClass",)
-
-from hgraph._wiring._wiring_port import _wiring_port_for
 
 
 class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
@@ -64,10 +63,9 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
                 out = get_shared_reference_output[TIME_SERIES_TYPE : TSD[key_type, value_type]](
                     f"{typed_full_path}/out"
                 )
+                g.register_service_client(self, full_path, resolution_dict, out.node_instance)
 
-                result = out[key]
-                g.register_service_client(self, full_path, resolution_dict, result.node_instance)
-                return result
+                return out[key]
 
     def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
         from hgraph.nodes import capture_output_node_to_global_state

@@ -38,17 +38,18 @@ __all__ = (
 @sink_node(valid=tuple())
 def capture_output_to_global_state(path: str, ts: REF[TIME_SERIES_TYPE]):
     """This node serves to capture the output of a service node and record the output reference in the global state."""
-    GlobalState.instance()[path] = ts.value
-    GlobalState.instance()[f"{path}_subscriber"].notify(ts.last_modified_time)
+    global_state = GlobalState().instance()
+    global_state[path] = ts.value
+    global_state[f"{path}_subscriber"].notify(ts.last_modified_time)
 
 
 @capture_output_to_global_state.start
 def capture_output_to_global_state_start(path: str, ts: REF[TIME_SERIES_TYPE]):
     """Place the reference into the global state"""
     from hgraph import TimeSeriesSubscriber
-
-    GlobalState.instance()[path] = ts.value
-    GlobalState.instance()[f"{path}_subscriber"] = TimeSeriesSubscriber()
+    global_state = GlobalState().instance()
+    global_state[path] = ts.value
+    global_state[f"{path}_subscriber"] = TimeSeriesSubscriber()
 
 
 @capture_output_to_global_state.stop
@@ -110,9 +111,10 @@ def write_subscription_key_start(path: str, _state: STATE):
     tracker_path = f"{path}_tracker"
     _state.subscription_id = object()
     _state.previous_key = None
-    if tracker_path not in GlobalState.instance():
-        GlobalState.instance()[tracker_path] = defaultdict(set)
-    _state.tracker = GlobalState.instance()[tracker_path]
+    global_state = GlobalState.instance()
+    if tracker_path not in global_state:
+        global_state[tracker_path] = defaultdict(set)
+    _state.tracker =global_state[tracker_path]
 
 
 @write_subscription_key.stop
@@ -134,9 +136,10 @@ def write_service_request(
     """
     Updates TSDs attached to the path with the data provided.
     """
+    global_state = GlobalState.instance()
     for arg, ts in request.items():
         if ts.modified:
-            svc_node_in = GlobalState.instance().get(f"{path}/request_{arg}")
+            svc_node_in = global_state.get(f"{path}/request_{arg}")
             if svc_node_in is None:
                 raise ValueError(f"request stub '{arg}' not found for service {path}")
             svc_node_in.apply_value({_state.requestor_id: ts.delta_value})
@@ -147,17 +150,19 @@ def write_service_request(
 
 @write_service_request.start
 def write_service_request_start(path: str, _state: STATE):
-    i = GlobalState.instance().get("request_id", id(_state)) + 1
-    GlobalState.instance().request_id = i
+    global_state = GlobalState.instance()
+    i = global_state.get("request_id", id(_state)) + 1
+    global_state.request_id = i
     _state.requestor_id = i
 
 
 @write_service_request.stop
 def write_service_request_stop(request: TIME_SERIES_TYPE, path: str, _state: STATE):
     if request.valid:
+        global_state = GlobalState.instance()
         for arg, i in request.items():
             if i.valid:
-                if svc_node_in := GlobalState.instance().get(f"{path}/request_{arg}"):
+                if svc_node_in := global_state.get(f"{path}/request_{arg}"):
                     svc_node_in.apply_value({_state.requestor_id: REMOVE_IF_EXISTS})
 
 
@@ -187,8 +192,9 @@ def _request_reply_service(
 
 @generator
 def request_id(hash: int, _state: STATE = None) -> TS[int]:
-    i = GlobalState.instance().get("request_id", id(_state)) + 1
-    GlobalState.instance().request_id = i
+    global_state = GlobalState.instance()
+    i = global_state.get("request_id", id(_state)) + 1
+    global_state.request_id = i
     yield timedelta(), i
 
 
@@ -226,32 +232,36 @@ def write_service_requests(path: str, request: TIME_SERIES_TYPE):
     Updates TSDs attached to the path with the data provided.
     TIME_SERIES_TYPE is expected to be a bundle of TSDs (there is no generic way to represent it on the signature atm)
     """
+    global_state = GlobalState.instance()
     for arg, ts in request.items():
         if ts.modified:
-            svc_node_in = GlobalState.instance().get(f"{path}/request_{arg}")
+            svc_node_in = global_state.get(f"{path}/request_{arg}")
             if svc_node_in is None:
                 raise ValueError(f"request stub '{arg}' not found for service {path}")
             svc_node_in.apply_value(ts.delta_value)
 
 
 @pull_source_node
-def get_shared_reference_output(path: str, strict: bool = True, node: NODE = None) -> REF[TIME_SERIES_TYPE]:
+def get_shared_reference_output(path: str, strict: bool = True, node: NODE = None, _state: STATE = None) -> REF[TIME_SERIES_TYPE]:
     """Uses the special node to extract a node from the global state."""
     from hgraph._runtime._global_state import GlobalState
 
-    shared_output = GlobalState.instance().get(path)
-    if shared_output:
-        GlobalState.instance()[f"{path}_subscriber"].subscribe(node)
+    global_state = GlobalState.instance()
+    has_shared_output = path in global_state
+    if has_shared_output and _state.subscribed is False:
+        global_state[f"{path}_subscriber"].subscribe(node)
+        _state.subscribed = True
 
-    if shared_output is None and strict:
+    if not has_shared_output and strict:
         raise RuntimeError(f"Missing shared output for path: {path}")
 
-    return shared_output
+    return global_state.get(path)
 
 
 @get_shared_reference_output.start
-def get_shared_reference_output_start(path: str, node: NODE = None):
+def get_shared_reference_output_start(path: str, node: NODE = None, _state: STATE = None):
     node.notify(node.graph.evaluation_clock.evaluation_time)
+    _state.subscribed = False
 
 
 @get_shared_reference_output.stop
