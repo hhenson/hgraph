@@ -888,17 +888,17 @@ Version 0.3.49 (29-01-2025)
 
 * Cleanups to support replaying a data frame directly.
 
-Version 0.4.50 (30-01-2025)
+Version 0.3.50 (30-01-2025)
 ---------------------------
 
 * add dependency to typing_extensions
 
-Version 0.4.51 (03-02-2025)
+Version 0.3.51 (03-02-2025)
 ---------------------------
 
 * Add lift operator. This allows for the re-use of scalar functions as compute nodes.
 
-Version 0.4.52 (03-02-2025)
+Version 0.3.52 (03-02-2025)
 ---------------------------
 
 * Add a ZERO return option for divide by zero
