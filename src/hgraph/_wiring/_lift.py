@@ -51,7 +51,9 @@ def lift(
 
     out = sig.return_annotation
     return_annotation = TS[out] if output is None else output
-
-    with_signature(_wrapped, args=args, kwargs=kwargs, defaults=defaults, return_annotation=return_annotation)
-    _wrapped.__name__ = fn.__name__
+    name = fn.__name__
+    _wrapped = with_signature(
+        _wrapped, args=args, kwargs=kwargs, defaults=defaults, return_annotation=return_annotation
+    )
+    _wrapped.__name__ = name
     return compute_node(_wrapped, active=active, valid=valid, all_valid=all_valid)
