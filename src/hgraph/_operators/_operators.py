@@ -126,6 +126,7 @@ class DivideByZero(Enum):
     NAN = auto()
     INF = auto()
     NONE = auto()
+    ZERO = auto()
 
 
 @operator

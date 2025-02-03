@@ -897,3 +897,8 @@ Version 0.4.51 (03-02-2025)
 ---------------------------
 
 * Add lift operator. This allows for the re-use of scalar functions as compute nodes.
+
+Version 0.4.52 (03-02-2025)
+---------------------------
+
+* Add a ZERO return option for divide by zero
