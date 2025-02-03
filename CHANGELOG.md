@@ -892,3 +892,8 @@ Version 0.4.50 (30-01-2025)
 ---------------------------
 
 * add dependency to typing_extensions
+
+Version 0.4.51 (03-02-2025)
+---------------------------
+
+* Add lift operator. This allows for the re-use of scalar functions as compute nodes.
