@@ -30,7 +30,7 @@ from hgraph import (
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import pass_through
+from hgraph.nodes import pass_through_node
 from hgraph.test import eval_node
 
 
@@ -374,7 +374,7 @@ def test_tsl_reduce_lambda(inputs, size, expected):
 def test_tsd_map_life_cycle(inputs, expected):
     @graph
     def map_graph(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
-        return map_(pass_through, tsd)
+        return map_(pass_through_node, tsd)
 
     out = eval_node(map_graph, inputs)
     assert out == expected

@@ -1,5 +1,5 @@
 from hgraph import graph, TS, TSS, compute_node, PythonSetDelta, Removed, contains_, SIGNAL
-from hgraph.nodes import pass_through
+from hgraph.nodes import pass_through_node
 from hgraph.test import eval_node
 
 
@@ -24,7 +24,7 @@ def test_tss_pass_through():
         @graph
         def pass_through_test(key: TS[str], add: TS[bool]) -> TSS[str]:
             tss = create_tss(key, add)
-            return pass_through(tss)
+            return pass_through_node(tss)
 
         assert eval_node(pass_through_test, key=["a", "b", "a"], add=[True, True, False]) == [
             PythonSetDelta(frozenset("a"), frozenset()),
