@@ -1,7 +1,7 @@
 from typing import Callable, Sequence
 
 from hgraph._types import TimeSeries
-from hgraph._wiring import compute_node
+from hgraph._wiring import compute_node, graph
 from hgraph._types import with_signature, TS
 
 __all__ = ("lift",)
@@ -14,6 +14,7 @@ def lift(
     active: Sequence[str] | Callable = None,
     valid: Sequence[str] | Callable = None,
     all_valid: Sequence[str] | Callable = None,
+    dedup_output: bool = False,
 ):
     """
     Wraps a scalar function producing a time-series version of the function.
@@ -56,4 +57,18 @@ def lift(
         _wrapped, args=args, kwargs=kwargs, defaults=defaults, return_annotation=return_annotation
     )
     _wrapped.__name__ = name
-    return compute_node(_wrapped, active=active, valid=valid, all_valid=all_valid)
+    cn_fn = compute_node(_wrapped, active=active, valid=valid, all_valid=all_valid)
+    if dedup_output:
+        from hgraph._operators._stream import dedup
+
+        g_fn = graph(
+            with_signature(
+                lambda *args, **kwargs: dedup(cn_fn(*args, **kwargs)),
+                args=args,
+                kwargs=kwargs,
+                return_annotation=return_annotation,
+            )
+        )
+        return g_fn
+    else:
+        return cn_fn

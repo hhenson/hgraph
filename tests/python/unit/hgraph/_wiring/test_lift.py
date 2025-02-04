@@ -31,3 +31,11 @@ def test_lift_override():
 
     l = lift(f, output=TSD[str, TS[int]])
     assert eval_node(l, [fd(a=1)]) == [fd({"a": 1})]
+
+
+def test_lift_dedup_output():
+    def f(a: Mapping[str, int]) -> Mapping[str, int]:
+        return a
+
+    l = lift(f, output=TSD[str, TS[int]], dedup_output=True)
+    assert eval_node(l, [fd(a=1), fd(a=1, b=2)]) == [fd({"a": 1}), fd({"b": 2})]

@@ -902,3 +902,8 @@ Version 0.3.52 (03-02-2025)
 ---------------------------
 
 * Add a ZERO return option for divide by zero
+
+Version 0.3.53
+--------------
+
+* Add dedup_output to lift operator
