@@ -16,20 +16,22 @@ def test_tss_strait():
         PythonSetDelta(frozenset("a"), frozenset()),
         None,
         PythonSetDelta(frozenset("b"), frozenset()),
-        PythonSetDelta(frozenset(), frozenset("a"))]
+        PythonSetDelta(frozenset(), frozenset("a")),
+    ]
 
 
 def test_tss_pass_through():
 
-        @graph
-        def pass_through_test(key: TS[str], add: TS[bool]) -> TSS[str]:
-            tss = create_tss(key, add)
-            return pass_through_node(tss)
+    @graph
+    def pass_through_test(key: TS[str], add: TS[bool]) -> TSS[str]:
+        tss = create_tss(key, add)
+        return pass_through_node(tss)
 
-        assert eval_node(pass_through_test, key=["a", "b", "a"], add=[True, True, False]) == [
-            PythonSetDelta(frozenset("a"), frozenset()),
-            PythonSetDelta(frozenset("b"), frozenset()),
-            PythonSetDelta(frozenset(), frozenset("a"))]
+    assert eval_node(pass_through_test, key=["a", "b", "a"], add=[True, True, False]) == [
+        PythonSetDelta(frozenset("a"), frozenset()),
+        PythonSetDelta(frozenset("b"), frozenset()),
+        PythonSetDelta(frozenset(), frozenset("a")),
+    ]
 
 
 def test_tss_contains():
@@ -38,8 +40,7 @@ def test_tss_contains():
     def contains(ts: TSS[int], key: TS[int]) -> TS[bool]:
         return contains_(ts, key)
 
-    assert eval_node(contains, [{1}, {2}, {Removed(1)}, {}, {3}], [0, 1, None, 3]) \
-           == [False, True, False, False, True]
+    assert eval_node(contains, [{1}, {2}, {Removed(1)}, {}, {3}], [0, 1, None, 3]) == [False, True, False, False, True]
 
 
 def test_tss_empty():

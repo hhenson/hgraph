@@ -25,7 +25,10 @@ from hgraph import (
     const,
     debug_print,
     switch_,
-    nothing, default, Removed, sum_,
+    nothing,
+    default,
+    Removed,
+    sum_,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
@@ -516,15 +519,6 @@ def test_reduce_map():
     def g(items: TSD[int, TSD[int, TS[int]]]) -> TSD[int, TS[int]]:
         return items.reduce(lambda x, y: map_(lambda i, j: default(i, 0) + default(j, 0), x, y))
 
-    assert (eval_node(g,
-                     [
-                         {1: {1: 1, 2: 2}},
-                         {2: {1: 3, 2: 4}},
-                         {3: {2: 1, 3: 3}}
-                     ],
-                     __trace__={"start": False, "stop": False}) ==
-            [
-                {1: 1, 2: 2},
-                {1: 4, 2: 6},
-                {1: 4, 2: 7, 3: 3}
-            ])
+    assert eval_node(
+        g, [{1: {1: 1, 2: 2}}, {2: {1: 3, 2: 4}}, {3: {2: 1, 3: 3}}], __trace__={"start": False, "stop": False}
+    ) == [{1: 1, 2: 2}, {1: 4, 2: 6}, {1: 4, 2: 7, 3: 3}]

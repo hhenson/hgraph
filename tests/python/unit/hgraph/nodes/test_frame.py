@@ -32,7 +32,7 @@ try:
 
     def test_data_frame1():
         frame = pl.DataFrame({"a": [date(2021, 1, 1)], "b": [1.0]})
-        assert eval_node(pass_through_node[TIME_SERIES_TYPE: TS[Frame[TestSchema]]], [frame]) == [frame]
+        assert eval_node(pass_through_node[TIME_SERIES_TYPE : TS[Frame[TestSchema]]], [frame]) == [frame]
 
     def test_data_frame_operator_1():
         frame = pl.DataFrame({"a": [date(2021, 1, 1)], "b": [1.0]})

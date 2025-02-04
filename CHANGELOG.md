@@ -907,3 +907,4 @@ Version 0.3.53
 --------------
 
 * Add dedup_output to lift operator
+* Rename pass_through in nodes to pass_through_node to avoid confusion with the marker pass_through for map.
