@@ -33,6 +33,7 @@ def test_sub_int_from_float():
         (1, 0, DivideByZero.INF, math.inf),
         (1, 0, DivideByZero.NAN, math.nan),
         (1, 0, DivideByZero.ZERO, 0.0),
+        (1, 0, DivideByZero.ONE, 1.0),
         (1.0, 2, DivideByZero.NAN, 0.5),
         (1, 2.0, DivideByZero.NAN, 0.5),
     ],

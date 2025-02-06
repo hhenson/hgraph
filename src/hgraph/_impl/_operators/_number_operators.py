@@ -84,6 +84,8 @@ def div_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
             return
         elif divide_by_zero is DivideByZero.ZERO:
             return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -106,6 +108,8 @@ def floordiv_numbers(
             return
         elif divide_by_zero is DivideByZero.ZERO:
             return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -122,6 +126,8 @@ def floordiv_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = Div
             return
         elif divide_by_zero is DivideByZero.ZERO:
             return 0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -173,6 +179,8 @@ def divmod_numbers(
             return
         elif divide_by_zero is DivideByZero.ZERO:
             return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 

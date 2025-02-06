@@ -908,3 +908,8 @@ Version 0.3.53 (04-02-2025)
 
 * Add dedup_output to lift operator
 * Rename pass_through in nodes to pass_through_node to avoid confusion with the marker pass_through for map.
+
+Version 0.3.54 (06-02-2025)
+---------------------------
+
+* Add divide by zero returns 1.0
