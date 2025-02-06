@@ -913,3 +913,8 @@ Version 0.3.54 (06-02-2025)
 ---------------------------
 
 * Add divide by zero returns 1.0
+
+Version 0.3.55 (06-02-2025)
+---------------------------
+
+* Add engine time to log and add ability to perform sampled logs.

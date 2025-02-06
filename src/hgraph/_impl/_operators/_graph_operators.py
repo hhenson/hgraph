@@ -2,8 +2,11 @@ import logging
 import sys
 from dataclasses import dataclass
 
+from hgraph import if_true
+from hgraph._operators._analytical_operators import count
 from hgraph._operators._graph_operators import default, nothing, null_sink, debug_print, print_, log_, assert_
 from hgraph._operators._string import format_
+from hgraph._operators._stream import sample
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF
 from hgraph._types._scalar_types import CompoundScalar, STATE, LOGGER, DEFAULT
@@ -26,9 +29,7 @@ def default_impl(ts: OUT, default_value: OUT) -> OUT:
 
 
 @compute_node(valid=tuple())
-def _default(
-        ts_ref: REF[OUT], ts: OUT, default_value: REF[OUT]
-) -> REF[OUT]:
+def _default(ts_ref: REF[OUT], ts: OUT, default_value: REF[OUT]) -> REF[OUT]:
     if not ts.valid:
         # In case this has become invalid, we need to make sure we detect a tick from the real value.
         ts.make_active()
@@ -65,12 +66,12 @@ class _DebugPrintState(CompoundScalar):
 
 @sink_node(overloads=debug_print)
 def debug_print_impl(
-        label: str,
-        ts: TIME_SERIES_TYPE,
-        print_delta: bool = True,
-        sample: int = -1,
-        _clock: EvaluationClock = None,
-        _state: STATE[_DebugPrintState] = None,
+    label: str,
+    ts: TIME_SERIES_TYPE,
+    print_delta: bool = True,
+    sample: int = -1,
+    _clock: EvaluationClock = None,
+    _state: STATE[_DebugPrintState] = None,
 ):
     """
     Use this to help debug code, this will print the value of the supplied time-series to the standard out.
@@ -135,32 +136,52 @@ def _print(ts: TS[str], std_out: bool = True):
 
 
 @graph(overloads=log_)
-def log_impl(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.INFO, **kwargs: TSB[TS_SCHEMA_1]):
+def log_impl(
+    format_str: TS[str],
+    *args: TSB[TS_SCHEMA],
+    level: int = logging.INFO,
+    sample_count: int = 1,
+    **kwargs: TSB[TS_SCHEMA_1],
+):
     """
     A sink node that will log the formatted string to the system logger.
 
     :param format_str: The format string as defined in format
     :param level: The logging level
     :param args: The time-series enumerated inputs
+    :param sample_count: The number of samples to log, a number greater than 1 will cause this to only log at the frequency specified.
     :param kwargs: The named time-series inputs
     """
     if kwargs is not None:
         kwargs = kwargs.as_dict()
     if args is None:
         if kwargs:
-            return _log(format_(format_str, **kwargs), level)
+            msg = format_(format_str, **kwargs)
         else:
-            return _log(format_str, level)
+            msg = format_str
     else:
         if kwargs:
-            return _log(format_(format_str, *args, **kwargs), level)
+            msg = format_(format_str, *args, **kwargs)
         else:
-            return _log(format_(format_str, *args), level)
+            msg = format_(format_str, *args)
+
+    raw_msg = msg
+    if sample_count > 1:
+        msg = sample(if_true((count(msg) % sample_count) == 0), msg)
+
+    _log(msg, level, raw_msg, final_value=sample_count > 1)
 
 
 @sink_node
-def _log(ts: TS[str], level: int, logger: LOGGER = None):
-    logger.log(level, ts.value)
+def _log(ts: TS[str], level: int, raw_ts: REF[TS[str]], final_value: bool = False, logger: LOGGER = None):
+    logger.log(level, "[%s] %s", ts.last_modified_time, ts.value)
+
+
+@_log.stop
+def _log_stop(ts: TS[str], level: int, raw_ts: REF[TS[str]], final_value: bool, logger: LOGGER):
+    if final_value and raw_ts.valid and raw_ts.value.has_output:
+        out = raw_ts.value.output
+        logger.log(level, "[%s] Final value: %s", out.last_modified_time, out.value)
 
 
 @sink_node(overloads=assert_)
@@ -180,8 +201,4 @@ def assert_format(condition: TS[bool], error_msg: str, *args: TSB[TS_SCHEMA], **
     from hgraph import sample, if_true
 
     do_format = if_true(condition == False)
-    assert_(condition,
-            format_(
-                error_msg,
-                __pos_args__=sample(do_format, args),
-                __kw_args__=sample(do_format, kwargs)))
+    assert_(condition, format_(error_msg, __pos_args__=sample(do_format, args), __kw_args__=sample(do_format, kwargs)))

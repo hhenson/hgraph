@@ -89,13 +89,20 @@ def print_(format_str: TS[str], *args: TSB[TS_SCHEMA], __std_out__: bool = True,
 
 
 @operator
-def log_(format_str: TS[str], *args: TSB[TS_SCHEMA], level: int = logging.INFO, **kwargs: TSB[TS_SCHEMA_1]):
+def log_(
+    format_str: TS[str],
+    *args: TSB[TS_SCHEMA],
+    level: int = logging.INFO,
+    sample_count: int = 1,
+    **kwargs: TSB[TS_SCHEMA_1],
+):
     """
     A sink node that will log the formatted string to the system logger.
 
     :param format_str: The format string as defined in format
     :param level: The logging level
     :param args: The time-series enumerated inputs
+    :param sample_count: The frequency to sample the log values
     :param kwargs: The named time-series inputs
     """
 
