@@ -97,7 +97,7 @@ pytest-xdist = "*"
 [tool.pytest.ini_options]
 minversion = "7.4.3"
 # After 4 cores there are no measurable improvements I can measure at the moment.
-#addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
+addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 testpaths = [
     "tests",
 ]

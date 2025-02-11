@@ -918,3 +918,9 @@ Version 0.3.55 (06-02-2025)
 ---------------------------
 
 * Add engine time to log and add ability to perform sampled logs.
+
+Version 0.3.56 (11-02-2025)
+---------------------------
+
+* Fix eq_tsss implementation
+* Add contains_tss_tss to support a set being contained in a set.

@@ -60,6 +60,11 @@ def _tss_contains_start(_state: STATE):
     _state.item = None
 
 
+@compute_node(overloads=contains_)
+def contains_tss_tss(ts: TSS[KEYABLE_SCALAR], item: TSS[KEYABLE_SCALAR]) -> TS[bool]:
+    return item.value.issubset(ts.value)
+
+
 @compute_node(overloads=is_empty)
 def is_empty_tss(ts: REF[TSS[KEYABLE_SCALAR]]) -> REF[TS[bool]]:
     """
@@ -148,7 +153,7 @@ def bit_xor_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYA
 
 
 @compute_node(overloads=eq_)
-def eq_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
+def eq_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TS[bool]:
     return lhs.value == rhs.value
 
 

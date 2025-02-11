@@ -2,8 +2,28 @@ import math
 
 import pytest
 
-from hgraph import TSS, graph, TS, Removed, not_, is_empty, PythonSetDelta, eq_, len_, and_, or_, min_, str_, \
-    max_, sum_, mean, std, var
+from hgraph import (
+    TSS,
+    graph,
+    TS,
+    Removed,
+    not_,
+    is_empty,
+    PythonSetDelta,
+    eq_,
+    len_,
+    and_,
+    or_,
+    min_,
+    str_,
+    max_,
+    sum_,
+    mean,
+    std,
+    var,
+    TIME_SERIES_TYPE,
+    contains_,
+)
 from hgraph.test import eval_node
 
 
@@ -28,10 +48,13 @@ def test_sub_tsss():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
         return tss1 - tss2
 
-    assert eval_node(app,
-                     [{1}, {2},  None,         None, {Removed(2)}],
-                     [{},  None, {1},          {1},  None]) \
-           ==        [{1}, {2},  {Removed(1)}, None, {Removed(2)}]
+    assert eval_node(app, [{1}, {2}, None, None, {Removed(2)}], [{}, None, {1}, {1}, None]) == [
+        {1},
+        {2},
+        {Removed(1)},
+        None,
+        {Removed(2)},
+    ]
 
 
 def test_sub_tsss_initial_lhs_valid_before_rhs():
@@ -39,10 +62,7 @@ def test_sub_tsss_initial_lhs_valid_before_rhs():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
         return tss1 - tss2
 
-    assert eval_node(app,
-                     [{1},  {2}],
-                     [None, {3}]) \
-           ==        [None, {1, 2} ]
+    assert eval_node(app, [{1}, {2}], [None, {3}]) == [None, {1, 2}]
 
 
 def test_bit_or_tsss():
@@ -50,10 +70,9 @@ def test_bit_or_tsss():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
         return tss1 | tss2
 
-    assert eval_node(app,
-                     [{1}, {2},  None, {4},    {5},  None,         {Removed(5)}],
-                     [{1}, None, {3},  {5},    None, {Removed(5)}, None]) \
-           ==        [{1}, {2},  {3},  {4, 5}, None, None,         {Removed(5)}]
+    assert eval_node(
+        app, [{1}, {2}, None, {4}, {5}, None, {Removed(5)}], [{1}, None, {3}, {5}, None, {Removed(5)}, None]
+    ) == [{1}, {2}, {3}, {4, 5}, None, None, {Removed(5)}]
 
 
 def test_bit_and_tsss():
@@ -61,10 +80,9 @@ def test_bit_and_tsss():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
         return tss1 & tss2
 
-    assert eval_node(app,
-                     [{1, 2, 3, 4}, {5, 6}, {Removed(1)}, {Removed(2)},     None],
-                     [{0, 2, 3, 5}, None,   None,         None,             {-1, 1, 4}]) \
-           ==        [{2, 3},       {5},    None,         {Removed(2)},     {4}]
+    assert eval_node(
+        app, [{1, 2, 3, 4}, {5, 6}, {Removed(1)}, {Removed(2)}, None], [{0, 2, 3, 5}, None, None, None, {-1, 1, 4}]
+    ) == [{2, 3}, {5}, None, {Removed(2)}, {4}]
 
 
 def test_bit_xor_tsss():
@@ -72,26 +90,35 @@ def test_bit_xor_tsss():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
         return tss1 ^ tss2
 
-    assert eval_node(app,
-             [{1, 2, 3, 4},                                         {5, 6},                                    {Removed(1)},                              {Removed(2)},                             None],
-             [{0, 2, 3, 5},                                         None,                                      None,                                      None,                                     {-1, 1, 4}]) \
-   ==        [PythonSetDelta(added={0, 1, 4, 5}, removed=set()),    PythonSetDelta(removed={5}, added={6}),    PythonSetDelta(added=set(), removed={1}),  PythonSetDelta(added={2}, removed=set()), PythonSetDelta(added={-1, 1}, removed={4})]
+    assert eval_node(
+        app, [{1, 2, 3, 4}, {5, 6}, {Removed(1)}, {Removed(2)}, None], [{0, 2, 3, 5}, None, None, None, {-1, 1, 4}]
+    ) == [
+        PythonSetDelta(added={0, 1, 4, 5}, removed=set()),
+        PythonSetDelta(removed={5}, added={6}),
+        PythonSetDelta(added=set(), removed={1}),
+        PythonSetDelta(added={2}, removed=set()),
+        PythonSetDelta(added={-1, 1}, removed={4}),
+    ]
 
 
 def test_eq_tsss():
-    assert eval_node(eq_, [None, {1, 2},    {1, 2, 3}],
-                          [{1},  {4},       {1, 2, 3}]) == \
-                          [None, False,     True]
+    assert eval_node(
+        eq_[TIME_SERIES_TYPE : TSS[int]], [None, {1, 2}, {1, 2, 3}], [{1}, {4}, {1, 2, 3, Removed(4)}]
+    ) == [
+        None,
+        False,
+        True,
+    ]
 
 
 @pytest.mark.parametrize(
-    ['tp', 'expected', 'values'],
+    ["tp", "expected", "values"],
     [
         [TSS[int], [0, 1, 3, 2], [{}, {1}, {2, 3}, {Removed(1)}]],
-    ]
+    ],
 )
 def test_len_tss(tp, expected, values):
-    assert eval_node(len_, values, resolution_dict={'ts': tp}) == expected
+    assert eval_node(len_, values, resolution_dict={"ts": tp}) == expected
 
 
 def test_and_tsss():
@@ -99,9 +126,7 @@ def test_and_tsss():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TS[bool]:
         return and_(tss1, tss2)
 
-    assert eval_node(app, [None, set(),    {1, 2, 3}],
-                          [{1},  {4},   {1, 2, 3}]) == \
-                          [None, False, True]
+    assert eval_node(app, [None, set(), {1, 2, 3}], [{1}, {4}, {1, 2, 3}]) == [None, False, True]
 
 
 def test_or_tsss():
@@ -109,9 +134,7 @@ def test_or_tsss():
     def app(tss1: TSS[int], tss2: TSS[int]) -> TS[bool]:
         return or_(tss1, tss2)
 
-    assert eval_node(app, [None, set(),    {1, 2, 3}],
-                          [{1},  {4},   {1, 2, 3}]) == \
-                          [None, True, True]
+    assert eval_node(app, [None, set(), {1, 2, 3}], [{1}, {4}, {1, 2, 3}]) == [None, True, True]
 
 
 def test_min_tss_unary():
@@ -186,3 +209,19 @@ def test_str_tss():
         return str_(tss)
 
     assert eval_node(app, [{1, 2, 3}]) == ["{1, 2, 3}"]
+
+
+def test_contains_tss():
+    @graph
+    def g(tss: TSS[int], item: TS[int]) -> TS[bool]:
+        return contains_(tss, item)
+
+    assert eval_node(g, [{1, 2, 3}], [1, 4]) == [True, False]
+
+
+def test_contains_tss():
+    @graph
+    def g(tss: TSS[int], item: TSS[int]) -> TS[bool]:
+        return contains_(tss, item)
+
+    assert eval_node(g, [{1, 2, 3}], [{1, 2}, {3, 4}]) == [True, False]
