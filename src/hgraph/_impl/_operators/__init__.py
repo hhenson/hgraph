@@ -25,6 +25,7 @@ from hgraph._impl._operators._tsb_operators import *
 from hgraph._impl._operators._tsd_operators import *
 from hgraph._impl._operators._tsl_operators import *
 from hgraph._impl._operators._tss_operators import *
+from hgraph._impl._operators._tsw_operators import *
 from hgraph._impl._operators._tuple_operators import *
 from hgraph._impl._operators._type import *
 from hgraph._impl._operators._type_operators import *

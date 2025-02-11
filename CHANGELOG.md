@@ -924,3 +924,4 @@ Version 0.3.56 (11-02-2025)
 
 * Fix eq_tsss implementation
 * Add contains_tss_tss to support a set being contained in a set.
+* Add sum_ and abs_ for TSW types
