@@ -925,3 +925,9 @@ Version 0.3.56 (11-02-2025)
 * Fix eq_tsss implementation
 * Add contains_tss_tss to support a set being contained in a set.
 * Add sum_ and abs_ for TSW types
+
+Version 0.3.57 (16-02-2025)
+---------------------------
+
+* Add support to help with bi-directional matches with HgCompoundScalarType
+* Add more information to failed overload resolution
