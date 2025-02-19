@@ -2,13 +2,13 @@ import sys
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
+from typing import Mapping, Generic
 
 from hgraph import (
     TSW,
     WINDOW_SIZE,
     WINDOW_SIZE_MIN,
     CompoundScalar,
-    EvaluationClock,
     INT_OR_TIME_DELTA,
     MIN_TD,
     REF,
@@ -40,12 +40,11 @@ from hgraph import (
     step,
     take,
     throttle,
-    window, WindowSize,
-    EvaluationClock,
-    EvaluationClock,
-    MIN_DT,
+    window,
+    WindowSize,
     EvaluationClock,
     MIN_DT,
+    count,
 )
 
 __all__ = ()
@@ -394,11 +393,14 @@ def window_timedelta_start(_state: STATE):
     overloads=to_window,
     resolvers={
         WINDOW_SIZE: lambda m, s: WindowSize[s["period"]],
-    WINDOW_SIZE_MIN: lambda m, s: WindowSize[s["min_window_period"] if s["min_window_period"] is not None else s["period"]],
-    }
+        WINDOW_SIZE_MIN: lambda m, s: WindowSize[
+            s["min_window_period"] if s["min_window_period"] is not None else s["period"]
+        ],
+    },
 )
-def to_window_impl(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
-        -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
+def to_window_impl(
+    ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
+) -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
     """
     Basic implementation of the `to_window` operator.
     """
@@ -472,3 +474,35 @@ def slice_tick(ts: TIME_SERIES_TYPE, start: int = 0, stop: int = 1, step_size: i
     if start == -1:
         start = sys.maxsize
     return step(drop(take(ts, stop), start), step_size)
+
+
+@dataclass
+class _LagProxyState(CompoundScalar, Generic[SCALAR]):
+    cache: Mapping[int, SCALAR] = field(default_factory=dict)
+
+
+@compute_node(active=("ts",), valid=("ts", "c"))
+def _lag_proxy(ts: TS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_LagProxyState[SCALAR]] = None) -> TS[SCALAR]:
+    cache = _state.cache
+    if ts.modified:
+        lag_c.make_active()
+        cache[c.value] = ts.value
+
+    if lag_c.modified:
+        out = cache.pop(lag_c.value, None)
+        if len(cache) == 0:
+            lag_c.make_passive()
+        return out
+
+
+@graph(overloads=lag)
+def lag_proxy(ts: TS[SCALAR], period: int, proxy: SIGNAL) -> TS[SCALAR]:
+    """
+    Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
+    If the proxy has not ticked, we are not lagging.
+    If the ts value ticks multiple times for a single tick of the proxy, we return the last value
+    only.
+    """
+    c = count(proxy)
+    lag_c = lag(c, period)
+    return _lag_proxy(ts, c, lag_c)

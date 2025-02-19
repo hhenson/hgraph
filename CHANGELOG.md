@@ -931,3 +931,8 @@ Version 0.3.57 (16-02-2025)
 
 * Add support to help with bi-directional matches with HgCompoundScalarType
 * Add more information to failed overload resolution
+
+Version 0.3.58 (19-02-2025)
+---------------------------
+
+* Add lag support for proxy lagging, where a value can be lagged based on the ticks of another time-series.

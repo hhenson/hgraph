@@ -31,7 +31,15 @@ from hgraph import (
     slice_,
     TSD,
     REMOVE,
-    MIN_DT, Removed, TSS, to_window, SCALAR, compute_node, TSW, WindowSize, Array,
+    MIN_DT,
+    Removed,
+    TSS,
+    to_window,
+    SCALAR,
+    compute_node,
+    TSW,
+    WindowSize,
+    Array,
 )
 from hgraph.test import eval_node
 
@@ -58,6 +66,14 @@ def test_lag_tick():
     assert eval_node(g, [1, 2, 3, 4, 5], 2) == [None, None, 1, 2, 3]
 
 
+def test_lag_proxy():
+    @graph
+    def g(ts: TS[int], delay: int, proxy: TS[bool]) -> TS[int]:
+        return lag(ts, delay, proxy)
+
+    assert eval_node(g, [1, 2, 3, 4, 5], 2, [True, None, True, True, True]) == [None, None, None, 2, 3]
+
+
 def test_lag_tick_tss():
     @graph
     def g(ts: TSS[int], delay: int) -> TSS[int]:
@@ -71,7 +87,14 @@ def test_lag_tick_tsd():
     def g(ts: TSD[int, TS[int]], delay: int) -> TSD[int, TS[int]]:
         return lag(ts, delay)
 
-    assert eval_node(g, [{1: 1}, {2: 2, 1: 2}, None, {1: REMOVE}, {4: 1}, {4: REMOVE}], 2) == [None, None, None, {1: 1}, {2: 2, 1: 2}, {1: REMOVE}]
+    assert eval_node(g, [{1: 1}, {2: 2, 1: 2}, None, {1: REMOVE}, {4: 1}, {4: REMOVE}], 2) == [
+        None,
+        None,
+        None,
+        {1: 1},
+        {2: 2, 1: 2},
+        {1: REMOVE},
+    ]
 
 
 def test_lag_timedelta():
@@ -122,9 +145,16 @@ def test_schedule_ts_with_start():
     def g(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = True, max_ticks: int = 1) -> TS[bool]:
         return schedule(delay, start=start, initial_delay=initial_delay, max_ticks=max_ticks)
 
-    assert eval_node(g, delay=MIN_TD * 2, start=MIN_ST + MIN_TD*3, max_ticks=2, initial_delay=False) == [True, None, None, True]
+    assert eval_node(g, delay=MIN_TD * 2, start=MIN_ST + MIN_TD * 3, max_ticks=2, initial_delay=False) == [
+        True,
+        None,
+        None,
+        True,
+    ]
 
-    assert eval_node(g, delay=[MIN_TD, None, None, MIN_TD * 2], start=MIN_DT + MIN_TD*2, max_ticks=4, initial_delay=True) == [
+    assert eval_node(
+        g, delay=[MIN_TD, None, None, MIN_TD * 2], start=MIN_DT + MIN_TD * 2, max_ticks=4, initial_delay=True
+    ) == [
         None,
         None,
         True,
@@ -237,7 +267,13 @@ def test_filter_tss():
     def g(condition: TS[bool], ts: TSS[int]) -> TSS[int]:
         return filter_(condition, ts)
 
-    assert eval_node(g, [True, False, None, True], [{1}, {2, Removed(1)}, None, {3}, {4}]) == [{1}, None, None, {3, 2, Removed(1)}, {4}]
+    assert eval_node(g, [True, False, None, True], [{1}, {2, Removed(1)}, None, {3}, {4}]) == [
+        {1},
+        None,
+        None,
+        {3, 2, Removed(1)},
+        {4},
+    ]
 
 
 def test_filter_tsd():
@@ -260,7 +296,13 @@ def test_filter_tss():
     def g(condition: TS[bool], ts: TSS[int]) -> TSS[int]:
         return filter_(condition, ts)
 
-    assert eval_node(g, [True, False, None, True], [{1}, {2, Removed(1)}, None, {3}, {4}]) == [{1}, None, None, {3, 2, Removed(1)}, {4}]
+    assert eval_node(g, [True, False, None, True], [{1}, {2, Removed(1)}, None, {3}, {4}]) == [
+        {1},
+        None,
+        None,
+        {3, 2, Removed(1)},
+        {4},
+    ]
 
 
 def test_filter_tsl():
@@ -282,8 +324,15 @@ def test_throttle():
     def g(ts: TS[int], period: timedelta) -> TS[int]:
         return throttle(ts, period)
 
-    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD
-                     ) == [1, None, 2, None, 5, None, 1]
+    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        1,
+        None,
+        2,
+        None,
+        5,
+        None,
+        1,
+    ]
 
 
 def test_throttle_tsd():
@@ -291,8 +340,12 @@ def test_throttle_tsd():
     def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:
         return throttle(ts, period)
 
-    assert eval_node(g, [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}], 3 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD
-                     ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
+    assert eval_node(
+        g,
+        [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}],
+        3 * MIN_TD,
+        __end_time__=MIN_ST + 10 * MIN_TD,
+    ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
 
 
 def test_throttle_tsd_delay_first():
@@ -300,8 +353,12 @@ def test_throttle_tsd_delay_first():
     def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:
         return throttle(ts, period, delay_first_tick=True)
 
-    assert eval_node(g, [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}], 3 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD
-                     ) == [None, None, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
+    assert eval_node(
+        g,
+        [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}],
+        3 * MIN_TD,
+        __end_time__=MIN_ST + 10 * MIN_TD,
+    ) == [None, None, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
 
 
 def test_take():
@@ -385,13 +442,16 @@ def test_window_timedelta():
 
     assert eval_node(g, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected
 
+
 def test_to_window_delta():
-    result = eval_node(to_window[SCALAR: int], [1, 2, 3, 4, 5], 3)
+    result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], 3)
     assert result == [None, None, 3, 4, 5]
 
+
 def test_to_window_delta_td():
-    result = eval_node(to_window[SCALAR: int], [1, 2, 3, 4, 5], MIN_TD * 2)
+    result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], MIN_TD * 2)
     assert result == [None, None, 3, 4, 5]
+
 
 def test_to_window_value():
 
@@ -404,10 +464,12 @@ def test_to_window_value():
         return _as_value(to_window(ts, 3))
 
     result = eval_node(g, [1, 2, 3, 4, 5])
-    assert all((a == b).all() for a, b in zip(
-        result,
-        [None, None, np.array((1, 2, 3)), np.array((2, 3, 4)), np.array((3, 4, 5))]) if
-               not (a is None and b is None))
+    assert all(
+        (a == b).all()
+        for a, b in zip(result, [None, None, np.array((1, 2, 3)), np.array((2, 3, 4)), np.array((3, 4, 5))])
+        if not (a is None and b is None)
+    )
+
 
 def test_to_window_value_td():
 
@@ -420,10 +482,12 @@ def test_to_window_value_td():
         return _as_value(to_window(ts, MIN_TD * 2))
 
     result = eval_node(g, [1, 2, 3, 4, 5])
-    assert all((a == b).all() for a, b in zip(
-        result,
-        [None, None, np.array((1, 2, 3)), np.array((2, 3, 4)), np.array((3, 4, 5))]) if
-               not (a is None and b is None))
+    assert all(
+        (a == b).all()
+        for a, b in zip(result, [None, None, np.array((1, 2, 3)), np.array((2, 3, 4)), np.array((3, 4, 5))])
+        if not (a is None and b is None)
+    )
+
 
 def test_gate():
     @graph
