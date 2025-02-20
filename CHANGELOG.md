@@ -936,3 +936,8 @@ Version 0.3.58 (19-02-2025)
 ---------------------------
 
 * Add lag support for proxy lagging, where a value can be lagged based on the ticks of another time-series.
+
+Version 0.3.59 (20-02-2025)
+---------------------------
+
+* Clean up getting recordable id's using time-series value in the format string.

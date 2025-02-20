@@ -2,7 +2,7 @@ from datetime import datetime
 from string import Formatter
 from typing import Mapping, Any
 
-from hgraph import GlobalState
+from hgraph import GlobalState, TimeSeriesReferenceInput, TimeSeriesReference
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,
@@ -123,10 +123,29 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         if dependencies:
             ts_values = [k for k in dependencies if k not in self.scalars]
             if ts_values and (
-                not (self.is_started or self.is_starting) or not all(self.inputs[k].valid for k in ts_values)
+                not (self.is_started or self.is_starting) or not all(_get_ts_valid(self.inputs[k]) for k in ts_values)
             ):
                 return id_, False
-            args = {k: self.scalars[k] if k in self.scalars else self.inputs[k].value for k in dependencies}
+            args = {k: self.scalars[k] if k in self.scalars else _get_ts_value(self.inputs[k]) for k in dependencies}
             return id_.format(**args), True
         else:
             return id_, True
+
+
+def _get_ts_valid(ts) -> bool:
+    if ts.valid:
+        v = ts.value
+        if TimeSeriesReference.is_instance(v):
+            return v.has_output and v.output.valid
+        else:
+            return True
+    return False
+
+
+def _get_ts_value(ts) -> Any:
+    v = ts.value
+    if TimeSeriesReference.is_instance(v):
+        # This must have an output and it must be valid
+        return v.output.value
+    else:
+        return v
