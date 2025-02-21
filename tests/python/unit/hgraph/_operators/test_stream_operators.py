@@ -512,8 +512,8 @@ def test_batch():
     def g(condition: TS[bool], ts: TS[int], delay: timedelta) -> TS[Tuple[int, ...]]:
         return batch(condition, ts, delay)
 
-    assert eval_node(g, [False, True], [1, 2, 3, 4], MIN_TD) == [None, (1, 2), (3,), (4,)]
-    assert eval_node(g, [False, True], [1, 2, 3, 4], 2 * MIN_TD) == [None, (1, 2), None, (3, 4)]
+    assert eval_node(g, [False, True], [1, 2, 3, 4], MIN_TD) == [None, (1, 2), None, (3, 4)]
+    assert eval_node(g, [False, True], [1, 2, 3, 4, 5], 2 * MIN_TD) == [None, (1, 2), None, None, (3, 4, 5)]
 
 
 def test_batch_with_buffer_overflow():

@@ -20,3 +20,4 @@ from hgraph._wiring._wiring_node_signature import *
 from hgraph._wiring._wiring_observer import *
 from hgraph._wiring._wiring_port import *
 from hgraph._wiring._wiring_utils import *
+from hgraph._wiring._nested_graph import *

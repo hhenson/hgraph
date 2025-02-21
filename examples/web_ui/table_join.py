@@ -32,7 +32,7 @@ from hgraph import (
     combine,
     last_modified_time,
     convert,
-    drop, nothing, default, TSS, collapse_keys, MIN_DT, take,
+    drop, nothing, default, TSS, collapse_keys, MIN_DT, take, collect,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
@@ -128,7 +128,9 @@ def host_web_server():
     register_perspective_adaptors()
     PerspectiveTablesManager.set_current(PerspectiveTablesManager(
         host_server_tables=False,
-        table_config_file=os.path.join(os.path.dirname(__file__), "table_join.json")))
+        table_config_file=[
+            os.path.join(os.path.dirname(__file__), "table_join.json"),
+            os.path.join(os.path.dirname(__file__), "total_table_join.json")]))
     perspective_web(gethostname(), 8082, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
 
     count = 5
@@ -143,7 +145,7 @@ def host_web_server():
 
     initial_data = map_(
         lambda key, c: map_(lambda c: random_values(c), __keys__=const(frozenset({'C', 'F'}), TSS[str]), c=c),
-        config,
+        take(config, 1),
     )
 
     initial_data = collapse_keys(initial_data)

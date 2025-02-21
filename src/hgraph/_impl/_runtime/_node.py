@@ -470,6 +470,7 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         self.receiver = self.graph.receiver
         self.eval_fn(lambda m: self.enqueue_message(m), **self._kwargs)
         self.elide = self.scalars.get("elide", False)
+        self.batch = self.scalars.get("batch", False)
 
     def enqueue_message(self, message):
         self.messages_queued += 1
@@ -480,6 +481,13 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         Attempt to apply the message to the output, if the application is successful returns True
         else returns False to indicate the application was not possible.
         """
+        if self.batch:
+            if self.output.modified:
+                self.output.value = self.output.value + (message,)
+            else:
+                self.output.value = (message,)
+            self.messages_dequeued += 1
+            return True
         if self.elide or self.output.can_apply_result(message):
             self.output.apply_result(message)
             self.messages_dequeued += 1

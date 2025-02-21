@@ -60,4 +60,5 @@ def test_date_operators(attr, expected):
     @graph
     def g(d: TS[date]) -> TS[SCALAR]:
         return getattr(d, attr)
+
     assert eval_node(g, date(2024,11,1)) == [expected]

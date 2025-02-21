@@ -293,7 +293,11 @@ def test_min_scalars_unary():
 
 
 def test_min_scalars_binary():
-    assert eval_node(min_, [1, 2, 3], [3, 2, 1]) == [1, 2, 1]
+    @graph
+    def app(ts1: TS[int], ts2: TS[int]) -> TS[int]:
+        return min_(ts1, ts2)
+
+    assert eval_node(app, [1, 2, 3], [3, 2, 1]) == [1, 2, 1]
 
 
 def test_min_scalar_binary_not_strict():
@@ -337,7 +341,11 @@ def test_max_scalars_unary():
 
 
 def test_max_scalars_binary():
-    assert eval_node(max_, [1, 2, 3], [3, 2, 1]) == [3, 2, 3]
+    @graph
+    def app(ts1: TS[int], ts2: TS[int]) -> TS[int]:
+        return max_(ts1, ts2)
+
+    assert eval_node(app, [1, 2, 3], [3, 2, 1]) == [3, 2, 3]
 
 
 def test_max_scalar_binary_not_strict():

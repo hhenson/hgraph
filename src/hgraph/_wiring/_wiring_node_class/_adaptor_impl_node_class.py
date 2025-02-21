@@ -115,10 +115,16 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
             match interface_sig.node_type:
                 case WiringNodeType.ADAPTOR:
                     for arg, ts_type in signature.input_types.items():
-                        if not ts_type.matches((ts_int_type := interface_sig.input_types.get(arg))):
+                        if ts_int_type := interface_sig.input_types.get(arg):
+                            if not ts_type.matches(ts_int_type):
+                                raise CustomMessageWiringError(
+                                    f"The implementation input {arg}: {ts_type} type value does not match {ts_int_type}"
+                                )
+                        elif not ts_type.is_scalar:
                             raise CustomMessageWiringError(
-                                f"The implementation input {arg}: {ts_type} type value does not match {ts_int_type}"
+                                f"The implementation input {arg}: {ts_type} was not found on  the interface"
                             )
+
                     if signature.output_type:
                         if not signature.output_type.dereference().matches(interface_sig.output_type.dereference()):
                             raise CustomMessageWiringError(

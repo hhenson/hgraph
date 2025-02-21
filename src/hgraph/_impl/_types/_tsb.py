@@ -62,7 +62,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
 
     @property
     def delta_value(self):
-        return {k: ts.delta_value for k, ts in self.items() if ts.modified}
+        return {k: ts.delta_value for k, ts in self.items() if ts.modified and ts.valid}
 
     def can_apply_result(self, result: Mapping[str, Any] | None) -> bool:
         if result is None:
@@ -161,7 +161,7 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             return super().delta_value
         else:
-            return {k: ts.delta_value for k, ts in self.items() if ts.modified}
+            return {k: ts.delta_value for k, ts in self.items() if ts.modified and ts.valid}
 
     @property
     def active(self) -> bool:

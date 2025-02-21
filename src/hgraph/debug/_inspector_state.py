@@ -1,7 +1,9 @@
+import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import psutil
 from perspective import Table
 
 from hgraph import CompoundScalar
@@ -16,6 +18,8 @@ class InspectorState(CompoundScalar):
     manager: PerspectiveTablesManager = None
     table: Table = None
     total_cycle_table: Table = None
+
+    process: psutil.Process = field(default_factory=lambda: psutil.Process(os.getpid()))
 
     requests: _SenderReceiverState = field(default_factory=_SenderReceiverState)
     last_request_process_time: datetime = None

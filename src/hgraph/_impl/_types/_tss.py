@@ -159,11 +159,11 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             self.mark_modified()
 
     def clear(self):
-        self._removed = self._value
+        self._removed = self._value - (self._added or set())
+        self._added = None
+        self._contains_ref_outputs.update_all(self._value)
         self._value = set()
-        self._contains_ref_outputs.update_all(self._removed)
-        if self._removed:
-            self._is_empty_ref_output.value = True
+        self._is_empty_ref_output.value = True
         self.mark_modified()
 
     def can_apply_result(self, result: Any) -> bool:
@@ -222,7 +222,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         return self._added or set()
 
     def was_added(self, item: SCALAR) -> bool:
-        return item in self._added
+        return item in self._added if self._added is not None else False
 
     def removed(self) -> Iterable[SCALAR]:
         return self._removed or set()
@@ -253,10 +253,10 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
         self._prev_output = None
 
     def __contains__(self, item: SCALAR) -> bool:
-        return self.output.__contains__(item)
+        return self.output.__contains__(item) if self.output is not None else False
 
     def __len__(self):
-        return self.output.__len__()
+        return self.output.__len__() if self.output is not None else 0
 
     @property
     def delta_value(self):

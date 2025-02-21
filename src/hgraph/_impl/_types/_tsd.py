@@ -81,7 +81,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def delta_value(self):
         return frozendict(
             chain(
-                ((k, v.delta_value) for k, v in self.items() if v.modified), ((k, REMOVE) for k in self.removed_keys())
+                ((k, v.delta_value) for k, v in self.items() if v.modified and v.valid), ((k, REMOVE) for k in self.removed_keys())
             )
         )
 
@@ -108,18 +108,23 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def __delitem__(self, k):
         if k not in self._ts_values:
             raise KeyError(f"TSD[{self.__key_tp__}, {self.__value_tp__}] Key {k} does not exist")
+
+        was_added = self.key_set.was_added(k)
+        cast(TimeSeriesSetOutput, self.key_set).remove(k)
+
+        for observer in self._key_observers:
+            observer.on_key_removed(k)
+
         item = self._ts_values.pop(k)
         item.clear()
-        self._removed_items[k] = item
+        if not was_added:
+            self._removed_items[k] = item
         self._ts_values_to_keys.pop(id(item))
         self._ref_ts_feature.update(k)
-        cast(TimeSeriesSetOutput, self.key_set).remove(k)
         try:
             self._modified_items.remove((k, item))
         except:
             pass
-        for observer in self._key_observers:
-            observer.on_key_removed(k)
 
     def mark_child_modified(self, child: "TimeSeriesOutput", modified_time: datetime):
         if self._last_modified_time < modified_time:
@@ -148,6 +153,10 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         return self._ts_values_to_keys.get(id(value))
 
     def clear(self):
+        for observer in self._key_observers:
+            for k in self._removed_items:
+                observer.on_key_removed(k)
+
         self.key_set.clear()
         for v in self._ts_values.values():
             v.clear()
@@ -155,9 +164,6 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._ts_values_to_keys.clear()
         self._ref_ts_feature.update_all(self._removed_items.keys())
         self._modified_items.clear()
-        for observer in self._key_observers:
-            for k in self._removed_items:
-                observer.on_key_removed(k)
 
     def invalidate(self):
         for v in self.values():
@@ -308,9 +314,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         for key in key_set.values():
             self.on_key_added(key)
 
-        if not self.has_peer:
-            for key in key_set.removed():
-                self.on_key_removed(key)
+        for key in key_set.removed():
+            self.on_key_removed(key)
 
         output.add_key_observer(self)
         return peer
@@ -319,18 +324,18 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         key_set: "TimeSeriesSetInput" = self.key_set
         key_set.un_bind_output()
         if self._ts_values:
-            self._removed_items = self._ts_values
+            self._removed_items = {k: (v, v.valid) for k, v in self._ts_values.items()}
             self._ts_values = {}
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
             to_keep = {}
-            for k, v in self._removed_items.items():
+            for k, (v, was_valid) in self._removed_items.items():
                 if v.parent_input is not self:
                     # Check for transplanted items, these do not get removed, but can be un-bound
                     v.un_bind_output()
                     self._ts_values[k] = v
                 else:
-                    to_keep[k] = v
+                    to_keep[k] = (v, was_valid)
             self._removed_items = to_keep
 
         self.output.remove_key_observer(self)
@@ -385,10 +390,11 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         value: TimeSeriesInput = self._ts_values.pop(key, None)
         if value is None:
             return
+        was_valid = value.valid
         if value.parent_input is self:
             if value.active:
                 value.make_passive()
-            self._removed_items[key] = value
+            self._removed_items[key] = (value, was_valid)
             try:
                 self._modified_items.remove((key, value))
             except:
@@ -429,11 +435,11 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     @property
     def delta_value(self):
         return frozendict(
-            chain(((k, v.delta_value) for k, v in self.modified_items()), ((k, REMOVE) for k in self.removed_keys()))
+            chain(
+                ((k, v.delta_value) for k, v in self.modified_items() if v.valid),
+                ((k, REMOVE if self._removed_items.get(k, (None, False))[1] else REMOVE_IF_EXISTS) for k, v in self.removed_items())
+            )
         )
-
-    def __contains__(self, item):
-        return item in self._ts_values
 
     def key_from_value(self, value: V) -> K:
         return self._ts_values_to_keys[id(value)]
@@ -492,11 +498,11 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def removed_values(self) -> Iterable[V]:
         for key in self.removed_keys():
             if (v := self._removed_items.get(key)) is None:
-                v = self._ts_values.get(key)
-            yield v
+                v = self._ts_values.get(key), True
+            yield v[0]
 
     def removed_items(self) -> Iterable[Tuple[K, V]]:
         for key in self.removed_keys():
             if (v := self._removed_items.get(key)) is None:
-                v = self._ts_values.get(key)
-            yield (key, v)
+                v = self._ts_values.get(key), True
+            yield (key, v[0])

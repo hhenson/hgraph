@@ -1,6 +1,7 @@
 from typing import Mapping, Any, TYPE_CHECKING, TypeVar, Callable
 
 from hgraph._types._ref_meta_data import HgTypeMetaData
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
@@ -31,47 +32,6 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
         return f"ref_svc://{user_path}/{self.fn.__name__}"
 
-    def create_node_builder_instance(
-        self,
-        resolved_wiring_signature: "WiringNodeSignature",
-        node_signature: "NodeSignature",
-        scalars: Mapping[str, Any],
-    ) -> "NodeBuilder":
-        from hgraph._impl._builder import PythonNodeImplNodeBuilder
-
-        input_builder, output_builder, error_builder = create_input_output_builders(
-            node_signature, self.error_output_type
-        )
-
-        from hgraph._impl._runtime._node import BaseNodeImpl
-
-        class _PythonReferenceServiceStubSourceNode(BaseNodeImpl):
-
-            def do_eval(self):
-                """The service must be available by now, so we can retrieve the output reference."""
-                from hgraph._runtime._global_state import GlobalState
-
-                service_output_reference = GlobalState.instance().get(self.scalars["path"])
-                if service_output_reference is None:
-                    raise RuntimeError(f"Could not find reference service for path: {self.scalars['path']}")
-                # TODO: The output needs to be a reference value output so we can set the value and continue!
-                self.output.value = service_output_reference
-
-            def do_start(self):
-                """Make sure we get notified to serve the service output reference"""
-                self.notify()
-
-            def do_stop(self): ...
-
-        return PythonNodeImplNodeBuilder(
-            signature=node_signature,
-            scalars=scalars,
-            input_builder=input_builder,
-            output_builder=output_builder,
-            error_builder=error_builder,
-            node_impl=_PythonReferenceServiceStubSourceNode,
-        )
-
     def __call__(self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData] = None, **kwargs) -> "WiringPort":
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
@@ -82,17 +42,18 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
             full_path = self.full_path(path)
             typed_full_path = self.typed_full_path(path, resolution_dict)
 
-            port = super().__call__(
-                __pre_resolved_types__=__pre_resolved_types__, **(kwargs_ | {"path": typed_full_path})
+            from hgraph.nodes import get_shared_reference_output
+            out = get_shared_reference_output[TIME_SERIES_TYPE: resolved_signature.output_type.dereference()](
+                typed_full_path
             )
 
             from hgraph import WiringGraphContext
 
             WiringGraphContext.instance().register_service_client(
-                self, full_path, resolution_dict or None, port.node_instance
+                self, full_path, resolution_dict or None, out.node_instance
             )
 
-            return port
+            return out
 
     def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None):
         from hgraph.nodes import capture_output_to_global_state

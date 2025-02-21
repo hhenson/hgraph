@@ -33,15 +33,16 @@
 
         <script type="module">
             import {connectWorkspaceTables} from "/workspace_code/workspace_tables.js";
-            import {installTableWorkarounds} from "/workspace_code/table_workarounds.js";
+            import {installTableWorkarounds, ensureTablesForConfig} from "/workspace_code/table_workarounds.js";
 
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
 
-                const tables = connectWorkspaceTables(workspace, {}, "{{'true' if mgr.is_new_api() else 'false'}}");
+                await connectWorkspaceTables(workspace, {}, "{{'true' if mgr.is_new_api() else 'false'}}");
 
                 const req = await fetch("/layout/{{url}}");
                 const json = await req.json();
+                await ensureTablesForConfig(json, () => {});
                 window.workspace.restore(json);
 
                 window.workspace.addEventListener("workspace-layout-update", async () => {
@@ -98,20 +99,20 @@
 
                         async function targetInfo(target) {
                             const meta = table.getMeta(target);
-                            const default_columns = {{len(mgr.get_table('inspector').schema())}};
+                            const default_columns = new Number("{{len(mgr.get_table('inspector').schema())}}");
                             let stuff = await table._view_cache.view(0, meta.y, default_columns, meta.y + 1);
                             if (stuff.num_columns !== default_columns){
                                 stuff = await table._view_cache.view(0, meta.y, stuff.num_columns, meta.y + 1);
                             }
                             const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
-                            console.log("event target is: " + meta + " row is: " + row)
+                            console.log("event target is: " + meta + " row is: " + row);
                             return [meta, stuff, row]
                         }
 
                         async function tableSize(target) {
                             const meta = table.getMeta(target);
-                            const stuff = await table._view_cache.view(0, meta.y, {{len(mgr.get_table('inspector').schema())}}, meta.y + 1);
-                            return [stuff.num_columns, stuff.num_rows]
+                            const stuff = await table._view_cache.view(0, meta.y, new Number("{{len(mgr.get_table('inspector').schema())}}"), meta.y + 1);
+                            return [stuff.num_columns, stuff.num_rows];
                         }
 
                         async function fetch_alert(url) {
@@ -357,7 +358,6 @@
                 });
 
                 const observe = await fetch("/inspect/expand/", {cache: "no-store"});
-                await tables;
             });
         </script>
     </body>

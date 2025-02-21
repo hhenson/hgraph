@@ -1,4 +1,5 @@
-from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE, contains_, TimeSeriesSchema, TSB, map_, TSL, Size
+from hgraph import compute_node, TS, TSD, graph, TSS, REMOVE, contains_, TimeSeriesSchema, TSB, map_, TSL, Size, \
+    feedback, REMOVE_IF_EXISTS
 from hgraph.test import eval_node
 
 
@@ -60,5 +61,32 @@ def test_tsd_add_remove_in_same_cycle():
     def add_remove(a: TS[bool], _output: TSD = None) -> TSD[str, TS[int]]:
         _output.get_or_create("a").value = 1
         del _output["a"]
+        assert "a" not in _output.removed_keys()
 
     assert eval_node(add_remove, [True]) == [{}]
+
+
+def test_tsd_add_invalid_and_remove():
+    @compute_node
+    def add_remove(a: TS[bool], _output: TSD = None) -> TSD[str, TS[int]]:
+        _output.get_or_create("a").value = None
+        assert "a" in _output
+        if a.value:
+            del _output["a"]
+            assert "a" not in _output
+
+    assert eval_node(add_remove, [False, True]) == [{}, {'a': REMOVE_IF_EXISTS}]
+
+
+def test_tsd_add_clear_in_same_cycle():
+    @compute_node
+    def add_remove(a: TS[bool], _output: TSD = None) -> TSD[str, TS[int]]:
+        _output.get_or_create("a").value = 1
+        _output.clear()
+
+    @graph
+    def main(a: TS[bool]) -> TSD[str, TS[int]]:
+        r = feedback(add_remove(a))()
+        return r
+
+    assert eval_node(main, [True], __trace__=True) == [None, {}]
