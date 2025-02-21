@@ -112,10 +112,8 @@ def test_record_replay():
                 a=[None, None, None, None, fd(a=1.0, b=2.0)],
                 b=[None, None, None, None, fd(a=6.0, b=7.0)],
                 __start_time__=MIN_ST + MIN_TD * 3,
+                __elide__=True,
             ) == [
-                None,
-                None,
-                None,
                 fd(a=5.0, b=2.0),
                 fd(a=7.0, b=9.0),
             ]
@@ -141,10 +139,8 @@ def test_record_recovery():
                 a=[None, None, None, None, fd(a=1.0, b=2.0)],
                 b=[None, None, None, None, fd(a=6.0, b=7.0)],
                 __start_time__=MIN_ST + MIN_TD * 3,
+                __elide__=True,
             ) == [
-                None,
-                None,
-                None,
                 fd(a=5.0, b=3.0),
                 fd(a=7.0, b=9.0),
             ]

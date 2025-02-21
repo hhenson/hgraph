@@ -21,7 +21,7 @@ def test_delayed_tsl_binding():
     @graph
     def g(v: TSL[TS[int], Size[2]]) -> TS[int]:
         value = delayed_binding(TSL[TS[int], Size[2]])  # create the delayed binding
-        out = pass_through(value()[0] + value()[1])  # Use the value
+        out = pass_through_node(value()[0] + value()[1])  # Use the value
         value(v)  # Set the value
         return out
 
@@ -36,7 +36,7 @@ def test_delayed_tsd_binding():
     @graph
     def g(v: TSD[str, TSB[AB]]) -> TS[int]:
         value = delayed_binding(v.output_type)  # create the delayed binding
-        out = pass_through(map_(lambda x, y: x + y, value().a, value().b))  # Use the value
+        out = pass_through_node(map_(lambda x, y: x + y, value().a, value().b))  # Use the value
         o = reduce(lambda x, y: x + y, out, 0)
         value(v)  # Set the value
         return o
