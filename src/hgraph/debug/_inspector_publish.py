@@ -183,7 +183,7 @@ def publish_tables(state: InspectorState, include_stats=True):
         total_os_graph_time = (data["os_graph_time"][-1] - state.total_data_prev.get("os_graph_time", 0))
         lags = [(data["time"][i] - data["evaluation_time"][i]).total_seconds() for i in range(len(data["time"]))]
 
-        proc = psutil.Process(os.getpid())
+        meminfo = state.process.memory_info()
         readings = dict(
             time=data["time"][-1],
             evaluation_time=data["evaluation_time"][-1],
@@ -196,8 +196,8 @@ def publish_tables(state: InspectorState, include_stats=True):
             graph_load=total_graph_time / total_time,
             avg_lag=sum(lags) / len(data["time"]), max_lag=max(lags),
             inspection_time=state.inspector_time / total_graph_time,
-            memory=proc.memory_info().rss / (1024 * 1024),
-            virt_memory=proc.memory_info().vms / (1024 * 1024),
+            memory=meminfo.rss / (1024 * 1024),
+            virt_memory=meminfo.vms / (1024 * 1024),
             graph_memory=(state.total_data["total_size"][-1] / (1024 * 1024)) if state.total_data["total_size"][-1] is not None else None,
         )
 

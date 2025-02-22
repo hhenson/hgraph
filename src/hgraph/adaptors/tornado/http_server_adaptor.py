@@ -66,14 +66,15 @@ class HttpRequest(CompoundScalar):
     url_parsed_args: tuple[str, ...] = ()
     query: dict[str, str] = frozendict()
     headers: dict[str, str] = frozendict()
-    cookies: dict[str, str] = frozendict()
+    cookies: dict[str, dict[str, object]] = frozendict()
+    auth: object = None
 
 
 @dataclass(frozen=True)
 class HttpResponse(CompoundScalar):
     status_code: int
     headers: frozendict[str, str] = frozendict()
-    cookies: frozendict[str, str] = frozendict()
+    cookies: frozendict[str, dict[str, object]] = frozendict()
     body: str = ""
 
 
@@ -157,7 +158,7 @@ class HttpHandler(tornado.web.RequestHandler):
             url_parsed_args=args,
             headers=self.request.headers,
             query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
-            cookies=frozendict(self.request.cookies),
+            cookies=frozendict({k: frozendict({'value': v.value, **{p: w for p, w in v.items()}}) for k, v in self.request.cookies.items()}),
         )
         await self._handle_request(request_obj)
 
@@ -166,7 +167,7 @@ class HttpHandler(tornado.web.RequestHandler):
             url=self.path,
             url_parsed_args=args,
             headers=self.request.headers,
-            cookies=frozendict(self.request.cookies),
+            cookies=frozendict({k: frozendict({'value': v.value, **{p: w for p, w in v.items()}}) for k, v in self.request.cookies.items()}),
         )
         await self._handle_request(request_obj)
 
@@ -176,6 +177,7 @@ class HttpHandler(tornado.web.RequestHandler):
             url_parsed_args=args,
             headers=self.request.headers,
             body=self.request.body.decode("utf-8"),
+            cookies=frozendict({k: frozendict({'value': v.value, **{p: w for p, w in v.items()}}) for k, v in self.request.cookies.items()}),
         )
         await self._handle_request(request_obj)
 
@@ -185,6 +187,7 @@ class HttpHandler(tornado.web.RequestHandler):
             url_parsed_args=args,
             headers=self.request.headers,
             body=self.request.body.decode("utf-8"),
+            cookies=frozendict({k: frozendict({'value': v.value, **{p: w for p, w in v.items()}}) for k, v in self.request.cookies.items()}),
         )
         await self._handle_request(request_obj)
 
@@ -196,6 +199,11 @@ class HttpHandler(tornado.web.RequestHandler):
         self.set_status(response.status_code)
         for k, v in response.headers.items():
             self.set_header(k, v)
+        for k, v in response.cookies.items():
+            if isinstance(v, str):
+                self.set_cookie(k, v)
+            elif isinstance(v, dict):
+                self.set_cookie(k, **v)
         await self.finish(response.body)
         self.mgr.remove_request(id(request_obj))
 

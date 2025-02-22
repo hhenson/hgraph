@@ -114,6 +114,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def bind_output(self, output: TimeSeriesOutput) -> bool:
         from hgraph import TimeSeriesReferenceOutput
 
+        was_bound = self.bound
         if isinstance(output, TimeSeriesReferenceOutput):
             if output.value:
                 output.value.bind_input(self)
@@ -126,7 +127,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
             peer = self.do_bind_output(output)
 
-        if (self.owning_node.is_started or self.owning_node.is_starting) and self._output and self._output.valid:
+        if (self.owning_node.is_started or self.owning_node.is_starting) and self._output is not None and (was_bound or self._output.valid):
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
                 self.notify(

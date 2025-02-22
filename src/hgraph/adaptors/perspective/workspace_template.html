@@ -3,6 +3,8 @@
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no" />
 
+        <title>ACE: {{url}}</title>
+
         <script type="module" src="/node_modules/@finos/perspective-viewer/dist/cdn/perspective-viewer.js"></script>
         <script type="module" src="/node_modules/@finos/perspective-workspace/dist/cdn/perspective-workspace.js"></script>
         <script type="module" src="/node_modules/@finos/perspective-viewer-datagrid/dist/cdn/perspective-viewer-datagrid.js"></script>
@@ -32,66 +34,280 @@
                 text-overflow: clip;
             }
 
-        </style>
+            .loading-banner {
+                display: block; 
+                position: fixed; /* Stay in place */
+                z-index: 9999; /* Sit on top */
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+                padding: 20px;
+                background-color: rgba(0, 0, 0, 0.8); /* Black background with opacity */
+                color: white;
+                font-size: 20px;
+                border-radius: 10px;
+                text-align: center;
+                justify-content: center;
+                --progress-width: 0;
+            }
 
-        <script type="module" src="/workspace_code/workspace_tables.js"></script>
-        <script type="module" src="/workspace_code/table_workarounds.js"></script>
+            .progress-indicator {
+                left: 50%;
+                transform: translate(-50%);
+                margin-top: 10px;
+                width: 100px;
+                height: 10px;
+                background-color: #111;
+                border-color: #ddd;
+                border-radius: 5px;
+                border-width: 1px;
+                border-style: solid;
+                overflow: hidden;
+                position: relative;
+            }
+
+            .progress-indicator::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: var(--progress-width, 0);
+                height: 100%;
+                background-color: #ddd;
+            }
+
+            .error-list {
+                margin: 10px;
+                color: red;
+                list-style: none;
+            }
+
+            .login-dialog {
+                display: none;
+                position: fixed;
+                z-index: 10000;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+                background-color: #2a2a2a;
+                padding: 20px;
+                border-radius: 8px;
+                border: 1px solid #444;
+                color: white;
+            }
+
+            .login-dialog input {
+                margin: 10px 0;
+                padding: 5px;
+                width: 200px;
+                background-color: #333;
+                border: 1px solid #555;
+                color: white;
+                display: block;
+            }
+
+            .login-dialog button {
+                padding: 8px 16px;
+                background-color: #444;
+                border: none;
+                color: white;
+                cursor: pointer;
+                border-radius: 4px;
+                margin-top: 10px;
+                width: 100%;
+            }
+
+            .login-dialog button:hover {
+                background-color: #555;
+            }
+        </style>
     </head>
+
+    <div id="loading-banner" class="loading-banner">
+        <span id="loading-message"></span>
+        <div class="progress-indicator"></div>
+        <div>
+            <ul class="error-list"></ul>
+        </div>
+    </div>
+
+    <div id="login-dialog" class="login-dialog">
+        <h3>Login Required</h3>
+        <input type="text" id="username" placeholder="Username" />
+        <input type="password" id="password" placeholder="Password" />
+        <button id="login-button">Login</button>
+    </div>
 
     <body>
         <perspective-workspace id="workspace"></perspective-workspace>
 
         <script type="module">
-            import {connectWorkspaceTables} from "/workspace_code/workspace_tables.js";
-            import {installTableWorkarounds} from "/workspace_code/table_workarounds.js";
+            import {connectWorkspaceTables, wait_for_table} from "/workspace_code/workspace_tables.js";
+            import {installTableWorkarounds, ensureTablesForConfig} from "/workspace_code/table_workarounds.js";
+            import {setupInspectorTable} from "/workspace_code/inspector.js";
+            import {WebSocketHelper} from "/workspace_code/websocket_helper.js";
 
-            {% if mgr.get_table_config_file() %}
+            {% if mgr.get_table_config_files() %}
                 {% autoescape None %}
                 {% import json %}
                 const table_config = {{ json.dumps(mgr.read_table_config(), indent=4) }};
-            {% else %}
+                {% else %}
                 const table_config = {};
             {% end %}
+
+            async function handleLogin() {
+                return new Promise((resolve, reject) => {
+                    const loginDialog = document.getElementById('login-dialog');
+                    const loginButton = document.getElementById('login-button');
+                    const usernameInput = document.getElementById('username');
+                    const passwordInput = document.getElementById('password');
+
+                    loginDialog.style.display = 'block';
+                    
+                    const handleLoginClick = async () => {
+                        const username = usernameInput.value;
+                        const password = passwordInput.value;
+                        
+                        if (!username || !password) {
+                            return;
+                        }
+
+                        loginButton.removeEventListener('click', handleLoginClick);
+                        loginDialog.style.display = 'none';
+                        
+                        const authHeader = 'Basic ' + btoa(username + ':' + password);
+                        const response = await fetch("/ui-login", {
+                            credentials: 'include',
+                            headers: {
+                                'Authorization': authHeader
+                            }
+                        });
+                        
+                        if (!response.ok) {
+                            reject(new Error('Authentication failed'));
+                            return;
+                        }
+                        
+                        resolve(response);
+                    };
+
+                    loginButton.addEventListener('click', handleLoginClick);
+                });
+            }
+
+            async function fetchWithAuth(url, options = {}) {
+                // Always include credentials to send cookies
+                options.credentials = 'include';
+                
+                let response = await fetch(url, options);
+                if (response.status === 401) {
+                    const authResponse = await handleLogin();
+                    if (!authResponse) throw new Error('Authentication required');
+                    
+                    // Retry original request with cookies now set
+                    response = await fetch(url, {
+                        ...options,
+                        credentials: 'include'
+                    });
+                }
+                return response;
+            }
 
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
 
                 let mode = { editable: false };
 
-                window.workspace.addEventListener("workspace-layout-update", async () => {
-                    installTableWorkarounds(mode);
-                });
+                try {
+                    document.getElementById('loading-message').innerText = "Logging in...";
+                    await new Promise(res => setTimeout(res, 250));
 
-                window.setTimeout(async () => {
+                    {% if mgr.options.get('require_login') %}
+                    const token = await (await fetchWithAuth("{{mgr.options['login_url']}}")).text();
+                    {% else %}
+                    const token = undefined;
+                    {% end %}
+
+                    {% if mgr.options.get('management_ws') %}
+                    const management_ws = new WebSocketHelper("{{mgr.options['management_ws']}}", {
+                        'Authorization': `Bearer ${token}`,
+                        // Add any other required headers here
+                    });
+                    try {
+                        await management_ws.connect();
+                    } catch (e) {
+                        console.error(e);
+                        const errorList = document.querySelector('.error-list');
+                        errorList.innerHTML += `<li>Failed to connect to management server</li>`;
+                        return;
+                    }
+                    {% else %}
+                    const management_ws = undefined;
+                    {% end %}
+
                     window.workspace.addEventListener("workspace-layout-update", async () => {
-                        if (mode.editable) {
-                            const config = await window.workspace.save()
-                            const has_viewers = Object.keys(config.viewers).length;
-                            if (has_viewers) {  // prevent saving broken empty views
-                                await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(config)});
-                            }
+                        installTableWorkarounds(mode);
+                        setupInspectorTable();
+                    });
+
+                    await connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
+
+                    const req = await fetch("/layout/{{url}}");
+                    const json = await req.json();
+
+                    await ensureTablesForConfig(json, (progress, message, error) => {
+                        const progressBar = document.querySelector('.progress-indicator');
+                        progressBar.style.setProperty('--progress-width', `${100 * progress}%`);
+                        if (message){
+                            document.getElementById('loading-message').innerText = "Loading " + message + "...";
+                        }
+                        if (error){
+                            console.error(error);
+                            const errorList = document.querySelector('.error-list');
+                            errorList.innerHTML += `<li>${error}</li>`;
                         }
                     });
-                }, 10000);  // not saving anything for a bit
 
-                const tables = connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}");
+                    management_ws && management_ws.send({type: 'load_layout', layout: '{{url}}'});
+                    document.getElementById('loading-banner').style.display = 'none';
 
-                const req = await fetch("/layout/{{url}}");
-                const json = await req.json();
-                window.workspace.restore(json);
+                    window.setTimeout(async () => {
+                        window.workspace.addEventListener("workspace-layout-update", async () => {
+                            if (mode.editable) {
+                                const config = await window.workspace.save()
+                                const has_viewers = Object.keys(config.viewers).length;
+                                if (has_viewers) {  // prevent saving broken empty views
+                                    await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(config)});
+                                    management_ws && management_ws.send({type: 'save_layout', layout: '{{url}}'});
+                                }
+                            }
+                        });
+                    }, 10000);  // not saving anything for a bit
 
-                await tables;
 
-                window.workspace.addEventListener("workspace-new-view", (event) => {
-                    if (!mode.editable) {
-                        const yes = window.confirm("This layout is open readonly, would you like to make it editable? If you click OK any changes you make from now on will be automatically saved otherwise they will not be saved");
-                        if (yes) {
-                            mode.editable = true;
-                        }
-                    }
-                    event.stopImmediatePropagation();
-                });
+                    setTimeout(() => { // let all the queued date to hit the tables so that pivots have it upfront
+                        window.workspace.restore(json);
+
+                        window.workspace.addEventListener("workspace-new-view", async (event) => {
+                            if (!mode.editable) {
+                                const yes = window.confirm("This layout is open readonly, would you like to make it editable? If you click OK any changes you make from now on will be automatically saved otherwise they will not be saved");
+                                if (yes) {
+                                    mode.editable = true;
+                                }
+                            }
+                            await wait_for_table(window.workspace, event.detail.config.table);
+                            event.stopImmediatePropagation();
+                        });
+
+                    }, 1000);
+                } catch (error) {
+                    console.error(error);
+                    const errorList = document.querySelector('.error-list');
+                    errorList.innerHTML += `<li>Authentication failed: ${error.message}</li>`;
+                    document.getElementById('loading-banner').style.display = 'none';
+                }
             });
+
         </script>
     </body>
 </html>

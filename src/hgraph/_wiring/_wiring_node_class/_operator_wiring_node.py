@@ -210,8 +210,8 @@ class OverloadedWiringNodeHelper:
             ]
             _msg_part = "\n".join(str(c) for c in rejected_candidates)
             raise WiringError(
-                f"Cannot wire overload with args {args_tp}, kwargs {kwargs_tp}: no matching candidates found\n"
-                f"Rejected candidates:\n{_msg_part}"
+                f"Cannot wire overload {self.base.signature.signature} with args {args_tp}, kwargs {kwargs_tp}: no"
+                f" matching candidates found\nRejected candidates:\n{_msg_part}"
             )
 
         if len(best_candidates) > 1 and pick is None:

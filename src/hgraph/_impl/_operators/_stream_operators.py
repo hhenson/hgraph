@@ -2,13 +2,13 @@ import sys
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
+from typing import Mapping, Generic
 
 from hgraph import (
     TSW,
     WINDOW_SIZE,
     WINDOW_SIZE_MIN,
     CompoundScalar,
-    EvaluationClock,
     INT_OR_TIME_DELTA,
     MIN_TD,
     REF,
@@ -40,12 +40,12 @@ from hgraph import (
     step,
     take,
     throttle,
-    window, WindowSize,
-    EvaluationClock,
-    EvaluationClock,
-    MIN_DT,
+    window,
+    WindowSize,
     EvaluationClock,
     MIN_DT,
+    count,
+    MAX_DT,
 )
 
 __all__ = ()
@@ -313,22 +313,6 @@ def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[T
         return ts.delta_value
 
 
-@dataclass
-class TimeState(CompoundScalar):
-    time: datetime = MIN_DT
-
-
-@compute_node(overloads=take)
-def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[TimeState] = None) -> TIME_SERIES_TYPE:
-    if state.time == MIN_DT:  # First tick
-        state.time = ts.last_modified_time
-
-    if ts.last_modified_time - state.time > count:
-        ts.make_passive()
-    else:
-        return ts.delta_value
-
-
 @graph(overloads=drop)
 def drop_default(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
     """
@@ -394,11 +378,14 @@ def window_timedelta_start(_state: STATE):
     overloads=to_window,
     resolvers={
         WINDOW_SIZE: lambda m, s: WindowSize[s["period"]],
-    WINDOW_SIZE_MIN: lambda m, s: WindowSize[s["min_window_period"] if s["min_window_period"] is not None else s["period"]],
-    }
+        WINDOW_SIZE_MIN: lambda m, s: WindowSize[
+            s["min_window_period"] if s["min_window_period"] is not None else s["period"]
+        ],
+    },
 )
-def to_window_impl(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None) \
-        -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
+def to_window_impl(
+    ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
+) -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
     """
     Basic implementation of the `to_window` operator.
     """
@@ -436,7 +423,7 @@ def gate_default_start(_state: STATE):
 def batch_default(
     condition: TS[bool],
     ts: TS[SCALAR],
-    delay: timedelta = MIN_TD,
+    delay: timedelta,
     buffer_length: int = sys.maxsize,
     _state: STATE = None,
     _sched: SCHEDULER = None,
@@ -446,8 +433,14 @@ def batch_default(
             _state.buffer.append(ts.delta_value)
         else:
             raise RuntimeError(f"Buffer overflow when adding {ts.delta_value} to batch buffer")
-    if (condition.modified or _sched.is_scheduled_now) and condition.value and _state.buffer:
+
+    if condition.value is not True:
+        return
+
+    if not _sched.is_scheduled and not condition.modified:  # only schedule on data ticks
         _sched.schedule(delay)
+
+    if (_sched.is_scheduled_now or condition.modified) and _state.buffer:
         out = tuple(_state.buffer)
         _state.buffer.clear()
         return out
@@ -472,3 +465,35 @@ def slice_tick(ts: TIME_SERIES_TYPE, start: int = 0, stop: int = 1, step_size: i
     if start == -1:
         start = sys.maxsize
     return step(drop(take(ts, stop), start), step_size)
+
+
+@dataclass
+class _LagProxyState(CompoundScalar, Generic[SCALAR]):
+    cache: Mapping[int, SCALAR] = field(default_factory=dict)
+
+
+@compute_node(active=("ts",), valid=("ts", "c"))
+def _lag_proxy(ts: TS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_LagProxyState[SCALAR]] = None) -> TS[SCALAR]:
+    cache = _state.cache
+    if ts.modified:
+        lag_c.make_active()
+        cache[c.value] = ts.value
+
+    if lag_c.modified:
+        out = cache.pop(lag_c.value, None)
+        if len(cache) == 0:
+            lag_c.make_passive()
+        return out
+
+
+@graph(overloads=lag)
+def lag_proxy(ts: TS[SCALAR], period: int, proxy: SIGNAL) -> TS[SCALAR]:
+    """
+    Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
+    If the proxy has not ticked, we are not lagging.
+    If the ts value ticks multiple times for a single tick of the proxy, we return the last value
+    only.
+    """
+    c = count(proxy)
+    lag_c = lag(c, period)
+    return _lag_proxy(ts, c, lag_c)

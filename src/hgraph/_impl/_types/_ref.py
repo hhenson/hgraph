@@ -14,8 +14,8 @@ __all__ = ("python_time_series_reference_builder", "PythonTimeSeriesReferenceOut
 
 
 def python_time_series_reference_builder(
-        ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None,
-        from_items: typing.Iterable[TimeSeriesOutput] = None) -> TimeSeriesReference:
+    ts: typing.Optional[TimeSeriesInput | TimeSeriesOutput] = None, from_items: typing.Iterable[TimeSeriesOutput] = None
+) -> TimeSeriesReference:
     if ts is not None:
         if isinstance(ts, TimeSeriesOutput):
             return BoundTimeSeriesReference(ts)
@@ -104,7 +104,7 @@ class BoundTimeSeriesReference(TimeSeriesReference):
 
 class UnBoundTimeSeriesReference(TimeSeriesReference):
 
-    def __init__(self, items: typing.Iterable[TimeSeriesOutput]):
+    def __init__(self, items: typing.Iterable[TimeSeriesReference]):
         self.items = items
 
     def bind_input(self, input_: typing.Union[TimeSeriesInput, TimeSeriesIterable]):

@@ -1,3 +1,6 @@
+import logging
+import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -8,6 +11,8 @@ from hgraph.debug._inspector_util import estimate_value_size, estimate_size
 __all__ = ("InspectionObserver",)
 
 from hgraph import EvaluationLifeCycleObserver
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -105,7 +110,10 @@ class InspectionObserver(EvaluationLifeCycleObserver):
     def check_progress(self):
         if self.callback_progress and time.perf_counter_ns() - self.progress_last_time > self.progress_interval:
             self.progress_last_time = time.perf_counter_ns()
-            self.callback_progress()
+            try:
+                self.callback_progress()
+            except Exception:
+                logger.exception(f"Error in callback_progress", exc_info=True)
 
     def on_before_start_graph(self, graph: "Graph"):
         if graph.graph_id == ():
@@ -189,13 +197,12 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             self.current_graph.node_eval_counts = [0] * new_node_count
             self.current_graph.node_eval_begin_times = [0.] * new_node_count
             self.current_graph.node_eval_times = [0.] * new_node_count
-            if self.compute_sizes:
-                self.current_graph.node_value_sizes = [0] * new_node_count
-                self.current_graph.node_total_value_sizes_begin = [0] * new_node_count
-                self.current_graph.node_total_value_sizes = [0] * new_node_count
-                self.current_graph.node_sizes = [0] * new_node_count
-                self.current_graph.node_total_sizes_begin = [0] * new_node_count
-                self.current_graph.node_total_sizes = [0] * new_node_count
+            self.current_graph.node_value_sizes = [0] * new_node_count
+            self.current_graph.node_total_value_sizes_begin = [0] * new_node_count
+            self.current_graph.node_total_value_sizes = [0] * new_node_count
+            self.current_graph.node_sizes = [0] * new_node_count
+            self.current_graph.node_total_sizes_begin = [0] * new_node_count
+            self.current_graph.node_total_sizes = [0] * new_node_count
             self.current_graph.node_total_node_counts = [0] * new_node_count
             self.current_graph.node_total_subgraph_counts = [0] * new_node_count
 
@@ -253,7 +260,10 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             self.current_graph.node_sizes[node.node_ndx] = node_size
 
         if self.callback_node and node.node_id in self.node_subscriptions:
-            self.callback_node(node)
+            try:
+                self.callback_node(node)
+            except Exception as e:
+                logger.exception(f"Error in callback_node", exc_info=True)
 
     def on_after_graph_evaluation(self, graph: "Graph"):
         observation_begin = time.perf_counter_ns()
@@ -279,7 +289,10 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.current_graph = self.graphs.get(self.current_graph.parent_graph, None)
 
         if self.callback_graph and graph.graph_id in self.graph_subscriptions:
-            self.callback_graph(graph)
+            try:
+                self.callback_graph(graph)
+            except Exception as e:
+                logger.exception(f"Error in callback_graph", exc_info=True)
 
         self.check_progress()
 

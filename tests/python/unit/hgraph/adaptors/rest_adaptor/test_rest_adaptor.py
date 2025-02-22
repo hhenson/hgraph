@@ -109,7 +109,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "id": "1", "value": { "a": 1, "b": "b" } }',
+                body='{ "id": "1", "value": {"a": 1, "b": "b"} }',
             ),
         ],
         [
@@ -117,7 +117,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=201,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "id": "1", "value": { "a": 1, "b": "b" } }',
+                body='{ "id": "1", "value": {"a": 1, "b": "b"} }',
             ),
         ],
         [
@@ -125,7 +125,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "id": "1", "value": { "a": 1, "b": "b" } }',
+                body='{ "id": "1", "value": {"a": 1, "b": "b"} }',
             ),
         ],
         [

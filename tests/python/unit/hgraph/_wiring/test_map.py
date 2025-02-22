@@ -25,12 +25,15 @@ from hgraph import (
     const,
     debug_print,
     switch_,
-    nothing, default, Removed, sum_,
+    nothing,
+    default,
+    Removed,
+    sum_,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import pass_through
+from hgraph.nodes import pass_through_node
 from hgraph.test import eval_node
 
 
@@ -374,7 +377,7 @@ def test_tsl_reduce_lambda(inputs, size, expected):
 def test_tsd_map_life_cycle(inputs, expected):
     @graph
     def map_graph(tsd: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
-        return map_(pass_through, tsd)
+        return map_(pass_through_node, tsd)
 
     out = eval_node(map_graph, inputs)
     assert out == expected
@@ -516,15 +519,6 @@ def test_reduce_map():
     def g(items: TSD[int, TSD[int, TS[int]]]) -> TSD[int, TS[int]]:
         return items.reduce(lambda x, y: map_(lambda i, j: default(i, 0) + default(j, 0), x, y))
 
-    assert (eval_node(g,
-                     [
-                         {1: {1: 1, 2: 2}},
-                         {2: {1: 3, 2: 4}},
-                         {3: {2: 1, 3: 3}}
-                     ],
-                     __trace__={"start": False, "stop": False}) ==
-            [
-                {1: 1, 2: 2},
-                {1: 4, 2: 6},
-                {1: 4, 2: 7, 3: 3}
-            ])
+    assert eval_node(
+        g, [{1: {1: 1, 2: 2}}, {2: {1: 3, 2: 4}}, {3: {2: 1, 3: 3}}], __trace__={"start": False, "stop": False}
+    ) == [{1: 1, 2: 2}, {1: 4, 2: 6}, {1: 4, 2: 7, 3: 3}]

@@ -79,7 +79,7 @@ def collapse_keys(ts: TIME_SERIES_TYPE) -> OUT:
 
 
 @operator
-def uncollapse_keys(ts: TSD[Tuple[K, K_1], TIME_SERIES_TYPE]) -> TSD[K, TSD[K_1, TIME_SERIES_TYPE]]:
+def uncollapse_keys(ts: TSD[Tuple[K, K_1], TIME_SERIES_TYPE], remove_empty: bool = True) -> TSD[K, TSD[K_1, TIME_SERIES_TYPE]]:
     """
     Given a TSD[Tuple[K, K1], V] uncollapse_keys will produce a nested TSD[K, TSD[K1, V]]. It is the reverse operation
     to ``collapse_keys``

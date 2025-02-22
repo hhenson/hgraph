@@ -887,3 +887,64 @@ Version 0.3.49 (29-01-2025)
 ---------------------------
 
 * Cleanups to support replaying a data frame directly.
+
+Version 0.3.50 (30-01-2025)
+---------------------------
+
+* add dependency to typing_extensions
+
+Version 0.3.51 (03-02-2025)
+---------------------------
+
+* Add lift operator. This allows for the re-use of scalar functions as compute nodes.
+
+Version 0.3.52 (03-02-2025)
+---------------------------
+
+* Add a ZERO return option for divide by zero
+
+Version 0.3.53 (04-02-2025)
+---------------------------
+
+* Add dedup_output to lift operator
+* Rename pass_through in nodes to pass_through_node to avoid confusion with the marker pass_through for map.
+
+Version 0.3.54 (06-02-2025)
+---------------------------
+
+* Add divide by zero returns 1.0
+
+Version 0.3.55 (06-02-2025)
+---------------------------
+
+* Add engine time to log and add ability to perform sampled logs.
+
+Version 0.3.56 (11-02-2025)
+---------------------------
+
+* Fix eq_tsss implementation
+* Add contains_tss_tss to support a set being contained in a set.
+* Add sum_ and abs_ for TSW types
+
+Version 0.3.57 (16-02-2025)
+---------------------------
+
+* Add support to help with bidirectional matches with HgCompoundScalarType
+* Add more information to failed overload resolution
+
+Version 0.3.58 (19-02-2025)
+---------------------------
+
+* Add lag support for proxy lagging, where a value can be lagged based on the ticks of another time-series.
+
+Version 0.3.59 (20-02-2025)
+---------------------------
+
+* Clean up getting recordable id's using time-series value in the format string.
+
+Version 0.3.60 (22-02-2025)
+---------------------------
+
+* Large number of updates to web interface
+* Beginning of logic to merge adaptors and service infrastructure
+* Bug fixes

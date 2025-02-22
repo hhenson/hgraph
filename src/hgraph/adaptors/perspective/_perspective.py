@@ -79,12 +79,14 @@ class PerspectiveTableUpdatesHandler:
 
 
 class PerspectiveTablesManager:
-    def __init__(self, host_server_tables=True, table_config_file=None):
+    def __init__(self, host_server_tables=True, table_config_file=(), **kwargs):
         self._host_server_tables = host_server_tables
-        self._table_config_file = table_config_file
+        self._table_config_files = table_config_file if isinstance(table_config_file, (list, tuple)) else [table_config_file]
         self._started = False
         self._tables = {}
         self._updaters = defaultdict(set)
+
+        self.options = kwargs
 
         if psp_new_api:
             self._server = perspective.GLOBAL_SERVER
@@ -105,8 +107,8 @@ class PerspectiveTablesManager:
 
         self._tables["index"] = [self._index_table, False]
 
-        if table_config_file:
-            with open(self._table_config_file, "r") as f:
+        for c in self._table_config_files:
+            with open(c, "r") as f:
                 json.load(f)  # check if it is valid json
 
     def is_new_api(self):
@@ -141,7 +143,7 @@ class PerspectiveTablesManager:
         if user:
             self._index_table.update([{
                 "name": name,
-                "type": "table" if self.server_tables or editable else "client_table",
+                "type": "table" if self.server_tables else "client_table",
                 "editable": editable,
                 "url": f"",
                 "schema": json.dumps({k: v if type(v) is str else v.__name__
@@ -296,14 +298,15 @@ class PerspectiveTablesManager:
     def get_table(self, name):
         return self._tables[name][0]
 
-    def get_table_config_file(self):
-        return self._table_config_file
+    def get_table_config_files(self):
+        return self._table_config_files
 
     def read_table_config(self):
-        if self._table_config_file:
-            with open(self._table_config_file, "r") as f:
-                return json.load(f)
-        return {}
+        config = {}
+        for file in self._table_config_files:
+            with open(file, "r") as f:
+                config |= json.load(f)
+        return config
 
     def tornado_config(self):
         if psp_new_api:
@@ -349,7 +352,7 @@ class PerspectiveTablesManager:
     async def _publish_heartbeat(self):
         while True:
             self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.utcnow()}])
-            await asyncio.sleep(1)
+            await asyncio.sleep(15)
 
     def _publish_heartbeat_table(self):
         self.create_table({"name": str, "time": datetime}, index="name", name="heartbeat")
@@ -586,6 +589,7 @@ class IndexPageHandler(tornado.web.RequestHandler):
         tornado.log.app_log.info(f"requesting url {url} for template {self.index_template}")
         if url == "" or True:
             layouts = glob(os.path.join(self.layouts_path, f"{url or '*'}.json"))
+            layouts.sort()
             layouts = [os.path.basename(f).split(".json")[0] for f in layouts]
 
             if url:

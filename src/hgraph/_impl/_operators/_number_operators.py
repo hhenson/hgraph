@@ -82,6 +82,10 @@ def div_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
             return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
+        elif divide_by_zero is DivideByZero.ZERO:
+            return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -102,6 +106,10 @@ def floordiv_numbers(
             return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
+        elif divide_by_zero is DivideByZero.ZERO:
+            return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -116,6 +124,10 @@ def floordiv_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = Div
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NONE:
             return
+        elif divide_by_zero is DivideByZero.ZERO:
+            return 0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -165,6 +177,10 @@ def divmod_numbers(
             return float("inf")
         elif divide_by_zero is DivideByZero.NONE:
             return
+        elif divide_by_zero is DivideByZero.ZERO:
+            return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
         else:
             raise
 
@@ -185,7 +201,7 @@ def pow_int_float(lhs: TS[int], rhs: TS[float]) -> TS[float]:
     """
     Raises an int time-series value to the power of a float time-series value
     """
-    return lhs.value ** rhs.value
+    return lhs.value**rhs.value
 
 
 @compute_node(overloads=pow_)
@@ -193,7 +209,7 @@ def pow_float_int(lhs: TS[float], rhs: TS[int]) -> TS[float]:
     """
     Raises a float time-series value to the power of an int time-series value
     """
-    return lhs.value ** rhs.value
+    return lhs.value**rhs.value
 
 
 EPSILON = 1e-10

@@ -4,6 +4,8 @@ from datetime import timedelta
 from itertools import chain
 from typing import Callable
 
+import pytest
+
 from hgraph import (
     push_queue,
     TS,
@@ -34,8 +36,11 @@ from hgraph import (
     service_impl,
     collect,
     GraphConfiguration,
-    evaluate_graph,
+    evaluate_graph, switch_, TIME_SERIES_TYPE, convert, REMOVE, feedback,
 )
+from hgraph._wiring._decorators import GRAPH_SIGNATURE
+from hgraph.nodes import request_id
+from hgraph.nodes._service_utils import write_adaptor_request, adaptor_request, capture_output_node_to_global_state
 from hgraph.test import eval_node
 
 
@@ -224,3 +229,44 @@ def test_adaptor_and_service():
     result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250))
 
     assert [x[1] for x in result if x[1]] == [{x: x} for x in list(range(1, 11))]
+
+
+@pytest.mark.skip("not implemented yet")
+def test_service_impl_via_adaptor():
+    @service_adaptor
+    def my_adaptor(path: str, ts: TS[int]) -> TS[int]: ...
+
+    @adaptor_impl(interfaces=my_adaptor)
+    def my_adaptor_impl(path: str, service_impl: GRAPH_SIGNATURE, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return service_impl(path, feedback(ts)())
+
+    @service_impl
+    def my_service_impl(path: str, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda x: x+1, ts)
+
+    @graph
+    def g() -> TS[int]:
+        register_adaptor("test", my_adaptor_impl, service_impl=my_service_impl)
+        return my_adaptor("test", count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+
+
+def test_write_adaptor_request():
+    @graph
+    def w(path: str, arg: str, request: TS[bool], request_id: TS[int]) -> TS[int]:
+        write_adaptor_request(path, arg, request, request_id, __return_sink_wp__=True)
+        return request_id
+
+    @graph
+    def g(i: TS[int], x: TS[bool]) -> TSD[int, TS[bool]]:
+        s = map_(lambda key, v: switch_({
+            True: lambda x, i: w("test", "foo", x, i),
+            False: lambda x, i: w("test", "foo", x, i)
+        }, key=v, x=v, i=key), convert[TSD](key=i, ts=x))
+
+        out = adaptor_request[TIME_SERIES_TYPE: TS[bool]]("test", "foo")
+        out.node_instance.add_indirect_dependency(s.node_instance)
+        capture_output_node_to_global_state(f"test/foo", out)
+        return out
+
+    assert eval_node(g, i=[1, None, 2], x=[True, False, True], __trace__=True) == [{1: True}, {1: False}, {1: REMOVE, 2: True}]
+

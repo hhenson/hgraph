@@ -468,12 +468,28 @@ def push_queue(
     """
     from hgraph._wiring._wiring_node_class._python_wiring_node_classes import PythonPushQueueWiringNodeClass
     from hgraph._wiring._wiring_node_signature import WiringNodeType
+    from hgraph._types._type_meta_data import HgTypeMetaData
+    from hgraph._types._ts_type import TS
+    from hgraph._types._scalar_types import SCALAR
 
     def _(fn):
         sig = signature(fn)
         sender_arg = next(iter(sig.parameters.keys()))
         annotations = {k: v.annotation for k, v in sig.parameters.items() if k != sender_arg}
         defaults = {k: v.default for k, v in sig.parameters.items() if k != sender_arg}
+
+        nonlocal requires
+        if 'batch' in annotations:
+            def check_batching_type(mapping, scalars, requires=requires):
+                if requires is not None and (r := requires(mapping, scalars)) is not True:
+                    return r
+
+                if scalars['batch'] is True:
+                    if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches_type(tp):
+                        return f"TS[Tuple[SCALAR, ...]] is expected to be output type if batch=True, received {tp}"
+                return True
+
+            requires = check_batching_type
 
         node = _create_node(
             _create_node_signature(

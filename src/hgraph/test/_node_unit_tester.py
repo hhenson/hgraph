@@ -168,7 +168,9 @@ def eval_node(
             if v is None:
                 continue
             # Dealing with scalar to time-series support
-            max_count = max(max_count, len(v) if hasattr(v, "__len__") else 1)
+            max_count = max(max_count, len(v) if (is_list := isinstance(v, (list, tuple))) else 1)
+            if not is_list:
+                kwargs_[ts_arg] = [v]
         evaluate_graph(
             eval_node_graph,
             GraphConfiguration(

@@ -1,0 +1,51 @@
+{
+  "join pivot": {
+    "type": "join",
+    "schema": {
+      "sensor": "str",
+      "F_value": "float",
+      "C_value": "float",
+      "ping": "str"
+    },
+    "index": "sensor",
+    "description": {
+      "data": {
+        "view": {
+          "group_by": [
+            "sensor"
+          ],
+          "split_by": [
+            "units"
+          ],
+          "aggregates": {
+            "value": "last"
+          }
+        },
+        "mode": "inner",
+        "index": "sensor",
+        "native_index": "sensor,units",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "F_value",
+          "C_value",
+          "ping"
+        ]
+      },
+      "others": {
+        "columns": {
+          "value": "ping"
+        },
+        "mode": "outer",
+        "index": "index",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "value"
+        ]
+      }
+    }
+  }
+}

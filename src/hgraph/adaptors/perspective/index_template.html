@@ -115,7 +115,7 @@
             <tr >
                 <td colspan="2" style="padding-top: 50pt">
                     <div style="font-size: xx-small;">
-                        {% for table in mgr.get_table_names() %}
+                        {% for table in sorted(mgr.get_table_names(), key=lambda x: x.lower()) %}
                         <a href="/table/{{table}}">{{table}}</a>,
                         {% end %}
                     </div>

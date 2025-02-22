@@ -4,9 +4,7 @@ from hgraph._types._generic_rank_util import combine_ranks, scale_rank
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTupleCollectionScalarType, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
-
-if TYPE_CHECKING:
-    from hgraph._types._scalar_types import Size
+from hgraph._types._scalar_types import Size
 
 __all__ = (
     "HgTSLTypeMetaData",
@@ -62,10 +60,12 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     ):
         if isinstance(wired_type, HgTupleCollectionScalarType):
             self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type.element_type, value[0])
+            self.size_tp.build_resolution_dict(resolution_dict, HgTypeMetaData.parse_value(Size[len(value)]))
         elif isinstance(wired_type, HgDictScalarType) and wired_type.key_type == HgTypeMetaData.parse_type(int):
             self.value_tp.build_resolution_dict_from_scalar(
                 resolution_dict, wired_type.value_type, next(iter(value.values()))
             )
+            self.size_tp.build_resolution_dict(resolution_dict, HgTypeMetaData.parse_value(Size[max(value.keys())]))
         else:
             super().build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
 

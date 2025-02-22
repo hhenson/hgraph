@@ -2,7 +2,18 @@ import sys
 from datetime import timedelta, datetime
 from typing import TypeVar, Generic, Tuple
 
-from hgraph._types import TS, TIME_SERIES_TYPE, SIGNAL, SCALAR, TSB, TimeSeriesSchema, TSW, WINDOW_SIZE, WINDOW_SIZE_MIN
+from hgraph._types import (
+    DEFAULT,
+    TS,
+    TIME_SERIES_TYPE,
+    SIGNAL,
+    SCALAR,
+    TSB,
+    TimeSeriesSchema,
+    TSW,
+    WINDOW_SIZE,
+    WINDOW_SIZE_MIN,
+)
 from hgraph._wiring._decorators import operator
 
 __all__ = (
@@ -37,7 +48,7 @@ def sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 @operator
-def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
+def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> DEFAULT[TIME_SERIES_TYPE]:
     """
     Delays the delivery of an input by the period specified. This period can either be a number of ticks
     or a time-delta.
@@ -48,11 +59,8 @@ def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
 
 @operator
 def schedule(
-        delay: timedelta,
-        *,
-        start: datetime = None,
-        initial_delay: bool = True,
-        max_ticks: int = sys.maxsize) -> TS[bool]:
+    delay: timedelta, *, start: datetime = None, initial_delay: bool = True, max_ticks: int = sys.maxsize
+) -> TS[bool]:
     """
     Generates regular ticks in the graph that tick at the specified delay. For example,
     ``schedule(timedelta(seconds=3))`` will produce a time series of type TS[bool] that will tick True every three
@@ -89,8 +97,9 @@ def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 @operator
-def throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = False,
-             use_wall_clock: bool = False) -> TIME_SERIES_TYPE:
+def throttle(
+    ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = False, use_wall_clock: bool = False
+) -> TIME_SERIES_TYPE:
     """
     Reduces the rate of ticks in a time series to the given period. It works like ``resample`` if the rate of ticks is
     higher than the period but unlike ``resample`` does not produce ticks when the source time series does not tick.
@@ -131,9 +140,10 @@ def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_
     not be full until the 4th tick.
     """
 
+
 @operator
 def to_window(
-        ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
+    ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
 ) -> TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]:
     """
     Converts the time-series to a time-series window.

@@ -326,19 +326,20 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
     ) -> pl.DataFrame:
         date_time_col, as_of_col = self._get_schema_info(path)
         df = self._read(path).lazy()
-        # Ignore as_of for now
         if start_time is not None or end_time is not None:
             date_time_col = "date" if date_time_col is None else date_time_col
             if start_time is not None:
                 df = df.filter(pl.col(date_time_col) >= start_time)
             if end_time is not None:
                 df = df.filter(pl.col(date_time_col) <= end_time)
+        if as_of is not None:
+            df = df.filter(pl.col(as_of) <= as_of)
         return df.collect()
 
     def write_frame(
         self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
     ) -> pl.DataFrame:
-        date_time_col, as_of_col = self._get_schema_info(path)
+        self.set_schema_info(path, date_time_col=get_table_schema_date_key(), as_of_col=get_table_schema_as_of_key())
         if mode != WriteMode.OVERWRITE:
             raise RuntimeError(f"Currently mode: {mode.name} is not supported")
         self._write(path, df)

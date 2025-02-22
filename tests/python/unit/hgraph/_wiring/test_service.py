@@ -37,7 +37,7 @@ from hgraph import (
     get_service_inputs,
     MIN_ST,
 )
-from hgraph.nodes import pass_through
+from hgraph.nodes import pass_through_node
 from hgraph.test import eval_node
 
 
@@ -71,7 +71,7 @@ def test_subscription_service():
 
     @service_impl(interfaces=my_subs_service)
     def my_subs_service_impl(subscription: TSS[str]) -> TSD[str, TS[str]]:
-        return map_(pass_through, __keys__=subscription, __key_arg__="ts")
+        return map_(pass_through_node, __keys__=subscription, __key_arg__="ts")
 
     @graph
     def main(
@@ -79,9 +79,9 @@ def test_subscription_service():
     ) -> TSL[TS[str], SIZE]:
         register_service(default_path, my_subs_service_impl)
         return TSL.from_ts(
-            pass_through(my_subs_service(default_path, subscription_topic1)),  # To remove reference semantics
-            pass_through(my_subs_service(default_path, subscription_topic2)),
-            pass_through(my_subs_service(default_path, subscription_topic3)),
+            pass_through_node(my_subs_service(default_path, subscription_topic1)),  # To remove reference semantics
+            pass_through_node(my_subs_service(default_path, subscription_topic2)),
+            pass_through_node(my_subs_service(default_path, subscription_topic3)),
         )
 
     assert eval_node(
@@ -195,7 +195,7 @@ def test_multiservice():
             map_(
                 lambda key, i: contains_(i, key),
                 __keys__=subscribe.wire_impl_inputs_stub(path).ts,
-                i=pass_through(items),
+                i=pass_through_node(items),
             ),
         )
 
@@ -307,7 +307,7 @@ def test_generic_multi_service():
             map_(
                 lambda key, i: contains_(i, key),
                 __keys__=subscribe[KEYABLE_SCALAR:tp].wire_impl_inputs_stub(path).ts,
-                i=pass_through(items),
+                i=pass_through_node(items),
             ),
         )
 
