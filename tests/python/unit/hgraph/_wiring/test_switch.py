@@ -38,7 +38,7 @@ def test_switch():
 
     @graph
     def switch_test(key: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-        s = switch_({"add": _add, "sub": _sub}, key, lhs, rhs)
+        s = switch_(key, {"add": _add, "sub": _sub}, lhs, rhs)
         return s
 
     assert eval_node(switch_test, ["add", "sub"], [1, 2], [3, 4]) == [4, -2]
@@ -55,7 +55,7 @@ def test_switch_with_graph():
 
     @graph
     def switch_test(key: TS[str], value: SCALAR) -> TS[SCALAR]:
-        return switch_({"one": graph_1, "two": graph_2}, key, value)
+        return switch_(key, {"one": graph_1, "two": graph_2}, value)
 
     assert eval_node(switch_test, ["one", "two"], "test") == ["test_1", "test_2"]
 
@@ -81,7 +81,7 @@ def test_stop_start():
 
     @graph
     def switch_test(key: TS[str]) -> TS[str]:
-        return switch_({"one": g, "two": g}, key)
+        return switch_(key, {"one": g, "two": g})
 
     assert eval_node(switch_test, ["one", "two"]) == ["one", "two"]
 
@@ -108,7 +108,7 @@ def two_() -> TS[str]:
 @graph
 def _switch(key: TS[str]) -> TS[str]:
     key = default(const("two", delay=MIN_TD * 3), key)
-    return switch_({"one": one_, "two": two_}, key)
+    return switch_(key, {"one": one_, "two": two_})
 
 
 @graph
@@ -134,7 +134,7 @@ def test_nested_switch():
 def test_switch_default():
     @graph
     def switch_test(key: TS[str], value: TS[str]) -> TS[str]:
-        return switch_({DEFAULT: lambda v: const("one")}, key, value)
+        return switch_(key, {DEFAULT: lambda v: const("one")}, value)
 
     assert eval_node(switch_test, ["one", "two"], ["test"]) == ["one", "one"]
 
@@ -142,7 +142,7 @@ def test_switch_default():
 def test_switch_no_output():
     @graph
     def switch_test(key: TS[str]):
-        return switch_({"one": lambda key: print_(key), "two": lambda key: print_(key)}, key)
+        return switch_(key, {"one": lambda key: print_(key), "two": lambda key: print_(key)})
 
     assert eval_node(switch_test, ["one", "two"]) == None
 
@@ -154,7 +154,7 @@ def test_switch_bundle():
 
     @graph
     def switch_test(key: TS[str]) -> TSB[AB]:
-        return switch_({"one": lambda key: TSB[AB].from_ts(a=1), "two": lambda key: TSB[AB].from_ts(b=1)}, key)
+        return switch_(key, {"one": lambda key: TSB[AB].from_ts(a=1), "two": lambda key: TSB[AB].from_ts(b=1)})
 
     assert eval_node(switch_test, ["one", "two"]) == [{"a": 1}, {"b": 1}]
 
@@ -168,10 +168,10 @@ def test_switch_from_reduce():
     def switch_test(key: TS[str], n: TSD[int, TS[int]]) -> TS[int]:
         no = reduce(add_, n)
         return switch_(
+            key,
             {
                 DEFAULT: lambda na, nb: na + nb,
             },
-            key,
             no,
             no,
         )
@@ -187,7 +187,7 @@ def test_reduce_from_switch():
     @graph
     def switch_test(n: TSD[int, TS[int]]) -> TS[int]:
         refs = map_(
-            lambda key, value: combine[TSB[AB]](a=value, b=switch_({DEFAULT: lambda v: v + 1}, value, value)), n
+            lambda key, value: combine[TSB[AB]](a=value, b=switch_(value, {DEFAULT: lambda v: v + 1}, value)), n
         )
         return reduce(lambda x, y: combine[TSB[AB]](a=x.a + y.a, b=x.b + y.b), refs, combine[TSB[AB]](a=0, b=0)).b
 
@@ -210,10 +210,10 @@ def test_switch_bundle_from_reduce():
     def switch_test(key: TS[str], n: TSD[int, TS[int]]) -> TS[int]:
         no = reduce(add_, n)
         return switch_(
+            key,
             {
                 DEFAULT: lambda n: n.a + n.b,
             },
-            key,
             combine[TSB[AB]](a=no, b=no),
         )
 

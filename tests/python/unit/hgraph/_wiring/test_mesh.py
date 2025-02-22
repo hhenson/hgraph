@@ -29,14 +29,14 @@ def test_mesh():
     @graph
     def get_arg(name: TS[str], vars: TSD[str, TS[float]]) -> TS[float]:
         return switch_(
-            {True: lambda n, v: v[n], False: lambda n, v: mesh_(operation)[n]}, contains_(vars, name), n=name, v=vars
+            contains_(vars, name), {True: lambda n, v: v[n], False: lambda n, v: mesh_(operation)[n]}, n=name, v=vars
         )
 
     @graph
     def perform_op(op_name: TS[str], lhs: TS[float], rhs: TS[float]) -> TS[float]:
         return switch_(
-            {"+": lambda l, r: l + r, "-": lambda l, r: l - r, "*": lambda l, r: l * r, "/": lambda l, r: l / r},
             op_name,
+            {"+": lambda l, r: l + r, "-": lambda l, r: l - r, "*": lambda l, r: l * r, "/": lambda l, r: l / r},
             lhs,
             rhs,
         )
@@ -60,8 +60,8 @@ def test_mesh_2():
     @graph
     def perform_op(op_name: TS[str], lhs: TS[float], rhs: TS[float]) -> TS[float]:
         return switch_(
-            {"+": lambda l, r: l + r, "-": lambda l, r: l - r, "*": lambda l, r: l * r, "/": lambda l, r: l / r},
             op_name,
+            {"+": lambda l, r: l + r, "-": lambda l, r: l - r, "*": lambda l, r: l * r, "/": lambda l, r: l / r},
             lhs,
             rhs,
         )
@@ -73,12 +73,12 @@ def test_mesh_2():
         var = match_(r"^(\w+)$", what)
         expr = match_(r"^(\w+)([+\-*/])(\w+)$", what)
         return switch_(
+            combine[TS[Tuple[bool, bool, bool]]](number.is_match, var.is_match, expr.is_match),
             {
                 (True, False, False): lambda n: convert[TS[float]](n[0]),
                 (False, True, False): lambda n: mesh_(operation)[n[0]],
                 (False, False, True): lambda n: perform_op(n[1], mesh_(operation)[n[0]], mesh_(operation)[n[2]]),
             },
-            combine[TS[Tuple[bool, bool, bool]]](number.is_match, var.is_match, expr.is_match),
             n=merge(number.groups, var.groups, expr.groups),
         )
 
@@ -106,12 +106,12 @@ def test_mesh_named():
     @graph
     def fib(n: TS[int]) -> TS[int]:
         return switch_(
+            n,
             {
                 0: lambda key: const(0),
                 1: lambda key: const(1),
                 DEFAULT: lambda key: mesh_("fib")[key - 1] + mesh_("fib")[key - 2],
             },
-            n,
         )
 
     @graph

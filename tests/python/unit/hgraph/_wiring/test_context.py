@@ -22,7 +22,8 @@ from hgraph import (
     lag,
     SCHEDULER,
     MIN_TD,
-    combine, try_except,
+    combine,
+    try_except,
 )
 from hgraph.test import eval_node
 
@@ -190,7 +191,7 @@ def test_context_over_switch():
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
         with create_context(format_("{}_", s)):
-            return switch_({True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts, ts)
+            return switch_(ts, {True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts)
 
     assert eval_node(g, ts=[True, None, False], s=["Hello", None, "Hulla"]) == [
         "Hello_ True",
@@ -211,7 +212,7 @@ def test_context_over_witch_inside_map():
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
         with create_context(format_("{}_", s)):
-            return switch_({True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts, ts)
+            return switch_(ts, {True: lambda t: use_context(t), False: lambda t: format_("Chao {}", t)}, ts)
 
     @graph
     def f(ts: TSD[int, TS[bool]], s: TSD[int, TS[str]]) -> TSD[int, TS[str]]:
@@ -312,4 +313,3 @@ def test_stacked_contexts():
             return try_except(h, ts1, ts2).out
 
     assert eval_node(g, ["Hello", None], [None, "World"]) == [None, "World"]
-

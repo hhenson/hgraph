@@ -227,4 +227,4 @@ def _dispatch_impl(
             tuple(dispatch_map.keys()),
         )
 
-    return switch_(dispatch_map, **kwargs_, key=key)  # AB: should rename key to __key__ in the switch_ signature?
+    return switch_(key, dispatch_map, **kwargs_)  # AB: should rename key to __key__ in the switch_ signature?

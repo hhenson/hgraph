@@ -504,7 +504,7 @@ def test_map_preexisting_keys():
     @graph
     def g(keys: TSS[str], flag: TS[bool]) -> TSD[str, TS[str]]:
         return switch_(
-            {False: lambda k: nothing(TSD[str, TS[str]]), True: lambda k: map_(lambda key: key, __keys__=k)}, flag, keys
+            flag, {False: lambda k: nothing(TSD[str, TS[str]]), True: lambda k: map_(lambda key: key, __keys__=k)}, keys
         )
 
     assert eval_node(g, [{"a", "b"}, None, {"c"}], [False, True, None]) == [

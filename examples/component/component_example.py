@@ -52,11 +52,11 @@ def compute_signal(returns: TSD[str, TS[float]], factors: TSD[str, TS[float]]) -
     # Start with a very simple idea
     count = count_(returns, __recordable_id__="count_")
     sub_count = switch_(
+        count < 4,
         {
             True: lambda c: count_(c, __recordable_id__="count_"),
             False: lambda c: count_(c, __recordable_id__="count_"),
         },
-        count < 4,
         count,
     )
     window = map_(lambda x: to_window(x, period=3), returns)

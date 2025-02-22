@@ -57,7 +57,7 @@ def test_inspector_sort_key():
             graph=i.owning_graph.graph_id,
             node=i.owning_node.node_ndx,
             value_type=NodeValueType.Inputs,
-            value_path=("i",)
+            value_path=("i",),
         ).sort_key()
 
     @graph
@@ -82,7 +82,7 @@ def test_inspector_sort_key():
 
     @graph
     def g3(i: TS[int]) -> TS[str]:
-        return switch_({1: inspect_input_sort_key}, i, i)
+        return switch_(i, {1: inspect_input_sort_key}, i)
 
     InspectorItemId.__reset__()
 

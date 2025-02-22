@@ -1,5 +1,20 @@
-from hgraph import TS, graph, TSD, map_, sink_node, TIME_SERIES_TYPE, pass_through, reduce, compute_node, TSL, Size, \
-    switch_, add_, sub_, str_
+from hgraph import (
+    TS,
+    graph,
+    TSD,
+    map_,
+    sink_node,
+    TIME_SERIES_TYPE,
+    pass_through,
+    reduce,
+    compute_node,
+    TSL,
+    Size,
+    switch_,
+    add_,
+    sub_,
+    str_,
+)
 from hgraph.test import eval_node
 
 # Map
@@ -47,12 +62,18 @@ print(eval_node(graph_reduce_tsd, tsd=[{"a": 1, "b": 6}, {"a": 2, "b": 7}]))
 
 # Switch
 
+
 @graph
 def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-    return switch_({
-        "add": add_,
-        "sub": sub_,
-    }, selector, lhs, rhs)
+    return switch_(
+        selector,
+        {
+            "add": add_,
+            "sub": sub_,
+        },
+        lhs,
+        rhs,
+    )
 
 
 print(eval_node(graph_switch, selector=["add", None, "sub", None], lhs=[1, 2, 3, 4], rhs=[2, 3, 4, 5]))
@@ -60,10 +81,15 @@ print(eval_node(graph_switch, selector=["add", None, "sub", None], lhs=[1, 2, 3,
 
 @graph
 def graph_switch_lambda(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-    return switch_({
-        "add": lambda lhs, rhs: lhs + rhs,
-        "sub": lambda lhs, rhs: lhs - rhs,
-    }, selector, lhs, rhs)
+    return switch_(
+        selector,
+        {
+            "add": lambda lhs, rhs: lhs + rhs,
+            "sub": lambda lhs, rhs: lhs - rhs,
+        },
+        lhs,
+        rhs,
+    )
 
 
 print(eval_node(graph_switch_lambda, selector=["add", None, "sub", None], lhs=[1, 2, 3, 4], rhs=[2, 3, 4, 5]))

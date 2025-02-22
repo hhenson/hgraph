@@ -36,7 +36,12 @@ from hgraph import (
     service_impl,
     collect,
     GraphConfiguration,
-    evaluate_graph, switch_, TIME_SERIES_TYPE, convert, REMOVE, feedback,
+    evaluate_graph,
+    switch_,
+    TIME_SERIES_TYPE,
+    convert,
+    REMOVE,
+    feedback,
 )
 from hgraph._wiring._decorators import GRAPH_SIGNATURE
 from hgraph.nodes import request_id
@@ -242,7 +247,7 @@ def test_service_impl_via_adaptor():
 
     @service_impl
     def my_service_impl(path: str, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
-        return map_(lambda x: x+1, ts)
+        return map_(lambda x: x + 1, ts)
 
     @graph
     def g() -> TS[int]:
@@ -258,15 +263,20 @@ def test_write_adaptor_request():
 
     @graph
     def g(i: TS[int], x: TS[bool]) -> TSD[int, TS[bool]]:
-        s = map_(lambda key, v: switch_({
-            True: lambda x, i: w("test", "foo", x, i),
-            False: lambda x, i: w("test", "foo", x, i)
-        }, key=v, x=v, i=key), convert[TSD](key=i, ts=x))
+        s = map_(
+            lambda key, v: switch_(
+                v, {True: lambda x, i: w("test", "foo", x, i), False: lambda x, i: w("test", "foo", x, i)}, x=v, i=key
+            ),
+            convert[TSD](key=i, ts=x),
+        )
 
-        out = adaptor_request[TIME_SERIES_TYPE: TS[bool]]("test", "foo")
+        out = adaptor_request[TIME_SERIES_TYPE : TS[bool]]("test", "foo")
         out.node_instance.add_indirect_dependency(s.node_instance)
         capture_output_node_to_global_state(f"test/foo", out)
         return out
 
-    assert eval_node(g, i=[1, None, 2], x=[True, False, True], __trace__=True) == [{1: True}, {1: False}, {1: REMOVE, 2: True}]
-
+    assert eval_node(g, i=[1, None, 2], x=[True, False, True], __trace__=True) == [
+        {1: True},
+        {1: False},
+        {1: REMOVE, 2: True},
+    ]

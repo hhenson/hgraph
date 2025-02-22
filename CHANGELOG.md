@@ -948,3 +948,8 @@ Version 0.3.60 (22-02-2025)
 * Large number of updates to web interface
 * Beginning of logic to merge adaptors and service infrastructure
 * Bug fixes
+
+Version 0.4.0 (22-02-2025)
+--------------------------
+
+* Change the signature of switch_ to have key and then cases from switches and then key. This is a BREAKING change.

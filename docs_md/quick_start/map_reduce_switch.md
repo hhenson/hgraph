@@ -131,10 +131,12 @@ from hgraph import TS, graph, switch_, add_, sub_
 
 @graph
 def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-    return switch_({
-        "add": add_,
-        "sub": sub_,
-    }, selector, lhs, rhs)
+    return switch_(
+        selector,
+        {
+            "add": add_,
+            "sub": sub_,
+        }, lhs, rhs)
 ```
 
 In this case we initially wire in the ``add_`` functions, based on the value of 'selector'.
