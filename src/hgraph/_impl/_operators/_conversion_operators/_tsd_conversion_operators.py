@@ -201,15 +201,14 @@ def collect_tsd_from_tuples(
 @compute_node(
     overloads=collect,
     requires=lambda m, s: m[OUT].py_type is TSD
-    or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]),
-    resolvers={TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
+    or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
     valid=("tsd",),
 )
 def collect_tsd_from_tsd(
     tsd: TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE],
     *,
     reset: SIGNAL = None,
-    tp_: Type[OUT] = DEFAULT[OUT],
+    tp_: Type[OUT] = TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE],
     _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
 ) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
     remove = {k: REMOVE for k in _output.keys()} if reset.modified else {}

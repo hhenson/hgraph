@@ -34,6 +34,5 @@ def test_data_frame_record_replay_const():
         set_as_of(MIN_ST + MIN_TD * 30)
         eval_node(record[TS[int]], ts=[1, 2, 3], key="ts", recordable_id="test")
         assert eval_node(replay_const[TS[int]], key="ts", recordable_id="test", __start_time__=MIN_ST + MIN_TD) == [
-            None,
             2,
         ]

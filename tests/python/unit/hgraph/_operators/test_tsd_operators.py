@@ -45,7 +45,8 @@ from hgraph import (
     service_impl,
     MIN_TD,
     register_service,
-    map_, merge_tsd_disjoint,
+    map_,
+    PythonSetDelta,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -163,6 +164,18 @@ def test_rekey():
     ]
 
 
+def test_rekey_tsd_set():
+    @graph
+    def g(ts: TSD[int, TS[int]], new_keys: TSD[int, TSS[str]]) -> TSD[str, TS[int]]:
+        return rekey(ts, new_keys)
+
+    fd = frozendict
+    assert (eval_node(g,
+        [None,                  {1: 1, 3: 3},   {2: 2},         None,                                                   {2: REMOVE},        None],  # TSD
+        [{1: {"a"}, 2: {"b"}},  None,           None,           {1: PythonSetDelta(added={"c", "d"}, removed={"a"})},   None,               {1: REMOVE}]) ==  # key mappings
+        [None,                  fd({"a": 1}),   fd({"b": 2}),   fd({"c": 1, "d": 1, "a": REMOVE}),                      fd({"b": REMOVE}),  fd({"c": REMOVE, "d": REMOVE})]) # expected results
+
+
 def test_flip():
     @graph
     def g(ts: TSD[int, TS[str]]) -> TSD[str, TS[int]]:
@@ -221,7 +234,11 @@ def test_collapse_more_keys_tsd():
         return collapse_keys(ts)
 
     fd = frozendict
-    assert eval_node(g, [{1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, {1: {"c": {True: 5}, "a": REMOVE}}, {2: REMOVE}], __trace__=True) == [
+    assert eval_node(
+        g,
+        [{1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, {1: {"c": {True: 5}, "a": REMOVE}}, {2: REMOVE}],
+        __trace__=True,
+    ) == [
         fd({(1, "a", True): 5, (2, "b", False): 6}),
         fd({(1, "c", True): 5, (1, "a", True): REMOVE}),
         fd({(2, "b", False): REMOVE}),
@@ -234,14 +251,22 @@ def test_uncollapse_keys_tsd():
         return uncollapse_keys(ts)
 
     fd = frozendict
-    assert eval_node(
-        g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}]
-    ) == [
-        fd(
-            {1: fd({"a": 5}), 2: fd({"b": 6})},
-        ),
+    assert eval_node(g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}]) == [
+        fd({1: fd({"a": 5}), 2: fd({"b": 6})}),
         fd({1: fd({"c": 5, "a": REMOVE})}),
         fd({2: REMOVE}),
+    ]
+
+
+def test_uncollapse_keys_tsd_keep_empty():
+    @graph
+    def g(ts: TSD[Tuple[int, str], TS[int]]) -> TSD[int, TSD[str, TS[int]]]:
+        return uncollapse_keys(ts, remove_empty=False)
+
+    assert eval_node(g, [{(1, "a"): 5, (2, "b"): 6}, {(1, "c"): 5, (1, "a"): REMOVE}, {(2, "b"): REMOVE}]) == [
+        {1: {"a": 5}, 2: {"b": 6}},
+        {1: {"c": 5, "a": REMOVE}},
+        {2: {"b": REMOVE}},
     ]
 
 
@@ -250,13 +275,48 @@ def test_uncollapse_more_keys_tsd():
     def g(ts: TSD[Tuple[int, str, bool], TS[int]]) -> TSD[int, TSD[str, TSD[bool, TS[int]]]]:
         return uncollapse_keys(ts)
 
-    fd = frozendict
     assert eval_node(
-        g, [{(1, "a", True): 5, (2, "b", False): 6}, {(1, "a", False): 5, (1, "a", True): REMOVE}, {(2, "b", False): REMOVE}]
+        g,
+        [
+            {(1, "a", True): 5, (2, "b", False): 6, (2, "b", True): 7},
+            {(2, "b", False): REMOVE},
+            {(1, "a", False): 5, (1, "a", True): REMOVE},
+            {(2, "c", True): 6},
+            {(2, "b", True): REMOVE},
+            {(2, "c", True): REMOVE}
+        ],
     ) == [
-        {1: {"a": {True: 5}}, 2: {"b": {False: 6}}},
+        {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
+        {2: {"b": {False: REMOVE}}},
         {1: {"a": {True: REMOVE, False: 5}}},
-        {2: REMOVE},
+        {2: {"c": {True: 6}}},
+        {2: {"b": REMOVE}},
+        {2: REMOVE}
+    ]
+
+
+def test_uncollapse_more_keys_tsd_keep_empty():
+    @graph
+    def g(ts: TSD[Tuple[int, str, bool], TS[int]]) -> TSD[int, TSD[str, TSD[bool, TS[int]]]]:
+        return uncollapse_keys(ts, remove_empty=False)
+
+    assert eval_node(
+        g,
+        [
+            {(1, "a", True): 5, (2, "b", False): 6, (2, "b", True): 7},
+            {(2, "b", False): REMOVE},
+            {(1, "a", False): 5, (1, "a", True): REMOVE},
+            {(2, "c", True): 6},
+            {(2, "b", True): REMOVE},
+            {(2, "c", True): REMOVE}
+        ],
+    ) == [
+        {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
+        {2: {"b": {False: REMOVE}}},
+        {1: {"a": {True: REMOVE, False: 5}}},
+        {2: {"c": {True: 6}}},
+        {2: {"b": {True: REMOVE}}},
+        {2: {"c": {True: REMOVE}}}
     ]
 
 
@@ -266,9 +326,7 @@ def test_merge_tsd():
         return merge(tsd1, tsd2)
 
     assert eval_node(
-        g,
-        tsd1=[{1: 1, 2: 2}, None, {1: REMOVE}, {}],
-        tsd2=[{1: 5, 3: 6}, {3: 8, 2: 4}, {}, {1: REMOVE}],
+        g, tsd1=[{1: 1, 2: 2}, None, {1: REMOVE}, {}], tsd2=[{1: 5, 3: 6}, {3: 8, 2: 4}, {}, {1: REMOVE}]
     ) == [fd({1: 1, 2: 2, 3: 6}), fd({2: 4, 3: 8}), fd({1: 5}), fd({1: REMOVE})]
 
 
@@ -278,9 +336,7 @@ def test_merge_tsd_disjoint():
         return merge(tsd1, tsd2, disjoint=True)
 
     assert eval_node(
-        g,
-        tsd1=[{1: 1, 2: 2}, {2: 4}, {1: REMOVE}, {}],
-        tsd2=[{1: 5, 3: 6}, {1: 5, 3: 8}, {}, {1: REMOVE}],
+        g, tsd1=[{1: 1, 2: 2}, {2: 4}, {1: REMOVE}, {}], tsd2=[{1: 5, 3: 6}, {1: 5, 3: 8}, {}, {1: REMOVE}]
     ) == [fd({1: 1, 2: 2, 3: 6}), fd({2: 4, 3: 8}), fd({1: 5}), fd({1: REMOVE})]
 
 
@@ -388,12 +444,7 @@ def test_eq_tsds():
     assert eval_node(app, [{1: 1}, {2: 2}], [{2: 2}, {1: 1}]) == [False, True]
 
 
-@pytest.mark.parametrize(
-    ["tp", "expected", "values"],
-    [
-        [TSD[int, TS[int]], [0, 1, 0], [{}, {0: 1}, {0: REMOVE}]],
-    ],
-)
+@pytest.mark.parametrize(["tp", "expected", "values"], [[TSD[int, TS[int]], [0, 1, 0], [{}, {0: 1}, {0: REMOVE}]]])
 def test_len_tsd(tp, expected, values):
     assert eval_node(len_, values, resolution_dict={"ts": tp}) == expected
 

@@ -26,6 +26,7 @@ from hgraph import (
     HgTSBTypeMetaData,
     TimeSeriesSchema,
     combine,
+    REMOVE,
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
@@ -35,6 +36,7 @@ class WebSocketConnectRequest(CompoundScalar):
     url: str
     url_parsed_args: tuple[str, ...] = ()
     headers: dict[str, str] = frozendict()
+    cookies: dict[str, dict[str, object]] = frozendict()
 
 
 class WebSocketRequest(TimeSeriesSchema):
@@ -91,6 +93,7 @@ class WebSocketAdaptorManager:
 
     def remove_message_handler(self, request_id):
         del self.message_handlers[request_id]
+        self.queue({request_id: REMOVE})
 
     def complete_request(self, request_id, response):
         if r := response.get("connect_response"):
@@ -114,7 +117,12 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 
         response, enqueue, close = await self.mgr.add_request(
             request_id,
-            WebSocketConnectRequest(url=self.path, url_parsed_args=args, headers=self.request.headers),
+            WebSocketConnectRequest(
+                url=self.path,
+                url_parsed_args=args,
+                headers=self.request.headers,
+                cookies=frozendict({k: frozendict({'value': v.value, **{p: w for p, w in v.items()}}) for k, v in self.request.cookies.items()}),
+            ),
             lambda m: self.write_message(m, binary=True),
         )
 
@@ -125,7 +133,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
             self.close()
 
     def on_message(self, message):
-        self.enqueue(message)
+        self.enqueue(message if type(message) is bytes else message.encode())
 
     def on_close(self):
         self.close()
@@ -168,7 +176,7 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
             if inputs.as_dict():
                 responses = map_(lambda r, i: fn(request=r, **i.as_dict()), requests, inputs)
             else:
-                responses = map_(lambda r, m: fn(request=r), requests)
+                responses = map_(lambda r: fn(request=r), requests)
         else:
             responses = fn(request=requests, **inputs)
 

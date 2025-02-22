@@ -1,5 +1,59 @@
+export async function ensureTablesForConfig(config, progress_callback) {
+    if (config.viewers) {
+        const total = Object.keys(config.viewers).length;
+        let i = 0;
+        for (const [_, viewer] of Object.entries(config.viewers)) {
+            try {
+                progress_callback(i / total, viewer.table);
+                await wait_for_table(window.workspace, viewer.table, (x, y) => {
+                    progress_callback((i + x) / total, y);
+                });
+            } catch (e) {
+                progress_callback(i / total, undefined, e.toString());
+            }
+            i += 1;
+            progress_callback(i / total);
+        }
+    }
+}
+
 export async function installTableWorkarounds(mode) {
     const config = await window.workspace.save();
+
+    for (const g of document.querySelectorAll("perspective-viewer")) {
+        if (!g.dataset.events_set_up) {
+            const viewer = g;
+            const view_config = config.viewers[viewer.slot];
+            const table_config = getWorkspaceTables()[view_config.table];
+
+            if (!table_config.started){
+                wait_for_table(window.workspace, view_config.table)
+            }
+
+            g.addEventListener("perspective-toggle-settings", (event) => {
+                if (event.detail && !mode.editable) {
+                    const yes = window.confirm("This layout is open readonly, would you like to make it editable? Any changes you make from now on will be automatically saved");
+                    if (yes) {
+                        mode.editable = true;
+                    }
+                }
+                g.dataset.config_open = event.detail;
+                if (event.detail){
+                    cancelRefreshTimeSensitiveViews(g);
+                }
+            });
+
+            g.addEventListener("perspective-config-update", async (event) => {
+                if (g.dataset.config_open === 'false') {
+                    await refreshTimeSensitiveViews(event, g);
+                }
+            });
+            await refreshTimeSensitiveViews({detail: config.viewers[g.slot]}, g);
+
+            g.dataset.events_set_up = "true";
+        }
+
+    }
 
     for (const g of document.querySelectorAll(
         "perspective-viewer perspective-viewer-datagrid, perspective-viewer perspective-viewer-datagrid-norollups")) {
@@ -10,9 +64,13 @@ export async function installTableWorkarounds(mode) {
         const view_config = config.viewers[viewer.slot];
         const table_config = getWorkspaceTables()[view_config.table];
 
+        if (!table_config.started){
+            wait_for_table(window.workspace, view_config.table)
+        }
+
         if (table_config && table_config.locked_columns) {
             model._column_paths.map((x, i) => {
-                if (table_config.locked_columns.includes(x)) {
+                if (table_config.locked_columns.includes(x) || !table_config.schema[x]) {
                     model._is_editable[i] = false;
                 }
             })
@@ -41,8 +99,10 @@ export async function installTableWorkarounds(mode) {
             addTooltips(table, table_config)
         });
         table.addStyleListener(() => {
-            hideColumns(table, table_config) });
-        table.addStyleListener(() => { enableAddRemove(table, viewer, table_config)
+            hideColumns(table, table_config)
+        });
+        table.addStyleListener(() => {
+            enableAddRemove(table, viewer, table_config, model)
         });
 
         if (g.tagName === "PERSPECTIVE-VIEWER-DATAGRID-NOROLLUPS") {
@@ -51,17 +111,13 @@ export async function installTableWorkarounds(mode) {
             });
         }
 
-        g.parentElement.addEventListener("perspective-toggle-settings", (event) => {
-            if (event.detail && !mode.editable) {
-                const yes = window.confirm("This layout is open readonly, would you like to make it editable? Any changes you make from now on will be automatically saved");
-                if (yes) {
-                    mode.editable = true;
-                }
-            }
+        g.parentElement.addEventListener("perspective-config-update", async (event) => {
+            await maintainAddButtonOnFilter(event, table, viewer, table_config);
         });
+        await maintainAddButtonOnFilter({detail: view_config}, table, viewer, table_config);
 
         table.addEventListener("focusin", async (event) => {
-            await focusin(event, table, model, table_config);
+            await focusin(event, viewer, table, model, table_config);
         });
 
         table.draw();
@@ -69,7 +125,7 @@ export async function installTableWorkarounds(mode) {
 }
 
 
-import {getWorkspaceTables} from "./workspace_tables.js";
+import {getWorkspaceTables, wait_for_table} from "./workspace_tables.js";
 
 
 async function row_data(table, config, td) {
@@ -107,7 +163,10 @@ async function validate_value(editor, element, table, model, table_config, optio
                 return false;
             }
         }
-        if (editor.validate.in_options && options.length) {
+        if (editor.validate.in_options) {
+            if (options === null){
+                options = await load_options(editor);
+            }
             if (!options.includes(element.innerText)) {
                 element.classList.add("invalid");
                 console.log(element.innerText, "is invalid because not in options", structuredClone(options));
@@ -118,6 +177,21 @@ async function validate_value(editor, element, table, model, table_config, optio
     element.classList.remove("invalid");
     console.log(element.innerText, "is valid");
     return true;
+}
+
+async function load_options(editor) {
+    const options = []
+    if (Array.isArray(editor.options)) {
+        options.push(...editor.options);
+    } else {
+        if (editor.options.source in getWorkspaceTables()) {
+            const table = getWorkspaceTables()[editor.options.source].table;
+            const view = await table.view(editor.options.view || {"columns": [editor.options.column]});
+            const data = await view.to_columns();
+            options.push(...new Set(data[editor.options.column].filter((x) => x !== null && x !== undefined)));
+        }
+    }
+    return options;
 }
 
 async function dropdown_editor(editor, element, table_, model_, table_config_) {
@@ -141,16 +215,7 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
         datalist.style.zIndex = "1000";
         datalist.style.backgroundColor = "white";
         datalist.style.border = "1px solid grey";
-        if (Array.isArray(editor.options)) {
-            options.push(...editor.options);
-        } else {
-            if (editor.options.source in getWorkspaceTables()) {
-                const table = getWorkspaceTables()[editor.options.source].table;
-                const view = await table.view(editor.options.view || {"columns": [editor.options.column]});
-                const data = await view.to_columns();
-                options.push(...new Set(data[editor.options.column]));
-            }
-        }
+        options.push(...(await load_options(editor)));
         for (const option of options) {
             const r = document.createElement("tr")
             const option_el = document.createElement("th");
@@ -288,31 +353,58 @@ async function plain_editor(editor, element, table, model, table_config) {
     await validate_value(editor, element, table, model, table_config);
 }
 
-async function focusin(event, table, model, table_config) {
+async function focusin(event, viewer, table, model, table_config) {
     console.log("focus in", event.target);
     if (event.target.tagName === "TD" && event.target.contentEditable) {
+        const td = event.target;
+        if (td.dataset.editing_null) {
+            td.dataset.editing_null = "";
+            event.stopImmediatePropagation();
+            event.target.blur();
+            return;
+        }
+        const events = {};
         const metadata = table.getMeta(event.target);
         const col_name = metadata.column_header[metadata.column_header.length - 1];
         if (metadata.user === null && col_name !== '_id') {
-            event.target.innerText = "";
-            event.target.addEventListener("keydown", (event) => {
+            td.innerText = "";
+            td.addEventListener("keydown", events.keydown = (event) => {
                 if (event.key === "Escape") {
                     event.preventDefault();
+                    event.stopImmediatePropagation();
                     metadata.user = null;
                     event.target.blur();
                 }
             });
+            td.addEventListener("blur", events.blur = (event) => {
+                setTimeout(() => {
+                    Object.entries(events).map(([k, v]) => td.removeEventListener(k, v));
+                    td.dataset.editing_null = "";
+                }, 1);
+            });
+            td.dataset.editing_null = "true";
+        }
+        const filter = viewer.dataset.prev_filter ? JSON.parse(viewer.dataset.prev_filter) : [];
+        if (filter.filter((x) => x[0] === col_name).length){
+            event.stopImmediatePropagation();
+            event.target.blur();
+            return;
         }
         if (model._is_editable[metadata.x] === false) {
             // hack around having an editable row in a non-editable column
             model._is_editable[metadata.x] = true;
-            event.target.addEventListener("blur", (event) => {
+            if ('blur' in events) {
+                td.removeEventListener("blur", events.blur);
+            }
+            td.addEventListener("blur", events.blur = (event) => {
                 model._is_editable[metadata.x] = false;
+                setTimeout(() => {
+                    Object.entries(events).map(([k, v]) => td.removeEventListener(k, v));
+                }, 1);
             });
         }
         if (table_config.column_editors && table_config.column_editors[col_name]) {
             const editor = table_config.column_editors[col_name];
-            const td = event.target;
             if (editor.type === "select" || editor.type === "suggest") {
                 await dropdown_editor(editor, td, table, model, table_config);
             } else {
@@ -323,28 +415,102 @@ async function focusin(event, table, model, table_config) {
     }
 }
 
-async function enableAddRemove(table, viewer, config) {
+async function refreshTimeSensitiveViews(event, viewer) {
+    const has_now = Object.entries(event.detail.expressions)
+            .map(([k, v]) => v.includes("var refresh := now()"))
+            .some((x) => x);
+
+    if (has_now) {
+        if (!viewer.dataset.refresh_timeout) {
+            viewer.dataset.refresh_timeout = setInterval(async () => {
+                const config = await viewer.save();
+                viewer.restore(config);
+            }, 60000);
+        }
+    } else {
+        if (viewer.dataset.refresh_timeout) {
+            clearInterval(viewer.dataset.refresh_timeout);
+            delete viewer.dataset.refresh_timeout;
+        }
+    }
+}
+
+function cancelRefreshTimeSensitiveViews(viewer) {
+    if (viewer.dataset.refresh_timeout) {
+        clearInterval(viewer.dataset.refresh_timeout);
+        delete viewer.dataset.refresh_timeout;
+    }
+}
+
+async function maintainAddButtonOnFilter(event, table, viewer, config) {
+    if (!config || !config.editable || !('_id' in config.schema)) return;
+
+    const new_view_config = event.detail ? event.detail : {filter: []};
+    let fixed = Object.fromEntries(new_view_config.filter.filter((x) => x[1] === '==' && x[0] in config.schema).map((x) => [x[0], x[2]]));
+    if (viewer.dataset.prev_filter) {
+        const prev_filter = JSON.parse(viewer.dataset.prev_filter);
+        fixed = {...fixed, ...Object.fromEntries(prev_filter.filter((x) => x[1] === '==' && !(x[0] in fixed)).map((x) => [x[0], null]))};
+    }
+    if (config.index !== '_id') {
+        if (config.type === 'join') {
+            fixed[config.description._total.index] = '-';
+        }
+    }
+    config.table.update([{_id: 0, ...fixed}], {port_id: await viewer.getEditPort()});
+    viewer.dataset.prev_filter = JSON.stringify(new_view_config.filter);
+}
+
+async function enableAddRemove(table, viewer, config, model) {
     if (!config || !config.editable) return;
+
+    const tbl = 'edit_table' in config ? config.edit_table : (await viewer.getTable());
+    const edit_port = 'edit_port' in config ? config.edit_port : (await viewer.getEditPort());
 
     for (const td of table.querySelectorAll("td[contenteditable]")) {
         const metadata = table.getMeta(td);
         if (metadata.column_header[metadata.column_header.length - 1] === '_id') {
             td.contentEditable = "false";
             let btn = td.querySelector("button");
-            if (metadata.user === 0) {
+            if (metadata.user === 0 || metadata.user === null) {
                 if (btn === null) {
                     td.innerHTML = "<button style='font: inherit'>Add</button>";
                     btn = td.querySelector("button");
                     btn.addEventListener("click", async () => {
-                        const tbl = await viewer.getTable();
-                        const edit_port = await viewer.getEditPort();
-                        const data = new Map();
+                        const data = {};
                         for (const item of td.parentElement.children) {
                             const meta = table.getMeta(item);
-                            data.set(meta.column_header[meta.column_header.length - 1], meta.user);
+                            const col_name = meta.column_header[meta.column_header.length - 1];
+                            data[col_name] = meta.user;
+                            const editor = config.column_editors && col_name in config.column_editors ? config.column_editors[col_name] : null;
+                            if (editor !== null && !(await validate_value(editor, item, table, model, config))){
+                                btn.disabled = true;
+                                return;
+                            }
                         }
-                        data.set("_id", -1);
-                        await tbl.update([Object.fromEntries(data)], {port_id: edit_port});
+                        data._id = Math.floor(Math.random() * 1_000_000_000) * -2 - 1;  // negative odd number to add
+
+                        if (config.edit_table_name) {
+                            const inverse_columns = Object.entries(config.description[config.edit_table_name].columns).map(([k, v]) => [v, k]);
+                            const filtered_data = Object.fromEntries(inverse_columns.map(([k, v]) => [v, data[k]]));
+                            await tbl.update([filtered_data], {port_id: edit_port});
+                        } else {
+                            await tbl.update([data], {port_id: edit_port});
+                        }
+
+                        const client_table = await viewer.getTable()
+                        const client_edit_port = await viewer.getEditPort()
+
+                        const empty = {
+                            _id: 0,
+                            ...Object.fromEntries((await viewer.save()).filter.filter((x) => x[1] === '==' && x[0] in data).map((x) => [x[0], data[x[0]]]))};
+
+                        if (config.index !== '_id' &&config.type === 'join') {
+                            empty[config.description._total.index] = '-';
+                            client_table.remove(['-'], {port_id: client_edit_port});
+                        } else {
+                            client_table.remove([0], {port_id: client_edit_port});
+                        }
+                        client_table.update([empty], {port_id: client_edit_port});
                     });
                     btn.addEventListener("keydown", async (event) => {
                         if (event.key === "Enter") {
@@ -353,12 +519,24 @@ async function enableAddRemove(table, viewer, config) {
                     });
                 }
                 btn.disabled = false;
+                const fixed_cols = viewer.dataset.prev_filter ? JSON.parse(viewer.dataset.prev_filter) : {};
                 for (const item of td.parentElement.children) {
                     if (item !== td) {
-                        item.contentEditable = "true";
-                    }
-                    if (item.classList.contains("invalid")) {
-                        btn.disabled = true;
+                        const cell_metadata = table.getMeta(item);
+                        const col_name = cell_metadata.column_header[cell_metadata.column_header.length - 1];
+                        if (col_name in config.schema &&
+                            !(col_name in fixed_cols) &&  // pre-selected in the filter
+                            !(config.fixed_columns && config.fixed_columns.includes(col_name)) && // fixed in the schema
+                            !(metadata.user === null && config.locked_columns.includes(col_name)) // if _id is null this is prepopulated in the merge
+                        ) {
+                            item.contentEditable = "true";
+                        } else {
+                            item.contentEditable = "false";
+                        }
+                        if (config.column_editors && col_name in config.column_editors) {
+                            if (!validate_value(config.column_editors[col_name], item, table, model, config))
+                                btn.disabled = true;
+                        }
                     }
                 }
             } else {
@@ -366,15 +544,34 @@ async function enableAddRemove(table, viewer, config) {
                     td.innerHTML = "<button style='font: inherit'>Del</button>";
                     btn = td.querySelector("button");
                     btn.addEventListener("click", async () => {
-                        const tbl = await viewer.getTable();
-                        const edit_port = await viewer.getEditPort();
                         const data = new Map();
                         for (const item of td.parentElement.children) {
                             const meta = table.getMeta(item);
-                            data.set(meta.column_header[meta.column_header.length - 1], meta.user);
+                            const col_name = meta.column_header[meta.column_header.length - 1];
+                            if (config.schema[col_name]) {
+                                data.set(col_name, meta.user);
+                            }
                         }
-                        data.set("_id", -2);
-                        await tbl.update([Object.fromEntries(data)], {port_id: edit_port});
+                        const remove_id = Math.floor(Math.random() * 1_000_000_000) * -2; // negative even number to delete
+                        await tbl.update([{...Object.fromEntries(data), _id: remove_id}], {port_id: edit_port});
+
+                        const client_table = await viewer.getTable();
+                        const client_table_index = await client_table.get_index();
+
+                        let id = undefined;
+                        const empty = {};
+                        for (const item of td.parentElement.children) {
+                            if (item.contentEditable === "true") {
+                                const meta = table.getMeta(item);
+                                const col_name = meta.column_header[meta.column_header.length - 1];
+                                id = model._ids[meta.y - meta.y0]
+                                empty[client_table_index] = id;
+                                empty[col_name] = null;
+                            }
+                        }
+                        if (id){
+                            client_table.update([empty], {port_id: 0});
+                        }
                     });
                 }
             }
@@ -493,7 +690,7 @@ function hideColumns(table) {
 
                     if (tr.parentElement === tbody && td.innerText) {
                         if (fg_copy.has(metadata.size_key)) {
-                            const copy_to_key = col_map.get(bg_copy.get(metadata.size_key));
+                            const copy_to_key = col_map.get(fg_copy.get(metadata.size_key));
                             let copy_to = td.previousElementSibling;
                             while (copy_to && table.getMeta(copy_to).size_key !== copy_to_key) {
                                 copy_to = copy_to.previousElementSibling;

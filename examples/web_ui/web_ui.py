@@ -118,7 +118,7 @@ def random_events(
 def host_web_server():
     register_perspective_adaptors()
     PerspectiveTablesManager.set_current(PerspectiveTablesManager(host_server_tables=False))
-    perspective_web(gethostname(), 8082, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
+    perspective_web(gethostname(), 8081, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
 
     initial_config = const(deepfreeze(refdata()), TSD[str, TSB[Config]])
     config_updates = feedback(TSB[TableEdits[str, TSB[Config]]])
@@ -149,8 +149,8 @@ def host_web_server():
         history=sys.maxsize,
     )
 
-    trace_controller(port=8082)
-    inspector(port=8082)
+    trace_controller(port=8081)
+    inspector(port=8081)
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:

@@ -45,6 +45,7 @@ from hgraph import (
     EvaluationClock,
     MIN_DT,
     count,
+    MAX_DT,
 )
 
 __all__ = ()
@@ -312,22 +313,6 @@ def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[T
         return ts.delta_value
 
 
-@dataclass
-class TimeState(CompoundScalar):
-    time: datetime = MIN_DT
-
-
-@compute_node(overloads=take)
-def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[TimeState] = None) -> TIME_SERIES_TYPE:
-    if state.time == MIN_DT:  # First tick
-        state.time = ts.last_modified_time
-
-    if ts.last_modified_time - state.time > count:
-        ts.make_passive()
-    else:
-        return ts.delta_value
-
-
 @graph(overloads=drop)
 def drop_default(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
     """
@@ -438,7 +423,7 @@ def gate_default_start(_state: STATE):
 def batch_default(
     condition: TS[bool],
     ts: TS[SCALAR],
-    delay: timedelta = MIN_TD,
+    delay: timedelta,
     buffer_length: int = sys.maxsize,
     _state: STATE = None,
     _sched: SCHEDULER = None,
@@ -448,8 +433,14 @@ def batch_default(
             _state.buffer.append(ts.delta_value)
         else:
             raise RuntimeError(f"Buffer overflow when adding {ts.delta_value} to batch buffer")
-    if (condition.modified or _sched.is_scheduled_now) and condition.value and _state.buffer:
+
+    if condition.value is not True:
+        return
+
+    if not _sched.is_scheduled and not condition.modified:  # only schedule on data ticks
         _sched.schedule(delay)
+
+    if (_sched.is_scheduled_now or condition.modified) and _state.buffer:
         out = tuple(_state.buffer)
         _state.buffer.clear()
         return out

@@ -107,9 +107,6 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
                 )
                 kwargs_["inner_graph"] = inner_graph
 
-            # We pass in rank of -1 because service implementations are ranked at the end of the graph build
-            from hgraph._wiring._context_wiring import TimeSeriesContextTracker
-
             wiring_node_instance = create_wiring_node_instance(
                 self,
                 resolved_signature,

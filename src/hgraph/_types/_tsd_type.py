@@ -131,6 +131,9 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         """
         return iter(self._ts_values)
 
+    def __contains__(self, item):
+        return item in self._key_set
+
     @property
     def key_set(self) -> "TimeSeriesSet":
         return self._key_set

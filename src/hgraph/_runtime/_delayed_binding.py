@@ -1,8 +1,13 @@
-from dataclasses import dataclass
-from typing import Generic
+from dataclasses import dataclass, field
+from typing import Generic, Callable
 
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
-from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData
+from hgraph._types._typing_utils import nth
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_port import WiringPort
 
@@ -37,16 +42,78 @@ class _DelayedBindingWiringPort(WiringPort, Generic[TIME_SERIES_TYPE]):
     A wiring port that is not yet bound to a node. This is used in the graph builder to create a placeholder for
     a wiring port that will be bound later.
     """
-    node_instance: "WiringNodeInstance" = None
-    output_type: HgTimeSeriesTypeMetaData = None
+    _output_type: HgTimeSeriesTypeMetaData = None
+    derived_wps: list["_DelayedBindingWiringPortItem"] = field(hash=False, default=None)
+
+    def __post_init__(self):
+        ...
+
+    @property
+    def output_type(self) -> HgTimeSeriesTypeMetaData:
+        return self._output_type
 
     def bind(self, ts: TIME_SERIES_TYPE):
-        if self.output_type != ts.output_type:
-            raise CustomMessageWiringError("The output type of the delayed binding port does not match the output type "
-                                           "of the port being bound")
+        if self.output_type != ts.output_type.dereference():
+            raise CustomMessageWiringError(f"The output type of the delayed binding port does not match the output type {self.output_type}"
+                                           f"of the port being bound {ts.output_type.dereference()}")
 
         object.__setattr__(self, "node_instance", ts.node_instance)
         object.__setattr__(self, "path", ts.path)
+
+        if self.derived_wps is not None:
+            for dp in self.derived_wps:
+                dp.bind(ts)
+
+    def add_derived(self, derivator: Callable[[WiringPort], WiringPort], tp: type[TIME_SERIES_TYPE_1] = None):
+        if self.derived_wps is None:
+            object.__setattr__(self, "derived_wps", [])
+        self.derived_wps.append(dp := _DelayedBindingWiringPortItem(node_instance=None, derivator=derivator, _output_type=tp))
+        return dp
+
+    @property
+    def key_set(self):
+        if isinstance(self.output_type.dereference(), HgTSDTypeMetaData):
+            return self.add_derived(lambda x: x.key_set, HgTSSTypeMetaData(self.output_type.key_tp))
+
+        raise AttributeError(f"{self.output_type} does not have a key_set property")
+
+    def __error__(self, trace_back_depth: int = 1, capture_values: bool = False) -> "WiringPort":
+        raise AttributeError(f"__error__ not supported on delayed bindings")
+
+    def __getitem__(self, item: str) -> "WiringPort":
+        if isinstance(self.output_type.dereference(), (HgTSDTypeMetaData, HgTSLTypeMetaData)):
+            return self.add_derived(lambda x: x[item], self.output_type.value_tp)
+        if isinstance(self.output_type.dereference(), (HgTSBTypeMetaData)):
+            return self.add_derived(lambda x: getattr(x, item), nth(self.output_type.bundle_schema_tp.meta_data_schema.values(), item))
+
+        return super().__getitem__(item)
+
+    def __getattr__(self, item):
+        if isinstance(self.output_type.dereference(), HgTSBTypeMetaData):
+            return self.add_derived(lambda x: getattr(x, item), self.output_type.bundle_schema_tp.meta_data_schema[item])
+
+        return super().__getattr__(item)
+
+    def copy_with(self, **kwargs):
+        if isinstance(self.output_type.dereference(), HgTSBTypeMetaData):
+            return self.add_derived(lambda x: x.copy_with(**kwargs), self.output_type)
+
+        return super().copy_with(**kwargs)
+
+
+@dataclass(frozen=True)
+class _DelayedBindingWiringPortItem(_DelayedBindingWiringPort, Generic[TIME_SERIES_TYPE]):
+    """
+    A wiring port that is not yet bound to a node is derived from another delayed wiring port.
+    """
+    derivator: Callable = None
+
+    def __post_init__(self):
+        ...
+
+    def bind(self, ts: TIME_SERIES_TYPE_1):
+        derived = self.derivator(ts)
+        super().bind(derived)
 
 
 def delayed_binding(tp_: type[TIME_SERIES_TYPE]) -> DelayedBindingWiringPort[TIME_SERIES_TYPE]:
@@ -65,4 +132,7 @@ def delayed_binding(tp_: type[TIME_SERIES_TYPE]) -> DelayedBindingWiringPort[TIM
     binding(out)  # Bind the value of the delayed_binding
     ```
     """
-    return DelayedBindingWiringPort(_delegate=_DelayedBindingWiringPort(output_type=HgTimeSeriesTypeMetaData.parse_type(tp_)),)
+    return DelayedBindingWiringPort(
+        _delegate=_DelayedBindingWiringPort(
+            node_instance=None,
+            _output_type=HgTimeSeriesTypeMetaData.parse_type(tp_)))

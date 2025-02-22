@@ -635,24 +635,28 @@ WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
 
 
 @operator
-def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE:
+def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True) -> TIME_SERIES_TYPE:
     """
     This represents the ``min`` operator for time series types.
 
     Unary implies the min over the latest TS value for collection types, or running min for non-collection types
     Binary or multi arg implies item-wise min over all the arguments for collection types,
     or the minimum scalar value for scalar types
+
+    __strict__ controls whether the operator will tick if any of the arguments are missing
     """
 
 
 @operator
-def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None) -> TIME_SERIES_TYPE:
+def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True) -> TIME_SERIES_TYPE:
     """
     The ``max`` operator for time series types.
 
     Unary implies the max over the latest TS value for collection types, or running max for non-collection types
     Binary or multi arg implies item-wise max over all the arguments for collection types,
     or the maximum scalar value for scalar types
+
+    __strict__ controls whether the operator will tick if any of the arguments are missing
     """
 
 

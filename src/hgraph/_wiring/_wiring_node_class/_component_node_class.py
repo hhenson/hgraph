@@ -36,7 +36,7 @@ class ComponentWiringNodeSignature(WiringNodeSignature):
 
 
 class ComponentNodeClass(BaseWiringNodeClass):
-    """The outer try_except node"""
+    """The outer component node"""
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         if not any(isinstance(tp, HgTimeSeriesTypeMetaData) for tp in signature.input_types.values()):

@@ -236,16 +236,14 @@ class TSBWiringPort(WiringPort):
             arg = nth(schema.__meta_data_schema__.keys(), item)
         else:
             raise AttributeError(f"'{item}' is not typeof str or int")
+
         tp = schema.__meta_data_schema__[arg]
         if self.has_peer:
             path = self.path + (ndx,)
             node_instance = self.node_instance
+            return _wiring_port_for(tp, node_instance, path)
         else:
-            input_wiring_port = self.node_instance.inputs[arg]
-            node_instance = input_wiring_port.node_instance
-            tp = input_wiring_port.output_type
-            path = input_wiring_port.path
-        return _wiring_port_for(tp, node_instance, path)
+            return self.node_instance.inputs[arg]
 
     def __getitem__(self, item):
         return self._wiring_port_for(item)
@@ -371,15 +369,13 @@ class TSLWiringPort(WiringPort):
         if self.has_peer:
             path = self.path + (item,)
             node_instance = self.node_instance
+            return _wiring_port_for(tp_, node_instance, path)
         else:
             args = self.node_instance.resolved_signature.args
             ts_args = self.node_instance.resolved_signature.time_series_args
             arg = nth(filter(lambda k_: k_ in ts_args, args), item)
             input_wiring_port = self.node_instance.inputs[arg]
-            node_instance = input_wiring_port.node_instance
-            path = input_wiring_port.path
-            tp_ = input_wiring_port.output_type
-        return _wiring_port_for(tp_, node_instance, path)
+            return input_wiring_port
 
     def edges_for(
         self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]

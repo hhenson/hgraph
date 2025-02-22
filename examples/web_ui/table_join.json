@@ -2,7 +2,16 @@
   "config": {
     "locked_columns": [
       "sensor"
-    ]
+    ],
+    "column_editors":{
+      "sensor": {
+        "validate": {
+            "required": true,
+            "unique": true,
+            "min_length": 1
+        }
+      }
+    }
   },
   "events": {
     "locked_columns": [
@@ -40,6 +49,81 @@
         ],
         "validate": {
             "required": true
+        }
+      }
+    }
+  },
+  "edit_events": {
+    "type": "join",
+    "schema": {
+      "_id": "int",
+      "sensor": "str",
+      "type": "str",
+      "magnitude": "float",
+      "initial": "float",
+      "units": "str",
+      "avg_value": "float",
+      "ping": "str"
+    },
+    "edit_table": "events",
+    "locked_columns": [
+      "sensor",
+      "type",
+      "initial",
+      "agv_value"
+    ],
+    "column_editors": "inherit",
+    "index": "sensor,units",
+    "description": {
+      "config": {
+        "mode": "inner",
+        "index": "sensor",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "sensor",
+          "initial"
+        ]
+      },
+      "events": {
+        "mode": "outer",
+        "index": "_id",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "_id",
+          "type",
+          "magnitude"
+        ]
+      },
+      "data": {
+        "mode": "outer",
+        "index": "sensor,units",
+        "native_index": "sensor,units",
+        "keys": [
+          "sensor",
+          "units"
+        ],
+        "values": [
+          "units",
+          "value"
+        ],
+        "columns": {
+          "value": "avg_value"
+        }
+      },
+      "others": {
+        "mode": "outer",
+        "keys": [
+          "sensor"
+        ],
+        "values": [
+          "value"
+        ],
+        "columns": {
+          "value": "ping"
         }
       }
     }
@@ -136,7 +220,7 @@
           "sensor"
         ],
         "values": [
-          "ping"
+          "value"
         ]
       }
     }
@@ -179,57 +263,33 @@
           "sensor"
         ],
         "values": [
-          "ping"
+          "value"
         ]
       }
     }
   },
-  "join pivot": {
+  "config values": {
     "type": "join",
     "schema": {
-      "sensor": "str",
-      "F_value": "float",
-      "C_value": "float",
-      "ping": "str"
+      "sensor": "str"
     },
     "index": "sensor",
     "description": {
-      "data": {
-        "view": {
-          "group_by": [
-            "sensor"
-          ],
-          "split_by": [
-            "units"
-          ],
-          "aggregates": {
-            "value": "last"
-          }
-        },
+      "config": {
         "mode": "inner",
         "index": "sensor",
-        "native_index": "sensor,units",
         "keys": [
           "sensor"
         ],
-        "values": [
-          "F_value",
-          "C_value",
-          "ping"
-        ]
-      },
-      "others": {
-        "columns": {
-          "value": "ping"
-        },
-        "mode": "outer",
-        "index": "index",
-        "keys": [
-          "sensor"
-        ],
-        "values": [
-          "ping"
-        ]
+        "view": {
+          "filter": [
+            [
+              "_id",
+              ">",
+              "0"
+            ]
+          ]
+        }
       }
     }
   }

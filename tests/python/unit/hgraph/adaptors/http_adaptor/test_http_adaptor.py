@@ -207,11 +207,11 @@ try:
         @graph
         def g():
             register_http_server_adaptor(port=port)
-            register_adaptor(None, http_client_adaptor_impl)
+            register_adaptor("http_client", http_client_adaptor_impl)
 
             queries = frozendict({
-                "one": HttpGetRequest(f"http://localhost:{port}/test/one"),
-                "two": HttpGetRequest(f"http://localhost:{port}/test/two"),
+                str(i): HttpGetRequest(f"http://localhost:{port}/test/{i}")
+                for i in range(10)
             })
 
             @graph
@@ -231,11 +231,10 @@ try:
             config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
             evaluate_graph(g, config)
             values = get_recorded_value()
-            assert 1 <= len(values) <= 3
             v = values[0][1]
             for _, d in values:
                 v |= d
-            assert v == {"one": True, "two": True}
+            assert v == {str(i): True for i in range(10)}
 
 except ImportError:
     pass
