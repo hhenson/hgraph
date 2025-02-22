@@ -929,7 +929,7 @@ Version 0.3.56 (11-02-2025)
 Version 0.3.57 (16-02-2025)
 ---------------------------
 
-* Add support to help with bi-directional matches with HgCompoundScalarType
+* Add support to help with bidirectional matches with HgCompoundScalarType
 * Add more information to failed overload resolution
 
 Version 0.3.58 (19-02-2025)
@@ -941,3 +941,10 @@ Version 0.3.59 (20-02-2025)
 ---------------------------
 
 * Clean up getting recordable id's using time-series value in the format string.
+
+Version 0.3.60 (22-02-2025)
+---------------------------
+
+* Large number of updates to web interface
+* Beginning of logic to merge adaptors and service infrastructure
+* Bug fixes
