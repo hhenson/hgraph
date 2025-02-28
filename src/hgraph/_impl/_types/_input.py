@@ -127,7 +127,11 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
             peer = self.do_bind_output(output)
 
-        if (self.owning_node.is_started or self.owning_node.is_starting) and self._output is not None and (was_bound or self._output.valid):
+        if (
+            (self.owning_node.is_started or self.owning_node.is_starting)
+            and self._output is not None
+            and (was_bound or self._output.valid)
+        ):
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
             if self.active:
                 self.notify(
@@ -174,7 +178,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     @property
     def has_peer(self) -> bool:
-        # By default we assume that if there is an output then we are peered.
+        # By default, we assume that if there is an output then we are peered.
         # This is not always True, but is a good general assumption.
         return self._output is not None
 

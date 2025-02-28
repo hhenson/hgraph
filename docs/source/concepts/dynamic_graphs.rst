@@ -27,7 +27,7 @@ For example:
     b: TSD[str, TS[float]] = ...
     c: TSD[str, TS[float]] = map_(lambda a, b: a + b, a, b)
 
-In the example above we use the lambda syntax to create a graph that sums two inputs, ``a`` and ``b`. We supply two
+In the example above we use the lambda syntax to create a graph that sums two inputs, ``a`` and ``b``. We supply two
 time-series dictionaries and assign the result to ``c``.
 
 The ``map_`` operator will create a new instance of the graph for each unique key in the maps of ``a`` and ``b``.
