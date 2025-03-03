@@ -178,13 +178,10 @@ def combine_tsd_from_tuple_and_tsl(
     __strict__: bool = True,
     _output: TSD_OUT[SCALAR, REF[TIME_SERIES_TYPE]] = None,
 ) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
-    if __strict__:
-        return {k.value: v.value for k, v in zip(keys, tsl)}
-    else:
-        out = {k.value: v.value for k, v in zip(keys, tsl) if k.valid}
-        if _output.valid:
-            out |= {k: REMOVE for k in _output if k not in out}
-        return out
+    out = {k.value: v.value for k, v in zip(keys, tsl) if k.valid}
+    if _output.valid:
+        out |= {k: REMOVE for k in _output if k not in out}
+    return out
 
 
 @compute_node(
