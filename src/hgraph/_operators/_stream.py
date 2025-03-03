@@ -48,7 +48,7 @@ def sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 @operator
-def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> DEFAULT[TIME_SERIES_TYPE]:
+def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
     """
     Delays the delivery of an input by the period specified. This period can either be a number of ticks
     or a time-delta.
