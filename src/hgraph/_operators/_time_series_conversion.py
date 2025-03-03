@@ -33,6 +33,11 @@ def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = DEFAULT[OUT], **kwargs) -> OUT
     ::
         c = const(..., TS[set[str]])
         convert(c, TS[tuple[str, ...]])
+
+    or:
+    ::
+        convert[TS[tuple[str, ...]]](c)
+
     """
 
 

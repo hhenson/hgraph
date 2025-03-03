@@ -47,6 +47,7 @@ from hgraph import (
     register_service,
     map_,
     PythonSetDelta,
+    SIZE,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -170,10 +171,18 @@ def test_rekey_tsd_set():
         return rekey(ts, new_keys)
 
     fd = frozendict
-    assert (eval_node(g,
-        [None,                  {1: 1, 3: 3},   {2: 2},         None,                                                   {2: REMOVE},        None],  # TSD
-        [{1: {"a"}, 2: {"b"}},  None,           None,           {1: PythonSetDelta(added={"c", "d"}, removed={"a"})},   None,               {1: REMOVE}]) ==  # key mappings
-        [None,                  fd({"a": 1}),   fd({"b": 2}),   fd({"c": 1, "d": 1, "a": REMOVE}),                      fd({"b": REMOVE}),  fd({"c": REMOVE, "d": REMOVE})]) # expected results
+    assert eval_node(
+        g,
+        [None, {1: 1, 3: 3}, {2: 2}, None, {2: REMOVE}, None],  # TSD
+        [{1: {"a"}, 2: {"b"}}, None, None, {1: PythonSetDelta(added={"c", "d"}, removed={"a"})}, None, {1: REMOVE}],
+    ) == [  # key mappings
+        None,
+        fd({"a": 1}),
+        fd({"b": 2}),
+        fd({"c": 1, "d": 1, "a": REMOVE}),
+        fd({"b": REMOVE}),
+        fd({"c": REMOVE, "d": REMOVE}),
+    ]  # expected results
 
 
 def test_flip():
@@ -283,7 +292,7 @@ def test_uncollapse_more_keys_tsd():
             {(1, "a", False): 5, (1, "a", True): REMOVE},
             {(2, "c", True): 6},
             {(2, "b", True): REMOVE},
-            {(2, "c", True): REMOVE}
+            {(2, "c", True): REMOVE},
         ],
     ) == [
         {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
@@ -291,7 +300,7 @@ def test_uncollapse_more_keys_tsd():
         {1: {"a": {True: REMOVE, False: 5}}},
         {2: {"c": {True: 6}}},
         {2: {"b": REMOVE}},
-        {2: REMOVE}
+        {2: REMOVE},
     ]
 
 
@@ -308,7 +317,7 @@ def test_uncollapse_more_keys_tsd_keep_empty():
             {(1, "a", False): 5, (1, "a", True): REMOVE},
             {(2, "c", True): 6},
             {(2, "b", True): REMOVE},
-            {(2, "c", True): REMOVE}
+            {(2, "c", True): REMOVE},
         ],
     ) == [
         {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
@@ -316,7 +325,7 @@ def test_uncollapse_more_keys_tsd_keep_empty():
         {1: {"a": {True: REMOVE, False: 5}}},
         {2: {"c": {True: 6}}},
         {2: {"b": {True: REMOVE}}},
-        {2: {"c": {True: REMOVE}}}
+        {2: {"c": {True: REMOVE}}},
     ]
 
 
@@ -531,3 +540,26 @@ def test_merge_references_map_failure():
         return out
 
     assert eval_node(g) == [None, fd({"a": 2.0}), fd({"a": 3.0})]
+
+
+def test_combine_tsl_tsl_to_tsd():
+
+    @graph
+    def g(keys: TSL[TS[str], Size[2]], values: TSL[TS[float], Size[2]], strict: bool) -> TSD[str, TS[float]]:
+        from hgraph import combine
+
+        return combine[TSD](keys, values, __strict__=strict)
+
+    assert eval_node(g, [("a", None), ("b", None)], [(1.0, None)], False) == [fd(a=1.0), fd(a=REMOVE, b=1.0)]
+    assert eval_node(g, [("a", None), (None, "b")], [(1.0, None), (None, 2.0)], True) == [None, fd(a=1.0, b=2.0)]
+
+
+def test_combine_tuple_tsl_to_tsd():
+
+    @graph
+    def g(keys: tuple[str, ...], ts1: TS[float], ts2: TS[float], strict: bool) -> TSD[str, TS[float]]:
+        from hgraph import combine
+
+        return combine[TSD](keys, ts1, ts2, __strict__=strict)
+
+    assert eval_node(g, ("a", "b"), [1.0, None], [None, 2.0], strict=False) == [fd(a=1.0), fd(b=2.0)]

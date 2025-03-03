@@ -62,12 +62,13 @@ def convert_tuple_to_tsd(
     return {key.value: ts.value, **remove}
 
 
-@compute_node(overloads=convert,
-              requires=lambda m, s: m[OUT].py_type is TSD
-              or m[OUT].matches_type(TSD[int, TS[m[SCALAR].py_type]]))
+@compute_node(
+    overloads=convert,
+    requires=lambda m, s: m[OUT].py_type is TSD or m[OUT].matches_type(TSD[int, TS[m[SCALAR].py_type]]),
+)
 def convert_tuple_to_enumerated_tsd(
-        ts: TS[Tuple[SCALAR, ...]],
-        _output: TSD_OUT[int, TS[SCALAR]] = None) -> TSD[int, TS[SCALAR]]:
+    ts: TS[Tuple[SCALAR, ...]], _output: TSD_OUT[int, TS[SCALAR]] = None
+) -> TSD[int, TS[SCALAR]]:
     ts = ts.value
     out = {}
     for i, v in enumerate(ts):
@@ -155,7 +156,35 @@ def convert_mapping_to_tsd(
 def combine_tsd_from_tuple_and_tsl(
     keys: Tuple[SCALAR, ...], *tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], __strict__: bool = True
 ) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
-    return {k: v.value for k, v in zip(keys, tsl)}
+    # Not the valid constraint only affects wheather or not this has a binding and not if the underlying value is valid!
+    return {k: v.value for k, v in zip(keys, tsl) if v.valid and not v.value.is_empty}
+
+
+@compute_node(
+    overloads=combine,
+    requires=lambda m, s: m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], m[TIME_SERIES_TYPE]]),
+    all_valid=lambda m, s: (
+        (
+            "keys",
+            "tsl",
+        )
+        if s["__strict__"]
+        else None
+    ),
+)
+def combine_tsd_from_tuple_and_tsl(
+    keys: TSL[TS[SCALAR], SIZE],
+    tsl: TSL[REF[TIME_SERIES_TYPE], SIZE],
+    __strict__: bool = True,
+    _output: TSD_OUT[SCALAR, REF[TIME_SERIES_TYPE]] = None,
+) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
+    if __strict__:
+        return {k.value: v.value for k, v in zip(keys, tsl)}
+    else:
+        out = {k.value: v.value for k, v in zip(keys, tsl) if k.valid}
+        if _output.valid:
+            out |= {k: REMOVE for k in _output if k not in out}
+        return out
 
 
 @compute_node(
