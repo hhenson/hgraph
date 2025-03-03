@@ -172,7 +172,7 @@ def combine_tsd_from_tuple_and_tsl(
         else None
     ),
 )
-def combine_tsd_from_tuple_and_tsl(
+def combine_tsd_from_tsl_and_tsl(
     keys: TSL[TS[SCALAR], SIZE],
     tsl: TSL[REF[TIME_SERIES_TYPE], SIZE],
     __strict__: bool = True,
