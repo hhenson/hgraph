@@ -953,3 +953,9 @@ Version 0.4.0 (22-02-2025)
 --------------------------
 
 * Change the signature of switch_ to have key and then cases from switches and then key. This is a BREAKING change.
+
+
+Version 0.4.1 (03-03-2025)
+--------------------------
+
+* Add combine operation for TSL keys TSL values -> TSD
