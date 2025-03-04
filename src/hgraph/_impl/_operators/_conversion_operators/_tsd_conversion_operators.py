@@ -26,8 +26,11 @@ from hgraph import (
     SCHEDULER,
     TSB,
     MIN_TD,
+    SCALAR_1,
+    values_,
 )
 from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState, KeyValue
+from hgraph._impl._types._tss import PythonSetDelta
 
 __all__ = []
 
@@ -185,6 +188,22 @@ def combine_tsd_from_tsl_and_tsl(
 
 
 @compute_node(
+    overloads=combine,
+    requires=lambda m, s: m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], TS[m[SCALAR_1]]]),
+)
+def combine_tsd_from_tuple_and_tuple(
+    keys: TS[tuple[SCALAR, ...]],
+    values: TS[tuple[SCALAR_1, ...]],
+    __strict__: bool = True,
+    _output: TSD_OUT[SCALAR, TS[SCALAR_1]] = None,
+) -> TSD[SCALAR, TS[SCALAR_1]]:
+    out = {k: v for k, v in zip(keys.value, values.value)}
+    if _output.valid:
+        out |= {k: REMOVE for k in _output if k not in out}
+    return out
+
+
+@compute_node(
     overloads=collect,
     requires=lambda m, s: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]),
@@ -279,3 +298,18 @@ def emit_tsd(
         if d:
             _schedule.schedule(MIN_TD)
         return {"key": k, "value": v}
+
+
+@compute_node(
+    overloads=values_,
+)
+def values_tsd_to_tss(ts: TSD[SCALAR, TS[SCALAR_1]], _output: TSS[SCALAR_1] = None) -> TSS[SCALAR_1]:
+    """This is likely to be a rather expensive operation on a large tsd, so use carefully"""
+    if not _output.valid:
+        return {v.value for v in ts.values()}
+    else:
+        current = _output.value
+        all = {v.value for v in ts.values()}
+        added = {v for v in all if v not in current}
+        removed = {v for v in current if v not in all}
+        return PythonSetDelta(added=added, removed=removed)

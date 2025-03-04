@@ -48,6 +48,7 @@ from hgraph import (
     map_,
     PythonSetDelta,
     SIZE,
+    values_,
 )
 from hgraph.nodes import make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
@@ -563,3 +564,27 @@ def test_combine_tuple_tsl_to_tsd():
         return combine[TSD](keys, ts1, ts2, __strict__=strict)
 
     assert eval_node(g, ("a", "b"), [1.0, None], [None, 2.0], strict=False) == [fd(a=1.0), fd(b=2.0)]
+
+
+def test_combine_tuple_tuple_to_tsd():
+
+    @graph
+    def g(keys: TS[tuple[str, ...]], ts: TS[tuple[float, ...]]) -> TSD[str, TS[float]]:
+        from hgraph import combine
+
+        return combine[TSD](keys, ts)
+
+    assert eval_node(g, [("a", "b")], [(1.0, 2.0)]) == [fd(a=1.0, b=2.0)]
+
+
+def test_tsd_values_as_tss():
+
+    @graph
+    def g(tsd: TSD[int, TS[int]]) -> TSS[int]:
+        return values_[TSS[int]](tsd)
+
+    actual = eval_node(g, [{1: 4, 2: 5, 3: 6}, {1: REMOVE}])
+    assert actual == [
+        PythonSetDelta(added={4, 5, 6}, removed=set()),
+        PythonSetDelta(added=set(), removed={4}),
+    ]

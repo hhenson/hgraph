@@ -29,8 +29,10 @@ def keys_(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
 @operator
 def values_(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
-    Returns a tuple of the values in the dictionary. Note: does not apply to TSD as there is no suitable time series
-    type
+    Returns a tuple of the values in the dictionary.
+    One options for a TSD, the values_ can be applied when the time-series value is a suitable TS[SCALAR],
+    where the results are returned as a set.
+    In this case use values_[TSS[...]](tsd)
     """
 
 
@@ -79,7 +81,9 @@ def collapse_keys(ts: TIME_SERIES_TYPE) -> OUT:
 
 
 @operator
-def uncollapse_keys(ts: TSD[Tuple[K, K_1], TIME_SERIES_TYPE], remove_empty: bool = True) -> TSD[K, TSD[K_1, TIME_SERIES_TYPE]]:
+def uncollapse_keys(
+    ts: TSD[Tuple[K, K_1], TIME_SERIES_TYPE], remove_empty: bool = True
+) -> TSD[K, TSD[K_1, TIME_SERIES_TYPE]]:
     """
     Given a TSD[Tuple[K, K1], V] uncollapse_keys will produce a nested TSD[K, TSD[K1, V]]. It is the reverse operation
     to ``collapse_keys``
