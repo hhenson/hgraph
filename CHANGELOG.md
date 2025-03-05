@@ -966,3 +966,8 @@ Version 0.4.2 (04-03-2025)
 
 * Add combine operator for TS[tuple] and TS[tuple] -> TSD
 * Add values_ operator for TSD[K, TS[V]] -> TSS[V]
+
+Version 0.4.3 (05-03-2025)
+--------------------------
+
+* Add lag for TSD proxy
