@@ -123,9 +123,17 @@ def http_client_adaptor_impl(
             final = response2.headers.get("WWW-Authenticate")
             if final is not None:
                 try:
-                    final = final.replace(scheme, "", 1).lstrip()
-                    tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
-                    tokenbuf.Buffer = base64.b64decode(final.encode("ASCII"))
+                    challenge = [v[len(scheme) + 1:] for val in final.split(',') if scheme in (v := val.strip())]
+                    if len(challenge) != 1:
+                        raise HTTPError(
+                            401, f'Did not get exactly one {scheme} challenge from server'
+                        )
+
+                    tokenbuf = win32security.PySecBufferType(
+                        pkg_info['MaxToken'],
+                        sspicon.SECBUFFER_TOKEN
+                    )
+                    tokenbuf.Buffer = base64.b64decode(challenge[0])
                     sec_buffer.append(tokenbuf)
                     err, auth = clientauth.authorize(sec_buffer)
                     logger.debug(
@@ -141,7 +149,9 @@ def http_client_adaptor_impl(
             response2.request.headers["Cookie"] = set_cookie
 
         challenge = [
-            val[len(scheme) + 1 :] for val in response2.headers.get("WWW-Authenticate", "").split(", ") if scheme in val
+            v[len(scheme) + 1:]
+            for val in response2.headers.get('WWW-Authenticate', '').split(',')
+            if scheme in (v := val.strip())
         ]
         if len(challenge) != 1:
             raise HTTPError(401, f"Did not get exactly one {scheme} challenge from server")
