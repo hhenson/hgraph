@@ -46,6 +46,8 @@ from hgraph import (
     MIN_DT,
     count,
     MAX_DT,
+    TSD,
+    map_,
 )
 
 __all__ = ()
@@ -497,3 +499,14 @@ def lag_proxy(ts: TS[SCALAR], period: int, proxy: SIGNAL) -> TS[SCALAR]:
     c = count(proxy)
     lag_c = lag(c, period)
     return _lag_proxy(ts, c, lag_c)
+
+
+@graph(overloads=lag)
+def lag_proxy_tsd(ts: TSD[SCALAR, TIME_SERIES_TYPE], period: int, proxy: SIGNAL) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+    """
+    Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
+    If the proxy has not ticked, we are not lagging.
+    If the ts value ticks multiple times for a single tick of the proxy, we return the last value
+    only.
+    """
+    return map_(lag_proxy, ts, period, proxy)

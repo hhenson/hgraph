@@ -1,5 +1,6 @@
 from datetime import timedelta, datetime
 from typing import Tuple
+from frozendict import frozendict as fd
 
 import numpy as np
 import pytest
@@ -72,6 +73,21 @@ def test_lag_proxy():
         return lag(ts, delay, proxy)
 
     assert eval_node(g, [1, 2, 3, 4, 5], 2, [True, None, True, True, True]) == [None, None, None, 2, 3]
+
+
+def test_lag_proxy_tsd():
+    @graph
+    def g(ts: TSD[str, TS[int]], delay: int, proxy: TS[bool]) -> TSD[str, TS[int]]:
+        return lag(ts, delay, proxy)
+
+    result = eval_node(g, [fd(a=1), fd(a=2), fd(a=3), fd(a=4), fd(a=5)], 2, [True, None, True, True, True])
+    assert result == [
+        fd(),
+        None,
+        None,
+        fd(a=2),
+        fd(a=3),
+    ]
 
 
 def test_lag_tick_tss():
