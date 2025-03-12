@@ -443,6 +443,40 @@ def test_throttle_tsd():
     ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
 
 
+def test_throttle_tss():
+    @graph
+    def g(ts: TSS[int], period: timedelta) -> TSS[int]:
+        return throttle(ts, period)
+
+    inputs = [
+        None,
+        PythonSetDelta(added={1, 2}, removed=set()),
+        PythonSetDelta(added={3}, removed=set()),
+        PythonSetDelta(added=set(), removed={2}),
+        None,
+        PythonSetDelta(added={5}, removed={1}),
+        None,
+        PythonSetDelta(added={1}, removed=set()),
+        PythonSetDelta(added={6}, removed=set()),
+        None,
+        PythonSetDelta(added=set(), removed={6})
+    ]
+    expected = [
+        None,
+        PythonSetDelta(added={1, 2}, removed=set()),
+        None,
+        None,
+        PythonSetDelta(added={3}, removed={2}),
+        None,
+        None,
+        PythonSetDelta(added={5}, removed=set()),
+        None,
+        None,
+        None
+    ]
+    assert eval_node(g, inputs, 3 * MIN_TD, __end_time__=MIN_ST + 12 * MIN_TD) == expected
+
+
 def test_throttle_tsd_delay_first():
     @graph
     def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:

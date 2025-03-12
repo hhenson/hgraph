@@ -251,6 +251,9 @@ def throttle_default(
     from multimethod import multimethod
     from hgraph import PythonTimeSeriesValueInput
     from hgraph import PythonTimeSeriesDictInput
+    from hgraph import PythonTimeSeriesSetInput
+    from hgraph import PythonSetDelta
+
 
     @multimethod
     def collect_tick(input, out):
@@ -268,6 +271,15 @@ def throttle_default(
             if v_new is not None
         }
         return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
+
+    @collect_tick.register
+    def collect_set(input: PythonTimeSeriesSetInput, out):
+        if not out:
+            out = PythonSetDelta(set(), set())
+        new_added, new_removed = input.added(), input.removed()
+        added = (out.added - new_removed) | new_added
+        removed = (out.removed - new_added) | new_removed
+        return PythonSetDelta(added, removed)
 
     @collect_tick.register
     def collect_value(input: PythonTimeSeriesValueInput, out):
