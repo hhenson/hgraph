@@ -262,22 +262,25 @@ def http_client_adaptor_impl(
             else:
                 url = request.url
 
+            timeouts = {"connect_timeout": request.connect_timeout, "request_timeout": request.request_timeout}
             if isinstance(request, HttpGetRequest):
                 logger.debug("[GET][%i][%s]", id, url)
-                response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False)
+                response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False, **timeouts)
             elif isinstance(request, HttpPostRequest):
                 logger.debug("[POST][%i][%s] body: %s", id, url, request.body)
                 response = await client.fetch(
-                    url, method="POST", headers=request.headers, body=request.body, raise_error=False
+                    url, method="POST", headers=request.headers, body=request.body, raise_error=False, **timeouts
                 )
             elif isinstance(request, HttpPutRequest):
                 logger.debug("[PUT][%i][%s] body: %s", id, url, request.body)
                 response = await client.fetch(
-                    url, method="PUT", headers=request.headers, body=request.body, raise_error=False
+                    url, method="PUT", headers=request.headers, body=request.body, raise_error=False, **timeouts
                 )
             elif isinstance(request, HttpDeleteRequest):
                 logger.debug("[DELETE][%i][%s]", id, url)
-                response = await client.fetch(url, method="DELETE", headers=request.headers, raise_error=False)
+                response = await client.fetch(
+                    url, method="DELETE", headers=request.headers, raise_error=False, **timeouts
+                )
             else:
                 logger.error("Bad request received: %s", request)
                 response = namedtuple("HttpResponse_", ["code", "headers", "body"])(

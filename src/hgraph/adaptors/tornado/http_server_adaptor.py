@@ -68,6 +68,8 @@ class HttpRequest(CompoundScalar):
     headers: dict[str, str] = frozendict()
     cookies: dict[str, dict[str, object]] = frozendict()
     auth: object = None
+    connect_timeout: float = 20.0 # in seconds
+    request_timeout: float = 20.0 # in seconds
 
 
 @dataclass(frozen=True)
