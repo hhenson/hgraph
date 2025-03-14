@@ -1158,18 +1158,18 @@ xml = ["lxml (>=4.9.2)"]
 
 [[package]]
 name = "perspective-python"
-version = "3.3.4"
+version = "3.4.1"
 description = "A data visualization and analytics component, especially well-suited for large and/or streaming datasets."
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
 markers = "extra == \"web\""
 files = [
-    {file = "perspective_python-3.3.4-cp39-abi3-macosx_13_0_arm64.whl", hash = "sha256:1cb69fc71f313d3c2bee91f42e4a0f8e91c02b410655ef55bf1828bb1500e72c"},
-    {file = "perspective_python-3.3.4-cp39-abi3-macosx_13_0_x86_64.whl", hash = "sha256:1665e42124239ae95c36e4fbba5e3ece24f6a227d6f49f02a1062fcb0bc9f137"},
-    {file = "perspective_python-3.3.4-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:bf9b4569aef6785327c4ebf2cd39c10ddc54738a76584e6d9e89c3a1378b4dd3"},
-    {file = "perspective_python-3.3.4-cp39-abi3-win_amd64.whl", hash = "sha256:11c338b67792ec253011a64b701d73631ce0942019c23ccb8dd76b8e8d51e3c9"},
-    {file = "perspective_python-3.3.4.tar.gz", hash = "sha256:b1f4f00d5a79777945eb6a1bb706877e8c7838935bd6952d38947db6b83ce7f9"},
+    {file = "perspective_python-3.4.1-cp39-abi3-macosx_13_0_arm64.whl", hash = "sha256:f2b8bbb1b59050c5c571e6adb12dd6f4955b558fa3c985c72cff6c5f5c31d7a6"},
+    {file = "perspective_python-3.4.1-cp39-abi3-macosx_13_0_x86_64.whl", hash = "sha256:9f9c09df9cfe135694b070a0e40a08df65bfcd8c908964b5639461a67aa13c21"},
+    {file = "perspective_python-3.4.1-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:d4e297e7eeb59e557f2c8f3f5bba22d532e89e99256a4cb5f17092c72297b57e"},
+    {file = "perspective_python-3.4.1-cp39-abi3-win_amd64.whl", hash = "sha256:ce468adb8362bbc7db6f2582c7ee874167eb047afed6ff61dd2ca90083917a32"},
+    {file = "perspective_python-3.4.1.tar.gz", hash = "sha256:502a867483a0a2f489ac1c0036fea3e790795e4cce193445a39352530c5e85a5"},
 ]
 
 [package.extras]
@@ -1548,7 +1548,7 @@ description = "Extensions to the standard Python datetime module"
 optional = true
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
 groups = ["main"]
-markers = "extra == \"web\" or extra == \"notebook\""
+markers = "extra == \"notebook\" or extra == \"web\""
 files = [
     {file = "python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3"},
     {file = "python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427"},
@@ -1615,7 +1615,7 @@ description = "Python 2 and 3 compatibility utilities"
 optional = true
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
 groups = ["main"]
-markers = "extra == \"web\" or extra == \"notebook\""
+markers = "extra == \"notebook\" or extra == \"web\""
 files = [
     {file = "six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"},
     {file = "six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"},
