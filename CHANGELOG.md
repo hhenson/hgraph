@@ -971,3 +971,9 @@ Version 0.4.3 (05-03-2025)
 --------------------------
 
 * Add lag for TSD proxy
+
+
+Version 0.4.4 (14-03-2025)
+--------------------------
+
+* Add apply operator to support calling standard functions from a graph with time-series inputs
