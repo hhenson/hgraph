@@ -13,6 +13,15 @@ def test_apply_arg():
 
     assert eval_node(g, [1, 2, 3]) == [2, 3, 4]
 
+def test_apply_args():
+
+    @graph
+    def g(i: TS[int], j: TS[int]) -> TS[int]:
+        fn = const(lambda x, y: x + y, TS[Callable])
+        return apply[TS[int]](fn, i, j)
+
+    assert eval_node(g, [1, 2, 3], [None, 1]) == [None, 3, 4]
+
 
 def test_apply_karg():
 
