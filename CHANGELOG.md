@@ -982,3 +982,8 @@ Version 0.4.5 (16-03-2025)
 --------------------------
 
 * Ensure args are valid before applying to function.
+
+Version 0.4.6 (16-03-2025)
+--------------------------
+
+* Add proxy lag TSB 
