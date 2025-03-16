@@ -978,7 +978,7 @@ Version 0.4.4 (14-03-2025)
 
 * Add apply operator to support calling standard functions from a graph with time-series inputs
 
-Version 0.4.5 (TBD)
--------------------
+Version 0.4.5 (16-03-2025)
+--------------------------
 
 * Ensure args are valid before applying to function.
