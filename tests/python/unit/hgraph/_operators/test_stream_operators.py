@@ -41,6 +41,7 @@ from hgraph import (
     TSW,
     WindowSize,
     Array,
+    ts_schema,
 )
 from hgraph.test import eval_node
 
@@ -86,6 +87,26 @@ def test_lag_proxy_tsd():
         None,
         None,
         fd(a=2),
+        fd(a=3),
+    ]
+
+
+def test_lag_proxy_tsb():
+
+    s = ts_schema(a=TS[int], b=TS[float])
+
+    @graph
+    def g(ts: TSB[s], delay: int, proxy: TS[bool]) -> TSB[s]:
+        return lag(ts, delay, proxy)
+
+    result = eval_node(
+        g, [fd(a=1, b=1.0), fd(a=2, b=2.0), fd(a=3), fd(a=4), fd(a=5)], 2, [True, None, True, True, True]
+    )
+    assert result == [
+        None,
+        None,
+        None,
+        fd(a=2, b=2.0),
         fd(a=3),
     ]
 
