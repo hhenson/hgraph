@@ -30,6 +30,15 @@ try:
             HgCompoundScalarType.parse_type(TestSchema)
         )
 
+    def test_data_frame_parse_value_instance():
+        tp = HgTypeMetaData.parse_type(Frame[TestSchema])
+        assert tp is tp.parse_value(pl.DataFrame({"a": [date(2021, 1, 1)], "b": [1.0]}))
+
+    def test_data_frame_parse_value_type():
+        tp = HgTypeMetaData.parse_type(Frame[TestSchema])
+        assert tp is not HgTypeMetaData.parse_value(pl.DataFrame({"a": [date(2021, 1, 1)], "b": [1.0]}))
+        assert tp.matches(HgTypeMetaData.parse_value(pl.DataFrame({"a": [date(2021, 1, 1)], "b": [1.0]})))
+
     def test_data_frame1():
         frame = pl.DataFrame({"a": [date(2021, 1, 1)], "b": [1.0]})
         assert eval_node(pass_through_node[TIME_SERIES_TYPE : TS[Frame[TestSchema]]], [frame]) == [frame]

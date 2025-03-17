@@ -9,6 +9,7 @@ from hgraph._types._scalar_type_meta_data import (
 )
 from hgraph._types._scalar_types import CompoundScalar, compound_scalar
 from hgraph._types._type_meta_data import ParseError
+from hgraph._types._typing_utils import class_or_instance_method
 
 try:
     import polars as pl
@@ -67,11 +68,15 @@ try:
                     raise ParseError(f"Could not parse {value_tp.__args__[0]} as type from {value_tp}")
                 return HgDataFrameScalarTypeMetaData(tp)
 
-        @classmethod
-        def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        @class_or_instance_method
+        def parse_value(self, value) -> Optional["HgTypeMetaData"]:
             if isinstance(value, pl.DataFrame):
                 schema = compound_scalar(**value.schema.to_python())
-                return HgDataFrameScalarTypeMetaData(HgScalarTypeMetaData.parse_type(schema))
+                schema = HgScalarTypeMetaData.parse_type(schema)
+                if my_schema := getattr(self, 'schema', None):
+                    if my_schema.matches(schema):
+                        return self
+                return HgDataFrameScalarTypeMetaData(schema)
 
         def __eq__(self, o: object) -> bool:
             return type(o) is HgDataFrameScalarTypeMetaData and self.schema == o.schema

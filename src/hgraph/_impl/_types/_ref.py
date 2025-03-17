@@ -230,9 +230,11 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     def do_bind_output(self, output: TimeSeriesOutput) -> bool:
         if isinstance(output, TimeSeriesReferenceOutput):
+            self._value = None
             return super().do_bind_output(output)
         else:
             self._value = TimeSeriesReference.make(output)
+            self._output = None
             if self.owning_node.is_started:
                 self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
                 self.notify(self._sample_time)

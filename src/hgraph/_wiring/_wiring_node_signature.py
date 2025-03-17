@@ -307,7 +307,9 @@ class WiringNodeSignature:
                     if arg is None:
                         kwarg_types[k] = v
                     else:
-                        tp = HgScalarTypeMetaData.parse_value(arg)
+                        tp = v.parse_value(arg)  # try the annotation type first
+                        if tp is None:
+                            tp = HgScalarTypeMetaData.parse_value(arg)
                         kwarg_types[k] = tp
                         if tp is None:
                             if k in self.unresolved_args:
