@@ -47,7 +47,7 @@ STATUS_MESSAGE_PATTERN_DUPLICATES = []
 
 def register_status_message_pattern(pattern: str):
     # Register a pattern to search for when combining status messages, and collapse groups into a comma-separated list
-    # The pattern should have a single (\w+) group in it - e.g. "For (\w+); price is stale".
+    # The pattern should have a single (\w+) group in it - e.g. "For (\w+), price is stale".
     STATUS_MESSAGE_PATTERN_DUPLICATES.append(pattern)
 
 
