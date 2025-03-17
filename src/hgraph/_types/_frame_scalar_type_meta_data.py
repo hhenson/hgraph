@@ -7,7 +7,7 @@ from hgraph._types._scalar_type_meta_data import (
     HgCompoundScalarType,
     HgScalarTypeMetaData,
 )
-from hgraph._types._scalar_types import CompoundScalar
+from hgraph._types._scalar_types import CompoundScalar, compound_scalar
 from hgraph._types._type_meta_data import ParseError
 
 try:
@@ -70,7 +70,8 @@ try:
         @classmethod
         def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
             if isinstance(value, pl.DataFrame):
-                return HgDataFrameScalarTypeMetaData(HgScalarTypeMetaData.parse_type(CompoundScalar))
+                schema = compound_scalar(**value.schema.to_python())
+                return HgDataFrameScalarTypeMetaData(HgScalarTypeMetaData.parse_type(schema))
 
         def __eq__(self, o: object) -> bool:
             return type(o) is HgDataFrameScalarTypeMetaData and self.schema == o.schema
