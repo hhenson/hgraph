@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from itertools import chain
 from typing import Generic, Tuple
+
+from pytz import UTC
 
 from hgraph import COMPOUND_SCALAR, Base, graph, TS, default, max_, compute_node, CompoundScalar, SCALAR, add_, TSB, \
     WiringNodeClass, AUTO_RESOLVE, combine, convert
@@ -48,26 +51,25 @@ STATUS_MESSAGE_PATTERN_DUPLICATES = []
 def register_status_message_pattern(pattern: str):
     # Register a pattern to search for when combining status messages, and collapse groups into a comma-separated list
     # The pattern should have a single (\w+) group in it - e.g. "For (\w+), price is stale".
-    STATUS_MESSAGE_PATTERN_DUPLICATES.append(pattern)
 
-
-@compute_node
-def combine_status_messages(message1: TS[str], message2: TS[str]) -> TS[str]:
-    message1 = message1.value
-    message2 = message2.value
-    components = set(message1.split("; ") + message2.split("; "))
-    for pattern in STATUS_MESSAGE_PATTERN_DUPLICATES:
-        components = dedup_components(pattern, components)
-    return "; ".join(sorted(components))
-
-
-def dedup_components(pattern: str, components) -> str:
     def _escape(s):
         return s.replace("(", r"\(").replace(")", r"\)")
 
     substr1, substr2 = pattern.split(r"(\w+)", maxsplit=1)
     pattern = f"^{_escape(substr1)}(.*){_escape(substr2)}$"
 
+    STATUS_MESSAGE_PATTERN_DUPLICATES.append((pattern, substr1, substr2))
+
+
+@compute_node
+def combine_status_messages(message1: TS[str], message2: TS[str]) -> TS[str]:
+    components = set(message1.value.split("; ") + message2.value.split("; "))
+    for pattern, substr1, substr2 in STATUS_MESSAGE_PATTERN_DUPLICATES:
+        components = dedup_components(pattern, substr1, substr2, components)
+    return "; ".join(sorted(components))
+
+
+def dedup_components(pattern, substr1, substr2, components) -> str:
     component_messages = set()
     for comp1 in components:
         outer_done = False
