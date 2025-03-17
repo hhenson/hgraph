@@ -83,8 +83,9 @@ def convert_tsd_to_mapping(
     requires=lambda m, s: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
     and all(m[SCALAR].matches(v.scalar_type()) for v in m[TS_SCHEMA].meta_data_schema.values()),
     resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
+    all_valid=lambda m, s: ("ts",) if s["__strict__"] else None,
 )
-def convert_tsb_to_mapping(ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT]) -> TS[Mapping[str, SCALAR]]:
+def convert_tsb_to_mapping(ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False) -> TS[Mapping[str, SCALAR]]:
     return ts.value
 
 

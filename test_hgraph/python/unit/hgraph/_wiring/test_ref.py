@@ -111,6 +111,24 @@ def test_merge_ref_set1():
     ) == [{1, 2}, None, set(), {4}]
 
 
+def test_merge_ref_set2():
+    assert eval_node(
+        merge_ref_non_peer[TIME_SERIES_TYPE : TSS[int]],
+        index=[0, None, 1, None],
+        ts1=[{1, 2}, None, {3}, {4}],
+        ts2=[{1}, None, {2, 3}, {4}],
+    ) == [{1, 2}, None, {3}, {4}]
+
+
+def test_merge_ref_set3():
+    assert eval_node(
+        merge_ref_non_peer[TIME_SERIES_TYPE : TSS[int]],
+        index=[0, None, 1, None],
+        ts1=[{1, 2}, None, {3}, {4}],
+        ts2=[{1}, None, {Removed(1)}, {4}],
+    ) == [{1, 2}, None, {Removed(1), Removed(2)}, {4}]
+
+
 def test_tss_ref_contains():
     assert eval_node(
         contains_tss[KEYABLE_SCALAR:int], ts=[{1}, {2}, None, {Removed(2)}], item=[2, None, None, None, 1]

@@ -350,12 +350,14 @@ class PerspectiveTablesManager:
         return self._tables[name][1]
 
     async def _publish_heartbeat(self):
+        counter = 0
         while True:
-            self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.utcnow()}])
+            self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.utcnow(), "sequence": counter}])
+            counter += 1
             await asyncio.sleep(15)
 
     def _publish_heartbeat_table(self):
-        self.create_table({"name": str, "time": datetime}, index="name", name="heartbeat")
+        self.create_table({"name": str, "time": datetime, "sequence": int}, index="name", name="heartbeat")
         self._callback(self._publish_heartbeat)
 
 
@@ -371,6 +373,9 @@ class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
     def on_close(self) -> None:
         self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
         super().on_close()
+
+    def get_compression_options(self) -> Dict[str, str]:
+        return {"compression_level": 9, "mem_level": 9}
 
 
 class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
@@ -452,6 +457,11 @@ def _get_node_location():
     return node_path
 
 
+class NoCache_StaticFileHandler(tornado.web.StaticFileHandler):
+    def set_extra_headers(self, path):
+        self.set_header("Cache-Control", "no-cache")
+
+
 @perspective_web.start
 def perspective_web_start(
     host: str,
@@ -503,7 +513,7 @@ def perspective_web_start(
             ),
             (
                 r"/workspace_code/(.*)",
-                tornado.web.StaticFileHandler,
+                NoCache_StaticFileHandler,
                 {"path": os.path.dirname(__file__)},
             ),
         ]

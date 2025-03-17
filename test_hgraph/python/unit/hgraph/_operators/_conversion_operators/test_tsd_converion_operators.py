@@ -102,6 +102,16 @@ def test_collect_tsd_from_tsd():
             [{'a': 1}, {'b': 2, 'c': 3}, {'c': 3, 'a': REMOVE, 'b': REMOVE}, {'c': 4}])
 
 
+def test_collect_tsd_from_tsd_with_excludes():
+    @graph
+    def g(a: TSD[str, TS[int]], exclude: TSS[str]) -> TSD[str, TS[int]]:
+        return collect[TSD](a, exclude=exclude)
+
+    assert (eval_node(g, [{'a': 1}, {'b': 2, 'c': 3}, {'c': 3}, {'c': 4}],
+                         [{'c'}, None, None, {'b'}]) ==
+            [{'a': 1}, {'b': 2}, None, {'b': REMOVE}])
+
+
 def test_emit_tsd():
     @graph
     def g(m: TSD[str, TS[int]]) -> TSB[KeyValue[str, TS[int]]]:

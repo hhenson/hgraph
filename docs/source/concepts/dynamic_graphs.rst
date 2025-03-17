@@ -207,10 +207,10 @@ For example:
 
     @graph
     def graph_switch(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-        return switch_({
+        return switch_(selector, {
             "add": add_,
             "sub": sub_,
-        }, selector, lhs, rhs)
+        }, lhs, rhs)
 
 In this example we have two potential options, when the ``selector`` is set to 'add' then the ``add_``
 node is instantiated, the ``lhs`` and ``rhs`` are wired in, these are provided by reference, so if they have
@@ -248,12 +248,12 @@ Below is a simple example:
     @graph
     def f(k: TS[str]) -> TS[float]:
         return switch_(
+            k,
             {
                 'a': lambda : const(1.0),
                 'b': lambda : const(2.0),
                 'a+b': lambda: mesh_('f')['a'] + mesh_('f')['b']
             },
-            k
         )
 
     @graph

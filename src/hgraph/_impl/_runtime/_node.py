@@ -9,7 +9,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hgraph import get_fq_recordable_id
+from hgraph._operators import get_fq_recordable_id
 from hgraph._runtime._constants import MIN_TD
 from hgraph._impl._types._tss import PythonSetDelta, Removed
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
@@ -17,8 +17,10 @@ from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._runtime._node import NodeSignature, Node, NodeScheduler, NodeDelegate
+from hgraph._types import TimeSeriesDictOutput
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._types._tsd_type import REMOVE, REMOVE_IF_EXISTS
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 
@@ -249,9 +251,9 @@ class BaseNodeImpl(Node, ABC):
     @stop_guard
     def stop(self):
         self.do_stop()
-        if self.input:
+        if self.input is not None:
             self.input.un_bind_output()
-        if self._scheduler:
+        if self._scheduler is not None:
             self._scheduler.reset()
 
     def dispose(self):
@@ -482,16 +484,30 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         else returns False to indicate the application was not possible.
         """
         if self.batch:
-            if self.output.modified:
-                self.output.value = self.output.value + (message,)
+            if isinstance(self.output, TimeSeriesDictOutput):
+                for k, v in message.items():
+                    if v is not REMOVE and v is not REMOVE_IF_EXISTS:
+                        output = self.output.get_or_create(k)
+                        if output.modified:
+                            output.value = output.value + (v,)
+                        else:
+                            output.value = (v,)
+                    else:
+                        self.output.pop(k)
             else:
-                self.output.value = (message,)
+                if self.output.modified:
+                    self.output.value = self.output.value + (message,)
+                else:
+                    self.output.value = (message,)
+
             self.messages_dequeued += 1
             return True
+        
         if self.elide or self.output.can_apply_result(message):
             self.output.apply_result(message)
             self.messages_dequeued += 1
             return True
+        
         return False
 
     @property

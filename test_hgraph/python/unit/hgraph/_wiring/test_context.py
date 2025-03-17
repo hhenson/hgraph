@@ -7,6 +7,7 @@ from hgraph import (
     CONTEXT,
     TS,
     graph,
+    log_,
     switch_,
     REQUIRED,
     TSD,
@@ -200,7 +201,7 @@ def test_context_over_switch():
     ]
 
 
-def test_context_over_witch_inside_map():
+def test_context_over_switch_inside_map():
     @compute_node
     def create_context(msg: TS[str]) -> TS[TestContext]:
         return TestContext(msg.value)
@@ -313,3 +314,15 @@ def test_stacked_contexts():
             return try_except(h, ts1, ts2).out
 
     assert eval_node(g, ["Hello", None], [None, "World"]) == [None, "World"]
+
+
+def test_named_context_missing():
+    @graph
+    def use_context(a: CONTEXT[TS[str]] = "a") -> TS[str]:
+        return a
+
+    @graph
+    def g(ts1: TS[str]) -> TS[str]:
+        return use_context()
+
+    assert eval_node(g, ["Hello", None]) == None

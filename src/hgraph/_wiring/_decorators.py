@@ -485,8 +485,14 @@ def push_queue(
                     return r
 
                 if scalars['batch'] is True:
-                    if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches_type(tp):
-                        return f"TS[Tuple[SCALAR, ...]] is expected to be output type if batch=True, received {tp}"
+                    t = HgTypeMetaData.parse_type(tp)
+                    from hgraph import HgTSDTypeMetaData
+                    if isinstance(t, HgTSDTypeMetaData):
+                       if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches(t.value_tp):
+                            return f"TSD[K, TS[Tuple[SCALAR, ...]]] is expected to be output type if batch=True, received {tp}"
+                    else:
+                        if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches(t):
+                            return f"TS[Tuple[SCALAR, ...]] is expected to be output type if batch=True, received {tp}"
                 return True
 
             requires = check_batching_type

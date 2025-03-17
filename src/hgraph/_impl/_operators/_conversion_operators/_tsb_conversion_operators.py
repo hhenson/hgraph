@@ -20,9 +20,14 @@ from hgraph import (
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
 
 
-@graph(overloads=combine, requires=lambda m, s: OUT not in m)
-def combine_unnamed_tsb(**bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+@graph(overloads=combine, requires=lambda m, s: OUT not in m and not s['__strict__'])
+def combine_unnamed_tsb(__strict__: bool = False, **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle
+
+
+@compute_node(overloads=combine, requires=lambda m, s: OUT not in m and s['__strict__'], all_valid=("bundle",))
+def combine_unnamed_tsb_strict(*, __strict__: bool, _output: OUT = None,  **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+    return bundle.value if not _output.valid else bundle.delta_value
 
 
 @graph(overloads=combine)

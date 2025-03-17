@@ -8,7 +8,7 @@ from collections import deque
 import pyarrow
 
 from hgraph import Node, PythonNestedNodeImpl, TimeSeriesInput, PythonTimeSeriesReferenceOutput, \
-    PythonTimeSeriesReference, PythonTimeSeriesReferenceInput, to_table
+    TimeSeriesReference, PythonTimeSeriesReferenceInput, to_table
 from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
 from hgraph.debug._inspector_item_id import InspectorItemId, NodeValueType
@@ -202,8 +202,8 @@ def inspector_follow_ref(state, item_id):
             item_id = InspectorItemId.from_object(value.value.output)
         else:
             raise ValueError(f"TimeSeriesReference {item_id} references no output")
-    elif isinstance(value, PythonTimeSeriesReference):
-        if value.is_empty and value.output:
+    elif isinstance(value, TimeSeriesReference):
+        if value.is_valid and value.has_output:
             item_id = InspectorItemId.from_object(value.output)
         else:
             raise ValueError(f"TimeSeriesReference {item_id} references no output")

@@ -6,16 +6,16 @@ from tornado.websocket import websocket_connect
 
 from hgraph import service_adaptor, TS, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node, STATE, TSB
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
-from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketRequest, WebSocketResponse
+from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketClientRequest, WebSocketClientRequest, WebSocketResponse
 
 
 @service_adaptor
-def websocket_client_adaptor(request: TSB[WebSocketRequest], path: str = "websocket_client") -> TSB[WebSocketResponse]: ...
+def websocket_client_adaptor(request: TSB[WebSocketClientRequest], path: str = "websocket_client") -> TSB[WebSocketResponse]: ...
 
 
 @service_adaptor_impl(interfaces=websocket_client_adaptor)
 def websocket_client_adaptor_impl(
-    request: TSD[int, TSB[WebSocketRequest]], path: str = "websocket_client"
+    request: TSD[int, TSB[WebSocketClientRequest]], path: str = "websocket_client"
 ) -> TSD[int, TSB[WebSocketResponse]]:
 
     @push_queue(TSD[int, TSB[WebSocketResponse]])
@@ -23,7 +23,7 @@ def websocket_client_adaptor_impl(
         GlobalState.instance()[f"websocket_client_adaptor://{path}/queue"] = sender
         return None
 
-    async def make_websocket_request(state: STATE, id: int, request: WebSocketRequest, sender: Callable):
+    async def make_websocket_request(state: STATE, id: int, request: WebSocketClientRequest, sender: Callable):
         try:
             ws = await websocket_connect(httpclient.HTTPRequest(request.url, headers=request.headers),
                                          ping_interval=1,
@@ -53,7 +53,7 @@ def websocket_client_adaptor_impl(
             state.queues[id].append(message)
 
     @sink_node
-    def to_web(request: TSD[int, TSB[WebSocketRequest]], _state: STATE = None):
+    def to_web(request: TSD[int, TSB[WebSocketClientRequest]], _state: STATE = None):
         sender = GlobalState.instance()[f"websocket_client_adaptor://{path}/queue"]
 
         for i, r in request.modified_items():

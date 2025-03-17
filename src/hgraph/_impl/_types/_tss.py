@@ -267,7 +267,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def added(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
-            return self.values() - self._prev_output.values()
+            return self.values() - (self._prev_output.values() - self._prev_output.added())
         else:
             return self.values() if self._sampled else self.output.added()
 
@@ -281,7 +281,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def removed(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
-            return (self._prev_output.values() | self._prev_output.removed()) - self.values()
+            return ((self._prev_output.values() | self._prev_output.removed()) - self._prev_output.added()) - self.values()
         elif self._sampled:
             return set()
         else:

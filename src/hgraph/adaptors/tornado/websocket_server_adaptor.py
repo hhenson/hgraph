@@ -39,7 +39,12 @@ class WebSocketConnectRequest(CompoundScalar):
     cookies: dict[str, dict[str, object]] = frozendict()
 
 
-class WebSocketRequest(TimeSeriesSchema):
+class WebSocketServerRequest(TimeSeriesSchema):
+    connect_request: TS[WebSocketConnectRequest]
+    messages: TS[tuple[bytes, ...]]
+
+
+class WebSocketClientRequest(TimeSeriesSchema):
     connect_request: TS[WebSocketConnectRequest]
     message: TS[bytes]
 
@@ -63,8 +68,9 @@ class WebSocketAdaptorManager:
             cls._instance = cls()
         return cls._instance
 
-    def set_queue(self, queue):
-        self.queue = queue
+    def set_queues(self, connect_queue, message_queue):
+        self.connect_queue = connect_queue
+        self.message_queue = message_queue
 
     def start(self, port):
         self.tornado_web = TornadoWeb.instance(port)
@@ -88,17 +94,18 @@ class WebSocketAdaptorManager:
             raise e
         self.requests[request_id] = future
         self.message_handlers[request_id] = message_handler
-        self.queue({request_id: {"connect_request": request}})
+        self.connect_queue({request_id: request})
         return future
 
     def remove_message_handler(self, request_id):
         del self.message_handlers[request_id]
-        self.queue({request_id: REMOVE})
+        self.connect_queue({request_id: REMOVE})
+        self.message_queue({request_id: REMOVE})
 
     def complete_request(self, request_id, response):
         if r := response.get("connect_response"):
             self.requests[request_id].set_result(
-                (r, lambda m: self.queue({request_id: {"message": m}}), lambda: self.remove_message_handler(request_id))
+                (r, lambda m: self.message_queue({request_id: m}), lambda: self.remove_message_handler(request_id))
             )
             print(f"Completed websocket open request {request_id} with response {response}")
         if m := response.get("message"):
@@ -107,7 +114,7 @@ class WebSocketAdaptorManager:
 
 
 class WebSocketHandler(tornado.websocket.WebSocketHandler):
-    def initialize(self, path, mgr):
+    def initialize(self, path, mgr: WebSocketAdaptorManager):
         self.path = path
         self.mgr = mgr
 
@@ -127,13 +134,13 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
         )
 
         if response:
-            self.enqueue = enqueue
+            self.enqueue_message = enqueue
             self.close = close
         else:
             self.close()
 
     def on_message(self, message):
-        self.enqueue(message if type(message) is bytes else message.encode())
+        self.enqueue_message(message if type(message) is bytes else message.encode())
 
     def on_close(self):
         self.close()
@@ -150,10 +157,10 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
 
     assert "request" in fn.signature.time_series_inputs.keys(), "Websocket graph must have an input named 'request'"
     assert fn.signature.time_series_inputs["request"].matches_type(
-        TSB[WebSocketRequest]
-    ) or fn.signature.time_series_inputs["request"].matches_type(TSD[int, TSB[WebSocketRequest]]), (
-        "WebSocket graph must have a single input named 'request' of type TSB[WebSocketRequest] or TSD[int,"
-        " TSB[WebSocketRequest]]"
+        TSB[WebSocketServerRequest]
+    ) or fn.signature.time_series_inputs["request"].matches_type(TSD[int, TSB[WebSocketServerRequest]]), (
+        "WebSocket graph must have a single input named 'request' of type TSB[WebSocketServerRequest] or TSD[int,"
+        " TSB[WebSocketServerRequest]]"
     )
 
     output_type = fn.signature.output_type
@@ -172,7 +179,7 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
         mgr.add_handler(url, None)  # prevent auto-wiring
 
         requests = websocket_server_adaptor.to_graph(path=url, __no_ts_inputs__=True)
-        if fn.signature.time_series_inputs["request"].matches_type(TSB[WebSocketRequest]):
+        if fn.signature.time_series_inputs["request"].matches_type(TSB[WebSocketServerRequest]):
             if inputs.as_dict():
                 responses = map_(lambda r, i: fn(request=r, **i.as_dict()), requests, inputs)
             else:
@@ -196,7 +203,7 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
 @adaptor
 def websocket_server_adaptor(
     response: TSD[int, TSB[WebSocketResponse]], path: str
-) -> TSD[int, TSB[WebSocketRequest]]: ...
+) -> TSD[int, TSB[WebSocketServerRequest]]: ...
 
 
 @adaptor_impl(interfaces=(websocket_server_adaptor, websocket_server_adaptor))
@@ -209,10 +216,21 @@ def websocket_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
-    @push_queue(TSD[int, TSB[WebSocketRequest]])
-    def from_web(sender, path: str = "tornado_websocket_server_adaptor") -> TSD[int, TSB[WebSocketRequest]]:
-        GlobalState.instance()[f"websocket_server_adaptor://{path}/queue"] = sender
+    @push_queue(TSD[int, TS[WebSocketConnectRequest]])
+    def connections_from_web(sender, path: str = "tornado_websocket_server_adaptor", elide: bool = True) -> TSD[int, TS[WebSocketConnectRequest]]:
+        GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"] = sender
         return None
+
+    @push_queue(TSD[int, TS[tuple[bytes, ...]]])
+    def messages_from_web(sender, path: str = "tornado_websocket_server_adaptor", batch: bool = True) -> TSD[int, TS[tuple[bytes, ...]]]:
+        GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"] = sender
+        return None
+
+    @graph
+    def from_web(path: str) -> TSD[int, TSB[WebSocketServerRequest]]:
+        requests = connections_from_web(path=path)
+        messages = messages_from_web(path=path)
+        return map_(lambda r, m: combine[TSB[WebSocketServerRequest]](connect_request=r, messages=m), requests, messages)
 
     @sink_node
     def to_web(
@@ -227,22 +245,25 @@ def websocket_server_adaptor_impl(path: str, port: int):
     @to_web.start
     def to_web_start(port: int, path: str, _state: STATE):
         _state.mgr = WebSocketAdaptorManager.instance()
-        _state.mgr.set_queue(queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/queue"])
+        _state.mgr.set_queues(
+            connect_queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"],
+            message_queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"],
+            )
         _state.mgr.start(port)
 
     @to_web.stop
     def to_web_stop(_state: STATE):
         _state.mgr.tornado_web.stop()
 
-    requests = from_web()
+    requests = from_web(path=path)
     requests_by_url = partition(requests, requests.connect_request.url)
 
     responses = {}
     for url, handler in WebSocketAdaptorManager.instance().handlers.items():
         if isinstance(handler, WiringNodeClass):
-            if handler.signature.time_series_inputs["request"].matches_type(TSB[WebSocketRequest]):
+            if handler.signature.time_series_inputs["request"].matches_type(TSB[WebSocketServerRequest]):
                 responses[url] = map_(handler, request=requests_by_url[url])
-            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TSB[WebSocketRequest]]):
+            elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TSB[WebSocketServerRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
         elif handler is None:
             pass
@@ -251,22 +272,22 @@ def websocket_server_adaptor_impl(path: str, port: int):
 
     adaptors_dedup = set()
     adaptors = set()
-    for path, type_map, node, receive in WiringGraphContext.__stack__[0].registered_service_clients(
+    for handler_path, type_map, node, receive in WiringGraphContext.__stack__[0].registered_service_clients(
         websocket_server_adaptor
     ):
         assert type_map == {}, "Websocket adaptor does not support type generics"
-        if (path, receive) in adaptors_dedup:
-            raise ValueError(f"Duplicate websocket_ adaptor client for path {path}: only one client is allowed")
-        adaptors_dedup.add((path, receive))
-        adaptors.add(path.replace("/from_graph", "").replace("/to_graph", ""))
+        if (handler_path, receive) in adaptors_dedup:
+            raise ValueError(f"Duplicate websocket_ adaptor client for handler_path {handler_path}: only one client is allowed")
+        adaptors_dedup.add((handler_path, receive))
+        adaptors.add(handler_path.replace("/from_graph", "").replace("/to_graph", ""))
 
-    for path in adaptors:
-        url = websocket_server_adaptor.path_from_full_path(path)
+    for handler_path in adaptors:
+        url = websocket_server_adaptor.path_from_full_path(handler_path)
 
         mgr = WebSocketAdaptorManager.instance()
         mgr.add_handler(url, None)
 
-        responses[url] = websocket_server_adaptor.wire_impl_inputs_stub(path).response
-        websocket_server_adaptor.wire_impl_out_stub(path, requests_by_url[url])
+        responses[url] = websocket_server_adaptor.wire_impl_inputs_stub(handler_path).response
+        websocket_server_adaptor.wire_impl_out_stub(handler_path, requests_by_url[url])
 
-    to_web(merge(*responses.values(), disjoint=True), port)
+    to_web(merge(*responses.values(), disjoint=True), port, path=path)

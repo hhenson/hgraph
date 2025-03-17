@@ -117,8 +117,8 @@ def format_value_python_time_series_value_input(value: Union[PythonTimeSeriesVal
 def format_value_python_time_series_reference_output(value: Union[PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput]):
     if value.valid:
         ref = value.value
-        if ref.valid:
-            if not ref.has_peer and ref.items:
+        if ref.is_valid:
+            if not ref.has_output and ref.items:
                 return f"{len(ref.items)} items"
             else:
                 return str(ref)
@@ -128,7 +128,7 @@ def format_value_python_time_series_reference_output(value: Union[PythonTimeSeri
 
 @format_value.register
 def format_value_python_time_series_reference(value: TimeSeriesReference):
-    if value.is_empty:
+    if value.is_valid:
         if not value.has_output and value.items:
             return f"{len(value.items)} items"
         else:
@@ -235,8 +235,8 @@ def enum_items_python_time_series_value_output(value: Union[PythonTimeSeriesValu
 def enum_items_python_time_series_reference_output(value: Union[PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput]):
     if value.valid:
         ref = value.value
-        if ref.valid:
-            if not ref.has_peer and ref.items:
+        if ref.is_valid:
+            if not ref.has_output and ref.items:
                 yield from enumerate(ref.items)
     yield from ()
 
