@@ -992,3 +992,8 @@ Version 0.4.7 (17-03-2025)
 --------------------------
 
 * Bug fixes, rename hgraph tests to hgraph_unit_tests
+
+Version 0.4.8 (17-03-2025)
+--------------------------
+
+* Change the Frame value parser to extract the schema from a value type.
