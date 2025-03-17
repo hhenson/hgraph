@@ -102,7 +102,7 @@ minversion = "7.4.3"
 addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 pythonpath = ["."]
 testpaths = [
-    "tests",
+    "hgraph_unit_tests",
 ]
 markers = [
     "serial: mark test to run serially (not in parallel with xdist)",
@@ -114,7 +114,7 @@ source_pkgs = ["hgraph", ]
 branch = true
 parallel = true
 omit = [
-    "tests/*",
+    "hgraph_unit_tests/*",
     "examples/*",
     "docs/*",
     "src/hgraph/notebook/*",
@@ -123,7 +123,7 @@ omit = [
 
 [tool.coverage.paths]
 hg = ["src/hgraph", ]
-tests = ["tests", "hgraph_unit_tests"]
+tests = ["hgraph_unit_tests"]
 
 [tool.coverage.report]
 fail_under = 80
