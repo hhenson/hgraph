@@ -1,6 +1,7 @@
 [coverage:run]
 omit =
     tests/*
+    hgraph_unit_tests/*
     examples/*
     docs/*
     src/hgraph/notebook/*

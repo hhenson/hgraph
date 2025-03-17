@@ -987,3 +987,8 @@ Version 0.4.6 (16-03-2025)
 --------------------------
 
 * Add proxy lag TSB 
+
+Version 0.4.7 (17-03-2025)
+--------------------------
+
+* Bug fixes, rename hgraph tests to hgraph_unit_tests

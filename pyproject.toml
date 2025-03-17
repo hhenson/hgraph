@@ -122,7 +122,7 @@ omit = [
 
 [tool.coverage.paths]
 hg = ["src/hgraph", ]
-tests = ["tests", ]
+tests = ["tests", "hgraph_unit_tests"]
 
 [tool.coverage.report]
 fail_under = 80
