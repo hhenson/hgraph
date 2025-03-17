@@ -5,10 +5,13 @@ from hgraph import (
     SCALAR,
     TIME_SERIES_TYPE,
     TSD,
+    TSS,
+    PythonSetDelta,
     compute_node,
     REMOVE_IF_EXISTS,
     graph,
     operator,
+    K,
     K_1,
     TIME_SERIES_TYPE_1,
 )
@@ -18,6 +21,7 @@ __all__ = (
     "make_tsd_scalar",
     "flatten_tsd",
     "extract_tsd",
+    "keys_where_true",
 )
 
 
@@ -82,3 +86,17 @@ def extract_tsd(ts: TS[Mapping[K_1, SCALAR]]) -> TSD[K_1, TIME_SERIES_TYPE]:
     Extracts a TSD from a stream of delta dictionaries.
     """
     return ts.value
+
+
+@compute_node
+def keys_where_true(ts: TSD[K, TS[bool]]) -> TSS[K]:
+    added = set()
+    removed = ts.key_set.removed()
+
+    for key, value in ts.modified_items():
+        if value.value:
+            added.add(key)
+        else:
+            removed.add(key)
+
+    return PythonSetDelta(added, removed)

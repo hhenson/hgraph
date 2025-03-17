@@ -11,7 +11,7 @@ let DEBUG_LOCK = false;
    get(key) {
      let v = super.get(key);
      if (!v) {
-       v = this.defaultFactory();
+       v = this.defaultFactory(key);
        super.set(key, v);
      }
      return v;
@@ -29,6 +29,14 @@ function safeClone(obj) {
 }
 
 class AsyncLock {
+    static max_wait = 0;
+    static max_lock = 0;
+
+    static reset_stats() {
+        AsyncLock.max_wait = 0;
+        AsyncLock.max_lock = 0;
+    }
+
     constructor(name) {
         this.name = name;
         this.queue = [];
@@ -36,22 +44,44 @@ class AsyncLock {
 
     async enter(action) {
         let this_resolve = undefined;
-        this.queue.push([new Promise((resolve) => this_resolve = resolve), this_resolve, action]);
+        let this_promise = undefined;
+        const start = performance.now();
+        this.queue.push(this_promise = [new Promise((resolve) => this_resolve = resolve), this_resolve, action, start]);
         if (this.queue.length > 1) {
             const prev_promise = this.queue[this.queue.length - 2][0];
             DEBUG_LOCK && console.log("Waiting for lock", this.name, this.queue.length, action);
             await prev_promise;
         }
-        DEBUG_LOCK && console.log("Lock acquired", this.name, this.queue.length, action);
+        const end = performance.now();
+        this_promise[3] = end;
+        const wait = end - start;
+        AsyncLock.max_wait = Math.max(AsyncLock.max_wait, wait);
+        DEBUG_LOCK && console.log("Lock acquired", this.name, this.queue.length, action, "after", Math.floor(wait));
     }
 
     exit() {
         const promises = this.queue.shift();
-        DEBUG_LOCK && console.log("Lock released", this.name, this.queue.length, promises[2]);
+        const lock_time = performance.now() - promises[3]
+        AsyncLock.max_lock = Math.max(AsyncLock.max_lock, lock_time);
+        DEBUG_LOCK && console.log("Lock released", this.name, this.queue.length, promises[2], "was locked for", Math.floor(lock_time));
         promises[1]();
     }
 }
 
+
+class Stats {
+    static updates_received = 0;
+    static updates_processed = 0;
+    static max_updates_waiting = 0;
+    static rows_joined = 0;
+
+    static reset() {
+        Stats.updates_received = 0;
+        Stats.updates_processed = 0;
+        Stats.max_updates_waiting = 0;
+        Stats.rows_joined = 0;
+    }
+}
 
 export function with_timeout(promise, timeout, error) {
   let timer = null;
@@ -78,14 +108,10 @@ export async function wait_for_table(workspace, table_name, progress_callback) {
     }
     if (!getWorkspaceTables()[table_name].started) {
         if (workspace_tables[table_name].start) {
-            workspace_tables[table_name].start();
-        }
-        while (!workspace_tables[table_name].started) {
-            const delay = ms => new Promise(res => setTimeout(res, ms));
-            await delay(100);
-            if (progress_callback && workspace_tables[table_name].progress){
-                progress_callback(workspace_tables[table_name].progress, workspace_tables[table_name].progress_message);
+            if (!workspace_tables[table_name].starting) {
+                workspace_tables[table_name].starting = workspace_tables[table_name].start(progress_callback);
             }
+            await workspace_tables[table_name].starting;
         }
     }
     return workspace.getTable(table_name);
@@ -136,24 +162,45 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
         workspace_tables[table_name].lock = table_lock;
         workspace_tables[table_name].view_locks = view_locks;
 
+        const update_fn = async (updated) => {
+            Stats.updates_received += 1;
+            Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
+            await table_lock.enter("update");
+            try {
+                const view_waits = Object.entries(view_locks).map(([k, v]) => {
+                    return new Promise((resolve) => v.push(resolve))
+                });
+
+                await client.update(updated.delta);
+
+                // wait for all views that registered for waiting to update
+                DEBUG_LOCK && console.log("Waiting for", view_waits.length, "views to update", table_name);
+                await with_timeout(Promise.all(view_waits), 5, "timeout").catch((e) => {
+                    DEBUG_LOCK && console.log("Timeout waiting for views to update", table_name, view_waits.length);
+                });
+            } finally {
+                table_lock.exit("update");
+                Stats.updates_processed += 1;
+            }
+        };
+
+        const remove_fn = async (updated) => {
+            Stats.updates_received += 1;
+            Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
+            await table_lock.enter("remove");
+            try {
+                const update_table = await worker.table(updated.delta);
+                const update_view = await update_table.view();
+                const update_data = await update_view.to_columns();
+                await client.remove(update_data['i']);
+            } finally {
+                table_lock.exit("remove");
+                Stats.updates_processed += 1;
+            }
+        };
+
         view.on_update(
-            async (updated) => {
-                await table_lock.enter("update");
-                try {
-                    const view_waits = Object.entries(view_locks).map(([k, v]) => {
-                        return new Promise((resolve) => v.push(resolve))
-                    });
-
-                    await client.update(updated.delta);
-
-                    // wait for all views that registered for waiting to update
-                    DEBUG_LOCK && console.log("Waiting for", view_waits.length, "views to update", table_name);
-                    await with_timeout(Promise.all(view_waits), 50, "timeout").catch((e) => {
-                    });
-                } finally {
-                    table_lock.exit("update");
-                }
-            },
+            update_fn,
             {mode: "row"}
         )
 
@@ -165,17 +212,7 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
             workspace_tables[table_name].removes_view = removes_view;
 
             removes_view.on_update(
-                async (updated) => {
-                    await table_lock.enter("remove");
-                    try {
-                        const update_table = await worker.table(updated.delta);
-                        const update_view = await update_table.view();
-                        const update_data = await update_view.to_columns();
-                        await client.remove(update_data['i']);
-                    } finally {
-                        table_lock.exit("remove");
-                    }
-                },
+                remove_fn,
                 {mode: "row"}
             );
         }
@@ -217,6 +254,8 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
 
         view.on_update(
             async (updated) => {
+                Stats.updates_received += 1;
+                Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
                 await table_lock.enter("update");
                 try {
                     const view_waits = Object.entries(view_locks).map(([k, v]) => {
@@ -238,6 +277,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     });
                 } finally {
                     table_lock.exit("update");
+                    Stats.updates_processed += 1;
                 }
             },
             {mode: "row"}
@@ -252,6 +292,8 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
 
             removes_view.on_update(
                 async (updated) => {
+                    Stats.updates_received += 1;
+                    Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
                     await table_lock.enter("remove");
                     try {
                         const update_table = await worker.table(updated.delta);
@@ -260,6 +302,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                         await client.remove(update_data['i']);
                     } finally {
                         table_lock.exit("remove");
+                        Stats.updates_processed += 1;
                     }
                 },
                 {mode: "row"}
@@ -312,7 +355,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
 
     workspace_tables[table_name].table = join_table;
     workspace_tables[table_name].started = false;
-    workspace_tables[table_name].start = async () => {
+    workspace_tables[table_name].start = async (progress_callback) => {
 
         description._total = {};
         description._total.name = table_name;
@@ -357,7 +400,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
             if (table_name === '_total') continue;
 
             const table_desc = description[table_name];
-            const table = await wait_for_table(workspace, table_desc.table_name);
+            const table = await wait_for_table(workspace, table_desc.table_name, progress_callback);
             const schema = await table.schema();
 
             const native_index = await table.get_index();
@@ -369,6 +412,17 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
 
                 if (table_desc.index !== native_index) {
                     console.assert(table_desc.native_index);
+                }
+
+                if (table_desc.view.split_by) {
+                    table_desc.split_by_columns_map = new DefaultMap((k) => {
+                        const k_n = k.split('|').slice(-1)[0];
+                        if (table_desc.keys.includes(k_n)) {
+                            return k_n;
+                        } else {
+                            return k.replaceAll('|', '_');
+                        }
+                    })
                 }
 
                 if (table_desc.view.group_by) {
@@ -406,70 +460,77 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
         }
 
         let i = 0;
+        const tables_loading = [];
         for (const table_name in description) {
             if (table_name === '_total') continue;
-            workspace_tables[description._total.name].progress = (i) / Object.keys(description).length;
-            workspace_tables[description._total.name].progress_message = description._total.name + " joining " + table_name;
 
-            const table_description = description[table_name];
-            const source_table = await wait_for_table(workspace, table_description.table_name);
-            const view = await source_table.view(table_description.view);
-            const workspace_table = workspace_tables[table_description.table_name];
+            const loader = async (table_name) => {
+                const table_description = description[table_name];
+                const source_table = await wait_for_table(workspace, table_description.table_name);
+                const view = await source_table.view(table_description.view);
+                const workspace_table = workspace_tables[table_description.table_name];
 
-            await join_table_updated(join_table, removes_table, description, table_name, workspace, worker, {
-                port_id: -1,
-                delta: view
-            });
-            DEBUG && console.log("Done initialising", table_name, "joins for", description._total.name);
+                await join_table_updated(join_table, removes_table, description, table_name, workspace, worker, {
+                    port_id: -1,
+                    delta: view
+                });
+                DEBUG && console.log("Done initialising", table_name, "joins for", description._total.name);
 
-            const parent_waits = [];
+                const parent_waits = [];
 
-            view.on_update(
-                async (updated) => {
-                    try {
-                        await description._total.lock.enter("update " + table_name);
-                        await join_table_updated(join_table, removes_table, description, table_name, workspace, worker, updated);
-                    } finally {
-                        description._total.lock.exit();
-                        if (parent_waits.length > 0) {
-                            parent_waits.shift()();
-                        }
-                    }
-                },
-                {mode: "row"}
-            );
-
-            let workspace_table_lock = undefined;
-            if (description[table_name].view) {
-                if (workspace_table.lock) {
-                    workspace_table.view_locks[description._total.name] = parent_waits;
-                    workspace_table_lock = workspace_table.lock;
-                }
-            }
-
-            if ('removes' in workspace_table) {
-                const removes = workspace_table.removes;
-                const removes_view = await removes.view();
-                removes_view.on_update(
+                view.on_update(
                     async (updated) => {
-                        if (workspace_table_lock)
-                            await workspace_table_lock.enter("remove from " + description._total.name);
                         try {
-                            await description._total.lock.enter("remove " + table_name);
-                            await join_table_removed(join_table, removes_table, description, table_name, workspace, worker, updated);
+                            await description._total.lock.enter("update " + table_name);
+                            await join_table_updated(join_table, removes_table, description, table_name, workspace, worker, updated);
                         } finally {
                             description._total.lock.exit();
-                            if (workspace_table_lock)
-                                workspace_table_lock.exit("remove from " + description._total.name);
+                            if (parent_waits.length > 0) {
+                                parent_waits.shift()();
+                            }
                         }
                     },
                     {mode: "row"}
                 );
+
+                let workspace_table_lock = undefined;
+                if (description[table_name].view) {
+                    if (workspace_table.lock) {
+                        workspace_table.view_locks[description._total.name] = parent_waits;
+                        workspace_table_lock = workspace_table.lock;
+                    }
+                }
+
+                if ('removes' in workspace_table) {
+                    const removes = workspace_table.removes;
+                    const removes_view = await removes.view();
+                    removes_view.on_update(
+                        async (updated) => {
+                            if (workspace_table_lock)
+                                await workspace_table_lock.enter("remove from " + description._total.name);
+                            try {
+                                await description._total.lock.enter("remove " + table_name);
+                                await join_table_removed(join_table, removes_table, description, table_name, workspace, worker, updated);
+                            } finally {
+                                description._total.lock.exit();
+                                if (workspace_table_lock)
+                                    workspace_table_lock.exit("remove from " + description._total.name);
+                            }
+                        },
+                        {mode: "row"}
+                    );
+                }
+
+                i += 1;
+                
+                if (progress_callback){
+                    progress_callback((i + 1) / Object.keys(description).length, table_name);
+                }
             }
 
-            i += 1;
-            workspace_tables[description._total.name].progress = (i + 1) / Object.keys(description).length;
+            tables_loading.push(loader(table_name));
         }
+        await Promise.all(tables_loading);
 
         const workspace_table = workspace_tables[table_name];
         workspace_table.table = join_table;
@@ -650,6 +711,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         update_data = await view.to_json();
     }
 
+    Stats.rows_joined += update_data.length;
     DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
 
     const table = join_tables[table_name];
@@ -670,9 +732,8 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         } else {
             if (table.view && table.view.split_by){
                 row = Object.fromEntries(Object.entries(row)
-                    .map(([k, v]) => [[k, k.split('|').slice(-1)[0]], v])
                     .filter(([k, v]) => v !== null)
-                    .map(([k, v]) => [table.keys.includes(k[1]) ? k[1] : k[0].replaceAll('|', '_'), v]));
+                    .map(([k, v]) => [table.split_by_columns_map.get(k), v]));
             }
             if (table.view && table.view.group_by){
                 delete row['__ROW_PATH__'];
@@ -806,14 +867,17 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         const total_index_col_name = join_tables._total.index;
         const join_data = new Map();
         for (const total_index of new_row_indices) {
+            let data = {};
             for (const any_table_name in join_tables) {
                 if (any_table_name === '_total') continue;
                 const from_total = join_tables._total.to_native.get(any_table_name);
                 const native_index = from_total.get(total_index);
                 if (native_index === undefined) continue;
                 const row = join_tables[any_table_name].cache.get(native_index);
-                join_data.set(total_index, {...join_data.get(total_index), ...row, [total_index_col_name]: total_index});
+                Object.assign(data, row);
             }
+            data[total_index_col_name] = total_index;
+            join_data.set(total_index, data);
         }
         DEBUG && console.log("Joining", join_tables._total.name, join_data.length, "rows", "while processing update to", table_name, "of", update_data.length, safeClone(join_data));
         try {
@@ -912,19 +976,46 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
     const heartbeat = await websocket_ro.open_table("heartbeat");
     const heartbeat_view = await heartbeat.view();
     let heartbeat_timer = undefined;
+    let heartbeat_time = new Date();
+    let heartbeat_sequence = undefined;
 
     heartbeat_view.on_update(
         async (updated) => {
             const update_table = await worker.table(updated.delta);
             const update_view = await update_table.view();
             const update_data = await update_view.to_columns();
-            const hb_index = update_data['name'].indexOf("heartbeat");
+            const names = update_data['name'];
+            if (!names) return; // empty update
+            const hb_index = names.indexOf("heartbeat");
             if (hb_index !== -1) {
                 DEBUG && console.log("Heartbeat received");
 
                 const hb_time = new Date(0);
-                hb_time.setUTCMilliseconds(update_data['time'][0])
-                management_ws && management_ws.send({type: "heartbeat", lag: new Date() - hb_time});
+                hb_time.setUTCMilliseconds(update_data['time'][hb_index])
+
+                const sequence = 'sequence' in update_data ? update_data['sequence'][hb_index] : 1;
+                const sequence_diff = heartbeat_sequence === undefined ? 1 : sequence - heartbeat_sequence;
+                heartbeat_sequence = sequence;
+
+                const time_now = new Date();
+                const elapsed = new Date() - heartbeat_time;
+
+                management_ws && management_ws.send({
+                    type: "heartbeat", 
+                    lag: time_now - hb_time, 
+                    elapsed: Math.round(elapsed),
+                    sequence_diff: sequence_diff,
+                    max_lock_wait: Math.round(AsyncLock.max_wait),
+                    max_lock_time: Math.round(AsyncLock.max_lock),
+                    max_updates_waiting: Stats.max_updates_waiting,
+                    updates_received_per_min: 60000 * Stats.updates_received / elapsed,
+                    updates_processed_per_min: 60000 * Stats.updates_processed / elapsed,
+                    rows_joined_per_min: 60000 * Stats.rows_joined / elapsed
+                });
+                AsyncLock.reset_stats();
+                Stats.reset();
+
+                heartbeat_time = time_now;
 
                 if (heartbeat_timer)
                     window.clearTimeout(heartbeat_timer);

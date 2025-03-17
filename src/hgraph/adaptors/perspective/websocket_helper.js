@@ -3,11 +3,14 @@ export class WebSocketHelper {
         this.url = url;
         this.ws = null;
         this.connected = false;
+        this.pendingMessages = [];
         this.pendingRequests = new Map();
         this.requestCounter = 0;
         this.connectionPromise = null;
         this.connectionResolve = null;
         this.connectionReject = null;
+
+        this.connectMessages = [];
     }
 
     async connect(timeout = 30000) {
@@ -24,6 +27,13 @@ export class WebSocketHelper {
             this.connected = true;
             this.connectionResolve(true);
             console.log('Connected to WebSocket');
+            for (const message of this.connectMessages) {
+                this.send(message);
+            }
+            for (const message of this.pendingMessages) {
+                this.send(message);
+            }
+            this.pendingMessages = [];
         };
 
         this.ws.onclose = () => {
@@ -76,14 +86,38 @@ export class WebSocketHelper {
 
     async send(message) {
         if (!this.connected) {
-            throw new Error('WebSocket is not connected');
+            this.pendingMessages.push(message);
+            return;
         }
 
         const payload = {
             message
         };
 
-        this.ws.send(JSON.stringify(payload));
+        try {
+            this.ws.send(JSON.stringify(payload));
+        } catch (error) {
+            console.error('Error sending message:', error);
+            this.pendingMessages.push(message);
+        }
+    }
+
+    async send_on_connect_message(message) {
+        this.connectMessages.push(message);
+
+        if (!this.connected) {
+            return;
+        }
+
+        const payload = {
+            message
+        };
+
+        try {
+            this.ws.send(JSON.stringify(payload));
+        } catch (error) {
+            console.error('Error sending message:', error);
+        }
     }
 
     disconnect() {

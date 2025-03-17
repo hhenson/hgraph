@@ -2,18 +2,20 @@ export async function ensureTablesForConfig(config, progress_callback) {
     if (config.viewers) {
         const total = Object.keys(config.viewers).length;
         let i = 0;
+        const table_promises = [];
         for (const [_, viewer] of Object.entries(config.viewers)) {
-            try {
-                progress_callback(i / total, viewer.table);
-                await wait_for_table(window.workspace, viewer.table, (x, y) => {
+            progress_callback(i / total, viewer.table);
+            table_promises.push(wait_for_table(window.workspace, viewer.table, (x, y) => {
                     progress_callback((i + x) / total, y);
-                });
-            } catch (e) {
-                progress_callback(i / total, undefined, e.toString());
-            }
-            i += 1;
-            progress_callback(i / total);
+                }).catch((e) => {
+                    progress_callback(i / total, undefined, e.toString());
+                }).then(() => {
+                    i += 1;
+                    progress_callback(i / total);
+                })
+            );
         }
+        await Promise.all(table_promises);
     }
 }
 
@@ -92,6 +94,7 @@ export async function installTableWorkarounds(mode) {
                 psp_stylesheet.deleteRule(i);
                 psp_stylesheet.insertRule('regular-table table tbody td { min-width: 1px !important; }');
                 psp_stylesheet.insertRule('regular-table table tbody td.invalid { color: red; }');
+                psp_stylesheet.insertRule('regular-table table tbody td.hidden { overflow: hidden; white-space: nowrap; text-overflow: clip; width: 0; min-width: 0; max-width: 0; padding-left: 1px; padding-right: 0; }');
             }
         }
 
@@ -119,6 +122,23 @@ export async function installTableWorkarounds(mode) {
         table.addEventListener("focusin", async (event) => {
             await focusin(event, viewer, table, model, table_config);
         });
+
+        const collapse_state = localStorage.getItem(`${window.location.pathname}/${viewer.slot}/collapse_state`);
+        if (collapse_state) {
+            viewer.dataset.collapse_state = collapse_state;
+            viewer.dataset.collapse_state_remainder = collapse_state;
+            await restoreCollapseState(table, viewer, model);
+        }
+        g.parentElement.addEventListener("perspective-config-update", async (event) => {
+            viewer.dataset.collapse_state_remainder = viewer.dataset.collapse_state;
+            await restoreCollapseState(table, viewer, model);
+        });
+
+        setTimeout(() => {
+            table.addStyleListener(async () => {
+                await recordCollapseState(table, viewer, model)
+            });
+        }, 100);
 
         table.draw();
     }
@@ -185,8 +205,9 @@ async function load_options(editor) {
         options.push(...editor.options);
     } else {
         if (editor.options.source in getWorkspaceTables()) {
+            await wait_for_table(window.workspace, editor.options.source);
             const table = getWorkspaceTables()[editor.options.source].table;
-            const view = await table.view(editor.options.view || {"columns": [editor.options.column]});
+            const view = await table.view({...editor.options.view, ...{"columns": [editor.options.column]}});
             const data = await view.to_columns();
             options.push(...new Set(data[editor.options.column].filter((x) => x !== null && x !== undefined)));
         }
@@ -612,6 +633,87 @@ function addTooltips(table) {
     table.invalidate();
 }
 
+async function recordCollapseState(table, viewer, model) {
+    if (viewer.dataset.config_open) return;
+    if (!model._config.group_by.length) return;    
+    if (viewer.dataset.collapse_state_timer) return;
+
+    viewer.dataset.collapse_state_timer = setTimeout(async () => {
+        delete viewer.dataset.collapse_state_timer;
+
+        const state = viewer.dataset.collapse_state ? JSON.parse(viewer.dataset.collapse_state) : {};
+
+        const view = await viewer.getView();
+
+        for (const tr of table.children[0].children[1].querySelectorAll("th.psp-tree-label-collapse")) {
+            const metadata = table.getMeta(tr);
+            const ids = model._ids[metadata.y - metadata.y0];
+            if (ids === undefined) {
+                continue;
+            }
+            const row_header = ids.map((x) => x === null ? '-' : x).join(',')
+            state[row_header] = await view.get_row_expanded(metadata.y);
+        }
+        for (const tr of table.children[0].children[1].querySelectorAll("th.psp-tree-label-expand")) {
+            const metadata = table.getMeta(tr);
+            const ids = model._ids[metadata.y - metadata.y0];
+            if (ids === undefined) {
+                continue;
+            }
+            const row_header = ids.map((x) => x === null ? '-' : x).join(',')
+            state[row_header] = await view.get_row_expanded(metadata.y);
+        }
+
+        if (viewer.dataset.collapse_state_remainder) {
+            const remainder = JSON.parse(viewer.dataset.collapse_state_remainder);
+            for (const [k, v] of Object.entries(remainder)) {
+                if (!k in state) {
+                    state[k] = v;
+                }
+            }
+        }
+
+        const state_str = JSON.stringify(state, Object.keys(state).sort(), 2);
+        if (viewer.dataset.collapse_state !== state_str) {
+            viewer.dataset.collapse_state = state_str;
+            const key = `${window.location.pathname}/${viewer.slot}/collapse_state`;
+            localStorage.setItem(key, state_str);
+        }
+    }, 1000);
+}
+
+async function restoreCollapseState(table, viewer, model, can_invalidate = false) {
+    if (!viewer.dataset.collapse_state_remainder) return;
+    if (!model._config.group_by.length) return;    
+    const state = JSON.parse(viewer.dataset.collapse_state_remainder);
+    delete viewer.dataset.collapse_state_remainder;
+
+    const view = await viewer.getView();
+    const data = await view.to_columns();
+    const row_headers = data['__ROW_PATH__'].map((x) => x.map((x) => x === null ? '-' : x).join(','));
+    const len = row_headers.length;
+    for (const [i, h] of row_headers.reverse().entries()){
+        if (state[h] === false){
+            await model._view.collapse(len - i - 1);
+            delete state[h];
+        }
+    }
+    
+    if (Object.keys(state).length) {
+        viewer.dataset.collapse_state_remainder = JSON.stringify(state, Object.keys(state).sort(), 2);
+        // maybe some data has not loaded yet, try again
+        setTimeout(async () => {
+            await restoreCollapseState(table, viewer, model, true);
+        }, 1000);
+    } else {
+        delete viewer.dataset.collapse_state_remainder;
+    }
+
+    model._num_rows = await model._view.num_rows();
+    model._num_columns = await model._view.num_columns();
+    table.draw();
+}
+
 function hideColumns(table) {
     const hide_cols = new Set();
     const parts = []
@@ -678,9 +780,10 @@ function hideColumns(table) {
             for (const td of tr.children) {
                 const metadata = table.getMeta(td)
                 if (hide_cols.has(metadata.size_key)) {
-                    td.style.overflow = "hidden";
-                    td.style.whiteSpace = "nowrap";
-                    td.textOverflow = "clip";
+                    // td.classList.add("hidden");
+                    // td.style.overflow = "hidden";
+                    // td.style.whiteSpace = "nowrap";
+                    // td.textOverflow = "clip";
 
                     td.style.width = "0";
                     td.style.minWidth = "0";
@@ -688,7 +791,7 @@ function hideColumns(table) {
                     td.style.paddingLeft = "1px";
                     td.style.paddingRight = "0";
 
-                    if (tr.parentElement === tbody && td.innerText) {
+                    if (tr.parentElement === tbody) {
                         if (fg_copy.has(metadata.size_key)) {
                             const copy_to_key = col_map.get(fg_copy.get(metadata.size_key));
                             let copy_to = td.previousElementSibling;
@@ -753,7 +856,7 @@ function noRollups(table) {
                 continue;
             }
             // Delete the content
-            td.textContent = "";
+            td.innerHTML = "";
             td.style.color = ""
             td.style.backgroundColor = ""
         }

@@ -2,6 +2,7 @@ from collections import deque
 from typing import Tuple, Type, Mapping, Set
 
 from hgraph import (
+    REMOVE_IF_EXISTS,
     compute_node,
     OUT,
     TS,
@@ -253,11 +254,13 @@ def collect_tsd_from_tsd(
     tsd: TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE],
     *,
     reset: SIGNAL = None,
+    exclude: TSS[KEYABLE_SCALAR] = None,
     tp_: Type[OUT] = TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE],
     _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
 ) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
-    remove = {k: REMOVE for k in _output.keys()} if reset.modified else {}
-    return remove | {k: v.value for k, v in tsd.modified_items()}
+    remove = {k: REMOVE for k in _output.keys()} if reset.modified else {k: REMOVE_IF_EXISTS for k in exclude.added()} if exclude.modified else {}
+    exclusions = exclude.value if exclude.valid else set()
+    return remove | {k: v.value for k, v in tsd.modified_items() if k not in exclusions}
 
 
 @compute_node(

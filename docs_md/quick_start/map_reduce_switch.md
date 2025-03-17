@@ -164,10 +164,10 @@ from hgraph import TS, graph, switch_
 
 @graph
 def graph_switch_lambda(selector: TS[str], lhs: TS[int], rhs: TS[int]) -> TS[int]:
-    return switch_({
+    return switch_(selector, {
         "add": lambda lhs, rhs: lhs + rhs,
         "sub": lambda lhs, rhs: lhs - rhs,
-    }, selector, lhs, rhs)
+    }, lhs, rhs)
 ```
 
 
@@ -213,12 +213,12 @@ from hgraph import graph, TS, switch_, const, mesh_
 @graph
 def f(k: TS[str]) -> TS[float]:
     return switch_(
+        k,
         {
             'a': lambda : const(1.0),
             'b': lambda : const(2.0),
             'a+b': lambda: mesh_('f')['a'] + mesh_('f')['b']
         },
-        k
     )
 
 @graph

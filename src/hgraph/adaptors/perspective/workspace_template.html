@@ -44,6 +44,7 @@
                 padding: 20px;
                 background-color: rgba(0, 0, 0, 0.8); /* Black background with opacity */
                 color: white;
+                font-family: "ui-monospace","SFMono-Regular","SF Mono","Menlo","Consolas","Liberation Mono",monospace;
                 font-size: 20px;
                 border-radius: 10px;
                 text-align: center;
@@ -220,7 +221,7 @@
 
                 try {
                     document.getElementById('loading-message').innerText = "Logging in...";
-                    await new Promise(res => setTimeout(res, 250));
+                    await new Promise(res => setTimeout(res, 100));
 
                     {% if mgr.options.get('require_login') %}
                     const token = await (await fetchWithAuth("{{mgr.options['login_url']}}")).text();
@@ -233,14 +234,11 @@
                         'Authorization': `Bearer ${token}`,
                         // Add any other required headers here
                     });
-                    try {
-                        await management_ws.connect();
-                    } catch (e) {
+                    management_ws.connect().catch((e) => {
                         console.error(e);
                         const errorList = document.querySelector('.error-list');
                         errorList.innerHTML += `<li>Failed to connect to management server</li>`;
-                        return;
-                    }
+                    });
                     {% else %}
                     const management_ws = undefined;
                     {% end %}
@@ -250,8 +248,10 @@
                         setupInspectorTable();
                     });
 
+                    document.getElementById('loading-message').innerText = "Setting up tables...";
                     await connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
 
+                    document.getElementById('loading-message').innerText = "Loading layout...";
                     const req = await fetch("/layout/{{url}}");
                     const json = await req.json();
 
@@ -268,7 +268,7 @@
                         }
                     });
 
-                    management_ws && management_ws.send({type: 'load_layout', layout: '{{url}}'});
+                    management_ws && management_ws.send_on_connect_message({type: 'load_layout', layout: '{{url}}'});
                     document.getElementById('loading-banner').style.display = 'none';
 
                     window.setTimeout(async () => {

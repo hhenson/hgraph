@@ -7,8 +7,9 @@ from frozendict import frozendict
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 from hgraph.adaptors.tornado.websocket_client_adaptor import websocket_client_adaptor, websocket_client_adaptor_impl
 from hgraph.adaptors.tornado.websocket_server_adaptor import (
+    WebSocketClientRequest,
     websocket_server_handler,
-    WebSocketRequest,
+    WebSocketServerRequest,
     WebSocketResponse,
     websocket_server_adaptor_impl,
     websocket_server_adaptor_helper,
@@ -105,10 +106,10 @@ try:
     @pytest.mark.serial
     def test_single_websocket_request_graph():
         @websocket_server_handler(url="/test")
-        def x(request: TSB[WebSocketRequest]) -> TSB[WebSocketResponse]:
+        def x(request: TSB[WebSocketServerRequest]) -> TSB[WebSocketResponse]:
             return combine[TSB[WebSocketResponse]](
                 connect_response=True,
-                message=request.message,
+                message=request.messages[-1],
             )
 
         @graph
@@ -129,13 +130,13 @@ try:
     def test_multiple_websocket_request_graph():
         @websocket_server_handler(url="/test")
         @compute_node
-        def x(request: TSD[int, TSB[WebSocketRequest]], _state: STATE = None) -> TSD[int, TSB[WebSocketResponse]]:
+        def x(request: TSD[int, TSB[WebSocketServerRequest]], _state: STATE = None) -> TSD[int, TSB[WebSocketResponse]]:
             out = defaultdict(dict)
             for i, v in request.modified_items():
                 if v.connect_request.modified:
                     out[i]["connect_response"] = True
-                if v.message.modified:
-                    _state.counter = _state.counter + 1 if hasattr(_state, "counter") else 0
+                if v.messages.modified:
+                    _state.counter = _state.counter + len(v.messages.value) if hasattr(_state, "counter") else 0
                     out[i]["message"] = f"Hello, world #{_state.counter}!".encode()
 
             return out
@@ -157,11 +158,11 @@ try:
     @pytest.mark.serial
     def test_websocket_server_adaptor_graph():
         @websocket_server_handler(url="/test/(.*)")
-        def x(request: TSB[WebSocketRequest], b: TS[int]) -> TSB[WebSocketResponse]:
+        def x(request: TSB[WebSocketServerRequest], b: TS[int]) -> TSB[WebSocketResponse]:
             return combine[TSB[WebSocketResponse]](
                 connect_response=True,
                 message=convert[TS[bytes]](
-                    format_("Hello, {} and {}!", request.connect_request.url_parsed_args[0], sample(request.message, b))
+                    format_("Hello, {} and {}!", request.connect_request.url_parsed_args[0], sample(request.messages, b))
                 ),
             )
 
@@ -184,12 +185,12 @@ try:
     @pytest.mark.serial
     def test_single_request_graph_client():
         @websocket_server_handler(url="/test/(.*)")
-        def x(request: TSB[WebSocketRequest]) -> TSB[WebSocketResponse]:
+        def x(request: TSB[WebSocketServerRequest]) -> TSB[WebSocketResponse]:
             return combine[TSB[WebSocketResponse]](
                 connect_response=True,
                 message=convert[TS[bytes]](
                     format_(
-                        "Hello, {}, {}!", request.connect_request.url_parsed_args[0], convert[TS[str]](request.message)
+                        "Hello, {}, {}!", request.connect_request.url_parsed_args[0], convert[TS[str]](emit(request.messages))
                     )
                 ),
             )
@@ -208,7 +209,7 @@ try:
             def ws_client(i: TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]) -> TS[bytes]:
                 connected = feedback(TS[bool])
                 resp = websocket_client_adaptor(
-                    combine[TSB[WebSocketRequest]](connect_request=i[0], message=gate(connected(), emit(i[1])))
+                    combine[TSB[WebSocketClientRequest]](connect_request=i[0], message=gate(connected(), emit(i[1])))
                 )
                 connected(resp.connect_response)
                 return resp.message

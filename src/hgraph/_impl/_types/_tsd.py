@@ -153,17 +153,19 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         return self._ts_values_to_keys.get(id(value))
 
     def clear(self):
-        for observer in self._key_observers:
-            for k in self._removed_items:
-                observer.on_key_removed(k)
-
         self.key_set.clear()
         for v in self._ts_values.values():
             v.clear()
         self._removed_items = self._ts_values
+        self._ts_values = {}
         self._ts_values_to_keys.clear()
         self._ref_ts_feature.update_all(self._removed_items.keys())
         self._modified_items.clear()
+
+        for observer in self._key_observers:
+            for k in self._removed_items:
+                observer.on_key_removed(k)
+
 
     def invalidate(self):
         for v in self.values():
@@ -301,7 +303,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
         key_set.bind_output(output.key_set)
 
-        if self.owning_node.is_started and self.output:
+        if self.owning_node.is_started and self.output is not None:
             self.output.remove_key_observer(self)
             self._prev_output = self._output
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_prev)
