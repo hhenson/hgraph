@@ -38,7 +38,7 @@ __all__ = (
 @sink_node(valid=tuple())
 def capture_output_to_global_state(path: str, ts: REF[TIME_SERIES_TYPE]):
     """This node serves to capture the output of a service node and record the output reference in the global state."""
-    global_state = GlobalState().instance()
+    global_state = GlobalState.instance()
     global_state[path] = ts.value
     global_state[f"{path}_subscriber"].notify(ts.last_modified_time)
 
@@ -47,7 +47,7 @@ def capture_output_to_global_state(path: str, ts: REF[TIME_SERIES_TYPE]):
 def capture_output_to_global_state_start(path: str, ts: REF[TIME_SERIES_TYPE]):
     """Place the reference into the global state"""
     from hgraph import TimeSeriesSubscriber
-    global_state = GlobalState().instance()
+    global_state = GlobalState.instance()
     global_state[path] = ts.value
     global_state[f"{path}_subscriber"] = TimeSeriesSubscriber()
 

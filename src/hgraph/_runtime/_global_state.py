@@ -13,22 +13,54 @@ class GlobalState(object):
     _instance: Optional["GlobalState"] = None
 
     @staticmethod
+    def init_multithreaded(**kwargs):
+        assert GlobalState._instance is None
+
+        from threading import local
+        GlobalState._instance = local()  # type: ignore
+        GlobalState.instance = GlobalState.instance_mt
+        GlobalState.set_instance = GlobalState.set_instance_mt
+        GlobalState.has_instance = GlobalState.has_instance_mt
+
+    @staticmethod
     def instance() -> "GlobalState":
         if GlobalState._instance is None:
             raise RuntimeError("No global state is present")  # default constructing one is very bad for tests
         return GlobalState._instance
 
     @staticmethod
+    def set_instance(self):
+        GlobalState._instance = self
+
+    @staticmethod
+    def has_instance() -> bool:
+        return GlobalState._instance is not None
+
+    @staticmethod
+    def instance_mt() -> "GlobalState":
+        if GlobalState._instance.self is None:
+            raise RuntimeError("No global state is present")  # default constructing one is very bad for tests
+        return GlobalState._instance.self
+
+    @staticmethod
+    def set_instance_mt(self):
+        GlobalState._instance.self = self
+
+    @staticmethod
+    def has_instance_mt() -> bool:
+        return GlobalState._instance.self is not None
+
+    @staticmethod
     def reset():
-        GlobalState._instance = None
+        GlobalState.set_instance(None)
 
     def __enter__(self):
-        self._previous = GlobalState._instance
-        GlobalState._instance = self
+        self._previous = GlobalState.instance() if GlobalState.has_instance() else None
+        GlobalState.set_instance(self)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        GlobalState._instance = self._previous
+        GlobalState.set_instance(self._previous)
         self._previous = None
 
     def __init__(self, **kwargs):

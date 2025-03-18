@@ -161,7 +161,7 @@ def eval_node(
             # For now, not to worry about un_named bundle outputs
             record_to_memory(out)
 
-    with GlobalState() if GlobalState._instance is None else nullcontext():
+    with GlobalState() if not GlobalState.has_instance() else nullcontext():
         max_count = 0
         for ts_arg in time_series_inputs:
             v = kwargs_[ts_arg]

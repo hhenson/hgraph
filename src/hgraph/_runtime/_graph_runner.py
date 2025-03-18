@@ -175,7 +175,7 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
     from hgraph._operators._record_replay import record
     from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
-    with GlobalState() if GlobalState._instance is None else nullcontext():
+    with GlobalState() if not GlobalState.has_instance() else nullcontext():
         signature: WiringNodeSignature = None
         if not isinstance(graph, GraphBuilder):
             config.graph_logger.debug("Wiring graph: %s", graph.signature.signature)
