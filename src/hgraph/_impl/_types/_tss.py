@@ -36,6 +36,14 @@ class PythonSetDelta(SetDelta[SCALAR], Generic[SCALAR]):
             return all(i in self.added if type(i) is not Removed else i.item in self.removed for i in other)
         return NotImplemented
 
+    def __add__(self, other: "PythonSetDelta[SCALAR]") -> "PythonSetDelta[SCALAR]":
+        if type(self) != type(other):
+            raise TypeError(f"Cannot add {type(self)} to {type(other)}")
+
+        added = (self.added_elements - other.removed_elements) | other.added_elements
+        removed = (other.removed_elements - self.added_elements) | (self.removed_elements - other.added_elements)
+        return PythonSetDelta(added=added, removed=removed)
+
 
 @dataclass(frozen=True)
 class Removed(Generic[SCALAR]):

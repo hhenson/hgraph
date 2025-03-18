@@ -1002,3 +1002,10 @@ Version 0.4.9 (18-03-2025)
 --------------------------
 
 * Fix issue with reference binding
+
+Version 0.4.10 (18-03-2025)
+---------------------------
+
+* Handle deletes correctly when proxy lagging TSD's
+* Add proxy lag for TSS
+* Add proxy lag from TSL

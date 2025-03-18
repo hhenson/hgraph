@@ -45,11 +45,11 @@ from hgraph import (
     EvaluationClock,
     MIN_DT,
     count,
-    MAX_DT,
     TSD,
     map_,
     TS_SCHEMA,
-    AUTO_RESOLVE,
+    AUTO_RESOLVE, TSS,
+    union
 )
 
 __all__ = ()
@@ -476,7 +476,7 @@ class _LagProxyState(CompoundScalar, Generic[SCALAR]):
     cache: Mapping[int, SCALAR] = field(default_factory=dict)
 
 
-@compute_node(active=("ts",), valid=("ts", "c"))
+@compute_node(active=("ts",), valid=("c",))
 def _lag_proxy(ts: TS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_LagProxyState[SCALAR]] = None) -> TS[SCALAR]:
     cache = _state.cache
     if ts.modified:
@@ -511,7 +511,13 @@ def lag_proxy_tsd(ts: TSD[SCALAR, TIME_SERIES_TYPE], period: int, proxy: SIGNAL)
     If the ts value ticks multiple times for a single tick of the proxy, we return the last value
     only.
     """
-    return map_(lag_proxy, ts, period, proxy)
+    keys = ts.key_set
+    lagged_keys = union(lag(keys, period, proxy), keys)
+    from hgraph import debug_print
+    debug_print("lagged_keys", lagged_keys)
+    out = map_(lambda t, prd, pxy: lag(t, prd, pxy), ts, period, proxy, __keys__=lagged_keys)
+    debug_print("out", out)
+    return out
 
 
 @graph(overloads=lag)
@@ -525,3 +531,47 @@ def lag_proxy_tsb(
     only.
     """
     return TSB[_tp].from_ts(**{k: lag(v, period, proxy) for k, v in ts.as_dict().items()})
+
+
+@graph(overloads=lag)
+def lag_proxy_tsl(
+    ts: TSL[TIME_SERIES_TYPE, SIZE], period: int, proxy: SIGNAL,
+        _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE, _sz: type[SIZE] = AUTO_RESOLVE
+) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    """
+    Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
+    If the proxy has not ticked, we are not lagging.
+    If the ts value ticks multiple times for a single tick of the proxy, we return the last value
+    only.
+    """
+    return TSL[_tp, _sz].from_ts(*(lag(ts[i], period, proxy) for i in range(_sz.SIZE)))
+
+
+@compute_node(active=("ts",), valid=("c",))
+def _lag_proxy_tss(ts: TSS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_LagProxyState[SCALAR]] = None) -> TSS[SCALAR]:
+    cache = _state.cache
+    if ts.modified:
+        lag_c.make_active()
+        cache[c.value] = ts.delta_value if (v := cache.get(c.value, None)) is None else v + ts.delta_value
+
+    if lag_c.modified:
+        out = cache.pop(lag_c.value, None)
+        if len(cache) == 0:
+            lag_c.make_passive()
+        return out
+
+
+@graph(overloads=lag)
+def lag_proxy_tss(
+    ts: TSS[SCALAR], period: int, proxy: SIGNAL
+) -> TSS[SCALAR]:
+    """
+    Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
+    If the proxy has not ticked, we are not lagging.
+    If the ts value ticks multiple times for a single tick of the proxy, we return the last value
+    only.
+    """
+    c = count(proxy)
+    lag_c = lag(c, period)
+    return _lag_proxy_tss(ts, c, lag_c)
+

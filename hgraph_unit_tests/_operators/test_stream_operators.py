@@ -41,9 +41,9 @@ from hgraph import (
     TSW,
     WindowSize,
     Array,
-    ts_schema,
+    ts_schema, PythonSetDelta,
 )
-from hgraph.test import eval_node
+from hgraph.test import eval_node, EvaluationTrace
 
 
 def test_sample():
@@ -81,13 +81,41 @@ def test_lag_proxy_tsd():
     def g(ts: TSD[str, TS[int]], delay: int, proxy: TS[bool]) -> TSD[str, TS[int]]:
         return lag(ts, delay, proxy)
 
-    result = eval_node(g, [fd(a=1), fd(a=2), fd(a=3), fd(a=4), fd(a=5)], 2, [True, None, True, True, True])
+    EvaluationTrace.set_use_logger(False)
+    EvaluationTrace.set_print_all_values(True)
+    result = eval_node(g, [fd(a=1), fd(a=2), fd(a=3), fd(a=4), fd(a=REMOVE)], 2, [True, None, True, True, True, True, True], __trace__=False)
     assert result == [
         fd(),
         None,
         None,
         fd(a=2),
         fd(a=3),
+        fd(a=4),
+        fd(a=REMOVE),
+    ]
+
+
+def test_tss_proxy_lag():
+    @graph
+    def g(ts: TSS[int], delay: int, proxy: TS[bool]) -> TSS[int]:
+        return lag(ts, delay, proxy)
+
+    result = eval_node(g, [
+        PythonSetDelta(added=frozenset({1, 3}), removed=frozenset()),
+        PythonSetDelta(added=frozenset({2}), removed=frozenset({3})),
+        PythonSetDelta(added=frozenset({4, 5}), removed=frozenset({1})),
+        PythonSetDelta(added=frozenset({6}), removed=frozenset({4})),
+        PythonSetDelta(added=frozenset(), removed=frozenset({5}))
+    ], 2, [True, None, True, True, True, None, None, True])
+    assert result == [
+        None,
+        None,
+        None,
+        PythonSetDelta(added=frozenset({1, 2}), removed=frozenset()),
+        PythonSetDelta(added=frozenset({4, 5}), removed=frozenset({1})),
+        None,
+        None,
+        PythonSetDelta(added=frozenset({6}), removed=frozenset({4})),
     ]
 
 
@@ -108,6 +136,24 @@ def test_lag_proxy_tsb():
         None,
         fd(a=2, b=2.0),
         fd(a=3),
+    ]
+
+
+def test_lag_proxy_tsl():
+
+    @graph
+    def g(ts: TSL[TS[int], Size[2]], delay: int, proxy: TS[bool]) -> TSL[TS[int], Size[2]]:
+        return lag(ts, delay, proxy)
+
+    result = eval_node(
+        g, [(1, 2), (2, 3), (3, 4), (4, 5), None], 2, [True, None, True, True, True]
+    )
+    assert result == [
+        None,
+        None,
+        None,
+        {0: 2, 1: 3},
+        {0:3, 1: 4},
     ]
 
 
