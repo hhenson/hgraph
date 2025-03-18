@@ -275,7 +275,12 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def added(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
-            return self.values() - (self._prev_output.values() - self._prev_output.added())
+            # Get the old values + anything that was removed in this engine cycle (as that is what would have been here)
+            # Then remove any items that were only added in this cycle (as they would not have been there)
+            # So added must be the new_values less the original old values
+            return self.values() - (
+                (self._prev_output.values() | self._prev_output.removed()) - self._prev_output.added()
+            )
         else:
             return self.values() if self._sampled else self.output.added()
 
@@ -289,7 +294,9 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def removed(self) -> Iterable[SCALAR]:
         if self._prev_output is not None:
-            return ((self._prev_output.values() | self._prev_output.removed()) - self._prev_output.added()) - self.values()
+            return (
+                (self._prev_output.values() | self._prev_output.removed()) - self._prev_output.added()
+            ) - self.values()
         elif self._sampled:
             return set()
         else:

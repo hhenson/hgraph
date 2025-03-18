@@ -84,10 +84,19 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         keys: TSS[K] = self._kwargs[KEYS_ARG]
         if keys.modified:
             for k in keys.added():
-                self._create_new_graph(k)
+                # There seems to be a case where a set can show a value as added even though it is not.
+                # This protects from accidentally creating duplicate graphs
+                if k not in self._active_graphs:
+                    self._create_new_graph(k)
+                else:
+                    raise RuntimeError(f"[{self._signature.wiring_path_name}] Key {k} already exists in active graphs")
             for k in keys.removed():
-                self._remove_graph(k)
-                self._scheduled_keys.pop(k, None)
+                # Ensure we have a graph before removing.
+                if k in self._active_graphs:
+                    self._remove_graph(k)
+                    self._scheduled_keys.pop(k, None)
+                else:
+                    raise RuntimeError(f"[{self._signature.wiring_path_name}] Key {k} does not exist in active graphs")
         # 2. or one of the nested graphs has been scheduled for evaluation.
         scheduled_keys = self._scheduled_keys
         self._scheduled_keys = {}
@@ -168,10 +177,12 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             if arg != self.key_arg:
                 if arg in self.multiplexed_args:  # Is this a multiplexed input?
                     from hgraph import PythonTimeSeriesReferenceInput
+
                     tsd = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg])
                     node.input.ts.re_parent(tsd)
-                    node.input = node.input.copy_with(__init_args__=dict(owning_node=node),
-                                                      ts=PythonTimeSeriesReferenceInput())
+                    node.input = node.input.copy_with(
+                        __init_args__=dict(owning_node=node), ts=PythonTimeSeriesReferenceInput()
+                    )
                     if not tsd.key_set.valid or not tsd.key_set.__contains__(key):
                         tsd.on_key_removed(key)
 

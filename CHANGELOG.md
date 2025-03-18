@@ -1009,3 +1009,8 @@ Version 0.4.10 (18-03-2025)
 * Handle deletes correctly when proxy lagging TSD's
 * Add proxy lag for TSS
 * Add proxy lag from TSL
+
+Version 0.4.11 (18-03-2025)
+---------------------------
+
+* Fix a bug in TSS that computes the added property 
