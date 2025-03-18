@@ -116,3 +116,26 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
     fn.__signature__ = sig
     fn.__annotations__ = new_annotations
     return fn
+
+
+class class_or_instance_method(object):
+    """
+    class_or_instance_method(function) -> method
+
+    Convert a function to be a class method when called on a class or instance method when called on an instance.
+    """
+
+    def __init__(self, f):
+        self.f = f
+
+    def __get__(self, obj, klass=None):
+        if obj is None:
+            def class_call(*args, **kwargs):
+                return self.f(klass, *args, **kwargs)
+
+            return class_call
+        else:
+            def instance_call(*args, **kwargs):
+                return self.f(obj, *args, **kwargs)
+
+            return instance_call
