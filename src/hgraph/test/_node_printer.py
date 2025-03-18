@@ -15,7 +15,6 @@ __all__ = ("EvaluationTrace",)
 
 from hgraph import EvaluationLifeCycleObserver
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -45,14 +44,27 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
 
     """
 
+    _PRINT_ALL_VALUES: bool = False
+    _USE_LOGGER: bool = True
+
+    @staticmethod
+    def set_print_all_values(value: bool):
+        """To see all values (not only ticked ones) in the trace set this to True."""
+        EvaluationTrace._PRINT_ALL_VALUES = value
+
+    @staticmethod
+    def set_use_logger(value: bool):
+        """To use print instead of the logger set this to False."""
+        EvaluationTrace._USE_LOGGER = value
+
     def __init__(
-        self,
-        filter: str = None,
-        start: bool = True,
-        eval: bool = True,
-        stop: bool = True,
-        node: bool = True,
-        graph: bool = True,
+            self,
+            filter: str = None,
+            start: bool = True,
+            eval: bool = True,
+            stop: bool = True,
+            node: bool = True,
+            graph: bool = True,
     ):
         self.filter = filter
         self.start = start
@@ -62,7 +74,11 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         self.graph = graph
 
     def _print(self, evaluation_clock: "EvaluationClock", msg: str) -> None:
-        logger.info(f"[{evaluation_clock.evaluation_time}] {msg}")
+        m = f"[{evaluation_clock.evaluation_time}] {msg}"
+        if EvaluationTrace._USE_LOGGER:
+            logger.info(m)
+        else:
+            print(m, flush=True)
 
     def _graph_name(self, graph: "Graph") -> str:
         graph_str = []
@@ -86,19 +102,20 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         self._print(node.graph.evaluation_clock, f"{self._graph_name(node.graph)} Starting: {node_signature}")
 
     def _print_node(
-        self,
-        node: "Node",
-        msg: str,
-        add_input: bool = False,
-        add_output: bool = False,
-        add_scheduled_time: bool = False,
+            self,
+            node: "Node",
+            msg: str,
+            add_input: bool = False,
+            add_output: bool = False,
+            add_scheduled_time: bool = False,
     ) -> None:
         node_signature = self._node_name(node)
         if node.signature.time_series_inputs:
             if add_input:
                 inputs = node.inputs
                 node_signature += ", ".join(
-                    f"{f'*{arg}*' if (mod_ := (in_ := inputs[arg]).modified) else arg}={(in_.delta_value if mod_ else '') if in_.valid else '<UnSet>'}"
+                    f"{f'*{arg}*' if (mod_ := (in_ := inputs[arg]).modified) else arg}={
+                    (in_.delta_value if (mod_ or self._PRINT_ALL_VALUES) else '') if in_.valid else '<UnSet>'}"
                     for arg in node.signature.time_series_inputs.keys()
                 )
                 if node.signature.uses_scheduler:
@@ -176,16 +193,16 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
                 "[OUT]",
                 add_output=True,
                 add_scheduled_time=node.signature.uses_scheduler
-                and node.scheduler.next_scheduled_time == node.graph.schedule[node.node_ndx],
+                                   and node.scheduler.next_scheduled_time == node.graph.schedule[node.node_ndx],
             )
 
     def on_after_graph_evaluation(self, graph: "Graph"):
         if self.eval and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             if (
-                graph.parent_node is not None
-                and (nt := graph.parent_node.graph.schedule[graph.parent_node.node_ndx])
-                > graph.evaluation_clock.evaluation_time
-                and nt < MAX_ET
+                    graph.parent_node is not None
+                    and (nt := graph.parent_node.graph.schedule[graph.parent_node.node_ndx])
+                    > graph.evaluation_clock.evaluation_time
+                    and nt < MAX_ET
             ):
                 next_scheduled = f" NEXT[{nt}]"
             elif graph.parent_node is None:
