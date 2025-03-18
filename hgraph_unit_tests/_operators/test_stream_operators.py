@@ -690,6 +690,7 @@ def test_slice_():
     ("Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",                             "No price for a2 for a week",                                               "No price for a1, a2 for a week; Using a for b; Using something else for y; Using stale price for x1"),
     ("Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD): No price yet for def",  "In UnitConversionPricingModel (in lot and USD): No price yet for abc",     "In UnitConversionPricingModel (in lot and USD): No price yet for abc, def; No price for a1 for a week; Using stale price for x1"),
     ("Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD): No price yet for def",  "Using different one; Using another different one",                         "In UnitConversionPricingModel (in lot and USD): No price yet for def; No price for a1 for a week; Using another different one; Using different one; Using stale price for x1"),
+    ("Using stale price for x1, x2",                                                                                                "Using stale price for x3, x1",                                             "Using stale price for x1, x2, x3"),
 ])
 def test_combine_status_messages(messages, new_message, expected):
     register_status_message_pattern(r"Using stale price for (\w+)")

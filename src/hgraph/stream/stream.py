@@ -72,17 +72,15 @@ def combine_status_messages(message1: TS[str], message2: TS[str]) -> TS[str]:
 def dedup_components(pattern, substr1, substr2, components) -> str:
     component_messages = set()
     for comp1 in components:
+        if not comp1:
+            continue
         outer_done = False
-        m1 = re.search(pattern, comp1)
-        if m1:
+        if m1 := re.search(pattern, comp1):
             for comp2 in components:
-                if comp1 != comp2:
+                if comp2 and comp1 != comp2:
                     if m2 := re.search(pattern, comp2):
-                        id1 = m1.group(1)
-                        id2 = m2.group(1)
-                        if id1 > id2:
-                            id1, id2 = id2, id1
-                        component_messages.add(f"{substr1}{id1}, {id2}{substr2}")
+                        ids = ", ".join(sorted(set(m1.group(1).split(", ") + m2.group(1).split(", "))))
+                        component_messages.add(f"{substr1}{ids}{substr2}")
                         outer_done = True
                     else:
                         component_messages.add(comp2)
