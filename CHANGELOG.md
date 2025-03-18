@@ -997,3 +997,8 @@ Version 0.4.8 (17-03-2025)
 --------------------------
 
 * Change the Frame value parser to extract the schema from a value type.
+
+Version 0.4.9 (18-03-2025)
+--------------------------
+
+* Fix issue with reference binding
