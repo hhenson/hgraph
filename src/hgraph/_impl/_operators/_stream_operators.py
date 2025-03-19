@@ -400,13 +400,15 @@ def to_window_impl(
 def gate_default(
     condition: TS[bool],
     ts: TIME_SERIES_TYPE,
-    delay: timedelta = MIN_TD,
     buffer_length: int = sys.maxsize,
     _state: STATE = None,
     _sched: SCHEDULER = None,
 ) -> TIME_SERIES_TYPE:
     if ts.modified:
-        if len(_state.buffer) < buffer_length:
+        l = len(_state.buffer)
+        if l == 0 and condition.value:
+            return ts.delta_value
+        elif l < buffer_length:
             _state.buffer.append(ts.delta_value)
         else:
             raise RuntimeError(f"Buffer overflow when adding {ts.delta_value} to gate buffer")
@@ -414,7 +416,7 @@ def gate_default(
     if (condition.modified or _sched.is_scheduled_now) and condition.value and _state.buffer:
         out = _state.buffer.popleft()
         if _state.buffer:
-            _sched.schedule(delay)
+            _sched.schedule(MIN_TD)
         return out
 
 

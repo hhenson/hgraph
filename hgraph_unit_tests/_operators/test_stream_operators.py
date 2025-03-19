@@ -574,20 +574,19 @@ def test_to_window_value_td():
 
 def test_gate():
     @graph
-    def g(condition: TS[bool], ts: TS[int], delay: timedelta) -> TS[int]:
-        return gate(condition, ts, delay)
+    def g(condition: TS[bool], ts: TS[int]) -> TS[int]:
+        return gate(condition, ts)
 
-    assert eval_node(g, [False, True], [1, 2, 3, 4], MIN_TD) == [None, 1, 2, 3, 4]
-    assert eval_node(g, [False, True], [1, 2, 3, 4], 2 * MIN_TD) == [None, 1, None, 2, None, 3, None, 4]
+    assert eval_node(g, [False, True], [1, 2, None, None, 3, 4]) == [None, 1, 2, None, 3, 4]
 
 
 def test_gate_with_buffer_overflow():
     @graph
-    def g(condition: TS[bool], ts: TS[int], delay: timedelta, buffer_length: int) -> TS[int]:
-        return gate(condition, ts, delay, buffer_length)
+    def g(condition: TS[bool], ts: TS[int], buffer_length: int) -> TS[int]:
+        return gate(condition, ts, buffer_length)
 
     with pytest.raises(NodeException):
-        assert eval_node(g, [False], [1, 2], MIN_TD, 1) == [1, 2]
+        assert eval_node(g, [False], [1, 2], 1) == [1, 2]
 
 
 def test_batch():

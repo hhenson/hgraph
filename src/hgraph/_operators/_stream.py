@@ -1,3 +1,4 @@
+import numbers
 import sys
 from datetime import timedelta, datetime
 from typing import TypeVar, Generic, Tuple
@@ -158,11 +159,11 @@ def to_window(
 
 
 @operator
-def gate(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int) -> TIME_SERIES_TYPE:
+def gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = sys.maxsize) -> TIME_SERIES_TYPE:
     """
     Queues up ticks of a time series when the value of ``condition`` if ``False``. Once it turns `True` the queued up
-    ticks are released one by one with the given delay between them. A ``RuntimeError`` is raised if the buffer exceeds
-    the given buffer_length.
+    ticks are released one by one. The, default buffer length is sys.maxsize (which is roughly the same as unbounded).
+    A ``RuntimeError`` is raised if the buffer exceeds the given buffer_length (when set to a positive value).
     """
 
 
