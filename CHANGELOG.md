@@ -1014,3 +1014,8 @@ Version 0.4.11 (18-03-2025)
 ---------------------------
 
 * Fix a bug in TSS that computes the added property 
+
+Version 0.4.12 (19-03-2025)
+---------------------------
+
+* Fix implementation of gate.
