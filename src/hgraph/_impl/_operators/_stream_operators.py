@@ -515,10 +515,7 @@ def lag_proxy_tsd(ts: TSD[SCALAR, TIME_SERIES_TYPE], period: int, proxy: SIGNAL)
     """
     keys = ts.key_set
     lagged_keys = union(lag(keys, period, proxy), keys)
-    from hgraph import debug_print
-    debug_print("lagged_keys", lagged_keys)
     out = map_(lambda t, prd, pxy: lag(t, prd, pxy), ts, period, proxy, __keys__=lagged_keys)
-    debug_print("out", out)
     return out
 
 
