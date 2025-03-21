@@ -1019,3 +1019,8 @@ Version 0.4.12 (19-03-2025)
 ---------------------------
 
 * Fix implementation of gate.
+
+Version 0.4.13 (21-03-2025)
+---------------------------
+
+* Remove debug_print in lag operator
