@@ -213,3 +213,13 @@ def test_tsb_inline_schema():
         return tsb.lhs + tsb.rhs
 
     assert eval_node(g, [{"lhs": 1, "rhs": 2}]) == [3]
+
+
+def test_tsb_kwargs():
+
+    @graph
+    def g(tsb: TSB[MyTsb]) -> TS[int]:
+        values = dict(**tsb)
+        return values["p1"]
+
+    assert eval_node(g, [{"p1": 1, "p2": "a"}, {"p1": 2}]) == [1, 2]

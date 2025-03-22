@@ -115,7 +115,7 @@ class WiringPort:
                 self.node_instance,
                 tuple([
                     STATE_PATH,
-                ])
+                ]),
             )
 
     @property
@@ -247,6 +247,9 @@ class TSBWiringPort(WiringPort):
 
     def __getitem__(self, item):
         return self._wiring_port_for(item)
+
+    def keys(self):
+        return self.__schema__.__meta_data_schema__.keys()
 
     def as_dict(self):
         return {k: self[k] for k in self.__schema__.__meta_data_schema__.keys()}

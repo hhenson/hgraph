@@ -1035,3 +1035,5 @@ Version 0.4.15 (TBD)
 --------------------
 
 * Add support for both combine(...) and combine[TSB](...) to be consistent with combine[TSD]
+* Add ability to call **kwargs on TSB wiring port
+
