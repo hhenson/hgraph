@@ -1024,3 +1024,9 @@ Version 0.4.13 (21-03-2025)
 ---------------------------
 
 * Remove debug_print in lag operator
+
+Version 0.4.14 (22-03-2025)
+---------------------------
+
+* Add dynamic TSB schema specification using TSB["a": TS[...], ...] syntax
+* 

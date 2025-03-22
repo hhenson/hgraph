@@ -345,9 +345,13 @@ class TimeSeriesBundle(
                 if isinstance(item, type) and issubclass(item, CompoundScalar):
                     item = TimeSeriesSchema.from_scalar_schema(item)
                 else:
-                    raise ParseError(
-                        f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)"
-                    )
+                    if type(item) is tuple and type(item[0]) is slice:
+                        # We have a dynamic declaration of type
+                        item = ts_schema(**{i.start: i.stop for i in item})
+                    else:
+                        raise ParseError(
+                            f"Type '{item}' must be a TimeSeriesSchema or a valid TypeVar (bound to TimeSeriesSchema)"
+                        )
 
             out = super(TimeSeriesBundle, cls).__class_getitem__(item)
             from_ts_with_schema = functools.partial(TimeSeriesBundleInput.from_ts, __schema__=item)

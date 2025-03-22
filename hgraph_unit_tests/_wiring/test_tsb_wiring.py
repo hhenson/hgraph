@@ -205,3 +205,11 @@ def test_free_tsb_ref_signal():
         True,
         True,
     ]
+
+
+def test_tsb_inline_schema():
+    @graph
+    def g(tsb: TSB["lhs" : TS[int], "rhs" : TS[int]]) -> TS[int]:
+        return tsb.lhs + tsb.rhs
+
+    assert eval_node(g, [{"lhs": 1, "rhs": 2}]) == [3]
