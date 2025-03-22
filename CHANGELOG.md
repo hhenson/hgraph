@@ -1029,4 +1029,4 @@ Version 0.4.14 (22-03-2025)
 ---------------------------
 
 * Add dynamic TSB schema specification using TSB["a": TS[...], ...] syntax
-* 
+* Add DebugContext to make it easier to leave debug statements in place but turn them off when not required (without runtime penalties).

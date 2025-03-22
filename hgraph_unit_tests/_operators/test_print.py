@@ -1,8 +1,9 @@
 import logging
+from contextlib import nullcontext
 
 import pytest
 
-from hgraph import graph, TSL, TS, Size, debug_print, log_, print_, assert_, NodeException
+from hgraph import graph, TSL, TS, Size, debug_print, log_, print_, assert_, NodeException, DebugContext, null_sink
 from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 
@@ -13,6 +14,37 @@ def test_debug_print(capsys):
     def main(tsl: TSL[TS[int], Size[3]], keys: tuple[str, ...]):
         tsd = tsl_to_tsd(tsl, keys)
         debug_print("tsd", tsd)
+
+    eval_node(main, [(1, 2, 3), {1: 3}], ("a", "b", "c"))
+
+    assert "tsd" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("debug_on, no_context_manager", [(False, False), (True, False), (False, True)])
+def test_debug_context(capsys, debug_on: bool, no_context_manager: bool):
+
+    @graph
+    def main(tsl: TSL[TS[int], Size[3]], keys: tuple[str, ...]):
+        with nullcontext() if no_context_manager else DebugContext(prefix="[test]", debug=debug_on):
+            tsd = tsl_to_tsd(tsl, keys)
+            DebugContext.print("tsd", tsd)
+            null_sink(tsd)  # When false this still needs a sink node
+
+    eval_node(main, [(1, 2, 3), {1: 3}], ("a", "b", "c"))
+
+    if debug_on:
+        assert "[test] tsd" in capsys.readouterr().out
+    else:
+        assert "[test] tsd" not in capsys.readouterr().out
+
+
+def test_debug_context_no_prefix(capsys):
+
+    @graph
+    def main(tsl: TSL[TS[int], Size[3]], keys: tuple[str, ...]):
+        with DebugContext():
+            tsd = tsl_to_tsd(tsl, keys)
+            DebugContext.print("tsd", tsd)
 
     eval_node(main, [(1, 2, 3), {1: 3}], ("a", "b", "c"))
 

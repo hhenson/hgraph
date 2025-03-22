@@ -8,7 +8,7 @@ from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
 
-__all__ = ("default", "nothing", "null_sink", "debug_print", "print_", "log_", "assert_")
+__all__ = ("default", "nothing", "null_sink", "print_", "log_", "assert_")
 
 
 @operator
@@ -59,19 +59,6 @@ def null_sink(ts: TIME_SERIES_TYPE):
     """
     A sink node that will consume the time-series and do nothing with it.
     This is useful when you want to consume a time-series but do not want to do anything with it.
-    """
-
-
-@operator
-def debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = True, sample: int = -1):
-    """
-    Use this to help debug code, this will print the value of the supplied time-series to the standard out.
-    It will include the engine time in the print. Do not leave these lines in production code.
-
-    :param label: The label to print before the value
-    :param ts: The time-series to print
-    :param print_delta: If true, print the delta value, otherwise print the value
-    :param sample: Only print an output for every sample number of ticks.
     """
 
 

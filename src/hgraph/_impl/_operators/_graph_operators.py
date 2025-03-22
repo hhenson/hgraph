@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from hgraph import if_true
 from hgraph._operators._analytical_operators import count
-from hgraph._operators._graph_operators import default, nothing, null_sink, debug_print, print_, log_, assert_
+from hgraph._operators._graph_operators import default, nothing, null_sink, print_, log_, assert_
+from hgraph._operators._debug_tools import debug_print
 from hgraph._operators._string import format_
 from hgraph._operators._stream import sample
 from hgraph._runtime._evaluation_clock import EvaluationClock

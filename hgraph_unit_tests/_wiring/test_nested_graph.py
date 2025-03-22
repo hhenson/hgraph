@@ -1,4 +1,4 @@
-from hgraph import graph, debug_print, const, nested_graph, sink_node, SIGNAL, TS
+from hgraph import graph, const, nested_graph, sink_node, SIGNAL, TS
 from hgraph.test import eval_node
 
 
@@ -64,5 +64,3 @@ def test_nested_graph_sink():
 
     assert eval_node(h) == None
     assert side_effect_value == True
-
-
