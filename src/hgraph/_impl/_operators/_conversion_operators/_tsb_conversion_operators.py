@@ -20,13 +20,17 @@ from hgraph import (
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
 
 
-@graph(overloads=combine, requires=lambda m, s: OUT not in m and not s['__strict__'])
+@graph(overloads=combine, requires=lambda m, s: (OUT not in m or m[OUT].py_type is TSB) and not s["__strict__"])
 def combine_unnamed_tsb(__strict__: bool = False, **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle
 
 
-@compute_node(overloads=combine, requires=lambda m, s: OUT not in m and s['__strict__'], all_valid=("bundle",))
-def combine_unnamed_tsb_strict(*, __strict__: bool, _output: OUT = None,  **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+@compute_node(
+    overloads=combine,
+    requires=lambda m, s: (OUT not in m or m[OUT].py_type is TSB) and s["__strict__"],
+    all_valid=("bundle",),
+)
+def combine_unnamed_tsb_strict(*, __strict__: bool, _output: OUT = None, **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle.value if not _output.valid else bundle.delta_value
 
 
@@ -53,8 +57,11 @@ def convert_tsbs(ts: TSB[TS_SCHEMA], to: type[TSB[TS_SCHEMA_1]] = DEFAULT[OUT]) 
     """
     Converts a TSB to another TSB if the keys and types match.
     """
-    return combine[to](**{k: v for k, v in ts.as_dict().items() if k in
-                          HgTypeMetaData.parse_type(to).bundle_schema_tp.meta_data_schema.keys()})
+    return combine[to](**{
+        k: v
+        for k, v in ts.as_dict().items()
+        if k in HgTypeMetaData.parse_type(to).bundle_schema_tp.meta_data_schema.keys()
+    })
 
 
 @compute_node(overloads=convert)
