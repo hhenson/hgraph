@@ -9,6 +9,7 @@ from frozendict import frozendict
 
 from hgraph import (
     CompoundScalar,
+    HgTypeMetaData,
     graph,
     push_queue,
     TSD,
@@ -77,7 +78,7 @@ class HttpResponse(CompoundScalar):
     status_code: int
     headers: frozendict[str, str] = frozendict()
     cookies: frozendict[str, dict[str, object]] = frozendict()
-    body: str = ""
+    body: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -286,13 +287,18 @@ def http_server_handler(fn: Callable = None, *, url: str):
 
     output_type = fn.signature.output_type
     is_tsb = False
+
     if isinstance(output_type, HgTSBTypeMetaData):
         is_tsb = True
         output_type = output_type["response"]
 
+    if isinstance(output_type, HgTSDTypeMetaData) and isinstance(output_type.value_tp, HgTSBTypeMetaData):
+        is_tsb = True
+        output_type = HgTypeMetaData.parse_type(TSD[int, output_type.value_tp["response"]])
+
     assert output_type.matches_type(TS[HttpResponse]) or output_type.matches_type(
         TSD[int, TS[HttpResponse]]
-    ), "Http graph must have a single output of type TS[HttpResponse] or TSD[int, TS[HttpResponse]]"
+    ), f"Http graph must have a single output of type TS[HttpResponse] or TSD[int, TS[HttpResponse]]: {output_type}"
 
     if not is_tsb and len(fn.signature.non_defaulted_arguments) == 1:
         # this makes the handler to be auto-wired in the http_server_adaptor

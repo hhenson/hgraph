@@ -39,6 +39,8 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         if type(item) is int:
             return nth(self.meta_data_schema.values(), item)
         else:
+            if item not in self.meta_data_schema:
+                raise KeyError(f"{item} not found in schema {self.py_type}")
             return self.meta_data_schema[item]
 
     def matches(self, tp: "HgTypeMetaData") -> bool:

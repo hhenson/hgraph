@@ -1,12 +1,12 @@
 import sys
 from collections import namedtuple
 from contextlib import AbstractContextManager
-from typing import Mapping, Any, TYPE_CHECKING
+from typing import Mapping, Any, TYPE_CHECKING, Type
 
 from frozendict import frozendict
 
 from hgraph._runtime._global_state import GlobalState
-from hgraph._types import TS, SCALAR, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData, clone_type_var
+from hgraph._types import TS, SCALAR, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData, clone_type_var, DEFAULT, AUTO_RESOLVE, HgTimeSeriesTypeMetaData
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_port import WiringPort
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from hgraph import WiringNodeInstance
 
 
-__all__ = ("TimeSeriesContextTracker", "CONTEXT_TIME_SERIES_TYPE")
+__all__ = ("TimeSeriesContextTracker", "CONTEXT_TIME_SERIES_TYPE", "get_context")
 
 
 CONTEXT_TIME_SERIES_TYPE = clone_type_var(TIME_SERIES_TYPE, name="CONTEXT_TIME_SERIES_TYPE")
@@ -207,6 +207,12 @@ class ContextNodeClass(BaseWiringNodeClass):
 @pull_source_node(node_impl=ContextNodeClass)
 def get_context_output(path: str, depth: int) -> REF[CONTEXT_TIME_SERIES_TYPE]:
     """Uses the special node to extract a context output from the global state."""
+
+@graph
+def get_context(name: str, tp_: Type[CONTEXT_TIME_SERIES_TYPE] = AUTO_RESOLVE) -> CONTEXT_TIME_SERIES_TYPE:
+    from hgraph import WiringNodeInstanceContext
+    tp = HgTimeSeriesTypeMetaData.parse_type(tp_)
+    return TimeSeriesContextTracker.instance().get_context(tp, WiringNodeInstanceContext.instance(), name)
 
 
 def enter_ts_context(context: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:

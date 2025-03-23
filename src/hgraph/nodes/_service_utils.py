@@ -55,7 +55,7 @@ def capture_output_to_global_state_start(path: str, ts: REF[TIME_SERIES_TYPE]):
 @capture_output_to_global_state.stop
 def capture_output_to_global_state_stop(path: str):
     """Clean up references"""
-    del GlobalState.instance()[path]
+    GlobalState.instance().pop(path)
 
 
 @sink_node(active=tuple(), valid=tuple())

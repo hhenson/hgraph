@@ -3,6 +3,16 @@ from datetime import date, timedelta, datetime
 from hgraph import compute_node, TS, OUT, WiringPort, combine, convert
 
 
+@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[date])
+def convert_str_to_date(ts: TS[str]) -> TS[date]:
+    return date.fromisoformat(ts.value)
+
+
+@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[datetime])
+def convert_str_to_datetime(ts: TS[str]) -> TS[datetime]:
+    return datetime.fromisoformat(ts.value)
+
+
 @compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[datetime])
 def convert_date_to_datetime(ts: TS[date]) -> TS[datetime]:
     return datetime(ts.value.year, ts.value.month, ts.value.day)

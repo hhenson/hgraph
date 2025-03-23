@@ -90,6 +90,17 @@ def convert_tsb_to_mapping(ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __s
 
 
 @compute_node(
+    overloads=convert,
+    requires=lambda m, s: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
+    and all(m[SCALAR].matches(v.scalar_type()) for v in m[TS_SCHEMA].meta_data_schema.values()),
+    resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
+    all_valid=lambda m, s: ("ts",) if s["__strict__"] else None,
+)
+def convert_tsb_to_mapping(to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False, **ts: TSB[TS_SCHEMA]) -> TS[Mapping[str, SCALAR]]:
+    return frozendict(ts.value)
+
+
+@compute_node(
     overloads=collect,
     requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),

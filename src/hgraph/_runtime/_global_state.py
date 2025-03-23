@@ -13,14 +13,20 @@ class GlobalState(object):
     _instance: Optional["GlobalState"] = None
 
     @staticmethod
-    def init_multithreaded(**kwargs):
-        assert GlobalState._instance is None
-
+    def init_multithreading():
         from threading import local
+        if isinstance(GlobalState._instance, local):
+            return
+
+        current_instance = GlobalState._instance
+
         GlobalState._instance = local()  # type: ignore
         GlobalState.instance = GlobalState.instance_mt
         GlobalState.set_instance = GlobalState.set_instance_mt
         GlobalState.has_instance = GlobalState.has_instance_mt
+
+        if current_instance is not None:
+            GlobalState.set_instance(current_instance)
 
     @staticmethod
     def instance() -> "GlobalState":
@@ -38,7 +44,7 @@ class GlobalState(object):
 
     @staticmethod
     def instance_mt() -> "GlobalState":
-        if GlobalState._instance.self is None:
+        if GlobalState._instance.__dict__.get('self') is None:
             raise RuntimeError("No global state is present")  # default constructing one is very bad for tests
         return GlobalState._instance.self
 
@@ -48,7 +54,7 @@ class GlobalState(object):
 
     @staticmethod
     def has_instance_mt() -> bool:
-        return GlobalState._instance.self is not None
+        return GlobalState._instance.__dict__.get('self') is not None
 
     @staticmethod
     def reset():
@@ -110,7 +116,7 @@ class GlobalState(object):
         )
 
     def __str__(self):
-        return str(self._get_combined_dict())
+        return str(self._get_combined_dict())   
 
     def __bool__(self):
         return bool(self._state) or bool(self._previous)

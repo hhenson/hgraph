@@ -64,6 +64,14 @@ def str_default(ts: TIME_SERIES_TYPE) -> TS[str]:
     return str(ts.value)
 
 
+@compute_node(overloads=str_)
+def str_bytes(ts: TS[bytes]) -> TS[str]:
+    """
+    Decodes string from bytes
+    """
+    return ts.value.decode()
+
+
 @compute_node(overloads=match_)
 def match_default(pattern: TS[str], s: TS[str]) -> TSB[Match]:
     """

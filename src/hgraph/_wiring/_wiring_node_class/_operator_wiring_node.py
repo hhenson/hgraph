@@ -134,13 +134,7 @@ class OverloadedWiringNodeHelper:
         for k, t in signature.input_types.items():
             if signature.defaults.get(k) != AUTO_RESOLVE:
                 if t.is_scalar:
-                    from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData
-
-                    if isinstance(t, HgTypeOfTypeMetaData) and t.value_tp.py_type == signature.defaults.get(k):
-                        # skip args like `tp: Type[OUT] = DEFAULT[OUT]`
-                        continue
-                    else:
-                        rank = scale_rank(t.generic_rank, 0.001)
+                    rank = scale_rank(t.generic_rank, 0.001)
                 elif k in (signature.var_arg, signature.var_kwarg):
                     rank = scale_rank(
                         t.generic_rank, 100.0

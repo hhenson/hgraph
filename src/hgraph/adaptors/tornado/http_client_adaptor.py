@@ -304,8 +304,8 @@ def http_client_adaptor_impl(
             sender({id: HttpResponse(status_code=e.code, body=e.message)})
             return
 
-        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time) / 1000000))
-        sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body.decode())})
+        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time)/1000000))
+        sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body)})
 
     @sink_node
     def to_web(request: TSD[int, TS[HttpRequest]]):

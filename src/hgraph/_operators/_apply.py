@@ -6,8 +6,9 @@ from hgraph._wiring._decorators import compute_node
 __all__ = ["apply"]
 
 
-@compute_node(valid=("fn",))
-def apply(fn: TS[Callable], *args: TSB[TS_SCHEMA], **kwargs: TSB[TS_SCHEMA_1]) -> DEFAULT[OUT]:
+@compute_node(valid=("fn",), resolvers={TIME_SERIES_TYPE: lambda m, s: TS[s['fn'].__annotations__['return']]})
+def apply(fn: TS[Callable], *args: TSB[TS_SCHEMA],
+          **kwargs: TSB[TS_SCHEMA_1]) -> DEFAULT[TIME_SERIES_TYPE]:
     """
     Apply the inputs to the fn provided.
     This allows a function to be passed as a time-series value, and it will be used to evaluate the inputs as they tick.

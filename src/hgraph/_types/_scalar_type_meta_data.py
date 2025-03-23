@@ -12,6 +12,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List,
 import numpy as np
 from frozendict import frozendict
 
+from hgraph._types._typing_utils import class_or_instance_method
 from hgraph._types._scalar_types import WindowSize
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._types._recordable_state import RECORDABLE_STATE
@@ -1001,14 +1002,17 @@ class HgDictScalarType(HgCollectionType):
             ):
                 return HgDictScalarType(key_tp, value_tp)
 
-    @classmethod
-    def parse_value(cls, value) -> "HgScalarTypeMetaData":
-        if isinstance(value, (dict, frozendict)) and len(value) > 0:
-            key, value = next(iter(value.items()))
-            key_tp = HgScalarTypeMetaData.parse_value(key)
-            value_tp = HgScalarTypeMetaData.parse_value(value)
-            if key_tp and value_tp:
-                return HgDictScalarType(key_tp, value_tp)
+    @class_or_instance_method
+    def parse_value(self, value) -> "HgScalarTypeMetaData":
+        if isinstance(value, (dict, frozendict)):
+            if len(value) > 0:
+                key, value = next(iter(value.items()))
+                key_tp = HgScalarTypeMetaData.parse_value(key)
+                value_tp = HgScalarTypeMetaData.parse_value(value)
+                if key_tp and value_tp:
+                    return HgDictScalarType(key_tp, value_tp)
+            elif isinstance(self, HgDictScalarType):
+                return self
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:

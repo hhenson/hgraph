@@ -268,17 +268,21 @@ def _receive_table_edits_tsd(
         edits = {}
         removes = set()
         for row in data.to_records():
-            _id = row.get("_id")
-            key = row[index] if type(index) is str else tuple(row[i] for i in index)
-            if _id != 0:  # _id == 0 is for the `new row` in the editable table
+            if empty_row:
+                _id = row.get("_id")
+                key = row[index] if type(index) is str else tuple(row[i] for i in index)
+                if _id != 0:  # _id == 0 is for the `new row` in the editable table
+                    edits[key] = process_row(row, index)
+                if _id < 0 and _id % 2 == 1:  # this is a row being inserted, the graph is supposed to re-add it with proper _id handling
+                    manager.update_table(name, data=None, removals=set((_id,)))
+                    removes.add(Removed(key))  # undo any previous removals of this key
+                if _id < 0 and _id % 2 == 0:  # this is a row being deleted
+                    manager.update_table(name, data=None, removals=set((_id,)))
+                    removes.add(key)
+                    edits.pop(key)
+            else:
+                key = row[index] if type(index) is str else tuple(row[i] for i in index)
                 edits[key] = process_row(row, index)
-            if _id < 0 and _id % 2 == 1:  # this is a row being inserted, the graph is supposed to re-add it with proper _id handling
-                manager.update_table(name, data=None, removals=set((_id,)))
-                removes.add(Removed(key))  # undo any previous removals of this key
-            if _id < 0 and _id % 2 == 0:  # this is a row being deleted
-                manager.update_table(name, data=None, removals=set((_id,)))
-                removes.add(key)
-                edits.pop(key)
 
         sender({"edits": edits, "removes": removes})
 

@@ -299,8 +299,10 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
             ) - self.values()
         elif self._sampled:
             return set()
-        else:
+        elif self.output is not None:
             return self.output.removed()
+        else:
+            return set()
 
     def was_removed(self, item: SCALAR) -> bool:
         if self._prev_output is not None:
