@@ -4,7 +4,7 @@ from datetime import datetime, date
 from statistics import stdev, variance
 from typing import Type, cast, Tuple, Set
 
-from hgraph import HgTupleFixedScalarType, HgTSDTypeMetaData
+from hgraph import HgTupleFixedScalarType, HgTSDTypeMetaData, and_, default
 from hgraph._operators import (
     add_,
     bit_and,
@@ -244,10 +244,17 @@ def bit_xor_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[
     return merge(tsd_get_items(lhs, keys), tsd_get_items(rhs, keys))
 
 
-@compute_node(overloads=eq_)
-def eq_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TS[bool]:
-    # TODO - optimise this
-    return lhs.value == rhs.value
+@graph(overloads=eq_)
+def eq_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -> TS[bool]:
+    return reduce(
+        lambda l, r: and_(l, r),
+        map_(
+            lambda l, r: default(eq_(l, r), False),
+            lhs,
+            rhs
+        ),
+        True
+    )
 
 
 def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]:
