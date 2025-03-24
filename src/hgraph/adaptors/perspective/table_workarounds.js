@@ -1,3 +1,23 @@
+export async function loadLayout(layout) {
+    if (layout.context_mapping){
+        await getWorkspaceTables()["context_mapping"].table.update(layout.context_mapping);
+    } else if ("context_mapping" in getWorkspaceTables()){
+        await getWorkspaceTables()["context_mapping"].table.update([{'_id': 0}]);
+    }
+
+    return layout.psp_config;
+}
+
+export async function saveLayout(config) {
+    const layout = {version: 1, psp_config: config};
+
+    if ("context_mapping" in getWorkspaceTables()){
+        layout.context_mapping = await (await getWorkspaceTables()["context_mapping"].table.view()).to_json();
+    }
+
+    return layout;
+}
+
 export async function ensureTablesForConfig(config, progress_callback) {
     if (config.viewers) {
         const total = Object.keys(config.viewers).length;
@@ -97,6 +117,9 @@ export async function installTableWorkarounds(mode) {
                 psp_stylesheet.insertRule('regular-table table tbody td.hidden { overflow: hidden; white-space: nowrap; text-overflow: clip; width: 0; min-width: 0; max-width: 0; padding-left: 1px; padding-right: 0; }');
             }
         }
+        var sheet = new CSSStyleSheet
+        sheet.replaceSync( `.highlight { background-color: pink }`)
+        g.shadowRoot.adoptedStyleSheets.push(sheet)
 
         table.addStyleListener(() => {
             addTooltips(table, table_config)
@@ -106,6 +129,9 @@ export async function installTableWorkarounds(mode) {
         });
         table.addStyleListener(() => {
             enableAddRemove(table, viewer, table_config, model)
+        });
+        table.addStyleListener(() => {
+            enableActions(table, viewer, table_config, model)
         });
 
         if (g.tagName === "PERSPECTIVE-VIEWER-DATAGRID-NOROLLUPS") {
@@ -140,20 +166,18 @@ export async function installTableWorkarounds(mode) {
             });
         }, 100);
 
+        if (table_config && table_config.selection) {
+            table.addEventListener("click", async (event) => {
+                    await trackSelection(event, table, viewer, table_config, model);
+            });
+        }       
+
         table.draw();
     }
 }
 
 
 import {getWorkspaceTables, wait_for_table} from "./workspace_tables.js";
-
-
-async function row_data(table, config, td) {
-    const meta = table.getMeta(td);
-    const stuff = await table._view_cache.view(meta.x, meta.y, meta.x + 1, meta.y + 1);
-    const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
-    return [meta, stuff, row]
-}
 
 async function col_values(table, td) {
     const meta = table.getMeta(td);
@@ -379,7 +403,7 @@ async function focusin(event, viewer, table, model, table_config) {
     if (event.target.tagName === "TD" && event.target.contentEditable) {
         const td = event.target;
         if (td.dataset.editing_null) {
-            td.dataset.editing_null = "";
+            delete td.dataset.editing_null;
             event.stopImmediatePropagation();
             event.target.blur();
             return;
@@ -400,8 +424,8 @@ async function focusin(event, viewer, table, model, table_config) {
             td.addEventListener("blur", events.blur = (event) => {
                 setTimeout(() => {
                     Object.entries(events).map(([k, v]) => td.removeEventListener(k, v));
-                    td.dataset.editing_null = "";
-                }, 1);
+                    delete td.dataset.editing_null;
+                }, 100);
             });
             td.dataset.editing_null = "true";
         }
@@ -481,13 +505,126 @@ async function maintainAddButtonOnFilter(event, table, viewer, config) {
     viewer.dataset.prev_filter = JSON.stringify(new_view_config.filter);
 }
 
+
+async function trackSelection(event, table, viewer, config, model) {
+    if (!config.selection) return;
+
+    if (event.target.tagName === "TD"){
+        const td = event.target;
+        const metadata = table.getMeta(td);
+        if (config.editable && '_id' in config.schema){
+            const id = model._ids[metadata.y - metadata.y0];
+            if (id && id[0] === 0) {
+                return;
+            }
+            if (td.contentEditable === "true") {
+                return;
+            }
+        }
+        if (metadata){
+            const selectedRow = table.querySelector(".highlight");
+            if (selectedRow){
+                delete table.dataset.selected_row;
+                selectedRow.classList.remove("highlight");
+            }
+            if (selectedRow !== td.parentElement){
+                table.dataset.selected_row = metadata.y;
+                td.parentElement.classList.add("highlight");
+
+                const id = model._ids[metadata.y - metadata.y0];
+                if (id){
+                    const row = (await (await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]})).to_json())[0];
+                    if (row){
+                        await fireContextActions(viewer.slot, row);
+                    }
+                }
+            } else {
+                await fireContextActions(viewer.slot, null);
+            }
+            setTimeout(() => {
+                table.draw();
+            }, 100);
+        }
+    }
+}
+
+async function fireContextActions(from, row) {
+    const context_mapping = await (await getWorkspaceTables()["context_mapping"].table.view()).to_json();
+    const config = await window.workspace.save();
+
+    if (!(from in config.viewers)) return;
+    const from_title = config.viewers[from].title;
+
+    const actions = context_mapping.filter((x) => x.source === from_title);
+    for (const action of actions) {
+        const target = Object.entries(config.viewers).filter((x) => x[1].title === action.target)[0];
+        if (!target) continue;
+
+        const viewer = document.querySelector(`perspective-viewer[slot="${target[0]}"]`);
+        const view = await viewer.getView();
+        const target_config = await view.get_config();
+        const filters = target_config.filter;
+        if (row){
+            const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, '==', row[action.context]]];
+            viewer.restore({filter: new_filter});
+        } else {
+            if (action.null === "null"){
+                const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, 'is null', null]];
+                viewer.restore({filter: new_filter});
+            } else {
+                const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, '==', action.null]];
+                viewer.restore({filter: new_filter});
+            }
+        }
+    }
+}
+
+async function enableActions(table, viewer, config, model) {
+    if (!config || !config.column_actions) return;
+
+    for (const td of table.querySelectorAll("td")) {
+        const metadata = table.getMeta(td);
+        if (config.editable && '_id' in config.schema){
+            const id = model._ids[metadata.y - metadata.y0];
+            if (id && id[0] === 0) {
+                continue;
+            }
+        }
+        if (metadata.column_header[metadata.column_header.length - 1] in config.column_actions) {
+            const action = config.column_actions[metadata.column_header[metadata.column_header.length - 1]];
+            if (action.type === 'button') {
+                if (td.querySelector("button") === null) {
+                    td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
+                    const btn = td.querySelector("button");
+                    btn.addEventListener("click", async () => {
+                        const id = model._ids[metadata.y - metadata.y0];
+                        if (id){
+                            const row = (await (await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]})).to_json())[0];
+                            if (row){
+                                    switch (action.action.type) {
+                                    case 'url':
+                                        const url = action.action.url.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        btn.disabled = true;
+                                        await fetch (url, {method: 'GET'});
+                                        btn.disabled = false;
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+}
+
 async function enableAddRemove(table, viewer, config, model) {
     if (!config || !config.editable) return;
 
     const tbl = 'edit_table' in config ? config.edit_table : (await viewer.getTable());
     const edit_port = 'edit_port' in config ? config.edit_port : (await viewer.getEditPort());
 
-    for (const td of table.querySelectorAll("td[contenteditable]")) {
+    for (const td_ of table.querySelectorAll("td[contenteditable]")) {
+        const td = td_;
         const metadata = table.getMeta(td);
         if (metadata.column_header[metadata.column_header.length - 1] === '_id') {
             td.contentEditable = "false";
@@ -497,11 +634,10 @@ async function enableAddRemove(table, viewer, config, model) {
                     td.innerHTML = "<button style='font: inherit'>Add</button>";
                     btn = td.querySelector("button");
                     btn.addEventListener("click", async () => {
-                        const data = {};
+                        const data = (await (await (await viewer.getTable()).view({filter: [['_id', '==', 0]]})).to_json())[0];
                         for (const item of td.parentElement.children) {
                             const meta = table.getMeta(item);
                             const col_name = meta.column_header[meta.column_header.length - 1];
-                            data[col_name] = meta.user;
                             const editor = config.column_editors && col_name in config.column_editors ? config.column_editors[col_name] : null;
                             if (editor !== null && !(await validate_value(editor, item, table, model, config))){
                                 btn.disabled = true;
@@ -688,6 +824,7 @@ async function restoreCollapseState(table, viewer, model, can_invalidate = false
     const state = JSON.parse(viewer.dataset.collapse_state_remainder);
     delete viewer.dataset.collapse_state_remainder;
 
+    let changes_made = false;
     const view = await viewer.getView();
     const data = await view.to_columns();
     const row_headers = data['__ROW_PATH__'].map((x) => x.map((x) => x === null ? '-' : x).join(','));
@@ -696,9 +833,14 @@ async function restoreCollapseState(table, viewer, model, can_invalidate = false
         if (state[h] === false){
             await model._view.collapse(len - i - 1);
             delete state[h];
+            changes_made = true;
         }
     }
-    
+
+    if (!changes_made) {
+        return;
+    }
+
     if (Object.keys(state).length) {
         viewer.dataset.collapse_state_remainder = JSON.stringify(state, Object.keys(state).sort(), 2);
         // maybe some data has not loaded yet, try again

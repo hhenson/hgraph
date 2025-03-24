@@ -144,7 +144,7 @@
 
         <script type="module">
             import {connectWorkspaceTables, wait_for_table} from "/workspace_code/workspace_tables.js";
-            import {installTableWorkarounds, ensureTablesForConfig} from "/workspace_code/table_workarounds.js";
+            import {installTableWorkarounds, ensureTablesForConfig, loadLayout, saveLayout} from "/workspace_code/table_workarounds.js";
             import {setupInspectorTable} from "/workspace_code/inspector.js";
             import {WebSocketHelper} from "/workspace_code/websocket_helper.js";
 
@@ -249,11 +249,15 @@
                     });
 
                     document.getElementById('loading-message').innerText = "Setting up tables...";
+                    const req = fetch("/layout/{{url}}");
                     await connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
 
                     document.getElementById('loading-message').innerText = "Loading layout...";
-                    const req = await fetch("/layout/{{url}}");
-                    const json = await req.json();
+                    let json = await (await req).json();
+
+                    if (json.version && json.version >= 1) {
+                        json = await loadLayout(json);
+                    }
 
                     await ensureTablesForConfig(json, (progress, message, error) => {
                         const progressBar = document.querySelector('.progress-indicator');
@@ -274,10 +278,11 @@
                     window.setTimeout(async () => {
                         window.workspace.addEventListener("workspace-layout-update", async () => {
                             if (mode.editable) {
-                                const config = await window.workspace.save()
+                                const config = await window.workspace.save();
                                 const has_viewers = Object.keys(config.viewers).length;
                                 if (has_viewers) {  // prevent saving broken empty views
-                                    await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(config)});
+                                    const layout = await saveLayout(config);
+                                    await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(layout)});
                                     management_ws && management_ws.send({type: 'save_layout', layout: '{{url}}'});
                                 }
                             }

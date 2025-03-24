@@ -134,6 +134,33 @@ async function connectServerTable(workspace, table_name, websocket, worker) {
 }
 
 
+async function buildClientOnlyTable(workspace, table_name, index, worker) {
+    const table_config = workspace_tables[table_name];
+
+    const adjusted_schema = adjustSchemaTypes(table_config.schema);
+    if (index) {
+        const adjusted_index = index.includes(',') ? 'index' : index;
+        if (adjusted_index === 'index') {
+            adjusted_schema.index = 'string';
+        }
+        table_config.table = await worker.table(adjusted_schema, {index: adjusted_index});
+    } else {
+        table_config.table = await worker.table(adjusted_schema);
+    }
+
+    table_config.started = true;
+
+    try {
+        workspace.addTable(
+            table_name,
+            table_config.table
+        );
+    } catch(e) {
+        DEBUG && console.log("Failed to add table", table_name);
+    }
+}
+
+
 async function connectClientTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
     const table = await websocket.open_table(table_name);
     let client = undefined;
@@ -318,7 +345,8 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     const update_table = await worker.table(updated.delta);
                     const update_view = await update_table.view();
                     const update_data = await update_view.to_json();
-                    await table.update(update_data.filter((x) => x._id !== 0), {port_id: workspace_table.edit_port});
+                    const update_data_filtered = update_data.filter((x) => x._id !== 0 && x._id !== null && _id !== 'undefined');
+                    await table.update(update_data_filtered, {port_id: workspace_table.edit_port});
                 } else {
                     await table.update(updated.delta, {port_id: workspace_table.edit_port});
                 }
@@ -950,6 +978,12 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 table.index,
                 websocket_rw,
                 websocket_ro,
+                worker));
+        } else if (table.type === "client_only_table") {
+            table_promises.push(buildClientOnlyTable(
+                workspace,
+                table.name,
+                table.index,
                 worker));
         }
     }
