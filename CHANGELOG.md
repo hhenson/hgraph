@@ -1037,3 +1037,7 @@ Version 0.4.15 (22-03-2025)
 * Add support for both combine(...) and combine[TSB](...) to be consistent with combine[TSD]
 * Add ability to call **kwargs on TSB wiring port
 
+Version 0.4.15 (24-03-2025)
+---------------------------
+
+* Make eq_ for TSD use reduce and map for implementation.
