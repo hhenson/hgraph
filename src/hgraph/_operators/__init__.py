@@ -4,6 +4,7 @@ from hgraph._operators._date_operators import *
 from hgraph._operators._debug_tools import *
 from hgraph._operators._flow_control import *
 from hgraph._operators._graph_operators import *
+from hgraph._operators._lift_operators import *
 from hgraph._operators._operators import *
 from hgraph._operators._record_replay import *
 from hgraph._operators._stream import *

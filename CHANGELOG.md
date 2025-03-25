@@ -1041,3 +1041,8 @@ Version 0.4.15 (24-03-2025)
 ---------------------------
 
 * Make eq_ for TSD use reduce and map for implementation.
+
+Version 0.4.16 (25-03-2025)
+---------------------------
+
+* add round_
