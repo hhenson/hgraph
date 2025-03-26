@@ -20,9 +20,11 @@ def get_service_inputs(
     Extract the service inputs from a service interface.
     This is used when implementing a service with multiple interfaces, for example:
 
-    @service_impl(interfaces=(submit, receive, subscribe))
-    def impl(path: str):
-        submissions: TSD[int, TS[int]] = get_service_inputs(path, submit).ts
+    ::
+
+        @service_impl(interfaces=(submit, receive, subscribe))
+        def impl(path: str):
+            submissions: TSD[int, TS[int]] = get_service_inputs(path, submit).ts
 
     """
     try:
@@ -38,10 +40,12 @@ def set_service_output(path: str | None, service: Callable, out: OUT, __pre_reso
     Extract the service inputs from a service interface.
     This is used when implementing a service with multiple interfaces, for example:
 
-    @service_impl(interfaces=(submit, receive, subscribe))
-    def impl(path: str):
-        ...
-        set_service_output(path, receive, items)
+    ::
+
+        @service_impl(interfaces=(submit, receive, subscribe))
+        def impl(path: str):
+            ...
+            set_service_output(path, receive, items)
     """
     try:
         service.wire_impl_out_stub(path, out, __pre_resolved_types__=None, **kwargs)
