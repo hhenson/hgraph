@@ -1,10 +1,8 @@
-import numbers
 import sys
 from datetime import timedelta, datetime
-from typing import TypeVar, Generic, Tuple
+from typing import TypeVar, Generic, Tuple, Callable
 
 from hgraph._types import (
-    DEFAULT,
     TS,
     TIME_SERIES_TYPE,
     SIGNAL,
@@ -14,6 +12,7 @@ from hgraph._types import (
     TSW,
     WINDOW_SIZE,
     WINDOW_SIZE_MIN,
+    TS_SCHEMA
 )
 from hgraph._wiring._decorators import operator
 
@@ -94,6 +93,23 @@ drop_dups = dedup
 def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Suppresses ticks of a time series when the condition time series' value is False
+    """
+
+
+@operator
+def filter_by(
+        ts: TIME_SERIES_TYPE,
+        expr: Callable[[TIME_SERIES_TYPE, ...], bool],
+        **kwargs: TSB[TS_SCHEMA]
+) -> TIME_SERIES_TYPE:
+    """
+    Filters the ``ts`` time-series using the expression provided.
+    If the expression requires additional inputs they can be supplied as keyword arguments.
+
+    :param ts: The time-series to filter.
+    :param expr: The expression used to filter the time-series.
+    :param kwargs: Any additional arguments to supply to the expression.
+    :return: The filtered time-series.
     """
 
 

@@ -50,6 +50,7 @@ from hgraph import (
     SIZE,
     values_, eq_,
 )
+from hgraph._operators._stream import filter_by
 from hgraph.nodes import keys_where_true, make_tsd, extract_tsd, flatten_tsd
 from hgraph.test import eval_node
 
@@ -599,8 +600,19 @@ def test_tsd_values_as_tss():
 
 
 def test_keys_where_true():
-    assert eval_node(keys_where_true[K:int],
-                     [{1: True, 2: False, 3: True}, {1: False, 2: True, 3: False}, {2: REMOVE}]) == [{1, 3},
-                                                                                                     {Removed(1), 2,
-                                                                                                      Removed(3)},
-                                                                                                     {Removed(2)}]
+    assert eval_node(
+        keys_where_true[K:int],
+        [{1: True, 2: False, 3: True}, {1: False, 2: True, 3: False}, {2: REMOVE}]
+    ) == [{1, 3}, {Removed(1), 2, Removed(3)}, {Removed(2)}]
+
+
+def test_filter_by_tsd():
+    @graph
+    def g(values: TSD[str, TS[int]], c: TS[int]) -> TSD[str, TS[int]]:
+        return filter_by(values, lambda x, c_: x > c, c_=c)
+
+    assert eval_node(
+        g,
+        [{1: 1, 2: 2, 3: 3}, None, {1: REMOVE}],
+        [2, 0],
+    ) == [{3: 3}, {1: 1, 2: 2}, {1: REMOVE}]

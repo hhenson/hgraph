@@ -1,6 +1,6 @@
 from typing import Tuple, Mapping, TypeVar
 
-from hgraph._types import TS, DEFAULT, TSD, K, K_1, SCALAR, TSS, REF
+from hgraph._types import TS, DEFAULT, TSD, K, K_1
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, OUT
 from hgraph._wiring._decorators import operator
 

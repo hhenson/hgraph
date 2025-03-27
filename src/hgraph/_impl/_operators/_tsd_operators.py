@@ -2,9 +2,9 @@ from collections import defaultdict
 from dataclasses import field, dataclass
 from datetime import datetime, date
 from statistics import stdev, variance
-from typing import Type, cast, Tuple, Set
+from typing import Type, cast, Tuple, Set, Callable
 
-from hgraph import HgTupleFixedScalarType, HgTSDTypeMetaData, and_, default
+from hgraph import HgTupleFixedScalarType, HgTSDTypeMetaData, and_, default, modified
 from hgraph._operators import (
     add_,
     bit_and,
@@ -37,6 +37,7 @@ from hgraph._operators import (
     var,
     zero,
 )
+from hgraph._operators._stream import filter_by
 from hgraph._types._frame_scalar_type_meta_data import SCHEMA
 from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput, TimeSeriesReference
 from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
@@ -835,3 +836,34 @@ def var_tsd_unary_number(tsd: TSD[K, TS[NUMBER]]) -> TS[float]:
 @compute_node(overloads=str_)
 def str_tsd(tsd: TSD[K, V]) -> TS[str]:
     return str(dict(tsd.value))
+
+
+@graph(overloads=filter_by)
+def filter_by_tsd(
+        ts: TSD[K, V],
+        expr: Callable[[V, ...], bool],
+        **kwargs: TSB[TS_SCHEMA]
+) -> TSD[K, V]:
+    """
+    Applies the filter, removing keys when the filter returns false.
+    If you instead wish to remove values from the underlying stream, use map_ with a filter for
+    the individual time-series instead.
+    """
+    matches = map_(expr, ts, **kwargs)
+    return _filter_by_tsd(ts, matches)
+
+
+@compute_node(active=("matches",))
+def _filter_by_tsd(ts: TSD[K, REF[V]], matches: TSD[K, TS[bool]]) -> TSD[K, REF[V]]:
+    """
+    We only care about matches ticking, since any change in ts will be reflected in matches.
+    """
+    out = {}
+    for k, v in matches.modified_items():
+        if v.value:
+            out[k] = ts[k].value
+        else:
+            out[k] = REMOVE_IF_EXISTS
+    for k in matches.removed_keys():
+        out[k] = REMOVE_IF_EXISTS
+    return out
