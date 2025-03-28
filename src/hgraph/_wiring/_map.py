@@ -95,7 +95,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             (
                 i.key_set
                 for i in chain(args, kwargs.values())
-                if isinstance(i.output_type.dereference(), HgTSDTypeMetaData)
+                if not isinstance(i, _Marker) and  isinstance(i.output_type.dereference(), HgTSDTypeMetaData)
             ),
             None,
         )
