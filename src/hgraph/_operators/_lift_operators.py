@@ -2,8 +2,9 @@
 
 __all__ = ("round_",)
 
-from hgraph._wiring import lift, graph
+from hgraph._wiring._lift import lift
 from hgraph._types._ts_type import TS
+from hgraph._wiring._decorators import graph
 
 
 _round = lift(round, inputs={"number": TS[float], "ndigits": TS[int]}, output=TS[float])

@@ -1046,3 +1046,9 @@ Version 0.4.17 (25-03-2025)
 ---------------------------
 
 * add round_
+
+Version 0.4.18 (28-03-2025)
+---------------------------
+
+* add filter_by operator and tsd implementation.
+* add lower operator.

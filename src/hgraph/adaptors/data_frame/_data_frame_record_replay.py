@@ -5,34 +5,40 @@ from pathlib import Path
 
 import polars as pl
 
-from hgraph import (
-    graph,
+from hgraph._operators import (
     record,
-    TIME_SERIES_TYPE,
     to_table,
     table_schema,
-    AUTO_RESOLVE,
     TableSchema,
-    sink_node,
-    TS,
-    STATE,
-    GlobalState,
-    generator,
-    OUT,
     get_table_schema_date_key,
     from_table,
-    EvaluationEngineApi,
     get_as_of,
-    LOGGER,
-    const_fn,
     get_fq_recordable_id,
-    Frame,
-    DEFAULT,
-    MAX_DT,
 )
 from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
+from hgraph._runtime import (
+    GlobalState,
+    EvaluationEngineApi,
+    MAX_DT
+)
 from hgraph._runtime._traits import Traits
+from hgraph._types import (
+    TIME_SERIES_TYPE,
+    AUTO_RESOLVE,
+    TS,
+    STATE,
+    OUT,
+    LOGGER,
+    Frame,
+    DEFAULT,
+)
+from hgraph._wiring import (
+    graph,
+    sink_node,
+    generator,
+    const_fn
+)
 
 __all__ = (
     "DATA_FRAME_RECORD_REPLAY",
@@ -184,6 +190,7 @@ def _do_replay_from_data_frame(
         .with_columns(pl.cum_count(as_of_str).over(partition_keys).alias("__n__"))
         .filter(pl.col("__n__") == 1)
         .drop("__n__")
+        .select(*schema.keys)
         .collect()
         .group_by(dt_col, maintain_order=True)
     )

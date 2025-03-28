@@ -2,11 +2,10 @@ from typing import TypeVar
 
 import polars as pl
 
-from hgraph import (
+from hgraph._types import (
     TS,
     Frame,
     COMPOUND_SCALAR,
-    compute_node,
     CompoundScalar,
     TSD,
     COMPOUND_SCALAR_1,
@@ -14,6 +13,7 @@ from hgraph import (
     compound_scalar,
     KEYABLE_SCALAR, TS_SCHEMA, TSB,
 )
+from hgraph._wiring import compute_node
 
 __all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_")
 
