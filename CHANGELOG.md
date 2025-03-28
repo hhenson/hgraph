@@ -1052,3 +1052,9 @@ Version 0.4.18 (28-03-2025)
 
 * add filter_by operator and tsd implementation.
 * add lower operator.
+
+Version 0.4.19 (28-03-2025)
+---------------------------
+
+* Fix issue when the first argument to a lambda function in map_ is a _Marker class.
+
