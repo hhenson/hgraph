@@ -29,32 +29,33 @@ if TYPE_CHECKING:
     from hgraph._types._type_meta_data import HgTypeMetaData, ParseError
 
 __all__ = (
+    "COMPOUND_SCALAR",
+    "COMPOUND_SCALAR_1",
+    "COMPOUND_SCALAR_2",
+    "CompoundScalar",
+    "DEFAULT",
+    "ENUM",
+    "KEYABLE_SCALAR",
+    "LOGGER",
+    "NUMBER",
+    "NUMBER_2",
+    "SCALAR",
+    "SCALAR",
+    "SCALAR_1",
+    "SCALAR_2",
+    "SIZE",
+    "SIZE_1",
+    "STATE",
+    "Size",
+    "TIME_TYPE",
+    "TUPLE",
+    "UnNamedCompoundScalar",
     "WINDOW_SIZE",
     "WINDOW_SIZE_MIN",
     "WindowSize",
-    "SCALAR",
-    "Size",
-    "SIZE",
-    "SIZE_1",
-    "COMPOUND_SCALAR",
-    "SCALAR",
-    "CompoundScalar",
-    "is_keyable_scalar",
-    "is_compound_scalar",
-    "STATE",
-    "SCALAR_1",
-    "SCALAR_2",
-    "NUMBER",
-    "KEYABLE_SCALAR",
-    "LOGGER",
     "compound_scalar",
-    "UnNamedCompoundScalar",
-    "COMPOUND_SCALAR_1",
-    "COMPOUND_SCALAR_2",
-    "DEFAULT",
-    "NUMBER_2",
-    "TUPLE",
-    "ENUM",
+    "is_compound_scalar",
+    "is_keyable_scalar",
 )
 
 
@@ -258,6 +259,8 @@ class Hashable(Protocol):
 
 SIZE = TypeVar("SIZE", bound=Size)
 SIZE_1 = clone_type_var(SIZE, "SIZE_1")
+
+TIME_TYPE = TypeVar("TIME_TYPE", date, datetime)
 
 WINDOW_SIZE = TypeVar("WINDOW_SIZE", bound=WindowSize)
 WINDOW_SIZE_MIN = TypeVar("WINDOW_SIZE_MIN", bound=WindowSize)

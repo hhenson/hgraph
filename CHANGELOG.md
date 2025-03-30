@@ -1058,3 +1058,8 @@ Version 0.4.19 (28-03-2025)
 
 * Fix issue when the first argument to a lambda function in map_ is a _Marker class.
 
+
+Version 0.4.20 (30-03-2025)
+---------------------------
+
+* Add TIME_TYPE type-var to indicate a date or a datetime.
