@@ -14,15 +14,14 @@ from hgraph._runtime._constants import MIN_TD, MIN_DT
 from hgraph._impl._impl_configuration import HG_TYPE_CHECKING
 from hgraph._types._tsw_type import TimeSeriesWindowOutput, WINDOW_SIZE, WINDOW_SIZE_MIN, TimeSeriesWindowInput
 
-__all__ = ("PythonTimeSeriesFixedWindowOutput", "PythonTimeSeriesTimeWindowOutput",
-           "PythonTimeSeriesWindowInput")
+__all__ = ("PythonTimeSeriesFixedWindowOutput", "PythonTimeSeriesTimeWindowOutput", "PythonTimeSeriesWindowInput")
 
 
 @dataclass
 class PythonTimeSeriesFixedWindowOutput(
     PythonTimeSeriesOutput,
     TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
-    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
 ):
 
     _tp: type | None = None
@@ -46,7 +45,7 @@ class PythonTimeSeriesFixedWindowOutput(
         if length < self._min_size:
             return None
         if length != capacity:
-            return buffer[:length]
+            return buffer[:length].copy()
         else:
             return np.roll(buffer, -start)
 
@@ -56,7 +55,7 @@ class PythonTimeSeriesFixedWindowOutput(
         if value is None:
             self.invalidate()
             return
-        if (l := len(value) )> self._size:
+        if (l := len(value)) > self._size:
             raise ValueError("Setting value with size greater than set for this output")
         elif l == self._size:
             np.copyto(self._value, value)
@@ -66,23 +65,30 @@ class PythonTimeSeriesFixedWindowOutput(
 
     @property
     def delta_value(self) -> Optional[SCALAR]:
-        if self._length < self._min_size:
-            return None
-        elif self._length < self._size:
+        # The delta value must always tick, in order to be able to support recording, etc.
+        # It is the value that will occasionally be None when there is not enough data
+        if self._length < self._size:
             pos = self._length - 1
         else:
             pos = (self._start + self._length - 1) % self._size
-        if (tm := self._times[pos]) == self.owning_graph.evaluation_clock.evaluation_time:
+        if self._times[pos] == self.owning_graph.evaluation_clock.evaluation_time:
             return self._value[pos]
         else:
             return None
+
+    @property
+    def all_valid(self) -> bool:
+        """
+        All valid is only true if the min size constraint is met.
+        """
+        return self.valid and self._length >= self._min_size
 
     @property
     def value_times(self) -> Array[datetime]:
         if self._length < self._min_size:
             return None
         elif self._length < self._size:
-            return self._times[:self._length]
+            return self._times[: self._length]
         if self._start == 0:
             return self._times
         else:
@@ -126,8 +132,9 @@ class PythonTimeSeriesFixedWindowOutput(
             index[pos] = self.owning_graph.evaluation_clock.evaluation_time
             self.mark_modified()
         except Exception as e:
-            raise TypeError(f"Cannot apply node output {result} of "
-                            f"type {result.__class__.__name__} to {self}: {e}") from e
+            raise TypeError(
+                f"Cannot apply node output {result} of type {result.__class__.__name__} to {self}: {e}"
+            ) from e
 
     def clear(self):
         # TODO: what is the right semantics here? Value time series don't do anything, collections remove all items
@@ -169,7 +176,7 @@ class PythonTimeSeriesFixedWindowOutput(
 class PythonTimeSeriesTimeWindowOutput(
     PythonTimeSeriesOutput,
     TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
-    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
 ):
     _tp: type | None = None
     _value: deque[SCALAR] = field(default_factory=deque)
@@ -192,8 +199,10 @@ class PythonTimeSeriesTimeWindowOutput(
         of time to capture ticks. This does not ensure there are ticks within or without of this scope.
         """
         if not self._ready:
-            self._ready = self.owning_graph.evaluation_clock.evaluation_time - \
-                          self.owning_graph.evaluation_engine_api.start_time >= self._min_size
+            self._ready = (
+                self.owning_graph.evaluation_clock.evaluation_time - self.owning_graph.evaluation_engine_api.start_time
+                >= self._min_size
+            )
         return self._ready
 
     @property
@@ -260,8 +269,9 @@ class PythonTimeSeriesTimeWindowOutput(
             self._times.append(self.owning_graph.evaluation_clock.evaluation_time)
             self.mark_modified()
         except Exception as e:
-            raise TypeError(f"Cannot apply node output {result} of "
-                            f"type {result.__class__.__name__} to {self}: {e}") from e
+            raise TypeError(
+                f"Cannot apply node output {result} of type {result.__class__.__name__} to {self}: {e}"
+            ) from e
 
     def clear(self):
         # TODO: what is the right semantics here? Value time series don't do anything, collections remove all items
@@ -289,9 +299,11 @@ class PythonTimeSeriesTimeWindowOutput(
 
 
 @dataclass
-class PythonTimeSeriesWindowInput(PythonBoundTimeSeriesInput,
-                                  TimeSeriesWindowInput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
-                                  Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]):
+class PythonTimeSeriesWindowInput(
+    PythonBoundTimeSeriesInput,
+    TimeSeriesWindowInput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+):
     """
     The only difference between a PythonBoundTimeSeriesInput and a PythonTimeSeriesValueInput is that the
     signature of value etc.
@@ -317,4 +329,3 @@ class PythonTimeSeriesWindowInput(PythonBoundTimeSeriesInput,
 
     def __len__(self) -> int:
         return len(self.output)
-

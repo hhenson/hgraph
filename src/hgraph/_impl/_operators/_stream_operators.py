@@ -48,8 +48,9 @@ from hgraph import (
     TSD,
     map_,
     TS_SCHEMA,
-    AUTO_RESOLVE, TSS,
-    union
+    AUTO_RESOLVE,
+    TSS,
+    union,
 )
 
 __all__ = ()
@@ -386,6 +387,11 @@ def window_timedelta_start(_state: STATE):
             s["min_window_period"] if s["min_window_period"] is not None else s["period"]
         ],
     },
+    requires=lambda m, s: (
+        True
+        if (s := m[WINDOW_SIZE].py_type.SIZE) >= (m_s := m[WINDOW_SIZE_MIN].py_type.SIZE)
+        else f"Window size ({s}) must be greater than min window size ({m_s})"
+    ),
 )
 def to_window_impl(
     ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
@@ -534,8 +540,11 @@ def lag_proxy_tsb(
 
 @graph(overloads=lag)
 def lag_proxy_tsl(
-    ts: TSL[TIME_SERIES_TYPE, SIZE], period: int, proxy: SIGNAL,
-        _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE, _sz: type[SIZE] = AUTO_RESOLVE
+    ts: TSL[TIME_SERIES_TYPE, SIZE],
+    period: int,
+    proxy: SIGNAL,
+    _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _sz: type[SIZE] = AUTO_RESOLVE,
 ) -> TSL[TIME_SERIES_TYPE, SIZE]:
     """
     Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
@@ -547,7 +556,9 @@ def lag_proxy_tsl(
 
 
 @compute_node(active=("ts",), valid=("c",))
-def _lag_proxy_tss(ts: TSS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_LagProxyState[SCALAR]] = None) -> TSS[SCALAR]:
+def _lag_proxy_tss(
+    ts: TSS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_LagProxyState[SCALAR]] = None
+) -> TSS[SCALAR]:
     cache = _state.cache
     if ts.modified:
         lag_c.make_active()
@@ -561,9 +572,7 @@ def _lag_proxy_tss(ts: TSS[SCALAR], c: TS[int], lag_c: TS[int], _state: STATE[_L
 
 
 @graph(overloads=lag)
-def lag_proxy_tss(
-    ts: TSS[SCALAR], period: int, proxy: SIGNAL
-) -> TSS[SCALAR]:
+def lag_proxy_tss(ts: TSS[SCALAR], period: int, proxy: SIGNAL) -> TSS[SCALAR]:
     """
     Lag the value of ts to be delayed by the number of periods defined by the proxy ticking.
     If the proxy has not ticked, we are not lagging.
@@ -573,4 +582,3 @@ def lag_proxy_tss(
     c = count(proxy)
     lag_c = lag(c, period)
     return _lag_proxy_tss(ts, c, lag_c)
-

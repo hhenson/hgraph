@@ -1,6 +1,8 @@
 from statistics import stdev, variance
 from typing import Type, Mapping
 
+import numpy as np
+
 from hgraph import (
     SCALAR,
     TS,
@@ -41,7 +43,13 @@ from hgraph import (
     zero,
     mean,
     std,
-    var, cmp_, CmpResult,
+    var,
+    cmp_,
+    CmpResult,
+    TSW,
+    WINDOW_SIZE,
+    WINDOW_SIZE_MIN,
+    NUMBER,
 )
 
 __all__ = tuple()
@@ -76,8 +84,7 @@ def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Raises a timeseries value to the power of the other timeseries value
     """
-    # TODO - handle division by 0 for lhs = 0 and rhs < 0 as per div_numbers
-    return lhs.value ** rhs.value
+    return lhs.value**rhs.value
 
 
 @compute_node(overloads=lshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lshift__"))
@@ -128,15 +135,16 @@ def eq_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value == rhs.value)
 
 
-@compute_node(overloads=cmp_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__eq__") \
-                                                    and hasattr(m[SCALAR].py_type, "__lt__") )
+@compute_node(
+    overloads=cmp_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__eq__") and hasattr(m[SCALAR].py_type, "__lt__")
+)
 def cmp_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> TS[CmpResult]:
     """
     Cmp of two scalar timeseries
     """
     v1 = lhs.value
     v2 = rhs.value
-    return CmpResult.EQ if v1==v2 else CmpResult.LT if v1<v2 else CmpResult.GT
+    return CmpResult.EQ if v1 == v2 else CmpResult.LT if v1 < v2 else CmpResult.GT
 
 
 @compute_node(overloads=cmp_)
@@ -150,7 +158,7 @@ def cmp_ts_dict(lhs: TS[Mapping[SCALAR, SCALAR_1]], rhs: TS[Mapping[SCALAR, SCAL
     elif l1 > l2:
         return CmpResult.GT
     else:
-        if (s1:=sorted(v1.keys())) == (s2:=sorted(v2.keys())):
+        if (s1 := sorted(v1.keys())) == (s2 := sorted(v2.keys())):
             for k in s1:
                 t1 = v1[k]
                 t2 = v2[k]
@@ -238,8 +246,9 @@ def abs_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     return abs(ts.value)
 
 
-@compute_node(overloads=len_,
-              requires=lambda m, s: hasattr(m[SCALAR].py_type, "__len__") or m[SCALAR].py_type.__name__ == "Frame")
+@compute_node(
+    overloads=len_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__len__") or m[SCALAR].py_type.__name__ == "Frame"
+)
 def len_scalar(ts: TS[SCALAR]) -> TS[int]:
     """
     The length of the value of the timeseries
@@ -440,6 +449,12 @@ def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[flo
         return sum_(ts) / count(ts)
     else:
         return cast_(float, sum_(ts)) / count(ts)
+
+
+@compute_node(overloads=mean, all_valid=("ts",))
+def mean(ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN]) -> TS[float]:
+    """Computes the mean of a time series window"""
+    return np.mean(ts.value)
 
 
 @graph

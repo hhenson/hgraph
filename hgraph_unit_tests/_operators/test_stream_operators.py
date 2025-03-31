@@ -41,7 +41,8 @@ from hgraph import (
     TSW,
     WindowSize,
     Array,
-    ts_schema, PythonSetDelta,
+    ts_schema,
+    PythonSetDelta,
 )
 from hgraph.test import eval_node, EvaluationTrace
 
@@ -83,7 +84,13 @@ def test_lag_proxy_tsd():
 
     EvaluationTrace.set_use_logger(False)
     EvaluationTrace.set_print_all_values(True)
-    result = eval_node(g, [fd(a=1), fd(a=2), fd(a=3), fd(a=4), fd(a=REMOVE)], 2, [True, None, True, True, True, True, True], __trace__=False)
+    result = eval_node(
+        g,
+        [fd(a=1), fd(a=2), fd(a=3), fd(a=4), fd(a=REMOVE)],
+        2,
+        [True, None, True, True, True, True, True],
+        __trace__=False,
+    )
     assert result == [
         fd(),
         None,
@@ -100,13 +107,18 @@ def test_tss_proxy_lag():
     def g(ts: TSS[int], delay: int, proxy: TS[bool]) -> TSS[int]:
         return lag(ts, delay, proxy)
 
-    result = eval_node(g, [
-        PythonSetDelta(added=frozenset({1, 3}), removed=frozenset()),
-        PythonSetDelta(added=frozenset({2}), removed=frozenset({3})),
-        PythonSetDelta(added=frozenset({4, 5}), removed=frozenset({1})),
-        PythonSetDelta(added=frozenset({6}), removed=frozenset({4})),
-        PythonSetDelta(added=frozenset(), removed=frozenset({5}))
-    ], 2, [True, None, True, True, True, None, None, True])
+    result = eval_node(
+        g,
+        [
+            PythonSetDelta(added=frozenset({1, 3}), removed=frozenset()),
+            PythonSetDelta(added=frozenset({2}), removed=frozenset({3})),
+            PythonSetDelta(added=frozenset({4, 5}), removed=frozenset({1})),
+            PythonSetDelta(added=frozenset({6}), removed=frozenset({4})),
+            PythonSetDelta(added=frozenset(), removed=frozenset({5})),
+        ],
+        2,
+        [True, None, True, True, True, None, None, True],
+    )
     assert result == [
         None,
         None,
@@ -145,15 +157,13 @@ def test_lag_proxy_tsl():
     def g(ts: TSL[TS[int], Size[2]], delay: int, proxy: TS[bool]) -> TSL[TS[int], Size[2]]:
         return lag(ts, delay, proxy)
 
-    result = eval_node(
-        g, [(1, 2), (2, 3), (3, 4), (4, 5), None], 2, [True, None, True, True, True]
-    )
+    result = eval_node(g, [(1, 2), (2, 3), (3, 4), (4, 5), None], 2, [True, None, True, True, True])
     assert result == [
         None,
         None,
         None,
         {0: 2, 1: 3},
-        {0:3, 1: 4},
+        {0: 3, 1: 4},
     ]
 
 
@@ -528,7 +538,12 @@ def test_window_timedelta():
 
 def test_to_window_delta():
     result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], 3)
-    assert result == [None, None, 3, 4, 5]
+    assert result == [1, 2, 3, 4, 5]
+
+
+def test_to_window_delta_min_period():
+    result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], 3, 2)
+    assert result == [1, 2, 3, 4, 5]
 
 
 def test_to_window_delta_td():
@@ -550,6 +565,37 @@ def test_to_window_value():
     assert all(
         (a == b).all()
         for a, b in zip(result, [None, None, np.array((1, 2, 3)), np.array((2, 3, 4)), np.array((3, 4, 5))])
+        if not (a is None and b is None)
+    )
+
+
+def test_to_window_value_min_size():
+
+    @compute_node
+    def _as_value(ts: TSW[int, WindowSize[3], WindowSize[2]]) -> TS[Array[int]]:
+        return ts.value
+
+    @graph
+    def g(ts: TS[int]) -> TS[Array[int]]:
+        return _as_value(to_window(ts, 3, 2))
+
+    result = eval_node(g, [1, 2, 3, 4, 5])
+    print(f"result: '{result}'")
+    assert all(
+        (a == b).all()
+        for a, b in zip(
+            result,
+            [
+                None,
+                np.array((
+                    1,
+                    2,
+                )),
+                np.array((1, 2, 3)),
+                np.array((2, 3, 4)),
+                np.array((3, 4, 5)),
+            ],
+        )
         if not (a is None and b is None)
     )
 

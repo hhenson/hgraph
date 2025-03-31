@@ -35,7 +35,10 @@ from hgraph import (
     mean,
     std,
     var,
-    nothing, CmpResult, cmp_,
+    nothing,
+    CmpResult,
+    cmp_,
+    to_window,
 )
 from hgraph.test import eval_node
 
@@ -410,7 +413,16 @@ def test_mean_scalars_unary():
     def app(ts: TS[int]) -> TS[float]:
         return mean(ts)
 
-    assert eval_node(app, [1, 3, 5, 11], __trace_wiring__=True) == [1.0, 2.0, 3.0, 5.0]
+    assert eval_node(app, [1, 3, 5, 11]) == [1.0, 2.0, 3.0, 5.0]
+
+
+def test_mean_tsw_number():
+    @graph
+    def app(ts: TS[float]) -> TS[float]:
+        window = to_window(ts, 5, 3)
+        return mean(window)
+
+    assert eval_node(app, [1.0, 3.0, 5.0, 11.0]) == [None, None, 3.0, 5.0]
 
 
 @pytest.mark.parametrize(
