@@ -67,3 +67,7 @@ html_theme_options = {
     "includehidden": True,
     "titles_only": False,
 }
+
+bibtex_bibfiles = ["references.bib"]  # List of your `.bib` files
+bibtex_default_style = "alpha"
+bibtex_reference_style = "author_year"
