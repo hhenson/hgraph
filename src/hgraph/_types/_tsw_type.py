@@ -6,8 +6,8 @@ from hgraph._types._scalar_types import SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN
 from hgraph._types._scalar_value import Array
 from hgraph._types._time_series_types import TimeSeriesDeltaValue, TimeSeriesInput, TimeSeriesOutput
 
-__all__ = ("TimeSeriesWindow", "TSW", "TSW_OUT", "TimeSeriesWindowInput",
-           "TimeSeriesWindowOutput")
+__all__ = ("TimeSeriesWindow", "TSW", "TSW_OUT", "TimeSeriesWindowInput", "TimeSeriesWindowOutput")
+
 
 class TimeSeriesWindow(
     TimeSeriesDeltaValue[Array[SCALAR], SCALAR],
@@ -35,9 +35,11 @@ class TimeSeriesWindow(
         is_tuple = type(item) is tuple
         if is_tuple:
             if len(item) != 3:
-                item = (item[0] if len(item) >= 1 else SCALAR), \
-                (item[1] if len(item) == 2 else WINDOW_SIZE), \
-                (item[1] if len(item) == 2 else WINDOW_SIZE_MIN)
+                item = (
+                    (item[0] if len(item) >= 1 else SCALAR),
+                    (item[1] if len(item) == 2 else WINDOW_SIZE),
+                    (item[1] if len(item) == 2 else WINDOW_SIZE_MIN),
+                )
         else:
             item = item, WINDOW_SIZE, WINDOW_SIZE_MIN
         out = super(TimeSeriesWindow, cls).__class_getitem__(item)
@@ -47,9 +49,7 @@ class TimeSeriesWindow(
             if HgScalarTypeMetaData.parse_type(item[0]) is None:
                 from hgraph import ParseError
 
-                raise ParseError(
-                    f"Type '{item[0]}' must be a scalar or a valid TypeVar (bound to a scalar value)"
-                )
+                raise ParseError(f"Type '{item[0]}' must be a scalar or a valid TypeVar (bound to a scalar value)")
         return out
 
     def __len__(self) -> int:
@@ -87,7 +87,10 @@ class TimeSeriesWindow(
 
 
 class TimeSeriesWindowInput(
-    TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], TimeSeriesInput, ABC, Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
+    TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+    TimeSeriesInput,
+    ABC,
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
 ):
     """
     The input of a time series buffer.
@@ -104,7 +107,10 @@ class TimeSeriesWindowInput(
 
 
 class TimeSeriesWindowOutput(
-    TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], TimeSeriesOutput, ABC, Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]
+    TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+    TimeSeriesOutput,
+    ABC,
+    Generic[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
 ):
     """
     The output of the time series list
@@ -119,4 +125,3 @@ TSW_OUT = TimeSeriesWindowOutput
 
 # TSW (TimeSeriesWindow)
 # add removed item
-
