@@ -24,14 +24,19 @@ The supported time-series types are:
 .. autoclass:: hgraph.TSD
     :members:
 
-Then there is a special type to wrap any time-series type (as an input):
+There is a special type to wrap any time-series type (as an input):
 
 .. autoclass:: hgraph.SIGNAL
     :members:
 
-Finally there is a reference type, which can point to any of the above standard time-series types:
+Then there is a reference type, which can point to any of the above standard time-series types:
 
 .. autoclass:: hgraph.REF
+    :members:
+
+Finally, there is a special buffer type that is used to define a buffered time-series.
+
+.. autoclass:: hgraph.TSW
     :members:
 
 .. note:: The above types are alias types, they are used when annotating the types that a function supports as inputs
@@ -162,3 +167,17 @@ The detailed API's of the remaining types are presented below:
     :undoc-members:
     :show-inheritance:
 
+.. autoclass:: hgraph.TimeSeriesWindow
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: hgraph.TimeSeriesWindowOutput
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: hgraph.TimeSeriesWindowInput
+    :members:
+    :undoc-members:
+    :show-inheritance:

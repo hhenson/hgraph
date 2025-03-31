@@ -91,6 +91,15 @@ class TimeSeriesWindowInput(
 ):
     """
     The input of a time series buffer.
+
+    The input is valid if a value has been ticked into the buffer, but if a min-size has been set, the value may remain
+    None until the min-size has been reached.
+
+    To only receive notifications when the buffer is ready, mark the input as ``all_valid``. This will only schedule
+    a callback when the min-buffer size has been achieved.
+
+    The delta_value will tick with the same values and at the same time as the input TS ticks into the ``to_window``
+    function or whichever source is generating the window.
     """
 
 
