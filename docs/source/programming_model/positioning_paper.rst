@@ -334,3 +334,11 @@ To start with, consider the core operators or concepts described in "Functional 
     .. image:: ../_static/images/Feedback.svg
       :alt: Diagram Illustration
       :align: center
+
+    The other mechanism for state, specifically in the case of the ``compute_node`` or ``sync_node`` is using a
+    concept of injectable attributes. This a mechanism to declare a need to track state, then the runtime engine
+    will provide a state to the function. This is logically a shortcut for using a feedback, but also allows for
+    mutable values to be stored on the state object. The state is provided to the function and as a consequence
+    the function itself is stateless, and any state can be provided to the function, although in actual use, the
+    state is effectively a dictionary that is provided to the function on each activation.
+
