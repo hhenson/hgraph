@@ -329,7 +329,7 @@ To start with, consider the core operators or concepts described in "Functional 
     problematic. We require evaluation of a wave to be directional and acyclic. Thus it is not possible to
     compute a recursive value at point :math:`t` in time. To overcome this we have a couple of options provided,
     the first is to use a concept of ``feedback``. This creates a recursive relationship where the cycle is broken
-    overtime.
+    overtime. With the result been returned to the graph on the next smallest time-interval (``MIN_TD``).
 
     .. image:: ../_static/images/Feedback.svg
       :alt: Diagram Illustration
