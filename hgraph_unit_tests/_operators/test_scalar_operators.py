@@ -458,6 +458,15 @@ def test_std_scalars_unary():
     assert eval_node(app, [1, 2, 3, 5]) == [0.0, 0.5, 0.8164965809277263, 1.479019945774904]
 
 
+def test_std_tsw_number():
+    @graph
+    def app(ts: TS[int]) -> TS[float]:
+        window = to_window(ts, 5, 3)
+        return std(window)
+
+    assert eval_node(app, [1, 2, 3, 4, 5]) == [None, None, 0.816496580927726, 1.118033988749895, 1.4142135623730951]
+
+
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [

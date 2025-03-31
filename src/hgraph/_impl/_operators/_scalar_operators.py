@@ -508,6 +508,19 @@ def std_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[floa
     return pow_((sum_x2 / count_x - mean_x * mean_x), 0.5)
 
 
+@compute_node(overloads=std, all_valid=("ts",))
+def std_tsw(ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN], ddof: int = 0) -> TS[float]:
+    """
+    Computes the standard deviation of a time series window.
+    This uses the numpy std function.
+
+    :param ddof: int, optional. Means Delta Degrees of Freedom.  The divisor used in calculations
+        is ``N - ddof``, where ``N`` represents the number of elements.
+        By default, `ddof` is zero. See Notes for details about use of `ddof`.
+    """
+    return np.std(ts.value, ddof=ddof)
+
+
 @compute_node
 def std_scalars_multi(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
     """

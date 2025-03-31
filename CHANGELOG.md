@@ -1066,3 +1066,4 @@ Version 0.4.20 (31-03-2025)
 * Add mean for TSW
 * Fix a few issues with the TSW implementation
 * Add constraint check on to_window
+* Add std for TSW
