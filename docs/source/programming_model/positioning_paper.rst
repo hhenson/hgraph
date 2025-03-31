@@ -13,5 +13,322 @@ Introduction
 
 Functional Reactive Programming (FRP) is a programming paradigm that combines functional programming with reactive programming.
 The landmark paper describing this approach is "Functional reactive animation" :cite:`elliott1997functional`.
+In this paper, the authors describe a functional approach to coding event/time based logic. Their focus was on
+the generation of animations, but the concepts are applicable to any time based system.
+The key concepts from this paper can be summarised as follows:
+
+1. **Events**: These are first class values and the instigators of change in the system. Events can contain data, and
+   represent external stimuli that can be used to trigger changes in the system (such as a mouse click). Or internal
+   stimuli such as a timer, parameters changes, etc.
+
+2. **Behaviours**: These are time varying values (often capable of representing continuous time values). The example
+   given is a collection of images over time can be viewed as a behaviour. Another example could be a point in motion,
+   where the point is defined by a set of coordinates over time. The value of the coordinates could be computed at
+   any point in time, thus the behaviour can produce a scalar (with respect to time) value given a point-in-time.
+
+The paper goes on to describe how to use these concepts to produce animations using Fran (Functional Reactive Animation).
+This is a functional language built around the event and behaviour concepts. Time is another key element of the system.
+
+When defining Fran, the authors introduce some interesting concepts, these include items such as lifting, time, event
+handling, and reactivity. This is covered in more detail later.
+
+There have been further refinements to the FRP model, of interest is the paper "Functional Reactive Programming,
+Refactored" :cite:`perez2016functional`. This paper provides a summary of earlier papers that provide additional
+classification of FRP models and covers Yampa, a Haskell based FRP model.
+
+In this paper, the concept of events and behaviours is re-cast in terms of *signal* and *signal functions*.
+
+**Signal**
+    A signal is a viewed as a function that maps time to a value. A signal is a stream of these values over time.
+    This can be viewed as a time-series of values of some specific type. The signal is an input to
+    *signal functions*. This most closely models the concept of **Events** as describe previously.
+
+**Signal Function**
+        A signal function is a function that takes a signal as input and produces a signal as output.
+        This is similar to the concept of **Behaviours**. The signal function can be viewed as a
+        transformation of the input signal/s to produce one or more output signals.
+
+The modes of FRP are broken down into two main branches, namely Classic and Arrowized FRP :cite:`nilsson2002functional`.
+Where classical FRP is defined much as in :cite:`elliott1997functional`, and Arrowized FRP is defined as a graph of
+causal functions (where the result of the function at time :math:`t` is as a direct consequence of it's inputs in the
+range of :math:`[0, t]`). In Arrowized FRP time is considered to be monotonically increasing. The example of "wires" to
+represent signals and "components" to represent signal functions is used to describe the system.
+Where the wires connect the boxes together and the arrow represents the flow of information.
+
+Finally, external events are found on the outer edges of the graph formed by the signals and signal functions.
+
+HGraph is a Python implementation of the FRP model. It could be classified as an Arrowized FRP model. It uses the
+term time-series to represent the concept of signals, and nodes to represent signal functions. HGraph has the concept
+of time being abstracted into a system wide clock that abstracts the system from the computers system clock. This
+allows for time to be precisely controlled and simulated.
+
+The current FRP implementations are generally implemented as pure functional languages or within a pure functional
+language (such as Haskel). HGraph leverages off of the mixed model of Python, which supports functional programming
+but also can be used to implement imperative programs, to provide a more gentle introduction to the world of functional
+programming.
+
+Functional Programming
+----------------------
+
+Functional programming (FP) emphasises the following key characteristics:
+
+* Immutability of values
+* Use of functions to implement logic
+* No side-effects (in functions)
+* No explicit support for traditional control flow operators (such as if/else and while loops)
+* Declarative
+
+Functional languages can be broken down into two main types, namely pure functional with examples such as Haskel, or
+hybrid languages that support both functional and imperative styles such as Python, Scalar, OCaml, etc.
+
+As a contrast imperative programming is characterised through the specification of the steps that the computer must
+perform to compute a task. It makes use of variable assignment for state modification and uses control primitives to
+direct the flow of evaluation. The classic example of these types of langauge are C and Pascal.
+
+With FRP being functional in nature, HGraph uses the functional aspects of the Python model, thus there are no classes
+(with the exception of specifying data classes). Extension of behaviour is achieved through composition and by using
+functions as values. Non-time-series values are considered as immutable. Behaviour should have no side-effects, etc.
+With signal functions being considered as causal we can view these as immutable as well (although in this case the
+immutability is with respect to a time-range).
+
+The remainder of the paper focuses on specific concepts and operators described in the various papers referenced and
+how these concepts are implemented in HGraph.
+
+Primitives
+----------
+
+Time
+....
+
+Time is a fundamental aspect of the FRP model, behaviours / signal functions are values over time and the current time
+implies the current value of the behaviour. In HGraph time is considered to be discrete, and monotonically increasing.
+The quanta of time are expressed in the constant ``MIN_TD`` which is the smallest unit of time the engine can increment
+the clock by. This is currently limited to 1 micro-second due to the use of Python as the Domain Specific Language (DSL)
+embedding language.
+
+There are also a minimum time and and a maximum time (``MIN_TD`` and ``MAX_TD`` respectively). The minimum time is the
+smallest time we can represent. This gets set to the UNIX epoch (1970-01-01 00:00:00) as the runtime engine is ultimately
+to be written in ``C++`` and the conversion between Python and C++ is done using the C ctime conventions. This results
+in 0 being the smallest time value and it maps to the UNIX epoch. The maximum time is set to a value in far in the
+future. These constants define the operational range of the engine times. These are extracted into constants as they
+are intended to be implementation specific and can vary.
+
+There are a number of perspectives on time, these include:
+
+**Evaluation Time**
+    This is the time of the event/s that are currently being processed. All signal functions are considered to have
+    the time of the evaluation time for the consequences computed as a result of the event/s being processed.
+    This is the clock that drives the evaluation of the program. It is guaranteed to be monotonic. It could in theory
+    run ahead of the computers clock (when processing events in rapid succession, where the cost of computation is less
+    than ``MIN_TD``. But, generally runs slightly behind the system clock.
+
+**Wall Clock Time**
+    This is logically the time of the system clock. The wall clock time and evaluation time are similar but differ
+    based on the computation overhead and any other delays experienced between the event being accepted and the
+    processing of the event. We refer to this as `lag`. The wall-clock time may not actually reflect the computers
+    system clock, unless the program is running using the real-time engine. In simulation mode the wall-clock time
+    is simulated to be the time of the event plus any computation overhead. This clock can be non-monotonic in
+    simulation mode.
+
+**System Clock Time**
+    This is the time of the system clock, i.e. the computers internal measure of time. This is never directly exposed
+    to the programmer and should never be accessed in an HGraph application. Doing so will result in undefined
+    behaviour. Time should always be accessed via the HGraph API.
+
+In HGraph the clock is exposed by the abstraction ``EvaluationClock``. This can be obtained in a variety of ways,
+these are covered in the main documentation set.
+
+**Evaluation Cycle / Wave**
+    This concept refers to how events are processed in HGraph. Events are co-ordinated for delivery by time.
+    All the events that occur within the granularity of a ``MIN_TD`` are processed together. All signals and signal
+    functions produce a directed acyclic graph (DAG). The consequences of an event are processed until we reach the
+    leaf of the DAG (referred to a sink node). Once all consequences are processed we consider the computation done and
+    refer to this as a wave or an evaluation cycle. At the end of the cycle the evaluation time is incremented and the
+    next wave is started. Where the next evaluation cycle is the time of the next smallest event time.
+
+Time-Series
+...........
+
+The term time-series is used to represent the concept of a signal in the Arrowized FRP model. A time-series is represented
+in the model however and provides the ability to describe the nature of the signal as well as providing an application
+programmers interface (API) for accessing the attributes of the signal from within a signal function (or node).
+
+There are a number of different time-series types implemented in HGraph, these model the FRP equivalent of normal
+data types. Note that all value's (non-time-series) in HGraph are expected to be immutable, only the time-sieres
+types can change over time. The time-series types are:
+
+**TS**
+    This is the most basic time-series type and represents a stream of values over time. Much as is described in the
+    previously mentioned papers. In HGraph the type is fully expressed as ``TS[SCALAR]``, where ``SCALAR`` is the type
+    of the values represented by the signal. Examples of ``SCALAR`` values include ``int``, ``float``, ``str``, etc.
+    This is the time-series equivalent of a value.
+
+**TSS**
+    This is a the equivalent of a set in FRP. It describes the change in values of a collection of values over time.
+    The constraint being the values must be hashable. As HGraph is a typed extension, the full form of this is:
+    ``TSS[SCALAR]``, where ``SCALAR`` is constrained to be a hashable type.
+
+**TSL**
+    Representing a homogeneous collection of time-series signals. This is the equivalent of a list in FRP. The
+    full expression of a TSL is ``TSL[TIME_SERIES_TYPE, SIZE]``, where ``TIME_SERIES_TYPE`` represents any valid
+    time-series type and ``SIZE`` is the number of elements in the list, due to the restrictions on generics in Python
+    this value must be a type and so if we wanted to expressed a list of 2 time-series we would express that as:
+    ``TSL[TS[int], Size[2]]``.
+
+**TSB**
+    This is a heterogeneous collection of time-series signals. This is the equivalent of a class or struct in FRP.
+    The full expression of a ``TSB`` is ``TSB[TS_SCHEMA]``, where ``TS_SCHEMA`` is a class describing the schema of
+    the bundle.
+
+**TSD**
+    This is a dictionary of time-series signals. This is the equivalent of a dictionary in FRP. The full expression
+    of a ``TSD`` is ``TSD[K, V]``, where ``K`` is the type of the key (e.g. str) and ``VALUE_TYPE`` is
+    the type of the time-series value, for example: ``TSD[str, TS[float]]``. This is the only dynamically sizeable
+    type in the system. It supports the dynamic addition and removal of time-series signals.
+
+These describe the basic wires that can be used to connect the components of the system together. There are a few
+additional types that represent more advanced time-series parallels to traditional typing. Namely:
+
+**REF**
+    This behaves in a similar fashion as a pointer or variable reference. It holds a reference to a time-series signal,
+    but does not have access to the value of the signal. To use this any of the standard time-series types can be wrapped
+    with this, for example: ``REF[TS[float]]``. When this is used to describe the type of an input or output, the
+    time-series is passed by reference and not value. However, unlike a pointer, there is no standard deference operator.
+    Instead when a reference is to be de-referenced it is passed to a node that does not indicate the input type is a
+    ``REF``. The library will automatically de-reference the value at this point.
+
+    ``REF`` is generally used by framework developers as a performance enhancement. Specifically when the value of a
+    time-series is not required to be inspected as part of the behaviour implementation.
+
+**TSW**
+    This provides a standard wrapper over a buffered time-series. This provide history of the previous states and times
+    those states were valid. This is useful for implementing rolling window operations.
+
+Nodes
+.....
+
+Nodes are the equivalent of signal functions or behaviours discussed earlier (or at least these are the equivalent to
+a signal function primitive). HGraph is, as mentioned earlier, implemented as a DAG. Thus graph terminology is also
+usefully applied. The signals (or time-series) provide the edges and associated flow direction of the graph
+and the signal functions (or behaviours) provide the nodes.
+
+Using graph semantics, there three types of nodes in any DAG, namely ``source``, ``intermediate`` and ``sink``.
+Source nodes are the entry point to the graph, these are the nodes that introduce events into the graph.
+Intermediate nodes have input edges and output edges and are connected to either source nodes (or other intermediate nodes)
+as inputs and sink nodes (or other intermediate nodes) as outputs.
+Sink nodes are the exit point from the graph, these nodes are the final consumers of the graph computations. These
+most often represent exporting of events to external destinations, in the simple case to a storage system, or display.
+
+Since the DAG represents a computational graph, we use the term ``compute`` node to represent the ``intermediate``
+nodes, given this to be the expected behaviour of this node type.
+
+**Source Nodes**
+    These are the points of entry to the graph, source nodes are responsible for collecting and formatting events
+    into time-series values. A source node has no time-series inputs in it's definition but does have a time-series
+    output. These nodes act as the translator between event and signal. Source nodes are the only nodes that can
+    introduce events into the system. Source nodes are also generally defined on the outer wiring of the graph
+    definition providing a clean separation of IO and logic. Once again, as per Arrowized FRP, this provides
+    the ability to more easily simulate runs with the same inputs to the core behaviour and get the same results
+    (as a consequence of the causal nature of compute nodes). In HGraph, there are a couple of ways of specifying
+    source nodes. This include the use of the ``generator`` or ``push_queue`` decorators. Application logic should
+    never be encoded in a source node.
+
+**Compute Nodes**
+    Compute nodes are the work-horse of the nodes, these perform logic on time-series inputs and the results are
+    emitted as time-series outputs. Compute nodes are expected to be primitive operations that can be composed to
+    create functional applications. A compute node can be created using the ``compute_node`` decorator. As a guiding
+    principle, user of the library should not generally need to create new nodes, the desire is that libraries of
+    these nodes should exist and new applications are developed by wiring these nodes together to achieve the desired
+    application logic. Compute nodes should never have side-effects. These represent the concept of the signal function.
+
+    A compute node is not composable, this is a primitive in the HGraph eco-system. A compute node can accept scalar
+    functions as inputs, but not ``graph`` functions (described later).
+
+**Sink Nodes**
+    As mentioned earlier, these are the leaves of the DAG and are, by design, allowed to have side effects.
+    These nodes can produce events for other systems, capture the values of the time-series to storage, display items
+    on the screen or otherwise turn the time-series inputs into something useful. These can be though of time-series
+    to real-world adaptors. Applications logic should never be encoded in a sink node.
+
+Wiring
+......
+
+Finally, we need a mechanism to assemble an HGraph application. We have the time-series types to describe the connections
+between nodes, the nodes to perform the logic as well as introduce and exit events from the application. But, the
+most important aspect is describing the flow. For this we use the concept of ``graph``.
+
+**Graph**
+    A graph describes the construction of a DAG (or a fragment of a DAG). It contains the definitions of how the nodes
+    are to be connected.
+    A graph is created by decorating a Python function with ``graph``. When evaluated, this will be called by the
+    graph builder function (prior to graph evaluation) and will process the connections and build the desired application
+    graph. A graph has the same signature used for nodes, but unlike nodes, can be composed. In this sense the graph
+    represent the true FRP function (or signal function or behaviour). Once the logic in the graph has been evaluated,
+    the result is used to create a graph builder, which will be requested by the runtime to create a new graph for
+    evaluation. The function decorated by ``graph`` is thus only evaluated prior to the evaluation of the DAG described
+    in this function.
+
+    A graph is composable. A graph can be passed as a value to a graph and used within a graph. That is graph functions
+    are first class values within HGraph (within the given constraints).
+
+Runtime
+-------
+
+HGraph applications are split into the declaration of logic and the evaluation of the graph described by the logic.
+This is separation is described as a separation into wiring logic and runtime behaviour. The wiring logic is what the
+application developer specifies, the runtime behaviour is the logic supplied by the HGraph package to evaluate the
+graphs.
+
+The runtime consists of a graph-builder, that evaluates the functions decorated by ``graph`` and builds a DAG, this
+DAG is ranked and converted into a builder graph. The builder graph is used to generate out the runtime node instances
+that are evaluated. The final step is the run-loop, this is the logic that controls the order of evaluation of the nodes
+and the time of the evaluations.
+
+There are two main runtime engines provide, namely simulation and real-time. The simulation engine evaluates the graph
+using compressed time, that is the evaluation clock is advanced to the next event time as soon as the last evaluation
+cycle is completed. The real-time engine attempts to keep in sync with the computer clock. Thus if the next evaluation
+cycle is scheduled for a time in the future (from the perspective of the computer clock) the engine will wait until the
+computers clock matches the next evaluation time before processing the next event. The real-time engine is the only
+engine that can process real-time events (such as network traffic, user inputs, etc.). The simulation engine is suitable
+for simulating events using pre-defined event streams.
+
+Operators
+---------
+
+This section focuses on the API and syntax of HGraph. The core language has a number of operators that are defined
+to assist with building basic functionality.
+
+To start with, consider the core operators or concepts described in "Functional reactive programming, refactored"
+:cite:`perez2016functional`.
+
+**Lifting**
+    This applies a provided scalar (or normal) function point-wise to each tick on the time-series. In HGraph we have the
+    ``lift`` operator that performs this operation. The concept of lifting allows for re-use of existing functions
+    within the FRP model. This is a useful tool to make existing standard Python functions available to HGraph.
+
+    Along with this concept, HGraph also provides a ``lower`` function that will convert an HGraph FRP function to a
+    standard Python function, allowing the function to be called by traditional Python code. The time-series inputs
+    require a Polars :cite:`polars` DataFrame to be supplied and the result is returned as a data frame as well.
+
+**Widening**
+    In this example we are shown how to affect a sub-component of a time-series collection. With the type system
+    supported by HGraph, this is a relatively easy operations, using the example in the paper, we could model
+    the inputs ``i: TSL[TS[int], Size[2]]``, then the logic would be something to the effect of:
+    ``result = convert[TSL](i[0], i[2]+7)``.
+    In this case the result would contain the value (untouched) of the first element in the time-series and
+    the second element having seven added to it.
+    There are many other examples using ``TSB` for heterogeneous collections or ``TSD`` for dynamic collections.
+
+    #TODO: Add diagram
+
+**State**
+    State in FP is often implemented using recursive definitions, given HGraph is evaluated as DAG, this is
+    problematic. We require evaluation of a wave to be directional and acyclic. Thus it is not possible to
+    compute a recursive value at point :math:`t` in time. To overcome this we have a couple of options provided,
+    the first is to use a concept of ``feedback``. This creates a recursive relationship where the cycle is broken
+    overtime.
+
+    #TODO: Add diagram
+
 
 
