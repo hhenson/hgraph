@@ -43,6 +43,7 @@ intersphinx_disabled_domains = ["std"]
 
 autodoc_typehints_format = "short"
 autodoc_member_order = "groupwise"
+add_module_names = False
 
 templates_path = ["_templates"]
 exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
