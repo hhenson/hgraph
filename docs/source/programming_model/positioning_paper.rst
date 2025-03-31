@@ -317,9 +317,12 @@ To start with, consider the core operators or concepts described in "Functional 
     ``result = convert[TSL](i[0], i[2]+7)``.
     In this case the result would contain the value (untouched) of the first element in the time-series and
     the second element having seven added to it.
-    There are many other examples using ``TSB` for heterogeneous collections or ``TSD`` for dynamic collections.
+    There are many other examples using ``TSB`` for heterogeneous collections or ``TSD`` for dynamic collections.
 
-    #TODO: Add diagram
+    .. image:: ../_static/images/Widening.svg
+      :alt: Diagram Illustration
+      :align: center
+
 
 **State**
     State in FP is often implemented using recursive definitions, given HGraph is evaluated as DAG, this is
@@ -328,7 +331,6 @@ To start with, consider the core operators or concepts described in "Functional 
     the first is to use a concept of ``feedback``. This creates a recursive relationship where the cycle is broken
     overtime.
 
-    #TODO: Add diagram
-
-
-
+    .. image:: ../_static/images/Feedback.svg
+      :alt: Diagram Illustration
+      :align: center
