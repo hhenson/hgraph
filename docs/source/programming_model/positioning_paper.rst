@@ -409,6 +409,7 @@ This adds support for chaining and dealing with tuples, for example:
 With these primitives defined, a small set of utilities are described to build out the core operator set.
 
 ::
+
     swap = arr(lambda pair: (pair[1], pair[0]))
 
     def second(f: Arrow[B, C]) -> Arrow[tuple[D, B], tuple[D, C]]:
