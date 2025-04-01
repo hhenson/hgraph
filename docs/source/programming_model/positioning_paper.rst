@@ -299,7 +299,7 @@ This section focuses on the API and syntax of HGraph. The core language has a nu
 to assist with building basic functionality.
 
 To start with, consider the core operators or concepts described in "Functional reactive programming, refactored"
-:cite:`perez2016functional`.
+:cite:`perez2016functional`. Below is how these concepts map to HGraph.
 
 **Lifting**
     This applies a provided scalar (or normal) function point-wise to each tick on the time-series. In HGraph we have the
@@ -348,5 +348,92 @@ To start with, consider the core operators or concepts described in "Functional 
     the function itself is stateless, and any state can be provided to the function, although in actual use, the
     state is effectively a dictionary that is provided to the function on each activation.
 
+
+**Constant**
+    In the FRP, a constant is a value that is held continuously from a point-in-time and never changes thereafter.
+    The ``const`` operators performs this function in HGraph, the ``const`` operator emits the value provided at the
+    first time possible in the runtime of the graph. This is usually the start-time, although in the case on nested
+    graphs, this is the start time of the sub-graph and not the outer graph. Each time-series type can be expressed
+    as a constant.
+
+Arrow
+.....
+
+Next we consider the paper "A new notation for arrows" :cite:`paterson2001new`, whilst a number of the concepts
+previously discussed are already derived from this paper, there a few few concepts that are worth expanding on.
+This paper presents an extension to the Haskell to better support monadic computation and expression of the computation.
+Whilst HGraph itself does not enforce monadic computation, there are a number of scenarios where the approach could
+provide more readable code.
+
+The arrow approach can be re-expressed using Python as follows:
+
+There is a function that will wrap a standard function (monoid) providing the ability to make use of the new arrow syntax.
+For example:
+
+::
+
+    class Arrow(Generic[A, B]):  # Where A, C, C, D are TypeVar's
+        def __init__(self, func: Callable[[A], B]):
+            self.func = func
+
+        def __rshift__(self, other: 'Arrow[B, C]') -> 'Arrow[A, C]':
+            return Arrow(lambda x: other.func(self.func(x)))
+
+        def __call__(self, value: A) -> B:
+            return self.func(value)
+
+    def arr(func: Callable[[A], B]) -> Arrow[A, B]:
+        return Arrow(func)
+
+    def first(fn) -> 'Arrow[tuple[A, D], tuple[B, D]]':
+        return arr(lambda pair, _fn=fn: (_fn(pair[0]), pair[1]))
+
+This adds support for chaining and dealing with tuples, for example:
+
+::
+
+    mul_2 = arr(lambda x: x*2)
+    add_5 = arr(lambda x: x+5)
+    (mul_2 >> add_5)(3)
+
+>>> 11
+
+::
+
+    to_upper = arr(lambda x: x.upper())
+    first(to_upper)(('hello', 42))
+
+>>> ("HELLO", 42)
+
+
+With these primitives defined, a small set of utilities are described to build out the core operator set.
+
+::
+    swap = arr(lambda pair: (pair[1], pair[0]))
+
+    def second(f: Arrow[B, C]) -> Arrow[tuple[D, B], tuple[D, C]]:
+        return swap >> first(f) >> swap
+
+    def cross(f, g):
+        return arr(lambda pair: f(pair[0]), g(pair[1]))
+
+    def assoc(pair):
+        (a, b), c = pair
+        return a, (b, c)
+
+    def cross_over(f: Arrow[A, B], g: Arrow[C, D]) -> Arrow[tuple[A, C], tuple[B, D]]:
+        # In the paper this uses *** as the operator
+        # Allowing f *** g to be used
+        return first(f) >> second(g)
+
+    def fanout(f: Arrow[A, B], g: Arrow[A, C]) -> Arrow[A, Tuple[B, C]]:
+        # Uses &&& in the paper allowing for syntax such as f &&& g
+        return arr(lambda b: (b, b)) >> cross(f, g)
+
+    def apply(pair):
+        return arr(lambda pair: pair[0](pair[1]))
+
+
+This approach provides a interesting way to describe the flow of information.
 
 
