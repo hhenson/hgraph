@@ -306,6 +306,10 @@ To start with, consider the core operators or concepts described in "Functional 
     ``lift`` operator that performs this operation. The concept of lifting allows for re-use of existing functions
     within the FRP model. This is a useful tool to make existing standard Python functions available to HGraph.
 
+    .. image:: ../_static/images/Lift.svg
+      :alt: A diagram depicting the lift operator
+      :align: center
+
     Along with this concept, HGraph also provides a ``lower`` function that will convert an HGraph FRP function to a
     standard Python function, allowing the function to be called by traditional Python code. The time-series inputs
     require a Polars :cite:`polars` DataFrame to be supplied and the result is returned as a data frame as well.
@@ -320,7 +324,7 @@ To start with, consider the core operators or concepts described in "Functional 
     There are many other examples using ``TSB`` for heterogeneous collections or ``TSD`` for dynamic collections.
 
     .. image:: ../_static/images/Widening.svg
-      :alt: Diagram Illustration
+      :alt: A diagram showing widening
       :align: center
 
 
@@ -328,17 +332,21 @@ To start with, consider the core operators or concepts described in "Functional 
     State in FP is often implemented using recursive definitions, given HGraph is evaluated as DAG, this is
     problematic. We require evaluation of a wave to be directional and acyclic. Thus it is not possible to
     compute a recursive value at point :math:`t` in time. To overcome this we have a couple of options provided,
-    the first is to use a concept of ``feedback``. This creates a recursive relationship where the cycle is broken
-    overtime. With the result been returned to the graph on the next smallest time-interval (``MIN_TD``).
+    the first is to use a concept of ``feedback``, this is similar to that discussed in section 3.5 by Parez, et. al.
+    :cite:year:`perez2016functional`.
+    This creates a recursive relationship where the cycle is broken overtime. With the result been returned to the
+    graph on the next smallest time-interval (``MIN_TD``).
 
     .. image:: ../_static/images/Feedback.svg
-      :alt: Diagram Illustration
+      :alt: A diagram showing feedback
       :align: center
 
-    The other mechanism for state, specifically in the case of the ``compute_node`` or ``sync_node`` is using a
+    The other mechanism for state, specifically in the case of the ``compute_node`` or ``sync_node``, is using the
     concept of injectable attributes. This a mechanism to declare a need to track state, then the runtime engine
-    will provide a state to the function. This is logically a shortcut for using a feedback, but also allows for
+    provides a state object to the function. This is logically a shortcut for using a feedback, but also allows for
     mutable values to be stored on the state object. The state is provided to the function and as a consequence
     the function itself is stateless, and any state can be provided to the function, although in actual use, the
     state is effectively a dictionary that is provided to the function on each activation.
+
+
 
