@@ -223,3 +223,12 @@ def test_tsb_kwargs():
         return values["p1"]
 
     assert eval_node(g, [{"p1": 1, "p2": "a"}, {"p1": 2}]) == [1, 2]
+
+
+def test_tsb_integer_index():
+
+    @graph
+    def g(tsb: TSB[MyTsb]) -> TS[int]:
+        return tsb[0]
+
+    assert eval_node(g, [{"p1": 1, "p2": "a"}, {"p1": 2}]) == [1, 2]

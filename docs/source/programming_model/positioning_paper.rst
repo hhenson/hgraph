@@ -415,9 +415,6 @@ With these primitives defined, a small set of utilities are described to build o
     def second(f: Arrow[B, C]) -> Arrow[tuple[D, B], tuple[D, C]]:
         return swap >> first(f) >> swap
 
-    def cross(f, g):
-        return arr(lambda pair: f(pair[0]), g(pair[1]))
-
     def assoc(pair):
         (a, b), c = pair
         return a, (b, c)
@@ -436,5 +433,16 @@ With these primitives defined, a small set of utilities are described to build o
 
 
 This approach provides a interesting way to describe the flow of information.
+
+HGraph supports this model with with the hgraph.arrow module.
+
+A few small differences exist, namely ``first`` and ``second`` are selectors to select the first and second tuple elements
+from a pair.
+The ``**`` operator is use to implement the ``cross_over`` function and ``/`` is used to implement the ``fanout``
+operator.
+Finally, since HGraph is strongly typed, and there is already an ``apply`` function, ``apply_`` is provided, it takes
+the output type of the function as a parameter.
+
+
 
 
