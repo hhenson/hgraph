@@ -83,7 +83,7 @@ def test_cross():
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         from hgraph import format_
 
-        return arrow(ts1, ts2) > arrow(lambda x: x * 3) ** (lambda x: format_("{}_", x))
+        return arrow(ts1, ts2) > arrow(lambda x: x * 3) // (lambda x: format_("{}_", x))
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 3, "ts2": "A_"}, {"ts1": 6, "ts2": "B_"}]
 
@@ -130,7 +130,7 @@ def test_first_():
 
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
-        return arrow(ts1, ts2) > arrow(lambda x: x * 3) ** identity
+        return arrow(ts1, ts2) > arrow(lambda x: x * 3) // identity
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 3, "ts2": "A"}, {"ts1": 6, "ts2": "B"}]
 
@@ -141,6 +141,6 @@ def test_second_():
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         from hgraph import format_
 
-        return arrow(ts1, ts2) > identity ** arrow(lambda x: format_("{}_", x))
+        return arrow(ts1, ts2) > identity // arrow(lambda x: format_("{}_", x))
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 1, "ts2": "A_"}, {"ts1": 2, "ts2": "B_"}]

@@ -23,6 +23,7 @@ __all__ = (
     "apply_",
     "assoc",
     "identity",
+    "i"
 )
 
 from hgraph.nodes import pass_through_node
@@ -59,16 +60,22 @@ class _Arrow(Generic[A, B]):
             g(f(x))
 
         """
-        return _Arrow(lambda x: other.fn(self.fn(x)))
+        # Unwrap the fn from the arrow wrapper
+        if isinstance(other, _Arrow):
+            fn = other.fn
+        else:
+            fn = other
+        # Now re-wrap the logic
+        return _Arrow(lambda x: fn(self.fn(x)))
 
-    def __pow__(self, other: "Arrow[C, D]") -> "Arrow[tuple[A, B], tuple[C, D]]":
+    def __floordiv__(self, other: "Arrow[C, D]") -> "Arrow[tuple[A, B], tuple[C, D]]":
         """
         Consumes a tuple of inputs applying the first to the first function and the second to the second function.
         This is used as follows:
 
         ::
 
-            pair > f ** g
+            pair > f // g
 
         """
         f = self.fn
@@ -249,3 +256,6 @@ def apply_(tp: OUT):
 def identity(x):
     """The identity function, does nothing."""
     return x
+
+
+i = identity

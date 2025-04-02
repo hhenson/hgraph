@@ -438,11 +438,17 @@ HGraph supports this model with with the hgraph.arrow module.
 
 A few small differences exist, namely ``first`` and ``second`` are selectors to select the first and second tuple elements
 from a pair.
-The ``**`` operator is use to implement the ``cross_over`` function and ``/`` is used to implement the ``fanout``
+The ``//`` operator is use to implement the ``cross_over`` function and ``/`` is used to implement the ``fanout``
 operator.
 Finally, since HGraph is strongly typed, and there is already an ``apply`` function, ``apply_`` is provided, it takes
 the output type of the function as a parameter.
 
+As can be seen HGraph lends itself well to the ideas expressed in the current body of work describing FRP and can be
+adapted for follow alternative composition strategies.
 
+Flow Control
+............
 
+For programmers with an imperical programming background, the lack of flow control keywords and structures in FP can
+be a bit daunting.
 
