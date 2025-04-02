@@ -1,9 +1,8 @@
-from typing import Callable
-
-from hgraph import TS, TSL, Size, graph, TSB, const
+from hgraph import TS, TSL, Size, graph, TSB, const, NodeException, add_
 from hgraph.arrow import arrow
-from hgraph.arrow._arrow import _TupleSchema, first, second, apply_, assoc, identity
+from hgraph.arrow._arrow import _TupleSchema, first, second, apply_, assoc, identity, i, assert_, binary_op, eval_
 from hgraph.test import eval_node
+import pytest
 
 
 def test_make_tuple_tsl():
@@ -41,7 +40,7 @@ def test_basic_arrow_wrapper_including_input_wrapper():
     def g(ts: TS[int]) -> TS[int]:
         mult_3 = arrow(lambda x: x * 3)
         add_5 = arrow(lambda x: x + 5)
-        return arrow(ts) > mult_3 >> add_5
+        return arrow(ts) | mult_3 >> add_5
 
     assert eval_node(g, [1, 2, 3]) == [1 * 3 + 5, 2 * 3 + 5, 3 * 3 + 5]
 
@@ -62,7 +61,7 @@ def test_first():
 
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TS[int]:
-        return arrow(ts1, ts2) > first >> arrow(lambda x: x * 3)
+        return arrow(ts1, ts2) | first >> arrow(lambda x: x * 3)
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [3, 6]
 
@@ -73,7 +72,7 @@ def test_second():
     def g(ts1: TS[int], ts2: TS[str]) -> TS[str]:
         from hgraph import format_
 
-        return arrow(ts1, ts2) > second >> arrow(lambda x: format_("{}_", x))
+        return arrow(ts1, ts2) | second >> arrow(lambda x: format_("{}_", x))
 
     assert eval_node(g, [1, 2], ["A", "B"]) == ["A_", "B_"]
 
@@ -83,7 +82,7 @@ def test_cross():
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         from hgraph import format_
 
-        return arrow(ts1, ts2) > arrow(lambda x: x * 3) // (lambda x: format_("{}_", x))
+        return arrow(ts1, ts2) | arrow(lambda x: x * 3) // (lambda x: format_("{}_", x))
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 3, "ts2": "A_"}, {"ts1": 6, "ts2": "B_"}]
 
@@ -91,7 +90,7 @@ def test_cross():
 def test_fan_out():
     @graph
     def g(ts1: TS[int]) -> TSL[TS[int], Size[2]]:
-        return arrow(ts1) > arrow(lambda x: x * 3) / (lambda x: x + 1)
+        return arrow(ts1) | arrow(lambda x: x * 3) / (lambda x: x + 1)
 
     assert eval_node(g, [1, 2]) == [{0: 3, 1: 2}, {0: 6, 1: 3}]
 
@@ -99,7 +98,7 @@ def test_fan_out():
 def test_apply_():
     @graph
     def g(ts1: TS[int]) -> TS[int]:
-        return arrow(const(lambda x: x * 2), ts1) > apply_(TS[int])
+        return arrow(const(lambda x: x * 2), ts1) | apply_(TS[int])
 
     assert eval_node(g, [1, 2]) == [2, 4]
 
@@ -110,7 +109,7 @@ def test_assoc():
     def g(
         ts1: TS[int], ts2: TS[float], ts3: TS[str]
     ) -> TSB[_TupleSchema[TS[int], TSB[_TupleSchema[TS[float], TS[str]]]]]:
-        return arrow((ts1, ts2), ts3) > assoc
+        return arrow((ts1, ts2), ts3) | assoc
 
     assert eval_node(g, [1, 2], [1.0, 2.0], ["A", "B"]) == [
         {"ts1": 1, "ts2": {"ts1": 1.0, "ts2": "A"}},
@@ -121,7 +120,7 @@ def test_assoc():
 def test_identity():
     @graph
     def g(ts1: TS[int]) -> TS[int]:
-        return arrow(ts1) > identity
+        return arrow(ts1) | identity
 
     assert eval_node(g, [1, 2]) == [1, 2]
 
@@ -130,7 +129,7 @@ def test_first_():
 
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
-        return arrow(ts1, ts2) > arrow(lambda x: x * 3) // identity
+        return arrow(ts1, ts2) | arrow(lambda x: x * 3) // identity
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 3, "ts2": "A"}, {"ts1": 6, "ts2": "B"}]
 
@@ -141,6 +140,82 @@ def test_second_():
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         from hgraph import format_
 
-        return arrow(ts1, ts2) > identity // arrow(lambda x: format_("{}_", x))
+        return arrow(ts1, ts2) | identity // arrow(lambda x: format_("{}_", x))
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 1, "ts2": "A_"}, {"ts1": 2, "ts2": "B_"}]
+
+
+def test_arrow_const():
+
+    @graph
+    def g() -> TS[int]:
+        return arrow(1) | i
+
+    assert eval_node(g) == [1]
+
+
+def test_arrow_const_2():
+    @graph
+    def g() -> TSL[TS[int], Size[2]]:
+        return arrow(1, 2) | i
+
+    assert eval_node(g) == [{0: 1, 1: 2}]
+
+
+def test_arrow_const_3():
+    @graph
+    def g() -> TSB[_TupleSchema[TSL[TS[int], Size[2]], TS[int]]]:
+        return arrow((1, 2), 3) | i
+
+    assert eval_node(g) == [{"ts1": {0: 1, 1: 2}, "ts2": 3}]
+
+
+def test_assert_too_many_args():
+
+    @graph
+    def g() -> TS[int]:
+        return arrow(1) | assert_(1, 2)
+
+    with pytest.raises(AssertionError):
+        assert eval_node(g) == [1]
+
+
+def test_assert_insufficient_args():
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return arrow(ts) | assert_(1)
+
+    with pytest.raises(NodeException):
+        assert eval_node(g, [1, 2]) == [1, 2]
+
+
+def test_assert_wrong_value():
+    @graph
+    def g() -> TS[int]:
+        return arrow(1) | assert_(2)
+
+    with pytest.raises(NodeException):
+        assert eval_node(g) == [1]
+
+
+def test_assert_positive_flow():
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return arrow(ts) | assert_(1, 2)
+
+    assert eval_node(g, [1, 2]) == [1, 2]
+
+
+def test_binary_op():
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return arrow(ts) | i / i >> binary_op(add_)
+
+    assert eval_node(g, [1, 2]) == [2, 4]
+
+
+def test_eval_node():
+    assert eval_(1) | i == [1]

@@ -1,23 +1,35 @@
+from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Generic, TypeVar, Callable
 
-from hgraph import pass_through
+from hgraph._operators import (
+    nothing,
+    const,
+)
+from hgraph._impl._operators._record_replay_in_memory import record_to_memory, get_recorded_value
 from hgraph._types import (
     TIME_SERIES_TYPE,
     TIME_SERIES_TYPE_1,
     TIME_SERIES_TYPE_2,
     OUT,
+    TS,
     TSL,
     Size,
     TSB,
     TimeSeriesSchema,
     clone_type_var,
+    STATE,
+    CompoundScalar,
 )
-from hgraph._wiring._decorators import graph, operator
+from hgraph._runtime import (
+    evaluate_graph,
+    GraphConfiguration,
+    GlobalState,
+)
+from hgraph._wiring._decorators import graph, operator, compute_node
 from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = ("arrow", "first", "second", "swap", "apply_", "assoc", "identity", "i")
-
-from hgraph.nodes import pass_through_node
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
 B: TypeVar = clone_type_var(TIME_SERIES_TYPE, "B")
@@ -110,10 +122,49 @@ class _ArrowInput(Generic[A]):
         else:
             self.ts = ts
 
-    def __gt__(self, other: "Arrow[A, B]") -> B:
+    def __or__(self, other: "Arrow[A, B]") -> B:
         if not isinstance(other, _Arrow):
             raise TypeError(f"Expected Arrow function change, got {type(other)}")
         return other(self.ts)
+
+
+class _ConstArrowInput:
+
+    def __init__(self, first, second=None):
+        self.first = first
+        self.second = second
+
+    def __or__(self, other: "Arrow[A, B]") -> B:
+        # Evaluate the other function call passing in the value captured in this
+        # Input.
+        @graph
+        def g():
+            # For now use the limited support in arrow
+            values = arrow(self.first, self.second).ts
+            out = other(values)
+            if out is not None:
+                record_to_memory(out)
+            else:
+                # Place nothing into the buffer
+                record_to_memory(nothing[TS[int]]())
+
+        with GlobalState() if GlobalState._instance is None else nullcontext():
+            evaluate_graph(g, GraphConfiguration())
+            results = get_recorded_value()
+        return [result[1] for result in results]
+
+
+def eval_(first, second=None):
+    """
+    Wraps inputs to the graph that can be used to evaluate the graph
+    in simulation mode. If the values are lists then the input is assumed
+    to be a time-series of values to feed the graph with, otherwise it is assumed
+    that the values are constants.
+
+    For this to work correctly, tuples must be used to represent tuples.
+    lists are then used to express the inputs.
+    """
+    return _ConstArrowInput(first, second)
 
 
 def arrow(input_: Callable[[A], B] | A, input_2: C = None) -> _Arrow[A, B] | _ArrowInput[A] | _ArrowInput[tuple[A, C]]:
@@ -141,7 +192,8 @@ def arrow(input_: Callable[[A], B] | A, input_2: C = None) -> _Arrow[A, B] | _Ar
     elif callable(input_):
         return _Arrow(input_)
     else:
-        raise TypeError(f"Expected callable or WiringPort, got {type(input_)}")
+        # Assume this is a constant and attempt to convert to a const
+        return _ArrowInput(const(input_))
 
 
 def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2):
@@ -159,6 +211,10 @@ def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2):
         ts1 = ts1.ts
     if isinstance(ts2, _ArrowInput):
         ts2 = ts2.ts
+    if not isinstance(ts1, WiringPort):
+        ts1 = const(ts1)
+    if not isinstance(ts2, WiringPort):
+        ts2 = const(ts2)
     if isinstance(ts1, WiringPort) and isinstance(ts2, WiringPort):
         # Create the tuple and then return the result wrapped as an _ArrowInput to allow this to create
         # a left to right application of values.
@@ -224,6 +280,14 @@ def second(pair) -> B:
     return pair[1]
 
 
+def binary_op(fn):
+    """
+    A simple arrow wrapper of an HGraph function that takes two args as input.
+    Useful to wrap binary operators.
+    """
+    return arrow(lambda pair, fn_=fn: fn_(pair[0], pair[1]))
+
+
 @arrow
 def assoc(pair):
     """
@@ -250,3 +314,37 @@ def identity(x):
 
 
 i = identity
+
+
+@dataclass
+class _AssertState(CompoundScalar):
+    count: int = 0
+
+
+def assert_(*args, message: str = None):
+    """
+    Provides a simple assertion operator that can use used for simple tests.
+    Provide the sequence of expected values, this acts as a pass through node,
+    that will raise an AssertionError if the value does not match the expected value.
+    """
+    if message is None:
+        message = ""
+    else:
+        message = f": ({message})"
+
+    @compute_node
+    def _assert(ts: A, _state: STATE[_AssertState] = None) -> A:
+        if (c := _state.count) >= (l := len(args)):
+            raise AssertionError(f"Expected {l} ticks, but still getting results{message}")
+        expected = args[c]
+        _state.count += 1
+        if ts.value != expected:
+            raise AssertionError(f"Expected '{expected}' but got '{ts.value}' on tick count: {_state.count}{message}")
+        return ts.delta_value
+
+    @_assert.stop
+    def _assert_stop(_state: STATE[_AssertState]):
+        if (l := len(args)) != (c := _state.count):
+            raise AssertionError(f"Expected {l} values but got {c} results{message}")
+
+    return arrow(_assert)
