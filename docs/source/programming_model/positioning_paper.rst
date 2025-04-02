@@ -449,6 +449,56 @@ adapted for follow alternative composition strategies.
 Flow Control
 ............
 
-For programmers with an imperical programming background, the lack of flow control keywords and structures in FP can
-be a bit daunting.
+For programmers with an imperative programming background, the lack of flow control keywords and structures in FP can
+be a bit daunting, this can be even more interesting when dealing with reactive flow control. There are a number of
+strategies for different froms of flow control, these include:
+
+Recursion
+    Instead of using loops, recursive functions can be used to implement looping. There are many strategies
+    to manage the cost of recursion, the key one being tail recursion, where the final computed value is returned,
+    directly. This avoids the requirement of tracking the call-stack to support unwinding. In FRP, recursion is not
+    generally the approach taken, however, the use of the ``feedback`` operator allows for the simulation
+    of general recursion. There are a number of other related operators to support processing in a similar manor, for
+    example there is the ``emit`` operator, which takes a collection and emits that values one element per evaluation
+    cycle. These strategies spread the recursive operations over multiple engine cycles.
+
+Higher Order Functions
+    These functions take other functions as arguments and provide the ability to implement common control flow patterns.
+    In the paper "Monoids for functional programming" :cite:`wadler1995monads` there in an interesting introduction
+    to some of these ideas, albeit in a monoid form. Whist HGraph can support monoid operations, it is a hybrid
+    langauge and as such generally uses a more conventional calling approach, however, the concepts discussed are
+    found in HGraph as well. The include: ``map_``, ``reduce``, ``filter_``, as well as a number of other
+    constructs.
+
+Pattern Matching
+    Matches the structure or content of the data. HGraph supports two key concepts to support this behaviour, namely:
+    ``switch_``, ``operator``, and ``dispatch``. The ``switch_`` is a higher order function that performs a similar function to the
+    ``switch`` keyword found in many C like languages. The function takes a match time-series that contains a value
+    that will match a key in a dictionary. A dictionary of matches and associated FRP functions to apply when the
+    match is achieved, and any parameters to supply to the matched function.
+    The ``operator`` is a wiring time matching function. This will match the wiring time type and scalar information
+    selecting the implementation that is the closest match. This is equivalent of polymorphism in imperative programming.
+    Finally, there is the ``dispatch`` higher order function, this is a hybrid technology in that it relies on matching
+    the type of the input data to the closest sub-class of the defined input type. This is similar to traits in Rust
+    or virtual dispatch in C++.
+
+Continuation-Parsing Style (CPS)
+    This is discussed in "Representing Control" :cite:`danvy1991representing`. In simple terms, this deals with
+    asynchronous or complex control flow (such as exception handling) by using a function to apply when the condition
+    occurs. In FRP asynchronous behaviour is handled as base functionality of the system, however, exception handling
+    is an interesting challenge. HGraph provide an approach more consistent with that described by Wadler
+    :cite:year:`wadler1995monads`. Where the exception is provided as a separate time-series stream, normally not
+    visible, but accessible using the ``exception_time_series`` function. This allows for logic to be bound the the
+    time-series as standard logic. It is also possible to bound a sub-graph of behaviour using the ``try_except``
+    higher order function. This effectively wraps the nodes with a large try-catch block and the error result is provided
+    on the ``exception`` output key and the non-exception result on ``out``.
+
+Other Abstractions
+    HGraph provides a number of other higher order functions to support other concepts, for example for ``if``/``else``
+    can be simulated using the ``if_then_else`` function, which will select a time-series stream based on a condition,
+    this can also be simulated using a ``switch_`` with ``True`` and ``False`` matches. Another approach would be to
+    use the ``if_`` operator, which will direct a time-series flow down the ``True`` or ``False`` output keys depending
+    on the value of a condition time-series.
+
+
 
