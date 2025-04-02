@@ -15,16 +15,7 @@ from hgraph._types import (
 from hgraph._wiring._decorators import graph, operator
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = (
-    "arrow",
-    "first",
-    "second",
-    "swap",
-    "apply_",
-    "assoc",
-    "identity",
-    "i"
-)
+__all__ = ("arrow", "first", "second", "swap", "apply_", "assoc", "identity", "i")
 
 from hgraph.nodes import pass_through_node
 
