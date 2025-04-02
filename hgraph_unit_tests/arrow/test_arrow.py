@@ -222,3 +222,7 @@ def test_eval_node():
     assert eval_([1, 2]) | i == [1, 2]
     assert eval_([1, 2], [3, 4]) | i == [{0: 1, 1: 3}, {0: 2, 1: 4}]
     assert eval_(([1, 2], [3, 4]), [5, 6]) | i == [{"ts1": {0: 1, 1: 3}, "ts2": 5}, {"ts1": {0: 2, 1: 4}, "ts2": 6}]
+
+
+def test_eval_and_assert():
+    eval_([1, 2], [3, 4]) | binary_op(add_) >> assert_(4, 6)
