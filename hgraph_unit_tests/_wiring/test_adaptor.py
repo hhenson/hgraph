@@ -110,6 +110,38 @@ def test_adaptor_with_parameters():
     assert [x[1] for x in result] == list(chain(*zip([{0: x} for x in range(2, 12)], [{1: x} for x in range(1, 11)])))
 
 
+def test_adaptor_with_impl_parameters():
+    @push_queue(TSD[int, TS[int]])
+    def top(sender: Callable[[int], None], path: str) -> TSD[int, TS[int]]:
+        GlobalState.instance()[f"{path}/queue"] = sender
+        return None
+
+    @sink_node
+    def bottom(path: str, ts: TSD[int, TS[int]]):
+        sender = GlobalState.instance().get(f"{path}/queue")
+        sender(ts.delta_value)
+
+    @service_adaptor
+    def my_adaptor(path: str, ts: TS[int]) -> TS[int]: ...
+
+    @service_adaptor_impl(interfaces=my_adaptor)
+    def my_adaptor_impl(path: str, b: bool, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        path = f"{path}_{b}"  # path comes in its plain form i.e. without parameters baked in so we have to do it here
+        bottom(path, ts if b else map_(lambda x: x + 1, ts))
+        return top(path)
+
+    @graph
+    def g() -> TSL[TS[int], Size[2]]:
+        register_adaptor(None, my_adaptor_impl, b=False)
+        a1 = my_adaptor("test_adaptor", ts=count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+        a2 = my_adaptor("test_adaptor", ts=count(schedule(timedelta(milliseconds=11), max_ticks=10)))
+        return combine(a1, a2)
+
+    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250))
+
+    assert [x[1] for x in result] == list(chain(*zip([{0: x} for x in range(2, 12)], [{1: x} for x in range(2, 12)])))
+
+
 def test_multi_client_adaptor_w_parameters():
     # in this test we create a multi-client adaptor that takes parameters and have two clients in a map_
     # to one instance of the adaptor and one client to another instance of the adaptor with different parameters

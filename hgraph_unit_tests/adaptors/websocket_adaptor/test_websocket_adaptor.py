@@ -65,7 +65,7 @@ try:
     def run_test(queries: dict[object, object]):
         def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
-            return combine[TS[HttpResponse]](status_code=200, body="Ok")
+            return combine[TS[HttpResponse]](status_code=200, body=b"Ok")
 
         http_server_handler(url="/stop")(s)
 
