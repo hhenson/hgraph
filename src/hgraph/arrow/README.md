@@ -89,3 +89,14 @@ arrow flows. These include:
 ``apply_`` - Applies a function in the first of the tuple to the value in the second of the tuple.
 
 
+Then there are a few helper components:
+
+``assert_`` - Performs an assertion on the stream. The value is passed through,
+              so it is possible to chain multiple assertions at various
+              steps in the evaluation chain.
+
+``eval_`` - Wraps up a set of scalar values, including lists which will
+            be converted into a time-series of values and when applied
+            to the arrow function chain it will evaluate the graph, returning
+            the collected results as an array, similar to ``eval_node`` 
+            with ``__elide__`` set to ``True``.
