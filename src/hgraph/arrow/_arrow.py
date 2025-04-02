@@ -1,12 +1,20 @@
 from contextlib import nullcontext
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Generic, TypeVar, Callable
 
+from hgraph import MIN_ST, MAX_ET
 from hgraph._operators import (
     nothing,
     const,
 )
-from hgraph._impl._operators._record_replay_in_memory import record_to_memory, get_recorded_value
+from hgraph._impl._operators._record_replay_in_memory import (
+    record_to_memory,
+    get_recorded_value,
+    replay_from_memory,
+    set_replay_values,
+    SimpleArrayReplaySource,
+)
 from hgraph._types import (
     TIME_SERIES_TYPE,
     TIME_SERIES_TYPE_1,
@@ -128,11 +136,21 @@ class _ArrowInput(Generic[A]):
         return other(self.ts)
 
 
-class _ConstArrowInput:
+class _EvalArrowInput:
 
-    def __init__(self, first, second=None):
+    def __init__(
+        self,
+        first,
+        second=None,
+        type_map: tuple = None,
+        start_time: datetime = MIN_ST,
+        end_time: datetime = MAX_ET,
+    ):
         self.first = first
         self.second = second
+        self.type_map = type_map
+        self.start_time = start_time
+        self.end_time = end_time
 
     def __or__(self, other: "Arrow[A, B]") -> B:
         # Evaluate the other function call passing in the value captured in this
@@ -140,7 +158,7 @@ class _ConstArrowInput:
         @graph
         def g():
             # For now use the limited support in arrow
-            values = arrow(self.first, self.second).ts
+            values = _build_inputs(self.first, self.second, self.type_map, 0, self.start_time)
             out = other(values)
             if out is not None:
                 record_to_memory(out)
@@ -149,12 +167,45 @@ class _ConstArrowInput:
                 record_to_memory(nothing[TS[int]]())
 
         with GlobalState() if GlobalState._instance is None else nullcontext():
-            evaluate_graph(g, GraphConfiguration())
+            evaluate_graph(g, GraphConfiguration(start_time=self.start_time, end_time=self.end_time))
             results = get_recorded_value()
         return [result[1] for result in results]
 
 
-def eval_(first, second=None):
+def _build_inputs(
+    first,
+    second=None,
+    type_map: tuple = None,
+    level: int = 0,
+    start_time: datetime = MIN_ST,
+):
+    if type(first) is tuple:
+        first = _build_inputs(*first, type_map=type_map[0] if type_map else None, level=level + 1)
+    elif isinstance(first, list):
+        set_replay_values(ts_arg := f"{level}:0", SimpleArrayReplaySource(first, start_time=start_time))
+        first = replay_from_memory(ts_arg, TS[type(first[0])] if type_map is None else type_map[0])
+    else:
+        first = const(first) if type_map is None else const(first, type_map[0])
+
+    if second is None:
+        return first
+    elif type(second) is tuple:
+        second = _build_inputs(*second, type_map=type_map[1] if type_map else None, level=level + 1)
+    elif isinstance(second, list):
+        set_replay_values(ts_arg := f"{level}:1", SimpleArrayReplaySource(second, start_time=start_time))
+        second = replay_from_memory(ts_arg, TS[type(second[0])] if type_map is None else type_map[1])
+    else:
+        second = const(second) if type_map is None else const(second, type_map[1])
+    return make_tuple(first, second).ts
+
+
+def eval_(
+    first,
+    second=None,
+    type_map: tuple = None,
+    start_time: datetime = MIN_ST,
+    end_time: datetime = MAX_ET,
+):
     """
     Wraps inputs to the graph that can be used to evaluate the graph
     in simulation mode. If the values are lists then the input is assumed
@@ -163,8 +214,11 @@ def eval_(first, second=None):
 
     For this to work correctly, tuples must be used to represent tuples.
     lists are then used to express the inputs.
+
+    If the types of the inputs are not just TS[SCALAR], then the user
+    must supply the appropriate types to use for each input stream.
     """
-    return _ConstArrowInput(first, second)
+    return _EvalArrowInput(first, second, type_map, start_time, end_time)
 
 
 def arrow(input_: Callable[[A], B] | A, input_2: C = None) -> _Arrow[A, B] | _ArrowInput[A] | _ArrowInput[tuple[A, C]]:
