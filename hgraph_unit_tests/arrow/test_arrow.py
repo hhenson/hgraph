@@ -247,6 +247,7 @@ def test_pos():
 def test_neg():
     eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_(4, 5)
 
+
 #
 # def test_null():
 #     eval_(1, 2) | i / null >> assert_({0: 1})
