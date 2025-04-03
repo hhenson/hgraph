@@ -626,6 +626,14 @@ def test_gate():
     assert eval_node(g, [False, True], [1, 2, None, None, 3, 4]) == [None, 1, 2, None, 3, 4]
 
 
+def test_gate_with_negative_buffer_length():
+    @graph
+    def g(condition: TS[bool], ts: TS[int]) -> TS[int]:
+        return gate(condition, ts, -1)
+
+    assert eval_node(g, [False, True], [1, 2, None, None, 3, 4]) == [None, 2, None, None, 3, 4]
+
+
 def test_gate_with_buffer_overflow():
     @graph
     def g(condition: TS[bool], ts: TS[int], buffer_length: int) -> TS[int]:

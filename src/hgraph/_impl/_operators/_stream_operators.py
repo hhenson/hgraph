@@ -411,24 +411,36 @@ def gate_default(
     _sched: SCHEDULER = None,
 ) -> TIME_SERIES_TYPE:
     if ts.modified:
-        l = len(_state.buffer)
-        if l == 0 and condition.value:
-            return ts.delta_value
-        elif l < buffer_length:
-            _state.buffer.append(ts.delta_value)
+        if buffer_length < 0:
+            _state.buffer = ts.value
         else:
-            raise RuntimeError(f"Buffer overflow when adding {ts.delta_value} to gate buffer")
+            l = len(_state.buffer)
+            if l == 0 and condition.value:
+                return ts.delta_value
+            elif l < buffer_length:
+                _state.buffer.append(ts.delta_value)
+            else:
+                raise RuntimeError(f"Buffer overflow when adding {ts.delta_value} to gate buffer")
 
-    if (condition.modified or _sched.is_scheduled_now) and condition.value and _state.buffer:
-        out = _state.buffer.popleft()
-        if _state.buffer:
-            _sched.schedule(MIN_TD)
-        return out
+    if condition.value:
+        if buffer_length < 0:
+            if _state.buffer is not None:
+                out = _state.buffer
+                _state.buffer = None
+                return out
+        elif (condition.modified or _sched.is_scheduled_now) and _state.buffer:
+            out = _state.buffer.popleft()
+            if _state.buffer:
+                _sched.schedule(MIN_TD)
+            return out
 
 
 @gate_default.start
-def gate_default_start(_state: STATE):
-    _state.buffer = deque()
+def gate_default_start(buffer_length: int, _state: STATE):
+    if buffer_length < 0:
+        _state.buffer = None
+    else:
+        _state.buffer = deque()
 
 
 @compute_node(overloads=batch)

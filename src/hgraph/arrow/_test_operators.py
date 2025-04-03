@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, compute_node, STATE
+from hgraph import CompoundScalar, compute_node, STATE, debug_print
 from hgraph.arrow import arrow
 from hgraph.arrow._arrow import A
 
-__all__ = ("assert_",)
+__all__ = ("assert_", "print_out", "debug_print_")
+
 
 @dataclass
 class _AssertState(CompoundScalar):
@@ -27,7 +28,7 @@ def assert_(*args, message: str = None):
     def _assert(ts: A, _state: STATE[_AssertState] = None) -> A:
         if (c := _state.count) >= (l := len(args)):
             _state.failed = True
-            raise AssertionError(f"Expected {l} ticks, but still getting results{message}")
+            raise AssertionError(f"Expected {l} ticks, but still getting results: '{ts.value}'{message}")
         expected = args[c]
         _state.count += 1
         if ts.value != expected:
@@ -41,3 +42,20 @@ def assert_(*args, message: str = None):
             raise AssertionError(f"Expected {l} values but got {c} results{message}")
 
     return arrow(_assert)
+
+
+@arrow
+def print_out(x):
+    debug_print("out", x)
+    return x
+
+
+def debug_print_(label: str):
+    """Wraps the debug print"""
+
+    @arrow(__name__=f"debug_print_({label})")
+    def _debug_print(x):
+        debug_print(label, x)
+        return x
+
+    return _debug_print

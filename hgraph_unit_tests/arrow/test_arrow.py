@@ -1,12 +1,25 @@
 import hgraph
 from hgraph import TS, TSL, Size, graph, TSB, const, NodeException
 from hgraph.arrow import (
-    arrow, if_, if_then,
+    arrow,
+    if_,
+    if_then,
     identity,
     i,
     eval_,
-    null, const_, binary_op, apply_, eq_, assert_, first, second, assoc,
+    null,
+    const_,
+    binary_op,
+    apply_,
+    eq_,
+    assert_,
+    first,
+    second,
+    assoc,
     add_,
+    fb,
+    print_out,
+    debug_print_,
 )
 from hgraph.arrow._arrow import _TupleSchema
 from hgraph.test import eval_node
@@ -107,7 +120,7 @@ def test_apply_():
 def test_assoc():
     @graph
     def g(
-            ts1: TS[int], ts2: TS[float], ts3: TS[str]
+        ts1: TS[int], ts2: TS[float], ts3: TS[str]
     ) -> TSB[_TupleSchema[TS[int], TSB[_TupleSchema[TS[float], TS[str]]]]]:
         return arrow((ts1, ts2), ts3) | assoc
 
@@ -251,7 +264,12 @@ def test_if_():
     print(fn)
     eval_([1, 2]) | fn
 
+
 def test_if_then_otherwise():
     one = const_(1)
-    fn =  if_(eq_ << one).then(lambda x: x + 1).otherwise(lambda x: -x) >> assert_(2, -2)
+    fn = if_(eq_ << one).then(lambda x: x + 1).otherwise(lambda x: -x) >> assert_(2, -2)
     eval_([1, 2]) | fn
+
+
+def test_feedback():
+    eval_([1, 2, 3]) | fb["a" : TS[int], "default":0] >> add_ >> fb["a"] >> debug_print_("Test") >> assert_(1, 3, 6)
