@@ -147,11 +147,11 @@ class fb:
 
 
 def _extract_fb_items(item):
-    passive = True
-    default = None
+    p = True
+    d = None
     for i in item:
         if i.start == "passive":
-            passive = i.stop
+            p = i.stop
         elif i.start == "default":
-            default = i.stop
-    return default, passive
+            d = i.stop
+    return d, p

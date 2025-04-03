@@ -132,5 +132,9 @@ Next for control flow we have:
 ``if_then(fn1).otherwise(fn2)`` - In this scenario the ``if_`` clause is not used, instead the operator expects a 
     pair with the first element being a bool value used for the condition.
 
+``fb[<label>: <type>, "default": SCALAR, "passive": True]`` - Initiates a feedback, the label must be unique.
+   The output is a pair of input and the feedback output. If default is provided then the first tick will be 
+   the default value. When passive is selected the feedback will only tick when the input ticks.
 
+``fb[<label>]`` - Consumes the value into the feedback, emits the value it consumes
 
