@@ -71,6 +71,10 @@ arrow(1, 2) | arrow(lambda x: x+1) // (lambda x: x+2) >> (lambda x: debug_print(
 >>> out: {0: 2, 1: 4}
 ```
 
+``+arrow_fn`` - Apply the left tuple entry to the function, this is equivalent to: `` >> arrow_fn // i``
+
+``-arrow_fn`` - Apply to the right tuple entry to the function, this is equivalent to: ``>> i // arrow_fn``
+
 There are a couple of important base operators that help build a baseline for processing 
 arrow flows. These include:
 

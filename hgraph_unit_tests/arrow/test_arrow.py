@@ -1,6 +1,18 @@
 from hgraph import TS, TSL, Size, graph, TSB, const, NodeException, add_
 from hgraph.arrow import arrow
-from hgraph.arrow._arrow import _TupleSchema, first, second, apply_, assoc, identity, i, assert_, binary_op, eval_
+from hgraph.arrow._arrow import (
+    _TupleSchema,
+    first,
+    second,
+    apply_,
+    assoc,
+    identity,
+    i,
+    assert_,
+    binary_op,
+    eval_,
+    null,
+)
 from hgraph.test import eval_node
 import pytest
 
@@ -226,3 +238,19 @@ def test_eval_node():
 
 def test_eval_and_assert():
     eval_([1, 2], [3, 4]) | binary_op(add_) >> assert_(4, 6)
+
+
+def test_pos():
+    eval_([1, 2], [3, 4]) | +arrow(lambda x: x + 1) >> assert_(2, 3)
+
+
+def test_neg():
+    eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_(4, 5)
+
+#
+# def test_null():
+#     eval_(1, 2) | i / null >> assert_({0: 1})
+
+
+# def test_if_then_else():
+#     eval_([True, False], [1, 2]) | a_if.then(lambda x: x + 1).otherwise(lambda x: x - 1) >> assert_(2, 1)

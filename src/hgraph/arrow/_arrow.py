@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Generic, TypeVar, Callable
 
-from hgraph import MIN_ST, MAX_ET
+from hgraph import MIN_ST, MAX_ET, switch_, null_sink
 from hgraph._operators import (
     nothing,
     const,
@@ -37,7 +37,20 @@ from hgraph._runtime import (
 from hgraph._wiring._decorators import graph, operator, compute_node
 from hgraph._wiring._wiring_port import WiringPort
 
-__all__ = ("arrow", "first", "second", "swap", "apply_", "assoc", "identity", "i")
+__all__ = (
+    "arrow",
+    "first",
+    "second",
+    "swap",
+    "apply_",
+    "assoc",
+    "identity",
+    "i",
+    "null",
+    "assert_",
+    "eval_",
+    "binary_op",
+)
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
 B: TypeVar = clone_type_var(TIME_SERIES_TYPE, "B")
@@ -117,6 +130,18 @@ class _Arrow(Generic[A, B]):
         else:
             g = other
         return _Arrow(lambda x, _f=f, _g=g: _make_tuple(_f(x), _g(x)))
+
+    def __pos__(self):
+        """
+        Apply only the first tuple input to this arrow function
+        """
+        return _Arrow(lambda pair: self.fn(pair[0]))
+
+    def __neg__(self):
+        """
+        Apply only the second tuple input to this arrow function
+        """
+        return _Arrow(lambda pair: self.fn(pair[1]))
 
     def __call__(self, value: A) -> B:
         return self.fn(value)
@@ -370,6 +395,11 @@ def identity(x):
 i = identity
 
 
+@arrow
+def null(x):
+    return lambda x: nothing(x.output_type)
+
+
 @dataclass
 class _AssertState(CompoundScalar):
     count: int = 0
@@ -405,3 +435,34 @@ def assert_(*args, message: str = None):
             raise AssertionError(f"Expected {l} values but got {c} results{message}")
 
     return arrow(_assert)
+
+
+class if_then(_Arrow[A, B], Generic[A, B]):
+    """
+    Consumes the first of the tuple (must be a TS[bool]) and provides the second item to the resultant conditions
+    of then and otherwise. The result of then or otherwise is returned.
+
+    The usage is:
+
+    ::
+
+        eval_(True, 1) | if_then(lambda x: x*2).else_(lambda x: x+2)
+    """
+
+    def __init__(self, then_fn: Callable[[A], B]):
+        self.then_fn = then_fn
+        super().__init__(lambda pair, then_fn_=then_fn: (self.otherwise(zero)))
+
+    def otherwise(self, else_fn: Callable[[A], B]) -> B:
+        return _Arrow(
+            lambda pair, then_fn_=self.then_fn, else_fn_=else_fn: (
+                switch_(
+                    pair[0],
+                    {
+                        True: lambda v: then_fn_(v),
+                        False: lambda v: else_fn_(v),
+                    },
+                    pair[1],
+                )
+            )
+        )
