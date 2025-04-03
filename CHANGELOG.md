@@ -1073,3 +1073,9 @@ Version 0.4.21 (01-04-2025)
 
 * Update documentation
 * Add hgrah.arrow module for supporting arrow style operators.
+
+Version 0.4.22 (03-04-2025)
+---------------------------
+
+* Expand arrow API support for basic operators such as eq_, etc. and some control flow operators (if_.else.otherwise)
+  and if_else.otherwise and fb (feeback). Clean-ups of testing and debugging tools. Add null support
