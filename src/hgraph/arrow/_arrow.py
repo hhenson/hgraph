@@ -1,9 +1,9 @@
 from contextlib import nullcontext
-from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from typing import Generic, TypeVar, Callable
 
-from hgraph import MIN_ST, MAX_ET, switch_, null_sink
+from hgraph import MIN_ST, MAX_ET, WiringNodeClass
 from hgraph._operators import (
     nothing,
     const,
@@ -26,30 +26,21 @@ from hgraph._types import (
     TSB,
     TimeSeriesSchema,
     clone_type_var,
-    STATE,
-    CompoundScalar,
 )
 from hgraph._runtime import (
     evaluate_graph,
     GraphConfiguration,
     GlobalState,
 )
-from hgraph._wiring._decorators import graph, operator, compute_node
+from hgraph._wiring._decorators import graph, operator
 from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = (
     "arrow",
-    "first",
-    "second",
-    "swap",
-    "apply_",
-    "assoc",
     "identity",
     "i",
     "null",
-    "assert_",
     "eval_",
-    "binary_op",
 )
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
@@ -61,12 +52,16 @@ D: TypeVar = clone_type_var(TIME_SERIES_TYPE, "D")
 class _Arrow(Generic[A, B]):
     """Arrow function wrapper exposing support for piping operations"""
 
-    def __init__(self, fn: Callable[[A], B]):
+    def __init__(self, fn: Callable[[A], B], __name__=None):
         # Avoid unnecessary nesting of wrappers
         if isinstance(fn, _Arrow):
             self.fn = fn.fn
         else:
             self.fn = fn
+        self._name = __name__ if __name__ is not None else \
+            str(fn) if isinstance(fn, (_Arrow, _ArrowInput)) else \
+                fn.signature.name if isinstance(fn, WiringNodeClass) else \
+                    fn.__name__
 
     def __rshift__(self, other: "Arrow[B, C]") -> "Arrow[A, C]":
         """
@@ -87,10 +82,36 @@ class _Arrow(Generic[A, B]):
         # Unwrap the fn from the arrow wrapper
         if isinstance(other, _Arrow):
             fn = other.fn
+            other_name = str(other)
         else:
             fn = other
+            other_name = str(other.__name__)
         # Now re-wrap the logic
-        return _Arrow(lambda x: fn(self.fn(x)))
+        name = f"{self} >> {other_name}"
+        return _Arrow(lambda x: fn(self.fn(x)), __name__=name)
+
+    def __lshift__(self, other: "Arrow[A, B]") -> "Arrow[A, B]":
+        """
+        Support binding an arrow function result to the stream.
+        The usage is:
+        ::
+
+             ... >> op << op_2 ...
+
+        This is equivalent to:
+        ::
+
+            ... >> i / op_2 >> op ...
+
+        It helps with readability when what we are describing is a binary function and we wish to place
+        the second argument to the right which can make the flow more readable.
+        such as for example:
+        ::
+
+            ,,, >> eq_ << const_(10) >> ...
+
+        """
+        return arrow(i / arrow(other) >> self, __name__=f"{self} << {other}")
 
     def __floordiv__(self, other: "Arrow[C, D]") -> "Arrow[tuple[A, B], tuple[C, D]]":
         """
@@ -105,9 +126,12 @@ class _Arrow(Generic[A, B]):
         f = self.fn
         if isinstance(other, _Arrow):
             g = other.fn
+            other_name = str(other)
         else:
             g = other
-        return _Arrow(lambda pair, _f=f, _g=g: _make_tuple(_f(pair[0]), _g(pair[1])))
+            other_name = str(other.__name__)
+        name = f"{self} // {other_name}"
+        return _Arrow(lambda pair, _f=f, _g=g, _name=name: _make_tuple(_f(pair[0]), _g(pair[1])), __name__=name)
 
     def __truediv__(self, other):
         """
@@ -127,49 +151,59 @@ class _Arrow(Generic[A, B]):
         f = self.fn
         if isinstance(other, _Arrow):
             g = other.fn
+            other_name = str(other)
         else:
             g = other
-        return _Arrow(lambda x, _f=f, _g=g: _make_tuple(_f(x), _g(x)))
+            other_name = str(other.__name__)
+        name = f"{self} // {other_name}"
+        return _Arrow(lambda x, _f=f, _g=g: _make_tuple(_f(x), _g(x)), __name__=name)
 
     def __pos__(self):
         """
         Apply only the first tuple input to this arrow function
         """
-        return _Arrow(lambda pair: self.fn(pair[0]))
+        return _Arrow(lambda pair: self.fn(pair[0]), __name__=f"+{self._name}")
 
     def __neg__(self):
         """
         Apply only the second tuple input to this arrow function
         """
-        return _Arrow(lambda pair: self.fn(pair[1]))
+        return _Arrow(lambda pair: self.fn(pair[1]), __name__=f"-{self._name}")
 
     def __call__(self, value: A) -> B:
         return self.fn(value)
 
+    def __str__(self):
+        return self._name
+
 
 class _ArrowInput(Generic[A]):
 
-    def __init__(self, ts: A):
+    def __init__(self, ts: A, __name__=None):
         if isinstance(ts, _ArrowInput):
             self.ts = ts.ts
         else:
             self.ts = ts
+        self._name = __name__ if __name__ is not None else str(ts)
 
     def __or__(self, other: "Arrow[A, B]") -> B:
         if not isinstance(other, _Arrow):
             raise TypeError(f"Expected Arrow function change, got {type(other)}")
         return other(self.ts)
 
+    def __str__(self):
+        return self._name
+
 
 class _EvalArrowInput:
 
     def __init__(
-        self,
-        first,
-        second=None,
-        type_map: tuple = None,
-        start_time: datetime = MIN_ST,
-        end_time: datetime = MAX_ET,
+            self,
+            first,
+            second=None,
+            type_map: tuple = None,
+            start_time: datetime = MIN_ST,
+            end_time: datetime = MAX_ET,
     ):
         self.first = first
         self.second = second
@@ -198,11 +232,11 @@ class _EvalArrowInput:
 
 
 def _build_inputs(
-    first,
-    second=None,
-    type_map: tuple = None,
-    level: int = 0,
-    start_time: datetime = MIN_ST,
+        first,
+        second=None,
+        type_map: tuple = None,
+        level: int = 0,
+        start_time: datetime = MIN_ST,
 ):
     if type(first) is tuple:
         first = _build_inputs(*first, type_map=type_map[0] if type_map else None, level=level + 1)
@@ -225,11 +259,11 @@ def _build_inputs(
 
 
 def eval_(
-    first,
-    second=None,
-    type_map: tuple = None,
-    start_time: datetime = MIN_ST,
-    end_time: datetime = MAX_ET,
+        first,
+        second=None,
+        type_map: tuple = None,
+        start_time: datetime = MIN_ST,
+        end_time: datetime = MAX_ET,
 ):
     """
     Wraps inputs to the graph that can be used to evaluate the graph
@@ -246,7 +280,11 @@ def eval_(
     return _EvalArrowInput(first, second, type_map, start_time, end_time)
 
 
-def arrow(input_: Callable[[A], B] | A, input_2: C = None) -> _Arrow[A, B] | _ArrowInput[A] | _ArrowInput[tuple[A, C]]:
+def arrow(
+        input_: Callable[[A], B] | A = None,
+        input_2: C = None,
+        __name__=None
+) -> _Arrow[A, B] | _ArrowInput[A] | _ArrowInput[tuple[A, C]]:
     """
     Converts the supplied graph / node / time-series value into an arrow suitable wrapper.
     This allows monoid functions to be used in a chainable manner as well as to wrap
@@ -259,23 +297,27 @@ def arrow(input_: Callable[[A], B] | A, input_2: C = None) -> _Arrow[A, B] | _Ar
         result = arrow(my_ts) > arrow(lambda x: x*3) >> arrow(lambda x: x+5)
 
     """
+    if input_ is None:
+        return partial(arrow, __name__=__name__)
     if input_2 is not None:
         # Then input_ must be a TimeSeries or _ArrowInput
         return make_tuple(input_, input_2)
-    if isinstance(input_, _Arrow) or isinstance(input_, _ArrowInput):
-        return input_
+    if isinstance(input_, _Arrow):
+        return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__)
+    if isinstance(input_, _ArrowInput):
+        return input_ if __name__ is None else _ArrowInput(input_.ts, __name__=__name__)
     elif isinstance(input_, WiringPort):
-        return _ArrowInput(input_)
+        return _ArrowInput(input_, __name__=__name__)
     elif isinstance(input_, tuple):
-        return _ArrowInput(make_tuple(*input_))
+        return _ArrowInput(make_tuple(*input_), __name__=__name__)
     elif callable(input_):
-        return _Arrow(input_)
+        return _Arrow(input_, __name__=__name__)
     else:
         # Assume this is a constant and attempt to convert to a const
-        return _ArrowInput(const(input_))
+        return _ArrowInput(const(input_), __name__=__name__)
 
 
-def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2):
+def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None):
     """
     Makes an arrow tuple input. An arrow input is a value that can be piped into an arrow function chain
     using the ``>`` operator.
@@ -283,9 +325,9 @@ def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2):
     # Unpack time-series values if they are already arrow inputs
     if isinstance(ts1, tuple):
         # Assume we are creating nested tuples
-        ts1 = make_tuple(*ts1)
+        ts1 = make_tuple(*ts1, __name__=None if __name__ is None else f"{__name__}[0]")
     if isinstance(ts2, tuple):
-        ts2 = make_tuple(*ts2)
+        ts2 = make_tuple(*ts2, __name__=None if __name__ is None else f"{__name__}[1]")
     if isinstance(ts1, _ArrowInput):
         ts1 = ts1.ts
     if isinstance(ts2, _ArrowInput):
@@ -297,7 +339,7 @@ def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2):
     if isinstance(ts1, WiringPort) and isinstance(ts2, WiringPort):
         # Create the tuple and then return the result wrapped as an _ArrowInput to allow this to create
         # a left to right application of values.
-        return _ArrowInput(_make_tuple(ts1, ts2))
+        return _ArrowInput(_make_tuple(ts1, ts2), __name__=__name__)
     else:
         raise TypeError(f"Expected TimeSeriesInput's, got {type(ts1)} and {type(ts2)}")
 
@@ -329,7 +371,7 @@ class _TupleSchema(TimeSeriesSchema, Generic[TIME_SERIES_TYPE_1, TIME_SERIES_TYP
 
 @graph(overloads=_make_tuple, requires=lambda m, s: m[TIME_SERIES_TYPE_1] != m[TIME_SERIES_TYPE_2])
 def _make_tuple_tsb(
-    ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2
+        ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2
 ) -> TSB[_TupleSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
     """When the input types do not match return a TSB"""
     from hgraph._operators import combine
@@ -337,56 +379,7 @@ def _make_tuple_tsb(
     return combine[TSB](ts1=ts1, ts2=ts2)
 
 
-@arrow
-def first(pair) -> A:
-    """
-    Returns the first element of a tuple
-    """
-    return pair[0]
-
-
-@arrow
-def swap(pair):
-    """
-    Swaps the values in a tuple.
-    """
-    return _make_tuple(pair[1], pair[0])
-
-
-@arrow
-def second(pair) -> B:
-    """Returns the second element of a tuple"""
-    return pair[1]
-
-
-def binary_op(fn):
-    """
-    A simple arrow wrapper of an HGraph function that takes two args as input.
-    Useful to wrap binary operators.
-    """
-    return arrow(lambda pair, fn_=fn: fn_(pair[0], pair[1]))
-
-
-@arrow
-def assoc(pair):
-    """
-    Adjust the associativity of a pair.
-    Converts ((a, b), c) -> (a, (b, c)).
-    """
-    return _make_tuple(pair[0][0], _make_tuple(pair[0][1], pair[1]))
-
-
-def apply_(tp: OUT):
-    """
-    Applies the function in the first element to the value in the second element.
-    The tp is the output type of the function.
-    """
-    from hgraph import apply
-
-    return arrow(lambda pair, tp_=tp: apply[tp_](pair[0], pair[1]))
-
-
-@arrow
+@arrow(__name__="i")
 def identity(x):
     """The identity function, does nothing."""
     return x
@@ -397,72 +390,4 @@ i = identity
 
 @arrow
 def null(x):
-    return lambda x: nothing(x.output_type)
-
-
-@dataclass
-class _AssertState(CompoundScalar):
-    count: int = 0
-    failed: bool = False
-
-
-def assert_(*args, message: str = None):
-    """
-    Provides a simple assertion operator that can use used for simple tests.
-    Provide the sequence of expected values, this acts as a pass through node,
-    that will raise an AssertionError if the value does not match the expected value.
-    """
-    if message is None:
-        message = ""
-    else:
-        message = f": ({message})"
-
-    @compute_node
-    def _assert(ts: A, _state: STATE[_AssertState] = None) -> A:
-        if (c := _state.count) >= (l := len(args)):
-            _state.failed = True
-            raise AssertionError(f"Expected {l} ticks, but still getting results{message}")
-        expected = args[c]
-        _state.count += 1
-        if ts.value != expected:
-            _state.failed = True
-            raise AssertionError(f"Expected '{expected}' but got '{ts.value}' on tick count: {_state.count}{message}")
-        return ts.delta_value
-
-    @_assert.stop
-    def _assert_stop(_state: STATE[_AssertState]):
-        if not _state.failed and ((l := len(args)) != (c := _state.count)):
-            raise AssertionError(f"Expected {l} values but got {c} results{message}")
-
-    return arrow(_assert)
-
-
-class if_then(_Arrow[A, B], Generic[A, B]):
-    """
-    Consumes the first of the tuple (must be a TS[bool]) and provides the second item to the resultant conditions
-    of then and otherwise. The result of then or otherwise is returned.
-
-    The usage is:
-
-    ::
-
-        eval_(True, 1) | if_then(lambda x: x*2).else_(lambda x: x+2)
-    """
-
-    def __init__(self, then_fn: Callable[[A], B]):
-        self.then_fn = then_fn
-        super().__init__(lambda pair, then_fn_=then_fn: (self.otherwise(zero)))
-
-    def otherwise(self, else_fn: Callable[[A], B]) -> B:
-        return _Arrow(
-            lambda pair, then_fn_=self.then_fn, else_fn_=else_fn: (
-                switch_(
-                    pair[0],
-                    {
-                        True: lambda v: then_fn_(v),
-                        False: lambda v: else_fn_(v),
-                    },
-                    pair[1],
-                )
-            )
-        )
+    return nothing(x.output_type.py_type)

@@ -1,6 +1,8 @@
 from hgraph import graph, const, debug_print, convert, TSL, TS, Size, collect, add_
-from hgraph.arrow import arrow, i, first, second, swap
-from hgraph.arrow._arrow import binary_op, assert_
+from hgraph.arrow import arrow, i
+from hgraph.arrow._pair_operators import first, swap, second
+from hgraph.arrow._std_operators import binary_op
+from hgraph.arrow._test_operators import assert_
 from hgraph.test import eval_node
 
 

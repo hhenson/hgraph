@@ -1,24 +1,19 @@
-from hgraph import TS, TSL, Size, graph, TSB, const, NodeException, add_
-from hgraph.arrow import arrow
-from hgraph.arrow._arrow import (
-    _TupleSchema,
-    first,
-    second,
-    apply_,
-    assoc,
+import hgraph
+from hgraph import TS, TSL, Size, graph, TSB, const, NodeException
+from hgraph.arrow import (
+    arrow, if_, if_then,
     identity,
     i,
-    assert_,
-    binary_op,
     eval_,
-    null,
+    null, const_, binary_op, apply_, eq_, assert_, first, second, assoc,
+    add_,
 )
+from hgraph.arrow._arrow import _TupleSchema
 from hgraph.test import eval_node
 import pytest
 
 
 def test_make_tuple_tsl():
-
     @graph
     def g(ts1: TS[int], ts2: TS[int]) -> TSL[TS[int], Size[2]]:
         return arrow(ts1, ts2).ts
@@ -27,7 +22,6 @@ def test_make_tuple_tsl():
 
 
 def test_make_tuple_tsb():
-
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         return arrow(ts1, ts2).ts
@@ -36,7 +30,6 @@ def test_make_tuple_tsb():
 
 
 def test_basic_arrow_wrapper():
-
     @graph
     def g(ts: TS[int]) -> TS[int]:
         mult_3 = arrow(lambda x: x * 3)
@@ -47,7 +40,6 @@ def test_basic_arrow_wrapper():
 
 
 def test_basic_arrow_wrapper_including_input_wrapper():
-
     @graph
     def g(ts: TS[int]) -> TS[int]:
         mult_3 = arrow(lambda x: x * 3)
@@ -58,7 +50,6 @@ def test_basic_arrow_wrapper_including_input_wrapper():
 
 
 def test_nested_inputs():
-
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TSL[TS[int], Size[2]], TSL[TS[str], Size[2]]]]:
         return arrow((ts1, ts1), (ts2, ts2)).ts
@@ -70,7 +61,6 @@ def test_nested_inputs():
 
 
 def test_first():
-
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TS[int]:
         return arrow(ts1, ts2) | first >> arrow(lambda x: x * 3)
@@ -79,7 +69,6 @@ def test_first():
 
 
 def test_second():
-
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TS[str]:
         from hgraph import format_
@@ -116,10 +105,9 @@ def test_apply_():
 
 
 def test_assoc():
-
     @graph
     def g(
-        ts1: TS[int], ts2: TS[float], ts3: TS[str]
+            ts1: TS[int], ts2: TS[float], ts3: TS[str]
     ) -> TSB[_TupleSchema[TS[int], TSB[_TupleSchema[TS[float], TS[str]]]]]:
         return arrow((ts1, ts2), ts3) | assoc
 
@@ -138,7 +126,6 @@ def test_identity():
 
 
 def test_first_():
-
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         return arrow(ts1, ts2) | arrow(lambda x: x * 3) // identity
@@ -147,7 +134,6 @@ def test_first_():
 
 
 def test_second_():
-
     @graph
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         from hgraph import format_
@@ -158,7 +144,6 @@ def test_second_():
 
 
 def test_arrow_const():
-
     @graph
     def g() -> TS[int]:
         return arrow(1) | i
@@ -183,7 +168,6 @@ def test_arrow_const_3():
 
 
 def test_assert_too_many_args():
-
     @graph
     def g() -> TS[int]:
         return arrow(1) | assert_(1, 2)
@@ -193,7 +177,6 @@ def test_assert_too_many_args():
 
 
 def test_assert_insufficient_args():
-
     @graph
     def g(ts: TS[int]) -> TS[int]:
         return arrow(ts) | assert_(1)
@@ -212,7 +195,6 @@ def test_assert_wrong_value():
 
 
 def test_assert_positive_flow():
-
     @graph
     def g(ts: TS[int]) -> TS[int]:
         return arrow(ts) | assert_(1, 2)
@@ -221,10 +203,9 @@ def test_assert_positive_flow():
 
 
 def test_binary_op():
-
     @graph
     def g(ts: TS[int]) -> TS[int]:
-        return arrow(ts) | i / i >> binary_op(add_)
+        return arrow(ts) | i / i >> binary_op(hgraph.add_)
 
     assert eval_node(g, [1, 2]) == [2, 4]
 
@@ -237,7 +218,7 @@ def test_eval_node():
 
 
 def test_eval_and_assert():
-    eval_([1, 2], [3, 4]) | binary_op(add_) >> assert_(4, 6)
+    eval_([1, 2], [3, 4]) | binary_op(hgraph.add_) >> assert_(4, 6)
 
 
 def test_pos():
@@ -248,10 +229,29 @@ def test_neg():
     eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_(4, 5)
 
 
-#
-# def test_null():
-#     eval_(1, 2) | i / null >> assert_({0: 1})
+def test_null():
+    # Send a pairs of constants
+    # Then split to the identity and null operators
+    # evaluate the results of the independent processing chain
+    # assert will get TSL[TS[int], Size[2]] so .value is (1, None)
+    eval_(1, 2) | i // null >> assert_((1, None))
 
 
-# def test_if_then_else():
-#     eval_([True, False], [1, 2]) | a_if.then(lambda x: x + 1).otherwise(lambda x: x - 1) >> assert_(2, 1)
+def test_const_():
+    eval_(1) | i / const_(2) >> assert_((1, 2))
+
+
+def test_if_then_else():
+    eval_([True, False], [1, 2]) | if_then(lambda x: x + 1).otherwise(lambda x: x - 1) >> assert_(2, 1)
+
+
+def test_if_():
+    one = const_(1)
+    fn = if_(eq_ << one).then(add_ << one) >> assert_(2)
+    print(fn)
+    eval_([1, 2]) | fn
+
+def test_if_then_otherwise():
+    one = const_(1)
+    fn =  if_(eq_ << one).then(lambda x: x + 1).otherwise(lambda x: -x) >> assert_(2, -2)
+    eval_([1, 2]) | fn
