@@ -52,7 +52,7 @@ sum_and_print(TSL.from_ts(const(1), const(2)))
 
 Given the large focus on tuples, there are two other overloads we provide, firstly:
 
-'/' - This is the fan-out operator. This will take a single input and apply it to two functions
+``/`` - This is the fan-out operator. This will take a single input and apply it to two functions
       that are on either side of this operator, for example:
 
 ```python
@@ -61,7 +61,7 @@ arrow(1) | i / i >> (lambda x: debug_print("out", x))
 >>> out: {0: 1, 1: 1}
 ```
 
-'//' - This is the cross operator, it expects a tuple and splits the tuple
+``//`` - This is the cross operator, it expects a tuple and splits the tuple
        sending the first to left function and the second to the right function, 
        for example:
 
@@ -104,3 +104,33 @@ Then there are a few helper components:
             to the arrow function chain it will evaluate the graph, returning
             the collected results as an array, similar to ``eval_node`` 
             with ``__elide__`` set to ``True``.
+
+``const_`` - Introduce a constant into the flow. This is useful when binding constant values into binary 
+             operators such as ``eq_``.
+
+``<<`` - This adds the ability to 'bind' a result to a binary operator, this makes:
+
+    >> eq_ << const(1)
+
+Goes to:
+
+    >> i / const(1) >> eq_
+
+It does make the code look a bit cleaner with slightly less code required.
+
+Next there are a number of standard operators that can be used such as: ``eq_``, etc.
+
+Next for control flow we have:
+
+``if_(condition).then(fn1).otherwise(fn2)`` - This is the full version, the condition function or arrow takes
+    the input and produces a binary stream. The functions fn1 and fn2 take the input stream (prior to if) and
+    must convert to the same result shape. But otherwise when the condition is ``True`` then ``fn1`` is evaluated
+    and then ``fn2`` is evaluated when the condition is ``False``.
+    This can be short-cut to ``if_(conditions).then(fn1)``, in the case when ``False`` no values are produced, when
+    ``True`` the ``fn1`` is evaluated.
+
+``if_then(fn1).otherwise(fn2)`` - In this scenario the ``if_`` clause is not used, instead the operator expects a 
+    pair with the first element being a bool value used for the condition.
+
+
+
