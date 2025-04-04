@@ -322,6 +322,9 @@ To start with, consider the core operators or concepts described in "Functional 
     In this case the result would contain the value (untouched) of the first element in the time-series and
     the second element having seven added to it.
     There are many other examples using ``TSB`` for heterogeneous collections or ``TSD`` for dynamic collections.
+    A feature on the time-series collection API's (only available during wiring) is to use the ``copy_with`` method
+    on the time-series object. This allows for pass-through of all non-over written values and replacing the
+    values supplied. This is a very efficient operation as the cost is only born during wiring, not evaluation.
 
     .. image:: ../_static/images/Widening.svg
       :alt: A diagram showing widening

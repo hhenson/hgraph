@@ -17,4 +17,5 @@ Contents
     concepts/index
     tools/index
     reference/index
+    papers/index
     references
