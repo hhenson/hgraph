@@ -138,3 +138,16 @@ Next for control flow we have:
 
 ``fb[<label>]`` - Consumes the value into the feedback, emits the value it consumes
 
+``switch_(<option_map>)`` - provide a pattern matched (to the mapping keys) optional set of 
+     control flows. The ``option_map`` is a dictionary of key to arrow function.
+     the switch_ expects a pair, where the first value of the pair is used to select the graph
+     and the second is supplied to the option selected for evaluation.
+
+``map_(<fn>)`` - processes a collection time-series such as a TSL or TSD applying the
+   arrow function ``fn`` to each of the values associated to each value of the collection.
+
+``reduce(<fn>, <zero>, <is_associative=True>)`` - The reduction function takes a
+   arrow function and breaks the supplied collection (``TSL``/``TSD``) value into a
+   set of tuples (filling in the zero when we have an odd pairing). This is then
+   recursively applied until a single value is obtained.
+

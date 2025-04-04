@@ -1,11 +1,11 @@
-from functools import partial
-from typing import Generic, Callable
+from typing import Callable, Mapping
 
-from hgraph import switch_, feedback, lag, default, sample, gate, modified
+import hgraph
+from hgraph import TSL, Size
 from hgraph.arrow import null
 from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, _make_tuple
 
-__all__ = ["if_", "if_then", "fb"]
+__all__ = ["if_", "if_then", "fb", "switch_", "map_", "reduce"]
 
 
 class if_:
@@ -71,7 +71,7 @@ class _IfThenOtherwise:
     def __call__(self, pair):
         then_fn_ = self.then_fn
         else_fn_ = self.else_fn
-        return switch_(
+        return hgraph.switch_(
             pair[0],
             {
                 True: lambda v: then_fn_(v),
@@ -132,12 +132,11 @@ class fb:
         else:
             tp = first.stop
             d, p = _extract_fb_items(item[1:])
-            from hgraph._wiring import passive
 
             @arrow(__name__=f"fb[{item}]")
             def _feedback_wrapper(x):
-                fb_cache[label] = (f := feedback(tp, default=d))
-                v = gate(modified(x), f(), -1) if p else f()
+                fb_cache[label] = (f := hgraph.feedback(tp, default=d))
+                v = hgraph.gate(hgraph.modified(x), f(), -1) if p else f()
                 return _make_tuple(x, v)
 
             return _feedback_wrapper
@@ -155,3 +154,62 @@ def _extract_fb_items(item):
         elif i.start == "default":
             d = i.stop
     return d, p
+
+
+def switch_(options: Mapping[hgraph.SCALAR, _Arrow[A, B]], __name__=None) -> B:
+    """
+    Support for pattern matched optional flow paths. The first
+    element of the tuple is supplied as the switch selector and the second
+    is supplied as an input to the switch arrow functions. The results of
+    all options MUST have the same shape and obviously the same input shape.
+
+    ::
+
+       ...  >> switch_({"a": lambda x: x+1, "b": lambda x: x+2}) >> ...
+
+    :param options: The options to switch between
+    """
+
+    @arrow(__name__=__name__ or f"switch_({options.keys()})")
+    def wrapper(pair):
+        return hgraph.switch_(
+            pair[0],
+            options,
+            pair[1],
+        )
+
+    return wrapper
+
+
+def map_(fn: _Arrow[A, B]):
+    """
+    Apply the ``fn`` supplied to the values of the elements of a collection of either ``TSL`` or ``TSD``.
+    Note: In this world, the map expects one input of the collection type and
+    it must contain either a single value or a tuple of values (suitable
+    for arrow processing).
+
+    :param fn: The arrow function to apply to each of the values.
+    :return: A collection of the transformed values.
+    """
+
+    @arrow(__name__=f"map_({fn})")
+    def wrapper(pair):
+        return hgraph.map_(lambda x: fn(x), pair)
+
+    return wrapper
+
+
+def reduce(fn: _Arrow[TSL[A, Size[2]], A], zero: A, is_associative: bool = True) -> A:
+    """
+    Reduces a collection of values using the supplied arrow function.
+    The function should expect a tuple of two elements and convert it
+    to a single value of the same type. A zero value must also be supplied
+    that must object the rule that (zero, zero) >> fn == zero and
+    (a, zero) >> fn == a, (zero, a) >> fn == a.
+    """
+
+    @arrow(__name__=f"reduce({fn})")
+    def wrapper(x):
+        return hgraph.reduce(lambda lhs, rhs: fn(_make_tuple(lhs, rhs)), x, zero, is_associative=is_associative)
+
+    return wrapper

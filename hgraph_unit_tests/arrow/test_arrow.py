@@ -1,5 +1,5 @@
 import hgraph
-from hgraph import TS, TSL, Size, graph, TSB, const, NodeException
+from hgraph import TS, TSL, Size, graph, TSB, const, NodeException, TSD
 from hgraph.arrow import (
     arrow,
     if_,
@@ -19,11 +19,12 @@ from hgraph.arrow import (
     add_,
     fb,
     print_out,
-    debug_print_,
+    debug_print_, switch_, map_, reduce
 )
 from hgraph.arrow._arrow import _TupleSchema
 from hgraph.test import eval_node
 import pytest
+from frozendict import frozendict as fd
 
 
 def test_make_tuple_tsl():
@@ -273,3 +274,18 @@ def test_if_then_otherwise():
 
 def test_feedback():
     eval_([1, 2, 3]) | fb["a" : TS[int], "default":0] >> add_ >> fb["a"] >> debug_print_("Test") >> assert_(1, 3, 6)
+
+
+def test_switch():
+    (eval_(["A", None, "B"], [1, 2, 3]) |
+     switch_({"A": lambda p: p+1, "B": lambda p: 1-p}) >> assert_(2, 3, -2))
+
+
+def test_map():
+    (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) |
+     map_(lambda x: x + 1) >> assert_(fd({"A": 2, "B": 3})))
+
+
+def test_reduce():
+    (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) |
+     reduce(add_, 0) >> assert_(3))

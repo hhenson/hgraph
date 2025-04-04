@@ -207,7 +207,7 @@ class _EvalArrowInput:
     ):
         self.first = first
         self.second = second
-        self.type_map = type_map
+        self.type_map = type_map if type_map is None or type(type_map) is tuple else (type_map,)
         self.start_time = start_time
         self.end_time = end_time
 
