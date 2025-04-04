@@ -1078,4 +1078,9 @@ Version 0.4.22 (03-04-2025)
 ---------------------------
 
 * Expand arrow API support for basic operators such as eq_, etc. and some control flow operators (if_.else.otherwise)
-  and if_else.otherwise and fb (feeback). Clean-ups of testing and debugging tools. Add null support
+  and if_else.otherwise and fb (feedback). Clean-ups of testing and debugging tools. Add null support
+
+Version 0.4.23 (04-04-2025)
+---------------------------
+
+* Add switch_, map_, reduce arrow operators
