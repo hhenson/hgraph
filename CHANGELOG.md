@@ -1084,3 +1084,9 @@ Version 0.4.23 (04-04-2025)
 ---------------------------
 
 * Add switch_, map_, reduce arrow operators
+
+
+Version 0.4.24 (08-04-2025)
+---------------------------
+
+* Clean up Sphinx documentation and add adaptors.tornado Rest API docs.
