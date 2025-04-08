@@ -2,7 +2,7 @@ Arrow API
 =========
 
 The HGraph Arrow API provide an Arrow style monoid approach to writing HGraph
-code.
+code. This is based on the paper "A new notation for arrows" by Ross Paterson (2001).
 
 The basic data-type structure is the use of a time-series value or tuples of time-series values, that is
 ``TIME_SERIES_TYPE`` | ``tuple[A, B]``, where `A`, `B` can be time-series values or time-series tuples.
