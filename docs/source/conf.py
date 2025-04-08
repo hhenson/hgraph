@@ -9,7 +9,11 @@ import os
 import sys
 from datetime import datetime
 
+sys.path.insert(0, os.path.abspath("."))
 sys.path.insert(0, os.path.abspath(".."))
+
+
+import wiring_autodoc_extension
 
 project = "hgraph"
 author = "Howard Henson"
@@ -32,6 +36,7 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinx.ext.mathjax",  # For HTML
     "sphinx.ext.imgmath",  # For PDF
+    'wiring_autodoc_extension'
 ]
 
 intersphinx_mapping = {

@@ -1040,7 +1040,7 @@ def _create_node(
         out = node_class(signature, impl_fn)
     else:
         return node_class(signature, impl_fn, interfaces=interfaces)
-
+    out.__doc__ = signature_fn.__doc__
     return out
 
 

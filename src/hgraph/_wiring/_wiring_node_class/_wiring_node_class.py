@@ -535,6 +535,7 @@ class PreResolvedWiringNodeWrapper(BaseWiringNodeClass):
         self.underlying_node = underlying_node
         self.resolved_types = resolved_types
         self.skip_overload_check = getattr(underlying_node, "skip_overload_check", False)
+        self.__doc__ = underlying_node.__doc__
 
     def resolve_signature(self, *args, __pre_resolved_types__=None, **kwargs) -> "WiringNodeSignature":
         more_resolved_types = __pre_resolved_types__ or {}
