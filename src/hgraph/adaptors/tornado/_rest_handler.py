@@ -213,9 +213,27 @@ def rest_handler(fn: Callable = None, *, url: str, data_type: type[COMPOUND_SCAL
     """
     A rest handler wraps a function of the form:
 
-    @rest_handler(url="http://example.com/my_cs")
-    def my_fn(request: TS[RestRequest[MyCS], ...) -> TS[RestResponse[MyCS]]:
-        ...
+    ::
+
+        @rest_handler(url="http://example.com/my_cs", data_type=MyCS)
+        def my_fn(request: TS[RestRequest[MyCS]) -> TS[RestResponse[MyCS]]:
+            ...
+
+    The function is responsible for handling individual requests and producing the
+    appropriate responses. If the component requires full visibility to the full set
+    of requests, then it is possible for the multiplexed signature to be used:
+
+    ::
+
+        @rest_handler(url="http://example.com/my_cs", data_type=MyCS)
+        def my_fn(request: TSD[int, TS[RestRequest[MyCS]]) -> TSD[int, TS[RestResponse[MyCS]]]:
+            ...
+
+    To enable the rest handler, the ``register_http_server_adaptor`` should be called to
+    set up the processes web-service process.
+
+    .. note:: The rest handler is self registering, once declared and imported nothing
+              else needs to be done.
     """
     if fn is None:
         return lambda fn: rest_handler(fn, url=url, data_type=data_type)
