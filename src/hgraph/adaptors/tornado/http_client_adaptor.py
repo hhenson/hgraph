@@ -40,15 +40,25 @@ class Credentials:
 
 
 @service_adaptor
-def http_client_adaptor(request: TS[HttpRequest], path: str = "http_client") -> TS[HttpResponse]: ...
+def http_client_adaptor(request: TS[HttpRequest], path: str = "http_client") -> TS[HttpResponse]:
+    """
+    Sends requests to a remote server. The result is returned as an HttpResponse object.
+    Supports Get, Put, Delete and Post requests.
+    To use the adaptor you need to register the service impl. The default provided implementation is
+    ``http_client_adaptor_impl``.
+    """
 
 
 @service_adaptor_impl(interfaces=http_client_adaptor)
 def http_client_adaptor_impl(
     request: TSD[int, TS[HttpRequest]], path: str = "http_client", use_curl: bool = False, max_clients: int = 50
 ) -> TSD[int, TS[HttpResponse]]:
+    """
+    The client adaptor is responsible for making HTTP requests to a remote server. This implementation is able to
+    support NTLM and Kerberos authentication.
+    """
     if use_curl:
-        AsyncHTTPClient.configure('tornado.curl_httpclient.CurlAsyncHTTPClient', max_clients=max_clients)
+        AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient", max_clients=max_clients)
 
     logger.info("Starting client adaptor on path: '%s'", path)
 
@@ -69,100 +79,83 @@ def http_client_adaptor_impl(
             raise HTTPError(401, "missing www-authenticate header")
 
         auth_header = auth_header.lower()
-        if 'ntlm' in auth_header:
-            scheme = 'NTLM'
-        elif 'negotiate' in auth_header:
-            scheme = 'Negotiate'
+        if "ntlm" in auth_header:
+            scheme = "NTLM"
+        elif "negotiate" in auth_header:
+            scheme = "Negotiate"
         else:
-            raise HTTPError(401, 'unhandled protocol')
+            raise HTTPError(401, "unhandled protocol")
 
         parsed_url = urlparse(response.request.url)
         host = parsed_url.hostname
         try:
-            info = socket.getaddrinfo(
-                host, None,
-                0, 0, 0,
-                socket.AI_CANONNAME
-            )
+            info = socket.getaddrinfo(host, None, 0, 0, 0, socket.AI_CANONNAME)
             host = info[0][3]
         except socket.gaierror as error:
-            logger.info(f'Skipping canonicalization of name {host} due to error: {error}')
+            logger.info(f"Skipping canonicalization of name {host} due to error: {error}")
 
         targetspn = f"HTTP/{host}"
         scflags = sspicon.ISC_REQ_MUTUAL_AUTH
 
         pkg_info = win32security.QuerySecurityPackageInfo(scheme)
         clientauth = sspi.ClientAuth(
-            scheme,
-            targetspn=targetspn,
-            auth_info=None,
-            scflags=scflags,
-            datarep=sspicon.SECURITY_NETWORK_DREP
+            scheme, targetspn=targetspn, auth_info=None, scflags=scflags, datarep=sspicon.SECURITY_NETWORK_DREP
         )
         sec_buffer = win32security.PySecBufferDescType()
 
         # handling HTTPS connection will need peercert handling here
 
-        set_cookie = response.headers.get('set-cookie')
+        set_cookie = response.headers.get("set-cookie")
         if set_cookie is not None:
-            response.request.headers['Cookie'] = set_cookie
+            response.request.headers["Cookie"] = set_cookie
 
         try:
             err, auth = clientauth.authorize(sec_buffer)
-            data = base64.b64encode(auth[0].Buffer).decode('ASCII')
-            response.request.headers['Authorization'] = f'{scheme} {data}'
+            data = base64.b64encode(auth[0].Buffer).decode("ASCII")
+            response.request.headers["Authorization"] = f"{scheme} {data}"
         except pywintypes.error as error:
-            logger.error('Error calling %s: %s', error[1], error[2], exc_info=error)
+            logger.error("Error calling %s: %s", error[1], error[2], exc_info=error)
             return response
 
         response2 = await client.fetch(response.request, raise_error=False)
 
         if response2.code != 401:
-            final = response2.headers.get('WWW-Authenticate')
+            final = response2.headers.get("WWW-Authenticate")
             if final is not None:
                 try:
-                    final = final.replace(scheme, '', 1).lstrip()
-                    tokenbuf = win32security.PySecBufferType(
-                        pkg_info['MaxToken'],
-                        sspicon.SECBUFFER_TOKEN
-                    )
-                    tokenbuf.Buffer = base64.b64decode(final.encode('ASCII'))
+                    final = final.replace(scheme, "", 1).lstrip()
+                    tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
+                    tokenbuf.Buffer = base64.b64decode(final.encode("ASCII"))
                     sec_buffer.append(tokenbuf)
                     err, auth = clientauth.authorize(sec_buffer)
                     logger.debug(
-                        'Kerberos Authentication succeeded - error=%s authenticated=%s', err, clientauth.authenticated)
+                        "Kerberos Authentication succeeded - error=%s authenticated=%s", err, clientauth.authenticated
+                    )
                 except TypeError:
                     pass
 
             return response2
 
-        set_cookie = response2.headers.get('set-cookie')
+        set_cookie = response2.headers.get("set-cookie")
         if set_cookie is not None:
-            response2.request.headers['Cookie'] = set_cookie
+            response2.request.headers["Cookie"] = set_cookie
 
         challenge = [
-            val[len(scheme) + 1:]
-            for val in response2.headers.get('WWW-Authenticate', '').split(', ')
-            if scheme in val
+            val[len(scheme) + 1 :] for val in response2.headers.get("WWW-Authenticate", "").split(", ") if scheme in val
         ]
         if len(challenge) != 1:
-            raise HTTPError(
-                401, f'Did not get exactly one {scheme} challenge from server'
-            )
+            raise HTTPError(401, f"Did not get exactly one {scheme} challenge from server")
 
-        tokenbuf = win32security.PySecBufferType(
-            pkg_info['MaxToken'],
-            sspicon.SECBUFFER_TOKEN
-        )
+        tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
         tokenbuf.Buffer = base64.b64decode(challenge[0])
         sec_buffer.append(tokenbuf)
 
         try:
             err, auth = clientauth.authorize(sec_buffer)
-            data = base64.b64encode(auth[0].Buffer).decode('ASCII')
-            response2.request.headers['Authorization'] = f'{scheme} {data}'
+            data = base64.b64encode(auth[0].Buffer).decode("ASCII")
+            response2.request.headers["Authorization"] = f"{scheme} {data}"
         except pywintypes.error as error:
-            logger.error('Error calling %s: %s',error[1],error[2],exc_info=error)
+            logger.error("Error calling %s: %s", error[1], error[2], exc_info=error)
             return response2
 
         response3 = await client.fetch(response2.request, raise_error=False)
@@ -177,33 +170,31 @@ def http_client_adaptor_impl(
             raise HTTPError(401, "missing www-authenticate header")
 
         auth_header = auth_header.lower()
-        if 'negotiate' in auth_header:
-            scheme = 'Negotiate'
-            protocol = 'kerberos'
+        if "negotiate" in auth_header:
+            scheme = "Negotiate"
+            protocol = "kerberos"
             username = None
             password = None
-        elif 'ntlm' in auth_header:
-            scheme = 'NTLM'
-            protocol = 'ntlm'
+        elif "ntlm" in auth_header:
+            scheme = "NTLM"
+            protocol = "ntlm"
             if request.auth is not None and isinstance(request.auth, Credentials):
                 username = request.auth.username
                 password = request.auth.password
             else:
-                raise HTTPError(401, 'NTLM Authentication on non-windows hosts is not supported without supplying credentials')
+                raise HTTPError(
+                    401, "NTLM Authentication on non-windows hosts is not supported without supplying credentials"
+                )
         else:
-            raise HTTPError(401, 'unhandled protocol')
+            raise HTTPError(401, "unhandled protocol")
 
         parsed_url = urlparse(response.request.url)
         host = parsed_url.hostname
         try:
-            info = socket.getaddrinfo(
-                host, None,
-                0, 0, 0,
-                socket.AI_CANONNAME
-            )
+            info = socket.getaddrinfo(host, None, 0, 0, 0, socket.AI_CANONNAME)
             host = info[0][3]
         except socket.gaierror as error:
-            logger.info(f'Skipping canonicalization of name {host} due to error: {error}')
+            logger.info(f"Skipping canonicalization of name {host} due to error: {error}")
 
         ctx = spnego.client(
             username=username,
@@ -218,39 +209,39 @@ def http_client_adaptor_impl(
         for _ in range(2):
             auth_req = re.search(f"{scheme}\\s*([^,]*)", auth_header, re.I)
             if auth_req is None:
-                raise HTTPError(401, 'No auth token found')
+                raise HTTPError(401, "No auth token found")
 
             gss_r = ctx.step(in_token=base64.b64decode(auth_req[1]))
-            response.request.headers['Authorization'] = f'{scheme} {base64.b64encode(gss_r).decode()}'
+            response.request.headers["Authorization"] = f"{scheme} {base64.b64encode(gss_r).decode()}"
 
             # handling HTTPS connection will need peercert handling here
 
-            set_cookie = response.headers.get('set-cookie')
+            set_cookie = response.headers.get("set-cookie")
             if set_cookie is not None:
-                response.request.headers['Cookie'] = set_cookie
+                response.request.headers["Cookie"] = set_cookie
 
             response2 = await client.fetch(response.request, raise_error=False)
 
             if response2.code != 401:
-                final = response2.headers.get('WWW-Authenticate')
+                final = response2.headers.get("WWW-Authenticate")
                 if final is not None:
                     try:
                         final = re.search(f"{scheme}\\s*([^,]*)", final, re.I)
                         if final is None:
-                            raise HTTPError(401, 'No auth token found')
+                            raise HTTPError(401, "No auth token found")
 
                         final = final[1]
                         ctx.step(in_token=base64.b64decode(final))
                     except spnego.exceptions.SpnegoError:
                         logger.error("authenticate_server(): ctx step() failed:")
-                        raise HTTPError(401, 'Kerberos Authentication failed')
+                        raise HTTPError(401, "Kerberos Authentication failed")
 
                 return response2
             else:
                 response = response2
                 auth_header = response.headers.get("www-authenticate")
 
-        raise HTTPError(401, f'Kerberos Authentication failed: {response}')
+        raise HTTPError(401, f"Kerberos Authentication failed: {response}")
 
     async def make_http_request(id: int, request: HttpRequest, sender: Callable):
         start_time = time.perf_counter_ns()
@@ -300,7 +291,7 @@ def http_client_adaptor_impl(
             sender({id: HttpResponse(status_code=e.code, body=e.message)})
             return
 
-        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time)/1000000))
+        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time) / 1000000))
         sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body.decode())})
 
     @sink_node

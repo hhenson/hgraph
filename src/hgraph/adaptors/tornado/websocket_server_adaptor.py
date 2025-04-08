@@ -39,16 +39,19 @@ class WebSocketConnectRequest(CompoundScalar):
     cookies: dict[str, dict[str, object]] = frozendict()
 
 
+@dataclass(frozen=True)
 class WebSocketServerRequest(TimeSeriesSchema):
     connect_request: TS[WebSocketConnectRequest]
     messages: TS[tuple[bytes, ...]]
 
 
+@dataclass(frozen=True)
 class WebSocketClientRequest(TimeSeriesSchema):
     connect_request: TS[WebSocketConnectRequest]
     message: TS[bytes]
 
 
+@dataclass(frozen=True)
 class WebSocketResponse(TimeSeriesSchema):
     connect_response: TS[bool]
     message: TS[bytes]
@@ -128,7 +131,10 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
                 url=self.path,
                 url_parsed_args=args,
                 headers=self.request.headers,
-                cookies=frozendict({k: frozendict({'value': v.value, **{p: w for p, w in v.items()}}) for k, v in self.request.cookies.items()}),
+                cookies=frozendict({
+                    k: frozendict({"value": v.value, **{p: w for p, w in v.items()}})
+                    for k, v in self.request.cookies.items()
+                }),
             ),
             lambda m: self.write_message(m, binary=True),
         )
@@ -217,12 +223,16 @@ def websocket_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringGraphContext
 
     @push_queue(TSD[int, TS[WebSocketConnectRequest]])
-    def connections_from_web(sender, path: str = "tornado_websocket_server_adaptor", elide: bool = True) -> TSD[int, TS[WebSocketConnectRequest]]:
+    def connections_from_web(
+        sender, path: str = "tornado_websocket_server_adaptor", elide: bool = True
+    ) -> TSD[int, TS[WebSocketConnectRequest]]:
         GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"] = sender
         return None
 
     @push_queue(TSD[int, TS[tuple[bytes, ...]]])
-    def messages_from_web(sender, path: str = "tornado_websocket_server_adaptor", batch: bool = True) -> TSD[int, TS[tuple[bytes, ...]]]:
+    def messages_from_web(
+        sender, path: str = "tornado_websocket_server_adaptor", batch: bool = True
+    ) -> TSD[int, TS[tuple[bytes, ...]]]:
         GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"] = sender
         return None
 
@@ -230,7 +240,9 @@ def websocket_server_adaptor_impl(path: str, port: int):
     def from_web(path: str) -> TSD[int, TSB[WebSocketServerRequest]]:
         requests = connections_from_web(path=path)
         messages = messages_from_web(path=path)
-        return map_(lambda r, m: combine[TSB[WebSocketServerRequest]](connect_request=r, messages=m), requests, messages)
+        return map_(
+            lambda r, m: combine[TSB[WebSocketServerRequest]](connect_request=r, messages=m), requests, messages
+        )
 
     @sink_node
     def to_web(
@@ -248,7 +260,7 @@ def websocket_server_adaptor_impl(path: str, port: int):
         _state.mgr.set_queues(
             connect_queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"],
             message_queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"],
-            )
+        )
         _state.mgr.start(port)
 
     @to_web.stop
@@ -277,7 +289,9 @@ def websocket_server_adaptor_impl(path: str, port: int):
     ):
         assert type_map == {}, "Websocket adaptor does not support type generics"
         if (handler_path, receive) in adaptors_dedup:
-            raise ValueError(f"Duplicate websocket_ adaptor client for handler_path {handler_path}: only one client is allowed")
+            raise ValueError(
+                f"Duplicate websocket_ adaptor client for handler_path {handler_path}: only one client is allowed"
+            )
         adaptors_dedup.add((handler_path, receive))
         adaptors.add(handler_path.replace("/from_graph", "").replace("/to_graph", ""))
 

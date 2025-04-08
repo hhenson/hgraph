@@ -9,3 +9,5 @@ The adaptors expose these libraries through appropriate HGraph style wrappers.
 
     Home <self>
     tornado/rest_api
+    tornado/http_api
+    tornado/websocket_api

@@ -479,17 +479,22 @@ def push_queue(
         defaults = {k: v.default for k, v in sig.parameters.items() if k != sender_arg}
 
         nonlocal requires
-        if 'batch' in annotations:
+        if "batch" in annotations:
+
             def check_batching_type(mapping, scalars, requires=requires):
                 if requires is not None and (r := requires(mapping, scalars)) is not True:
                     return r
 
-                if scalars['batch'] is True:
+                if scalars["batch"] is True:
                     t = HgTypeMetaData.parse_type(tp)
                     from hgraph import HgTSDTypeMetaData
+
                     if isinstance(t, HgTSDTypeMetaData):
-                       if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches(t.value_tp):
-                            return f"TSD[K, TS[Tuple[SCALAR, ...]]] is expected to be output type if batch=True, received {tp}"
+                        if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches(t.value_tp):
+                            return (
+                                "TSD[K, TS[Tuple[SCALAR, ...]]] is expected to be output type if batch=True, received"
+                                f" {tp}"
+                            )
                     else:
                         if not HgTypeMetaData.parse_type(TS[tuple[SCALAR, ...]]).matches(t):
                             return f"TS[Tuple[SCALAR, ...]] is expected to be output type if batch=True, received {tp}"
@@ -1039,7 +1044,7 @@ def _create_node(
     if interfaces is None:
         out = node_class(signature, impl_fn)
     else:
-        return node_class(signature, impl_fn, interfaces=interfaces)
+        out = node_class(signature, impl_fn, interfaces=interfaces)
     out.__doc__ = signature_fn.__doc__
     return out
 

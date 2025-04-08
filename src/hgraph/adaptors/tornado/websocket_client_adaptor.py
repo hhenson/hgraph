@@ -4,13 +4,15 @@ from typing import Callable
 from tornado import httpclient
 from tornado.websocket import websocket_connect
 
-from hgraph import service_adaptor, TS, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node, STATE, TSB
+from hgraph import service_adaptor, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node, STATE, TSB
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
-from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketClientRequest, WebSocketClientRequest, WebSocketResponse
+from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketClientRequest, WebSocketResponse
 
 
 @service_adaptor
-def websocket_client_adaptor(request: TSB[WebSocketClientRequest], path: str = "websocket_client") -> TSB[WebSocketResponse]: ...
+def websocket_client_adaptor(
+    request: TSB[WebSocketClientRequest], path: str = "websocket_client"
+) -> TSB[WebSocketResponse]: ...
 
 
 @service_adaptor_impl(interfaces=websocket_client_adaptor)
@@ -25,9 +27,9 @@ def websocket_client_adaptor_impl(
 
     async def make_websocket_request(state: STATE, id: int, request: WebSocketClientRequest, sender: Callable):
         try:
-            ws = await websocket_connect(httpclient.HTTPRequest(request.url, headers=request.headers),
-                                         ping_interval=1,
-                                         ping_timeout=3)
+            ws = await websocket_connect(
+                httpclient.HTTPRequest(request.url, headers=request.headers), ping_interval=1, ping_timeout=3
+            )
         except Exception as e:
             sender({id: {"connect_response": False}})
             return
