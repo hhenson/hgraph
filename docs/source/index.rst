@@ -16,6 +16,7 @@ Contents
     programming_model/index
     concepts/index
     tools/index
+    adaptors/index
     reference/index
     papers/index
     references
