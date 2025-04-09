@@ -350,6 +350,11 @@ class WiringGraphContext:
             ):
                 if path not in self._built_services:
                     impl(path=path, __pre_resolved_types__={}, **kwargs)
+                    # Make sure this actually got built
+                    if path not in self._built_services:
+                        raise CustomMessageWiringError(
+                            f"Service implementation for path: '{path}' did not build a service instance"
+                        )
 
             if len(self._service_clients) == len(service_clients):
                 break
