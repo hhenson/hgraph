@@ -1100,3 +1100,8 @@ Version 0.4.26 (10-04-2025)
 ---------------------------
 
 * Fixes to the arrow wrappers, expose make_tuple to create a appropriate tuple wrappers.
+
+Version 0.4.27 (10-04-2025)
+---------------------------
+
+* Change arrow tuples to be explicit named bundles to avoid confusion when auto-flattening the tuples.
