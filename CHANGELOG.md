@@ -1095,3 +1095,8 @@ Version 0.4.25 (10-04-2025)
 ---------------------------
 
 * Update to_json to fix problem with tuples and nexted data structures.
+
+Version 0.4.26 (10-04-2025)
+---------------------------
+
+* Fixes to the arrow wrappers, expose make_tuple to create a appropriate tuple wrappers.
