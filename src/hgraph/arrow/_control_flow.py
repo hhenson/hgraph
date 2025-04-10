@@ -39,21 +39,22 @@ class if_then:
 
     def __init__(self, then_fn: Callable[[A], B], __if__=None, __name__=None):
         self._if = __if__
-        self.then_fn = arrow(then_fn, __name__=__name__ or f"if_then({then_fn})")
+        self.__name__ = __name__ or f"if_then({then_fn})"
+        self.then_fn = arrow(then_fn, __name__=self.__name__)
 
     def __rshift__(self, other: _Arrow[A, B]) -> B:
         # If we chain before we are done, then call otherwise with null and continue
-        return self.otherwise(null) >> other
+        return self.otherwise(None) >> other
 
     def __call__(self, pair):
         # If we are called then we need to finalise and go
-        self.otherwise(null)(pair)
+        return self.otherwise(None)(pair)
 
     def otherwise(self, else_fn: Callable[[A], B], __name__=None) -> B:
 
         then_otherwise = arrow(
             _IfThenOtherwise(self.then_fn, else_fn),
-            __name__=__name__ or f"{self.then_fn}.otherwise({__name__ or else_fn})",
+            __name__=__name__ or f"{self.then_fn}.otherwise({__name__ or else_fn or 'None'})",
         )
 
         if self._if is not None:
@@ -71,12 +72,12 @@ class _IfThenOtherwise:
     def __call__(self, pair):
         then_fn_ = self.then_fn
         else_fn_ = self.else_fn
+        switches = {True: lambda v: then_fn_(v)}
+        if else_fn_ is not None:
+            switches[False] = lambda v: else_fn_(v)
         return hgraph.switch_(
             pair[0],
-            {
-                True: lambda v: then_fn_(v),
-                False: lambda v: else_fn_(v),
-            },
+            switches,
             pair[1],
         )
 
