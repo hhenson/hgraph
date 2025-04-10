@@ -300,8 +300,15 @@ class WiringGraphContext:
         """
         service_clients = [(service, path, type_map) for service, path, type_map, _, _ in self._service_clients]
         service_full_paths = {}
+        catch_all_services_processed = set()
+        loop_count = 0
         while True:
             while True:
+                loop_count += 1
+                if loop_count > 1000:
+                    raise CustomMessageWiringError(
+                        "The graph is not stabilising, there may be an issue with the service specifications."
+                    )
                 services_to_build = dict()
                 for service, path, type_map in set(service_clients):
                     typed_path = service.typed_full_path(path, type_map)
@@ -348,8 +355,11 @@ class WiringGraphContext:
             for path, impl, kwargs in (
                 (p, i, kw) for p, (s, i, kw) in self._service_implementations.items() if s is None
             ):
-                if path not in self._built_services:
+                if path not in catch_all_services_processed and path not in self._built_services:
+                    catch_all_services_processed.add(path)
                     impl(path=path, __pre_resolved_types__={}, **kwargs)
+                    # Once processed we should mark these as done, or we will re-process these again if the service
+                    # Clients are not complete
 
             if len(self._service_clients) == len(service_clients):
                 break
