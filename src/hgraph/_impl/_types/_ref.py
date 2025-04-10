@@ -21,7 +21,7 @@ def python_time_series_reference_builder(
             return BoundTimeSeriesReference(ts)
         if isinstance(ts, TimeSeriesReferenceInput):
             return ts.value
-        if ts.has_peer:
+        if ts.has_output:
             return BoundTimeSeriesReference(ts.output)
         else:
             return UnBoundTimeSeriesReference([python_time_series_reference_builder(i) for i in ts])
@@ -124,6 +124,9 @@ class UnBoundTimeSeriesReference(TimeSeriesReference):
 
         if reactivate:
             input_.make_active()
+
+    def __getitem__(self, item):
+        return self.items[item]
 
     @property
     def is_valid(self) -> bool:
