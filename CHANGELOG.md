@@ -1090,3 +1090,8 @@ Version 0.4.24 (08-04-2025)
 ---------------------------
 
 * Clean up Sphinx documentation and add adaptors.tornado Rest API docs.
+
+Version 0.4.25 (10-04-2025)
+---------------------------
+
+* Update to_json to fix problem with tuples and nexted data structures.
