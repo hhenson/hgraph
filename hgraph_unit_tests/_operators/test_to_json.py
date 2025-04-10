@@ -21,6 +21,11 @@ class MyCS(CompoundScalar):
     p2: date
 
 
+@dataclass
+class MyComplexCS(CompoundScalar):
+    c1: tuple[MyCS, ...]
+
+
 @pytest.mark.parametrize(
     ["tp", "value", "expected"],
     [
@@ -32,6 +37,7 @@ class MyCS(CompoundScalar):
         [TS[timedelta], timedelta(10, 15, microseconds=42), '"10:0:0:15.000042"'],
         [TS[ExpEnum], ExpEnum.E1, '"E1"'],
         [TS[MyCS], MyCS(p1="a", p2=date(2024, 6, 13)), '{"p1": "a", "p2": "2024-06-13"}'],
+        [TS[MyComplexCS], MyComplexCS(c1=(MyCS(p1="a", p2=date(2024, 6, 13)),)), '{"c1": [{"p1": "a", "p2": "2024-06-13"}]}'],
         [TS[Mapping[int, int]], {1: 1, 2: 2}, '{"1": 1, "2": 2}'],
         [TS[Mapping[str, int]], fd(p1=1, p2=2), '{"p1": 1, "p2": 2}'],
         [TS[tuple[str, ...]], ("1", "2"), '["1", "2"]'],
