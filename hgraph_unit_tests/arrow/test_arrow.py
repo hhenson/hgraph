@@ -29,10 +29,10 @@ from frozendict import frozendict as fd
 
 def test_make_tuple_tsl():
     @graph
-    def g(ts1: TS[int], ts2: TS[int]) -> TSL[TS[int], Size[2]]:
+    def g(ts1: TS[int], ts2: TS[int]) -> TSB[_TupleSchema[TS[int], TS[int]]]:
         return arrow(ts1, ts2).ts
 
-    assert eval_node(g, [1, 2], [3, 4]) == [{0: 1, 1: 3}, {0: 2, 1: 4}]
+    assert eval_node(g, [1, 2], [3, 4]) == [{'first': 1, 'second': 3}, {'first': 2, 'second': 4}]
 
 
 def test_make_tuple_tsb():
@@ -40,7 +40,7 @@ def test_make_tuple_tsb():
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         return arrow(ts1, ts2).ts
 
-    assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 1, "ts2": "A"}, {"ts1": 2, "ts2": "B"}]
+    assert eval_node(g, [1, 2], ["A", "B"]) == [{"first": 1, "second": "A"}, {"first": 2, "second": "B"}]
 
 
 def test_basic_arrow_wrapper():
@@ -65,12 +65,12 @@ def test_basic_arrow_wrapper_including_input_wrapper():
 
 def test_nested_inputs():
     @graph
-    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TSL[TS[int], Size[2]], TSL[TS[str], Size[2]]]]:
+    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TSB[_TupleSchema[TS[int], TS[int]]], TSB[_TupleSchema[TS[str], TS[str]]]]]:
         return arrow((ts1, ts1), (ts2, ts2)).ts
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [
-        {"ts1": {0: 1, 1: 1}, "ts2": {0: "A", 1: "A"}},
-        {"ts1": {0: 2, 1: 2}, "ts2": {0: "B", 1: "B"}},
+        {"first": {'first': 1, 'second': 1}, "second": {'first': "A", 'second': "A"}},
+        {"first": {'first': 2, 'second': 2}, "second": {'first': "B", 'second': "B"}},
     ]
 
 
@@ -99,15 +99,15 @@ def test_cross():
 
         return arrow(ts1, ts2) | arrow(lambda x: x * 3) // (lambda x: format_("{}_", x))
 
-    assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 3, "ts2": "A_"}, {"ts1": 6, "ts2": "B_"}]
+    assert eval_node(g, [1, 2], ["A", "B"]) == [{"first": 3, "second": "A_"}, {"first": 6, "second": "B_"}]
 
 
 def test_fan_out():
     @graph
-    def g(ts1: TS[int]) -> TSL[TS[int], Size[2]]:
+    def g(ts1: TS[int]) -> TSB[_TupleSchema[TS[int], TS[int]]]:
         return arrow(ts1) | arrow(lambda x: x * 3) / (lambda x: x + 1)
 
-    assert eval_node(g, [1, 2]) == [{0: 3, 1: 2}, {0: 6, 1: 3}]
+    assert eval_node(g, [1, 2]) == [{'first': 3, 'second': 2}, {'first': 6, 'second': 3}]
 
 
 def test_apply_():
@@ -126,8 +126,8 @@ def test_assoc():
         return arrow((ts1, ts2), ts3) | assoc
 
     assert eval_node(g, [1, 2], [1.0, 2.0], ["A", "B"]) == [
-        {"ts1": 1, "ts2": {"ts1": 1.0, "ts2": "A"}},
-        {"ts1": 2, "ts2": {"ts1": 2.0, "ts2": "B"}},
+        {"first": 1, "second": {"first": 1.0, "second": "A"}},
+        {"first": 2, "second": {"first": 2.0, "second": "B"}},
     ]
 
 
@@ -144,7 +144,7 @@ def test_first_():
     def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
         return arrow(ts1, ts2) | arrow(lambda x: x * 3) // identity
 
-    assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 3, "ts2": "A"}, {"ts1": 6, "ts2": "B"}]
+    assert eval_node(g, [1, 2], ["A", "B"]) == [{"first": 3, "second": "A"}, {"first": 6, "second": "B"}]
 
 
 def test_second_():
@@ -154,7 +154,7 @@ def test_second_():
 
         return arrow(ts1, ts2) | identity // arrow(lambda x: format_("{}_", x))
 
-    assert eval_node(g, [1, 2], ["A", "B"]) == [{"ts1": 1, "ts2": "A_"}, {"ts1": 2, "ts2": "B_"}]
+    assert eval_node(g, [1, 2], ["A", "B"]) == [{"first": 1, "second": "A_"}, {"first": 2, "second": "B_"}]
 
 
 def test_arrow_const():
@@ -167,18 +167,18 @@ def test_arrow_const():
 
 def test_arrow_const_2():
     @graph
-    def g() -> TSL[TS[int], Size[2]]:
+    def g() -> TSB[_TupleSchema[TS[int], TS[int]]]:
         return arrow(1, 2) | i
 
-    assert eval_node(g) == [{0: 1, 1: 2}]
+    assert eval_node(g) == [{'first': 1, 'second': 2}]
 
 
 def test_arrow_const_3():
     @graph
-    def g() -> TSB[_TupleSchema[TSL[TS[int], Size[2]], TS[int]]]:
+    def g() -> TSB[_TupleSchema[TSB[_TupleSchema[TS[int], TS[int]]], TS[int]]]:
         return arrow((1, 2), 3) | i
 
-    assert eval_node(g) == [{"ts1": {0: 1, 1: 2}, "ts2": 3}]
+    assert eval_node(g) == [{"first": {'first': 1, 'second': 2}, "second": 3}]
 
 
 def test_assert_too_many_args():
@@ -227,8 +227,8 @@ def test_binary_op():
 def test_eval_node():
     assert eval_(1) | i == [1]
     assert eval_([1, 2]) | i == [1, 2]
-    assert eval_([1, 2], [3, 4]) | i == [{0: 1, 1: 3}, {0: 2, 1: 4}]
-    assert eval_(([1, 2], [3, 4]), [5, 6]) | i == [{"ts1": {0: 1, 1: 3}, "ts2": 5}, {"ts1": {0: 2, 1: 4}, "ts2": 6}]
+    assert eval_([1, 2], [3, 4]) | i == [{'first': 1, "second": 3}, {'first': 2, "second": 4}]
+    assert eval_(([1, 2], [3, 4]), [5, 6]) | i == [{"first": {'first': 1, "second": 3}, "second": 5}, {"first": {'first': 2, 'second': 4}, "second": 6}]
 
 
 def test_eval_and_assert():
@@ -236,11 +236,11 @@ def test_eval_and_assert():
 
 
 def test_pos():
-    eval_([1, 2], [3, 4]) | +arrow(lambda x: x + 1) >> assert_(2, 3)
+    eval_([1, 2], [3, 4]) | +arrow(lambda x: x + 1) >> assert_({'first': 2, 'second': 3}, {'first': 3, 'second': 4})
 
 
 def test_neg():
-    eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_(4, 5)
+    eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_({'first': 1, 'second': 4}, {'first': 2, 'second': 5})
 
 
 def test_null():
@@ -248,11 +248,11 @@ def test_null():
     # Then split to the identity and null operators
     # evaluate the results of the independent processing chain
     # assert will get TSL[TS[int], Size[2]] so .value is (1, None)
-    eval_(1, 2) | i // null >> assert_((1, None))
+    eval_(1, 2) | i // null >> assert_({'first': 1})
 
 
 def test_const_():
-    eval_(1) | i / const_(2) >> assert_((1, 2))
+    eval_(1) | i / const_(2) >> assert_({'first': 1, 'second': 2})
 
 
 def test_if_then_else():

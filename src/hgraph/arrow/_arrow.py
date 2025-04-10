@@ -1,9 +1,9 @@
 from contextlib import nullcontext
 from datetime import datetime
-from functools import partial
+from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
-from hgraph import MIN_ST, MAX_ET, WiringNodeClass
+from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE
 from hgraph._operators import (
     nothing,
     const,
@@ -163,13 +163,13 @@ class _Arrow(Generic[A, B]):
         """
         Apply only the first tuple input to this arrow function
         """
-        return _Arrow(lambda pair: self.fn(pair[0]), __name__=f"+{self._name}")
+        return _Arrow(lambda pair: make_tuple(self.fn(pair[0]), pair[1]), __name__=f"+{self._name}")
 
     def __neg__(self):
         """
         Apply only the second tuple input to this arrow function
         """
-        return _Arrow(lambda pair: self.fn(pair[1]), __name__=f"-{self._name}")
+        return _Arrow(lambda pair: make_tuple(pair[0], self.fn(pair[1])), __name__=f"-{self._name}")
 
     def __call__(self, value: A) -> B:
         return self.fn(value)
@@ -309,6 +309,8 @@ def arrow(
         return input_ if __name__ is None else _ArrowInput(input_.ts, __name__=__name__)
     elif isinstance(input_, WiringPort):
         return _ArrowInput(input_, __name__=__name__)
+    elif isinstance(input_, WiringNodeClass):
+        return _Arrow(_flatten_wrapper(input_), __name__=__name__)
     elif isinstance(input_, tuple):
         return _ArrowInput(_make_tuple(*input_), __name__=__name__)
     elif callable(input_):
@@ -345,8 +347,15 @@ def _make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None)
         raise TypeError(f"Expected TimeSeriesInput's, got {type(ts1)} and {type(ts2)}")
 
 
-@operator
-def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2) -> OUT:
+class _TupleSchema(TimeSeriesSchema, Generic[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]):
+    first: TIME_SERIES_TYPE_1
+    second: TIME_SERIES_TYPE_2
+
+
+@graph(resolvers={OUT: lambda m, s: TSB[_TupleSchema[m[TIME_SERIES_TYPE_1].py_type, m[TIME_SERIES_TYPE_2].py_type]]})
+def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2,
+               _lhs_tp: type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE,
+               _rhs_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE) -> OUT:
     """
     Create a tuple from the two time-series values.
     If the types are the same OUT will be TSL[TIME_SERIES_TYPE, Size[2]]
@@ -355,29 +364,9 @@ def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2) -> OUT:
     The idea is that tuples are also composable, so it is possible to create construct reasonable complex
     input streams as a collection of tuples, of tuples.
     """
-
-
-@graph(overloads=make_tuple)
-def _make_tuple_tsl(ts1: TIME_SERIES_TYPE, ts2: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_TYPE, Size[2]]:
-    """When both input types match return a TSL"""
     from hgraph._operators import combine
 
-    return combine[TSL](ts1, ts2)
-
-
-class _TupleSchema(TimeSeriesSchema, Generic[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]):
-    ts1: TIME_SERIES_TYPE_1
-    ts2: TIME_SERIES_TYPE_2
-
-
-@graph(overloads=make_tuple, requires=lambda m, s: m[TIME_SERIES_TYPE_1] != m[TIME_SERIES_TYPE_2])
-def _make_tuple_tsb(
-        ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2
-) -> TSB[_TupleSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
-    """When the input types do not match return a TSB"""
-    from hgraph._operators import combine
-
-    return combine[TSB](ts1=ts1, ts2=ts2)
+    return combine[TSB[_TupleSchema[_lhs_tp, _rhs_tp]]](first=ts1, second=ts2)
 
 
 @arrow(__name__="i")
@@ -392,3 +381,46 @@ i = identity
 @arrow
 def null(x):
     return nothing(x.output_type.py_type)
+
+
+def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
+    """Attempts to convert the inputs to match the signature of the node"""
+
+    @wraps(node.fn)
+    def _wrapper(x):
+        sz = len(node.signature.time_series_args)
+        # Unpack left to right
+        args = _unpack(x, sz)
+        return node(*args)
+
+    return _wrapper
+
+
+_MATCH=HgTimeSeriesTypeMetaData.parse_type(TSB[_TupleSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]])
+
+
+def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
+    """
+    Recursively unpacks the tuple until we have the desired size, or we are not able to do so.
+    This unpacks using a depth first search. There is a risk that this will accidentally unpack a TSL or TSB of size
+    2 by accident.
+    """
+    if sz == 1:
+        return x,
+
+    if not _MATCH.matches(x.output_type):
+        if _check:
+            raise ValueError(f"Expected an Arrow tuple, got {x.output_type}")
+        else:
+            return x,
+
+    if sz == 2:
+        return x[0], x[1]
+    else:
+        left = _unpack(x[0], sz - 1, _check=False)
+        right = _unpack(x[1], sz - len(left), _check=False)
+    result = left + right
+    if _check:
+        if len(result) != sz:
+            raise ValueError(f"Expected {sz} inputs but was only able to extract {len(result)}")
+    return result
