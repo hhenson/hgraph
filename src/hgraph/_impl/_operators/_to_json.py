@@ -33,17 +33,32 @@ __all__ = []
 from hgraph._operators._to_json import to_json_builder, from_json_builder
 
 
+def error_wrapper(fn: Callable[[Any], str], context: str) -> Callable[[Any], str]:
+    def _fn(v):
+        try:
+            return fn(v)
+        except Exception as e:
+            raise RuntimeError(f"Error while converting {context} with value {v}:\n{e}")
+
+    return _fn
+
+
 @singledispatch
 def to_json_converter(value: HgTypeMetaData, delta=False) -> Callable[[Any], str]:
     raise RuntimeError(f"Cannot convert {value} to JSON")
+
 
 @to_json_converter.register(HgCompoundScalarType)
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], str]:
     to_json = []
     for k, tp in value.meta_data_schema.items():
         m = to_json_converter(tp, delta)
-        to_json.append(lambda v, m=m, k=k: f'"{k}": {m(v_)}' if (v_ := getattr(v, k, None)) is not None else "")
-    return lambda v, to_json=to_json: f'{{{", ".join(v_ for fn in to_json if (v_:=fn(v)))}}}'
+        to_json.append(
+            error_wrapper(lambda v, m=m, k=k: f'"{k}": {m(v_)}' if (v_ := getattr(v, k, None)) is not None else "",
+                          f"{str(value)}: {k}:{str(tp)}"))
+    return error_wrapper(lambda v, to_json=to_json: f'{{{", ".join(v_ for fn in to_json if (v_ := fn(v)))}}}',
+                         f"{str(value)}")
+
 
 @to_json_converter.register(HgAtomicType)
 def _(value: HgAtomicType, delta=False) -> Callable[[Any], str]:
@@ -60,6 +75,7 @@ def _(value: HgAtomicType, delta=False) -> Callable[[Any], str]:
         timedelta: _td_to_str,
         datetime: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d %H:%M:%S.%f")}"',
     }[value.py_type]
+
 
 @to_json_converter.register(HgDictScalarType)
 def _(value: HgDictScalarType, delta=False) -> Callable[[Any], str]:
@@ -79,7 +95,7 @@ def _(value: HgDictScalarType, delta=False) -> Callable[[Any], str]:
 @to_json_converter.register(HgTupleCollectionScalarType)
 def _(value: HgTupleCollectionScalarType, delta=False) -> Callable[[Any], str]:
     v_fn = to_json_converter(value.element_type, delta)
-    return lambda v, v_fn=v_fn: f'[{", ".join(v_fn(i) for i in v)}]'
+    return error_wrapper(lambda v, v_fn=v_fn: f'[{", ".join(v_fn(i) for i in v)}]', f"{str(value)}")
 
 
 @to_json_converter.register(HgTSTypeMetaData)
@@ -121,7 +137,10 @@ def _(value: HgTSSTypeMetaData, delta=False) -> Callable[[Any], str]:
     else:
         def f_i(a, v, f):
             return f'"{a}": [{", ".join(fn(i) for i in v)}]' if len(v) else None
-        return lambda v, fn=fn: (f'{{{", ".join(i for i in (f_i("added", v.added(), fn), f_i("removed", v.removed(), fn)) if i)}}}')
+
+        return lambda v, fn=fn: (
+            f'{{{", ".join(i for i in (f_i("added", v.added(), fn), f_i("removed", v.removed(), fn)) if i)}}}')
+
 
 @to_json_converter.register(HgTSDTypeMetaData)
 def _(value: HgTSDTypeMetaData, delta=False) -> Callable[[Any], str]:
@@ -150,16 +169,19 @@ def _td_to_str(delta: timedelta) -> str:
 def from_json_converter(value: HgTypeMetaData, delta=False) -> Callable[[dict], Any]:
     raise RuntimeError(f"Cannot convert to '{value}' from JSON")
 
+
 @from_json_converter.register(HgTSTypeMetaData)
 def _(value: HgTSTypeMetaData, delta=False) -> Callable[[Any], Any]:
     return from_json_converter(value.value_scalar_tp, delta)
+
 
 @from_json_converter.register(HgCompoundScalarType)
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], Any]:
     fns = []
     for k, tp in value.meta_data_schema.items():
-        fns.append((k, lambda v1, tp=tp, k=k: from_json_builder(tp, delta)(v1.get(k, None))))
-    return lambda v2, fns=fns, tp=value.py_type: tp(**{k: v_ for k, fn in fns if (v_ := fn(v2)) is not None})
+        fns.append((k, error_wrapper(lambda v1, tp=tp, k=k: from_json_builder(tp, delta)(v1.get(k, None)), f"{str(value)} {k}: {str(tp)}")))
+    return error_wrapper(lambda v2, fns=fns, tp=value.py_type: tp(**{k: v_ for k, fn in fns if (v_ := fn(v2)) is not None}), f"{str(value)}")
+
 
 @from_json_converter.register(HgAtomicType)
 def _(value: HgAtomicType, delta=False) -> Callable[[Any], Any]:
@@ -201,7 +223,7 @@ def _(value: HgDictScalarType, delta=False) -> Callable[[dict], Any]:
 @from_json_converter.register(HgTupleCollectionScalarType)
 def _(value: HgTupleCollectionScalarType, delta=False) -> Callable[[list], Any]:
     v_fn = from_json_converter(value.element_type, delta)
-    return lambda v, v_fn=v_fn: tuple(v_fn(v_fn(i)) for i in v)
+    return lambda v, v_fn=v_fn: tuple(v_fn(i) for i in v)
 
 
 @from_json_converter.register(HgTSLTypeMetaData)
@@ -242,7 +264,8 @@ def _(value: HgTSDTypeMetaData, delta=False) -> Callable[[dict], Any]:
         k_fn = lambda k, k_fn=k_fn_inner: k_fn(json.loads(k))
     v_fn = from_json_converter(value.value_tp, delta)
 
-    return lambda v, k_fn=k_fn, v_fn=v_fn: {k_fn(k): v_fn(v) if v is not None else REMOVE_IF_EXISTS for k, v in v.items()}
+    return lambda v, k_fn=k_fn, v_fn=v_fn: {k_fn(k): v_fn(v) if v is not None else REMOVE_IF_EXISTS for k, v in
+                                            v.items()}
 
 
 @compute_node(overloads=to_json)

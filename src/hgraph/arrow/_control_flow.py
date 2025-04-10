@@ -1,9 +1,9 @@
 from typing import Callable, Mapping
 
 import hgraph
-from hgraph import TSL, Size
+from hgraph import TSL, Size, nothing
 from hgraph.arrow import null
-from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, _make_tuple
+from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, make_tuple
 
 __all__ = ["if_", "if_then", "fb", "switch_", "map_", "reduce"]
 
@@ -39,21 +39,22 @@ class if_then:
 
     def __init__(self, then_fn: Callable[[A], B], __if__=None, __name__=None):
         self._if = __if__
-        self.then_fn = arrow(then_fn, __name__=__name__ or f"if_then({then_fn})")
+        self.__name__ = __name__ or f"if_then({then_fn})"
+        self.then_fn = arrow(then_fn, __name__=self.__name__)
 
     def __rshift__(self, other: _Arrow[A, B]) -> B:
         # If we chain before we are done, then call otherwise with null and continue
-        return self.otherwise(null) >> other
+        return self.otherwise(None) >> other
 
     def __call__(self, pair):
         # If we are called then we need to finalise and go
-        self.otherwise(null)(pair)
+        return self.otherwise(None)(pair)
 
     def otherwise(self, else_fn: Callable[[A], B], __name__=None) -> B:
 
         then_otherwise = arrow(
             _IfThenOtherwise(self.then_fn, else_fn),
-            __name__=__name__ or f"{self.then_fn}.otherwise({__name__ or else_fn})",
+            __name__=__name__ or f"{self.then_fn}.otherwise({__name__ or else_fn or 'None'})",
         )
 
         if self._if is not None:
@@ -71,12 +72,14 @@ class _IfThenOtherwise:
     def __call__(self, pair):
         then_fn_ = self.then_fn
         else_fn_ = self.else_fn
+        switches = {True: lambda v: then_fn_(v)}
+        if else_fn_ is not None:
+            switches[False] = lambda v: else_fn_(v)
+        else:
+            switches[False] = lambda v: nothing[then_fn_(v).output_type.py_type]()
         return hgraph.switch_(
             pair[0],
-            {
-                True: lambda v: then_fn_(v),
-                False: lambda v: else_fn_(v),
-            },
+            switches,
             pair[1],
         )
 
@@ -137,7 +140,7 @@ class fb:
             def _feedback_wrapper(x):
                 fb_cache[label] = (f := hgraph.feedback(tp, default=d))
                 v = hgraph.gate(hgraph.modified(x), f(), -1) if p else f()
-                return _make_tuple(x, v)
+                return make_tuple(x, v)
 
             return _feedback_wrapper
 
@@ -210,6 +213,6 @@ def reduce(fn: _Arrow[TSL[A, Size[2]], A], zero: A, is_associative: bool = True)
 
     @arrow(__name__=f"reduce({fn})")
     def wrapper(x):
-        return hgraph.reduce(lambda lhs, rhs: fn(_make_tuple(lhs, rhs)), x, zero, is_associative=is_associative)
+        return hgraph.reduce(lambda lhs, rhs: fn(make_tuple(lhs, rhs)), x, zero, is_associative=is_associative)
 
     return wrapper
