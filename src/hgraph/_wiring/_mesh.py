@@ -58,13 +58,13 @@ def mesh_(func: Callable, *args, **kwargs):
         map_wiring_node, calling_kwargs, ri = _build_mesh_wiring_node_and_inputs(
             graph, signature, *args, **kwargs, __name__=name
         )
-        port = map_wiring_node(**calling_kwargs).out[calling_kwargs[KEYS_ARG]]
+        port = map_wiring_node(**calling_kwargs)
 
         from hgraph import WiringGraphContext
-
         WiringGraphContext.instance().reassign_items(ri, port.node_instance)
 
-        return port if port.output_type else None
+        out = port.out[calling_kwargs[KEYS_ARG]]
+        return out if port.output_type else None
 
 
 def _build_mesh_wiring_node_and_inputs(
