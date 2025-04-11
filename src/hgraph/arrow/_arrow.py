@@ -136,13 +136,10 @@ class _Arrow(Generic[A, B]):
             pair > f // g
 
         """
+        other = arrow(other)
         f = self.fn
-        if isinstance(other, _Arrow):
-            g = other.fn
-            other_name = str(other)
-        else:
-            g = other
-            other_name = str(other.__name__)
+        g = other.fn
+        other_name = str(other)
         name = f"{self} // {other_name}"
         return _Arrow(lambda pair, _f=f, _g=g, _name=name: make_tuple(_f(pair[0]), _g(pair[1])), __name__=name)
 
@@ -161,13 +158,10 @@ class _Arrow(Generic[A, B]):
             make_tuple(f(ts), g(ts))
 
         """
+        other = arrow(other)
         f = self.fn
-        if isinstance(other, _Arrow):
-            g = other.fn
-            other_name = str(other)
-        else:
-            g = other
-            other_name = str(other.__name__)
+        g = other.fn
+        other_name = str(other)
         name = f"{self} // {other_name}"
         return _Arrow(lambda x, _f=f, _g=g: make_tuple(_f(x), _g(x)), __name__=name)
 
