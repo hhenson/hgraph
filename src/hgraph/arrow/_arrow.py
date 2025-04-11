@@ -3,8 +3,10 @@ from datetime import datetime
 from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
+from pandas.core.window.doc import kwargs_scipy
+
 from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink, \
-    is_subclass_generic, compute_node
+    is_subclass_generic, compute_node, WiringGraphContext
 from hgraph._operators import (
     nothing,
     const,
@@ -62,14 +64,24 @@ class _Arrow(Generic[A, B]):
 
     def __init__(self, fn: Callable[[A], B], __name__=None):
         # Avoid unnecessary nesting of wrappers
+        self._bound_args = []
+        self._bound_kwargs = {}
         if isinstance(fn, _Arrow):
-            self.fn = fn.fn
+            self._fn = fn.fn
         else:
-            self.fn = fn
+            self._fn = fn
         self._name = __name__ if __name__ is not None else \
             str(fn) if isinstance(fn, (_Arrow, _ArrowInput)) else \
                 fn.signature.name if isinstance(fn, WiringNodeClass) else \
                     fn.__name__
+
+    @property
+    def fn(self):
+        # Calling fn will finalise the structure
+        if self._bound_args or self._bound_kwargs:
+            return partial(self._fn, *self._bound_args, **self._bound_kwargs)
+        else:
+            return self._fn
 
     def __rshift__(self, other: "Arrow[B, C]") -> "Arrow[A, C]":
         """
@@ -184,8 +196,17 @@ class _Arrow(Generic[A, B]):
         """
         return _Arrow(lambda pair: make_pair(pair[0], self.fn(pair[1])), __name__=f"-{self._name}")
 
-    def __call__(self, value: A) -> B:
-        return self.fn(value)
+    def __call__(self, *args, **kwargs) -> B:
+        if len(args) == 1 and len(kwargs) == 0 and isinstance(args[0], WiringPort):
+            # We are not binding and are in-fact processing now
+            return self.fn(args[0], *self._bound_args, **self._bound_kwargs)
+        else:
+            if len(args) > 0:
+                self._bound_args += args
+            if len(kwargs) > 0:
+                # Bind kwargs
+                self._bound_kwargs |= kwargs
+            return self
 
     def __str__(self):
         return self._name
@@ -331,7 +352,12 @@ def arrow(
         return _Arrow(input_, __name__=__name__)
     else:
         # Assume this is a constant and attempt to convert to a const
-        return _ArrowInput(const(input_), __name__=__name__)
+        if WiringGraphContext.instance():
+            return _ArrowInput(const(input_), __name__=__name__)
+        else:
+            # Assume if there is no wiring context then we must be chaining operators
+            from hgraph.arrow._std_operators import const_
+            return const_(input_)
 
 
 def _make_pair(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None):
@@ -425,11 +451,13 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
     """Attempts to convert the inputs to match the signature of the node"""
 
     @wraps(node.fn)
-    def _wrapper(x):
+    def _wrapper(*args, **kwargs):
+        x = args[-1]
+        args = args[:-1]
         sz = len(node.signature.time_series_args)
         # Unpack left to right
-        args = _unpack(x, sz)
-        return node(*args)
+        args = _unpack(x, sz) + args
+        return node(*args, **kwargs)
 
     return _wrapper
 

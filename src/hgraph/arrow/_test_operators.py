@@ -1,10 +1,12 @@
+import string
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, compute_node, STATE, debug_print, TimeSeriesBundleInput, AUTO_RESOLVE, TSB
-from hgraph.arrow import arrow, PairSchema
-from hgraph.arrow._arrow import A, extract_value
+from hgraph import CompoundScalar, compute_node, STATE, AUTO_RESOLVE, TS, OUT, \
+    EvaluationClock
+from hgraph.arrow import arrow
+from hgraph.arrow._arrow import A, extract_value, extract_delta_value
 
-__all__ = ("assert_", "print_out", "debug_print_")
+__all__ = ("assert_", "debug_", "d")
 
 
 @dataclass
@@ -46,17 +48,27 @@ def assert_(*args, message: str = None):
 
 
 @arrow
-def print_out(x):
-    debug_print("out", x)
-    return x
+@compute_node
+def debug_(msg_: OUT, fmt_str: str = None, delta_value: bool = False, _out_tp: type[OUT] = AUTO_RESOLVE,
+           _clock: EvaluationClock = None) -> OUT:
+    """
+    Useful utility for debugging. This will print the value of the input stream and then emit the value out.
+    This ensures the debug statement will rank immediately after the input and before any subsequent consumers.
+    This will work with a format string, or a prefix (no formatting elements) or no prefix.
+
+    This is a slow implementation, but is only intended for debugging, and mostly
+    in unit / integration test scenarios. This is not intended for general purpose use.
+    :param msg_: The time-series input to print out.
+    :param fmt_str: The format string to use, if {} is included this will use formatter else will produce <fmt_str>: <msg_str>
+    :param delta_value: If true this will print the delta value instead of the full value.
+    :return: The input is returned to allow this to be inlined and ranked between input and consumers post use.
+    """
+    msg_str = extract_delta_value(msg_, _out_tp) if delta_value else extract_value(msg_, _out_tp)
+    if fmt_str is not None:
+        _, parsed, _, _ = next(string.Formatter().parse(fmt_str), (None, None, None, None))
+        msg_str = f"{fmt_str}: {msg_str}" if parsed is None else fmt_str.format(msg_str)
+    print(f"[DEBUG][{_clock.evaluation_time}] {msg_str}")
+    return msg_.delta_value
 
 
-def debug_print_(label: str):
-    """Wraps the debug print"""
-
-    @arrow(__name__=f"debug_print_({label})")
-    def _debug_print(x):
-        debug_print(label, x)
-        return x
-
-    return _debug_print
+d = debug_

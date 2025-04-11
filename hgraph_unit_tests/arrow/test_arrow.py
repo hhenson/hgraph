@@ -18,7 +18,7 @@ from hgraph.arrow import (
     second,
     assoc,
     fb,
-    debug_print_, switch_, map_, reduce
+    switch_, map_, reduce, debug_
 )
 from hgraph.arrow._arrow import PairSchema, Pair
 from hgraph.test import eval_node
@@ -270,7 +270,7 @@ def test_if_then_otherwise():
 
 
 def test_feedback():
-    eval_([1, 2, 3]) | fb["a" : TS[int], "default":0] >> add_ >> fb["a"] >> debug_print_("Test") >> assert_(1, 3, 6)
+    eval_([1, 2, 3]) | fb["a" : TS[int], "default":0] >> add_ >> fb["a"] >> debug_("Test") >> assert_(1, 3, 6)
 
 
 def test_switch():
@@ -286,3 +286,7 @@ def test_map():
 def test_reduce():
     (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) |
      reduce(add_, 0) >> assert_(3))
+
+
+def test_debug_():
+    eval_([1, 2], [1, None, 2]) | debug_ >> assert_((1, 1), (2, 1), (2, 2))
