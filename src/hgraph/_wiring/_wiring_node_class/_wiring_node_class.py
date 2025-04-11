@@ -91,6 +91,13 @@ class WiringNodeClass:
         """
         raise NotImplementedError()
 
+    def __rshift__(self, item):
+        """
+        Add more direct support for arrow behaviour, this will correctly respond to the >> operator
+        """
+        from hgraph.arrow import arrow
+        return arrow(self) >> arrow(item)
+
     def __eq__(self, other):
         return self.signature == other.signature and self.fn == other.fn
 
