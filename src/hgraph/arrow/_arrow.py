@@ -80,16 +80,24 @@ class _Arrow(Generic[A, B]):
             g(f(x))
 
         """
+        # First make sure this is wrapped as an arrow function (by calling arrow any additional uplift work is done if necissary)
+        other = arrow(other)
+
         # Unwrap the fn from the arrow wrapper
-        if isinstance(other, _Arrow):
-            fn = other.fn
-            other_name = str(other)
-        else:
-            fn = other
-            other_name = str(other.__name__)
+        # Since we have ensured the other is an arrow we can just go ahead and unwrap
+        fn = other.fn
+        other_name = str(other)
+
         # Now re-wrap the logic
         name = f"{self} >> {other_name}"
         return _Arrow(lambda x: fn(self.fn(x)), __name__=name)
+
+    def __rrshift__(self, other):
+        """
+        If the first item is not an arrow function then we try and catch if the second is. This won't help with
+        chains of non-arrow functions, but will catch the odd scenario where the first is a normal function.
+        """
+        return arrow(other) >> self
 
     def __lshift__(self, other: "Arrow[A, B]") -> "Arrow[A, B]":
         """
