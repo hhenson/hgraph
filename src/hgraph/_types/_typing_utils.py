@@ -1,7 +1,14 @@
 import itertools
 from typing import TypeVar
 
-__all__ = ("clone_type_var", "nth", "with_signature")
+__all__ = ("clone_type_var", "nth", "with_signature", "is_subclass_generic", "class_or_instance_method")
+
+
+def is_subclass_generic(param_type, generic_type):
+    """Checks subclass when the param_type is a generic type"""
+    if hasattr(param_type, "__origin__"):
+        return issubclass(param_type.__origin__, generic_type)
+    return issubclass(param_type, generic_type)
 
 
 def clone_type_var(tp: TypeVar, name: str) -> TypeVar:

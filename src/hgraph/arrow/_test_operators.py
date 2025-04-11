@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, compute_node, STATE, debug_print
-from hgraph.arrow import arrow
-from hgraph.arrow._arrow import A
+from hgraph import CompoundScalar, compute_node, STATE, debug_print, TimeSeriesBundleInput, AUTO_RESOLVE, TSB
+from hgraph.arrow import arrow, PairSchema
+from hgraph.arrow._arrow import A, extract_value
 
 __all__ = ("assert_", "print_out", "debug_print_")
 
@@ -25,15 +25,16 @@ def assert_(*args, message: str = None):
         message = f": ({message})"
 
     @compute_node
-    def _assert(ts: A, _state: STATE[_AssertState] = None) -> A:
+    def _assert(ts: A, _tp: type[A] = AUTO_RESOLVE, _state: STATE[_AssertState] = None) -> A:
         if (c := _state.count) >= (l := len(args)):
             _state.failed = True
             raise AssertionError(f"Expected {l} ticks, but still getting results: '{ts.value}'{message}")
         expected = args[c]
         _state.count += 1
-        if ts.value != expected:
+        value = extract_value(ts, _tp)
+        if value != expected:
             _state.failed = True
-            raise AssertionError(f"Expected '{expected}' but got '{ts.value}' on tick count: {_state.count}{message}")
+            raise AssertionError(f"Expected '{expected}' but got '{value}' on tick count: {_state.count}{message}")
         return ts.delta_value
 
     @_assert.stop

@@ -224,8 +224,8 @@ def test_binary_op():
 def test_eval_node():
     assert eval_(1) | i == [1]
     assert eval_([1, 2]) | i == [1, 2]
-    assert eval_([1, 2], [3, 4]) | i == [{'first': 1, "second": 3}, {'first': 2, "second": 4}]
-    assert eval_(([1, 2], [3, 4]), [5, 6]) | i == [{"first": {'first': 1, "second": 3}, "second": 5}, {"first": {'first': 2, 'second': 4}, "second": 6}]
+    assert eval_([1, 2], [3, 4]) | i == [(1, 3), (2, 4)]
+    assert eval_(([1, 2], [3, 4]), [5, 6]) | i == [((1, 3), 5), ((2, 4), 6)]
 
 
 def test_eval_and_assert():
@@ -233,11 +233,11 @@ def test_eval_and_assert():
 
 
 def test_pos():
-    eval_([1, 2], [3, 4]) | +arrow(lambda x: x + 1) >> assert_({'first': 2, 'second': 3}, {'first': 3, 'second': 4})
+    eval_([1, 2], [3, 4]) | +arrow(lambda x: x + 1) >> assert_((2, 3), (3, 4))
 
 
 def test_neg():
-    eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_({'first': 1, 'second': 4}, {'first': 2, 'second': 5})
+    eval_([1, 2], [3, 4]) | -arrow(lambda x: x + 1) >> assert_((1, 4), (2, 5))
 
 
 def test_null():
@@ -245,11 +245,11 @@ def test_null():
     # Then split to the identity and null operators
     # evaluate the results of the independent processing chain
     # assert will get TSL[TS[int], Size[2]] so .value is (1, None)
-    eval_(1, 2) | i // null >> assert_({'first': 1})
+    eval_(1, 2) | i // null >> assert_((1, None))
 
 
 def test_const_():
-    eval_(1) | i / const_(2) >> assert_({'first': 1, 'second': 2})
+    eval_(1) | i / const_(2) >> assert_((1, 2))
 
 
 def test_if_then_else():

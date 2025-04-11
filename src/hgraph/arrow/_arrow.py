@@ -3,7 +3,8 @@ from datetime import datetime
 from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
-from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink
+from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink, \
+    is_subclass_generic, compute_node
 from hgraph._operators import (
     nothing,
     const,
@@ -44,6 +45,10 @@ __all__ = (
     "make_pair",
     "PairSchema",
     "Pair",
+    "extract_delta_value",
+    "extract_value",
+    "convert_pairs_to_delta_tuples",
+    "convert_pairs_to_tuples"
 )
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
@@ -229,6 +234,7 @@ class _EvalArrowInput:
             values = _build_inputs(self.first, self.second, self.type_map, 0, self.start_time)
             out = other(values)
             if out is not None:
+                out = convert_pairs_to_delta_tuples(out)
                 record_to_memory(out)
             else:
                 # Place nothing into the buffer
@@ -459,3 +465,34 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
         if len(result) != sz:
             raise ValueError(f"Expected {sz} inputs but was only able to extract {len(result)}")
     return result
+
+
+def extract_value(ts, tp):
+    """Extracts the value from a time-series where the type is a pair and returns the value as a tuple."""
+    if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):
+        return (extract_value(ts.first, tp.__args__[0].__args__[0]), extract_value(ts.second, tp.__args__[0].__args__[1]))
+    else:
+        return ts.value
+
+
+def extract_delta_value(ts, tp):
+    """Extracts the delta-value from the time-series, for a pair the non-ticked value will be represented as None"""
+    if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):
+        return (
+            extract_delta_value(ts.first, tp.__args__[0].__args__[0]) if ts.first.modified else None,
+            extract_delta_value(ts.second, tp.__args__[0].__args__[1]) if ts.second.modified else None
+        )
+    else:
+        return ts.delta_value
+
+
+@compute_node
+def convert_pairs_to_delta_tuples(ts: TIME_SERIES_TYPE, _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TS[object]:
+    """Converts the incoming time-series to a tuple of values."""
+    return extract_delta_value(ts, _tp)
+
+
+@compute_node
+def convert_pairs_to_tuples(ts: TIME_SERIES_TYPE, _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE) -> TS[object]:
+    """Converts the incoming time-series to a tuple of values."""
+    return extract_value(ts, _tp)

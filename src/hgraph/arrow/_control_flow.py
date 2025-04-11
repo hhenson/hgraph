@@ -2,7 +2,6 @@ from typing import Callable, Mapping
 
 import hgraph
 from hgraph import TSL, Size, nothing
-from hgraph.arrow import null
 from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, make_pair
 
 __all__ = ["if_", "if_then", "fb", "switch_", "map_", "reduce"]
