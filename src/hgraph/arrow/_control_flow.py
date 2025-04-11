@@ -3,7 +3,7 @@ from typing import Callable, Mapping
 import hgraph
 from hgraph import TSL, Size, nothing
 from hgraph.arrow import null
-from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, make_tuple
+from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, make_pair
 
 __all__ = ["if_", "if_then", "fb", "switch_", "map_", "reduce"]
 
@@ -140,7 +140,7 @@ class fb:
             def _feedback_wrapper(x):
                 fb_cache[label] = (f := hgraph.feedback(tp, default=d))
                 v = hgraph.gate(hgraph.modified(x), f(), -1) if p else f()
-                return make_tuple(x, v)
+                return make_pair(x, v)
 
             return _feedback_wrapper
 
@@ -211,8 +211,11 @@ def reduce(fn: _Arrow[TSL[A, Size[2]], A], zero: A, is_associative: bool = True)
     (a, zero) >> fn == a, (zero, a) >> fn == a.
     """
 
+    # Wrap to ensure we get a consistent API
+    fn = arrow(fn)
+
     @arrow(__name__=f"reduce({fn})")
     def wrapper(x):
-        return hgraph.reduce(lambda lhs, rhs: fn(make_tuple(lhs, rhs)), x, zero, is_associative=is_associative)
+        return hgraph.reduce(lambda lhs, rhs: fn(make_pair(lhs, rhs)), x, zero, is_associative=is_associative)
 
     return wrapper

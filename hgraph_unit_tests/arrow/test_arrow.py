@@ -1,5 +1,8 @@
+import pytest
+from frozendict import frozendict as fd
+
 import hgraph
-from hgraph import TS, TSL, Size, graph, TSB, const, NodeException, TSD
+from hgraph import TS, graph, TSB, const, NodeException, TSD, add_, eq_
 from hgraph.arrow import (
     arrow,
     if_,
@@ -9,27 +12,21 @@ from hgraph.arrow import (
     eval_,
     null,
     const_,
-    binary_op,
     apply_,
-    eq_,
     assert_,
     first,
     second,
     assoc,
-    add_,
     fb,
-    print_out,
     debug_print_, switch_, map_, reduce
 )
-from hgraph.arrow._arrow import _TupleSchema
+from hgraph.arrow._arrow import PairSchema, Pair
 from hgraph.test import eval_node
-import pytest
-from frozendict import frozendict as fd
 
 
 def test_make_tuple_tsl():
     @graph
-    def g(ts1: TS[int], ts2: TS[int]) -> TSB[_TupleSchema[TS[int], TS[int]]]:
+    def g(ts1: TS[int], ts2: TS[int]) -> Pair[TS[int]]:
         return arrow(ts1, ts2).ts
 
     assert eval_node(g, [1, 2], [3, 4]) == [{'first': 1, 'second': 3}, {'first': 2, 'second': 4}]
@@ -37,7 +34,7 @@ def test_make_tuple_tsl():
 
 def test_make_tuple_tsb():
     @graph
-    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
+    def g(ts1: TS[int], ts2: TS[str]) -> Pair[TS[int], TS[str]]:
         return arrow(ts1, ts2).ts
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"first": 1, "second": "A"}, {"first": 2, "second": "B"}]
@@ -65,7 +62,7 @@ def test_basic_arrow_wrapper_including_input_wrapper():
 
 def test_nested_inputs():
     @graph
-    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TSB[_TupleSchema[TS[int], TS[int]]], TSB[_TupleSchema[TS[str], TS[str]]]]]:
+    def g(ts1: TS[int], ts2: TS[str]) -> Pair[(TS[int],), (TS[str],)]:
         return arrow((ts1, ts1), (ts2, ts2)).ts
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [
@@ -94,7 +91,7 @@ def test_second():
 
 def test_cross():
     @graph
-    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
+    def g(ts1: TS[int], ts2: TS[str]) -> Pair[TS[int], TS[str]]:
         from hgraph import format_
 
         return arrow(ts1, ts2) | arrow(lambda x: x * 3) // (lambda x: format_("{}_", x))
@@ -104,7 +101,7 @@ def test_cross():
 
 def test_fan_out():
     @graph
-    def g(ts1: TS[int]) -> TSB[_TupleSchema[TS[int], TS[int]]]:
+    def g(ts1: TS[int]) -> Pair[TS[int]]:
         return arrow(ts1) | arrow(lambda x: x * 3) / (lambda x: x + 1)
 
     assert eval_node(g, [1, 2]) == [{'first': 3, 'second': 2}, {'first': 6, 'second': 3}]
@@ -122,7 +119,7 @@ def test_assoc():
     @graph
     def g(
         ts1: TS[int], ts2: TS[float], ts3: TS[str]
-    ) -> TSB[_TupleSchema[TS[int], TSB[_TupleSchema[TS[float], TS[str]]]]]:
+    ) -> Pair[TS[int], (TS[float], TS[str])]:
         return arrow((ts1, ts2), ts3) | assoc
 
     assert eval_node(g, [1, 2], [1.0, 2.0], ["A", "B"]) == [
@@ -141,7 +138,7 @@ def test_identity():
 
 def test_first_():
     @graph
-    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
+    def g(ts1: TS[int], ts2: TS[str]) -> Pair[TS[int], TS[str]]:
         return arrow(ts1, ts2) | arrow(lambda x: x * 3) // identity
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [{"first": 3, "second": "A"}, {"first": 6, "second": "B"}]
@@ -149,7 +146,7 @@ def test_first_():
 
 def test_second_():
     @graph
-    def g(ts1: TS[int], ts2: TS[str]) -> TSB[_TupleSchema[TS[int], TS[str]]]:
+    def g(ts1: TS[int], ts2: TS[str]) -> Pair[TS[int], TS[str]]:
         from hgraph import format_
 
         return arrow(ts1, ts2) | identity // arrow(lambda x: format_("{}_", x))
@@ -167,7 +164,7 @@ def test_arrow_const():
 
 def test_arrow_const_2():
     @graph
-    def g() -> TSB[_TupleSchema[TS[int], TS[int]]]:
+    def g() -> Pair[TS[int]]:
         return arrow(1, 2) | i
 
     assert eval_node(g) == [{'first': 1, 'second': 2}]
@@ -175,7 +172,7 @@ def test_arrow_const_2():
 
 def test_arrow_const_3():
     @graph
-    def g() -> TSB[_TupleSchema[TSB[_TupleSchema[TS[int], TS[int]]], TS[int]]]:
+    def g() -> Pair[(TS[int],), TS[int]]:
         return arrow((1, 2), 3) | i
 
     assert eval_node(g) == [{"first": {'first': 1, 'second': 2}, "second": 3}]
@@ -219,7 +216,7 @@ def test_assert_positive_flow():
 def test_binary_op():
     @graph
     def g(ts: TS[int]) -> TS[int]:
-        return arrow(ts) | i / i >> binary_op(hgraph.add_)
+        return arrow(ts) | i / i >> add_
 
     assert eval_node(g, [1, 2]) == [2, 4]
 
@@ -232,7 +229,7 @@ def test_eval_node():
 
 
 def test_eval_and_assert():
-    eval_([1, 2], [3, 4]) | binary_op(hgraph.add_) >> assert_(4, 6)
+    eval_([1, 2], [3, 4]) | add_ >> assert_(4, 6)
 
 
 def test_pos():

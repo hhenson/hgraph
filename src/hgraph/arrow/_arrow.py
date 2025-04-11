@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
-from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE
+from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink
 from hgraph._operators import (
     nothing,
     const,
@@ -41,7 +41,9 @@ __all__ = (
     "i",
     "null",
     "eval_",
-    "make_tuple",
+    "make_pair",
+    "PairSchema",
+    "Pair",
 )
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
@@ -141,7 +143,7 @@ class _Arrow(Generic[A, B]):
         g = other.fn
         other_name = str(other)
         name = f"{self} // {other_name}"
-        return _Arrow(lambda pair, _f=f, _g=g, _name=name: make_tuple(_f(pair[0]), _g(pair[1])), __name__=name)
+        return _Arrow(lambda pair, _f=f, _g=g, _name=name: make_pair(_f(pair[0]), _g(pair[1])), __name__=name)
 
     def __truediv__(self, other):
         """
@@ -163,19 +165,19 @@ class _Arrow(Generic[A, B]):
         g = other.fn
         other_name = str(other)
         name = f"{self} // {other_name}"
-        return _Arrow(lambda x, _f=f, _g=g: make_tuple(_f(x), _g(x)), __name__=name)
+        return _Arrow(lambda x, _f=f, _g=g: make_pair(_f(x), _g(x)), __name__=name)
 
     def __pos__(self):
         """
         Apply only the first tuple input to this arrow function
         """
-        return _Arrow(lambda pair: make_tuple(self.fn(pair[0]), pair[1]), __name__=f"+{self._name}")
+        return _Arrow(lambda pair: make_pair(self.fn(pair[0]), pair[1]), __name__=f"+{self._name}")
 
     def __neg__(self):
         """
         Apply only the second tuple input to this arrow function
         """
-        return _Arrow(lambda pair: make_tuple(pair[0], self.fn(pair[1])), __name__=f"-{self._name}")
+        return _Arrow(lambda pair: make_pair(pair[0], self.fn(pair[1])), __name__=f"-{self._name}")
 
     def __call__(self, value: A) -> B:
         return self.fn(value)
@@ -262,7 +264,7 @@ def _build_inputs(
         second = replay_from_memory(ts_arg, TS[type(second[0])] if type_map is None else type_map[1])
     else:
         second = const(second) if type_map is None else const(second, type_map[1])
-    return _make_tuple(first, second).ts
+    return _make_pair(first, second).ts
 
 
 def eval_(
@@ -308,7 +310,7 @@ def arrow(
         return partial(arrow, __name__=__name__)
     if input_2 is not None:
         # Then input_ must be a TimeSeries or _ArrowInput
-        return _make_tuple(input_, input_2)
+        return _make_pair(input_, input_2)
     if isinstance(input_, _Arrow):
         return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__)
     if isinstance(input_, _ArrowInput):
@@ -318,7 +320,7 @@ def arrow(
     elif isinstance(input_, WiringNodeClass):
         return _Arrow(_flatten_wrapper(input_), __name__=__name__)
     elif isinstance(input_, tuple):
-        return _ArrowInput(_make_tuple(*input_), __name__=__name__)
+        return _ArrowInput(_make_pair(*input_), __name__=__name__)
     elif callable(input_):
         return _Arrow(input_, __name__=__name__)
     else:
@@ -326,7 +328,7 @@ def arrow(
         return _ArrowInput(const(input_), __name__=__name__)
 
 
-def _make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None):
+def _make_pair(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None):
     """
     Makes an arrow tuple input. An arrow input is a value that can be piped into an arrow function chain
     using the ``>`` operator.
@@ -334,9 +336,9 @@ def _make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None)
     # Unpack time-series values if they are already arrow inputs
     if isinstance(ts1, tuple):
         # Assume we are creating nested tuples
-        ts1 = _make_tuple(*ts1, __name__=None if __name__ is None else f"{__name__}[0]")
+        ts1 = _make_pair(*ts1, __name__=None if __name__ is None else f"{__name__}[0]")
     if isinstance(ts2, tuple):
-        ts2 = _make_tuple(*ts2, __name__=None if __name__ is None else f"{__name__}[1]")
+        ts2 = _make_pair(*ts2, __name__=None if __name__ is None else f"{__name__}[1]")
     if isinstance(ts1, _ArrowInput):
         ts1 = ts1.ts
     if isinstance(ts2, _ArrowInput):
@@ -348,20 +350,39 @@ def _make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None)
     if isinstance(ts1, WiringPort) and isinstance(ts2, WiringPort):
         # Create the tuple and then return the result wrapped as an _ArrowInput to allow this to create
         # a left to right application of values.
-        return _ArrowInput(make_tuple(ts1, ts2), __name__=__name__)
+        return _ArrowInput(make_pair(ts1, ts2), __name__=__name__)
     else:
         raise TypeError(f"Expected TimeSeriesInput's, got {type(ts1)} and {type(ts2)}")
 
 
-class _TupleSchema(TimeSeriesSchema, Generic[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]):
+class PairSchema(TimeSeriesSchema, Generic[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]):
     first: TIME_SERIES_TYPE_1
     second: TIME_SERIES_TYPE_2
 
 
-@graph(resolvers={OUT: lambda m, s: TSB[_TupleSchema[m[TIME_SERIES_TYPE_1].py_type, m[TIME_SERIES_TYPE_2].py_type]]})
-def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2,
-               _lhs_tp: type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE,
-               _rhs_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE) -> OUT:
+class _PairGenerator:
+
+    def __getitem__(self, item):
+        if isinstance(item, tuple):
+            if (l := len(item)) == 1:
+                item = item[0], item[0]
+            if len(item) != 2:
+                raise ValueError(f"Expected a tuple of length 2, got {item}")
+            first, second = item
+            first = self.__getitem__(first) if isinstance(first, tuple) else first
+            second = self.__getitem__(second) if isinstance(second, tuple) else second
+            return TSB[PairSchema[first, second]]
+        else:
+            return TSB[PairSchema[item, item]]
+
+
+Pair = _PairGenerator()
+
+
+@graph
+def make_pair(first: TIME_SERIES_TYPE_1, second: TIME_SERIES_TYPE_2,
+              _first_tp: type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE,
+              _second_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE) -> TSB[PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
     """
     Create a tuple from the two time-series values.
     If the types are the same OUT will be TSL[TIME_SERIES_TYPE, Size[2]]
@@ -372,7 +393,7 @@ def make_tuple(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2,
     """
     from hgraph._operators import combine
 
-    return combine[TSB[_TupleSchema[_lhs_tp, _rhs_tp]]](first=ts1, second=ts2)
+    return combine[TSB[PairSchema[_first_tp, _second_tp]]](first=first, second=second)
 
 
 @arrow(__name__="i")
@@ -381,11 +402,16 @@ def identity(x):
     return x
 
 
-i = identity
+i = identity  # Expose as both i and identity, use i as a rule, but identity when i would be confusing
 
 
 @arrow
 def null(x):
+    """
+    The null function, returns nothing and will terminal the received input. This ensures we don't accidentally wire out
+    a result.
+    """
+    null_sink(x)
     return nothing(x.output_type.py_type)
 
 
@@ -402,7 +428,7 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
     return _wrapper
 
 
-_MATCH=HgTimeSeriesTypeMetaData.parse_type(TSB[_TupleSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]])
+_MATCH=HgTimeSeriesTypeMetaData.parse_type(TSB[PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]])
 
 
 def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:

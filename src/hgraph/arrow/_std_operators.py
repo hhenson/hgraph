@@ -1,120 +1,9 @@
-import hgraph
 from hgraph import OUT
 from hgraph.arrow import arrow
 
 __all__ = (
-    "eq_", "lt_", "gt_", "le_", "ge_", "ne_", "and_", "or_", "not_", "add_", "sub_", "mul_", "div_", "mod_", "pow_",
-    "floordiv_", "neg_", "pos_", "abs_", "const_", "apply_", "binary_op"
+    "const_", "apply_", "c"
 )
-
-
-def binary_op(fn):
-    """
-    A simple arrow wrapper of an HGraph function that takes two args as input.
-    Useful to wrap binary operators.
-    """
-    _f = lambda pair: fn(pair[0], pair[1])
-    return arrow(_f)
-
-
-"""
-The basic operators as per Python.
-"""
-
-@arrow
-def eq_(pair):
-    return pair[0] == pair[1]
-
-
-@arrow
-def lt_(pair):
-    return pair[0] < pair[1]
-
-
-@arrow
-def gt_(pair):
-    return pair[0] > pair[1]
-
-
-@arrow
-def le_(pair):
-    return pair[0] <= pair[1]
-
-
-@arrow
-def ge_(pair):
-    return pair[0] >= pair[1]
-
-
-@arrow
-def ne_(pair):
-    return pair[0] != pair[1]
-
-
-@arrow
-def and_(pair):
-    return hgraph.and_(pair[0], pair[1])
-
-
-@arrow
-def or_(pair):
-    return hgraph.or_(pair[0], pair[1])
-
-
-@arrow
-def not_(pair):
-    return hgraph.not_(pair[0])
-
-
-@arrow
-def add_(pair):
-    return pair[0] + pair[1]
-
-
-@arrow
-def sub_(pair):
-    return pair[0] - pair[1]
-
-
-@arrow
-def mul_(pair):
-    return pair[0] * pair[1]
-
-
-@arrow
-def div_(pair):
-    return pair[0] / pair[1]
-
-
-@arrow
-def mod_(pair):
-    return pair[0] % pair[1]
-
-
-@arrow
-def pow_(pair):
-    return pair[0] ** pair[1]
-
-
-@arrow
-def floordiv_(pair):
-    return pair[0] // pair[1]
-
-
-@arrow
-def neg_(pair):
-    return -pair[0]
-
-
-@arrow
-def pos_(pair):
-    return +pair[0]
-
-
-@arrow
-def abs_(pair):
-    return abs(pair[0])
-
 
 def const_(first, second=None, tp=None):
     """
@@ -138,6 +27,7 @@ def const_(first, second=None, tp=None):
         __name__=f"{first}" if second is None else f"{first}, {second}",
     )
 
+c = const_  # Use c when it will not be confusing.
 
 def apply_(tp: OUT):
     """

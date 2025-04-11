@@ -25,3 +25,6 @@ def test_flatten_to_tsb():
 def test_bind_tsb_to_node():
     """When there is on TSB shaped input, bind it to the nodes input"""
 
+
+def test_convertion_to_tsl():
+    """Ensure that the arrow can be converted to TSL"""
