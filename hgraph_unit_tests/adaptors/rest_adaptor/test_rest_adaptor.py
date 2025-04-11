@@ -315,7 +315,7 @@ def test_rest_read_client(port):
     @graph
     def rest_read_test() -> TS[MyCS]:
         g(port)
-        out = rest_read(URL, "1", MyCS)
+        out = rest_read[MyCS](URL, "1")
         stop_engine(out)
         return out.value
 
