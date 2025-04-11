@@ -1105,3 +1105,8 @@ Version 0.4.27 (10-04-2025)
 ---------------------------
 
 * Change arrow tuples to be explicit named bundles to avoid confusion when auto-flattening the tuples.
+
+Version 0.4.28 (11-04-2025)
+---------------------------
+
+* Add convert datetime->date

@@ -8,6 +8,12 @@ def convert_date_to_datetime(ts: TS[date]) -> TS[datetime]:
     return datetime(ts.value.year, ts.value.month, ts.value.day)
 
 
+@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[date])
+def convert_date_to_datetime(ts: TS[datetime]) -> TS[date]:
+    v: datetime = ts.value
+    return v.date()
+
+
 @compute_node(overloads=combine, requires=lambda m, s: m[OUT].py_type == TS[date])
 def combine_date(year: TS[int], month: TS[int], day: TS[int]) -> TS[date]:
     return date(year.value, month.value, day.value)
