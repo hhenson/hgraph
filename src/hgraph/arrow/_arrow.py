@@ -6,7 +6,7 @@ from typing import Generic, TypeVar, Callable
 from pandas.core.window.doc import kwargs_scipy
 
 from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink, \
-    is_subclass_generic, compute_node, WiringGraphContext
+    is_subclass_generic, compute_node, WiringGraphContext, TS_SCHEMA
 from hgraph._operators import (
     nothing,
     const,
@@ -355,7 +355,9 @@ def arrow(
             from hgraph.arrow._std_operators import const_
             return const_(input_)
 
+
 a = arrow  # Shortcut to mark as arrow
+
 
 def _make_pair(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None):
     """
@@ -411,7 +413,8 @@ Pair = _PairGenerator()
 @graph
 def make_pair(first: TIME_SERIES_TYPE_1, second: TIME_SERIES_TYPE_2,
               _first_tp: type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE,
-              _second_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE) -> TSB[PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
+              _second_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE) -> TSB[
+    PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
     """
     Create a tuple from the two time-series values.
     If the types are the same OUT will be TSL[TIME_SERIES_TYPE, Size[2]]
@@ -453,7 +456,13 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
         args = args[:-1]
         sz = len(node.signature.time_series_args)
         # Unpack left to right
-        args = _unpack(x, sz) + args
+        if len(node.signature.time_series_args) > 1 and not _MATCH_PAIR.matches(x.output_type):
+            if not _MATCH_TSB.matches(x.output_type):
+                raise ValueError(f"Expected a Pair or TSB but got {args.output_type}")
+            kwargs |= x.as_dict()
+        else:
+            args = _unpack(x, sz) + args
+
         try:
             return node(*args, **kwargs)
         except:
@@ -463,7 +472,8 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
     return _wrapper
 
 
-_MATCH=HgTimeSeriesTypeMetaData.parse_type(TSB[PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]])
+_MATCH_PAIR = HgTimeSeriesTypeMetaData.parse_type(TSB[PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]])
+_MATCH_TSB = HgTimeSeriesTypeMetaData.parse_type(TSB[TS_SCHEMA])
 
 
 def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
@@ -478,7 +488,7 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
     if sz == 1:
         return x,
 
-    if not _MATCH.matches(x.output_type):
+    if not _MATCH_PAIR.matches(x.output_type):
         if _check:
             raise ValueError(f"Expected an Arrow tuple, got {x.output_type}")
         else:
@@ -498,7 +508,7 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
 
 def _flatten(x: WiringPort) -> tuple:
     """Expand the input into a tuple of non-pair values."""
-    if not _MATCH.matches(x.output_type):
+    if not _MATCH_PAIR.matches(x.output_type):
         return x,
     left = _flatten(x[0])
     right = _flatten(x[1])
@@ -508,7 +518,8 @@ def _flatten(x: WiringPort) -> tuple:
 def extract_value(ts, tp):
     """Extracts the value from a time-series where the type is a pair and returns the value as a tuple."""
     if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):
-        return (extract_value(ts.first, tp.__args__[0].__args__[0]), extract_value(ts.second, tp.__args__[0].__args__[1]))
+        return (
+        extract_value(ts.first, tp.__args__[0].__args__[0]), extract_value(ts.second, tp.__args__[0].__args__[1]))
     else:
         return ts.value
 

@@ -1,4 +1,4 @@
-from hgraph import eq_, not_, replace, format_, split, TS
+from hgraph import eq_, not_, replace, format_, split, TS, add_
 from hgraph.arrow import eval_, assert_, a, flatten_tsl, Pair
 from hgraph.arrow._pair_operators import flatten_tsb
 
@@ -30,7 +30,5 @@ def test_flatten_to_tsb():
 
 def test_bind_tsb_to_node():
     """When there is on TSB shaped input, bind it to the nodes input"""
+    eval_(1, 2) | flatten_tsb({"lhs": TS[int], "rhs": TS[int]}) >> add_ >> assert_(3)
 
-
-def test_convertion_to_tsl():
-    """Ensure that the arrow can be converted to TSL"""
