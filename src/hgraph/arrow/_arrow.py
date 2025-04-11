@@ -417,6 +417,9 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
     This unpacks using a depth first search. There is a risk that this will accidentally unpack a TSL or TSB of size
     2 by accident.
     """
+    if sz == 0:
+        return tuple()
+
     if sz == 1:
         return x,
 
