@@ -10,12 +10,10 @@ from hgraph import (
     format_,
     log_,
     AUTO_RESOLVE,
-    to_json, DEFAULT,
-)
+    to_json, )
 from hgraph.adaptors.tornado import (
     RestListResponse,
     RestReadResponse,
-    REST_RESPONSE,
     RestCreateResponse,
     RestUpdateResponse,
     RestDeleteResponse,
