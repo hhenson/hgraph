@@ -1,10 +1,13 @@
 """
 Operators to facilitate pair manipulation
 """
-from hgraph.arrow import arrow
-from hgraph.arrow._arrow import A, make_pair, B
 
-__all__ = ("first", "swap", "second", "assoc")
+from hgraph import TSL, OUT, SIZE
+from hgraph.arrow import arrow
+from hgraph.arrow._arrow import A, make_pair, B, Pair, _flatten
+
+__all__ = ("first", "swap", "second", "assoc", "flatten_tsl")
+
 
 @arrow
 def first(pair) -> A:
@@ -35,3 +38,14 @@ def assoc(pair):
     Converts ((a, b), c) -> (a, (b, c)).
     """
     return make_pair(pair[0][0], make_pair(pair[0][1], pair[1]))
+
+
+@arrow
+def flatten_tsl(x: Pair[A, B]) -> TSL[OUT, SIZE]:
+    v = _flatten(x)
+    tp = v[0].output_type.py_type
+    if not all(tp == i.output_type.py_type for i in v):
+        raise ValueError(
+            f"All elements must have the same type, got types: ({','.join(str(i.output_type) for i in v)})")
+    return TSL.from_ts(*v)
+

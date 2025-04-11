@@ -497,6 +497,15 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
     return result
 
 
+def _flatten(x: WiringPort) -> tuple:
+    """Expand the input into a tuple of non-pair values."""
+    if not _MATCH.matches(x.output_type):
+        return x,
+    left = _flatten(x[0])
+    right = _flatten(x[1])
+    return left + right
+
+
 def extract_value(ts, tp):
     """Extracts the value from a time-series where the type is a pair and returns the value as a tuple."""
     if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):

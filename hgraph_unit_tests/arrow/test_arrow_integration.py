@@ -1,5 +1,5 @@
-from hgraph import eq_, not_, replace, format_, split
-from hgraph.arrow import eval_, assert_, a
+from hgraph import eq_, not_, replace, format_, split, TS
+from hgraph.arrow import eval_, assert_, a, flatten_tsl, Pair
 
 
 def test_native_hgraph_integration():
@@ -11,12 +11,15 @@ def test_tuple_unpacking():
     """Ensure tuple unpacking works."""
     eval_("a", ("z", "abcabcabc")) | replace >> assert_("zbczbczbc")
 
+
 def test_binding_parameters():
     """Ability to bind a node with parameters"""
     eval_(["a, b"]) | a(split)(separator=", ") >> assert_(("a", "b"))
 
+
 def test_flatten_to_tsl():
     """Ensure that the arrow can be flattened to TSL"""
+    eval_((1, (2, 3)), (4, (5, 6))) | flatten_tsl >> assert_((1, 2, 3, 4, 5, 6))
 
 
 def test_flatten_to_tsb():

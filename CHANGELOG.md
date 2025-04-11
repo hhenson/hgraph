@@ -1111,3 +1111,4 @@ Version 0.4.28 (11-04-2025)
 
 * Add convert datetime->date
 * Many small changes to arrow API
+* Add flatten_tsl for converting Pair's to TSL
