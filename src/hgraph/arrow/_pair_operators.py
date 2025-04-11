@@ -2,7 +2,7 @@
 Operators to facilitate pair manipulation
 """
 
-from hgraph import TSL, OUT, SIZE
+from hgraph import TSL, OUT, SIZE, TSB, ts_schema
 from hgraph.arrow import arrow
 from hgraph.arrow._arrow import A, make_pair, B, Pair, _flatten
 
@@ -42,6 +42,9 @@ def assoc(pair):
 
 @arrow
 def flatten_tsl(x: Pair[A, B]) -> TSL[OUT, SIZE]:
+    """
+    Flattens a pair into a TSL. This requires each element of the pair to have the same type.
+    """
     v = _flatten(x)
     tp = v[0].output_type.py_type
     if not all(tp == i.output_type.py_type for i in v):
@@ -49,3 +52,26 @@ def flatten_tsl(x: Pair[A, B]) -> TSL[OUT, SIZE]:
             f"All elements must have the same type, got types: ({','.join(str(i.output_type) for i in v)})")
     return TSL.from_ts(*v)
 
+
+def flatten_tsb(__schema__=None, **kwargs):
+    """
+    Convert the input in the TSB schema, this flattens the pairs and then attempts to assign them to the schema
+    in the order specified.
+
+    This can be called with a schema or a dictionary of types or a kwargs of types.
+    """
+    if __schema__ is not None:
+        schema = __schema__
+    else:
+        schema = kwargs
+    if isinstance(schema, dict):
+        schema = ts_schema(**schema)
+
+    def _wrapper(x):
+        v = _flatten(x)
+        if len(v) != len(schema.__meta_data_schema__):
+            raise ValueError(f"Expected {len(schema.__meta_data_schema__)} values, got {len(v)} for schema: "
+                             f"{dict({k: str(v) for k, v in schema.__meta_data_schema__.items()})}")
+        return TSB[schema].from_ts(**{k: v for k, v in zip(schema.__meta_data_schema__.keys(), v)})
+
+    return arrow(_wrapper)

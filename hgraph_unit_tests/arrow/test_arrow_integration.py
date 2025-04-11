@@ -1,5 +1,6 @@
 from hgraph import eq_, not_, replace, format_, split, TS
 from hgraph.arrow import eval_, assert_, a, flatten_tsl, Pair
+from hgraph.arrow._pair_operators import flatten_tsb
 
 
 def test_native_hgraph_integration():
@@ -24,6 +25,7 @@ def test_flatten_to_tsl():
 
 def test_flatten_to_tsb():
     """Ensure that the arrow can be flattened to TSB"""
+    eval_(1, "A") | flatten_tsb({"a": TS[int], "b": TS[str]}) >> assert_({"a": 1, "b": "A"})
 
 
 def test_bind_tsb_to_node():
