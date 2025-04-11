@@ -122,6 +122,10 @@ class _Arrow(Generic[A, B]):
         """
         return arrow(i / arrow(other) >> self, __name__=f"{self} << {other}")
 
+    def __rlshift__(self, other):
+        """Catch the case where the left is a normal function"""
+        return arrow(other) << self
+
     def __floordiv__(self, other: "Arrow[C, D]") -> "Arrow[tuple[A, B], tuple[C, D]]":
         """
         Consumes a tuple of inputs applying the first to the first function and the second to the second function.
