@@ -1,5 +1,5 @@
-from hgraph import eq_, not_, replace
-from hgraph.arrow import eval_, assert_
+from hgraph import eq_, not_, replace, format_, split
+from hgraph.arrow import eval_, assert_, a
 
 
 def test_native_hgraph_integration():
@@ -13,6 +13,7 @@ def test_tuple_unpacking():
 
 def test_binding_parameters():
     """Ability to bind a node with parameters"""
+    eval_(["a, b"]) | a(split)(separator=", ") >> assert_(("a", "b"))
 
 def test_flatten_to_tsl():
     """Ensure that the arrow can be flattened to TSL"""

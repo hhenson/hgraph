@@ -289,4 +289,5 @@ def test_reduce():
 
 
 def test_debug_():
-    eval_([1, 2], [1, None, 2]) | debug_ >> assert_((1, 1), (2, 1), (2, 2))
+    eval_([1, 2], [1, None, 2]) | debug_("Test value {}") >> assert_((1, 1), (2, 1), (2, 2))
+

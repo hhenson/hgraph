@@ -50,7 +50,8 @@ __all__ = (
     "extract_delta_value",
     "extract_value",
     "convert_pairs_to_delta_tuples",
-    "convert_pairs_to_tuples"
+    "convert_pairs_to_tuples",
+    "a"
 )
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
@@ -359,6 +360,7 @@ def arrow(
             from hgraph.arrow._std_operators import const_
             return const_(input_)
 
+a = arrow  # Shortcut to mark as arrow
 
 def _make_pair(ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2, __name__=None):
     """
