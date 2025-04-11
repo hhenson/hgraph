@@ -63,10 +63,10 @@ D: TypeVar = clone_type_var(TIME_SERIES_TYPE, "D")
 class _Arrow(Generic[A, B]):
     """Arrow function wrapper exposing support for piping operations"""
 
-    def __init__(self, fn: Callable[[A], B], __name__=None):
+    def __init__(self, fn: Callable[[A], B], __name__=None, bound_args=None, bound_kwargs=None):
         # Avoid unnecessary nesting of wrappers
-        self._bound_args = []
-        self._bound_kwargs = {}
+        self._bound_args = bound_args if bound_args is not None else ()
+        self._bound_kwargs = bound_kwargs if bound_kwargs is not None else {}
         if isinstance(fn, _Arrow):
             self._fn = fn.fn
         else:
@@ -202,12 +202,7 @@ class _Arrow(Generic[A, B]):
             # We are not binding and are in-fact processing now
             return self.fn(args[0], *self._bound_args, **self._bound_kwargs)
         else:
-            if len(args) > 0:
-                self._bound_args += args
-            if len(kwargs) > 0:
-                # Bind kwargs
-                self._bound_kwargs |= kwargs
-            return self
+            return _Arrow(self.fn, __name__=self._name, bound_args=args, bound_kwargs=kwargs)
 
     def __str__(self):
         return self._name
@@ -459,7 +454,11 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
         sz = len(node.signature.time_series_args)
         # Unpack left to right
         args = _unpack(x, sz) + args
-        return node(*args, **kwargs)
+        try:
+            return node(*args, **kwargs)
+        except:
+            print(f"Failed to call {node} with {args} and {kwargs}")
+            raise
 
     return _wrapper
 
