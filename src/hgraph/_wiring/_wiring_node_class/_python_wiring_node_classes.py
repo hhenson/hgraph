@@ -66,7 +66,10 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
 
+    BUILDER_CLASS = None
+
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
+
         if signature.var_arg or signature.var_kwarg:
             co = fn.__code__
             kw_only_code = co.replace(
@@ -87,7 +90,10 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
         node_signature: "NodeSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        from hgraph._impl._builder import PythonNodeBuilder
+        if PythonWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder import PythonNodeBuilder
+
+            PythonWiringNodeClass.BUILDER_CLASS = PythonNodeBuilder
 
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
@@ -105,7 +111,7 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
             if recordable_state_builder is None:
                 raise CustomMessageWiringError("Recordable state injectable not found")
 
-        return PythonNodeBuilder(
+        return PythonWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
