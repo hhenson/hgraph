@@ -45,7 +45,10 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
         node_signature: "TsdMapWiringSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
+        if TsdMapWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._map_builder import PythonTsdMapNodeBuilder
+
+            TsdMapWiringNodeClass.BUILDER_CLASS = PythonTsdMapNodeBuilder
 
         inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
@@ -54,7 +57,7 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        return PythonTsdMapNodeBuilder(
+        return TsdMapWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

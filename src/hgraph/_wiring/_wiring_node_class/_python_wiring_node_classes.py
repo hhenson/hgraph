@@ -23,19 +23,22 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
         node_signature: "NodeSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        from hgraph._impl._builder import PythonGeneratorNodeBuilder
+        if PythonGeneratorWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder import PythonGeneratorNodeBuilder
+
+            PythonGeneratorWiringNodeClass.BUILDER_CLASS = PythonGeneratorNodeBuilder
+
         from hgraph import TimeSeriesBuilderFactory
 
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonGeneratorWiringNodeClass must have a time series output"
-        return PythonGeneratorNodeBuilder(
+        return PythonGeneratorWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
             output_builder=factory.make_output_builder(output_type),
-            # FIXME - make_error_builder needs a type
-            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
+            error_builder=factory.make_error_builder(self.error_output_type) if node_signature.capture_exception else None,
             eval_fn=self.fn,
         )
 
@@ -48,25 +51,26 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
         node_signature: "NodeSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        from hgraph._impl._builder import PythonPushQueueNodeBuilder
+        if PythonPushQueueWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder import PythonPushQueueNodeBuilder
+
+            PythonPushQueueWiringNodeClass.BUILDER_CLASS = PythonPushQueueNodeBuilder
         from hgraph import TimeSeriesBuilderFactory
 
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonPushQueueWiringNodeClass must have a time series output"
-        return PythonPushQueueNodeBuilder(
+        return PythonPushQueueWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
             output_builder=factory.make_output_builder(output_type),
-            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
+            error_builder=factory.make_error_builder(self.error_output_type) if node_signature.capture_exception else None,
             eval_fn=self.fn,
         )
 
 
 class PythonWiringNodeClass(BaseWiringNodeClass):
-
-    BUILDER_CLASS = None
 
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
 

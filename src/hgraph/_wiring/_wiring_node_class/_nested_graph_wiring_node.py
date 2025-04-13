@@ -4,11 +4,10 @@ from frozendict import frozendict
 
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     BaseWiringNodeClass,
-    WiringNodeClass,
     create_input_output_builders,
 )
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
-from hgraph._wiring._wiring_utils import wire_nested_graph, extract_stub_node_indices
+from hgraph._wiring._wiring_utils import extract_stub_node_indices
 
 if TYPE_CHECKING:
     from hgraph._runtime._node import NodeSignature
@@ -41,9 +40,14 @@ class NestedGraphWiringNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        from hgraph._impl._builder._nested_graph_node_builder import PythonNestedGraphNodeBuilder
 
-        return PythonNestedGraphNodeBuilder(
+        if NestedGraphWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._nested_graph_node_builder import PythonNestedGraphNodeBuilder
+
+            NestedGraphWiringNodeClass.BUILDER_CLASS = PythonNestedGraphNodeBuilder
+
+
+        return NestedGraphWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

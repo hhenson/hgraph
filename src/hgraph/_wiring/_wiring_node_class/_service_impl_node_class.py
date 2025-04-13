@@ -125,10 +125,14 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
         # The service impl node should only take scalar values in. The rest will be a
         # graph where we will stub out the inputs and outputs.
         with WiringContext(current_wiring_node=self, current_signature=self.signature):
-            from hgraph._impl._builder._service_impl_builder import PythonServiceImplNodeBuilder
+            if ServiceImplNodeClass.BUILDER_CLASS is None:
+                from hgraph._impl._builder._service_impl_builder import PythonServiceImplNodeBuilder
+
+                ServiceImplNodeClass.BUILDER_CLASS = PythonServiceImplNodeBuilder
+
 
             inner_graph = scalars["inner_graph"]
-            return PythonServiceImplNodeBuilder(
+            return ServiceImplNodeClass.BUILDER_CLASS(
                 signature=node_signature,
                 scalars=scalars,
                 input_builder=None,

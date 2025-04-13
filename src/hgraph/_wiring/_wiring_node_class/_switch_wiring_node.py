@@ -59,9 +59,13 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        from hgraph._impl._builder._switch_builder import PythonSwitchNodeBuilder
+        if SwitchWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._switch_builder import PythonSwitchNodeBuilder
 
-        return PythonSwitchNodeBuilder(
+            SwitchWiringNodeClass.BUILDER_CLASS = PythonSwitchNodeBuilder
+
+
+        return SwitchWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

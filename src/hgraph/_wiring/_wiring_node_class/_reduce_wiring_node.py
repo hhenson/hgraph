@@ -32,7 +32,11 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
         node_signature: "NodeSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        from hgraph._impl._builder._reduce_builder import PythonReduceNodeBuilder
+        if TsdReduceWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._reduce_builder import PythonReduceNodeBuilder
+
+            TsdReduceWiringNodeClass.BUILDER_CLASS = PythonReduceNodeBuilder
+
 
         fn_signature = cast(WiringNodeClass, self.fn).signature
         if fn_signature.is_resolved:
@@ -48,7 +52,7 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        return PythonReduceNodeBuilder(
+        return TsdReduceWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

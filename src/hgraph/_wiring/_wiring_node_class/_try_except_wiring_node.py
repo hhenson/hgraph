@@ -40,9 +40,13 @@ class TryExceptWiringNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        from hgraph._impl._builder._try_except_builder import PythonTryExceptNodeBuilder
+        if TryExceptWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._try_except_builder import PythonTryExceptNodeBuilder
 
-        return PythonTryExceptNodeBuilder(
+            TryExceptWiringNodeClass.BUILDER_CLASS = PythonTryExceptNodeBuilder
+
+
+        return TryExceptWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

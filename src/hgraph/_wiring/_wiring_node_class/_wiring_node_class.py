@@ -44,6 +44,9 @@ class WiringNodeClass:
     The template is instantiable to form a WiringNodeInstance, the instance can be used to build a wiring graph.
     """
 
+    # This is a class level parameter and allows for us to replace which building instance we should use fo the class
+    BUILDER_CLASS: Callable = None
+
     def __init__(self, signature: WiringNodeSignature, fn: Callable):
         self.signature: WiringNodeSignature = signature
         self.fn: Callable = fn

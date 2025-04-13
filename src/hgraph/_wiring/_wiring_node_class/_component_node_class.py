@@ -105,9 +105,13 @@ class ComponentNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        from hgraph._impl._builder._component_builder import PythonComponentNodeBuilder
 
-        return PythonComponentNodeBuilder(
+        if ComponentNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._component_builder import PythonComponentNodeBuilder
+
+            ComponentNodeClass.BUILDER_CLASS = PythonComponentNodeBuilder
+
+        return ComponentNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

@@ -51,16 +51,20 @@ class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
         node_signature: "NodeSignature",
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
-        from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
+        if PythonLastValuePullWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._node_builder import PythonLastValuePullNodeBuilder
+
+            PythonLastValuePullWiringNodeClass.BUILDER_CLASS = PythonLastValuePullNodeBuilder
+
         from hgraph import TimeSeriesBuilderFactory
 
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonLastValuePullWiringNodeClass must have a time series output"
-        return PythonLastValuePullNodeBuilder(
+        return PythonLastValuePullWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
             output_builder=factory.make_output_builder(output_type),
-            error_builder=factory.make_error_builder() if node_signature.capture_exception else None,
+            error_builder=factory.make_error_builder(self.error_output_type) if node_signature.capture_exception else None,
         )

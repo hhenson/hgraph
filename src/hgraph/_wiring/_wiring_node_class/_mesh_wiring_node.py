@@ -22,7 +22,10 @@ class MeshWiringNodeClass(BaseWiringNodeClass):
     def create_node_builder_instance(
         self, resolved_wiring_signature, node_signature: "MeshWiringSignature", scalars: Mapping[str, Any]
     ) -> "NodeBuilder":
-        from hgraph._impl._builder._mesh_builder import PythonMeshNodeBuilder
+        if MeshWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._mesh_builder import PythonMeshNodeBuilder
+
+            MeshWiringNodeClass.BUILDER_CLASS = PythonMeshNodeBuilder
 
         inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
@@ -31,7 +34,7 @@ class MeshWiringNodeClass(BaseWiringNodeClass):
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
-        return PythonMeshNodeBuilder(
+        return MeshWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
