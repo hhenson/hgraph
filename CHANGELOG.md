@@ -1119,4 +1119,4 @@ Version 0.4.28 (11-04-2025)
 Version 0.4.29 (13-04-2025)
 ---------------------------
 
-* Prepare WiringNodeClass to make use of C++ buiders.
+* Prepare WiringNodeClass to make use of C++ builders.
