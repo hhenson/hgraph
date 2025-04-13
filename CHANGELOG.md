@@ -1115,3 +1115,8 @@ Version 0.4.28 (11-04-2025)
 * Add flatten_tsb for converting Pair's to TSB
 * Add support to bind TSB to node inputs
 * Fix for mesh ranking
+
+Version 0.4.29 (13-04-2025)
+---------------------------
+
+* Prepare WiringNodeClass to make use of C++ buiders.
