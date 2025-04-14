@@ -63,7 +63,8 @@ D: TypeVar = clone_type_var(TIME_SERIES_TYPE, "D")
 class _Arrow(Generic[A, B]):
     """Arrow function wrapper exposing support for piping operations"""
 
-    def __init__(self, fn: Callable[[A], B], __name__=None, __has_side_effects__=False, bound_args=None, bound_kwargs=None):
+    def __init__(self, fn: Callable[[A], B], __name__=None, __has_side_effects__=False, bound_args=None,
+                 bound_kwargs=None):
         # Avoid unnecessary nesting of wrappers
         self._bound_args = bound_args if bound_args is not None else ()
         self._bound_kwargs = bound_kwargs if bound_kwargs is not None else {}
@@ -202,9 +203,11 @@ class _Arrow(Generic[A, B]):
     def __call__(self, *args, **kwargs) -> B:
         if len(args) == 1 and len(kwargs) == 0 and isinstance(args[0], WiringPort):
             # We are not binding and are in-fact processing now
-            return self.fn(args[0], *self._bound_args, **self._bound_kwargs)
+            f = _wrap_for_side_effects(self._fn) if self._has_side_effects else self._fn
+            return f(args[0], *self._bound_args, **self._bound_kwargs)
         else:
-            return _Arrow(self.fn, __name__=self._name, bound_args=args, bound_kwargs=kwargs)
+            return _Arrow(self._fn, __name__=self._name, bound_args=args, bound_kwargs=kwargs,
+                          __has_side_effects__=self._has_side_effects)
 
     def __str__(self):
         return self._name
@@ -215,12 +218,14 @@ def _wrap_for_side_effects(fn):
     Ensure that the wrapped function is not wired out if the results are not used. This is because we have marked the
     function as having side effects, which is not normally the case, but for some special cases it is.
     """
+
     @wraps(fn)
     def _wrapper(*args, **kwargs):
         result = fn(*args, **kwargs)
         if result is not None:
             null_sink(result)
         return result
+
     return _wrapper
 
 
@@ -352,7 +357,8 @@ def arrow(
         # Then input_ must be a TimeSeries or _ArrowInput
         return _make_pair(input_, input_2)
     if isinstance(input_, _Arrow):
-        return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__, __has_side_effects__=__has_side_effects__)
+        return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__,
+                                                      __has_side_effects__=__has_side_effects__)
     if isinstance(input_, _ArrowInput):
         return input_ if __name__ is None else _ArrowInput(input_.ts, __name__=__name__)
     elif isinstance(input_, WiringPort):
@@ -536,7 +542,7 @@ def extract_value(ts, tp):
     """Extracts the value from a time-series where the type is a pair and returns the value as a tuple."""
     if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):
         return (
-        extract_value(ts.first, tp.__args__[0].__args__[0]), extract_value(ts.second, tp.__args__[0].__args__[1]))
+            extract_value(ts.first, tp.__args__[0].__args__[0]), extract_value(ts.second, tp.__args__[0].__args__[1]))
     else:
         return ts.value
 
