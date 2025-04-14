@@ -68,8 +68,17 @@ class RestResultEnum(Enum):
     UNAUTHORIZED = 401
     FORBIDDEN = 403  # Even if authorised, the user cannot perform the action
     NOT_FOUND = 404
+    REQUEST_TIMED_OUT = 408
     CONFLICT = 409  # For example, trying to create an object that already exists
+    TOO_MANY_REQUESTS = 429
     INTERNAL_SERVER_ERROR = 500  # A problem (for example, an exception has occurred)
+    NOT_IMPLEMENTED = 501
+    BAD_GATEWAY = 502
+    SERVICE_UNAVAILABLE = 503
+    GATEWAY_TIMEOUT = 504
+    HTTP_VERSION_NOT_SUPPORTED = 505
+
+    TORNADO_TIMED_OUT = 599 # Unofficially used by Tornado to indicate network time-out
 
 
 @dataclass(frozen=True)
