@@ -2,7 +2,7 @@ import pytest
 from frozendict import frozendict as fd
 
 import hgraph
-from hgraph import TS, graph, TSB, const, NodeException, TSD, add_, eq_
+from hgraph import TS, graph, TSB, const, NodeException, TSD, add_, eq_, compute_node, GlobalState, null_sink
 from hgraph.arrow import (
     arrow,
     if_,
@@ -290,4 +290,35 @@ def test_reduce():
 
 def test_debug_():
     eval_([1, 2], [1, None, 2]) | debug_("Test value {}") >> assert_((1, 1), (2, 1), (2, 2))
+
+
+def test_side_effects():
+
+    @compute_node
+    def side_effect(ts: TS[int]) -> TS[int]:
+        GlobalState.instance()["t"] = ts.value
+
+
+    @graph
+    def g():
+        c = const(1)
+        arrow(c) | arrow(side_effect)
+        null_sink(c)
+
+    with GlobalState():
+        eval_node(g)
+        assert GlobalState.instance().get("t", None) == None
+
+    @graph
+    def h():
+        c = const(1)
+        arrow(c) | arrow(side_effect, __has_side_effects__=True)
+        null_sink(c)
+
+    with GlobalState():
+        eval_node(h)
+        assert GlobalState.instance().get("t", None) == 1
+
+
+
 

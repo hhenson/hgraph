@@ -44,10 +44,10 @@ def assert_(*args, message: str = None):
         if not _state.failed and ((l := len(args)) != (c := _state.count)):
             raise AssertionError(f"Expected {l} values but got {c} results{message}")
 
-    return arrow(_assert)
+    return arrow(_assert, __has_side_effects__=True)
 
 
-@arrow
+@arrow(__has_side_effects__=True)
 @compute_node
 def debug_(msg_: OUT, fmt_str: str = None, delta_value: bool = False, _out_tp: type[OUT] = AUTO_RESOLVE,
            _clock: EvaluationClock = None) -> OUT:

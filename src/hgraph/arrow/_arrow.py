@@ -63,10 +63,11 @@ D: TypeVar = clone_type_var(TIME_SERIES_TYPE, "D")
 class _Arrow(Generic[A, B]):
     """Arrow function wrapper exposing support for piping operations"""
 
-    def __init__(self, fn: Callable[[A], B], __name__=None, bound_args=None, bound_kwargs=None):
+    def __init__(self, fn: Callable[[A], B], __name__=None, __has_side_effects__=False, bound_args=None, bound_kwargs=None):
         # Avoid unnecessary nesting of wrappers
         self._bound_args = bound_args if bound_args is not None else ()
         self._bound_kwargs = bound_kwargs if bound_kwargs is not None else {}
+        self._has_side_effects = __has_side_effects__
         if isinstance(fn, _Arrow):
             self._fn = fn.fn
         else:
@@ -79,10 +80,11 @@ class _Arrow(Generic[A, B]):
     @property
     def fn(self):
         # Calling fn will finalise the structure
+        f = _wrap_for_side_effects(self._fn) if self._has_side_effects else self._fn
         if self._bound_args or self._bound_kwargs:
-            return partial(self._fn, *self._bound_args, **self._bound_kwargs)
+            return partial(f, *self._bound_args, **self._bound_kwargs)
         else:
-            return self._fn
+            return f
 
     def __rshift__(self, other: "Arrow[B, C]") -> "Arrow[A, C]":
         """
@@ -208,6 +210,20 @@ class _Arrow(Generic[A, B]):
         return self._name
 
 
+def _wrap_for_side_effects(fn):
+    """
+    Ensure that the wrapped function is not wired out if the results are not used. This is because we have marked the
+    function as having side effects, which is not normally the case, but for some special cases it is.
+    """
+    @wraps(fn)
+    def _wrapper(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        if result is not None:
+            null_sink(result)
+        return result
+    return _wrapper
+
+
 class _ArrowInput(Generic[A]):
 
     def __init__(self, ts: A, __name__=None):
@@ -315,7 +331,8 @@ def eval_(
 def arrow(
         input_: Callable[[A], B] | A = None,
         input_2: C = None,
-        __name__=None
+        __name__=None,
+        __has_side_effects__=False,
 ) -> _Arrow[A, B] | _ArrowInput[A] | _ArrowInput[tuple[A, C]]:
     """
     Converts the supplied graph / node / time-series value into an arrow suitable wrapper.
@@ -330,22 +347,22 @@ def arrow(
 
     """
     if input_ is None:
-        return partial(arrow, __name__=__name__)
+        return partial(arrow, __name__=__name__, __has_side_effects__=__has_side_effects__)
     if input_2 is not None:
         # Then input_ must be a TimeSeries or _ArrowInput
         return _make_pair(input_, input_2)
     if isinstance(input_, _Arrow):
-        return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__)
+        return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__, __has_side_effects__=__has_side_effects__)
     if isinstance(input_, _ArrowInput):
         return input_ if __name__ is None else _ArrowInput(input_.ts, __name__=__name__)
     elif isinstance(input_, WiringPort):
         return _ArrowInput(input_, __name__=__name__)
     elif isinstance(input_, WiringNodeClass):
-        return _Arrow(_flatten_wrapper(input_), __name__=__name__)
+        return _Arrow(_flatten_wrapper(input_), __name__=__name__, __has_side_effects__=__has_side_effects__)
     elif isinstance(input_, tuple):
         return _ArrowInput(_make_pair(*input_), __name__=__name__)
     elif callable(input_):
-        return _Arrow(input_, __name__=__name__)
+        return _Arrow(input_, __name__=__name__, __has_side_effects__=__has_side_effects__)
     else:
         # Assume this is a constant and attempt to convert to a const
         if WiringGraphContext.instance():
