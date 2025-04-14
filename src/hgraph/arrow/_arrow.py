@@ -204,7 +204,8 @@ class _Arrow(Generic[A, B]):
         if len(args) == 1 and len(kwargs) == 0 and isinstance(args[0], WiringPort):
             # We are not binding and are in-fact processing now
             f = _wrap_for_side_effects(self._fn) if self._has_side_effects else self._fn
-            return f(args[0], *self._bound_args, **self._bound_kwargs)
+            # We need to be consistent with a bound function, where the input value is supplied last
+            return f(*self._bound_args, args[0], **self._bound_kwargs)
         else:
             return _Arrow(self._fn, __name__=self._name, bound_args=args, bound_kwargs=kwargs,
                           __has_side_effects__=self._has_side_effects)
