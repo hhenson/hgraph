@@ -1121,8 +1121,8 @@ Version 0.4.29 (13-04-2025)
 
 * Prepare WiringNodeClass to make use of C++ builders.
 
-Version 0.4.30 (14-04-2025)
----------------------------
+Version 0.4.30/1 (14-04-2025)
+-----------------------------
 
 * Add support for arrow nodes which have side effects (such as debug_ and assert_)
 * Small fixes when calling function in arrow
