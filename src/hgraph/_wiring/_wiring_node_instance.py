@@ -17,7 +17,7 @@ if typing.TYPE_CHECKING:
         Edge,
         WiringPort,
         HgTSBTypeMetaData,
-    )
+)
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
 
@@ -105,6 +105,9 @@ def create_wiring_node_instance(
 
 @dataclass  # We will write our own equality check, but still want a hash
 class WiringNodeInstance:
+
+    NODE_SIGNATURE = None
+
     node: "WiringNodeClass"
     resolved_signature: "WiringNodeSignature"
     inputs: frozendict[str, Any]  # This should be a mix of WiringPort for time series inputs and scalar values.
@@ -168,6 +171,8 @@ class WiringNodeInstance:
     @property
     def node_signature(self) -> "NodeSignature":
         from hgraph._runtime import NodeSignature, NodeTypeEnum
+        if WiringNodeInstance.NODE_SIGNATURE is None:
+            WiringNodeInstance.NODE_SIGNATURE = NodeSignature
 
         node_type: NodeTypeEnum
         match self.resolved_signature.node_type:
@@ -187,7 +192,7 @@ class WiringNodeInstance:
             case _:
                 raise CustomMessageWiringError(f"Unknown node type: {self.resolved_signature.node_type}")
 
-        return NodeSignature(
+        return WiringNodeInstance.NODE_SIGNATURE(
             name=self.resolved_signature.name,
             node_type=node_type,
             args=self.resolved_signature.args,
