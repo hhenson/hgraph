@@ -165,8 +165,8 @@ has no dependencies on other nodes to produce it's result, but does have other n
 dependent on it. (In the current example ``A1`` and ``A2`` classify as source nodes).
 
 A parent node is a node that has other nodes that depend on it, a source node is a parent
-node. A child node is a node that has a dependency on one or more parent nodes. ``B2`` and ``C2``
-classify as child nodes.
+node (given the minimal meaningful graph is source connected to sink node). A child node is a node that has
+a dependency on one or more parent nodes. ``B2`` and ``C2`` classify as child nodes.
 
 A leaf node has no nodes that depend on it. This is also called a sink node. In the
 example above ``C2`` classifies as a sink node. A sink node is only a child node.
