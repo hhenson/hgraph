@@ -6,7 +6,7 @@ from frozendict import frozendict
 
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._wiring._wiring_node_signature import extract_injectable_inputs
+from hgraph._wiring._wiring_node_signature import extract_injectables
 
 if TYPE_CHECKING:
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -1085,7 +1085,7 @@ def _create_node_signature(
         context_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset(),
-        injectable_inputs=extract_injectable_inputs(**kwargs),
+        injectables=extract_injectables(**kwargs),
         deprecated=deprecated,
         requires=requires,
     )

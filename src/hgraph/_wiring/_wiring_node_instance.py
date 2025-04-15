@@ -17,6 +17,7 @@ if typing.TYPE_CHECKING:
         Edge,
         WiringPort,
         HgTSBTypeMetaData,
+        InjectableTypesEnum,
     )
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
@@ -108,6 +109,7 @@ class WiringNodeInstance:
 
     NODE_SIGNATURE = None
     NODE_TYPE_ENUM = None
+    INJECTABLE_TYPES_ENUM = None
 
     node: "WiringNodeClass"
     resolved_signature: "WiringNodeSignature"
@@ -179,6 +181,10 @@ class WiringNodeInstance:
             from hgraph._runtime import NodeTypeEnum
 
             WiringNodeInstance.NODE_TYPE_ENUM = NodeTypeEnum
+        if WiringNodeInstance.INJECTABLE_TYPES_ENUM is None:
+            from hgraph._runtime import InjectableTypesEnum
+
+            WiringNodeInstance.INJECTABLE_TYPES_ENUM = InjectableTypesEnum
 
         # node_type: NodeTypeEnum
         match self.resolved_signature.node_type:
@@ -198,6 +204,9 @@ class WiringNodeInstance:
             case _:
                 raise CustomMessageWiringError(f"Unknown node type: {self.resolved_signature.node_type}")
 
+        injectable_inputs = self._extract_injectable_inputs(**self.inputs)
+        injectables = WiringNodeInstance.INJECTABLE_TYPES_ENUM(self.resolved_signature.injectables.value)
+
         return WiringNodeInstance.NODE_SIGNATURE(
             name=self.resolved_signature.name,
             node_type=node_type,
@@ -210,7 +219,8 @@ class WiringNodeInstance:
             valid_inputs=self.resolved_signature.valid_inputs,
             all_valid_inputs=self.resolved_signature.all_valid_inputs,
             context_inputs=self.resolved_signature.context_inputs,
-            injectable_inputs=self.resolved_signature.injectable_inputs,
+            injectable_inputs=injectable_inputs,
+            injectables=injectables,
             capture_exception=self.error_handler_registered,
             trace_back_depth=self.trace_back_depth,
             wiring_path_name=self.wiring_path_name,
@@ -252,3 +262,34 @@ class WiringNodeInstance:
                 edges.update(input_.edges_for(node_map, node_index, (ndx,)))
 
         return node_builder, edges
+
+    @staticmethod
+    def _extract_injectable_inputs(**kwargs) -> typing.Mapping[str, "InjectableTypesEnum"]:
+        from hgraph import (
+            HgSchedulerType,
+            HgEvaluationClockType,
+            HgEvaluationEngineApiType,
+            HgStateType,
+            HgRecordableStateType,
+            HgOutputType,
+            HgLoggerType,
+            HgNodeType,
+        )
+
+        return frozendict({
+            k: v_
+            for k, v in kwargs.items()
+            if (
+                v_ := {
+                    HgSchedulerType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.SCHEDULER,
+                    HgEvaluationClockType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.CLOCK,
+                    HgEvaluationEngineApiType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.ENGINE_API,
+                    HgStateType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.STATE,
+                    HgRecordableStateType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.RECORDABLE_STATE,
+                    HgOutputType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.OUTPUT,
+                    HgLoggerType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.LOGGER,
+                    HgNodeType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.NODE,
+                }.get(type(v), WiringNodeInstance.INJECTABLE_TYPES_ENUM.NONE)
+            )
+            != WiringNodeInstance.INJECTABLE_TYPES_ENUM.NONE
+        })

@@ -8,7 +8,7 @@ from typing import Type, get_type_hints, Any, Optional, TypeVar, Mapping, cast
 
 from frozendict import frozendict
 
-from hgraph._runtime._node import InjectableTypes
+from hgraph._runtime._node import InjectableTypesEnum
 from hgraph._types._scalar_type_meta_data import (
     HgEvaluationClockType,
     HgEvaluationEngineApiType,
@@ -41,7 +41,7 @@ __all__ = (
     "extract_hg_type",
     "extract_hg_time_series_type",
     "extract_scalar_type",
-    "extract_injectable_inputs",
+    "extract_injectables",
 )
 
 
@@ -111,7 +111,7 @@ class WiringNodeSignature:
     context_inputs: frozenset[str] | None
     unresolved_args: frozenset[str]
     time_series_args: frozenset[str]
-    injectable_inputs: InjectableTypes = InjectableTypes(0)
+    injectables: InjectableTypesEnum = InjectableTypesEnum(0)
     # It is not possible to have an unresolved output with un-resolved inputs as we resolve output using information
     # supplied via inputs
     label: str | None = None  # A label if provided, this can help to disambiguate the node
@@ -128,26 +128,28 @@ class WiringNodeSignature:
 
     @property
     def uses_scheduler(self) -> bool:
-        return InjectableTypes.SCHEDULER in self.injectable_inputs
+        return InjectableTypesEnum.SCHEDULER in self.injectables
 
     @property
     def uses_clock(self) -> bool:
-        return InjectableTypes.CLOCK in self.injectable_inputs
+        return InjectableTypesEnum.CLOCK in self.injectables
 
     @property
     def uses_engine(self) -> bool:
-        return InjectableTypes.ENGINE_API in self.injectable_inputs
+        return InjectableTypesEnum.ENGINE_API in self.injectables
 
     @property
     def uses_state(self) -> bool:
-        return InjectableTypes.STATE in self.injectable_inputs
+        return InjectableTypesEnum.STATE in self.injectables
 
     @property
     def uses_recordable_state(self) -> bool:
-        return InjectableTypes.RECORDABLE_STATE in self.injectable_inputs
+        return InjectableTypesEnum.RECORDABLE_STATE in self.injectables
 
     def _recordable_state(self) -> tuple[str, HgRecordableStateType] | tuple[None, None]:
-        return next(((arg, tp) for arg, tp in self.input_types.items() if type(tp) is HgRecordableStateType), (None, None))
+        return next(
+            ((arg, tp) for arg, tp in self.input_types.items() if type(tp) is HgRecordableStateType), (None, None)
+        )
 
     @property
     def recordable_state_arg(self) -> str | None:
@@ -159,7 +161,7 @@ class WiringNodeSignature:
 
     @property
     def uses_output_feedback(self) -> bool:
-        return InjectableTypes.OUTPUT in self.injectable_inputs
+        return InjectableTypesEnum.OUTPUT in self.injectables
 
     def as_dict(self) -> dict:
         return dict(
@@ -176,7 +178,7 @@ class WiringNodeSignature:
             context_inputs=self.context_inputs,
             unresolved_args=self.unresolved_args,
             time_series_args=self.time_series_args,
-            injectable_inputs=self.injectable_inputs,
+            injectables=self.injectables,
             label=self.label,
             record_and_replay_id=self.record_and_replay_id,
             deprecated=self.deprecated,
@@ -695,7 +697,7 @@ def extract_signature(
     # Note graph signatures can be any of the above, so additional validation would need to be performed in the
     # graph expansion logic.
 
-    injectable_inputs = extract_injectable_inputs(**input_types)
+    injectables = extract_injectables(**input_types)
     if record_and_replay_id is None:
         scalars = [f"{{{k}}}" for k in args if k not in time_series_inputs]
         record_and_replay_id = f"{name}{'::' if scalars else ''}{'_'.join(scalars)}"
@@ -714,7 +716,7 @@ def extract_signature(
         src_location=SourceCodeDetails(file=filename, start_line=first_line),
         unresolved_args=unresolved_inputs,
         time_series_args=time_series_inputs,
-        injectable_inputs=injectable_inputs,
+        injectables=injectables,
         label=None,
         record_and_replay_id=record_and_replay_id,
         deprecated=deprecated,
@@ -726,21 +728,21 @@ def extract_signature(
     )
 
 
-def extract_injectable_inputs(**kwargs) -> InjectableTypes:
+def extract_injectables(**kwargs) -> InjectableTypesEnum:
     return reduce(
         or_,
         (
             {
-                HgSchedulerType: InjectableTypes.SCHEDULER,
-                HgEvaluationClockType: InjectableTypes.CLOCK,
-                HgEvaluationEngineApiType: InjectableTypes.ENGINE_API,
-                HgStateType: InjectableTypes.STATE,
-                HgRecordableStateType: InjectableTypes.RECORDABLE_STATE,
-                HgOutputType: InjectableTypes.OUTPUT,
-                HgLoggerType: InjectableTypes.LOGGER,
-                HgNodeType: InjectableTypes.NODE,
-            }.get(type(v), InjectableTypes(0))
+                HgSchedulerType: InjectableTypesEnum.SCHEDULER,
+                HgEvaluationClockType: InjectableTypesEnum.CLOCK,
+                HgEvaluationEngineApiType: InjectableTypesEnum.ENGINE_API,
+                HgStateType: InjectableTypesEnum.STATE,
+                HgRecordableStateType: InjectableTypesEnum.RECORDABLE_STATE,
+                HgOutputType: InjectableTypesEnum.OUTPUT,
+                HgLoggerType: InjectableTypesEnum.LOGGER,
+                HgNodeType: InjectableTypesEnum.NODE,
+            }.get(type(v), InjectableTypesEnum.NONE)
             for v in kwargs.values()
         ),
-        InjectableTypes(0),
+        InjectableTypesEnum.NONE,
     )

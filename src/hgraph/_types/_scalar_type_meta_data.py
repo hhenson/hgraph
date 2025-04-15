@@ -44,6 +44,8 @@ __all__ = (
     "Injector",
     "RecordableStateInjector",
     "HgArrayScalarTypeMetaData",
+    "HgLoggerType",
+    "HgNodeType",
 )
 
 
@@ -1078,9 +1080,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         return generic_rank | hierarchy_rank
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgCompoundScalarType and (
-            issubclass(tp.py_type, self.py_type) or self.__eq__(tp)
-        )
+        return type(tp) is HgCompoundScalarType and (issubclass(tp.py_type, self.py_type) or self.__eq__(tp))
 
     @property
     def is_resolved(self) -> bool:
