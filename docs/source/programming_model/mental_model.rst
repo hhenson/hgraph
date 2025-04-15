@@ -219,7 +219,7 @@ the programming model, in HGraph we focus on the following concepts:
 
 * Use of functions - No classes
 * Immutability - Data types are immutable (at a value level)
-* Idempotence - Given the same inputs, expect the same result. (Not 100% required)
+* Deterministic - Given the same inputs, expect the same result. (Not 100% required)
 * Composition for extension - No inheritance
 
 As with many "functional" approaches, there are many exceptions to the rule, but
@@ -275,8 +275,8 @@ even if it may be technically possible to modify the values. Given we support th
 option to make use of a generic python object as a value, it is possible to introduce
 mutable values into the graph, avoid this wherever possible.
 
-Idempotence
-...........
+Deterministic
+.............
 
 This is a softer requirement, in general the expectation is that, given the same inputs
 (including the engine time), the function should produce the same result.
