@@ -1131,3 +1131,9 @@ Version 0.4.31 (15-04-2025)
 ---------------------------
 
 * Add hook to replace NodeSignature
+
+
+Version 0.4.32 (15-04-2025)
+---------------------------
+
+* Add hooks to expose dependencies for creating the node-signature.
