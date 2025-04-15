@@ -17,7 +17,7 @@ if typing.TYPE_CHECKING:
         Edge,
         WiringPort,
         HgTSBTypeMetaData,
-)
+    )
 
 __all__ = ("WiringNodeInstance", "WiringNodeInstanceContext", "create_wiring_node_instance")
 
@@ -107,6 +107,7 @@ def create_wiring_node_instance(
 class WiringNodeInstance:
 
     NODE_SIGNATURE = None
+    NODE_TYPE_ENUM = None
 
     node: "WiringNodeClass"
     resolved_signature: "WiringNodeSignature"
@@ -170,25 +171,30 @@ class WiringNodeInstance:
 
     @property
     def node_signature(self) -> "NodeSignature":
-        from hgraph._runtime import NodeSignature, NodeTypeEnum
         if WiringNodeInstance.NODE_SIGNATURE is None:
-            WiringNodeInstance.NODE_SIGNATURE = NodeSignature
+            from hgraph._runtime import NodeSignature
 
-        node_type: NodeTypeEnum
+            WiringNodeInstance.NODE_SIGNATURE = NodeSignature
+        if WiringNodeInstance.NODE_TYPE_ENUM is None:
+            from hgraph._runtime import NodeTypeEnum
+
+            WiringNodeInstance.NODE_TYPE_ENUM = NodeTypeEnum
+
+        # node_type: NodeTypeEnum
         match self.resolved_signature.node_type:
             case WiringNodeType.SINK_NODE:
-                node_type = NodeTypeEnum.SINK_NODE
+                node_type = WiringNodeInstance.NODE_TYPE_ENUM.SINK_NODE
             case (
                 WiringNodeType.COMPUTE_NODE
                 | WiringNodeType.REQ_REP_SVC
                 | WiringNodeType.SUBS_SVC
                 | WiringNodeType.COMPONENT
             ):
-                node_type = NodeTypeEnum.COMPUTE_NODE
+                node_type = WiringNodeInstance.NODE_TYPE_ENUM.COMPUTE_NODE
             case WiringNodeType.PULL_SOURCE_NODE | WiringNodeType.REF_SVC | WiringNodeType.SVC_IMPL:
-                node_type = NodeTypeEnum.PULL_SOURCE_NODE
+                node_type = WiringNodeInstance.NODE_TYPE_ENUM.PULL_SOURCE_NODE
             case WiringNodeType.PUSH_SOURCE_NODE:
-                node_type = NodeTypeEnum.PUSH_SOURCE_NODE
+                node_type = WiringNodeInstance.NODE_TYPE_ENUM.PUSH_SOURCE_NODE
             case _:
                 raise CustomMessageWiringError(f"Unknown node type: {self.resolved_signature.node_type}")
 

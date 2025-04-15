@@ -1,9 +1,7 @@
 import logging
-from datetime import datetime, UTC
 from typing import TYPE_CHECKING
 
 from hgraph._runtime._constants import MAX_ET
-from hgraph._runtime._node import NodeTypeEnum
 from hgraph._types import HgSchedulerType, Injector
 from hgraph._builder import Builder
 
@@ -58,13 +56,13 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         EvaluationTrace._USE_LOGGER = value
 
     def __init__(
-            self,
-            filter: str = None,
-            start: bool = True,
-            eval: bool = True,
-            stop: bool = True,
-            node: bool = True,
-            graph: bool = True,
+        self,
+        filter: str = None,
+        start: bool = True,
+        eval: bool = True,
+        stop: bool = True,
+        node: bool = True,
+        graph: bool = True,
     ):
         self.filter = filter
         self.start = start
@@ -102,12 +100,12 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         self._print(node.graph.evaluation_clock, f"{self._graph_name(node.graph)} Starting: {node_signature}")
 
     def _print_node(
-            self,
-            node: "Node",
-            msg: str,
-            add_input: bool = False,
-            add_output: bool = False,
-            add_scheduled_time: bool = False,
+        self,
+        node: "Node",
+        msg: str,
+        add_input: bool = False,
+        add_output: bool = False,
+        add_scheduled_time: bool = False,
     ) -> None:
         node_signature = self._node_name(node)
         if node.signature.time_series_inputs:
@@ -178,13 +176,13 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
             self._print_graph(graph, f"{'>' * 20} Eval Start {graph.label} {'>' * 20}")
 
     def on_before_node_evaluation(self, node: "Node"):
-        if node.signature.node_type in (NodeTypeEnum.PULL_SOURCE_NODE, NodeTypeEnum.PUSH_SOURCE_NODE):
+        if node.signature.is_source_node:
             return
         if self.eval and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_node(node, "[IN]", add_input=True)
 
     def on_after_node_evaluation(self, node: "Node"):
-        if node.signature.node_type in (NodeTypeEnum.SINK_NODE,):
+        if node.signature.is_sink_node:
             return
         if self.eval and self.node and (self.filter is None or self.filter in self._node_name(node)):
             self._print_node(
@@ -192,16 +190,16 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
                 "[OUT]",
                 add_output=True,
                 add_scheduled_time=node.signature.uses_scheduler
-                                   and node.scheduler.next_scheduled_time == node.graph.schedule[node.node_ndx],
+                and node.scheduler.next_scheduled_time == node.graph.schedule[node.node_ndx],
             )
 
     def on_after_graph_evaluation(self, graph: "Graph"):
         if self.eval and self.graph and (self.filter is None or self.filter in self._graph_name(graph)):
             if (
-                    graph.parent_node is not None
-                    and (nt := graph.parent_node.graph.schedule[graph.parent_node.node_ndx])
-                    > graph.evaluation_clock.evaluation_time
-                    and nt < MAX_ET
+                graph.parent_node is not None
+                and (nt := graph.parent_node.graph.schedule[graph.parent_node.node_ndx])
+                > graph.evaluation_clock.evaluation_time
+                and nt < MAX_ET
             ):
                 next_scheduled = f" NEXT[{nt}]"
             elif graph.parent_node is None:

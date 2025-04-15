@@ -1,11 +1,9 @@
 import logging
-import os
-import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
 
-from hgraph import Graph, Node, NodeTypeEnum
+from hgraph import Graph, Node
 from hgraph.debug._inspector_util import estimate_value_size, estimate_size
 
 __all__ = ("InspectionObserver",)
@@ -55,14 +53,15 @@ class GraphInfo:
 
 
 class InspectionObserver(EvaluationLifeCycleObserver):
-    def __init__(self,
-                 graph: "Graph" = None,
-                 callback_node: Callable = None,
-                 callback_graph: Callable = None,
-                 callback_progress: Callable = None,
-                 progress_interval: float = 0.1,
-                 compute_sizes: bool = False,
-                 ):
+    def __init__(
+        self,
+        graph: "Graph" = None,
+        callback_node: Callable = None,
+        callback_graph: Callable = None,
+        callback_progress: Callable = None,
+        progress_interval: float = 0.1,
+        compute_sizes: bool = False,
+    ):
         self.graphs = {}
         self.graphs_by_id = {}
         self.current_graph: GraphInfo = None
@@ -119,7 +118,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         if graph.graph_id == ():
             os_eval_begin_thread_time = time.thread_time()
         else:
-            os_eval_begin_thread_time = 0.
+            os_eval_begin_thread_time = 0.0
 
         node_count = len(graph.nodes)
 
@@ -139,14 +138,14 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             eval_count=0,
             eval_begin_time=time.perf_counter_ns(),
             os_eval_begin_thread_time=os_eval_begin_thread_time,
-            cycle_time=0.,
-            os_cycle_time=0.,
-            observation_time=0.,
-            eval_time=0.,
-            os_eval_time=0.,
+            cycle_time=0.0,
+            os_cycle_time=0.0,
+            observation_time=0.0,
+            eval_time=0.0,
+            os_eval_time=0.0,
             node_eval_counts=[0] * node_count,
-            node_eval_begin_times=[0.] * node_count,
-            node_eval_times=[0.] * node_count,
+            node_eval_begin_times=[0.0] * node_count,
+            node_eval_times=[0.0] * node_count,
             node_value_sizes=[default_size] * node_count,
             node_total_value_sizes_begin=[default_size] * node_count,
             node_total_value_sizes=[default_size] * node_count,
@@ -195,8 +194,8 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             prev_node_count = len(self.current_graph.node_eval_counts)
             self.current_graph.node_count = new_node_count
             self.current_graph.node_eval_counts = [0] * new_node_count
-            self.current_graph.node_eval_begin_times = [0.] * new_node_count
-            self.current_graph.node_eval_times = [0.] * new_node_count
+            self.current_graph.node_eval_begin_times = [0.0] * new_node_count
+            self.current_graph.node_eval_times = [0.0] * new_node_count
             self.current_graph.node_value_sizes = [0] * new_node_count
             self.current_graph.node_total_value_sizes_begin = [0] * new_node_count
             self.current_graph.node_total_value_sizes = [0] * new_node_count
@@ -219,16 +218,22 @@ class InspectionObserver(EvaluationLifeCycleObserver):
     def on_before_node_evaluation(self, node: "Node"):
         self.current_graph.node_eval_begin_times[node.node_ndx] = time.perf_counter_ns()
         if self.compute_sizes:
-            self.current_graph.node_total_value_sizes_begin[node.node_ndx] = self.current_graph.node_total_value_sizes[node.node_ndx]
-            self.current_graph.node_total_sizes_begin[node.node_ndx] = self.current_graph.node_total_sizes[node.node_ndx]
+            self.current_graph.node_total_value_sizes_begin[node.node_ndx] = self.current_graph.node_total_value_sizes[
+                node.node_ndx
+            ]
+            self.current_graph.node_total_sizes_begin[node.node_ndx] = self.current_graph.node_total_sizes[
+                node.node_ndx
+            ]
 
     def on_after_node_evaluation(self, node: "Node"):
         observation_begin = time.perf_counter_ns()
 
         self.current_graph.node_eval_counts[node.node_ndx] += 1
-        self.current_graph.node_eval_times[node.node_ndx] += time.perf_counter_ns() - self.current_graph.node_eval_begin_times[node.node_ndx]
+        self.current_graph.node_eval_times[node.node_ndx] += (
+            time.perf_counter_ns() - self.current_graph.node_eval_begin_times[node.node_ndx]
+        )
 
-        if node.signature.node_type != NodeTypeEnum.PUSH_SOURCE_NODE:
+        if not node.signature.is_source_node:
             self._process_node_after_eval(node)
 
         self.current_graph.observation_time += time.perf_counter_ns() - observation_begin
@@ -236,7 +241,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
     def on_after_graph_push_nodes_evaluation(self, graph: "Graph"):
         observation_begin = time.perf_counter_ns()
 
-        for node in graph.nodes[:graph.push_source_nodes_end]:
+        for node in graph.nodes[: graph.push_source_nodes_end]:
             if node.output.modified:
                 self._process_node_after_eval(node)
 
@@ -247,14 +252,16 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             value_size = estimate_value_size(node)
             node_size = estimate_size(node)
             self.current_graph.total_value_size += (
-                    value_size - self.current_graph.node_value_sizes[node.node_ndx]
-                    + self.current_graph.node_total_value_sizes[node.node_ndx]
-                    - self.current_graph.node_total_value_sizes_begin[node.node_ndx]
+                value_size
+                - self.current_graph.node_value_sizes[node.node_ndx]
+                + self.current_graph.node_total_value_sizes[node.node_ndx]
+                - self.current_graph.node_total_value_sizes_begin[node.node_ndx]
             )
             self.current_graph.total_size += (
-                    node_size - self.current_graph.node_sizes[node.node_ndx]
-                    + self.current_graph.node_total_sizes[node.node_ndx]
-                    - self.current_graph.node_total_sizes_begin[node.node_ndx]
+                node_size
+                - self.current_graph.node_sizes[node.node_ndx]
+                + self.current_graph.node_total_sizes[node.node_ndx]
+                - self.current_graph.node_total_sizes_begin[node.node_ndx]
             )
             self.current_graph.node_value_sizes[node.node_ndx] = value_size
             self.current_graph.node_sizes[node.node_ndx] = node_size
@@ -276,8 +283,12 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             parent_graph = self.graphs_by_id[graph.parent_node.owning_graph_id]
             parent_node_ndx = graph.parent_node.node_ndx
             if self.compute_sizes:
-                parent_graph.node_total_value_sizes[parent_node_ndx] += self.current_graph.total_value_size - self.current_graph.total_value_size_begin
-                parent_graph.node_total_sizes[parent_node_ndx] += self.current_graph.total_size - self.current_graph.total_size_begin
+                parent_graph.node_total_value_sizes[parent_node_ndx] += (
+                    self.current_graph.total_value_size - self.current_graph.total_value_size_begin
+                )
+                parent_graph.node_total_sizes[parent_node_ndx] += (
+                    self.current_graph.total_size - self.current_graph.total_size_begin
+                )
 
         if graph.graph_id == ():
             thread_time = time.thread_time() - self.current_graph.os_eval_begin_thread_time

@@ -10,7 +10,7 @@ from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngineApi
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
-from hgraph._runtime._node import NodeTypeEnum, Node
+from hgraph._runtime._node import Node
 from hgraph._runtime._traits import Traits
 
 if typing.TYPE_CHECKING:
@@ -111,7 +111,7 @@ class PythonGraph(Graph):
     def push_source_nodes_end(self) -> int:
         """The index of the first compute node"""
         for i in range(len(self.nodes)):
-            if self.nodes[i].signature.node_type != NodeTypeEnum.PUSH_SOURCE_NODE:
+            if not self.nodes[i].signature.is_push_source_node:
                 return i
         return len(self.nodes)  # In the very unlikely event that there are only push source nodes.
 

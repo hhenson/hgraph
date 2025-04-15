@@ -1,7 +1,6 @@
 import typing
 from collections import defaultdict, deque
 
-from hgraph._runtime._node import NodeTypeEnum
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import WiringNodeType
 from hgraph._wiring._wiring_port import WiringPort
@@ -136,7 +135,7 @@ def toposort(
     max_rank = 0
     while len(nodes_to_process) > 0:
         from_node = nodes_to_process.popleft()
-        if not supports_push_nodes and from_node.resolved_signature.node_type is NodeTypeEnum.PUSH_SOURCE_NODE:
+        if not supports_push_nodes and from_node.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE:
             raise CustomMessageWiringError(
                 f"Node: {from_node.resolved_signature} is a push source node, "
                 "but this graph does not support push nodes."
