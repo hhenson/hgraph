@@ -31,4 +31,4 @@ jobs:
         run: poetry install --all-extras
 
       - name: Run tests
-        run: poetry run pytest --cov=hgraph -cov-report=xml
+        run: poetry run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph -cov-report=xml
