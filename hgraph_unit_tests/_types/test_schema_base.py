@@ -127,7 +127,7 @@ def test_mixed_schema_base():
 def test_serialise_parent_child_schema():
     @dataclass
     class SimpleCompoundScalar(CompoundScalar):
-        __serialise_parent__ = True
+        __serialise_base__ = True
         p1: int
 
     @dataclass
@@ -139,8 +139,8 @@ def test_serialise_parent_child_schema():
                                        "p2": HgTypeMetaData.parse_type(float)})
     assert SimpleCompoundScalar.__serialise_discriminator_field__ == "__type__"
     assert SimpleCompoundScalar.__serialise_children__ == {"LessSimpleCompoundScalar": LessSimpleCompoundScalar}
-    assert LessSimpleCompoundScalar.__serialise_parent__ == False
-    assert SimpleCompoundScalar.__serialise_parent__ == True
+    assert LessSimpleCompoundScalar.__serialise_base__ == False
+    assert SimpleCompoundScalar.__serialise_base__ == True
     json_builder = to_json_converter(HgCompoundScalarType(SimpleCompoundScalar))
     s = json_builder(LessSimpleCompoundScalar(p1=1, p2=2.0))
     assert s == '{"__type__": "LessSimpleCompoundScalar", "p1": 1, "p2": 2.0}'

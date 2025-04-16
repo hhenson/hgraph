@@ -35,7 +35,7 @@ class AbstractSchema:
     __partial_resolution_parent__: Type["AbstractSchema"]
     __serialise_discriminator_field__: str = None
     __serialise_children__: Mapping[str, type] = None
-    __serialise_parent__: bool = False
+    __serialise_base__: bool = False
 
     @classmethod
     def _schema_index_of(cls, key: str) -> int:
@@ -127,8 +127,8 @@ class AbstractSchema:
 
         if (s_c := getattr(cls, "__serialise_children__", None)) is not None:
             s_c[cls.__name__] = cls
-            cls.__serialise_parent__ = False
-        elif getattr(cls, "__serialise_parent__", True):
+            cls.__serialise_base__ = False
+        elif getattr(cls, "__serialise_base__", True):
             cls.__serialise_children__ = {}
             if getattr(cls, "__serialise_discriminator_field__", None) is None:
                 cls.__serialise_discriminator_field__ = "__type__"
