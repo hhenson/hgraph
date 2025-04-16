@@ -38,7 +38,7 @@ def error_wrapper(fn: Callable[[Any], str], context: str) -> Callable[[Any], str
         try:
             return fn(v)
         except Exception as e:
-            raise RuntimeError(f"Error while converting {context} with value {v}:\n{e}")
+            raise RuntimeError(f"Error while converting {context} with value {v}:\n{e}") from e
 
     return _fn
 
@@ -48,9 +48,17 @@ def to_json_converter(value: HgTypeMetaData, delta=False) -> Callable[[Any], str
     raise RuntimeError(f"Cannot convert {value} to JSON")
 
 
+def _compound_scalar_parent_encode(value: HgCompoundScalarType, delta:bool):
+    switches = {v: to_json_converter(HgCompoundScalarType(v)) for v in value.py_type.__serialise_children__.values()}
+    return lambda v: switches[type(v)](v)
+
 @to_json_converter.register(HgCompoundScalarType)
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], str]:
+    if value.py_type.__serialise_parent__ :
+        return _compound_scalar_parent_encode(value, delta)
     to_json = []
+    to_json.append(error_wrapper(lambda v: "" if v.__serialise_discriminator_field__ is None else f'"{v.__serialise_discriminator_field__}": "{v.__class__.__name__}"',
+                                 f"{str(value)}: __serialise_discriminator_field__"))
     for k, tp in value.meta_data_schema.items():
         m = to_json_converter(tp, delta)
         to_json.append(
@@ -65,16 +73,19 @@ def _(value: HgAtomicType, delta=False) -> Callable[[Any], str]:
     if issubclass(value.py_type, Enum):
         return lambda v: f'"{v.name}"'
 
-    return {
-        bool: lambda v: None if v is None else "true" if v else "false",
-        int: lambda v: None if v is None else f"{v}",
-        float: lambda v: None if v is None else f"{v}",
-        str: lambda v: None if v is None else f'"{v}"',
-        date: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d")}"',
-        time: lambda v: None if v is None else f'"{v.strftime("%H:%M:%S.%f")}"',
-        timedelta: _td_to_str,
-        datetime: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d %H:%M:%S.%f")}"',
-    }[value.py_type]
+    try:
+        return {
+            bool: lambda v: None if v is None else "true" if v else "false",
+            int: lambda v: None if v is None else f"{v}",
+            float: lambda v: None if v is None else f"{v}",
+            str: lambda v: None if v is None else f'"{v}"',
+            date: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d")}"',
+            time: lambda v: None if v is None else f'"{v.strftime("%H:%M:%S.%f")}"',
+            timedelta: _td_to_str,
+            datetime: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d %H:%M:%S.%f")}"',
+        }[value.py_type]
+    except KeyError:
+        raise RuntimeError(f"Cannot convert type: '{value}' to JSON")
 
 
 @to_json_converter.register(HgDictScalarType)
@@ -175,8 +186,17 @@ def _(value: HgTSTypeMetaData, delta=False) -> Callable[[Any], Any]:
     return from_json_converter(value.value_scalar_tp, delta)
 
 
+def _compound_scalar_parent_decode(value: HgCompoundScalarType, delta:bool):
+    tp = value.py_type
+    switches = {k: from_json_converter(HgCompoundScalarType(v)) for k, v in tp.__serialise_children__.items()}
+    discriminator = tp.__serialise_discriminator_field__
+    return lambda v, switches_=switches, d=discriminator: switches_[v.get(d)](v)
+
+
 @from_json_converter.register(HgCompoundScalarType)
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], Any]:
+    if value.py_type.__serialise_parent__ :
+        return _compound_scalar_parent_decode(value, delta)
     fns = []
     for k, tp in value.meta_data_schema.items():
         fns.append((k, error_wrapper(lambda v1, tp=tp, k=k: from_json_builder(tp, delta)(v1.get(k, None)), f"{str(value)} {k}: {str(tp)}")))
@@ -217,13 +237,13 @@ def _(value: HgDictScalarType, delta=False) -> Callable[[dict], Any]:
         k_fn_inner = k_fn
         k_fn = lambda k, k_fn=k_fn_inner: k_fn(json.loads(k))
     v_fn = from_json_converter(value.value_type, delta)
-    return lambda v, k_fn=k_fn, v_fn=v_fn: {k_fn(k_): v_fn(v_) for k_, v_ in v.items()}
+    return lambda v, k_fn=k_fn, v_fn=v_fn: {k_fn(k_): v_fn(v_) for k_, v_ in v.items()} if v is not None else None
 
 
 @from_json_converter.register(HgTupleCollectionScalarType)
 def _(value: HgTupleCollectionScalarType, delta=False) -> Callable[[list], Any]:
     v_fn = from_json_converter(value.element_type, delta)
-    return lambda v, v_fn=v_fn: tuple(v_fn(i) for i in v)
+    return lambda v, v_fn=v_fn: tuple(v_fn(i) for i in v) if v is not None else None
 
 
 @from_json_converter.register(HgTSLTypeMetaData)
@@ -232,7 +252,7 @@ def _(value: HgTSLTypeMetaData, delta=False) -> Callable[[list], Any]:
     return lambda v, fn=fn: (
         {int(k): fn(i) for k, i in v.items()}
         if isinstance(v, dict)
-        else tuple(fn(i) for i in v))
+        else tuple(fn(i) for i in v)) if v is not None else None
 
 
 @from_json_converter.register(HgTSSTypeMetaData)
@@ -243,7 +263,7 @@ def _(value: HgTSSTypeMetaData, delta=False) -> Callable[[list], Any]:
     return lambda v, fn=fn: (
         PythonSetDelta(added={fn(i) for i in v.get("added", ())}, removed={fn(i) for i in v.get("removed", ())})
         if isinstance(v, dict)
-        else tuple(fn(i) for i in v))
+        else tuple(fn(i) for i in v)) if v is not None else None
 
 
 @from_json_converter.register(HgTSBTypeMetaData)
@@ -253,7 +273,7 @@ def _(value: HgTSBTypeMetaData, delta=False) -> Callable[[dict], Any]:
         f = from_json_converter(tp, delta)
         schema[k] = lambda i, t, f=f: f(t)
 
-    return lambda v, schema=schema: {i: schema[i](i, t) for i, t in v.items()}
+    return lambda v, schema=schema: {i: schema[i](i, t) for i, t in v.items()} if v is not None else None
 
 
 @from_json_converter.register(HgTSDTypeMetaData)
@@ -265,7 +285,7 @@ def _(value: HgTSDTypeMetaData, delta=False) -> Callable[[dict], Any]:
     v_fn = from_json_converter(value.value_tp, delta)
 
     return lambda v, k_fn=k_fn, v_fn=v_fn: {k_fn(k): v_fn(v) if v is not None else REMOVE_IF_EXISTS for k, v in
-                                            v.items()}
+                                            v.items()} if v is not None else None
 
 
 @compute_node(overloads=to_json)

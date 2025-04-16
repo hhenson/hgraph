@@ -205,7 +205,7 @@ class WiringNodeInstance:
                 raise CustomMessageWiringError(f"Unknown node type: {self.resolved_signature.node_type}")
 
         injectable_inputs = self._extract_injectable_inputs(**self.inputs)
-        injectables = WiringNodeInstance.INJECTABLE_TYPES_ENUM(self.resolved_signature.injectables.value)
+        injectables = self.resolved_signature.injectables.value
 
         return WiringNodeInstance.NODE_SIGNATURE(
             name=self.resolved_signature.name,

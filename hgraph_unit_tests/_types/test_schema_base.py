@@ -1,9 +1,12 @@
+import json
 from dataclasses import dataclass
 from typing import Generic
 
-from hgraph import CompoundScalar, COMPOUND_SCALAR, Base, HgTypeMetaData, TimeSeriesSchema, TS
+from hgraph import CompoundScalar, COMPOUND_SCALAR, Base, HgTypeMetaData, TimeSeriesSchema, TS, HgCompoundScalarType, \
+    from_json_builder
+from hgraph._impl._operators._to_json import to_json_converter, from_json_converter
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
-
+from frozendict import frozendict as fd
 
 def test_schema_base():
     @dataclass
@@ -119,3 +122,27 @@ def test_mixed_schema_base():
     p2 = p1[SimpleCompoundScalar]
 
     assert p2.__meta_data_schema__ == {"m1": HgTypeMetaData.parse_type(TS[int]), "m2": HgTypeMetaData.parse_type(TS[int])}
+
+
+def test_serialise_parent_child_schema():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        __serialise_parent__ = True
+        p1: int
+
+    @dataclass
+    class LessSimpleCompoundScalar(SimpleCompoundScalar):
+        p2: float
+
+    assert SimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int)})
+    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int),
+                                       "p2": HgTypeMetaData.parse_type(float)})
+    assert SimpleCompoundScalar.__serialise_discriminator_field__ == "__type__"
+    assert SimpleCompoundScalar.__serialise_children__ == {"LessSimpleCompoundScalar": LessSimpleCompoundScalar}
+    assert LessSimpleCompoundScalar.__serialise_parent__ == False
+    assert SimpleCompoundScalar.__serialise_parent__ == True
+    json_builder = to_json_converter(HgCompoundScalarType(SimpleCompoundScalar))
+    s = json_builder(LessSimpleCompoundScalar(p1=1, p2=2.0))
+    assert s == '{"__type__": "LessSimpleCompoundScalar", "p1": 1, "p2": 2.0}'
+    v = from_json_converter(HgCompoundScalarType(SimpleCompoundScalar))(json.loads(s))
+    assert v == LessSimpleCompoundScalar(p1=1, p2=2.0)

@@ -3,7 +3,8 @@ from dataclasses import KW_ONLY, Field, InitVar, dataclass
 from functools import reduce
 from hashlib import shake_256
 from inspect import get_annotations
-from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar, Generic
+from typing import TYPE_CHECKING, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar, Generic, \
+    Mapping
 
 from frozendict import frozendict
 
@@ -32,6 +33,9 @@ class AbstractSchema:
     __resolved__: dict[str, Type["AbstractSchema"]] = {}  # Cache of resolved classes
     __partial_resolution__: frozendict[TypeVar, Type]
     __partial_resolution_parent__: Type["AbstractSchema"]
+    __serialise_discriminator_field__: str = None
+    __serialise_children__: Mapping[str, type] = None
+    __serialise_parent__: bool = False
 
     @classmethod
     def _schema_index_of(cls, key: str) -> int:
@@ -120,6 +124,15 @@ class AbstractSchema:
             cls.__parameters_meta_data__ = {v: cls._parse_type(v) for v in params}
         elif any(not v.is_resolved for v in schema.values()):
             raise ParseError(f"Schema '{cls}' has unresolved types while not being generic class")
+
+        if (s_c := getattr(cls, "__serialise_children__", None)) is not None:
+            s_c[cls.__name__] = cls
+            cls.__serialise_parent__ = False
+        elif getattr(cls, "__serialise_parent__", True):
+            cls.__serialise_children__ = {}
+            if getattr(cls, "__serialise_discriminator_field__", None) is None:
+                cls.__serialise_discriminator_field__ = "__type__"
+
 
     @classmethod
     def _root_cls(cls) -> Type["AbstractSchema"]:

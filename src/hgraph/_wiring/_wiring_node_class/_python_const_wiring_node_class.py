@@ -8,7 +8,6 @@ from hgraph import (
     generator,
     with_signature,
     EvaluationEngineApi,
-    InjectableTypesEnum,
 )
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     BaseWiringNodeClass,

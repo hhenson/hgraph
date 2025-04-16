@@ -65,7 +65,7 @@ class NodeSignature:
     all_valid_inputs: frozenset[str] | None = None
     context_inputs: frozenset[str] | None = None
     injectable_inputs: Mapping[str, InjectableTypesEnum] | None = None
-    injectables: InjectableTypesEnum = InjectableTypesEnum(0)
+    injectables: int = 0
     capture_exception: bool = False
     trace_back_depth: int = 1
     wiring_path_name: str = ""
@@ -75,23 +75,23 @@ class NodeSignature:
 
     @property
     def uses_scheduler(self) -> bool:
-        return InjectableTypesEnum.SCHEDULER in self.injectables
+        return (InjectableTypesEnum.SCHEDULER.value & self.injectables) != 0
 
     @property
     def uses_clock(self) -> bool:
-        return InjectableTypesEnum.CLOCK in self.injectables
+        return (InjectableTypesEnum.CLOCK.value & self.injectables) != 0
 
     @property
     def uses_engine(self) -> bool:
-        return InjectableTypesEnum.ENGINE_API in self.injectables
+        return (InjectableTypesEnum.ENGINE_API.value & self.injectables) != 0
 
     @property
     def uses_state(self) -> bool:
-        return InjectableTypesEnum.STATE in self.injectables
+        return (InjectableTypesEnum.STATE.value & self.injectables) != 0
 
     @property
     def uses_recordable_state(self) -> bool:
-        return InjectableTypesEnum.RECORDABLE_STATE in self.injectables
+        return (InjectableTypesEnum.RECORDABLE_STATE.value & self.injectables) != 0
 
     def _recordable_state(self) -> tuple[str, "HgRecordableStateType"] | tuple[None, None]:
         from hgraph._types._scalar_type_meta_data import HgRecordableStateType
@@ -108,7 +108,7 @@ class NodeSignature:
 
     @property
     def uses_output_feedback(self) -> bool:
-        return InjectableTypesEnum.OUTPUT in self.injectables
+        return (InjectableTypesEnum.OUTPUT & self.injectables) != 0
 
     @property
     def is_source_node(self) -> bool:
