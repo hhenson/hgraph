@@ -18,19 +18,23 @@ build:
   jobs:
     post_create_environment:
       - pip install uv
+      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv sync --all-extras --all-groups
     pre_install:
       - bash docs/pre_install.sh
     post_install:
       # VIRTUAL_ENV needs to be set manually for now.
       # See https://github.com/readthedocs/readthedocs.org/pull/11152/
-      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv sync --all-extras --all-groups
+
+    pre_build:
+      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv run sphinx-build -b html docs/source docs/build/html
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
   configuration: docs/source/conf.py
+  builder: html
+  fail_on_warning: true
 
-# Optionally build your docs in additional formats such as PDF and ePub
+# Optionally, build your docs in additional formats such as PDF and ePub
 formats:
   - pdf
   - epub
-
