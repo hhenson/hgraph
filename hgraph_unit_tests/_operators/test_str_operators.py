@@ -1,10 +1,8 @@
 from typing import Tuple
 
-import pytest
-
-from hgraph import add_, mul_, contains_, TS, graph, format_, TIME_SERIES_TYPE_2, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE, \
-    replace, split, WiringError, TSL, Size, join
 from hgraph import match_
+from hgraph import mul_, contains_, TS, graph, format_, TIME_SERIES_TYPE_2, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE, \
+    replace, split, TSL, Size, join, substr
 from hgraph.test import eval_node
 
 
@@ -139,3 +137,9 @@ def test_format_sampled():
     expected = [None if (ndx + 1) % 3 != 0 else f_str.format(ts1, ts2) for ndx, (ts1, ts2) in enumerate(zip(ts1, ts2))]
 
     assert eval_node(format_test, [f_str], ts1, ts2) == expected
+
+
+def test_substr():
+    assert eval_node(substr, ["abcdef"], [0], [3]) == ["abc"]
+    assert eval_node(substr, ["abcdef"], [2], [4]) == ["cd"]
+    assert eval_node(substr, ["abcdef"], [1], [5]) == ["bcde"]

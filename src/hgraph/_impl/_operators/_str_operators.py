@@ -30,6 +30,8 @@ from hgraph import (
 
 __all__ = tuple()
 
+from hgraph._operators._string import substr
+
 
 @compute_node(overloads=add_)
 def add_str(lhs: TS[str], rhs: TS[str]) -> TS[str]:
@@ -172,3 +174,21 @@ def format_(
             return None
 
     return fmt.value.format(*(a.value for a in __pos_args__), **{k: v.value for k, v in __kw_args__.items()})
+
+
+@compute_node(overloads=substr)
+def substr_default(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
+    """
+    Extracts a substring from the input string.
+
+    Args:
+        s: The input string
+        start: The starting index (inclusive)
+        end: The ending index (exclusive). If None, extracts to the end of the string.
+
+    Returns:
+        The extracted substring
+    """
+    if end is None:
+        return s.value[start.value:]
+    return s.value[start.value:end.value]

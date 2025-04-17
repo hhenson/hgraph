@@ -8,7 +8,7 @@ from hgraph._types._tsb_type import TimeSeriesSchema, TSB, TS_SCHEMA, TS_SCHEMA_
 
 from hgraph._wiring._decorators import operator
 
-__all__ = ("str_", "match_", "Match", "replace", "split", "join", "format_")
+__all__ = ("str_", "match_", "Match", "replace", "split", "join", "format_", "substr")
 
 
 @operator
@@ -36,6 +36,17 @@ def replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]:
     Replaces the pattern in the string with the replacement.
     """
 
+
+@operator # Would need to define substr in imports
+def substr(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
+    """
+    Extracts a substring from the input string time series based on start and end positions.
+
+    :param s: Input string time series to perform extraction on.
+    :param start: Starting position (inclusive) of the substring. Negative values count from the end
+    :param end: Optional ending position (exclusive) of the substring. If None, extracts to the end of string.
+    :return: Time series containing the extracted substring
+    """
 
 @operator
 def split(s: TS[str], separator: str, maxsplits: int = -1, to: Type[OUT] = TS[Tuple[str, ...]]) -> DEFAULT[OUT]:
