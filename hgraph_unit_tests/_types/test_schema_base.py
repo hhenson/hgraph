@@ -146,3 +146,18 @@ def test_serialise_parent_child_schema():
     assert s == '{"__type__": "LessSimpleCompoundScalar", "p1": 1, "p2": 2.0}'
     v = from_json_converter(HgCompoundScalarType(SimpleCompoundScalar))(json.loads(s))
     assert v == LessSimpleCompoundScalar(p1=1, p2=2.0)
+
+
+def test_from_dict():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        p1: int
+
+    @dataclass
+    class LessSimpleCompoundScalar(CompoundScalar):
+        p2: float
+        p3: SimpleCompoundScalar
+
+    v = LessSimpleCompoundScalar.from_dict({"p2": 2.0, "p3": {"p1": 1}})
+    assert v == LessSimpleCompoundScalar(p2=2.0, p3=SimpleCompoundScalar(p1=1))
+

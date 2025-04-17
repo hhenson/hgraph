@@ -1138,8 +1138,13 @@ Version 0.4.32 (15-04-2025)
 
 * Add hooks to expose dependencies for creating the node-signature.
 
-Version 0.4.33 (16-04-2025)
+Version 0.4.33/4 (16-04-2025)
 ---------------------------
 
 * Add support for subclass json serialisation / de-serialisation.
 * Make injectables an integer value to support migration to C++ in the NodeSignature
+
+Version 0.4.35 (17-04-2025)
+---------------------------
+
+* Implement from_dict for CompoundScalar

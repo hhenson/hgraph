@@ -202,6 +202,24 @@ class CompoundScalar(AbstractSchema):
                 d[k] = v
         return d
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "CompoundScalar":
+        """
+        Creates an instance of the compound scalar from a dictionary of values.
+        
+        :param d: Dictionary of values matching the schema
+        :return: New instance of the compound scalar
+        """
+        from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
+        kwargs = {}
+        for k, v in d.items():
+            if k in cls.__meta_data_schema__:
+                meta_data = cls.__meta_data_schema__[k]
+                if type(meta_data) is HgCompoundScalarType:
+                    v = meta_data.py_type.from_dict(v)
+                kwargs[k] = v
+        return cls(**kwargs)
+
 
 class UnNamedCompoundScalar(CompoundScalar):
     """Use this class to create un-named compound schemas"""
