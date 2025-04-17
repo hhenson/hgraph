@@ -34,7 +34,7 @@ from hgraph._operators._to_json import to_json_builder, from_json_builder
 def error_wrapper(fn: Callable[[Any], str], context: str) -> Callable[[Any], str]:
     def _fn(v):
         try:
-            return fn(v)
+            return None if v is None else fn(v)
         except Exception as e:
             raise RuntimeError(f"Error while converting {context} with value {v}:\n{e}") from e
 
