@@ -1156,3 +1156,5 @@ Version 0.4.36 (17-04-2025)
 * Add substr
 * fix converter function name (for converting datetime->date)
 * Add the ability to include the discriminator field in the dataclass being serialised.
+* Add serialisation of Set in to/from JSON
+* Better None handling in to/from JSON
