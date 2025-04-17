@@ -21,8 +21,6 @@ build:
       - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv sync --all-extras --all-groups --active
     pre_install:
       - bash docs/pre_install.sh
-#    pre_build:
-#      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv run sphinx-build -b html docs/source docs/build/html
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
