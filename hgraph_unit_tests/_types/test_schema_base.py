@@ -175,6 +175,35 @@ def test_serialise_parent_child_schema_with_discriminator():
     v = from_json_converter(HgCompoundScalarType(SimpleCompoundScalar))(json.loads(s))
     assert v == LessSimpleCompoundScalar(p1=1, p2=2.0)
 
+
+def test_serialise_parent_child_schema_with_discriminator_in_schema():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        __serialise_base__ = True
+        __serialise_discriminator_field__ = "name"
+        p1: int
+        name: str
+
+    @dataclass
+    class LessSimpleCompoundScalar(SimpleCompoundScalar):
+        name: str = "LSCS"
+        p2: float = 1.0
+
+    assert SimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int), "name": HgTypeMetaData.parse_type(str)})
+    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int),
+                                                                "p2": HgTypeMetaData.parse_type(float),
+                                                                "name": HgTypeMetaData.parse_type(str)})
+    assert SimpleCompoundScalar.__serialise_discriminator_field__ == "name"
+    assert SimpleCompoundScalar.__serialise_children__ == {"LSCS": LessSimpleCompoundScalar}
+    assert LessSimpleCompoundScalar.__serialise_base__ == False
+    assert SimpleCompoundScalar.__serialise_base__ == True
+    json_builder = to_json_converter(HgCompoundScalarType(SimpleCompoundScalar))
+    s = json_builder(LessSimpleCompoundScalar(p1=1, p2=2.0))
+    assert s == '{"p1": 1, "name": "LSCS", "p2": 2.0}'
+    v = from_json_converter(HgCompoundScalarType(SimpleCompoundScalar))(json.loads(s))
+    assert v == LessSimpleCompoundScalar(p1=1, p2=2.0)
+
+
 def test_from_dict():
     @dataclass
     class SimpleCompoundScalar(CompoundScalar):
