@@ -40,7 +40,7 @@ _datetime_methods = {
 }
 
 
-@compute_node
+@compute_node(deprecated="Use convert[TS[datetime]] instead.")
 def datetime_date_as_datetime(ts: TS[datetime]) -> TS[datetime]:
     value = ts.value
     return datetime(value.year, value.month, value.day)

@@ -9,7 +9,7 @@ def convert_date_to_datetime(ts: TS[date]) -> TS[datetime]:
 
 
 @compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[date])
-def convert_date_to_datetime(ts: TS[datetime]) -> TS[date]:
+def convert_datetime_to_date(ts: TS[datetime]) -> TS[date]:
     v: datetime = ts.value
     return v.date()
 
