@@ -1158,3 +1158,8 @@ Version 0.4.36 (17-04-2025)
 * Add the ability to include the discriminator field in the dataclass being serialised.
 * Add serialisation of Set in to/from JSON
 * Better None handling in to/from JSON
+
+Version 0.4.37 (17-04-2025)
+---------------------------
+
+* Convert the project to make use of uv instead of poetry
