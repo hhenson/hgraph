@@ -1148,3 +1148,11 @@ Version 0.4.35 (17-04-2025)
 ---------------------------
 
 * Implement from_dict for CompoundScalar
+
+
+Version 0.4.36 (17-04-2025)
+---------------------------
+
+* Add substr
+* fix converter function name (for converting datetime->date)
+* Add the ability to include the discriminator field in the dataclass being serialised.
