@@ -21,10 +21,6 @@ build:
       - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv sync --all-extras --all-groups
     pre_install:
       - bash docs/pre_install.sh
-    post_install:
-      # VIRTUAL_ENV needs to be set manually for now.
-      # See https://github.com/readthedocs/readthedocs.org/pull/11152/
-
     pre_build:
       - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv run sphinx-build -b html docs/source docs/build/html
 
