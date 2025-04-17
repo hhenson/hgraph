@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, Set
 
 import pytest
 from frozendict import frozendict as fd
@@ -41,6 +41,7 @@ class MyComplexCS(CompoundScalar):
         [TS[Mapping[int, int]], {1: 1, 2: 2}, '{"1": 1, "2": 2}'],
         [TS[Mapping[str, int]], fd(p1=1, p2=2), '{"p1": 1, "p2": 2}'],
         [TS[tuple[str, ...]], ("1", "2"), '["1", "2"]'],
+        [TS[Set[str]], {"1",}, '["1"]'],  # Can't have more than one as the hash is not stable
         [TSL[TS[int], Size[2]], {0: 1, 1: 2}, '[1, 2]'],
         [TSB[MyCS], {'p1': "a", 'p2': date(2024, 6, 13)}, '{"p1": "a", "p2": "2024-06-13"}'],
         [TSS[int], {1, 2}, '[1, 2]'],
