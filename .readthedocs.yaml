@@ -18,7 +18,7 @@ build:
   jobs:
     post_create_environment:
       - pip install uv
-      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv sync --all-extras --all-groups --python $READTHEDOCS_VIRTUALENV_PATH
+      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH uv sync --all-extras --all-groups --active
     pre_install:
       - bash docs/pre_install.sh
 #    pre_build:
