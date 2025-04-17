@@ -126,7 +126,9 @@ class AbstractSchema:
             raise ParseError(f"Schema '{cls}' has unresolved types while not being generic class")
 
         if (s_c := getattr(cls, "__serialise_children__", None)) is not None:
-            s_c[cls.__name__] = cls
+            d_f = getattr(cls, "__serialise_discriminator_field__", None)
+            nm = getattr(cls, d_f, cls.__name__)
+            s_c[nm] = cls
             cls.__serialise_base__ = False
         elif getattr(cls, "__serialise_base__", True):
             cls.__serialise_children__ = {}

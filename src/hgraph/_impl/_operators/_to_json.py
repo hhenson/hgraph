@@ -57,7 +57,7 @@ def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], str]:
     if value.py_type.__serialise_base__ :
         return _compound_scalar_parent_encode(value, delta)
     to_json = []
-    to_json.append(error_wrapper(lambda v: "" if v.__serialise_discriminator_field__ is None else f'"{v.__serialise_discriminator_field__}": "{v.__class__.__name__}"',
+    to_json.append(error_wrapper(lambda v: "" if v.__serialise_discriminator_field__ is None else f'"{v.__serialise_discriminator_field__}": "{getattr(v, v.__serialise_discriminator_field__, v.__class__.__name__)}"',
                                  f"{str(value)}: __serialise_discriminator_field__"))
     for k, tp in value.meta_data_schema.items():
         m = to_json_converter(tp, delta)

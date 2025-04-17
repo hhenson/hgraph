@@ -8,6 +8,7 @@ from hgraph._impl._operators._to_json import to_json_converter, from_json_conver
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 from frozendict import frozendict as fd
 
+
 def test_schema_base():
     @dataclass
     class SimpleCompoundScalar(CompoundScalar):
@@ -121,7 +122,8 @@ def test_mixed_schema_base():
     p1 = GenericallyDerivedCompoundScalar[COMPOUND_SCALAR]
     p2 = p1[SimpleCompoundScalar]
 
-    assert p2.__meta_data_schema__ == {"m1": HgTypeMetaData.parse_type(TS[int]), "m2": HgTypeMetaData.parse_type(TS[int])}
+    assert p2.__meta_data_schema__ == {"m1": HgTypeMetaData.parse_type(TS[int]),
+                                       "m2": HgTypeMetaData.parse_type(TS[int])}
 
 
 def test_serialise_parent_child_schema():
@@ -148,6 +150,31 @@ def test_serialise_parent_child_schema():
     assert v == LessSimpleCompoundScalar(p1=1, p2=2.0)
 
 
+def test_serialise_parent_child_schema_with_discriminator():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        __serialise_base__ = True
+        __serialise_discriminator_field__ = "name"
+        p1: int
+
+    @dataclass
+    class LessSimpleCompoundScalar(SimpleCompoundScalar):
+        name = "LSCS"
+        p2: float = 1.0
+
+    assert SimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int)})
+    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int),
+                                                                "p2": HgTypeMetaData.parse_type(float)})
+    assert SimpleCompoundScalar.__serialise_discriminator_field__ == "name"
+    assert SimpleCompoundScalar.__serialise_children__ == {"LSCS": LessSimpleCompoundScalar}
+    assert LessSimpleCompoundScalar.__serialise_base__ == False
+    assert SimpleCompoundScalar.__serialise_base__ == True
+    json_builder = to_json_converter(HgCompoundScalarType(SimpleCompoundScalar))
+    s = json_builder(LessSimpleCompoundScalar(p1=1, p2=2.0))
+    assert s == '{"name": "LSCS", "p1": 1, "p2": 2.0}'
+    v = from_json_converter(HgCompoundScalarType(SimpleCompoundScalar))(json.loads(s))
+    assert v == LessSimpleCompoundScalar(p1=1, p2=2.0)
+
 def test_from_dict():
     @dataclass
     class SimpleCompoundScalar(CompoundScalar):
@@ -160,4 +187,3 @@ def test_from_dict():
 
     v = LessSimpleCompoundScalar.from_dict({"p2": 2.0, "p3": {"p1": 1}})
     assert v == LessSimpleCompoundScalar(p2=2.0, p3=SimpleCompoundScalar(p1=1))
-
