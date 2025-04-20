@@ -1,3 +1,4 @@
+import functools
 import typing
 from dataclasses import dataclass, field
 from typing import Any, MutableMapping
@@ -172,6 +173,7 @@ class WiringNodeInstance:
         return self.resolved_signature.output_type
 
     @property
+    @functools.cache
     def node_signature(self) -> "NodeSignature":
         if WiringNodeInstance.NODE_SIGNATURE is None:
             from hgraph._runtime import NodeSignature
