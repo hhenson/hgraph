@@ -1163,3 +1163,8 @@ Version 0.4.37 (17-04-2025)
 ---------------------------
 
 * Convert the project to make use of uv instead of poetry
+
+Version 0.4.38 (20-04-2025)
+---------------------------
+
+* Prepare Edge for C++ support
