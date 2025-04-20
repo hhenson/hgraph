@@ -43,6 +43,9 @@ def wire_graph(graph, *args, **kwargs) -> "GraphBuilder":
         raise e
 
 
+EDGE_TYPE = None
+
+
 def create_graph_builder(sink_nodes: tuple["WiringNodeInstance"], supports_push_nodes: bool = True) -> "GraphBuilder":
     """
     Create a graph builder instance. This is called with the sink_nodes created during the wiring of a graph.

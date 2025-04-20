@@ -20,7 +20,7 @@ from hgraph._wiring._wiring_context import WIRING_CONTEXT
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 if typing.TYPE_CHECKING:
-    from hgraph import WiringNodeInstance
+    from hgraph import WiringNodeInstance, make_edge
 
 __all__ = (
     "WiringPort",
@@ -80,13 +80,13 @@ class WiringPort:
             self.has_peer
         ), "Can not bind a non-peered node, the WiringPort must be sub-classed and override this method"
 
-        from hgraph._builder._graph_builder import Edge
+        from hgraph._builder._graph_builder import make_edge
 
         instance = node_map.get(self.node_instance)
         if instance is None:
             raise CustomMessageWiringError(f"The node {self.node_instance} is not in the node map")
 
-        return {Edge(instance, self.path, dst_node_ndx, dst_path)}
+        return {make_edge(instance, self.path, dst_node_ndx, dst_path)}
 
     @property
     def output_type(self) -> HgTimeSeriesTypeMetaData:
@@ -267,9 +267,9 @@ class TSBWiringPort(WiringPort):
     ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
-            from hgraph._builder._graph_builder import Edge
+            from hgraph._builder._graph_builder import make_edge
 
-            edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
+            edges.add(make_edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
         else:
             for ndx, arg in enumerate(self.__schema__.__meta_data_schema__):
                 wiring_port = self._wiring_port_for(arg)
@@ -385,9 +385,9 @@ class TSLWiringPort(WiringPort):
     ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
-            from hgraph._builder._graph_builder import Edge
+            from hgraph._builder._graph_builder import make_edge
 
-            edges.add(Edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
+            edges.add(make_edge(node_map[self.node_instance], self.path, dst_node_ndx, dst_path))
         else:
             # This should work as we don't support unbounded TSLs as non-peered nodes at the moment.
             for ndx in range(self.output_type.size.SIZE):
