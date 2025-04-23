@@ -263,6 +263,7 @@ class HgAtomicType(HgScalarTypeMetaData):
                 datetime: lambda: HgAtomicType(datetime),
                 time: lambda: HgAtomicType(time),
                 timedelta: lambda: HgAtomicType(timedelta),
+                bytes: lambda: HgAtomicType(bytes),
                 str: lambda: HgAtomicType(str),
                 ScalarValue: lambda: HgAtomicType(ScalarValue),
             }.get(value_tp, lambda: None)()
