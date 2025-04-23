@@ -72,7 +72,8 @@ test = [
     "mypy",
     "pytest-cov",
     "coverage",
-    "pytest-xdist"
+    "pytest-xdist",
+    "black"
 ]
 
 [build-system]
