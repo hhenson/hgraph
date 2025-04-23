@@ -12,6 +12,7 @@ from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List,
 import numpy as np
 from frozendict import frozendict
 
+from hgraph._types._schema_type import SchemaRecurseContext
 from hgraph._types._typing_utils import class_or_instance_method
 from hgraph._types._scalar_types import WindowSize
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
@@ -1052,13 +1053,17 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         self.py_type = py_type
 
     def __eq__(self, o: object) -> bool:
-        return type(o) is HgCompoundScalarType and (
-            self.py_type is o.py_type
-            or (
-                (issubclass(self.py_type, UnNamedCompoundScalar) or issubclass(o.py_type, UnNamedCompoundScalar))
-                and self.py_type.__meta_data_schema__ == o.py_type.__meta_data_schema__
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return True
+        
+        with SchemaRecurseContext(self.py_type):
+            return type(o) is HgCompoundScalarType and (
+                self.py_type is o.py_type
+                or (
+                    (issubclass(self.py_type, UnNamedCompoundScalar) or issubclass(o.py_type, UnNamedCompoundScalar))
+                    and self.py_type.__meta_data_schema__ == o.py_type.__meta_data_schema__
+                )
             )
-        )
 
     def __str__(self) -> str:
         return f"{self.py_type.__name__}"
@@ -1071,28 +1076,40 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     @property
     def type_vars(self):
-        return set().union(*(t.type_vars for t in self.py_type.__meta_data_schema__.values())) | set(
-            getattr(self.py_type, "__parameters__", ())
-        )
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return set()
+        
+        with SchemaRecurseContext(self.py_type):
+            return set().union(*(t.type_vars for t in self.py_type.__meta_data_schema__.values())) | set(
+                getattr(self.py_type, "__parameters__", ())
+            )
 
     @property
     def generic_rank(self) -> dict[type, float]:
-        inheritance_depth = self.py_type.__mro__.index(CompoundScalar)
-        hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
-        hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return {}
+        
+        with SchemaRecurseContext(self.py_type):
+            inheritance_depth = self.py_type.__mro__.index(CompoundScalar)
+            hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
+            hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
 
-        generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.type_vars), 0.01)
+            generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.type_vars), 0.01)
 
-        return generic_rank | hierarchy_rank
+            return generic_rank | hierarchy_rank
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return type(tp) is HgCompoundScalarType and (issubclass(tp.py_type, self.py_type) or self.__eq__(tp))
 
     @property
     def is_resolved(self) -> bool:
-        return all(tp.is_resolved for tp in self.meta_data_schema.values()) and not getattr(
-            self.py_type, "__parameters__", False
-        )
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return True
+
+        with SchemaRecurseContext(self.py_type):
+            return all(tp.is_resolved for tp in self.meta_data_schema.values()) and not getattr(
+                self.py_type, "__parameters__", False
+            )
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
@@ -1111,16 +1128,92 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
-        else:
+        else:   
             return HgCompoundScalarType(self.py_type._resolve(resolution_dict))
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
-        super().do_build_resolution_dict(resolution_dict, wired_type)
-        wired_type: HgCompoundScalarType
-        if any(k not in wired_type.meta_data_schema for k in self.meta_data_schema.keys()):
-            raise ParseError("Keys of schema do not match")
-        for v, w_v in ((v, wired_type.meta_data_schema[k]) for k, v in self.meta_data_schema.items()):
-            v.build_resolution_dict(resolution_dict, w_v)
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return
+        
+        with SchemaRecurseContext(self.py_type):
+            super().do_build_resolution_dict(resolution_dict, wired_type)
+            wired_type: HgCompoundScalarType
+            if any(k not in wired_type.meta_data_schema for k in self.meta_data_schema.keys()):
+                raise ParseError("Keys of schema do not match")
+            for v, w_v in ((v, wired_type.meta_data_schema[k]) for k, v in self.meta_data_schema.items()):
+                v.build_resolution_dict(resolution_dict, w_v)
+
+
+class HgCompoundScalarTypeForwardRef(HgScalarTypeMetaData):
+    is_atomic = False  # This is a compound type
+
+    @property
+    def py_type(self) -> Type:
+        if not hasattr(self, '_py_type'):
+            raise AttributeError(f"{self._py_type_name} is not defined yet")
+        return self._py_type
+
+    @py_type.setter
+    def py_type(self, value: Type):
+        self._py_type = value
+        self._hg_type = HgCompoundScalarType(value)
+
+    @property
+    def meta_data_schema(self) -> dict[str, "HgScalarTypeMetaData"]:
+        return self.py_type.__meta_data_schema__
+
+    def __init__(self, py_type_name: str):
+        self._py_type_name = py_type_name
+
+    def __eq__(self, o: object) -> bool:
+        if hasattr(self, '_hg_type'):
+            return (self._hg_type == o._hg_type) if type(o) is HgCompoundScalarTypeForwardRef else (self._hg_type == o)
+        else:
+            return type(o) is HgCompoundScalarTypeForwardRef and self._py_type_name == o._py_type_name
+
+    def __str__(self) -> str:
+        return f"{self.py_type.__name__}"
+
+    def __repr__(self) -> str:
+        return f"HgCompoundScalarType({repr(self.py_type)})"
+
+    def __hash__(self) -> int:
+        return hash(self.py_type)
+
+    @property
+    def type_vars(self):
+        return self._hg_type.type_vars
+
+    @property
+    def generic_rank(self) -> dict[type, float]:
+        return self._hg_type.generic_rank
+
+    def matches(self, tp: "HgTypeMetaData") -> bool:
+        return self._hg_type.matches(tp._hg_type if type(tp) is HgCompoundScalarTypeForwardRef else tp)
+
+    @property
+    def is_resolved(self) -> bool:
+        return self._hg_type.is_resolved if hasattr(self, '_hg_type') else True
+
+    @classmethod
+    def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._scalar_types import CompoundScalar
+
+        if type(value_tp) is type and issubclass(value_tp, CompoundScalar):
+            return HgCompoundScalarType(value_tp)
+
+    @classmethod
+    def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
+        from hgraph._types._scalar_types import CompoundScalar
+
+        if isinstance(value, CompoundScalar):
+            return HgCompoundScalarType(type(value))
+
+    def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
+        return self._hg_type.resolve(resolution_dict, weak)
+
+    def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
+        self._hg_type.do_build_resolution_dict(resolution_dict, wired_type)
 
 
 class HgTypeOfTypeMetaData(HgTypeMetaData):

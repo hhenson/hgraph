@@ -296,12 +296,12 @@ def http_client_adaptor_impl(
                         response = await handle_auth(response, request, client)
                 except HTTPError as e:
                     logger.error("[AUTH] authentication failed: %s", e)
-                    sender({id: HttpResponse(status_code=e.code, body=e.message)})
+                    sender({id: HttpResponse(status_code=e.code, body=e.message.encode())})
                     return
 
         except Exception as e:
             logger.error("request %i failed : %s", id, e)
-            sender({id: HttpResponse(status_code=e.code, body=e.message)})
+            sender({id: HttpResponse(status_code=e.code, body=e.message.encode())})
             return
 
         logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time)/1000000))
