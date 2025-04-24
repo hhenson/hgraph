@@ -1,10 +1,12 @@
+from abc import ABC, abstractmethod
 from typing import Callable
 
 from hgraph import adaptor, TS, graph, HgTSBTypeMetaData, TSB, with_signature, null_sink, reference_service, \
     debug_print, \
     default, if_then_else, operator
 
-__all__ = ("message_publisher", "message_subscriber",)
+
+__all__ = ("message_publisher", "message_subscriber", "MessageState")
 
 
 def message_publisher(fn: Callable = None, *, topic: str):
@@ -168,10 +170,20 @@ def message_subscriber(fn: Callable = None, *, topic: str):
 
     return message_subscriber_graph
 
+class MessageState(ABC):
 
-def get_message_state():
-    from hgraph.adaptors.kafka._impl import MessagingState
-    return MessagingState.instance()
+    @abstractmethod
+    def add_publisher(self, topic: str, replay_history: bool):
+        """Adds a publisher to the message state"""
+
+    @abstractmethod
+    def add_subscriber(self, topic: str, has_recovered: bool):
+        """Adds a subscriber to the message state"""
+
+
+def get_message_state() -> MessageState :
+    from hgraph.adaptors.kafka._impl import KafkaMessageState
+    return KafkaMessageState.instance()
 
 
 @operator

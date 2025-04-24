@@ -1,4 +1,4 @@
-from hgraph import graph, register_adaptor, default_path, TS, debug_print, const
+from hgraph import graph, TS, debug_print, const
 from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
 from hgraph.test import eval_node
 

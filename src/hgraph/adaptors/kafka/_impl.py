@@ -3,28 +3,36 @@ from dataclasses import dataclass, field
 from hgraph import adaptor_impl, adaptor, WiringGraphContext, register_adaptor, GlobalState, register_service, TS, \
     debug_print, const, service_impl, MIN_TD, TSB, combine, sink_node
 from hgraph.adaptors.kafka._api import message_publisher_operator, message_subscriber_service, \
-    message_history_subscriber_service
+    message_history_subscriber_service, MessageState
 
 __all__ = ("register_kafka_adaptor",)
 
 
-def register_kafka_adaptor(config: dict):
+@dataclass
+class KafkaConfig:
+    """Start with a few of the most basic configuration options"""
+    bootstrap_servers: tuple[str, ...]
+    buffer_memory: int = None
+    max_request_size: int = None
+
+
+def register_kafka_adaptor(config: KafkaConfig):
     # At some point, we can use a path to put the service message state on, then this can be used to support
     # multiple messaging services concurrently.
-    MessagingState.instance().config = config
+    KafkaMessageState.instance().config = config
 
 
 @dataclass
-class MessagingState:
+class KafkaMessageState(MessageState):
     """Tracks the registered topics and their replay state."""
     subscribers: set[str] = field(default_factory=set)
     history_subscribers: set[str] = field(default_factory=set)
     publishers: set[str] = field(default_factory=set)
 
-    config: dict = None
+    config: KafkaConfig = None
 
     @classmethod
-    def instance(cls) -> "MessagingState":
+    def instance(cls) -> "KafkaMessageState":
         if "service.messaging.state" not in (gs := GlobalState.instance()):
             gs["service.messaging.state"] = cls()
         return gs["service.messaging.state"]
@@ -52,7 +60,7 @@ def _registered_topics(m, s):
     Makes sure we have registered this in this implementation's topic registry, this compensates for lack of service
     impl infra for the sink node.
     """
-    ms = MessagingState.instance()
+    ms = KafkaMessageState.instance()
     topic = s["topic"]
     return topic in ms.publishers
 

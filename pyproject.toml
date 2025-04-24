@@ -56,6 +56,9 @@ web = [
     "pandas",
     "pycurl"
 ]
+messaging = [
+    "kafka-python>=2.1.5"
+]
 notebook = [
     "matplotlib"
 ]
