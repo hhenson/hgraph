@@ -1,5 +1,5 @@
-from hgraph import graph, register_adaptor, default_path, TS, debug_print
-from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber
+from hgraph import graph, register_adaptor, default_path, TS, debug_print, const
+from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
 from hgraph.test import eval_node
 
 
@@ -16,8 +16,22 @@ def test_subscriber():
 
     @graph
     def g():
-        register_kafka_adaptor()
+        register_kafka_adaptor({})
         my_subscriber()
         my_other_subscriber()
+
+    assert eval_node(g) == None
+
+
+def test_publisher():
+
+    @message_publisher(topic="my_topic")
+    def my_publisher() -> TS[bytes]:
+        return const(b'my publisher')
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        my_publisher()
 
     assert eval_node(g) == None

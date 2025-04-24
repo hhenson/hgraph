@@ -1,9 +1,8 @@
-from dataclasses import dataclass, field
 from typing import Callable
 
-from hgraph import adaptor, TS, graph, HgTSBTypeMetaData, TSB, with_signature, null_sink, GlobalState, \
-    reference_service, register_adaptor, adaptor_impl, debug_print, const, convert, combine, service_impl, \
-    register_service, MIN_TD, switch_, default, if_then_else
+from hgraph import adaptor, TS, graph, HgTSBTypeMetaData, TSB, with_signature, null_sink, reference_service, \
+    debug_print, \
+    default, if_then_else, operator
 
 __all__ = ("message_publisher", "message_subscriber",)
 
@@ -66,6 +65,8 @@ def message_publisher(fn: Callable = None, *, topic: str):
         assert fn.signature.time_series_inputs['recovered'].matches_type(TS[bool]), \
             f"Graph input named 'recovered' must be of of type TS[bool] got {fn.signature.time_series_inputs['recovered']}"
         replay_history = True
+    else:
+        replay_history = False
 
     output_type = fn.signature.output_type
     is_tsb = False
@@ -84,28 +85,21 @@ def message_publisher(fn: Callable = None, *, topic: str):
         return_annotation=final_output_type,
     )
     def message_publisher_graph(**kwargs):
-        MessagingState.instance().add_publisher(topic, replay_history)
-        msg_input = message_publisher_adaptor.to_graph(path=topic, __no_ts_inputs__=True)
+        get_message_state().add_publisher(topic, replay_history)
         if replay_history:
             msg_history = message_history_subscriber_service(path=topic, topic=topic)
             kwargs["msg"] = msg_history["msg"]  # Connect replay
             kwargs["recovered"] = msg_history["recovered"]  # Connect replay
-        else:
-            null_sink(msg_input)
+
         out = fn(**kwargs)
         out_msg = out["msg"] if is_tsb else out
-        # Connect output to kafka
-        message_publisher_adaptor.from_graph(out_msg, path=topic)
+        # Connect output to the message bus
+        message_publisher_operator(out_msg, topic=topic)
         return out if is_tsb else None
 
     return message_publisher_graph
 
 
-# TODO: It may be better to move the replay_history into the method of the function?
-# Then we could deal with differences in requirements for subscribers desire for history.
-# Another option would be to only re-play history in real-time mode if the input signature
-# includes the recovered input. Then we don't need this flag at all.
-# In simulation mode all messages are only replayed by default.
 def message_subscriber(fn: Callable = None, *, topic: str):
     """
     Subscribe to a kafka topic, the path binds to the topic. The values are provided to ``msg``. This is an example:
@@ -157,7 +151,7 @@ def message_subscriber(fn: Callable = None, *, topic: str):
         return_annotation=output_type,
     )
     def message_subscriber_graph(**kwargs):
-        MessagingState.instance().add_subscriber(topic, has_recovered)
+        get_message_state().add_subscriber(topic, has_recovered)
         msg_input = message_subscriber_service(path=topic)
         if has_recovered:
             msg_history = message_history_subscriber_service(path=topic)
@@ -175,42 +169,14 @@ def message_subscriber(fn: Callable = None, *, topic: str):
     return message_subscriber_graph
 
 
-@dataclass
-class MessagingState:
-    """Tracks the registered topics and their replay state."""
-    subscribers: set[str] = field(default_factory=set)
-    history_subscribers: set[str] = field(default_factory=set)
-    publishers: set[str] = field(default_factory=set)
-
-    @classmethod
-    def instance(cls) -> "MessagingState":
-        if "service.messaging.state" not in (gs := GlobalState.instance()):
-            gs["service.messaging.state"] = cls()
-        return gs["service.messaging.state"]
-
-    def add_subscriber(self, topic: str, replay_history: bool):
-        if topic not in self.subscribers:
-            self.subscribers.add(topic)
-            register_service(topic, _message_subscriber_aggregator, topic=topic)
-        if replay_history and topic not in self.history_subscribers:
-            self.history_subscribers.add(topic)
-            register_service(topic, _message_subscriber_history_aggregator, topic=topic)
-
-    def add_publisher(self, topic: str, replay_history: bool):
-        if topic in self.publishers:
-            # There can only be one publisher per topic.
-            raise ValueError(f"Topic {topic} already has a publisher")
-        self.publishers.add(topic)
-        register_adaptor(topic, _message_publisher_aggregator, topic=topic)
-        if replay_history and topic not in self.history_subscribers:
-            self.history_subscribers.add(topic)
-            register_service(topic, _message_subscriber_history_aggregator, topic=topic)
+def get_message_state():
+    from hgraph.adaptors.kafka._impl import MessagingState
+    return MessagingState.instance()
 
 
-@adaptor
-def message_publisher_adaptor(msg: TS[bytes], path: str) -> TS[bytes]:
-    """Publisher adaptor for kafka, The input is what needs to be published, the output is to be
-    used when we are in recovery."""
+@operator
+def message_publisher_operator(msg: TS[bytes], topic: str):
+    """Publishes the msg to the topic provided."""
 
 
 @reference_service
@@ -223,25 +189,3 @@ def message_subscriber_service(path: str) -> TS[bytes]:
     """
     Subscriber for kafka, output contains the msg and a recovered flag.
     """
-
-
-@adaptor_impl(interfaces=(message_publisher_adaptor,))
-def _message_publisher_aggregator(path: str, msg: TS[bytes], topic: str) -> TS[bytes]:
-    debug_print(f"publish topic: {topic}", msg)
-    topic_b = b'pub: ' + topic.encode("utf-8")
-    return const(topic_b)
-
-
-@service_impl(interfaces=(message_subscriber_service,))
-def _message_subscriber_aggregator(path: str, topic: str) -> TS[bytes]:
-    print(f"subscribe topic: {topic}")
-    topic_b = b'sub: ' + topic.encode("utf-8")
-    return const(topic_b, delay=MIN_TD*2)
-
-
-@service_impl(interfaces=(message_history_subscriber_service,))
-def _message_subscriber_history_aggregator(path: str, topic: str) -> TSB["msg": TS[bytes], "recovered": TS[bool]]:
-    """Recovered must tick after the last message has been delivered."""
-    print(f"subscribe topic: {topic}")
-    topic_b = b'sub_h: ' + topic.encode("utf-8")
-    return combine[TSB](msg=const(topic_b), recovered=const(True, delay=MIN_TD))
