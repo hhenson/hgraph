@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import timedelta, datetime
 
-from kafka import KafkaConsumer, KafkaProducer, KafkaAdminClient
+import pytz
+from kafka import KafkaConsumer, KafkaProducer, TopicPartition
 
 from hgraph import (
     adaptor_impl,
@@ -21,6 +22,9 @@ from hgraph import (
     STATE,
     EvaluationEngineApi,
     SCHEDULER,
+    generator,
+    EvaluationMode,
+    MAX_ET,
 )
 
 from hgraph.adaptors.kafka._api import (
@@ -133,8 +137,54 @@ def _message_subscriber_aggregator(path: str, topic: str) -> TS[bytes]:
 
 
 @service_impl(interfaces=(message_history_subscriber_service,))
-def _message_subscriber_history_aggregator(path: str, topic: str) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
+@generator
+def _message_subscriber_history_aggregator(
+    path: str, topic: str, _api: EvaluationEngineApi = None
+) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
     """Recovered must tick after the last message has been delivered."""
-    print(f"subscribe topic: {topic}")
-    topic_b = b"sub_h: " + topic.encode("utf-8")
-    return combine[TSB](msg=const(topic_b), recovered=const(True, delay=MIN_TD))
+    consumer = KafkaConsumer(**KafkaMessageState.instance().config)
+    start_time = _api.start_time
+    if _api.evaluation_mode == EvaluationMode.SIMULATION:
+        end_time = _api.end_time
+    else:
+        # Use now as the base-line to catch up to in real-time mode. By the time we actually catch up if this is still
+        # ticking, then we can move to real-time processing.
+        end_time = _api.evaluation_clock.now
+    end_time_ts = end_time.timestamp() * 1000
+
+    # First, get partition information by calling 'partitions_for_topic'.
+    partitions = consumer.partitions_for_topic(topic)
+    if not partitions:
+        raise ValueError(f"No partitions found for topic '{topic}'")
+
+    # Create TopicPartition objects for each partition.
+    topic_partitions = [TopicPartition(topic, p) for p in partitions]
+    # Assign these partitions to the consumer.
+    consumer.assign(topic_partitions)
+
+    # Convert the start_time to milliseconds (Kafka uses epoch time in ms).
+    timestamp_ms = int(start_time.replace(tzinfo=pytz.UTC).timestamp() * 1000)
+    # Prepare a timestamp lookup dict for each TopicPartition.
+    timestamps = {tp: timestamp_ms for tp in topic_partitions}
+    # Retrieve offset information for each partition at the given timestamp.
+    offsets = {k: v for k, v in consumer.offsets_for_times(timestamps).items() if v is not None}
+    for tp, offset in offsets.items():
+        consumer.seek(tp, offset.offset)
+    first = True
+    last_time = end_time_ts
+    while True:
+        records = consumer.poll(timeout_ms=500, max_records=1000)
+        if len(records) == 0:
+            break
+        all_messages = sorted(
+            [m for tp, messages in records.items() for m in messages], key=lambda m: (m.timestamp, m.topic, m.offset)
+        )
+        for msg in all_messages:
+            if msg.timestamp > end_time_ts:
+                break
+            last_time = msg.timestamp
+            tm = datetime.fromtimestamp(msg.timestamp / 1000) + timedelta(milliseconds=msg.timestamp % 1000)
+            yield tm, dict(msg=msg.value, recovered=False) if first else dict(msg=msg.value)
+            first = False
+    tm = datetime.fromtimestamp(last_time / 1000) + timedelta(milliseconds=msg.timestamp % 1000)
+    yield tm + MIN_TD, dict(recovered=True)

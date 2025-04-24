@@ -35,6 +35,7 @@ def mock_kafka_state(mock_kafka_producer):
         yield state_instance
 
 
+# @pytest.mark.skip(reason="Not patched yet")
 def test_subscriber():
 
     @message_subscriber(topic="test")
