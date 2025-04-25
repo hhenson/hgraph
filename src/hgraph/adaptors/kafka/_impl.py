@@ -1,32 +1,27 @@
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
+from logging import error
+from threading import Thread, Event
+from typing import Callable, Mapping
 
 import pytz
 from kafka import KafkaConsumer, KafkaProducer, TopicPartition
 
 from hgraph import (
-    adaptor_impl,
-    adaptor,
-    WiringGraphContext,
-    register_adaptor,
     GlobalState,
     register_service,
     TS,
-    debug_print,
     const,
     service_impl,
     MIN_TD,
     TSB,
-    combine,
     sink_node,
     STATE,
     EvaluationEngineApi,
     SCHEDULER,
     generator,
-    EvaluationMode,
-    MAX_ET,
+    EvaluationMode, push_queue, SCALAR, set_service_output,
 )
-
 from hgraph.adaptors.kafka._api import (
     message_publisher_operator,
     message_subscriber_service,
@@ -52,6 +47,8 @@ class KafkaMessageState(MessageState):
     publishers: set[str] = field(default_factory=set)
     _kafka_producer: KafkaProducer = None
     _kafka_producer_count: int = 0
+    _kafka_sender: dict[str, Callable[[bytes], None]] = field(default_factory=dict)
+    _kafka_consumer: dict[str, "KafkaConsumerThread"] = field(default_factory=dict)
 
     config: dict = None
 
@@ -61,22 +58,23 @@ class KafkaMessageState(MessageState):
             gs["service.messaging.state"] = cls()
         return gs["service.messaging.state"]
 
-    def add_subscriber(self, topic: str, replay_history: bool):
-        if topic not in self.subscribers:
-            self.subscribers.add(topic)
-            register_service(topic, _message_subscriber_aggregator, topic=topic)
-        if replay_history and topic not in self.history_subscribers:
-            self.history_subscribers.add(topic)
-            register_service(topic, _message_subscriber_history_aggregator, topic=topic)
+    def add_subscriber(self, topic: str):
+        self._register(topic)
+        self.subscribers.add(topic)
 
-    def add_publisher(self, topic: str, replay_history: bool):
+    def add_historical_subscriber(self, topic: str):
+        self._register(topic)
+        self.history_subscribers.add(topic)
+
+    def _register(self, topic: str):
+        if topic not in self.subscribers and topic not in self.history_subscribers:
+            register_service(topic, _message_subscriber_impl, topic=topic)
+
+    def add_publisher(self, topic: str):
         if topic in self.publishers:
             # There can only be one publisher per topic.
             raise ValueError(f"Topic {topic} already has a publisher")
         self.publishers.add(topic)
-        if replay_history and topic not in self.history_subscribers:
-            self.history_subscribers.add(topic)
-            register_service(topic, _message_subscriber_history_aggregator, topic=topic)
 
     @property
     def producer(self) -> KafkaProducer:
@@ -93,6 +91,15 @@ class KafkaMessageState(MessageState):
             self._kafka_producer.close()
             self._kafka_producer = None
 
+    def set_subscriber_sender(self, topic: str, sender: Callable[[SCALAR], None]):
+        self._kafka_sender[topic] = sender
+
+    def start_subscriber(self, topic: str, consumer: KafkaConsumer):
+        self._kafka_consumer[topic] = (thread:=KafkaConsumerThread(topic, consumer, self._kafka_sender[topic]))
+        thread.start()
+
+    def stop_subscriber(self, topic: str):
+        self._kafka_consumer.pop(topic).stop()
 
 def _registered_topics(m, s):
     """
@@ -136,13 +143,42 @@ def _message_subscriber_aggregator(path: str, topic: str) -> TS[bytes]:
     return const(topic_b, delay=MIN_TD * 2)
 
 
-@service_impl(interfaces=(message_history_subscriber_service,))
+@service_impl(interfaces=(message_history_subscriber_service, message_subscriber_service))
+def _message_subscriber_impl(path: str, topic: str):
+    consumer = KafkaConsumer(**(ks:=KafkaMessageState.instance()).config)
+    # First, get partition information by calling 'partitions_for_topic'.
+    partitions = consumer.partitions_for_topic(topic)
+    if not partitions:
+        raise ValueError(f"No partitions found for topic '{topic}'")
+
+    # Create TopicPartition objects for each partition.
+    topic_partitions = tuple(TopicPartition(topic, p) for p in partitions)
+    # Assign these partitions to the consumer.
+    consumer.assign(topic_partitions)
+
+    if ks.history_subscribers:
+        historical_out = _message_subscriber_history_aggregator(path, consumer, topic_partitions)
+        set_service_output(path, message_history_subscriber_service, historical_out)
+        start_real_time_service = historical_out.recovered
+    else:
+        start_real_time_service = const(True)
+
+    if ks.subscribers:
+        set_service_output(
+            path, message_subscriber_service, _message_subscriber_queue(topic=topic)
+        )
+        _start_realtime_message_subscriber(topic, start_real_time_service, consumer)
+
+
+
 @generator
 def _message_subscriber_history_aggregator(
-    path: str, topic: str, _api: EvaluationEngineApi = None
-) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
+        path: str,
+        consumer: KafkaConsumer,
+        topic_partitions: tuple[tuple[str, int], ...],
+        _api: EvaluationEngineApi = None
+) -> TSB["msg": TS[bytes], "recovered": TS[bool]]:
     """Recovered must tick after the last message has been delivered."""
-    consumer = KafkaConsumer(**KafkaMessageState.instance().config)
     start_time = _api.start_time
     if _api.evaluation_mode == EvaluationMode.SIMULATION:
         end_time = _api.end_time
@@ -151,17 +187,6 @@ def _message_subscriber_history_aggregator(
         # ticking, then we can move to real-time processing.
         end_time = _api.evaluation_clock.now
     end_time_ts = end_time.timestamp() * 1000
-
-    # First, get partition information by calling 'partitions_for_topic'.
-    partitions = consumer.partitions_for_topic(topic)
-    if not partitions:
-        raise ValueError(f"No partitions found for topic '{topic}'")
-
-    # Create TopicPartition objects for each partition.
-    topic_partitions = [TopicPartition(topic, p) for p in partitions]
-    # Assign these partitions to the consumer.
-    consumer.assign(topic_partitions)
-
     # Convert the start_time to milliseconds (Kafka uses epoch time in ms).
     timestamp_ms = int(start_time.replace(tzinfo=pytz.UTC).timestamp() * 1000)
     # Prepare a timestamp lookup dict for each TopicPartition.
@@ -171,20 +196,71 @@ def _message_subscriber_history_aggregator(
     for tp, offset in offsets.items():
         consumer.seek(tp, offset.offset)
     first = True
-    last_time = end_time_ts
-    while True:
+    last_time = timestamp_ms
+    while last_time < end_time_ts:
         records = consumer.poll(timeout_ms=500, max_records=1000)
-        if len(records) == 0:
+        if records is None or len(records) == 0:
             break
-        all_messages = sorted(
-            [m for tp, messages in records.items() for m in messages], key=lambda m: (m.timestamp, m.topic, m.offset)
-        )
+        all_messages = [m for tp, messages in records.items() for m in messages]
+        if len(records) > 1:
+            all_messages = sorted(
+                all_messages, key=lambda m: (m.timestamp, m.topic, m.offset)
+            )
         for msg in all_messages:
-            if msg.timestamp > end_time_ts:
-                break
+            # We won't exit historical replay unless the engine exits to ensure smooth playback of messages.
             last_time = msg.timestamp
             tm = datetime.fromtimestamp(msg.timestamp / 1000) + timedelta(milliseconds=msg.timestamp % 1000)
             yield tm, dict(msg=msg.value, recovered=False) if first else dict(msg=msg.value)
             first = False
-    tm = datetime.fromtimestamp(last_time / 1000) + timedelta(milliseconds=msg.timestamp % 1000)
+    tm = datetime.fromtimestamp(last_time / 1000) + timedelta(milliseconds=last_time % 1000)
     yield tm + MIN_TD, dict(recovered=True)
+
+
+@push_queue(TS[bytes])
+def _message_subscriber_queue(
+        sender: Callable[[SCALAR], None] = None, *, topic: str
+):
+    KafkaMessageState.instance().set_subscriber_sender(topic, sender)
+
+
+@sink_node
+def _start_realtime_message_subscriber(topic: str, start_real_time_service: TS[bool], consumer: KafkaConsumer):
+    if start_real_time_service.value:
+        start_real_time_service.make_passive()
+        KafkaMessageState.instance().start_subscriber(topic, consumer)
+
+
+@_start_realtime_message_subscriber.stop
+def _start_realtime_message_subscriber_stop(topic: str):
+    KafkaMessageState.instance().stop_subscriber(topic)
+
+
+class KafkaConsumerThread(Thread):
+
+    def __init__(self, topic, consumer: KafkaConsumer, sender: Callable[[bytes], None]):
+        super().__init__()
+        self.topic = topic
+        self.consumer = consumer
+        self.sender = sender
+        self._stop_event = Event()
+
+    def run(self):
+        # TODO: How to communicate failures to the graph if this blows up?
+        try:
+            while not self._stop_event.is_set():
+                records = self.consumer.poll(timeout_ms=1000, max_records=1000)
+                all_messages = [m for tp, messages in records.items() for m in messages]
+                if len(records) > 1:
+                    all_messages = sorted(
+                        all_messages,
+                        key=lambda m: (m.timestamp, m.topic, m.offset)
+                    )
+                for msg in all_messages:
+                    self.sender(msg.value)
+        except:
+            error(f"Failure occurred whilst reading from Kafka on topic: {self.topic}", exc_info=True)
+        finally:
+            self.consumer.close()
+
+    def stop(self):
+        self._stop_event.set()

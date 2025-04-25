@@ -87,8 +87,9 @@ def message_publisher(fn: Callable = None, *, topic: str):
         return_annotation=final_output_type,
     )
     def message_publisher_graph(**kwargs):
-        get_message_state().add_publisher(topic, replay_history)
+        get_message_state().add_publisher(topic)
         if replay_history:
+            get_message_state().add_historical_subscriber(topic)
             msg_history = message_history_subscriber_service(path=topic, topic=topic)
             kwargs["msg"] = msg_history["msg"]  # Connect replay
             kwargs["recovered"] = msg_history["recovered"]  # Connect replay
@@ -153,9 +154,10 @@ def message_subscriber(fn: Callable = None, *, topic: str):
         return_annotation=output_type,
     )
     def message_subscriber_graph(**kwargs):
-        get_message_state().add_subscriber(topic, has_recovered)
+        get_message_state().add_subscriber(topic)
         msg_input = message_subscriber_service(path=topic)
         if has_recovered:
+            get_message_state().add_historical_subscriber(topic)
             msg_history = message_history_subscriber_service(path=topic)
             debug_print(f"msg_history", msg_history)
             kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
@@ -173,12 +175,16 @@ def message_subscriber(fn: Callable = None, *, topic: str):
 class MessageState(ABC):
 
     @abstractmethod
-    def add_publisher(self, topic: str, replay_history: bool):
+    def add_publisher(self, topic: str):
         """Adds a publisher to the message state"""
 
     @abstractmethod
-    def add_subscriber(self, topic: str, has_recovered: bool):
+    def add_subscriber(self, topic: str):
         """Adds a subscriber to the message state"""
+
+    @abstractmethod
+    def add_historical_subscriber(self, topic: str):
+        """Adds a historical subscriber to the message state"""
 
 
 def get_message_state() -> MessageState :

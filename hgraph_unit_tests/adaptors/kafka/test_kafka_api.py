@@ -1,8 +1,9 @@
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from hgraph import graph, TS, debug_print, const, GlobalState
+from hgraph import graph, TS, debug_print, const, GlobalState, evaluate_graph, GraphConfiguration, EvaluationMode
 from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
 from hgraph.test import eval_node
 
@@ -37,7 +38,6 @@ def mock_kafka_state(mock_kafka_producer):
 
 @pytest.mark.skip(reason="Not patched yet")
 def test_subscriber():
-
     @message_subscriber(topic="test")
     def my_subscriber(msg: TS[bytes]):
         debug_print("test_subs1", msg)
@@ -53,11 +53,13 @@ def test_subscriber():
         my_subscriber()
         my_other_subscriber()
 
-    assert eval_node(g) == None
+    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
+                                         start_time=(st := datetime.utcnow()) - timedelta(seconds=10),
+                                         end_time=st + timedelta(seconds=10)))
+    # assert eval_node(g) == None
 
 
 def test_publisher(mock_kafka_state, mock_kafka_producer):
-
     @message_publisher(topic="test")
     def my_publisher() -> TS[bytes]:
         return const(b"my publisher")
