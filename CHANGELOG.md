@@ -1170,7 +1170,9 @@ Version 0.4.38 (20-04-2025)
 * Prepare Edge for C++ support
 
 
-Version 0.4.39 (23-04-2025)
+Version 0.4.39 (25-04-2025)
 ---------------------------
 
 * Add support for bytes data type.
+* Add initial support for Kafka subscribers and publishers.
+
