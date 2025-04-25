@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from hgraph import graph, TS, debug_print, const, GlobalState, evaluate_graph, GraphConfiguration, EvaluationMode
+from hgraph import graph, TS, debug_print, const, GlobalState, evaluate_graph, GraphConfiguration, EvaluationMode, \
+    sample, if_true
 from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
 from hgraph.test import eval_node
 
@@ -47,15 +48,25 @@ def test_subscriber():
         debug_print("test_subs2:msg", msg)
         debug_print("test_subs2:recovered", recovered)
 
+    @message_publisher(topic="test")
+    def my_publisher(msg: TS[bytes], recovered: TS[bool]) -> TS[bytes]:
+        return sample(if_true(recovered), const(b"recovered"))
+
+
     @graph
     def g():
         register_kafka_adaptor({})
         my_subscriber()
         my_other_subscriber()
+        my_publisher()
 
-    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
-                                         start_time=(st := datetime.utcnow()) - timedelta(seconds=10),
-                                         end_time=st + timedelta(seconds=10)))
+    evaluate_graph(g, GraphConfiguration(
+            run_mode=EvaluationMode.REAL_TIME,
+            start_time=(st := datetime.utcnow()) - timedelta(hours=12),
+            end_time=st + timedelta(seconds=4),
+            trace=False
+        ),
+    )
     # assert eval_node(g) == None
 
 

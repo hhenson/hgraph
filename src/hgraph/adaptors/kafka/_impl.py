@@ -20,7 +20,7 @@ from hgraph import (
     EvaluationEngineApi,
     SCHEDULER,
     generator,
-    EvaluationMode, push_queue, SCALAR, set_service_output,
+    EvaluationMode, push_queue, SCALAR, set_service_output, adaptor, adaptor_impl, register_adaptor, debug_print,
 )
 from hgraph.adaptors.kafka._api import (
     message_publisher_operator,
@@ -60,6 +60,8 @@ class KafkaMessageState(MessageState):
 
     def add_subscriber(self, topic: str):
         self._register(topic)
+        if topic not in self.subscribers:
+            register_adaptor(topic, _real_time_message_subscriber_impl, topic=topic)
         self.subscribers.add(topic)
 
     def add_historical_subscriber(self, topic: str):
@@ -99,7 +101,8 @@ class KafkaMessageState(MessageState):
         thread.start()
 
     def stop_subscriber(self, topic: str):
-        self._kafka_consumer.pop(topic).stop()
+        if topic in self._kafka_consumer:
+            self._kafka_consumer.pop(topic).stop()
 
 def _registered_topics(m, s):
     """
@@ -165,7 +168,7 @@ def _message_subscriber_impl(path: str, topic: str):
 
     if ks.subscribers:
         set_service_output(
-            path, message_subscriber_service, _message_subscriber_queue(topic=topic)
+            path, message_subscriber_service, _real_time_message_subscriber(path=topic)
         )
         _start_realtime_message_subscriber(topic, start_real_time_service, consumer)
 
@@ -197,6 +200,7 @@ def _message_subscriber_history_aggregator(
         consumer.seek(tp, offset.offset)
     first = True
     last_time = timestamp_ms
+    yield start_time, dict(recovered=False)
     while last_time < end_time_ts:
         records = consumer.poll(timeout_ms=500, max_records=1000)
         if records is None or len(records) == 0:
@@ -208,12 +212,25 @@ def _message_subscriber_history_aggregator(
             )
         for msg in all_messages:
             # We won't exit historical replay unless the engine exits to ensure smooth playback of messages.
-            last_time = msg.timestamp
-            tm = datetime.fromtimestamp(msg.timestamp / 1000) + timedelta(milliseconds=msg.timestamp % 1000)
-            yield tm, dict(msg=msg.value, recovered=False) if first else dict(msg=msg.value)
-            first = False
-    tm = datetime.fromtimestamp(last_time / 1000) + timedelta(milliseconds=last_time % 1000)
+            t = msg.timestamp
+            tm = datetime.utcfromtimestamp(t / 1000) + timedelta(milliseconds=t % 1000)
+            if t == last_time:
+                # Offset if it is the same
+                tm += MIN_TD
+            last_time = t
+            yield tm, dict(msg=msg.value)
+    tm = datetime.utcfromtimestamp(last_time / 1000) + timedelta(milliseconds=last_time % 1000)
     yield tm + MIN_TD, dict(recovered=True)
+
+
+@adaptor
+def _real_time_message_subscriber(path: str) -> TS[bytes]:
+    """Expose the real-time message subscriber as an adaptor"""
+
+
+@adaptor_impl(interfaces=_real_time_message_subscriber)
+def _real_time_message_subscriber_impl(path: str, topic: str) -> TS[bytes]:
+    return _message_subscriber_queue(topic=topic)
 
 
 @push_queue(TS[bytes])

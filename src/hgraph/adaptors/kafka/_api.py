@@ -83,14 +83,14 @@ def message_publisher(fn: Callable = None, *, topic: str):
 
     @graph
     @with_signature(
-        kwargs={k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if k != "msg"},
+        kwargs={k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if k not in ("msg", "recovered")},
         return_annotation=final_output_type,
     )
     def message_publisher_graph(**kwargs):
         get_message_state().add_publisher(topic)
         if replay_history:
             get_message_state().add_historical_subscriber(topic)
-            msg_history = message_history_subscriber_service(path=topic, topic=topic)
+            msg_history = message_history_subscriber_service(path=topic)
             kwargs["msg"] = msg_history["msg"]  # Connect replay
             kwargs["recovered"] = msg_history["recovered"]  # Connect replay
 
@@ -159,7 +159,6 @@ def message_subscriber(fn: Callable = None, *, topic: str):
         if has_recovered:
             get_message_state().add_historical_subscriber(topic)
             msg_history = message_history_subscriber_service(path=topic)
-            debug_print(f"msg_history", msg_history)
             kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
             msg_input = if_then_else(
                 default(recovered, False),
