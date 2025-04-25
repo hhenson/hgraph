@@ -140,6 +140,7 @@ def test_multi_client_adaptor_w_parameters():
         bottom(path, map_(lambda t: t if b else t + 1, ts))
         return top(path)
 
+    # TODO: Find a way to make this test more reliable when under load.
     @graph
     def g() -> TSL[TS[int], Size[3]]:
         register_adaptor("test_adaptor", my_adaptor_impl)
