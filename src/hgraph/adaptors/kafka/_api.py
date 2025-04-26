@@ -1,15 +1,26 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 
-from hgraph import adaptor, TS, graph, HgTSBTypeMetaData, TSB, with_signature, null_sink, reference_service, \
-    debug_print, \
-    default, if_then_else, operator
-
+from hgraph import (
+    adaptor,
+    TS,
+    graph,
+    HgTSBTypeMetaData,
+    TSB,
+    with_signature,
+    null_sink,
+    reference_service,
+    debug_print,
+    default,
+    if_then_else,
+    operator,
+    HgAtomicType,
+)
 
 __all__ = ("message_publisher", "message_subscriber", "MessageState")
 
 
-def message_publisher(fn: Callable = None, *, topic: str):
+def message_publisher(fn: Callable = None, *, topic: str = None):
     """
     Wraps a publisher function as a publisher for a messaging topic.
     The function should return a ``TS[bytes]`` that will be published to the topic.
@@ -55,17 +66,20 @@ def message_publisher(fn: Callable = None, *, topic: str):
     if not isinstance(fn, WiringNodeClass):
         fn = graph(fn)
 
-    if "msg" in fn.signature.time_series_args or 'recovered' in fn.signature.time_series_args:
+    if "msg" in fn.signature.time_series_args or "recovered" in fn.signature.time_series_args:
         assert (
-                "msg" in fn.signature.time_series_inputs.keys()
+            "msg" in fn.signature.time_series_inputs.keys()
         ), "kafka_publisher graph must have an input named 'msg' when defining replay args"
         assert fn.signature.time_series_inputs["msg"].matches_type(
             TS[bytes]
         ), f"Graph must have an input named 'msg' of type TS[bytes] got {fn.signature.time_series_inputs['msg']}"
-        assert ('recovered' in fn.signature.time_series_inputs.keys()), \
-            "kafka_publisher graph must have an input named 'recovered' when defining replay args"
-        assert fn.signature.time_series_inputs['recovered'].matches_type(TS[bool]), \
-            f"Graph input named 'recovered' must be of of type TS[bool] got {fn.signature.time_series_inputs['recovered']}"
+        assert (
+            "recovered" in fn.signature.time_series_inputs.keys()
+        ), "kafka_publisher graph must have an input named 'recovered' when defining replay args"
+        assert fn.signature.time_series_inputs["recovered"].matches_type(TS[bool]), (
+            "Graph input named 'recovered' must be of of type TS[bool] got"
+            f" {fn.signature.time_series_inputs['recovered']}"
+        )
         replay_history = True
     else:
         replay_history = False
@@ -74,36 +88,58 @@ def message_publisher(fn: Callable = None, *, topic: str):
     is_tsb = False
     if isinstance(output_type, HgTSBTypeMetaData):
         is_tsb = True
-        assert "msg" in output_type, "TSB must have a 'msg' output"
+        assert "msg" in (schema := output_type.bundle_schema_tp.meta_data_schema), "TSB must have a 'msg' output"
         output_type = output_type["msg"]
 
-    assert (output_type.matches_type(TS[bytes])), "Graph must have a message output of type TS[bytes]"
+    assert output_type.matches_type(TS[bytes]), "Graph must have a message output of type TS[bytes]"
 
-    final_output_type = fn.signature.output_type if is_tsb else None
+    final_output_type = None
+    if is_tsb:
+        if len(schema) == 2 and "out" in schema:
+            final_output_type = schema["out"]
+        else:
+            final_output_type = fn.signature.output_type
 
     @graph
     @with_signature(
-        kwargs={k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if k not in ("msg", "recovered")},
+        kwargs=(
+            {
+                k: v
+                for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items()
+                if k not in ("msg", "recovered")
+            }
+            | {"topic": HgAtomicType(str)}
+        ),
         return_annotation=final_output_type,
+        defaults=fn.signature.defaults | {"topic": topic} if topic is not None else {},
     )
     def message_publisher_graph(**kwargs):
-        get_message_state().add_publisher(topic)
+        topic_ = kwargs.pop("topic", None)
+        if topic_ is None:
+            raise ValueError(f"topic must be provided to {fn.signature.name}")
+        get_message_state().add_publisher(topic_)
         if replay_history:
-            get_message_state().add_historical_subscriber(topic)
-            msg_history = message_history_subscriber_service(path=topic)
+            get_message_state().add_historical_subscriber(topic_)
+            msg_history = message_history_subscriber_service(path=topic_)
             kwargs["msg"] = msg_history["msg"]  # Connect replay
             kwargs["recovered"] = msg_history["recovered"]  # Connect replay
 
         out = fn(**kwargs)
         out_msg = out["msg"] if is_tsb else out
         # Connect output to the message bus
-        message_publisher_operator(out_msg, topic=topic)
-        return out if is_tsb else None
+        message_publisher_operator(out_msg, topic=topic_)
+        if is_tsb:
+            keys = tuple(out.keys())
+            if len(keys) == 2 and "out" in keys:
+                return out["out"]
+            else:
+                return out
+        return None
 
     return message_publisher_graph
 
 
-def message_subscriber(fn: Callable = None, *, topic: str):
+def message_subscriber(fn: Callable = None, *, topic: str = None):
     """
     Subscribe to a kafka topic, the path binds to the topic. The values are provided to ``msg``. This is an example:
 
@@ -137,39 +173,44 @@ def message_subscriber(fn: Callable = None, *, topic: str):
         fn = graph(fn)
 
     assert "msg" in fn.signature.time_series_inputs.keys(), "message_subscriber graph must have an input named 'msg'"
-    assert fn.signature.time_series_inputs["msg"].matches_type(TS[bytes]), \
-        f"The input named 'msg' must be of type TS[bytes] got {fn.signature.time_series_inputs['msg']}"
+    assert fn.signature.time_series_inputs["msg"].matches_type(
+        TS[bytes]
+    ), f"The input named 'msg' must be of type TS[bytes] got {fn.signature.time_series_inputs['msg']}"
     has_recovered = "recovered" in fn.signature.time_series_inputs.keys()
-    assert not has_recovered or fn.signature.time_series_inputs["recovered"].matches_type(TS[bool]), \
-        f"The input named 'recovered' must be of type TS[bool] got {fn.signature.time_series_inputs['recovered']}"
+    assert not has_recovered or fn.signature.time_series_inputs["recovered"].matches_type(
+        TS[bool]
+    ), f"The input named 'recovered' must be of type TS[bool] got {fn.signature.time_series_inputs['recovered']}"
 
     output_type = fn.signature.output_type
 
     @graph
     @with_signature(
         kwargs={
-            k: v for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items() if
-            k not in ("msg", "recovered")
-        },
+            k: v
+            for k, v in fn.signature.non_injectable_or_auto_resolvable_inputs.items()
+            if k not in ("msg", "recovered")
+        }
+        | {"topic": HgAtomicType(str)},
         return_annotation=output_type,
+        defaults=fn.signature.defaults | {"topic": topic} if topic is not None else {},
     )
     def message_subscriber_graph(**kwargs):
-        get_message_state().add_subscriber(topic)
-        msg_input = message_subscriber_service(path=topic)
+        topic_ = kwargs.pop("topic", None)
+        if topic_ is None:
+            raise ValueError(f"topic must be provided to {fn.signature.name}")
+        get_message_state().add_subscriber(topic_)
+        msg_input = message_subscriber_service(path=topic_)
         if has_recovered:
-            get_message_state().add_historical_subscriber(topic)
-            msg_history = message_history_subscriber_service(path=topic)
+            get_message_state().add_historical_subscriber(topic_)
+            msg_history = message_history_subscriber_service(path=topic_)
             kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
-            msg_input = if_then_else(
-                default(recovered, False),
-                msg_input,
-                msg_history["msg"]
-            )
+            msg_input = if_then_else(default(recovered, False), msg_input, msg_history["msg"])
         kwargs["msg"] = msg_input
         out = fn(**kwargs)
         return out
 
     return message_subscriber_graph
+
 
 class MessageState(ABC):
 
@@ -186,8 +227,9 @@ class MessageState(ABC):
         """Adds a historical subscriber to the message state"""
 
 
-def get_message_state() -> MessageState :
+def get_message_state() -> MessageState:
     from hgraph.adaptors.kafka._impl import KafkaMessageState
+
     return KafkaMessageState.instance()
 
 
@@ -197,7 +239,7 @@ def message_publisher_operator(msg: TS[bytes], topic: str):
 
 
 @reference_service
-def message_history_subscriber_service(path: str) -> TSB["msg": TS[bytes], "recovered": TS[bool]]:
+def message_history_subscriber_service(path: str) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
     """Only retrieve history, after which the topic can be unsubscribed."""
 
 

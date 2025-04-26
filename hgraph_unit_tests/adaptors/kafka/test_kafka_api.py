@@ -3,8 +3,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hgraph import graph, TS, debug_print, const, GlobalState, evaluate_graph, GraphConfiguration, EvaluationMode, \
-    sample, if_true
+from hgraph import (
+    graph,
+    TS,
+    debug_print,
+    const,
+    GlobalState,
+    evaluate_graph,
+    GraphConfiguration,
+    EvaluationMode,
+    sample,
+    if_true,
+    TSB,
+    combine,
+)
+
 from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
 from hgraph.test import eval_node
 
@@ -39,7 +52,7 @@ def mock_kafka_state(mock_kafka_producer):
 
 @pytest.mark.skip(reason="Not patched yet")
 def test_subscriber():
-    @message_subscriber(topic="test")
+    @message_subscriber
     def my_subscriber(msg: TS[bytes]):
         debug_print("test_subs1", msg)
 
@@ -52,19 +65,20 @@ def test_subscriber():
     def my_publisher(msg: TS[bytes], recovered: TS[bool]) -> TS[bytes]:
         return sample(if_true(recovered), const(b"recovered"))
 
-
     @graph
     def g():
         register_kafka_adaptor({})
-        my_subscriber()
+        my_subscriber(topic="test")
         my_other_subscriber()
         my_publisher()
 
-    evaluate_graph(g, GraphConfiguration(
+    evaluate_graph(
+        g,
+        GraphConfiguration(
             run_mode=EvaluationMode.REAL_TIME,
             start_time=(st := datetime.utcnow()) - timedelta(hours=12),
             end_time=st + timedelta(seconds=4),
-            trace=False
+            trace=False,
         ),
     )
     # assert eval_node(g) == None
@@ -81,6 +95,38 @@ def test_publisher(mock_kafka_state, mock_kafka_producer):
         my_publisher()
 
     assert eval_node(g) == None
+    assert mock_kafka_producer.send.call_count == 1
+    assert mock_kafka_producer.send.call_args[0][0] == "test"
+    assert mock_kafka_producer.send.call_args[0][1] == b"my publisher"
+
+
+def test_publisher_without_predefined_topic(mock_kafka_state, mock_kafka_producer):
+    @message_publisher
+    def my_publisher() -> TS[bytes]:
+        return const(b"my publisher")
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        my_publisher(topic="test")
+
+    assert eval_node(g) == None
+    assert mock_kafka_producer.send.call_count == 1
+    assert mock_kafka_producer.send.call_args[0][0] == "test"
+    assert mock_kafka_producer.send.call_args[0][1] == b"my publisher"
+
+
+def test_publisher_with_tsb_out(mock_kafka_state, mock_kafka_producer):
+    @message_publisher
+    def my_publisher() -> TSB["msg" : TS[bytes], "out" : TS[bool]]:
+        return combine(msg=const(b"my publisher"), out=const(True))
+
+    @graph
+    def g() -> TS[bool]:
+        register_kafka_adaptor({})
+        return my_publisher(topic="test")
+
+    assert eval_node(g) == [True]
     assert mock_kafka_producer.send.call_count == 1
     assert mock_kafka_producer.send.call_args[0][0] == "test"
     assert mock_kafka_producer.send.call_args[0][1] == b"my publisher"
