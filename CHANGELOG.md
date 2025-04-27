@@ -1186,3 +1186,8 @@ Version 0.4.41 (27-04-2025)
 ---------------------------
 
 * Correct generation of injectable inputs
+
+Version 0.4.42 (26-04-2025)
+--------------------------
+
+* Add TRAIT to injectables enum and extraction logic.

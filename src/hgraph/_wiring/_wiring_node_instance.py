@@ -276,6 +276,7 @@ class WiringNodeInstance:
             HgOutputType,
             HgLoggerType,
             HgNodeType,
+            HgTraitsType,
         )
 
         return frozendict({
@@ -291,6 +292,7 @@ class WiringNodeInstance:
                     HgOutputType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.OUTPUT,
                     HgLoggerType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.LOGGER,
                     HgNodeType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.NODE,
+                    HgTraitsType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.TRAIT,
                 }.get(type(v), WiringNodeInstance.INJECTABLE_TYPES_ENUM.NONE)
             )
             != WiringNodeInstance.INJECTABLE_TYPES_ENUM.NONE

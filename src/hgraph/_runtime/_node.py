@@ -44,6 +44,7 @@ class InjectableTypesEnum(IntFlag):
     ENGINE_API = auto()
     LOGGER = auto()
     NODE = auto()
+    TRAIT = auto()
 
 
 @dataclass

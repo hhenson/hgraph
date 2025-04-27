@@ -17,6 +17,7 @@ from hgraph._types._scalar_type_meta_data import (
     RecordableStateInjector,
     HgLoggerType,
     HgNodeType,
+    HgTraitsType,
 )
 from hgraph._types._scalar_type_meta_data import (
     HgScalarTypeMetaData,
@@ -741,6 +742,7 @@ def extract_injectables(**kwargs) -> InjectableTypesEnum:
                 HgOutputType: InjectableTypesEnum.OUTPUT,
                 HgLoggerType: InjectableTypesEnum.LOGGER,
                 HgNodeType: InjectableTypesEnum.NODE,
+                HgTraitsType: InjectableTypesEnum.TRAIT,
             }.get(type(v), InjectableTypesEnum.NONE)
             for v in kwargs.values()
         ),

@@ -46,6 +46,7 @@ __all__ = (
     "HgArrayScalarTypeMetaData",
     "HgLoggerType",
     "HgNodeType",
+    "HgTraitsType",
 )
 
 
