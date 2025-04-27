@@ -1181,3 +1181,8 @@ Version 0.4.40 (26-04-2025)
 
 * Improve message API to support dynamically supplied topics, as well as only returning the 'out' value of a TSB
   output in the publisher to make the call graph cleaner.
+
+Version 0.4.41 (27-04-2025)
+---------------------------
+
+* Correct generation of injectable inputs
