@@ -1191,3 +1191,8 @@ Version 0.4.42 (26-04-2025)
 --------------------------
 
 * Add TRAIT to injectables enum and extraction logic.
+
+Version 0.4.43 (28-04-2025)
+---------------------------
+
+* Add the ability to merge two compound scalar values.
