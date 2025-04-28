@@ -7,7 +7,7 @@ from hgraph._operators._operators import bit_and, bit_or, CmpResult, index_of
 from hgraph._runtime._constants import MAX_DT, MIN_DT
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types._ref_type import REF, REF_OUT, TimeSeriesReference
-from hgraph._types._scalar_types import CompoundScalar, STATE, SCALAR, SIZE, SIZE_1
+from hgraph._types._scalar_types import CompoundScalar, STATE, SCALAR, SIZE, SIZE_1, COMPOUND_SCALAR
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K, TIME_SERIES_TYPE_2
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
@@ -53,6 +53,26 @@ def merge_ts_scalar(*tsl: TSL[TS[SCALAR], SIZE], _output: TS[SCALAR] = None) -> 
                 out = ts.value
         if out is not None and out != _output.value:
             return out
+
+
+@compute_node(overloads=merge, valid=("orig",))
+def merge_compound_scalars(orig: TS[COMPOUND_SCALAR], delta: TS[COMPOUND_SCALAR]) -> TS[COMPOUND_SCALAR]:
+    """
+    Merges two compound scalars. This assumes that the merge is right applied to left with the left value considered
+    as the original and the right the change to apply.
+    """
+    if not delta.valid:
+        return orig.value
+    original_values = (o_v:=orig.value).to_dict()
+    items = [(key, value, original_values) for key, value in delta.value.to_dict().items()]
+    while items:
+        key, value, orig_values = items.pop()
+        if isinstance(value, dict):
+            values = orig_values.get(key, {})
+            items.extend([(k, v, values) for k, v in value.items()])
+        else:
+            orig_values[key] = value
+    return type(o_v).from_dict(original_values)
 
 
 @graph(overloads=merge)

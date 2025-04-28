@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import pytest
 
 from hgraph import (
@@ -31,7 +33,7 @@ from hgraph import (
     if_cmp,
     reduce_tsd_with_race,
     reduce_tsd_of_bundles_with_race,
-    TimeSeriesReference,
+    TimeSeriesReference, CompoundScalar,
 )
 from hgraph.test import eval_node
 
@@ -142,6 +144,32 @@ def test_merge():
         [None, 3, 5, None, None],
         resolution_dict={"tsl": TSL[TS[int], Size[3]]},
     ) == [1, 2, 4, None, 6]
+
+
+def test_merge_compound_scalars():
+    @dataclass
+    class SimpleCS(CompoundScalar):
+        p1: str
+        p2: str
+
+    @dataclass
+    class LessSimpleCS(CompoundScalar):
+        p3: SimpleCS
+        p4: int
+
+    @graph
+    def g(orig: TS[LessSimpleCS], delta: TS[LessSimpleCS]) -> TS[LessSimpleCS]:
+        return merge(orig, delta)
+
+    initial = LessSimpleCS(p3=SimpleCS(p1="a", p2="b"), p4=1)
+    second = LessSimpleCS(p3=SimpleCS(p1="a", p2="c"), p4=1)
+
+    assert eval_node(
+        g,
+        [initial],
+        [None, LessSimpleCS(p3=SimpleCS(p1=None, p2="c"), p4=None)],
+       # __trace_wiring__=True,
+    ) == [initial, second]
 
 
 def test_race_scalars():
