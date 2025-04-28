@@ -599,7 +599,9 @@ async function enableActions(table, viewer, config, model) {
                     btn.addEventListener("click", async () => {
                         const id = model._ids[metadata.y - metadata.y0];
                         if (id){
-                            const row = (await (await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]})).to_json())[0];
+                            const tbl = await viewer.getTable();
+                            const index = await tbl.get_index();
+                            const row = (await (await tbl.view({filter: [[index, '==', id.join(',')]]})).to_json())[0];
                             if (row){
                                     switch (action.action.type) {
                                     case 'url':
@@ -612,6 +614,131 @@ async function enableActions(table, viewer, config, model) {
                         }
                     });
                 }
+            }
+            if (action.type === 'tooltip') {
+                let tooltipTimeout;
+
+                td.addEventListener("mouseenter", (event) => {
+                    if (td.dataset.tooltipTimeout) return;
+
+                    td.dataset.tooltipTimeout = setTimeout(async () => {
+                        const id = model._ids[metadata.y - metadata.y0];
+                        if (id){
+                            const tbl = await viewer.getTable();
+                            const view_config = await viewer.save();
+                            const index = await tbl.get_index();
+                            const required_cols = [...action.format.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+
+                            let view;
+                            let get_rows;
+                            if (view_config.group_by.length == 0 && view_config.split_by.length == 0) {
+                                view = await tbl.view({filter: [[index, '==', id[0]]]});
+                                get_rows = async () => await view.to_json();
+                            } else if (view_config.split_by.length == 0) {
+                                const query_config = {
+                                    filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
+                                    group_by: view_config.group_by,
+                                    aggregates: Object.fromEntries(required_cols.map((x) => [x, 'join'])),
+                                }
+                                view = await tbl.view(query_config);
+                                get_rows = async () => (await view.to_json()).filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length);
+                            } else if (view_config.group_by.length > 0) {
+                            }
+                            const rows = await get_rows();
+                            if (rows && rows.length == 1) {
+                                const row = rows[0];
+                                const text = action.format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                if (text){
+                                    table.querySelectorAll("#tooltip").forEach((tooltip) => {
+                                        tooltip.remove();
+                                    });
+
+                                    const tooltip = document.createElement("p");
+                                    tooltip.id = "tooltip";
+                                    tooltip.className = "tooltip";
+                                    tooltip.style = td.style;
+                                    tooltip.style.position = "absolute";
+                                    tooltip.style.zIndex = "1000";
+                                    tooltip.style.border = "1px solid grey";
+                                    tooltip.style.padding = "5px";
+                                    tooltip.style.whiteSpace = "normal";
+                                    tooltip.style.top = (td.getBoundingClientRect().bottom - table.getBoundingClientRect().top - 12) + 'px';
+                                    tooltip.style.left = (td.getBoundingClientRect().right - table.getBoundingClientRect().left - 12) + 'px';
+                                    tooltip.style.overflow = "hidden";
+                                    tooltip.style.textOverflow = "ellipsis";
+                                    tooltip.style.backdropFilter = "blur(6px)";
+                                    tooltip.style.boxShadow = "0 2px 5px rgba(0,0,0,0.2)";
+                                    tooltip.style.fontSize = "12px";
+
+                                    // Get computed background color from table for better integration
+                                    const tableBackgroundColor = window.getComputedStyle(table).backgroundColor;
+                                    if (tableBackgroundColor && tableBackgroundColor !== "rgba(0, 0, 0, 0)") {
+                                        // Make it semi-transparent if a valid background color exists
+                                        const rgbaMatch = tableBackgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+                                        if (rgbaMatch) {
+                                            tooltip.style.backgroundColor = `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, 0.95)`;
+                                        }
+                                    }
+
+                                    const update_tt = (td, tooltip, text) => {
+                                        if (action.line_separator) {
+                                            const lines = text.split(action.line_separator).map(line => `${line}<br/>`).join('');
+                                            tooltip.innerHTML = `<td>${lines}</td>`;
+                                        } else {
+                                            td.title = text;
+                                            tooltip.innerHTML = `<td>${text}</td>`;
+                                        }
+                                    };
+
+                                    view.on_update(async () => {
+                                        const row = (await get_rows())[0];
+                                        const text = action.format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        update_tt(td, tooltip, text);
+                                    });
+
+                                    // Add to table and then adjust width based on content
+                                    table.appendChild(tooltip);
+                                    
+                                    // Ensure the tooltip doesn't go off the right edge of the table
+                                    const tooltipRect = tooltip.getBoundingClientRect();
+                                    const tableRect = table.getBoundingClientRect();
+                                    if (tooltipRect.right > tableRect.right) {
+                                        tooltip.style.left = `${tableRect.right - tooltipRect.width - table.getBoundingClientRect().left - 10}px`;
+                                    }
+
+                                    let mouse_leave;
+                                    td.addEventListener("mouseleave", () => {
+                                        mouse_leave = setTimeout(() => {
+                                            tooltip.remove();
+                                            if (view)
+                                                view.delete();
+                                        }, 100);
+                                    });
+
+                                    tooltip.addEventListener("mouseenter", () => {
+                                        clearTimeout(mouse_leave);
+                                    });
+                                    
+                                    tooltip.addEventListener("mouseleave", () => {
+                                        tooltip.remove();
+                                        if (view) {
+                                            view.delete();
+                                        }
+                                    });
+                                } else {
+                                    view.delete();
+                                }
+                            } else {
+                                view.delete();
+                            }
+                        }
+                    }, 100); // 100ms delay before showing tooltip
+                });
+
+                td.addEventListener("mouseleave", () => {
+                    clearTimeout(Number(td.dataset.tooltipTimeout));
+                    delete td.dataset.tooltipTimeout;
+                });
             }
         }
     }

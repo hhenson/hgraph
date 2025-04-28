@@ -163,11 +163,14 @@ async function buildClientOnlyTable(workspace, table_name, index, worker) {
 
 async function connectClientTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
     const table = await websocket.open_table(table_name);
+    const view = await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})
     let client = undefined;
     if (index)
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow(), {index: await table.get_index()});
+        client = await worker.table(await view.to_arrow(), {index: await table.get_index()});
     else
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow());
+        client = await worker.table(await view.to_arrow());
+
+    view.delete();
 
     workspace.addTable(table_name, client);
 
@@ -250,11 +253,14 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
 
 async function connectEditableTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
     const table = await websocket.open_table(table_name);
+    const view = await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})
     let client = undefined;
     if (index)
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow(), {index: await table.get_index()});
+        client = await worker.table(await view.to_arrow(), {index: await table.get_index()});
     else
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow());
+        client = await worker.table(await view.to_arrow());
+
+    view.delete();
 
     workspace.addTable(table_name, client);
 
