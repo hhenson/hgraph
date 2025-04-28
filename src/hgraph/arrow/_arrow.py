@@ -3,14 +3,8 @@ from datetime import datetime
 from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
-from pandas.core.window.doc import kwargs_scipy
-
 from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink, \
     is_subclass_generic, compute_node, WiringGraphContext, TS_SCHEMA
-from hgraph._operators import (
-    nothing,
-    const,
-)
 from hgraph._impl._operators._record_replay_in_memory import (
     record_to_memory,
     get_recorded_value,
@@ -18,24 +12,25 @@ from hgraph._impl._operators._record_replay_in_memory import (
     set_replay_values,
     SimpleArrayReplaySource,
 )
-from hgraph._types import (
-    TIME_SERIES_TYPE,
-    TIME_SERIES_TYPE_1,
-    TIME_SERIES_TYPE_2,
-    OUT,
-    TS,
-    TSL,
-    Size,
-    TSB,
-    TimeSeriesSchema,
-    clone_type_var,
+from hgraph._operators import (
+    nothing,
+    const,
 )
 from hgraph._runtime import (
     evaluate_graph,
     GraphConfiguration,
     GlobalState,
 )
-from hgraph._wiring._decorators import graph, operator
+from hgraph._types import (
+    TIME_SERIES_TYPE,
+    TIME_SERIES_TYPE_1,
+    TIME_SERIES_TYPE_2,
+    TS,
+    TSB,
+    TimeSeriesSchema,
+    clone_type_var,
+)
+from hgraph._wiring._decorators import graph
 from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = (
