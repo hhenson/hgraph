@@ -1,6 +1,8 @@
-from hgraph import eq_, not_, replace, format_, split, TS, add_
-from hgraph.arrow import eval_, assert_, a, flatten_tsl, Pair
-from hgraph.arrow._pair_operators import flatten_tsb
+from frozendict import frozendict as fd
+
+from hgraph import eq_, not_, replace, split, TS, add_, TimeSeriesSchema, TSB
+from hgraph.arrow import eval_, assert_, a, flatten_tsl
+from hgraph.arrow._pair_operators import flatten_tsb, to_pair
 
 
 def test_native_hgraph_integration():
@@ -32,3 +34,10 @@ def test_bind_tsb_to_node():
     """When there is on TSB shaped input, bind it to the nodes input"""
     eval_(1, 2) | flatten_tsb({"lhs": TS[int], "rhs": TS[int]}) >> add_ >> assert_(3)
 
+
+def test_to_pair():
+    class SimpleTS(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    eval_(fd(a=1, b="2"), type_map=TSB[SimpleTS]) | to_pair("a", "b") >> assert_((1,"2"))

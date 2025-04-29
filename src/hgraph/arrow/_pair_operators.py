@@ -6,7 +6,7 @@ from hgraph import TSL, OUT, SIZE, TSB, ts_schema
 from hgraph.arrow import arrow
 from hgraph.arrow._arrow import A, make_pair, B, Pair, _flatten
 
-__all__ = ("first", "swap", "second", "assoc", "flatten_tsl")
+__all__ = ("first", "swap", "second", "assoc", "flatten_tsl", "to_pair", "flatten_tsb")
 
 
 @arrow
@@ -73,5 +73,17 @@ def flatten_tsb(__schema__=None, **kwargs):
             raise ValueError(f"Expected {len(schema.__meta_data_schema__)} values, got {len(v)} for schema: "
                              f"{dict({k: str(v) for k, v in schema.__meta_data_schema__.items()})}")
         return TSB[schema].from_ts(**{k: v for k, v in zip(schema.__meta_data_schema__.keys(), v)})
+
+    return arrow(_wrapper)
+
+
+def to_pair(first_: str | int, second_: str | int) -> TSB[Pair[A, B]]:
+    """
+    Converts a collection type that can be referenced to a pair using a named lookup (for example: TSB, TSD).
+    Or indexed lookup (for example: TSL)
+    """
+
+    def _wrapper(x):
+        return make_pair(x[first_], x[second_])
 
     return arrow(_wrapper)

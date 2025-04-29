@@ -1196,3 +1196,9 @@ Version 0.4.43 (28-04-2025)
 ---------------------------
 
 * Add the ability to merge two compound scalar values.
+
+
+Version 0.4.44 (29-04-2025)
+---------------------------
+
+* Add to_pair operator for arrow.
