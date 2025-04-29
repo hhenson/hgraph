@@ -1,5 +1,5 @@
 from statistics import stdev, variance
-from typing import Type, Tuple
+from typing import Type, Tuple, Callable
 
 from hgraph import (
     SCALAR,
@@ -150,3 +150,10 @@ def sub_tuple_scalar(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR]) -> TS[Tuple[S
     rhs = rhs.value
     return tuple(x for x in lhs if x != rhs)
 
+
+@compute_node(overloads=sub_)
+def sub_tuple_scalar_cmp(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR], cmp: Callable[[SCALAR, SCALAR], bool]) -> TS[Tuple[SCALAR, ...]]:
+    """Removes the element from the tuples that match the cmp function"""
+    lhs = lhs.value
+    rhs = rhs.value
+    return tuple(x for x in lhs if not cmp(x, rhs))

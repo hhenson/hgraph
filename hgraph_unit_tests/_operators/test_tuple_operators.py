@@ -21,7 +21,7 @@ from hgraph import (
     TSL,
     Size, add_, sub_,
 )
-from hgraph.arrow import eval_, assert_
+from hgraph.arrow import eval_, assert_, arrow
 from hgraph.test import eval_node
 
 
@@ -164,3 +164,8 @@ def test_add_tuple_scalar():
 def test_sub_tuple_scalar():
 
     eval_([(1, 2, 3, 4)], [3, 4], type_map=(TS[tuple[int, ...]], TS[int])) | sub_ >> assert_((1, 2, 4), (1, 2, 3))
+
+
+def test_sub_tuple_scalar_cmp():
+    eval_([(1, 2, 3, 4)], [3, 4], type_map=(TS[tuple[int, ...]], TS[int])) | arrow(sub_)(cmp=lambda a, b: a==b) >> assert_((1, 2, 4), (1, 2, 3))
+
