@@ -3,6 +3,8 @@ import operator
 from collections import deque
 from typing import Mapping, Any, Callable, cast, Iterable, Sequence
 
+from hgraph import TS, SCALAR
+
 from hgraph._runtime._lifecycle import start_guard, stop_guard
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
@@ -15,7 +17,6 @@ from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._node import Node, NodeSignature
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, K
 from hgraph._types._tsd_type import TSD
-
 
 __all__ = ("PythonReduceNodeImpl",)
 
@@ -265,3 +266,153 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # Now remove from free list
         free_nodes = list(take((halved_capacity - active_count), sorted(self._free_node_indexes)))
         self._free_node_indexes = sorted(free_nodes, reverse=True)
+
+
+class PythonTupleReduceNodeImpl(PythonNestedNodeImpl):
+    """
+    This implements the TSD reduction. The solution uses an inverted binary tree with inputs at the leaves and the
+    result at the root. The inputs bound to the leaves can be moved as nodes come and go.
+
+    Follow a similar pattern to a list where we grow the tree with additional capacity, but also support the
+    reduction of the tree when the tree has shrunk sufficiently.
+    """
+
+    def __init__(
+        self,
+        node_ndx: int,
+        owning_graph_id: tuple[int, ...],
+        signature: NodeSignature,
+        scalars: Mapping[str, Any],
+        eval_fn: Callable = None,
+        start_fn: Callable = None,
+        stop_fn: Callable = None,
+        nested_graph_builder: GraphBuilder = None,
+        input_node_ids: tuple[int, int] = None,
+        output_node_id: int = None,
+    ):
+        super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
+        self._nested_graph: PythonGraph = PythonGraph(self.node_id, nodes=[], parent_node=self)
+
+        self.nested_graph_builder: GraphBuilder = nested_graph_builder
+        self.input_node_ids: tuple[int, int] = input_node_ids  # LHS index, RHS index
+        self.output_node_id: int = output_node_id
+
+        self._bound_node_indexes: dict[K, tuple[int, int]] = {}
+        self._free_node_indexes: list[tuple[int, int]] = []  # This is a list of (ndx, 0(lhs)|1(rhs)) tuples.
+
+    def initialise(self):
+        self._nested_graph.evaluation_engine = NestedEvaluationEngine(
+            self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
+        )
+
+    @start_guard
+    def start(self):
+        super().start()
+        if self._tsd.valid:
+            keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
+            if len(keys) > 0:
+                self._add_nodes(keys)  # If there are already inputs, then add the keys.
+            else:
+                self._grow_tree()
+        else:
+            self._grow_tree()
+        self._nested_graph.start()
+
+    @stop_guard
+    def stop(self):
+        self._nested_graph.stop()
+        super().stop()
+
+    def eval(self):
+        self.mark_evaluated()
+
+        # Process additions and removals (do in order remove then add to reduce the possibility of growing
+        # The tree just to tear it down again
+        self._remove_nodes(self._tsd.removed_keys())
+        self._add_nodes(self._tsd.added_keys())
+
+        # Now we can re-balance the tree if required.
+        self._re_balance_nodes()
+
+        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
+        self._nested_graph.evaluate_graph()
+        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
+
+        # Now we just need to detect the change in the graph shape, so we can propagate it on.
+        # The output and the last_output are reference time-series so this should
+        # not change very frequently
+        if (o := self.output).value != (v := self._last_output_value):
+            o.value = v
+
+    def nested_graphs(self):
+        return {0: self._nested_graph}
+
+    @property
+    def _last_output_value(self):
+        if (nc := self._node_count) == 0:
+            return self._zero.value  # This should be a reference time-series.
+        sub_graph = self._get_node(nc - 1)
+        out_node: Node = sub_graph[self.output_node_id]
+        return out_node.output.value
+
+    @property
+    def _zero(self) -> TIME_SERIES_TYPE:
+        return self._input["zero"]
+
+    @property
+    def _ts(self) -> TS[tuple[SCALAR, ...]]:
+        # noinspection PyTypeChecker
+        return self._input["ts"]
+
+    def _replace_or_append_node(self, ndx: int):
+        """
+        replace the node at the given index with a new node.
+        """
+        if ndx < (nc := self._node_count):
+            sub_graph = self._get_node(ndx)
+            rhs_input: Node = sub_graph[self.input_node_ids[1]]
+            # TODO:  How to bind a dynamic const value?
+            cast(TimeSeriesInput, rhs_input.input[0]).bind_output(...)
+        elif ndx > nc:
+            raise ValueError("Cannot replace node at index {ndx} as this is beyond the current node count.")
+        else:
+            self._nested_graph.extend_graph(self.nested_graph_builder, True)
+            sub_graph = self._get_node(ndx)
+            if ndx == 0:
+                lhs_value = self._zero.value
+            else:
+                lhs_value = self._get_node(ndx - 1)[self.output_node_id].output.value
+            lhs_input: Node = sub_graph[self.input_node_ids[0]]
+            rhs_input: Node = sub_graph[self.input_node_ids[1]]
+            # TODO: This needs looking at
+            cast(TimeSeriesInput, lhs_input.input[0]).bind_output(lhs_value)
+            # TODO: And this needs the constant value.
+            cast(TimeSeriesInput, rhs_input.input[0]).bind_output(...)
+
+    def _erase_nodes_from(self, ndx: int):
+        """
+        Remove the nodes from the ndx onwards.
+        If there are no remaining nodes, this will be replaced with the zero node.
+        """
+        self._nested_graph.reduce_graph(ndx * self._node_size)
+
+    def _evaluate_graph(self):
+        """Evaluate the graph for this key"""
+        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
+        self._nested_graph.evaluate_graph()
+
+    @functools.cached_property
+    def _node_size(self):
+        """Return the number of nodes in the tree"""
+        return len(self.nested_graph_builder.node_builders)
+
+    @property
+    def _node_count(self) -> int:
+        """Return the number of nodes in the tree"""
+        return len(self._nested_graph.nodes) // self._node_size
+
+    def _get_node(self, ndx: int) -> Sequence[Node]:
+        """
+        Returns a view of the nodes at the level and column.
+        """
+        return self._nested_graph.nodes[ndx * self._node_size : (ndx + 1) * self._node_size]

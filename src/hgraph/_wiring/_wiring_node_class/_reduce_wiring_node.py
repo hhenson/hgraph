@@ -37,7 +37,6 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
 
             TsdReduceWiringNodeClass.BUILDER_CLASS = PythonReduceNodeBuilder
 
-
         fn_signature = cast(WiringNodeClass, self.fn).signature
         if fn_signature.is_resolved:
             input_types = fn_signature.input_types
@@ -53,6 +52,46 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             node_signature, self.error_output_type
         )
         return TsdReduceWiringNodeClass.BUILDER_CLASS(
+            signature=node_signature,
+            scalars=scalars,
+            input_builder=input_builder,
+            output_builder=output_builder,
+            error_builder=error_builder,
+            nested_graph=inner_graph,
+            input_node_ids=tuple(input_node_ids.values()),
+            output_node_id=output_node_id,
+        )
+
+
+class TupleReduceWiringNodeClass(BaseWiringNodeClass):
+    signature: ReduceWiringSignature
+
+    def create_node_builder_instance(
+        self,
+        resolved_wiring_signature: "WiringNodeSignature",
+        node_signature: "NodeSignature",
+        scalars: Mapping[str, Any],
+    ) -> "NodeBuilder":
+        if TupleReduceWiringNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._reduce_builder import PythonTupleReduceNodeBuilder
+
+            TupleReduceWiringNodeClass.BUILDER_CLASS = PythonTupleReduceNodeBuilder
+
+        fn_signature = cast(WiringNodeClass, self.fn).signature
+        if fn_signature.is_resolved:
+            input_types = fn_signature.input_types
+        else:
+            tp_ = cast(HgTSDTypeMetaData, self.signature.input_types["ts"]).value_tp
+            input_types = fn_signature.input_types | {k: tp_ for k in fn_signature.time_series_args}
+
+        inner_graph = self.signature.inner_graph
+        input_node_ids, output_node_id = extract_stub_node_indices(
+            inner_graph, set(fn_signature.time_series_inputs.keys())
+        )
+        input_builder, output_builder, error_builder = create_input_output_builders(
+            node_signature, self.error_output_type
+        )
+        return TupleReduceWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
