@@ -1202,3 +1202,4 @@ Version 0.4.44 (29-04-2025)
 ---------------------------
 
 * Add to_pair operator for arrow.
+* Add add_ and sub_ for tuple and scalar value

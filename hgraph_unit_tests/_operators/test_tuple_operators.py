@@ -19,8 +19,9 @@ from hgraph import (
     TIME_SERIES_TYPE_1,
     TIME_SERIES_TYPE_2,
     TSL,
-    Size,
+    Size, add_, sub_,
 )
+from hgraph.arrow import eval_, assert_
 from hgraph.test import eval_node
 
 
@@ -153,3 +154,13 @@ def test_index_of():
         [2, 1],
         resolution_dict={"ts": TS[tuple[int, ...]], "item": TS[int]},
     ) == [1, 0, -1, 2]
+
+
+def test_add_tuple_scalar():
+
+    eval_([(1, 2)], [3, 4], type_map=(TS[tuple[int, ...]], TS[int])) | add_ >> assert_((1, 2, 3), (1, 2, 4))
+
+
+def test_sub_tuple_scalar():
+
+    eval_([(1, 2, 3, 4)], [3, 4], type_map=(TS[tuple[int, ...]], TS[int])) | sub_ >> assert_((1, 2, 4), (1, 2, 3))

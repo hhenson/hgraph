@@ -22,7 +22,7 @@ from hgraph import (
     sum_,
     zero,
     TUPLE,
-    index_of,
+    index_of, add_, sub_,
 )
 
 __all__ = tuple()
@@ -135,3 +135,18 @@ def index_of_tuple(ts: TS[tuple[SCALAR, ...]], item: TS[SCALAR]) -> TS[int]:
         return ts.value.index(item.value)
     except ValueError:
         return -1
+
+
+@compute_node(overloads=add_)
+def add_tuple_scalar(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR]) -> TS[Tuple[SCALAR, ...]]:
+    """Adds the element to the tuple."""
+    return lhs.value + (rhs.value,)
+
+
+@compute_node(overloads=sub_)
+def sub_tuple_scalar(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR]) -> TS[Tuple[SCALAR, ...]]:
+    """Removes the element from the tuple if it exists, all entries will be removed"""
+    lhs = lhs.value
+    rhs = rhs.value
+    return tuple(x for x in lhs if x != rhs)
+
