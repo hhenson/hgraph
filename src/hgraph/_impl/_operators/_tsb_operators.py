@@ -6,7 +6,7 @@ from hgraph._types._ref_type import TimeSeriesReference, REF
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS
-from hgraph._types._tsb_type import TSB, TS_SCHEMA
+from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1, ts_schema
 from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
@@ -254,6 +254,25 @@ def abs_tsb(tsb: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
 
 
 @compute_node(
+    resolvers={TS_SCHEMA_1: lambda mapping, scalars: ts_schema(**{k: REF[v] for k, v in mapping[TS_SCHEMA].meta_data_schema.items()})},
+)
+def dereference(
+        tsb: REF[TSB[TS_SCHEMA]], _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSB[TS_SCHEMA_1]:
+    """
+    Return a bundle of references to the items in the TSB referenced
+    """
+    if not tsb.value.is_empty:
+        if tsb.value.has_output:
+            return {k: TimeSeriesReference.make(tsb.value.output[k]) for k in _schema.__meta_data_schema__}
+        else:
+            items = {k: tsb.value.items[_schema._schema_index_of(k)] for k in _schema.__meta_data_schema__}
+            return {k: item if isinstance(item, TimeSeriesReference) else TimeSeriesReference.make(item) for k, item in items.items()}
+    else:
+        return {k: TimeSeriesReference.make() for k in _schema.__meta_data_schema__}
+
+
+@graph(
     overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
 )
 def tsb_get_item_by_name(
@@ -262,15 +281,7 @@ def tsb_get_item_by_name(
     """
     Return a reference to an item in the TSB referenced, by its name
     """
-    if not tsb.value.is_empty:
-        if tsb.value.has_output:
-            return TimeSeriesReference.make(tsb.value.output[key])
-        else:
-            item = tsb.value.items[_schema._schema_index_of(key)]
-            return item if isinstance(item, TimeSeriesReference) else TimeSeriesReference.make(item)
-    else:
-        return TimeSeriesReference.make()
-
+    return getattr(dereference(tsb), key)
 
 @compute_node(
     overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}

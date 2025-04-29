@@ -261,7 +261,7 @@ class EmptyTimeSeriesSchema(TimeSeriesSchema):
 
 
 TS_SCHEMA = TypeVar("TS_SCHEMA", bound=TimeSeriesSchema)
-TS_SCHEMA_1 = clone_type_var(TS_SCHEMA, "TS_SCHEMA_1")
+TS_SCHEMA_1: TypeVar = clone_type_var(TS_SCHEMA, "TS_SCHEMA_1")
 
 
 class UnNamedTimeSeriesSchema(TimeSeriesSchema):
