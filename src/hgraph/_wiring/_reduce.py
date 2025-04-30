@@ -1,12 +1,9 @@
 import inspect
 from typing import Callable, cast
 
-from hgraph import HgTypeMetaData, HgTSTypeMetaData, HgTupleCollectionScalarType, TS
-
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
-from hgraph._types._scalar_types import SIZE, ZERO, SCALAR
-
-from hgraph._types._scalar_types import STATE
+from hgraph._types._ts_meta_data import HgTSTypeMetaData
+from hgraph._types._scalar_types import SIZE, ZERO, STATE
+from hgraph._types._scalar_type_meta_data import HgTupleCollectionScalarType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, K
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
@@ -15,10 +12,11 @@ from hgraph._types._tsl_type import TSL
 from hgraph._types._typing_utils import with_signature
 from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._wiring_context import WiringContext
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._reduce_wiring_node import (
     TsdReduceWiringNodeClass,
     ReduceWiringSignature,
-    TupleReduceWiringNodeClass,
+    TsdNonAssociativeReduceWiringNodeClass,
 )
 from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
@@ -29,10 +27,10 @@ __all__ = ("reduce",)
 
 
 def reduce(
-    func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
-    ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-    zero: TIME_SERIES_TYPE = ZERO,
-    is_associative: bool = True,
+        func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
+        ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
+        zero: TIME_SERIES_TYPE = ZERO,
+        is_associative: bool = True,
 ) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
@@ -61,6 +59,22 @@ def reduce(
         out = reduce(add_, tsl, 0)
         >> tsl <- ([1], [2], [3], [4], [5])
         >> out -> 15
+
+    Example [TS[tuple[SCALAR, ...]]:
+
+    ::
+
+        ts: TS[tuple[int, ...]] = ...
+        initial_value: TS[str] = ...
+        out = reduce(lambda x, y: format_("{}, {}", x, y), ts, initial_value)
+
+    NOTE: TSD[int, TIME_SERIES_TYPE_1] with is_associative=False is the only TSD non-associative reduce supported.
+          The expectation is that the integer values represent a uniform list from 0 to size-1. There cannot be holes
+          in the sequence. Removals of keys must be of the form [0:n] where n is the last element in the new set.
+          This allows for processing an input that is different from the output type, as for the tuple example.
+          The ``zero`` element is used as the default result if no value is supplied, it is also used as the input
+          for the chain of keys. The output of the n-1th element is used as the input to the nth element lhs.
+          The values from the dict are used as the rhs input.
     """
     if isinstance(func, WiringNodeClass):
         signature = func.signature.signature
@@ -75,8 +89,10 @@ def reduce(
             return _reduce_tsl(func, ts, zero, is_associative)
         elif type(_tp) is HgTSDTypeMetaData:
             if not is_associative:
-                raise CustomMessageWiringError("Non-associative operators are not supported using TSD inputs")
-            return _reduce_tsd(func, ts, zero)
+                if _tp.key_tp.py_type is not int:
+                    raise CustomMessageWiringError(
+                        "Non-associative operators are not supported using TSD inputs that are not integer keyed")
+            return _reduce_tsd(func, ts, zero, is_associative)
         elif type(_tp) is HgTSTypeMetaData and type(_tp.value_scalar_tp) is HgTupleCollectionScalarType:
             if is_associative:
                 raise CustomMessageWiringError("Associative operators are not supported using TS[tuple[...]] inputs")
@@ -117,13 +133,14 @@ def _reduce_tsl(func, ts, zero, is_associative):
         return out
 
 
-def _reduce_tsd(func, ts, zero):
+def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
     from hgraph._types._ref_type import REF
 
     # We need to ensure that the reduction graph contains no push nodes. (We should be able to support pull nodes)
 
     @compute_node
-    def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE]], zero: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
+    def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE_1]], zero: REF[TIME_SERIES_TYPE]) -> REF[
+        TIME_SERIES_TYPE]:
         ...
         # Used to create a WiringNodeClass template
 
@@ -131,6 +148,9 @@ def _reduce_tsd(func, ts, zero):
     item_tp = tp.value_tp.py_type
 
     if not isinstance(zero, WiringPort):
+        if not is_associative:
+            raise CustomMessageWiringError(
+                "Non-associative operators require a time-series value for zero to be provided")
         if zero is ZERO:
             import hgraph
 
@@ -165,20 +185,37 @@ def _reduce_tsd(func, ts, zero):
     )
 
     if not isinstance(func, WiringNodeClass):
-        func = graph(
-            with_signature(
-                func,
-                annotations={k: item_tp for k in inspect.signature(func).parameters},
-                return_annotation=TIME_SERIES_TYPE,
+        if is_associative:
+            func = graph(
+                with_signature(
+                    func,
+                    annotations={k: item_tp for k in inspect.signature(func).parameters},
+                    return_annotation=item_tp,
+                )
             )
-        )
+        else:
+            zero_tp = zero.output_type.dereference()
+            parameters = list(inspect.signature(func).parameters)
+            if len(parameters) != 2:
+                raise CustomMessageWiringError(
+                    f"The function must have exactly two arguments, but has {len(parameters)}")
+            annotations = {parameters[0]: zero_tp, parameters[1]: item_tp}
+            func = graph(
+                with_signature(
+                    func,
+                    annotations=annotations,
+                    return_annotation=zero_tp,
+                )
+            )
 
     builder, ri = wire_nested_graph(
         func, {k: tp.value_tp for k in func.signature.input_types}, {}, resolved_signature, None, depth=2
     )
 
     reduce_signature = ReduceWiringSignature(**resolved_signature.as_dict(), inner_graph=builder)
-    wiring_node = TsdReduceWiringNodeClass(reduce_signature, func)
+    wiring_node = TsdReduceWiringNodeClass(reduce_signature,
+                                           func) if is_associative else TsdNonAssociativeReduceWiringNodeClass(
+        reduce_signature, func)
     port = wiring_node(ts, zero)
 
     from hgraph import WiringGraphContext
@@ -189,66 +226,6 @@ def _reduce_tsd(func, ts, zero):
 
 
 def _reduce_tuple(func, ts, zero):
-    from hgraph._types._ref_type import REF
-
-    # We need to ensure that the reduction graph contains no push nodes. (We should be able to support pull nodes)
-
-    @compute_node
-    def _reduce_tuple_signature(ts: TS[tuple[SCALAR, ...]], zero: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
-        ...
-        # Used to create a WiringNodeClass template
-
-    if not isinstance(zero, WiringPort):
-        raise CustomMessageWiringError("Zero must be a time-series value when reducing a tuple.")
-
-    tuple_tp = ts.output_type.dereference()
-    zero_tp = zero.output_type.dereference()
-    scalar_item_tp = tuple_tp.value_scalar_tp.element_type.py_type
-    item_tp = zero_tp.py_type
-
-    wp = _reduce_tuple_signature(ts, zero)
-    resolved_signature = cast(WiringPort, wp).node_instance.resolved_signature
-    resolved_signature = WiringNodeSignature(
-        node_type=resolved_signature.node_type,
-        name="reduce",
-        args=resolved_signature.args,
-        defaults=resolved_signature.defaults,
-        input_types=resolved_signature.input_types,
-        output_type=resolved_signature.output_type,
-        src_location=resolved_signature.src_location,
-        active_inputs=resolved_signature.active_inputs,
-        valid_inputs=resolved_signature.valid_inputs,
-        all_valid_inputs=resolved_signature.all_valid_inputs,
-        context_inputs=resolved_signature.context_inputs,
-        unresolved_args=resolved_signature.unresolved_args,
-        time_series_args=resolved_signature.time_series_args,
-        injectables=resolved_signature.injectables,
-        label=resolved_signature.label,
-    )
-
-    if not isinstance(func, WiringNodeClass):
-        parameters = inspect.signature(func).parameters
-        if len(parameters) != 2:
-            raise CustomMessageWiringError(f"The function must have exactly two arguments, but has {len(parameters)}")
-        lhs_tp = item_tp
-        rhs_tp = TS[tuple[scalar_item_tp, ...]]
-        annotations = {parameters[0].name: lhs_tp, parameters[1].name: rhs_tp}
-        func = graph(
-            with_signature(
-                func,
-                annotations=annotations,
-                return_annotation=lhs_tp,
-            )
-        )
-
-    builder, ri = wire_nested_graph(func, func.signature.input_types, {}, resolved_signature, None, depth=2)
-
-    reduce_signature = ReduceWiringSignature(**resolved_signature.as_dict(), inner_graph=builder)
-    wiring_node = TupleReduceWiringNodeClass(reduce_signature, func)
-    port = wiring_node(ts, zero)
-
-    from hgraph import WiringGraphContext
-
-    WiringGraphContext.instance().reassign_items(ri, port.node_instance)
-
-    return port
+    from hgraph import convert, dedup
+    tsd = dedup(convert[TSD](ts))
+    return _reduce_tsd(tsd, zero, False)
