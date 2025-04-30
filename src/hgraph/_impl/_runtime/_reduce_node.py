@@ -15,7 +15,7 @@ from hgraph._impl._runtime._nested_evaluation_engine import (
 )
 from hgraph._impl._runtime._node import NodeImpl
 from hgraph._runtime._node import Node, NodeSignature
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, K
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, K, TIME_SERIES_TYPE_1
 from hgraph._types._tsd_type import TSD
 
 __all__ = ("PythonReduceNodeImpl",)
@@ -311,14 +311,11 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
     @start_guard
     def start(self):
         super().start()
-        if self._tsd.valid:
-            keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
-            if len(keys) > 0:
-                self._add_nodes(keys)  # If there are already inputs, then add the keys.
-            else:
-                self._grow_tree()
+        if (tsd := self._tsd).valid:
+            self._update_changes()
         else:
-            self._grow_tree()
+            self._bind_output()
+
         self._nested_graph.start()
 
     @stop_guard
@@ -328,27 +325,27 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
 
     def eval(self):
         self.mark_evaluated()
-
-        # Process additions and removals (do in order remove then add to reduce the possibility of growing
-        # The tree just to tear it down again
-        self._remove_nodes(self._tsd.removed_keys())
-        self._add_nodes(self._tsd.added_keys())
-
-        # Now we can re-balance the tree if required.
-        self._re_balance_nodes()
+        if self._tsd.modified:
+            self._update_changes()
 
         self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
         self._nested_graph.evaluate_graph()
         self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
 
-        # Now we just need to detect the change in the graph shape, so we can propagate it on.
-        # The output and the last_output are reference time-series so this should
-        # not change very frequently
-        if (o := self.output).value != (v := self._last_output_value):
-            o.value = v
 
     def nested_graphs(self):
         return {0: self._nested_graph}
+
+    def _update_changes(self):
+        sz = self._node_size
+        tsd = self._tsd
+        new_size = len(tsd)
+        if sz == new_size:
+            return
+        elif sz > new_size:
+            self._erase_nodes_from(new_size)
+        else:
+            self._extend_nodes_to(new_size)
 
     @property
     def _last_output_value(self):
@@ -359,38 +356,34 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
         return out_node.output.value
 
     @property
-    def _zero(self) -> TIME_SERIES_TYPE:
+    def _zero(self) -> TIME_SERIES_TYPE_1:
         return self._input["zero"]
 
     @property
-    def _ts(self) -> TS[tuple[SCALAR, ...]]:
+    def _tsd(self) -> TSD[int, TIME_SERIES_TYPE_1]:
         # noinspection PyTypeChecker
         return self._input["ts"]
 
-    def _replace_or_append_node(self, ndx: int):
+    def _extend_nodes_to(self, sz: int):
         """
         replace the node at the given index with a new node.
         """
-        if ndx < (nc := self._node_count):
-            sub_graph = self._get_node(ndx)
-            rhs_input: Node = sub_graph[self.input_node_ids[1]]
-            # TODO:  How to bind a dynamic const value?
-            cast(TimeSeriesInput, rhs_input.input[0]).bind_output(...)
-        elif ndx > nc:
-            raise ValueError("Cannot replace node at index {ndx} as this is beyond the current node count.")
-        else:
+        curr_size = self._node_size
+        for ndx in range(curr_size, sz):
             self._nested_graph.extend_graph(self.nested_graph_builder, True)
-            sub_graph = self._get_node(ndx)
+            new_graph = self._get_node(ndx)
             if ndx == 0:
-                lhs_value = self._zero.value
+                new_graph[self.input_node_ids[0]].input[0].clone_binding(self._zero)
             else:
-                lhs_value = self._get_node(ndx - 1)[self.output_node_id].output.value
-            lhs_input: Node = sub_graph[self.input_node_ids[0]]
-            rhs_input: Node = sub_graph[self.input_node_ids[1]]
-            # TODO: This needs looking at
-            cast(TimeSeriesInput, lhs_input.input[0]).bind_output(lhs_value)
-            # TODO: And this needs the constant value.
-            cast(TimeSeriesInput, rhs_input.input[0]).bind_output(...)
+                prev_graph = self._get_node(ndx - 1)
+                lhs_out = prev_graph[self.output_node_id].output
+                new_graph[self.input_node_ids[0]].input[0].bind_output(lhs_out)
+            rhs = self._tsd[ndx]
+            new_graph[self.input_node_ids[1]].input[0].clone_binding(rhs)
+        self._bind_output()
+
+    def _bind_output(self):
+        self.output.value = self._last_output_value
 
     def _erase_nodes_from(self, ndx: int):
         """
@@ -398,6 +391,7 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
         If there are no remaining nodes, this will be replaced with the zero node.
         """
         self._nested_graph.reduce_graph(ndx * self._node_size)
+        self._bind_output()
 
     def _evaluate_graph(self):
         """Evaluate the graph for this key"""
