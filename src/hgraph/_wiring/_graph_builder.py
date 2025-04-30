@@ -118,7 +118,7 @@ def toposort(
     from graphlib import TopologicalSorter, CycleError
 
     try:
-        list(TopologicalSorter(reverse_mapping).static_order())
+        ordered = list(TopologicalSorter(reverse_mapping).static_order())
     except CycleError as e:
         cycle_nodes = e.args[1]
 
@@ -132,28 +132,13 @@ def toposort(
         cycle_print = "\n -> ".join(cycle_node_strings)
 
         raise RuntimeError(f"Cyclic sub graph detected that involves nodes: \n{cycle_print}")
+    
+    push_nodes = [n for n in ordered if n.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE]
+    other_nodes = [n for n in ordered if not n.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE and not n.is_stub]
 
-    # Rank nodes
-    nodes_to_process.extend(source_nodes)
-    max_rank = 0
-    while len(nodes_to_process) > 0:
-        from_node = nodes_to_process.popleft()
-        if not supports_push_nodes and from_node.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE:
-            raise CustomMessageWiringError(
-                f"Node: {from_node.resolved_signature} is a push source node, "
-                "but this graph does not support push nodes."
-            )
-        if from_node.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE:
-            # We re-set to 0 if this is a push source node to ensure they all left-align
-            processed_nodes[from_node] = 0
-        for to_node in mapping[from_node]:
-            processed_nodes[to_node] = max(processed_nodes[to_node], processed_nodes[from_node] + 1)  # increment
-            nodes_to_process.append(to_node)
-            max_rank = max(max_rank, processed_nodes[to_node])
+    if len(push_nodes) > 0 and not supports_push_nodes:
+        raise CustomMessageWiringError(
+            f"Graph contains push nodes: {push_nodes} but this graph does not support push nodes."
+        )
 
-        if max_rank > len(processed_nodes) + 1000:
-            raise RuntimeError(f"Cyclic sub graph exists but could not be detected")
-
-    # Sort nodes by rank
-    result = [node for _, node in sorted((rank, node) for node, rank in processed_nodes.items()) if not node.is_stub]
-    return result
+    return push_nodes + other_nodes
