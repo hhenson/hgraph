@@ -313,8 +313,7 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
         super().start()
         if (tsd := self._tsd).valid:
             self._update_changes()
-        else:
-            self._bind_output()
+            self.notify()
 
         self._nested_graph.start()
 
@@ -332,12 +331,13 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
         self._nested_graph.evaluate_graph()
         self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
 
+        self._bind_output()
 
     def nested_graphs(self):
         return {0: self._nested_graph}
 
     def _update_changes(self):
-        sz = self._node_size
+        sz = self._node_count
         tsd = self._tsd
         new_size = len(tsd)
         if sz == new_size:
@@ -368,22 +368,28 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
         """
         replace the node at the given index with a new node.
         """
-        curr_size = self._node_size
+        curr_size = self._node_count
         for ndx in range(curr_size, sz):
             self._nested_graph.extend_graph(self.nested_graph_builder, True)
             new_graph = self._get_node(ndx)
             if ndx == 0:
-                new_graph[self.input_node_ids[0]].input[0].clone_binding(self._zero)
+                (lhs_node := new_graph[self.input_node_ids[0]]).input[0].clone_binding(self._zero)
             else:
                 prev_graph = self._get_node(ndx - 1)
                 lhs_out = prev_graph[self.output_node_id].output
-                new_graph[self.input_node_ids[0]].input[0].bind_output(lhs_out)
+                (lhs_node:=new_graph[self.input_node_ids[0]]).input[0].bind_output(lhs_out)
             rhs = self._tsd[ndx]
-            new_graph[self.input_node_ids[1]].input[0].clone_binding(rhs)
-        self._bind_output()
+            (rhs_node:=new_graph[self.input_node_ids[1]]).input[0].clone_binding(rhs)
+            lhs_node.notify()
+            rhs_node.notify()
+
+        if self._nested_graph.is_started or self._nested_graph.is_starting:
+            self._nested_graph.start_subgraph(curr_size * self._node_size, len(self._nested_graph.nodes))
 
     def _bind_output(self):
-        self.output.value = self._last_output_value
+        lv = self._last_output_value
+        if (not self.output.valid) or self.output.value != lv:
+            self.output.value = lv
 
     def _erase_nodes_from(self, ndx: int):
         """
@@ -391,7 +397,6 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
         If there are no remaining nodes, this will be replaced with the zero node.
         """
         self._nested_graph.reduce_graph(ndx * self._node_size)
-        self._bind_output()
 
     def _evaluate_graph(self):
         """Evaluate the graph for this key"""

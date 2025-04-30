@@ -53,7 +53,7 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             output_builder=output_builder,
             error_builder=error_builder,
             nested_graph=inner_graph,
-            input_node_ids=tuple(input_node_ids.values()),
+            input_node_ids=tuple(input_node_ids[k] for k in fn_signature.time_series_inputs.keys()),
             output_node_id=output_node_id,
         )
 
@@ -88,6 +88,6 @@ class TsdNonAssociativeReduceWiringNodeClass(BaseWiringNodeClass):
             output_builder=output_builder,
             error_builder=error_builder,
             nested_graph=inner_graph,
-            input_node_ids=tuple(input_node_ids.values()),
+            input_node_ids=tuple(input_node_ids[k] for k in fn_signature.time_series_inputs.keys()),
             output_node_id=output_node_id,
         )

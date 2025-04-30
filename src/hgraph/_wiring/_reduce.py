@@ -140,12 +140,13 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
 
     @compute_node
     def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE_1]], zero: REF[TIME_SERIES_TYPE]) -> REF[
-        TIME_SERIES_TYPE_1]:
+        TIME_SERIES_TYPE]:
         ...
         # Used to create a WiringNodeClass template
 
     tp = ts.output_type.dereference()
-    item_tp = tp.value_tp.py_type
+    item_tp_md = tp.value_tp
+    item_tp = item_tp_md.py_type
 
     if not isinstance(zero, WiringPort):
         if not is_associative:
@@ -207,9 +208,13 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
                     return_annotation=zero_tp,
                 )
             )
+    if is_associative:
+        input_types = {k: tp.value_tp for k in func.signature.input_types}
+    else:
+        input_types = {k:v for k, v in zip(func.signature.args, (zero.output_type, item_tp_md))}
 
     builder, ri = wire_nested_graph(
-        func, {k: tp.value_tp for k in func.signature.input_types}, {}, resolved_signature, None, depth=2
+        func, input_types, {}, resolved_signature, None, depth=2
     )
 
     reduce_signature = ReduceWiringSignature(**resolved_signature.as_dict(), inner_graph=builder)
@@ -228,4 +233,4 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
 def _reduce_tuple(func, ts, zero):
     from hgraph import convert, dedup
     tsd = dedup(convert[TSD](ts))
-    return _reduce_tsd(tsd, zero, False)
+    return _reduce_tsd(func, tsd, zero, False)

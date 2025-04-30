@@ -1204,3 +1204,9 @@ Version 0.4.44 (29-04-2025)
 * Add to_pair operator for arrow.
 * Add add_ and sub_ for tuple and scalar value
 * add sub_ with a comparator lambda function.
+
+Version 0.4.45 (30-04-2025)
+---------------------------
+
+* add the ability to perform ``reduce`` on a tuple as well as non-associative TSD's where the TSD is integer indexed and the
+  integers represent the range [0, n) where n is the size of the TSD.
