@@ -140,7 +140,7 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
 
     @compute_node
     def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE_1]], zero: REF[TIME_SERIES_TYPE]) -> REF[
-        TIME_SERIES_TYPE]:
+        TIME_SERIES_TYPE_1]:
         ...
         # Used to create a WiringNodeClass template
 

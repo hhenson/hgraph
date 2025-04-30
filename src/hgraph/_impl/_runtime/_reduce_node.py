@@ -268,13 +268,16 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         self._free_node_indexes = sorted(free_nodes, reverse=True)
 
 
-class PythonTupleReduceNodeImpl(PythonNestedNodeImpl):
+class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
     """
-    This implements the TSD reduction. The solution uses an inverted binary tree with inputs at the leaves and the
-    result at the root. The inputs bound to the leaves can be moved as nodes come and go.
+    Non-associative reduce node over a TSD[int, TIME_SERIES_TYPE] input.
+    This makes the assumption that the TSD is in fact representing a dynamically sided list.
+    The reduction is performed by constructing a linear sequence of nodes, with the zero
+    as the input into the first node lhs and the 0th element as the rhs element. From that point on the
+    chain is lhs = prev_node output with rhs being the nth element of the tsd input.
 
-    Follow a similar pattern to a list where we grow the tree with additional capacity, but also support the
-    reduction of the tree when the tree has shrunk sufficiently.
+    This reduction preserves order and allows for difference between the lhs and rhs types. The lhs type and
+    the output must be the same type.
     """
 
     def __init__(

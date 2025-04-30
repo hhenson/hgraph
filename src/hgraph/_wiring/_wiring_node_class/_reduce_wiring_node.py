@@ -38,11 +38,6 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
             TsdReduceWiringNodeClass.BUILDER_CLASS = PythonReduceNodeBuilder
 
         fn_signature = cast(WiringNodeClass, self.fn).signature
-        if fn_signature.is_resolved:
-            input_types = fn_signature.input_types
-        else:
-            tp_ = cast(HgTSDTypeMetaData, self.signature.input_types["ts"]).value_tp
-            input_types = fn_signature.input_types | {k: tp_ for k in fn_signature.time_series_args}
 
         inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(
@@ -73,16 +68,11 @@ class TsdNonAssociativeReduceWiringNodeClass(BaseWiringNodeClass):
         scalars: Mapping[str, Any],
     ) -> "NodeBuilder":
         if TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS is None:
-            from hgraph._impl._builder._reduce_builder import PythonTupleReduceNodeBuilder
+            from hgraph._impl._builder._reduce_builder import PythonTsdNonAssociativeReduceNodeBuilder
 
-            TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = PythonTupleReduceNodeBuilder
+            TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = PythonTsdNonAssociativeReduceNodeBuilder
 
         fn_signature = cast(WiringNodeClass, self.fn).signature
-        if fn_signature.is_resolved:
-            input_types = fn_signature.input_types
-        else:
-            tp_ = cast(HgTSDTypeMetaData, self.signature.input_types["ts"]).value_tp
-            input_types = fn_signature.input_types | {k: tp_ for k in fn_signature.time_series_args}
 
         inner_graph = self.signature.inner_graph
         input_node_ids, output_node_id = extract_stub_node_indices(

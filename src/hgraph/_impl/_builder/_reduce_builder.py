@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from hgraph._impl._builder._node_builder import PythonBaseNodeBuilder
-from hgraph._impl._runtime._reduce_node import PythonReduceNodeImpl, PythonTupleReduceNodeImpl
+from hgraph._impl._runtime._reduce_node import PythonReduceNodeImpl, PythonTsdNonAssociativeReduceNodeImpl
 
 if TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
@@ -35,13 +35,13 @@ class PythonReduceNodeBuilder(PythonBaseNodeBuilder):
 
 
 @dataclass(frozen=True)
-class PythonTupleReduceNodeBuilder(PythonBaseNodeBuilder):
+class PythonTsdNonAssociativeReduceNodeBuilder(PythonBaseNodeBuilder):
     nested_graph: Optional["GraphBuilder"] = None  # This is the generator function
     input_node_ids: tuple[int, int] | None = None  # The nodes representing the stub inputs in the nested graph.
     output_node_id: int | None = None  # The node representing the stub output in the nested graph.
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonReduceNodeImpl:
-        node = PythonTupleReduceNodeImpl(
+        node = PythonTsdNonAssociativeReduceNodeImpl(
             node_ndx=node_ndx,
             owning_graph_id=owning_graph_id,
             signature=self.signature,
