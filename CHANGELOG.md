@@ -1215,3 +1215,4 @@ Version 0.4.46 (01-05-2025)
 ---------------------------
 
 * Fix __getitem__ on TSBRefWiringPort
+* Fix wiring issues with arrow wrappers.
