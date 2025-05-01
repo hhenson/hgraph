@@ -475,9 +475,9 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
         args = args[:-1]
         sz = len(node.signature.time_series_args)
         # Unpack left to right
-        if len(node.signature.time_series_args) > 1 and not _MATCH_PAIR.matches(x.output_type):
-            if not _MATCH_TSB.matches(x.output_type):
-                raise ValueError(f"Expected a Pair or TSB but got {x.output_type}")
+        if len(node.signature.time_series_args) > 1 and not _MATCH_PAIR.matches(tp:=x.output_type.dereference()):
+            if not _MATCH_TSB.matches(tp):
+                raise ValueError(f"Expected a Pair or TSB but got {tp}")
             kwargs |= x.as_dict()
         else:
             args = _unpack(x, sz) + args
