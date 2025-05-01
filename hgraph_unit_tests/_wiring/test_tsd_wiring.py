@@ -75,7 +75,7 @@ def test_tsd_add_invalid_and_remove():
             del _output["a"]
             assert "a" not in _output
 
-    assert eval_node(add_remove, [False, True]) == [{}, {'a': REMOVE_IF_EXISTS}]
+    assert eval_node(add_remove, [False, True]) == [{}, {}]
 
 
 def test_tsd_add_clear_in_same_cycle():

@@ -151,3 +151,23 @@ def test_mesh_cycle():
 
     with pytest.raises(NodeException, match="has a dependency cycle"):
         eval_node(g, [{4}, {3}])
+
+
+def test_mesh_removal():
+    @graph
+    def fib(n: TS[int]) -> TS[int]:
+        return switch_(
+            n,
+            {
+                0: lambda key: const(0),
+                1: lambda key: const(1),
+                DEFAULT: lambda key: mesh_(fib)[key - 1] + mesh_(fib)[key - 2],
+            },
+        )
+    
+    @graph
+    def g(i: TSS[int]) -> TSD[int, TS[int]]:
+        return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
+
+    assert eval_node(g, [{7}, {Removed(7)}]) == [{}, {}]
+

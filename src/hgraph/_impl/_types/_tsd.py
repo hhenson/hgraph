@@ -439,7 +439,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         return frozendict(
             chain(
                 ((k, v.delta_value) for k, v in self.modified_items() if v.valid),
-                ((k, REMOVE if self._removed_items.get(k, (None, False))[1] else REMOVE_IF_EXISTS) for k, v in self.removed_items())
+                ((k, REMOVE) for k, v in self.removed_items() if self._removed_items.get(k, (None, False))[1])
             )
         )
 
