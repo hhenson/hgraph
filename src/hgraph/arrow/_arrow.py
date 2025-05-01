@@ -507,9 +507,9 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
     if sz == 1:
         return x,
 
-    if not _MATCH_PAIR.matches(x.output_type):
+    if not _MATCH_PAIR.matches(tp:=x.output_type.dereference()):
         if _check:
-            raise ValueError(f"Expected an Arrow tuple, got {x.output_type}")
+            raise ValueError(f"Expected an Arrow tuple, got {tp}")
         else:
             return x,
 
@@ -527,7 +527,7 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
 
 def _flatten(x: WiringPort) -> tuple:
     """Expand the input into a tuple of non-pair values."""
-    if not _MATCH_PAIR.matches(x.output_type):
+    if not _MATCH_PAIR.matches(x.output_type.dereference()):
         return x,
     left = _flatten(x[0])
     right = _flatten(x[1])
