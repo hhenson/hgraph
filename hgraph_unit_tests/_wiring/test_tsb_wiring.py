@@ -17,8 +17,9 @@ from hgraph import (
     SCALAR_1,
     AUTO_RESOLVE,
     CompoundScalar,
-    SIGNAL,
+    SIGNAL, TS_SCHEMA, REF,
 )
+from hgraph.arrow import eval_, if_then, c, assert_
 
 from hgraph.test import eval_node
 
@@ -232,3 +233,13 @@ def test_tsb_integer_index():
         return tsb[0]
 
     assert eval_node(g, [{"p1": 1, "p2": "a"}, {"p1": 2}]) == [1, 2]
+
+
+def test_tsb_ref_index():
+
+    @graph
+    def g(tsb: REF[TSB[TS_SCHEMA]]) -> TS[int]:
+        first, second = tsb
+        return first
+
+    eval_(True, "") | if_then(c(1) / c("a")) >> g >> assert_(1)

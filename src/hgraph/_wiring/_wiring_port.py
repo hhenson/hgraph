@@ -308,12 +308,21 @@ class TSBREFWiringPort(WiringPort):
 
     def __getattr__(self, item):
         from hgraph._operators import getitem_
-
+        if item not in self.__schema__.__meta_data_schema__:
+            raise AttributeError(f"'{item}' is defined on {self.__schema__}")
         return getitem_(self, item)
 
     def __getitem__(self, item):
         from hgraph._operators import getitem_
-
+        if type(item) is int:
+            l = len(self.__schema__.__meta_data_schema__)
+            if item < 0:
+                item += l
+            if item < 0 or item >= l:
+                raise IndexError(f"Index {item} is out of bounds for {self.__schema__}")
+        elif type(item) is str:
+            if item not in self.__schema__.__meta_data_schema__:
+                raise AttributeError(f"'{item}' is defined on {self.__schema__}")
         return getitem_(self, item)
 
     def as_dict(self):

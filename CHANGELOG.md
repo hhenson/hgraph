@@ -1210,3 +1210,8 @@ Version 0.4.45 (30-04-2025)
 
 * add the ability to perform ``reduce`` on a tuple as well as non-associative TSD's where the TSD is integer indexed and the
   integers represent the range [0, n) where n is the size of the TSD.
+
+Version 0.4.46 (01-05-2025)
+---------------------------
+
+* Fix __getitem__ on TSBRefWiringPort

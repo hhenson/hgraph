@@ -1,7 +1,7 @@
 from typing import Callable, Mapping
 
 import hgraph
-from hgraph import TSL, Size, nothing
+from hgraph import TSL, Size, nothing, HgTSBTypeMetaData, HgAtomicType, HgTSTypeMetaData
 from hgraph.arrow._arrow import _Arrow, A, B, arrow, i, make_pair
 
 __all__ = ["if_", "if_then", "fb", "switch_", "map_", "reduce"]
@@ -76,6 +76,8 @@ class _IfThenOtherwise:
             switches[False] = lambda v: else_fn_(v)
         else:
             switches[False] = lambda v: nothing[then_fn_(v).output_type.py_type]()
+        if type(pair.output_type.dereference()) is not HgTSBTypeMetaData or type(first:=pair[0].output_type.dereference()) is not HgTSTypeMetaData or first.value_scalar_tp.py_type is not bool:
+            raise TypeError(f"if_then requires a pair input of type (TS[bool], TIME_SERIES_TYPE) got: {str(pair.output_type.dereference())}")
         return hgraph.switch_(
             pair[0],
             switches,
