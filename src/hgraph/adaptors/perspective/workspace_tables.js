@@ -737,54 +737,107 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         const update_table = await worker.table(updated.delta);
         const update_view = await update_table.view();
         await update_view.schema();
-        update_data = await update_view.to_json();
+        update_data = await update_view.to_columns();
         update_view.delete();
         update_table.delete();
     } else {
         const view = updated.delta;
-        update_data = await view.to_json();
+        update_data = await view.to_columns();
     }
-
-    Stats.rows_joined += update_data.length;
-    DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
 
     const table = join_tables[table_name];
     const index_col_name = table.index;
+    let rows = [];
+    let values = [];
+    
+    if (!force_republish){
+        let filter = undefined;
+
+        if (table.view && table.view.split_by){
+            const update_data_mapped = {};
+            for (const [k, c] of Object.entries(update_data)){
+                const new_col_name = table.split_by_columns_map.get(k);
+                if (new_col_name in update_data_mapped){
+                    update_data_mapped[new_col_name] = update_data_mapped[new_col_name].map((x, i) => x === null ? c[i] : x);
+                } else {
+                    update_data_mapped[new_col_name] = c;
+                }
+            }
+            update_data = update_data_mapped;
+        }
+        if (table.view && table.view.group_by){
+            // delete update_data['__ROW_PATH__'];
+            let group_bys = Object.entries(update_data).filter(([k, v]) => k.endsWith('__group_by_row__'))
+            filter = new Array(update_data[Object.keys(update_data)[0]].length).fill(true);
+            for (let i = 0; i < filter.length; i++){
+                filter[i] &= group_bys.map(([k, v]) => v[i] > 1).every(x => !x);
+            }
+        }
+
+        const value_columns = Object.fromEntries(
+            Object.entries(update_data)
+                .filter(([k, v]) => table.values.includes(k))
+                    .map(([k, v]) => [table.columns[k], v]));
+
+        const row_columns = Object.fromEntries(
+            Object.entries(update_data)
+                .filter(([k, v]) => table.select.has(k))
+                    .map(([k, v]) => [table.columns[k], v]));
+
+        const len = update_data[Object.keys(update_data)[0]].length;
+
+        if (filter === undefined){
+            values = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in value_columns) {
+                    row[k] = value_columns[k][i];
+                }
+                return row;
+            });
+
+            rows = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in row_columns) {
+                    row[k] = row_columns[k][i];
+                }
+                return row;
+            });
+        } else {
+            values = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in value_columns) {
+                    row[k] = value_columns[k][i];
+                }
+                return row;
+            }).filter((_, i) => filter[i]);
+
+            rows = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in row_columns) {
+                    row[k] = row_columns[k][i];
+                }
+                return row;
+            }).filter((_, i) => filter[i]);
+        }
+    } else {
+        rows = update_data;
+        values = Array.from({length: update_data.length}, (_, i) => {
+            return table.cache.get(update_data[i][index_col_name]);
+        });
+    }
+
+    Stats.rows_joined += rows.length;
+    DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
+
     const join_data = [];
     const new_row_indices = [];
     const drop_rows_indices = new Set();
 
-    for (let row of update_data) {
+    for (const [i, row] of rows.entries()) {
         if ("_id" in row && (row._id === 0 || row._id === null))
             continue;
 
-        let values_row = {};
-
-        if (force_republish){
-            // force_republish cames with cached data so it does not need remapping and can be retrieved from the cache
-            values_row = table.cache.get(row[index_col_name]);
-        } else {
-            if (table.view && table.view.split_by){
-                row = Object.fromEntries(Object.entries(row)
-                    .filter(([k, v]) => v !== null)
-                    .map(([k, v]) => [table.split_by_columns_map.get(k), v]));
-            }
-            if (table.view && table.view.group_by){
-                delete row['__ROW_PATH__'];
-                if (Object.entries(row).filter(([k, v]) => k.endsWith('__group_by_row__') && v > 1).length !== 0)
-                    continue;
-            }
-
-            values_row = Object.fromEntries(
-                Object.entries(row)
-                    .filter(([k, v]) => table.values.includes(k))
-                        .map(([k, v]) => [table.columns[k], v]));
-
-            row = Object.fromEntries(
-                Object.entries(row)
-                    .filter(([k, v]) => table.select.has(k))
-                        .map(([k, v]) => [table.columns[k], v]));
-        }
+        let values_row = values[i];
 
         if (index_col_name.includes(',')){
             row[index_col_name] = index_col_name.split(',').map(k => row[k]).join(',');
@@ -808,7 +861,6 @@ async function join_table_updated(target, removes_table, join_tables, table_name
             const prev = table.cache.get(index)
             table.cache.set(index, {...prev, ...values_row});
 
-            row = {...row};
             row[table_name + '_index'] = index;
             delete row['index'];
 
@@ -827,7 +879,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
                         table.missed_crosses.get(other_table_name) : undefined;
 
                     const new_total_rows = []
-                    for (row of total_rows) {
+                    for (const row of total_rows) {
                         let matches = join_tables[other_table_name].cross_to_native.get(table_name).get(cross_key);
                         for (const other_index of matches) {
                             const other_row = {...join_tables[other_table_name].native.get(other_index)};

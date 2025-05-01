@@ -31,10 +31,9 @@ else:
 
 from hgraph import sink_node, GlobalState, TS, STATE
 
-__all__ = ["perspective_web", "PerspectiveTablesManager"]
-
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
+__all__ = ["perspective_web", "PerspectiveTablesManager", "TablePageHandler", "IndexPageHandler"]
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ class PerspectiveTableUpdatesHandler:
         if (x != 0) ^ self._allow_self_updates:
             self._updates_table.replace(y)
             if self._queue:
-                self._queue(self._updates_table.view())
+                self._queue(self._updates_table.view())  # NOTE: we expect the calle here to call .delete() on the view
 
             # import pyarrow
             #
@@ -106,7 +105,11 @@ class PerspectiveTablesManager:
             "description": str,
         }, index="name", **n)
 
-        self._tables["index"] = [self._index_table, False]
+        view = self._index_table.view()
+        arrow_schema = pyarrow.RecordBatchStreamReader(view.to_arrow()).read_all().schema
+        view.delete()
+
+        self._tables["index"] = [self._index_table, False, arrow_schema]
 
         for c in self._table_config_files:
             with open(c, "r") as f:
@@ -139,7 +142,11 @@ class PerspectiveTablesManager:
         return tbl
 
     def add_table(self, name, table, editable=False, user=True):
-        self._tables[name] = [table, editable]
+        view = table.view()
+        arrow_schema = pyarrow.RecordBatchStreamReader(view.to_arrow()).read_all().schema
+        view.delete()
+
+        self._tables[name] = [table, editable, arrow_schema]
 
         if user:
             self._index_table.update([{
@@ -204,12 +211,12 @@ class PerspectiveTablesManager:
         if psp_new_api:
             return self._client
         else:
-            _, editable = self._tables[name]
+            _, editable, _ = self._tables[name]
             return self._manager if not editable else self._editable_manager
 
     def _start_table(self, name):
         if not psp_new_api:
-            table, editable = self._tables[name]
+            table, editable, _ = self._tables[name]
             self._manager_for_table(name).host_table(name, table)
 
         if name in self._updaters:
@@ -257,6 +264,7 @@ class PerspectiveTablesManager:
 
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]
+        schema = self._tables[name][2]
 
         if data:
             if isinstance(data, list):
@@ -287,7 +295,7 @@ class PerspectiveTablesManager:
 
             for i, d in enumerate(data):
                 try:
-                    batch = pyarrow.record_batch(d)
+                    batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
                 except Exception as e:
                     logger.error(f"Error creating record batch :{e}\n" + PerspectiveTablesManager._format_dict_of_lists_as_table(d))
                     continue
@@ -421,10 +429,13 @@ class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
 
         self.session = self.server.new_session(inner)
 
-    def on_close(self) -> None:
-        self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
+    def _do_close(self):
         self.session.close()
         del self.session
+
+    def on_close(self) -> None:
+        self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
+        self.callback(lambda: self._do_close())
 
     def on_message(self, msg: bytes):
         if not isinstance(msg, bytes):

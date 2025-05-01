@@ -23,15 +23,20 @@ export async function ensureTablesForConfig(config, progress_callback) {
         const total = Object.keys(config.viewers).length;
         let i = 0;
         const table_promises = [];
+        const table_progress = [];
         for (const [_, viewer] of Object.entries(config.viewers)) {
-            progress_callback(i / total, viewer.table);
+            const index = i;
+            i += 1;
+
+            progress_callback(0, `${index + 1} tables`);
+            table_progress.push(0);
             table_promises.push(wait_for_table(window.workspace, viewer.table, (x, y) => {
-                    progress_callback((i + x) / total, y);
+                    table_progress[index] = x;
+                    progress_callback((table_progress.reduce((x, y) => x + y)) / total, y);
                 }).catch((e) => {
-                    progress_callback(i / total, undefined, e.toString());
+                    progress_callback((table_progress.reduce((x, y) => x + y)) / total, undefined, e.toString());
                 }).then(() => {
-                    i += 1;
-                    progress_callback(i / total);
+                    progress_callback((table_progress.reduce((x, y) => x + y)) / total);
                 })
             );
         }
@@ -45,6 +50,7 @@ export async function installTableWorkarounds(mode) {
     for (const g of document.querySelectorAll("perspective-viewer")) {
         if (!g.dataset.events_set_up) {
             const viewer = g;
+            if (!viewer.slot) continue;
             const view_config = config.viewers[viewer.slot];
             const table_config = getWorkspaceTables()[view_config.table];
 
@@ -945,7 +951,7 @@ async function recordCollapseState(table, viewer, model) {
                 continue;
             }
             const row_header = ids.map((x) => x === null ? '-' : x).join(',')
-            state[row_header] = await view.get_row_expanded(metadata.y);
+            state[row_header] = view.get_row_expanded === undefined ? true : await view.get_row_expanded(metadata.y);
         }
         for (const tr of table.children[0].children[1].querySelectorAll("th.psp-tree-label-expand")) {
             const metadata = table.getMeta(tr);
@@ -954,7 +960,7 @@ async function recordCollapseState(table, viewer, model) {
                 continue;
             }
             const row_header = ids.map((x) => x === null ? '-' : x).join(',')
-            state[row_header] = await view.get_row_expanded(metadata.y);
+            state[row_header] = view.get_row_expanded === undefined ? true : await view.get_row_expanded(metadata.y);
         }
 
         if (viewer.dataset.collapse_state_remainder) {

@@ -244,36 +244,57 @@
                     {% end %}
 
                     window.workspace.addEventListener("workspace-layout-update", async () => {
-                        installTableWorkarounds(mode);
-                        setupInspectorTable();
+                        setTimeout(async () => {
+                            installTableWorkarounds(mode);
+                            setupInspectorTable();
+                        }, 100);
                     });
 
-                    document.getElementById('loading-message').innerText = "Setting up tables...";
-                    const req = fetch("/layout/{{url}}");
-                    await connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
+                    setTimeout(async () => {
+                        document.getElementById('loading-message').innerText = "Setting up tables...";
+                        const req = fetch("/layout/{{url}}");
+                        await connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
 
-                    document.getElementById('loading-message').innerText = "Loading layout...";
-                    let json = await (await req).json();
+                        document.getElementById('loading-message').innerText = "Loading layout...";
+                        let json = await (await req).json();
 
-                    if (json.version && json.version >= 1) {
-                        json = await loadLayout(json);
-                    }
-
-                    await ensureTablesForConfig(json, (progress, message, error) => {
-                        const progressBar = document.querySelector('.progress-indicator');
-                        progressBar.style.setProperty('--progress-width', `${100 * progress}%`);
-                        if (message){
-                            document.getElementById('loading-message').innerText = "Loading " + message + "...";
+                        if (json.version && json.version >= 1) {
+                            json = await loadLayout(json);
                         }
-                        if (error){
-                            console.error(error);
-                            const errorList = document.querySelector('.error-list');
-                            errorList.innerHTML += `<li>${error}</li>`;
-                        }
-                    });
 
-                    management_ws && management_ws.send_on_connect_message({type: 'load_layout', layout: '{{url}}'});
-                    document.getElementById('loading-banner').style.display = 'none';
+                        await ensureTablesForConfig(json, (progress, message, error) => {
+                            const progressBar = document.querySelector('.progress-indicator');
+                            progressBar.style.setProperty('--progress-width', `${100 * progress}%`);
+                            if (message){
+                                document.getElementById('loading-message').innerText = "Loading " + message + "...";
+                            }
+                            if (error){
+                                console.error(error);
+                                const errorList = document.querySelector('.error-list');
+                                errorList.innerHTML += `<li>${error}</li>`;
+                            }
+                        });
+
+                        management_ws && management_ws.send_on_connect_message({type: 'load_layout', layout: '{{url}}'});
+                        document.getElementById('loading-banner').style.display = 'none';
+
+                        setTimeout(() => { // let all the queued date to hit the tables so that pivots have it upfront
+                            window.workspace.restore(json);
+
+                            window.workspace.addEventListener("workspace-new-view", async (event) => {
+                                if (!mode.editable) {
+                                    const yes = window.confirm("This layout is open readonly, would you like to make it editable? If you click OK any changes you make from now on will be automatically saved otherwise they will not be saved");
+                                    if (yes) {
+                                        mode.editable = true;
+                                    }
+                                }
+                                await wait_for_table(window.workspace, event.detail.config.table);
+                                event.stopImmediatePropagation();
+                            });
+
+                        }, 1000);
+
+                    }, 5000);
 
                     window.setTimeout(async () => {
                         window.workspace.addEventListener("workspace-layout-update", async () => {
@@ -288,23 +309,6 @@
                             }
                         });
                     }, 10000);  // not saving anything for a bit
-
-
-                    setTimeout(() => { // let all the queued date to hit the tables so that pivots have it upfront
-                        window.workspace.restore(json);
-
-                        window.workspace.addEventListener("workspace-new-view", async (event) => {
-                            if (!mode.editable) {
-                                const yes = window.confirm("This layout is open readonly, would you like to make it editable? If you click OK any changes you make from now on will be automatically saved otherwise they will not be saved");
-                                if (yes) {
-                                    mode.editable = true;
-                                }
-                            }
-                            await wait_for_table(window.workspace, event.detail.config.table);
-                            event.stopImmediatePropagation();
-                        });
-
-                    }, 1000);
                 } catch (error) {
                     console.error(error);
                     const errorList = document.querySelector('.error-list');
