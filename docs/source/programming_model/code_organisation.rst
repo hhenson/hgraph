@@ -5,7 +5,7 @@ When approaching the design of your new project here are some things to consider
 
 * Think about the problem from the view point of information flow.
 * Prioritise the use of ``graph`` elements.
-* Nodes such be small and preferably general purpose
+* Nodes should be small and preferably general purpose
 * Focus on extensive testing at the node / component level.
 * Decouple the logic from the deployment.
 
