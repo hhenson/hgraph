@@ -1,5 +1,5 @@
 Basic Programming Structure
----------------------------
+===========================
 
 The most basic form of an HGraph application is as follows:
 
