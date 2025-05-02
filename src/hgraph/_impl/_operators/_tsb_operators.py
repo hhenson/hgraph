@@ -281,11 +281,17 @@ def tsb_get_item_by_index(
     """
     Return a reference to an item in the TSB referenced, by its name
     """
-    if not tsb.value.is_empty:
-        if tsb.value.has_output:
-            return TimeSeriesReference.make(tsb.value.output[key])
+    value: TimeSeriesReference = tsb.value
+    if not value.is_empty:
+        if value.has_output:
+            return TimeSeriesReference.make(value.output[key])
         else:
-            return TimeSeriesReference.make(tsb.value[key])
+            # Assume this is an UnBoundTimeSeriesReference
+            value = value[key]
+            if TimeSeriesReference.is_instance(value):  # If this is already a reference, return it.
+                return value
+            else:
+                return TimeSeriesReference.make(value)
     else:
         return TimeSeriesReference.make()
 
