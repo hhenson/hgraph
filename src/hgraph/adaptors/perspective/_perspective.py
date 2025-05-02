@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import enum
 import json
 import logging
 import operator
@@ -30,10 +31,9 @@ else:
 
 from hgraph import sink_node, GlobalState, TS, STATE
 
-__all__ = ["perspective_web", "PerspectiveTablesManager"]
-
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
+__all__ = ["perspective_web", "PerspectiveTablesManager", "TablePageHandler", "IndexPageHandler"]
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class PerspectiveTableUpdatesHandler:
         if (x != 0) ^ self._allow_self_updates:
             self._updates_table.replace(y)
             if self._queue:
-                self._queue(self._updates_table.view())
+                self._queue(self._updates_table.view())  # NOTE: we expect the calle here to call .delete() on the view
 
             # import pyarrow
             #
@@ -105,7 +105,11 @@ class PerspectiveTablesManager:
             "description": str,
         }, index="name", **n)
 
-        self._tables["index"] = [self._index_table, False]
+        view = self._index_table.view()
+        arrow_schema = pyarrow.RecordBatchStreamReader(view.to_arrow()).read_all().schema
+        view.delete()
+
+        self._tables["index"] = [self._index_table, False, arrow_schema]
 
         for c in self._table_config_files:
             with open(c, "r") as f:
@@ -138,7 +142,11 @@ class PerspectiveTablesManager:
         return tbl
 
     def add_table(self, name, table, editable=False, user=True):
-        self._tables[name] = [table, editable]
+        view = table.view()
+        arrow_schema = pyarrow.RecordBatchStreamReader(view.to_arrow()).read_all().schema
+        view.delete()
+
+        self._tables[name] = [table, editable, arrow_schema]
 
         if user:
             self._index_table.update([{
@@ -203,12 +211,12 @@ class PerspectiveTablesManager:
         if psp_new_api:
             return self._client
         else:
-            _, editable = self._tables[name]
+            _, editable, _ = self._tables[name]
             return self._manager if not editable else self._editable_manager
 
     def _start_table(self, name):
         if not psp_new_api:
-            table, editable = self._tables[name]
+            table, editable, _ = self._tables[name]
             self._manager_for_table(name).host_table(name, table)
 
         if name in self._updaters:
@@ -216,40 +224,65 @@ class PerspectiveTablesManager:
                 u.table = self._tables[name][0]
 
     @staticmethod
-    def _table_update(table, update, data):
+    def _table_update(table, update, data, i = 0):
         try:
+            # logger.info(f"Updating table {table}: processing batch {i}")
             table.update(update)
         except Exception as e:
-            print(f"Error updating table {table} with {data}: {e}")
+            logger.error(f"Error updating table {table} with {data}: {e}")
             raise
+
+    @staticmethod
+    def _format_dict_of_lists_as_table(data):
+        keys = list(data.keys())
+        
+        str_data = {}
+        for key in keys:
+            str_data[key] = [key] + [str(item) for item in data[key]]
+        
+        col_widths = {}
+        for key in keys:
+            col_widths[key] = max(len(item) for item in str_data[key])
+        
+        header = " | ".join(key.ljust(col_widths[key]) for key in keys)
+        line = "-" * len(header)
+        
+        max_rows = max(len(data[key]) for key in keys) if keys else 0
+        
+        rows = []
+        for row_idx in range(max_rows):
+            row_data = []
+            for key in keys:
+                if row_idx < len(data[key]):
+                    value = str_data[key][row_idx + 1]  # +1 because we added header
+                    row_data.append(value.ljust(col_widths[key]))
+                else:
+                    row_data.append("".ljust(col_widths[key]))
+            rows.append(" | ".join(row_data))    
+
+        return f"{header}\n{line}\n" + "\n".join(rows) + f"\n{line}"
 
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]
+        schema = self._tables[name][2]
 
         if data:
             if isinstance(data, list):
                 if self.is_new_api():
-                    prev = {}
-                    batches = []
-                    value_count = []
+                    batches = defaultdict(lambda: defaultdict(list))
                     for i, r in enumerate(data):
-                        if r.keys() != prev.keys():
-                            batches.append({k: [] for k in r.keys()})
-                            value_count.append({k: 0 for k in r.keys()})
-                            prev = r
-                        for k, v in r.items():
-                            batches[-1][k].append(v)
-                            value_count[-1][k] += 0 if v is None else 1
+                        r1 = {k: v for k, v in r.items() if v is not None}
+                        batch = batches[tuple(r1.keys())]
+                        for k, v in r1.items():
+                            batch[k].append(v)
 
-                    for b, c in zip(batches, value_count):
-                        for k, cv in c.items():
-                            if cv == 0:
-                                b.pop(k)
-
-                    data = batches
+                    data = list(batches.values())
+                    
+                    # for i, r in enumerate(data):
+                    #     logger.info(f"\n{name} batch {i}:\n" + PerspectiveTablesManager._format_dict_of_lists_as_table(r))
                 else:
                     d0 = {}
-                    d1 = defaultdict(lambda: [None] * len(data))
+                    d1 = defaultdict(lambda: [None] * len(data))    
                     for i, r in enumerate(data):
                         for k, v in r.items():
                             if v is not None:
@@ -260,11 +293,11 @@ class PerspectiveTablesManager:
             if not isinstance(data, list):
                 data = [data]
 
-            for d in data:
+            for i, d in enumerate(data):
                 try:
-                    batch = pyarrow.record_batch(d)
+                    batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
                 except Exception as e:
-                    logger.error(f"Error creating record batch for {d}: {e}")
+                    logger.error(f"Error creating record batch :{e}\n" + PerspectiveTablesManager._format_dict_of_lists_as_table(d))
                     continue
 
                 stream = pyarrow.BufferOutputStream()
@@ -275,9 +308,9 @@ class PerspectiveTablesManager:
                 arrow = stream.getvalue().to_pybytes()
 
                 if psp_new_api:
-                    self._callback(lambda: PerspectiveTablesManager._table_update(table, arrow, data))
+                    self._callback(lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i))
                 else:
-                    self._manager_for_table(name).call_loop(lambda: PerspectiveTablesManager._table_update(table, arrow, data))
+                    self._manager_for_table(name).call_loop(lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i))
 
         if removals:
             if table.get_index() and not self.server_tables:
@@ -396,10 +429,13 @@ class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
 
         self.session = self.server.new_session(inner)
 
-    def on_close(self) -> None:
-        self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
+    def _do_close(self):
         self.session.close()
         del self.session
+
+    def on_close(self) -> None:
+        self._log_websocket_event(f"closed with {self.close_code}: {self.close_reason}")
+        self.callback(lambda: self._do_close())
 
     def on_message(self, msg: bytes):
         if not isinstance(msg, bytes):

@@ -38,7 +38,7 @@ def start_wiring_graph(name: str = "notebook-graph", start_time: datetime = MIN_
     if not TimeSeriesBuilderFactory.has_instance():
         TimeSeriesBuilderFactory.declare_default_factory()
     # Prepare the contexts required for evaluation
-    GlobalState._instance = GlobalState()
+    GlobalState().__enter__()
     WiringNodeInstanceContext.__stack__ = [WiringNodeInstanceContext()]
     WiringGraphContext.__stack__ = [WiringGraphContext(name)]  # Ensures we reset when this is re-evaluated.
     _START_TIME = start_time

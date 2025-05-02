@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from itertools import chain
-from typing import Generic
+from typing import Generic, Tuple
+
+from pytz import UTC
 
 from hgraph import COMPOUND_SCALAR, Base, graph, TS, default, max_, compute_node, CompoundScalar, SCALAR, add_, TSB, \
     WiringNodeClass, AUTO_RESOLVE, combine, convert
@@ -39,9 +43,50 @@ def combine_statuses(status1: TS[StreamStatus], status2: TS[StreamStatus]) -> TS
     return default(max_(status1, status2, __strict__=True), StreamStatus.WAITING)
 
 
-@graph
+# Bloomberg bid/ask spread (x) for (symbol) is greater than permitted maximum ((z) ticks)
+
+
+STATUS_MESSAGE_PATTERN_DUPLICATES = []
+
+def register_status_message_pattern(pattern: str):
+    # Register a pattern to search for when combining status messages, and collapse groups into a comma-separated list
+    # The pattern should have a single (\w+) group in it - e.g. "For (\w+), price is stale".
+
+    def _escape(s):
+        return s.replace("(", r"\(").replace(")", r"\)")
+
+    substr1, substr2 = pattern.split(r"(\w+)", maxsplit=1)
+    pattern = f"^{_escape(substr1)}(.*){_escape(substr2)}$"
+
+    STATUS_MESSAGE_PATTERN_DUPLICATES.append((pattern, substr1, substr2))
+
+
+@compute_node
 def combine_status_messages(message1: TS[str], message2: TS[str]) -> TS[str]:
-    return merge_join(message1, message2, separator="; ")
+    components = set(message1.value.split("; ") + message2.value.split("; "))
+    for pattern, substr1, substr2 in STATUS_MESSAGE_PATTERN_DUPLICATES:
+        components = dedup_components(pattern, substr1, substr2, components)
+    return "; ".join(sorted(components))
+
+
+def dedup_components(pattern, substr1, substr2, components) -> str:
+    component_messages = set()
+    for comp1 in components:
+        if not comp1:
+            continue
+        outer_done = False
+        if m1 := re.search(pattern, comp1):
+            for comp2 in components:
+                if comp2 and comp1 != comp2:
+                    if m2 := re.search(pattern, comp2):
+                        ids = ", ".join(sorted(set(m1.group(1).split(", ") + m2.group(1).split(", "))))
+                        component_messages.add(f"{substr1}{ids}{substr2}")
+                        outer_done = True
+                    else:
+                        component_messages.add(comp2)
+        if not outer_done:
+            component_messages.add(comp1)
+    return component_messages
 
 
 @graph

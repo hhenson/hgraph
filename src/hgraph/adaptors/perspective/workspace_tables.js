@@ -74,12 +74,118 @@ class Stats {
     static updates_processed = 0;
     static max_updates_waiting = 0;
     static rows_joined = 0;
+    
+    static update_processing_times = [];
+    static max_processing_time = 0;
+    static total_processing_time = 0;
+    static processing_time_samples = 0;
+    static last_reset_time = performance.now();
+    
+    // Redesigned metrics for concurrent processing time tracking
+    static active_updates_count = 0;
+    static last_activity_change_time = performance.now();
+    static total_active_time = 0;
+
+    static startProcessing() {
+        const now = performance.now();
+        if (Stats.active_updates_count === 0) {
+            // Transitioning from idle to active
+            Stats.last_activity_change_time = now;
+        }
+        Stats.active_updates_count++;
+    }
+
+    static endProcessing() {
+        const now = performance.now();
+        if (Stats.active_updates_count > 0) {
+            Stats.active_updates_count--;
+            if (Stats.active_updates_count === 0) {
+                // Transitioning from active to idle
+                const active_duration = now - Stats.last_activity_change_time;
+                Stats.total_active_time += active_duration;
+                Stats.last_activity_change_time = now;
+            }
+        }
+    }
+
+    static updateActivityTracking() {
+        const now = performance.now();
+        // Only update if we have active updates
+        if (Stats.active_updates_count > 0) {
+            const active_duration = now - Stats.last_activity_change_time;
+            Stats.total_active_time += active_duration;
+            Stats.last_activity_change_time = now;
+        }
+    }
+
+    static getProcessingPercentage() {
+        const now = performance.now();
+        const totalElapsed = now - Stats.last_reset_time;
+        
+        // Add current active session if any
+        let activeTime = Stats.total_active_time;
+        if (Stats.active_updates_count > 0) {
+            activeTime += now - Stats.last_activity_change_time;
+        }
+        
+        // Calculate percentage of time spent processing
+        return totalElapsed > 0 ? (activeTime / totalElapsed) * 100 : 0;
+    }
+
+    static trackUpdateProcessingTime(time) {
+        Stats.update_processing_times.push(time);
+        // Keep only the last 100 samples for memory efficiency
+        if (Stats.update_processing_times.length > 100) {
+            Stats.update_processing_times.shift();
+        }
+        Stats.max_processing_time = Math.max(Stats.max_processing_time, time);
+        Stats.total_processing_time += time;
+        Stats.processing_time_samples++;
+    }
+
+    static getAverageProcessingTime() {
+        return Stats.processing_time_samples > 0 ? 
+            Stats.total_processing_time / Stats.processing_time_samples : 0;
+    }
+
+    static getPercentiles() {
+        if (Stats.update_processing_times.length === 0) return { p90: 0 };
+        
+        const sorted = [...Stats.update_processing_times].sort((a, b) => a - b);
+        return {
+            p90: sorted[Math.floor(sorted.length * 0.9)]
+        };
+    }
+
+    static getTelemetryData(elapsed) {
+        Stats.updateActivityTracking();
+        const percentiles = Stats.getPercentiles();
+        
+        return {
+            max_updates_waiting: Stats.max_updates_waiting,
+            updates_received_per_min: 60 * Stats.updates_received / (elapsed / 1000),
+            updates_processed_per_min: 60 * Stats.updates_processed / (elapsed / 1000),
+            rows_joined_per_min: 60 * Stats.rows_joined / (elapsed / 1000),
+            avg_processing_time_ms: Stats.getAverageProcessingTime(),
+            max_processing_time_ms: Stats.max_processing_time,
+            p90_processing_time_ms: percentiles.p90,
+            processing_time_percent: Stats.getProcessingPercentage()
+        };
+    }
 
     static reset() {
         Stats.updates_received = 0;
         Stats.updates_processed = 0;
         Stats.max_updates_waiting = 0;
         Stats.rows_joined = 0;
+        Stats.update_processing_times = [];
+        Stats.max_processing_time = 0;
+        Stats.total_processing_time = 0;
+        Stats.processing_time_samples = 0;
+        Stats.active_updates_count = 0;
+        Stats.total_active_time = 0;
+        Stats.last_activity_change_time = performance.now();
+        Stats.last_reset_time = performance.now();
     }
 }
 
@@ -134,13 +240,43 @@ async function connectServerTable(workspace, table_name, websocket, worker) {
 }
 
 
+async function buildClientOnlyTable(workspace, table_name, index, worker) {
+    const table_config = workspace_tables[table_name];
+
+    const adjusted_schema = adjustSchemaTypes(table_config.schema);
+    if (index) {
+        const adjusted_index = index.includes(',') ? 'index' : index;
+        if (adjusted_index === 'index') {
+            adjusted_schema.index = 'string';
+        }
+        table_config.table = await worker.table(adjusted_schema, {index: adjusted_index});
+    } else {
+        table_config.table = await worker.table(adjusted_schema);
+    }
+
+    table_config.started = true;
+
+    try {
+        workspace.addTable(
+            table_name,
+            table_config.table
+        );
+    } catch(e) {
+        DEBUG && console.log("Failed to add table", table_name);
+    }
+}
+
+
 async function connectClientTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
     const table = await websocket.open_table(table_name);
+    const view = await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})
     let client = undefined;
     if (index)
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow(), {index: await table.get_index()});
+        client = await worker.table(await view.to_arrow(), {index: await table.get_index()});
     else
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow());
+        client = await worker.table(await view.to_arrow());
+
+    view.delete();
 
     workspace.addTable(table_name, client);
 
@@ -223,11 +359,14 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
 
 async function connectEditableTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
     const table = await websocket.open_table(table_name);
+    const view = await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})
     let client = undefined;
     if (index)
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow(), {index: await table.get_index()});
+        client = await worker.table(await view.to_arrow(), {index: await table.get_index()});
     else
-        client = await worker.table(await (await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})).to_arrow());
+        client = await worker.table(await view.to_arrow());
+
+    view.delete();
 
     workspace.addTable(table_name, client);
 
@@ -318,7 +457,8 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     const update_table = await worker.table(updated.delta);
                     const update_view = await update_table.view();
                     const update_data = await update_view.to_json();
-                    await table.update(update_data.filter((x) => x._id !== 0), {port_id: workspace_table.edit_port});
+                    const update_data_filtered = update_data.filter((x) => x._id !== 0 && x._id !== null && _id !== 'undefined');
+                    await table.update(update_data_filtered, {port_id: workspace_table.edit_port});
                 } else {
                     await table.update(updated.delta, {port_id: workspace_table.edit_port});
                 }
@@ -611,6 +751,8 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
 async function join_table_removed(target, removes_table, join_tables, table_name, workspace, worker, updated) {
     if (updated.port_id !== 0) return;
 
+    Stats.startProcessing();
+    
     const update_table = await worker.table(updated.delta);
     const update_view = await update_table.view();
     const update = await update_view.to_columns();
@@ -669,6 +811,8 @@ async function join_table_removed(target, removes_table, join_tables, table_name
             await join_table_updated(target, removes_table, join_tables, other_table, workspace, worker, {port_id: undefined, delta: data});
         }
     }
+
+    Stats.endProcessing();
 }
 
 
@@ -694,6 +838,9 @@ async function drop_join_rows(target, removes_table, drop_rows_indices, join_tab
 async function join_table_updated(target, removes_table, join_tables, table_name, workspace, worker, updated) {
     if (updated.port_id > 0) return;
 
+    Stats.startProcessing();
+    const startProcessing = performance.now();
+    
     let update_data = undefined;
     let force_republish = false;
     if (updated.port_id === undefined) {
@@ -703,54 +850,107 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         const update_table = await worker.table(updated.delta);
         const update_view = await update_table.view();
         await update_view.schema();
-        update_data = await update_view.to_json();
+        update_data = await update_view.to_columns();
         update_view.delete();
         update_table.delete();
     } else {
         const view = updated.delta;
-        update_data = await view.to_json();
+        update_data = await view.to_columns();
     }
-
-    Stats.rows_joined += update_data.length;
-    DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
 
     const table = join_tables[table_name];
     const index_col_name = table.index;
+    let rows = [];
+    let values = [];
+    
+    if (!force_republish){
+        let filter = undefined;
+
+        if (table.view && table.view.split_by){
+            const update_data_mapped = {};
+            for (const [k, c] of Object.entries(update_data)){
+                const new_col_name = table.split_by_columns_map.get(k);
+                if (new_col_name in update_data_mapped){
+                    update_data_mapped[new_col_name] = update_data_mapped[new_col_name].map((x, i) => x === null ? c[i] : x);
+                } else {
+                    update_data_mapped[new_col_name] = c;
+                }
+            }
+            update_data = update_data_mapped;
+        }
+        if (table.view && table.view.group_by){
+            // delete update_data['__ROW_PATH__'];
+            let group_bys = Object.entries(update_data).filter(([k, v]) => k.endsWith('__group_by_row__'))
+            filter = new Array(update_data[Object.keys(update_data)[0]].length).fill(true);
+            for (let i = 0; i < filter.length; i++){
+                filter[i] &= group_bys.map(([k, v]) => v[i] > 1).every(x => !x);
+            }
+        }
+
+        const value_columns = Object.fromEntries(
+            Object.entries(update_data)
+                .filter(([k, v]) => table.values.includes(k))
+                    .map(([k, v]) => [table.columns[k], v]));
+
+        const row_columns = Object.fromEntries(
+            Object.entries(update_data)
+                .filter(([k, v]) => table.select.has(k))
+                    .map(([k, v]) => [table.columns[k], v]));
+
+        const len = update_data[Object.keys(update_data)[0]].length;
+
+        if (filter === undefined){
+            values = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in value_columns) {
+                    row[k] = value_columns[k][i];
+                }
+                return row;
+            });
+
+            rows = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in row_columns) {
+                    row[k] = row_columns[k][i];
+                }
+                return row;
+            });
+        } else {
+            values = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in value_columns) {
+                    row[k] = value_columns[k][i];
+                }
+                return row;
+            }).filter((_, i) => filter[i]);
+
+            rows = Array.from({length: len}, (_, i) => {
+                const row = {};
+                for (const k in row_columns) {
+                    row[k] = row_columns[k][i];
+                }
+                return row;
+            }).filter((_, i) => filter[i]);
+        }
+    } else {
+        rows = update_data;
+        values = Array.from({length: update_data.length}, (_, i) => {
+            return table.cache.get(update_data[i][index_col_name]);
+        });
+    }
+
+    Stats.rows_joined += rows.length;
+    DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
+
     const join_data = [];
     const new_row_indices = [];
     const drop_rows_indices = new Set();
 
-    for (let row of update_data) {
+    for (const [i, row] of rows.entries()) {
         if ("_id" in row && (row._id === 0 || row._id === null))
             continue;
 
-        let values_row = {};
-
-        if (force_republish){
-            // force_republish cames with cached data so it does not need remapping and can be retrieved from the cache
-            values_row = table.cache.get(row[index_col_name]);
-        } else {
-            if (table.view && table.view.split_by){
-                row = Object.fromEntries(Object.entries(row)
-                    .filter(([k, v]) => v !== null)
-                    .map(([k, v]) => [table.split_by_columns_map.get(k), v]));
-            }
-            if (table.view && table.view.group_by){
-                delete row['__ROW_PATH__'];
-                if (Object.entries(row).filter(([k, v]) => k.endsWith('__group_by_row__') && v > 1).length !== 0)
-                    continue;
-            }
-
-            values_row = Object.fromEntries(
-                Object.entries(row)
-                    .filter(([k, v]) => table.values.includes(k))
-                        .map(([k, v]) => [table.columns[k], v]));
-
-            row = Object.fromEntries(
-                Object.entries(row)
-                    .filter(([k, v]) => table.select.has(k))
-                        .map(([k, v]) => [table.columns[k], v]));
-        }
+        let values_row = values[i];
 
         if (index_col_name.includes(',')){
             row[index_col_name] = index_col_name.split(',').map(k => row[k]).join(',');
@@ -774,7 +974,6 @@ async function join_table_updated(target, removes_table, join_tables, table_name
             const prev = table.cache.get(index)
             table.cache.set(index, {...prev, ...values_row});
 
-            row = {...row};
             row[table_name + '_index'] = index;
             delete row['index'];
 
@@ -793,7 +992,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
                         table.missed_crosses.get(other_table_name) : undefined;
 
                     const new_total_rows = []
-                    for (row of total_rows) {
+                    for (const row of total_rows) {
                         let matches = join_tables[other_table_name].cross_to_native.get(table_name).get(cross_key);
                         for (const other_index of matches) {
                             const other_row = {...join_tables[other_table_name].native.get(other_index)};
@@ -890,6 +1089,11 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         DEBUG && console.log("Removing from", join_tables._total.name, "on outer join", table_name, "of", drop_rows_indices.size, safeClone(drop_rows_indices));
         await drop_join_rows(target, removes_table, drop_rows_indices, join_tables);
     }
+
+    const endProcessing = performance.now();
+    const processingTime = endProcessing - startProcessing;
+    Stats.trackUpdateProcessingTime(processingTime);
+    Stats.endProcessing();
 }
 
 const workspace_tables = {};
@@ -951,6 +1155,12 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 websocket_rw,
                 websocket_ro,
                 worker));
+        } else if (table.type === "client_only_table") {
+            table_promises.push(buildClientOnlyTable(
+                workspace,
+                table.name,
+                table.index,
+                worker));
         }
     }
 
@@ -1000,6 +1210,9 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 const time_now = new Date();
                 const elapsed = new Date() - heartbeat_time;
 
+                // Get telemetry data including processing time percentage
+                const telemetryData = Stats.getTelemetryData(elapsed);
+
                 management_ws && management_ws.send({
                     type: "heartbeat", 
                     lag: time_now - hb_time, 
@@ -1007,10 +1220,7 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                     sequence_diff: sequence_diff,
                     max_lock_wait: Math.round(AsyncLock.max_wait),
                     max_lock_time: Math.round(AsyncLock.max_lock),
-                    max_updates_waiting: Stats.max_updates_waiting,
-                    updates_received_per_min: 60000 * Stats.updates_received / elapsed,
-                    updates_processed_per_min: 60000 * Stats.updates_processed / elapsed,
-                    rows_joined_per_min: 60000 * Stats.rows_joined / elapsed
+                    ...telemetryData
                 });
                 AsyncLock.reset_stats();
                 Stats.reset();

@@ -82,7 +82,7 @@ def get_table_schema_date_key() -> str:
     The date key used for table structures. (The date column is of datetime type)
     The default value is ``__date_time__``.
     """
-    return (GlobalState.instance() if GlobalState._instance else {}).get(DATE_KEY, "__date_time__")
+    return (GlobalState.instance() if GlobalState.has_instance() else {}).get(DATE_KEY, "__date_time__")
 
 
 def get_table_schema_as_of_key() -> str:
@@ -90,7 +90,7 @@ def get_table_schema_as_of_key() -> str:
     The as_of key used for table structures. This represents when the entry was last updated.
     The default value is ``__as_of_key__``.
     """
-    return (GlobalState.instance() if GlobalState._instance else {}).get(AS_OF_KEY, "__as_of__")
+    return (GlobalState.instance() if GlobalState.has_instance() else {}).get(AS_OF_KEY, "__as_of__")
 
 
 def set_table_schema_as_of_key(key: str):

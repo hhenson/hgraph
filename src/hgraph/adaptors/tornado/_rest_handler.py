@@ -450,20 +450,20 @@ def convert_to_rest_delete_response(
 @compute_node(overloads=convert)
 def convert_from_rest_response(
     ts: TS[REST_RESPONSE],
-    to: type[OUT] = OUT,
+    to: type[TS[HttpResponse]] = OUT,
 ) -> TS[HttpResponse]:
     value: RestResponse = ts.value
 
     if value.status not in (RestResultEnum.OK, RestResultEnum.CREATED):
-        body = f'{{ "reason": "{value.reason}" }}'
+        body = f'{{ "reason": "{value.reason}" }}'.encode()
     elif isinstance(value, RestListResponse):
         values = (f'"{v}"' for v in value.ids)
-        body = f'[ {", ".join(values)} ]'
+        body = f'[ {", ".join(values)} ]'.encode()
     elif isinstance(value, (RestCreateResponse, RestUpdateResponse, RestReadResponse)):
         v = value.value
-        body = f'{{ "id": "{value.id}", "value": {to_json_builder(type(v))(v)} }}'
+        body = f'{{ "id": "{value.id}", "value": {to_json_builder(type(v))(v)} }}'.encode()
     else:
-        body = ""
+        body = b""
 
     return HttpResponse(
         status_code=value.status.value,

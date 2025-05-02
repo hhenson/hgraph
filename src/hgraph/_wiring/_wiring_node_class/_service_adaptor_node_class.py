@@ -175,6 +175,5 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
         else:
             assert (
                 not __pre_resolved_types__
-            ), "Type parameters for general adaptor registrations (wit no path) are not implemented"
-            assert not kwargs, "Kwargs for general adaptor registrations (wit no path) are not implemented"
-            register_service(None, impl, None)
+            ), "Type parameters for general adaptor registrations (with no path) are not implemented"
+            register_service(None, impl, None, **kwargs)

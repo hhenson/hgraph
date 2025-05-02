@@ -101,7 +101,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
         [
             RestListResponse(status=RestResultEnum.OK, ids=["1", "2"]),
             HttpResponse(
-                status_code=200, headers=frozendict({"Content-Type": "application/json"}), body='[ "1", "2" ]'
+                status_code=200, headers=frozendict({"Content-Type": "application/json"}), body=b'[ "1", "2" ]'
             ),
         ],
         [
@@ -109,7 +109,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "id": "1", "value": {"a": 1, "b": "b"} }',
+                body=b'{ "id": "1", "value": {"a": 1, "b": "b"} }',
             ),
         ],
         [
@@ -117,7 +117,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=201,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "id": "1", "value": {"a": 1, "b": "b"} }',
+                body=b'{ "id": "1", "value": {"a": 1, "b": "b"} }',
             ),
         ],
         [
@@ -125,7 +125,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "id": "1", "value": {"a": 1, "b": "b"} }',
+                body=b'{ "id": "1", "value": {"a": 1, "b": "b"} }',
             ),
         ],
         [
@@ -133,7 +133,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=200,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body="",
+                body=b"",
             ),
         ],
         [
@@ -141,7 +141,7 @@ def _convert_from_rest_response(ts: TS[RestResponse]) -> TS[HttpResponse]:
             HttpResponse(
                 status_code=404,
                 headers=frozendict({"Content-Type": "application/json"}),
-                body='{ "reason": "Id not found" }',
+                body=b'{ "reason": "Id not found" }',
             ),
         ],
     ],
@@ -165,7 +165,7 @@ def test_single_rest_request_graph(port):
     @http_server_handler(url="/stop_rest")
     def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
         stop_engine(request)
-        return combine[TS[HttpResponse]](status_code=200, body="Ok")
+        return combine[TS[HttpResponse]](status_code=200, body=b"Ok")
 
     @sink_node
     def q(t: TIME_SERIES_TYPE):
@@ -220,7 +220,7 @@ def test_multiple_request_graph(port):
     @http_server_handler(url="/stop_multi")
     def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
         stop_engine(request)
-        return combine[TS[HttpResponse]](status_code=200, body="Ok")
+        return combine[TS[HttpResponse]](status_code=200, body=b"Ok")
 
     @sink_node
     def q(t: TIME_SERIES_TYPE):

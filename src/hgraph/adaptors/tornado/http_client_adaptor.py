@@ -123,9 +123,17 @@ def http_client_adaptor_impl(
             final = response2.headers.get("WWW-Authenticate")
             if final is not None:
                 try:
-                    final = final.replace(scheme, "", 1).lstrip()
-                    tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
-                    tokenbuf.Buffer = base64.b64decode(final.encode("ASCII"))
+                    challenge = [v[len(scheme) + 1:] for val in final.split(',') if scheme in (v := val.strip())]
+                    if len(challenge) != 1:
+                        raise HTTPError(
+                            401, f'Did not get exactly one {scheme} challenge from server'
+                        )
+
+                    tokenbuf = win32security.PySecBufferType(
+                        pkg_info['MaxToken'],
+                        sspicon.SECBUFFER_TOKEN
+                    )
+                    tokenbuf.Buffer = base64.b64decode(challenge[0])
                     sec_buffer.append(tokenbuf)
                     err, auth = clientauth.authorize(sec_buffer)
                     logger.debug(
@@ -141,7 +149,9 @@ def http_client_adaptor_impl(
             response2.request.headers["Cookie"] = set_cookie
 
         challenge = [
-            val[len(scheme) + 1 :] for val in response2.headers.get("WWW-Authenticate", "").split(", ") if scheme in val
+            v[len(scheme) + 1:]
+            for val in response2.headers.get('WWW-Authenticate', '').split(',')
+            if scheme in (v := val.strip())
         ]
         if len(challenge) != 1:
             raise HTTPError(401, f"Did not get exactly one {scheme} challenge from server")
@@ -252,22 +262,25 @@ def http_client_adaptor_impl(
             else:
                 url = request.url
 
+            timeouts = {"connect_timeout": request.connect_timeout, "request_timeout": request.request_timeout}
             if isinstance(request, HttpGetRequest):
                 logger.debug("[GET][%i][%s]", id, url)
-                response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False)
+                response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False, **timeouts)
             elif isinstance(request, HttpPostRequest):
                 logger.debug("[POST][%i][%s] body: %s", id, url, request.body)
                 response = await client.fetch(
-                    url, method="POST", headers=request.headers, body=request.body, raise_error=False
+                    url, method="POST", headers=request.headers, body=request.body, raise_error=False, **timeouts
                 )
             elif isinstance(request, HttpPutRequest):
                 logger.debug("[PUT][%i][%s] body: %s", id, url, request.body)
                 response = await client.fetch(
-                    url, method="PUT", headers=request.headers, body=request.body, raise_error=False
+                    url, method="PUT", headers=request.headers, body=request.body, raise_error=False, **timeouts
                 )
             elif isinstance(request, HttpDeleteRequest):
                 logger.debug("[DELETE][%i][%s]", id, url)
-                response = await client.fetch(url, method="DELETE", headers=request.headers, raise_error=False)
+                response = await client.fetch(
+                    url, method="DELETE", headers=request.headers, raise_error=False, **timeouts
+                )
             else:
                 logger.error("Bad request received: %s", request)
                 response = namedtuple("HttpResponse_", ["code", "headers", "body"])(
@@ -283,16 +296,16 @@ def http_client_adaptor_impl(
                         response = await handle_auth(response, request, client)
                 except HTTPError as e:
                     logger.error("[AUTH] authentication failed: %s", e)
-                    sender({id: HttpResponse(status_code=e.code, body=e.message)})
+                    sender({id: HttpResponse(status_code=e.code, body=e.message.encode())})
                     return
 
         except Exception as e:
             logger.error("request %i failed : %s", id, e)
-            sender({id: HttpResponse(status_code=e.code, body=e.message)})
+            sender({id: HttpResponse(status_code=e.code, body=e.message.encode())})
             return
 
-        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time) / 1000000))
-        sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body.decode())})
+        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time)/1000000))
+        sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body)})
 
     @sink_node
     def to_web(request: TSD[int, TS[HttpRequest]]):

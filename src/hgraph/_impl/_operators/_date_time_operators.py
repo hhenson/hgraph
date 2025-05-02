@@ -103,7 +103,7 @@ def date_getattr(ts: TS[date], attribute: str) -> TS[SCALAR]:
     elif attribute in _date_methods:
         return date_methods(ts, attribute)
     else:
-        raise AttributeError(f"TS[datetime] has no property {attribute}")
+        raise AttributeError(f"TS[date] has no property {attribute}")
 
 
 _timedelta_properties = {

@@ -1,17 +1,42 @@
+export async function loadLayout(layout) {
+    if (layout.context_mapping){
+        await getWorkspaceTables()["context_mapping"].table.update(layout.context_mapping);
+    } else if ("context_mapping" in getWorkspaceTables()){
+        await getWorkspaceTables()["context_mapping"].table.update([{'_id': 0}]);
+    }
+
+    return layout.psp_config;
+}
+
+export async function saveLayout(config) {
+    const layout = {version: 1, psp_config: config};
+
+    if ("context_mapping" in getWorkspaceTables()){
+        layout.context_mapping = await (await getWorkspaceTables()["context_mapping"].table.view()).to_json();
+    }
+
+    return layout;
+}
+
 export async function ensureTablesForConfig(config, progress_callback) {
     if (config.viewers) {
         const total = Object.keys(config.viewers).length;
         let i = 0;
         const table_promises = [];
+        const table_progress = [];
         for (const [_, viewer] of Object.entries(config.viewers)) {
-            progress_callback(i / total, viewer.table);
+            const index = i;
+            i += 1;
+
+            progress_callback(0, `${index + 1} tables`);
+            table_progress.push(0);
             table_promises.push(wait_for_table(window.workspace, viewer.table, (x, y) => {
-                    progress_callback((i + x) / total, y);
+                    table_progress[index] = x;
+                    progress_callback((table_progress.reduce((x, y) => x + y)) / total, y);
                 }).catch((e) => {
-                    progress_callback(i / total, undefined, e.toString());
+                    progress_callback((table_progress.reduce((x, y) => x + y)) / total, undefined, e.toString());
                 }).then(() => {
-                    i += 1;
-                    progress_callback(i / total);
+                    progress_callback((table_progress.reduce((x, y) => x + y)) / total);
                 })
             );
         }
@@ -25,6 +50,7 @@ export async function installTableWorkarounds(mode) {
     for (const g of document.querySelectorAll("perspective-viewer")) {
         if (!g.dataset.events_set_up) {
             const viewer = g;
+            if (!viewer.slot) continue;
             const view_config = config.viewers[viewer.slot];
             const table_config = getWorkspaceTables()[view_config.table];
 
@@ -97,6 +123,9 @@ export async function installTableWorkarounds(mode) {
                 psp_stylesheet.insertRule('regular-table table tbody td.hidden { overflow: hidden; white-space: nowrap; text-overflow: clip; width: 0; min-width: 0; max-width: 0; padding-left: 1px; padding-right: 0; }');
             }
         }
+        var sheet = new CSSStyleSheet
+        sheet.replaceSync( `.highlight { background-color: pink }`)
+        g.shadowRoot.adoptedStyleSheets.push(sheet)
 
         table.addStyleListener(() => {
             addTooltips(table, table_config)
@@ -106,6 +135,9 @@ export async function installTableWorkarounds(mode) {
         });
         table.addStyleListener(() => {
             enableAddRemove(table, viewer, table_config, model)
+        });
+        table.addStyleListener(() => {
+            enableActions(table, viewer, table_config, model)
         });
 
         if (g.tagName === "PERSPECTIVE-VIEWER-DATAGRID-NOROLLUPS") {
@@ -140,20 +172,18 @@ export async function installTableWorkarounds(mode) {
             });
         }, 100);
 
+        if (table_config && table_config.selection) {
+            table.addEventListener("click", async (event) => {
+                    await trackSelection(event, table, viewer, table_config, model);
+            });
+        }       
+
         table.draw();
     }
 }
 
 
 import {getWorkspaceTables, wait_for_table} from "./workspace_tables.js";
-
-
-async function row_data(table, config, td) {
-    const meta = table.getMeta(td);
-    const stuff = await table._view_cache.view(meta.x, meta.y, meta.x + 1, meta.y + 1);
-    const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
-    return [meta, stuff, row]
-}
 
 async function col_values(table, td) {
     const meta = table.getMeta(td);
@@ -379,7 +409,7 @@ async function focusin(event, viewer, table, model, table_config) {
     if (event.target.tagName === "TD" && event.target.contentEditable) {
         const td = event.target;
         if (td.dataset.editing_null) {
-            td.dataset.editing_null = "";
+            delete td.dataset.editing_null;
             event.stopImmediatePropagation();
             event.target.blur();
             return;
@@ -400,8 +430,8 @@ async function focusin(event, viewer, table, model, table_config) {
             td.addEventListener("blur", events.blur = (event) => {
                 setTimeout(() => {
                     Object.entries(events).map(([k, v]) => td.removeEventListener(k, v));
-                    td.dataset.editing_null = "";
-                }, 1);
+                    delete td.dataset.editing_null;
+                }, 100);
             });
             td.dataset.editing_null = "true";
         }
@@ -481,13 +511,283 @@ async function maintainAddButtonOnFilter(event, table, viewer, config) {
     viewer.dataset.prev_filter = JSON.stringify(new_view_config.filter);
 }
 
+
+async function trackSelection(event, table, viewer, config, model) {
+    if (!config.selection) return;
+
+    if (event.target.tagName === "TD"){
+        const td = event.target;
+        const metadata = table.getMeta(td);
+        if (config.editable && '_id' in config.schema){
+            const id = model._ids[metadata.y - metadata.y0];
+            if (id && id[0] === 0) {
+                return;
+            }
+            if (td.contentEditable === "true") {
+                return;
+            }
+        }
+        if (metadata){
+            const selectedRow = table.querySelector(".highlight");
+            if (selectedRow){
+                delete table.dataset.selected_row;
+                selectedRow.classList.remove("highlight");
+            }
+            if (selectedRow !== td.parentElement){
+                table.dataset.selected_row = metadata.y;
+                td.parentElement.classList.add("highlight");
+
+                const id = model._ids[metadata.y - metadata.y0];
+                if (id){
+                    const row = (await (await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]})).to_json())[0];
+                    if (row){
+                        await fireContextActions(viewer.slot, row);
+                    }
+                }
+            } else {
+                await fireContextActions(viewer.slot, null);
+            }
+            setTimeout(() => {
+                table.draw();
+            }, 100);
+        }
+    }
+}
+
+async function fireContextActions(from, row) {
+    const context_mapping = await (await getWorkspaceTables()["context_mapping"].table.view()).to_json();
+    const config = await window.workspace.save();
+
+    if (!(from in config.viewers)) return;
+    const from_title = config.viewers[from].title;
+
+    const actions = context_mapping.filter((x) => x.source === from_title);
+    for (const action of actions) {
+        const target = Object.entries(config.viewers).filter((x) => x[1].title === action.target)[0];
+        if (!target) continue;
+
+        const viewer = document.querySelector(`perspective-viewer[slot="${target[0]}"]`);
+        const view = await viewer.getView();
+        const target_config = await view.get_config();
+        const filters = target_config.filter;
+        if (row){
+            const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, '==', row[action.context]]];
+            viewer.restore({filter: new_filter});
+        } else {
+            if (action.null === "null"){
+                const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, 'is null', null]];
+                viewer.restore({filter: new_filter});
+            } else {
+                const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, '==', action.null]];
+                viewer.restore({filter: new_filter});
+            }
+        }
+    }
+}
+
+class tooltip_info{
+    static tooltip = null;
+    static view = null;
+    static view_cb = null;
+
+    static show(table, td) {
+        tooltip_info.clear();
+
+        const tooltip = document.createElement("p");
+        tooltip.id = "tooltip";
+        tooltip.className = "tooltip";
+        tooltip.style = td.style;
+        tooltip.style.position = "absolute";
+        tooltip.style.zIndex = "1000";
+        tooltip.style.border = "1px solid grey";
+        tooltip.style.padding = "5px";
+        tooltip.style.whiteSpace = "normal";
+        tooltip.style.top = (td.getBoundingClientRect().bottom - table.getBoundingClientRect().top - 12) + 'px';
+        tooltip.style.left = (td.getBoundingClientRect().right - table.getBoundingClientRect().left - 12) + 'px';
+        tooltip.style.overflow = "hidden";
+        tooltip.style.textOverflow = "ellipsis";
+        tooltip.style.backdropFilter = "blur(6px)";
+        tooltip.style.boxShadow = "0 2px 5px rgba(0,0,0,0.2)";
+        tooltip.style.fontSize = "12px";
+
+        const tableBackgroundColor = window.getComputedStyle(table).backgroundColor;
+        if (tableBackgroundColor && tableBackgroundColor !== "rgba(0, 0, 0, 0)") {
+            const rgbaMatch = tableBackgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+            if (rgbaMatch) {
+                tooltip.style.backgroundColor = `rgba(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}, 0.95)`;
+            }
+        }
+
+        table.appendChild(tooltip);
+                                    
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const tableRect = table.getBoundingClientRect();
+        if (tooltipRect.right > tableRect.right) {
+            tooltip.style.left = `${tableRect.right - tooltipRect.width - table.getBoundingClientRect().left - 10}px`;
+        }
+
+        tooltip.addEventListener("mouseenter", () => {
+            clearTimeout(tooltip_info.clear_timeout);
+        });
+        
+        tooltip.addEventListener("mouseleave", () => {
+            tooltip_info.clear();
+        });
+
+        tooltip_info.tooltip = tooltip;
+    }
+
+    static update(text) {
+        if (!tooltip_info.tooltip) return;
+
+        tooltip_info.tooltip.innerHTML = text;
+    }
+
+    static clear() {
+        if (tooltip_info.tooltip) {
+            tooltip_info.tooltip.remove();
+            delete tooltip_info.tooltip;
+        }
+        if (tooltip_info.view) {
+            if (tooltip_info.view_cb) {
+                tooltip_info.view.remove_update(tooltip_info.view_cb);
+                delete tooltip_info.view_cb;
+            }
+            tooltip_info.view.delete();
+            delete tooltip_info.view;
+        }
+        delete tooltip_info.clear_timeout;
+    }
+
+    static enqueue_clear() {
+        if (tooltip_info.tooltip && !tooltip_info.clear_timeout) {
+            tooltip_info.clear_timeout = setTimeout(() => {
+                tooltip_info.clear();
+            }, 100);
+        }
+    }
+};
+
+async function enableActions(table, viewer, config, model) {
+    if (!config || !config.column_actions) return;
+
+    for (const td of table.querySelectorAll("td")) {
+        const metadata = table.getMeta(td);
+        if (config.editable && '_id' in config.schema){
+            const id = model._ids[metadata.y - metadata.y0];
+            if (id && id[0] === 0) {
+                continue;
+            }
+        }
+        if (metadata.column_header[metadata.column_header.length - 1] in config.column_actions) {
+            const action = config.column_actions[metadata.column_header[metadata.column_header.length - 1]];
+            if (action.type === 'button') {
+                if (td.querySelector("button") === null) {
+                    td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
+                    const btn = td.querySelector("button");
+                    btn.addEventListener("click", async () => {
+                        const id = model._ids[metadata.y - metadata.y0];
+                        if (id){
+                            const tbl = await viewer.getTable();
+                            const index = await tbl.get_index();
+                            const row = (await (await tbl.view({filter: [[index, '==', id.join(',')]]})).to_json())[0];
+                            if (row){
+                                    switch (action.action.type) {
+                                    case 'url':
+                                        const url = action.action.url.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        btn.disabled = true;
+                                        await fetch (url, {method: 'GET'});
+                                        btn.disabled = false;
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            if (action.type === 'tooltip') {
+                td.addEventListener("mouseenter", (event) => {
+                    if (td.dataset.tooltipTimeout) return;
+
+                    td.dataset.tooltipTimeout = setTimeout(async () => {
+                        tooltip_info.clear();
+
+                        const id = model._ids[metadata.y - metadata.y0];
+                        if (id){
+                            const tbl = await viewer.getTable();
+                            const view_config = await viewer.save();
+                            const index = await tbl.get_index();
+                            const required_cols = [...action.format.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+
+                            let view;
+                            let get_rows;
+                            if (view_config.group_by.length == 0 && view_config.split_by.length == 0) {
+                                view = await tbl.view({filter: [[index, '==', id[0]]]});
+                                get_rows = async () => await view.to_json();
+                            } else if (view_config.split_by.length == 0) {
+                                const query_config = {
+                                    filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
+                                    group_by: view_config.group_by,
+                                    aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique'])), [index]: 'count'},
+                                    columns: [index, ...required_cols]
+                                }
+                                view = await tbl.view(query_config);
+                                get_rows = async () => {
+                                    const rows = await view.to_json()
+                                    return rows.filter((x) => x[index] === 1 && x["__ROW_PATH__"].length === view_config.group_by.length);
+                                }
+                            } else if (view_config.group_by.length > 0) {
+                            }
+                            const rows = await get_rows();
+                            if (rows && rows.length == 1) {
+                                const row = rows[0];
+                                const text = action.format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                if (text && text != "null"){
+                                    const update_tt = (text) => {
+                                        if (action.line_separator) {
+                                            const lines = text.split(action.line_separator).map(line => `${line}<br/>`).join('');
+                                            tooltip_info.update(lines);
+                                        } else {
+                                            tooltip_info.update(text);
+                                        }
+                                    };
+
+                                    tooltip_info.view = view;
+                                    tooltip_info.show(table, td);
+                                    tooltip_info.update(text);
+
+                                    view.on_update(tooltip_info.view_cb = async () => {
+                                        const row = (await get_rows())[0];
+                                        const text = action.format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        update_tt(text);
+                                    });
+                                } else {
+                                    view.delete();
+                                }
+                            } else {
+                                view.delete();
+                            }
+                        }
+                    }, 100); // 100ms delay before showing tooltip
+                });
+
+                td.addEventListener("mouseleave", () => {
+                    clearTimeout(Number(td.dataset.tooltipTimeout));
+                    delete td.dataset.tooltipTimeout;
+                    tooltip_info.enqueue_clear();
+                });
+            }
+        }
+    }
+}
+
 async function enableAddRemove(table, viewer, config, model) {
     if (!config || !config.editable) return;
 
     const tbl = 'edit_table' in config ? config.edit_table : (await viewer.getTable());
     const edit_port = 'edit_port' in config ? config.edit_port : (await viewer.getEditPort());
 
-    for (const td of table.querySelectorAll("td[contenteditable]")) {
+    for (const td_ of table.querySelectorAll("td[contenteditable]")) {
+        const td = td_;
         const metadata = table.getMeta(td);
         if (metadata.column_header[metadata.column_header.length - 1] === '_id') {
             td.contentEditable = "false";
@@ -497,11 +797,10 @@ async function enableAddRemove(table, viewer, config, model) {
                     td.innerHTML = "<button style='font: inherit'>Add</button>";
                     btn = td.querySelector("button");
                     btn.addEventListener("click", async () => {
-                        const data = {};
+                        const data = (await (await (await viewer.getTable()).view({filter: [['_id', '==', 0]]})).to_json())[0];
                         for (const item of td.parentElement.children) {
                             const meta = table.getMeta(item);
                             const col_name = meta.column_header[meta.column_header.length - 1];
-                            data[col_name] = meta.user;
                             const editor = config.column_editors && col_name in config.column_editors ? config.column_editors[col_name] : null;
                             if (editor !== null && !(await validate_value(editor, item, table, model, config))){
                                 btn.disabled = true;
@@ -652,7 +951,7 @@ async function recordCollapseState(table, viewer, model) {
                 continue;
             }
             const row_header = ids.map((x) => x === null ? '-' : x).join(',')
-            state[row_header] = await view.get_row_expanded(metadata.y);
+            state[row_header] = view.get_row_expanded === undefined ? true : await view.get_row_expanded(metadata.y);
         }
         for (const tr of table.children[0].children[1].querySelectorAll("th.psp-tree-label-expand")) {
             const metadata = table.getMeta(tr);
@@ -661,7 +960,7 @@ async function recordCollapseState(table, viewer, model) {
                 continue;
             }
             const row_header = ids.map((x) => x === null ? '-' : x).join(',')
-            state[row_header] = await view.get_row_expanded(metadata.y);
+            state[row_header] = view.get_row_expanded === undefined ? true : await view.get_row_expanded(metadata.y);
         }
 
         if (viewer.dataset.collapse_state_remainder) {
@@ -688,6 +987,7 @@ async function restoreCollapseState(table, viewer, model, can_invalidate = false
     const state = JSON.parse(viewer.dataset.collapse_state_remainder);
     delete viewer.dataset.collapse_state_remainder;
 
+    let changes_made = false;
     const view = await viewer.getView();
     const data = await view.to_columns();
     const row_headers = data['__ROW_PATH__'].map((x) => x.map((x) => x === null ? '-' : x).join(','));
@@ -696,9 +996,14 @@ async function restoreCollapseState(table, viewer, model, can_invalidate = false
         if (state[h] === false){
             await model._view.collapse(len - i - 1);
             delete state[h];
+            changes_made = true;
         }
     }
-    
+
+    if (!changes_made) {
+        return;
+    }
+
     if (Object.keys(state).length) {
         viewer.dataset.collapse_state_remainder = JSON.stringify(state, Object.keys(state).sort(), 2);
         // maybe some data has not loaded yet, try again

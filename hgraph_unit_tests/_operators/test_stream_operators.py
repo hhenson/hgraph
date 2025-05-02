@@ -44,6 +44,8 @@ from hgraph import (
     ts_schema,
     PythonSetDelta,
 )
+from hgraph.stream import combine_status_messages
+from hgraph.stream.stream import register_status_message_pattern
 from hgraph.test import eval_node, EvaluationTrace
 
 
@@ -441,6 +443,40 @@ def test_throttle_tsd():
     ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
 
 
+def test_throttle_tss():
+    @graph
+    def g(ts: TSS[int], period: timedelta) -> TSS[int]:
+        return throttle(ts, period)
+
+    inputs = [
+        None,
+        PythonSetDelta(added={1, 2}, removed=set()),
+        PythonSetDelta(added={3}, removed=set()),
+        PythonSetDelta(added=set(), removed={2}),
+        None,
+        PythonSetDelta(added={5}, removed={1}),
+        None,
+        PythonSetDelta(added={1}, removed=set()),
+        PythonSetDelta(added={6}, removed=set()),
+        None,
+        PythonSetDelta(added=set(), removed={6})
+    ]
+    expected = [
+        None,
+        PythonSetDelta(added={1, 2}, removed=set()),
+        None,
+        None,
+        PythonSetDelta(added={3}, removed={2}),
+        None,
+        None,
+        PythonSetDelta(added={5}, removed=set()),
+        None,
+        None,
+        None
+    ]
+    assert eval_node(g, inputs, 3 * MIN_TD, __end_time__=MIN_ST + 12 * MIN_TD) == expected
+
+
 def test_throttle_tsd_delay_first():
     @graph
     def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:
@@ -679,3 +715,20 @@ def test_slice_():
     assert eval_node(g, [0, 1, 2, 3, 4, 5, 6, 7, 8], 2, -1, 2) == [None, None, 2, None, 4, None, 6, None, 8]
     assert eval_node(g, [0, 1, 2, 3, 4, 5, 6, 7, 8], -1, -1, 2) == None
     assert eval_node(g, [0, 1, 2, 3, 4, 5, 6, 7, 8], 2, 0, 2) == None
+
+
+@pytest.mark.parametrize(
+"messages,new_message,expected",
+[
+    ("Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",                             "Using stale price for x2",                                                 "No price for a1 for a week; Using a for b; Using something else for y; Using stale price for x1, x2"),
+    ("Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",                             "No price for a2 for a week",                                               "No price for a1, a2 for a week; Using a for b; Using something else for y; Using stale price for x1"),
+    ("Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD): No price yet for def",  "In UnitConversionPricingModel (in lot and USD): No price yet for abc",     "In UnitConversionPricingModel (in lot and USD): No price yet for abc, def; No price for a1 for a week; Using stale price for x1"),
+    ("Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD): No price yet for def",  "Using different one; Using another different one",                         "In UnitConversionPricingModel (in lot and USD): No price yet for def; No price for a1 for a week; Using another different one; Using different one; Using stale price for x1"),
+    ("Using stale price for x1, x2",                                                                                                "Using stale price for x3, x1",                                             "Using stale price for x1, x2, x3"),
+])
+def test_combine_status_messages(messages, new_message, expected):
+    register_status_message_pattern(r"Using stale price for (\w+)")
+    register_status_message_pattern(r"No price for (\w+) for a week")
+    register_status_message_pattern("In UnitConversionPricingModel (in lot and USD): No price yet for (\w+)")
+    result = eval_node(combine_status_messages, [messages], [new_message],  __elide__=True)
+    assert result[-1] == expected

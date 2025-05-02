@@ -1,3 +1,4 @@
+from contextlib import ExitStack, nullcontext
 import inspect
 import sys
 import types
@@ -13,6 +14,7 @@ from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import WiringError, CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
+from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     BaseWiringNodeClass,
     PreResolvedWiringNodeWrapper,
@@ -85,9 +87,9 @@ class WiringGraphContext:
         self._wiring_node_signature: WiringNodeSignature = node_signature
         self._temporary = temporary
 
-        self._sink_nodes: ["WiringNodeInstance"] = []
-        self._other_nodes: [Tuple["WiringPort", dict]] = []
-        self._service_clients: [
+        self._sink_nodes: list["WiringNodeInstance"] = []
+        self._other_nodes: list[Tuple["WiringPort", dict]] = []
+        self._service_clients: list[
             Tuple[
                 "WiringNodeClass",
                 str,
@@ -96,10 +98,11 @@ class WiringGraphContext:
                 bool,
             ]
         ] = []
-        self._service_stubs: [Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
-        self._context_clients: [Tuple[str, int, "WiringNOdeInstance"]] = []
+        self._service_stubs: list[Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
+        self._context_clients: list[Tuple[str, int, "WiringNOdeInstance"]] = []
         self._service_implementations: Dict[str, Tuple["WiringNodeClass", "ServiceImplNodeClass", dict]] = {}
         self._built_services = {}
+        self._service_build_contexts = []
 
         self._current_frame = sys._getframe(1)
 
@@ -294,6 +297,25 @@ class WiringGraphContext:
             if s == service
         )
 
+    def add_service_build_context(self, context, name = None):
+        assert WiringNodeInstanceContext.instance() is WiringNodeInstanceContext.__stack__[0], (
+            f"Service build context must be in the top level graph (i.e. not nested). {context} does not appear to be"
+        )
+        assert not any(n == name for _, n in self._service_build_contexts), (
+            f"Service build context with name {name} already exists in the graph"
+        )
+        self._service_build_contexts.append((context, name))
+
+    def _build_service(self, impl, **kwargs):
+        with ExitStack() if self._service_build_contexts else nullcontext() as stack:
+            for c, n in self._service_build_contexts:
+                if n:
+                    exec(f"{n} = c")
+                c.__enter__()
+                stack.push(c)
+
+            impl(**kwargs)
+
     def build_services(self):
         """
         Build the service implementations for the graph
@@ -304,14 +326,21 @@ class WiringGraphContext:
         loop_count = 0
         while True:
             while True:
-                loop_count += 1
-                if loop_count > 1000:
-                    raise CustomMessageWiringError(
-                        "The graph is not stabilising, there may be an issue with the service specifications."
-                    )
+                # these are catch-all services and adaptors that will figure out if they need to wire anything by themselves
+                for path, impl, kwargs in (
+                    (p, i, kw) for p, (s, i, kw) in self._service_implementations.items() if s is None
+                ):
+                    if path not in self._built_services:
+                        self._build_service(impl, path=path, __pre_resolved_types__={}, **kwargs)
+                        self.add_built_service_impl(path, None)
+
+                # Now build 'normal' services
                 services_to_build = dict()
                 for service, path, type_map in set(service_clients):
                     typed_path = service.typed_full_path(path, type_map)
+                    if typed_path in self._built_services:
+                        service_full_paths[(service, path, type_map)] = typed_path
+                        continue
 
                     if item := self.find_service_impl(path, service, type_map, quiet=True):
                         interface, impl, kwargs = item
@@ -342,7 +371,7 @@ class WiringGraphContext:
                 for typed_path in services_to_build:
                     if typed_path not in self._built_services:
                         service, path, impl, kwargs, type_map = services_to_build[typed_path]
-                        impl(path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
+                        self._build_service(impl, path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
 
                 if len(self._service_clients) == len(service_clients):
                     break
@@ -350,16 +379,6 @@ class WiringGraphContext:
                     service_clients = [
                         (service, path, type_map) for service, path, type_map, _, _ in self._service_clients
                     ]
-
-            # these are catch-all services and adaptors that will figure out if they need to wire anything by themselves
-            for path, impl, kwargs in (
-                (p, i, kw) for p, (s, i, kw) in self._service_implementations.items() if s is None
-            ):
-                if path not in catch_all_services_processed and path not in self._built_services:
-                    catch_all_services_processed.add(path)
-                    impl(path=path, __pre_resolved_types__={}, **kwargs)
-                    # Once processed we should mark these as done, or we will re-process these again if the service
-                    # Clients are not complete
 
             if len(self._service_clients) == len(service_clients):
                 break
@@ -405,6 +424,9 @@ class WiringGraphContext:
             WiringGraphContext.__stack__[-1]._context_clients.extend(self._context_clients)
             WiringGraphContext.__stack__[-1]._service_implementations.update(self._service_implementations)
             WiringGraphContext.__stack__[-1]._built_services.update(self._built_services)
+
+            for c, n in self._service_build_contexts:
+                WiringGraphContext.__stack__[-1].add_service_build_context(c, n)
 
 
 class GraphWiringNodeClass(BaseWiringNodeClass):

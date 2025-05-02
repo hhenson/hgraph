@@ -63,6 +63,4 @@ def mesh_subscribe_node_stop(mesh: REF[TSD[SCALAR, TIME_SERIES_TYPE]], _output: 
     from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
     mesh_node: PythonMeshNodeImpl = mesh.value.output.owning_node
-
-    if _output.valid:
-        mesh_node._remove_graph_dependency(_find_mesh_key(_output.owning_node, mesh_node), state.key)
+    mesh_node._remove_graph_dependency(_find_mesh_key(_output.owning_node, mesh_node), state.key)
