@@ -74,12 +74,118 @@ class Stats {
     static updates_processed = 0;
     static max_updates_waiting = 0;
     static rows_joined = 0;
+    
+    static update_processing_times = [];
+    static max_processing_time = 0;
+    static total_processing_time = 0;
+    static processing_time_samples = 0;
+    static last_reset_time = performance.now();
+    
+    // Redesigned metrics for concurrent processing time tracking
+    static active_updates_count = 0;
+    static last_activity_change_time = performance.now();
+    static total_active_time = 0;
+
+    static startProcessing() {
+        const now = performance.now();
+        if (Stats.active_updates_count === 0) {
+            // Transitioning from idle to active
+            Stats.last_activity_change_time = now;
+        }
+        Stats.active_updates_count++;
+    }
+
+    static endProcessing() {
+        const now = performance.now();
+        if (Stats.active_updates_count > 0) {
+            Stats.active_updates_count--;
+            if (Stats.active_updates_count === 0) {
+                // Transitioning from active to idle
+                const active_duration = now - Stats.last_activity_change_time;
+                Stats.total_active_time += active_duration;
+                Stats.last_activity_change_time = now;
+            }
+        }
+    }
+
+    static updateActivityTracking() {
+        const now = performance.now();
+        // Only update if we have active updates
+        if (Stats.active_updates_count > 0) {
+            const active_duration = now - Stats.last_activity_change_time;
+            Stats.total_active_time += active_duration;
+            Stats.last_activity_change_time = now;
+        }
+    }
+
+    static getProcessingPercentage() {
+        const now = performance.now();
+        const totalElapsed = now - Stats.last_reset_time;
+        
+        // Add current active session if any
+        let activeTime = Stats.total_active_time;
+        if (Stats.active_updates_count > 0) {
+            activeTime += now - Stats.last_activity_change_time;
+        }
+        
+        // Calculate percentage of time spent processing
+        return totalElapsed > 0 ? (activeTime / totalElapsed) * 100 : 0;
+    }
+
+    static trackUpdateProcessingTime(time) {
+        Stats.update_processing_times.push(time);
+        // Keep only the last 100 samples for memory efficiency
+        if (Stats.update_processing_times.length > 100) {
+            Stats.update_processing_times.shift();
+        }
+        Stats.max_processing_time = Math.max(Stats.max_processing_time, time);
+        Stats.total_processing_time += time;
+        Stats.processing_time_samples++;
+    }
+
+    static getAverageProcessingTime() {
+        return Stats.processing_time_samples > 0 ? 
+            Stats.total_processing_time / Stats.processing_time_samples : 0;
+    }
+
+    static getPercentiles() {
+        if (Stats.update_processing_times.length === 0) return { p90: 0 };
+        
+        const sorted = [...Stats.update_processing_times].sort((a, b) => a - b);
+        return {
+            p90: sorted[Math.floor(sorted.length * 0.9)]
+        };
+    }
+
+    static getTelemetryData(elapsed) {
+        Stats.updateActivityTracking();
+        const percentiles = Stats.getPercentiles();
+        
+        return {
+            max_updates_waiting: Stats.max_updates_waiting,
+            updates_received_per_min: 60 * Stats.updates_received / (elapsed / 1000),
+            updates_processed_per_min: 60 * Stats.updates_processed / (elapsed / 1000),
+            rows_joined_per_min: 60 * Stats.rows_joined / (elapsed / 1000),
+            avg_processing_time_ms: Stats.getAverageProcessingTime(),
+            max_processing_time_ms: Stats.max_processing_time,
+            p90_processing_time_ms: percentiles.p90,
+            processing_time_percent: Stats.getProcessingPercentage()
+        };
+    }
 
     static reset() {
         Stats.updates_received = 0;
         Stats.updates_processed = 0;
         Stats.max_updates_waiting = 0;
         Stats.rows_joined = 0;
+        Stats.update_processing_times = [];
+        Stats.max_processing_time = 0;
+        Stats.total_processing_time = 0;
+        Stats.processing_time_samples = 0;
+        Stats.active_updates_count = 0;
+        Stats.total_active_time = 0;
+        Stats.last_activity_change_time = performance.now();
+        Stats.last_reset_time = performance.now();
     }
 }
 
@@ -645,6 +751,8 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
 async function join_table_removed(target, removes_table, join_tables, table_name, workspace, worker, updated) {
     if (updated.port_id !== 0) return;
 
+    Stats.startProcessing();
+    
     const update_table = await worker.table(updated.delta);
     const update_view = await update_table.view();
     const update = await update_view.to_columns();
@@ -703,6 +811,8 @@ async function join_table_removed(target, removes_table, join_tables, table_name
             await join_table_updated(target, removes_table, join_tables, other_table, workspace, worker, {port_id: undefined, delta: data});
         }
     }
+
+    Stats.endProcessing();
 }
 
 
@@ -728,6 +838,9 @@ async function drop_join_rows(target, removes_table, drop_rows_indices, join_tab
 async function join_table_updated(target, removes_table, join_tables, table_name, workspace, worker, updated) {
     if (updated.port_id > 0) return;
 
+    Stats.startProcessing();
+    const startProcessing = performance.now();
+    
     let update_data = undefined;
     let force_republish = false;
     if (updated.port_id === undefined) {
@@ -976,6 +1089,11 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         DEBUG && console.log("Removing from", join_tables._total.name, "on outer join", table_name, "of", drop_rows_indices.size, safeClone(drop_rows_indices));
         await drop_join_rows(target, removes_table, drop_rows_indices, join_tables);
     }
+
+    const endProcessing = performance.now();
+    const processingTime = endProcessing - startProcessing;
+    Stats.trackUpdateProcessingTime(processingTime);
+    Stats.endProcessing();
 }
 
 const workspace_tables = {};
@@ -1092,6 +1210,9 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 const time_now = new Date();
                 const elapsed = new Date() - heartbeat_time;
 
+                // Get telemetry data including processing time percentage
+                const telemetryData = Stats.getTelemetryData(elapsed);
+
                 management_ws && management_ws.send({
                     type: "heartbeat", 
                     lag: time_now - hb_time, 
@@ -1099,10 +1220,7 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                     sequence_diff: sequence_diff,
                     max_lock_wait: Math.round(AsyncLock.max_wait),
                     max_lock_time: Math.round(AsyncLock.max_lock),
-                    max_updates_waiting: Stats.max_updates_waiting,
-                    updates_received_per_min: 60000 * Stats.updates_received / elapsed,
-                    updates_processed_per_min: 60000 * Stats.updates_processed / elapsed,
-                    rows_joined_per_min: 60000 * Stats.rows_joined / elapsed
+                    ...telemetryData
                 });
                 AsyncLock.reset_stats();
                 Stats.reset();
