@@ -1216,3 +1216,14 @@ Version 0.4.46 (01-05-2025)
 
 * Fix __getitem__ on TSBRefWiringPort
 * Fix wiring issues with arrow wrappers.
+
+Version 0.4.47 (02-05-2025)
+---------------------------
+
+* Lots of small fixes
+* Modify http logic to use bytes instead of str
+* throttling TSS
+* Collapsing messages
+* Faster graph topological sorting
+* Support for forward reference in schemas
+* Initial support for threaded GlobalContext
