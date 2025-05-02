@@ -5,7 +5,7 @@ from functools import reduce
 from hashlib import shake_256
 from inspect import get_annotations
 import sys
-from typing import TYPE_CHECKING, ForwardRef, List, Set, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar, Generic
+from typing import TYPE_CHECKING, ForwardRef, List, Set, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar, Generic, Mapping
 
 from frozendict import frozendict
 

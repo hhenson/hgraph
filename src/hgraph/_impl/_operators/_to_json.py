@@ -154,7 +154,7 @@ def _(value: HgTSSTypeMetaData, delta=False) -> Callable[[Any], str]:
             f'{{{", ".join(i for i in (f_i("added", v.added(), fn_), f_i("removed", v.removed(), fn_)) if i)}}}')
 
 
-@to_json_converter.register(HgSetScalarType)
+@to_json_converter.register
 def _(value: HgSetScalarType, delta=False) -> Callable[[Any], str]:
     fn = to_json_converter(value.element_type, delta)
     return lambda v, fn_=fn: f'[{", ".join(fn_(i) for i in v)}]'
@@ -188,7 +188,7 @@ def from_json_converter(value: HgTypeMetaData, delta=False) -> Callable[[dict], 
     raise RuntimeError(f"Cannot convert to '{value}' from JSON")
 
 
-@from_json_converter.register(HgTSTypeMetaData)
+@from_json_converter.register
 def _(value: HgTSTypeMetaData, delta=False) -> Callable[[Any], Any]:
     return from_json_converter(value.value_scalar_tp, delta)
 
@@ -200,7 +200,7 @@ def _compound_scalar_parent_decode(value: HgCompoundScalarType, delta:bool):
     return lambda v, switches_=switches, d=discriminator: switches_[v.get(d)](v)
 
 
-@from_json_converter.register(HgCompoundScalarType)
+@from_json_converter.register
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], Any]:
     if value.py_type.__serialise_base__ :
         return _compound_scalar_parent_decode(value, delta)
@@ -273,7 +273,7 @@ def _(value: HgTSSTypeMetaData, delta=False) -> Callable[[list], Any]:
         else tuple(fn_(i) for i in v)) if v is not None else None
 
 
-@from_json_converter.register(HgSetScalarType)
+@from_json_converter.register
 def _(value: HgSetScalarType, delta=False) -> Callable[[list], Any]:
     fn = from_json_converter(value.element_type, delta)
     return lambda v, fn_=fn:  frozenset(fn_(i) for i in v) if v is not None else None
