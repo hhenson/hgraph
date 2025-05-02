@@ -9,10 +9,10 @@ The language is function based, and promotes composition to extend behaviour.
 
 Here is a simple example:
 
-.. testcode:: python
+.. testcode::
 
-    from hgraph import graph, run_graph, const
-    from hgraph.nodes import debug_print
+    from hgraph import graph, evaluate_graph, GraphConfiguration, const, debug_print
+    from logging import INFO
 
     @graph
     def main():
@@ -20,13 +20,14 @@ Here is a simple example:
         c = a + 2
         debug_print("a + 2", c)
 
-    run_graph(main)
+    evaluate_graph(main, GraphConfiguration(default_log_level=INFO))
 
 Results in:
 
 .. testoutput::
 
-    [1970-01-01 00:00:00.000385][1970-01-01 00:00:00.000001] a + 2: 3
+    [1970-01-01 00:00:00...][1970-01-01 00:00:00.000001] a + 2: 3
+
 
 
 Development

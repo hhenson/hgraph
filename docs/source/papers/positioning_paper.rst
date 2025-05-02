@@ -399,14 +399,14 @@ This adds support for chaining and dealing with tuples, for example:
     add_5 = arr(lambda x: x+5)
     (mul_2 >> add_5)(3)
 
->>> 11
+>> 11
 
 ::
 
     to_upper = arr(lambda x: x.upper())
     first(to_upper)(('hello', 42))
 
->>> ("HELLO", 42)
+>> ("HELLO", 42)
 
 
 With these primitives defined, a small set of utilities are described to build out the core operator set.

@@ -14,8 +14,8 @@ from hgraph._runtime._global_state import GlobalState
 from hgraph._runtime._graph_executor import GraphEngineFactory
 from hgraph._wiring._wiring_observer import WiringObserver
 
-__all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
+__all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
 
 
 def _default_logger() -> Logger:
@@ -84,7 +84,15 @@ class GraphConfiguration:
         The instance of the Python ``Logger`` to use for graph logging, by default an instance of the logger
         will be setup and registered under the 'hgraph' name. (Can be retrieved using ``getLogger('hgraph')``)
 
-    recorder
+    trace_back_depth
+        Used as a parameter to the error handling logic to determine the depth of traceback to capture.
+
+    capture_values
+        capture the values of the inputs to the trace-back (default is False)
+
+    default_log_level
+        The default log level to use, the default is DEBUG.
+
     """
 
     run_mode: EvaluationMode = EvaluationMode.SIMULATION
@@ -98,6 +106,7 @@ class GraphConfiguration:
     graph_logger: Logger = field(default_factory=_default_logger)
     trace_back_depth: int = 1
     capture_values: bool = False
+    default_log_level: int = DEBUG
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
@@ -135,6 +144,9 @@ class GraphConfiguration:
             self.wiring_observers = self.wiring_observers + (
                 WiringTracer(**(self.trace_wiring if type(self.trace_wiring) is dict else {})),
             )
+
+        if self.default_log_level != DEBUG:
+            self.graph_logger.setLevel(self.default_log_level)
 
     @property
     def error_capture_options(self):
