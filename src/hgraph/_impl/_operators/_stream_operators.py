@@ -174,6 +174,7 @@ def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIM
     from multimethod import multimethod
     from hgraph import PythonTimeSeriesValueInput
     from hgraph import PythonTimeSeriesDictInput
+    from hgraph import PythonTimeSeriesSetInput
 
     @multimethod
     def dedup_item(input, output):
@@ -199,6 +200,11 @@ def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIM
                 return input.delta_value
         else:
             return input.value
+
+    @dedup_item.register
+    def dedup_value(input: PythonTimeSeriesSetInput, output):
+        return input.delta_value
+
 
     return dedup_item(ts, _output)
 
