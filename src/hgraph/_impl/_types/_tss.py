@@ -73,7 +73,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         factory = PythonTimeSeriesBuilderFactory.instance()
         bool_ts_builder = factory.make_output_builder(HgTimeSeriesTypeMetaData.parse_type(TS[bool]))
         self._contains_ref_outputs = FeatureOutputExtension(
-            self, bool_ts_builder, lambda output, key: key in output.value
+            self, bool_ts_builder, (lambda output, result_output, key: result_output.apply_result(key in output.value))
         )
         # Use owning output as the empty state will only occur if this output is going change anyhow and it
         # Deals with state not being fully ready on construction when creating a TSD key_set.

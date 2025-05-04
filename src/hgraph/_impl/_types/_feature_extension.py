@@ -18,8 +18,8 @@ class FeatureOutputRequestTracker:
 class FeatureOutputExtension:
     owning_output: TimeSeriesOutput
     output_builder: OutputBuilder
-    value_getter: Callable[[TimeSeriesOutput, SCALAR], Any | None]
-    initial_value_getter: Callable[[TimeSeriesOutput, SCALAR], Any | None] | None = None
+    value_getter: Callable[[TimeSeriesOutput, TimeSeriesOutput, SCALAR], None]
+    initial_value_getter: Callable[[TimeSeriesOutput, TimeSeriesOutput, SCALAR], None] | None = None
     _outputs: dict[SCALAR, FeatureOutputRequestTracker] = field(default_factory=dict)
 
     def create_or_increment(self, key: SCALAR, requester: object) -> TimeSeriesOutput:
@@ -30,22 +30,18 @@ class FeatureOutputExtension:
                 output=self.output_builder.make_instance(owning_node=self.owning_output.owning_node)
             )
             self._outputs[key] = tracker
-            if (
-                value := (
-                    self.value_getter(self.owning_output, key)
-                    if self.initial_value_getter is None
-                    else self.initial_value_getter(self.owning_output, key)
-                )
-            ) is not None:
-                tracker.output.value = value
+            (
+                self.value_getter(self.owning_output, tracker.output, key)
+                if self.initial_value_getter is None
+                else self.initial_value_getter(self.owning_output, tracker.output, key)
+            )
         tracker.requesters.add(requester)
         return tracker.output
 
     def update(self, key: SCALAR):
         tracker = self._outputs.get(key, None)
         if tracker is not None:
-            if (value := self.value_getter(self.owning_output, key)) is not None:
-                tracker.output.value = value
+            self.value_getter(self.owning_output, tracker.output, key)
 
     def update_all(self, keys: Sequence[SCALAR]):
         if self._outputs:

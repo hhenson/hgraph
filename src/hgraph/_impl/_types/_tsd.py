@@ -62,7 +62,9 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._removed_items: dict[K, V] = {}
         self._added_keys: set[str] = set()
         self._ref_ts_feature: FeatureOutputExtension = FeatureOutputExtension(
-            self, self._ts_ref_builder, lambda output, key: TimeSeriesReference.make(output.get(key))
+            self,
+            self._ts_ref_builder,
+            lambda output, result_output, key: result_output.apply_result(TimeSeriesReference.make(output.get(key))),
         )
         self._ts_values_to_keys: dict[int, K] = {}
         self._modified_items: list[Tuple[K, V]] = []
@@ -81,7 +83,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     def delta_value(self):
         return frozendict(
             chain(
-                ((k, v.delta_value) for k, v in self.items() if v.modified and v.valid), ((k, REMOVE) for k in self.removed_keys())
+                ((k, v.delta_value) for k, v in self.items() if v.modified and v.valid),
+                ((k, REMOVE) for k in self.removed_keys()),
             )
         )
 
@@ -165,7 +168,6 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         for observer in self._key_observers:
             for k in self._removed_items:
                 observer.on_key_removed(k)
-
 
     def invalidate(self):
         for v in self.values():
@@ -427,8 +429,10 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         elif self.active:
             return max(self._last_notified_time, self.key_set.last_modified_time, self._sample_time)
         else:
-            return max(self.key_set.last_modified_time,
-                       max((v.last_modified_time for v in self._ts_values.values()), default=MIN_DT))
+            return max(
+                self.key_set.last_modified_time,
+                max((v.last_modified_time for v in self._ts_values.values()), default=MIN_DT),
+            )
 
     @property
     def value(self):
@@ -439,7 +443,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         return frozendict(
             chain(
                 ((k, v.delta_value) for k, v in self.modified_items() if v.valid),
-                ((k, REMOVE) for k, v in self.removed_items() if self._removed_items.get(k, (None, False))[1])
+                ((k, REMOVE) for k, v in self.removed_items() if self._removed_items.get(k, (None, False))[1]),
             )
         )
 
