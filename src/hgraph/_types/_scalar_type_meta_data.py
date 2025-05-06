@@ -422,21 +422,17 @@ class HgTraitsType(HgInjectableType):
         return TraitsInjector()
 
 
-HGRAPH_LOGGER = logging.getLogger("hgraph")
-HGRAPH_LOGGER_LOGGER = HGRAPH_LOGGER._log
-
-
-def _log(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node_path=None):
-    return HGRAPH_LOGGER_LOGGER(level, f"{node_path}:\n{msg}", args, exc_info, extra, stack_info, stacklevel)
-
-
 class LoggerInjector(Injector):
     def __call__(self, node):
+        from hgraph import GlobalState
         from hgraph._types._error_type import BackTrace
+        root_logger = GlobalState.instance()["__graph_logger__"]
+        custom_formatter = GlobalState.instance().get("__graph_custom_formatter__", None)
+        node_path = BackTrace.runtime_path_name(node).replace(".log_impl._log", "")
+        logger = root_logger.getChild(node_path)
+        if custom_formatter is not None:
+            logger._log = partial(custom_formatter, node_path=node_path, __orig_log__=logger._log)
 
-        node_path = BackTrace.runtime_path_name(node)
-        logger = logging.getLogger(node_path)
-        logger._log = partial(_log, node_path=node_path)
         return logger
 
 

@@ -1240,3 +1240,8 @@ Version 0.4.49 (06-05-2025)
 * Fix to kafka subscriber logic.
 * Fix to_json decode when no value is present
 * Add call (sink node version of apply)
+
+Version 0.4.50 (06-05-2025)
+---------------------------
+
+* Clean-up logging to make it work more consistently.

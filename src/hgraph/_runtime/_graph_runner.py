@@ -15,7 +15,7 @@ from hgraph._runtime._graph_executor import GraphEngineFactory
 from hgraph._wiring._wiring_observer import WiringObserver
 
 
-__all__ = ("run_graph", "evaluate_graph", "GraphConfiguration")
+__all__ = ("run_graph", "evaluate_graph", "GraphConfiguration", "node_path_log_formatter")
 
 
 def _default_logger() -> Logger:
@@ -35,6 +35,11 @@ def _default_logger() -> Logger:
     warnings.showwarning = warn_with_log
     warnings.filterwarnings("once", category=DeprecationWarning)
     return logger
+
+
+def node_path_log_formatter(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node_path=None, __orig_log__=None):
+    """A formatter that prints out the node path in addition to the log message."""
+    return __orig_log__(level, f"{node_path}:\n{msg}", args, exc_info, extra, stack_info, stacklevel)
 
 
 def warn_with_log(message, category, filename, lineno, file=None, line=None):
@@ -93,6 +98,12 @@ class GraphConfiguration:
     default_log_level
         The default log level to use, the default is DEBUG.
 
+    logger_formatter
+        Use to provide a custom formatter to override the default logger._log method.
+        The node_path is supplied as an extra argument to the formatter as well as the original log method
+        (as ``__orig_log__``).
+        An example formatter is provided as ``node_path_log_formatter``.
+
     """
 
     run_mode: EvaluationMode = EvaluationMode.SIMULATION
@@ -107,6 +118,7 @@ class GraphConfiguration:
     trace_back_depth: int = 1
     capture_values: bool = False
     default_log_level: int = DEBUG
+    logger_formatter: Callable = None
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
@@ -206,6 +218,8 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
         )
         config.graph_logger.debug("Starting to run graph from: %s to %s", config.start_time, config.end_time)
         try:
+            GlobalState.instance()["__graph_logger__"] = config.graph_logger
+            GlobalState.instance()["__graph_custom_formatter__"] = config.logger_formatter
             engine.run(config.start_time, config.end_time)
             if signature is not None and signature.output_type:
                 return get_recorded_value("__out__")
