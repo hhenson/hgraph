@@ -159,14 +159,14 @@ def _message_subscriber_impl(path: str, topic: str):
     # Assign these partitions to the consumer.
     consumer.assign(topic_partitions)
 
-    if ks.history_subscribers:
+    if topic in ks.history_subscribers:
         historical_out = _message_subscriber_history_aggregator(path, consumer, topic_partitions)
         set_service_output(path, message_history_subscriber_service, historical_out)
         start_real_time_service = historical_out.recovered
     else:
         start_real_time_service = const(True)
 
-    if ks.subscribers:
+    if topic in ks.subscribers:
         set_service_output(
             path, message_subscriber_service, _real_time_message_subscriber(path=topic)
         )
