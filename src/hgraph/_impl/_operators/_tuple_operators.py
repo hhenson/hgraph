@@ -22,7 +22,10 @@ from hgraph import (
     sum_,
     zero,
     TUPLE,
-    index_of, add_, sub_, SCALAR_1,
+    index_of,
+    add_,
+    sub_,
+    SCALAR_1,
 )
 
 __all__ = tuple()
@@ -159,7 +162,9 @@ def sub_tuple_scalar(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR]) -> TS[Tuple[S
 
 
 @compute_node(overloads=sub_)
-def sub_tuple_scalar_cmp(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR_1], cmp: Callable[[SCALAR, SCALAR_1], bool]) -> TS[Tuple[SCALAR, ...]]:
+def sub_tuple_scalar_cmp(
+    lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR_1], cmp: Callable[[SCALAR, SCALAR_1], bool]
+) -> TS[Tuple[SCALAR, ...]]:
     """Removes the element from the tuples that match the cmp function"""
     lhs = lhs.value
     rhs = rhs.value

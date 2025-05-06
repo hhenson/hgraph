@@ -1,6 +1,18 @@
 from datetime import datetime
 
-from hgraph import graph, run_graph, compute_node, TS, TIME_SERIES_TYPE, evaluate_graph, GraphConfiguration, const, EvaluationMode, print_, debug_print
+from hgraph import (
+    graph,
+    run_graph,
+    compute_node,
+    TS,
+    TIME_SERIES_TYPE,
+    evaluate_graph,
+    GraphConfiguration,
+    const,
+    EvaluationMode,
+    print_,
+    debug_print,
+)
 
 
 def test_hello_world():

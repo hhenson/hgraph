@@ -103,9 +103,21 @@ def test_reduce_tuple():
 
     @graph
     def g(items: TS[tuple[int, ...]], zero: TS[str]) -> TS[str]:
-        return reduce(lambda x, y: format_("{x}, {y}",x=x, y=y), items, zero, is_associative=False)
+        return reduce(lambda x, y: format_("{x}, {y}", x=x, y=y), items, zero, is_associative=False)
 
-    assert eval_node(g, [(1, 2,), (1,), tuple()], ["a"]) == ["a, 1, 2", "a, 1", "a"]
+    assert eval_node(
+        g,
+        [
+            (
+                1,
+                2,
+            ),
+            (1,),
+            tuple(),
+        ],
+        ["a"],
+    ) == ["a, 1, 2", "a, 1", "a"]
+
 
 def test_reduce_simple():
     @graph
@@ -113,5 +125,6 @@ def test_reduce_simple():
         return reduce(lambda x, y: x + y, items, 0)
 
     assert eval_node(
-        g, [{1: 1, 2: 2}],
+        g,
+        [{1: 1, 2: 2}],
     ) == [3]

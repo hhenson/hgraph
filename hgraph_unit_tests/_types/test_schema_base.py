@@ -2,8 +2,16 @@ import json
 from dataclasses import dataclass
 from typing import Generic
 
-from hgraph import CompoundScalar, COMPOUND_SCALAR, Base, HgTypeMetaData, TimeSeriesSchema, TS, HgCompoundScalarType, \
-    from_json_builder
+from hgraph import (
+    CompoundScalar,
+    COMPOUND_SCALAR,
+    Base,
+    HgTypeMetaData,
+    TimeSeriesSchema,
+    TS,
+    HgCompoundScalarType,
+    from_json_builder,
+)
 from hgraph._impl._operators._to_json import to_json_converter, from_json_converter
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 from frozendict import frozendict as fd
@@ -122,8 +130,10 @@ def test_mixed_schema_base():
     p1 = GenericallyDerivedCompoundScalar[COMPOUND_SCALAR]
     p2 = p1[SimpleCompoundScalar]
 
-    assert p2.__meta_data_schema__ == {"m1": HgTypeMetaData.parse_type(TS[int]),
-                                       "m2": HgTypeMetaData.parse_type(TS[int])}
+    assert p2.__meta_data_schema__ == {
+        "m1": HgTypeMetaData.parse_type(TS[int]),
+        "m2": HgTypeMetaData.parse_type(TS[int]),
+    }
 
 
 def test_serialise_parent_child_schema():
@@ -137,8 +147,9 @@ def test_serialise_parent_child_schema():
         p2: float
 
     assert SimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int)})
-    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int),
-                                       "p2": HgTypeMetaData.parse_type(float)})
+    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd(
+        {"p1": HgTypeMetaData.parse_type(int), "p2": HgTypeMetaData.parse_type(float)}
+    )
     assert SimpleCompoundScalar.__serialise_discriminator_field__ == "__type__"
     assert SimpleCompoundScalar.__serialise_children__ == {"LessSimpleCompoundScalar": LessSimpleCompoundScalar}
     assert LessSimpleCompoundScalar.__serialise_base__ == False
@@ -163,8 +174,9 @@ def test_serialise_parent_child_schema_with_discriminator():
         p2: float = 1.0
 
     assert SimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int)})
-    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int),
-                                                                "p2": HgTypeMetaData.parse_type(float)})
+    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd(
+        {"p1": HgTypeMetaData.parse_type(int), "p2": HgTypeMetaData.parse_type(float)}
+    )
     assert SimpleCompoundScalar.__serialise_discriminator_field__ == "name"
     assert SimpleCompoundScalar.__serialise_children__ == {"LSCS": LessSimpleCompoundScalar}
     assert LessSimpleCompoundScalar.__serialise_base__ == False
@@ -189,10 +201,14 @@ def test_serialise_parent_child_schema_with_discriminator_in_schema():
         name: str = "LSCS"
         p2: float = 1.0
 
-    assert SimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int), "name": HgTypeMetaData.parse_type(str)})
-    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({"p1": HgTypeMetaData.parse_type(int),
-                                                                "p2": HgTypeMetaData.parse_type(float),
-                                                                "name": HgTypeMetaData.parse_type(str)})
+    assert SimpleCompoundScalar.__meta_data_schema__ == fd(
+        {"p1": HgTypeMetaData.parse_type(int), "name": HgTypeMetaData.parse_type(str)}
+    )
+    assert LessSimpleCompoundScalar.__meta_data_schema__ == fd({
+        "p1": HgTypeMetaData.parse_type(int),
+        "p2": HgTypeMetaData.parse_type(float),
+        "name": HgTypeMetaData.parse_type(str),
+    })
     assert SimpleCompoundScalar.__serialise_discriminator_field__ == "name"
     assert SimpleCompoundScalar.__serialise_children__ == {"LSCS": LessSimpleCompoundScalar}
     assert LessSimpleCompoundScalar.__serialise_base__ == False

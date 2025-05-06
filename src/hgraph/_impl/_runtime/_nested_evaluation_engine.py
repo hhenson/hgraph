@@ -8,7 +8,6 @@ from hgraph._runtime._evaluation_clock import EngineEvaluationClock, EngineEvalu
 from hgraph._runtime._evaluation_engine import EvaluationEngine, EvaluationEngineDelegate
 from hgraph._runtime._node import NodeSignature
 
-
 __all__ = (
     "PythonNestedNodeImpl",
     "NestedEvaluationEngine",
@@ -38,10 +37,7 @@ class NestedEngineEvaluationClock(EngineEvaluationClockDelegate):
         if (let := self._nested_node.last_evaluation_time) and let >= next_time or self._nested_node.is_stopping:
             return
 
-        proposed_next_time = min(next_time,
-                                 max(
-                                     self._nested_next_scheduled_evaluation_time,
-                                     (let or MIN_DT) + MIN_TD))
+        proposed_next_time = min(next_time, max(self._nested_next_scheduled_evaluation_time, (let or MIN_DT) + MIN_TD))
 
         if proposed_next_time != self._nested_next_scheduled_evaluation_time:
             self._nested_next_scheduled_evaluation_time = proposed_next_time
@@ -97,5 +93,4 @@ class PythonNestedNodeImpl(NodeImpl):
         self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
 
     @abstractmethod
-    def nested_graphs(self):
-        ...
+    def nested_graphs(self): ...

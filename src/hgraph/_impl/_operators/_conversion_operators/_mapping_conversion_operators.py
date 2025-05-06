@@ -85,7 +85,9 @@ def convert_tsd_to_mapping(
     resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
     all_valid=lambda m, s: ("ts",) if s["__strict__"] else None,
 )
-def convert_tsb_to_mapping(ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False) -> TS[Mapping[str, SCALAR]]:
+def convert_tsb_to_mapping(
+    ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False
+) -> TS[Mapping[str, SCALAR]]:
     return ts.value
 
 
@@ -96,7 +98,9 @@ def convert_tsb_to_mapping(ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __s
     resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
     all_valid=lambda m, s: ("ts",) if s["__strict__"] else None,
 )
-def convert_tsb_to_mapping(to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False, **ts: TSB[TS_SCHEMA]) -> TS[Mapping[str, SCALAR]]:
+def convert_tsb_to_mapping(
+    to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False, **ts: TSB[TS_SCHEMA]
+) -> TS[Mapping[str, SCALAR]]:
     return frozendict(ts.value)
 
 

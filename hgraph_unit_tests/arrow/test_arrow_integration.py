@@ -40,4 +40,4 @@ def test_to_pair():
         a: TS[int]
         b: TS[str]
 
-    eval_(fd(a=1, b="2"), type_map=TSB[SimpleTS]) | to_pair("a", "b") >> assert_((1,"2"))
+    eval_(fd(a=1, b="2"), type_map=TSB[SimpleTS]) | to_pair("a", "b") >> assert_((1, "2"))

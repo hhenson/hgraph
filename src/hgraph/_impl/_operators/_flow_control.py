@@ -64,7 +64,7 @@ def combine_compound_scalars(orig: TS[COMPOUND_SCALAR], delta: TS[COMPOUND_SCALA
     """
     if not delta.valid:
         return orig.value
-    original_values = (o_v:=orig.value).to_dict()
+    original_values = (o_v := orig.value).to_dict()
     items = [(key, value, original_values) for key, value in delta.value.to_dict().items()]
     while items:
         key, value, orig_values = items.pop()

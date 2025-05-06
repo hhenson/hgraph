@@ -96,7 +96,6 @@ try:
         assert response2.status_code == 200
         assert response2.text == "Hello, world!"
 
-
     @pytest.mark.xfail(reason="This test is flaky when run in CICD to build pip", strict=False)
     @pytest.mark.serial
     def test_multiple_request_graph(port):
@@ -210,10 +209,7 @@ try:
             register_http_server_adaptor(port=port)
             register_adaptor("http_client", http_client_adaptor_impl)
 
-            queries = frozendict({
-                str(i): HttpGetRequest(f"http://localhost:{port}/test/{i}")
-                for i in range(10)
-            })
+            queries = frozendict({str(i): HttpGetRequest(f"http://localhost:{port}/test/{i}") for i in range(10)})
 
             @graph
             def _send_query(key: TS[str], q: TS[HttpRequest]) -> TS[bool]:

@@ -6,7 +6,18 @@ from typing import Mapping, Any, TYPE_CHECKING, Type
 from frozendict import frozendict
 
 from hgraph._runtime._global_state import GlobalState
-from hgraph._types import TS, SCALAR, TIME_SERIES_TYPE, REF, STATE, HgREFTypeMetaData, clone_type_var, DEFAULT, AUTO_RESOLVE, HgTimeSeriesTypeMetaData
+from hgraph._types import (
+    TS,
+    SCALAR,
+    TIME_SERIES_TYPE,
+    REF,
+    STATE,
+    HgREFTypeMetaData,
+    clone_type_var,
+    DEFAULT,
+    AUTO_RESOLVE,
+    HgTimeSeriesTypeMetaData,
+)
 from hgraph._wiring._decorators import graph, sink_node, pull_source_node
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_port import WiringPort
@@ -208,9 +219,11 @@ class ContextNodeClass(BaseWiringNodeClass):
 def get_context_output(path: str, depth: int) -> REF[CONTEXT_TIME_SERIES_TYPE]:
     """Uses the special node to extract a context output from the global state."""
 
+
 @graph
 def get_context(name: str, tp_: Type[CONTEXT_TIME_SERIES_TYPE] = AUTO_RESOLVE) -> CONTEXT_TIME_SERIES_TYPE:
     from hgraph import WiringNodeInstanceContext
+
     tp = HgTimeSeriesTypeMetaData.parse_type(tp_)
     return TimeSeriesContextTracker.instance().get_context(tp, WiringNodeInstanceContext.instance(), name)
 

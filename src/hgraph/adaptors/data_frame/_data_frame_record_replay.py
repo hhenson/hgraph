@@ -17,11 +17,7 @@ from hgraph._operators import (
 )
 from hgraph._operators._record_replay import record_replay_model_restriction, replay, replay_const
 from hgraph._operators._to_table import get_table_schema_as_of_key, from_table_const
-from hgraph._runtime import (
-    GlobalState,
-    EvaluationEngineApi,
-    MAX_DT
-)
+from hgraph._runtime import GlobalState, EvaluationEngineApi, MAX_DT
 from hgraph._runtime._traits import Traits
 from hgraph._types import (
     TIME_SERIES_TYPE,
@@ -33,12 +29,7 @@ from hgraph._types import (
     Frame,
     DEFAULT,
 )
-from hgraph._wiring import (
-    graph,
-    sink_node,
-    generator,
-    const_fn
-)
+from hgraph._wiring import graph, sink_node, generator, const_fn
 
 __all__ = (
     "DATA_FRAME_RECORD_REPLAY",

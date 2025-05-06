@@ -1,10 +1,9 @@
-
+"""
+inspector item id is a unique identifier of an item in the graph, it can identify graphs, nodes and values in a node
+like any of its inputs, outputs or scalars
 
 """
-    inspector item id is a unique identifier of an item in the graph, it can identify graphs, nodes and values in a node
-    like any of its inputs, outputs or scalars
 
-"""
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
@@ -37,7 +36,7 @@ class InspectorItemId:
 
     _s_to_i: ClassVar[dict[object, str]] = {}  # internalised names and keys from the graph
     _i_to_s: ClassVar[dict[str, object]] = {}  # reverse lookup for internalised names and keys from the graph
-    _counter: ClassVar[int] = 0 # counter for internalised names and keys from the graph
+    _counter: ClassVar[int] = 0  # counter for internalised names and keys from the graph
 
     @classmethod
     def __reset__(cls):  # use in tests only
@@ -45,11 +44,14 @@ class InspectorItemId:
         cls._i_to_s = {}
         cls._counter = 0
 
-    def __init__(self, *,
-                 graph: tuple[int, ...] = (),
-                 node: int = None,
-                 value_type: NodeValueType = None,
-                 value_path: tuple[int, ...] = ()):
+    def __init__(
+        self,
+        *,
+        graph: tuple[int, ...] = (),
+        node: int = None,
+        value_type: NodeValueType = None,
+        value_path: tuple[int, ...] = (),
+    ):
         object.__setattr__(self, "graph", graph)
         object.__setattr__(self, "node", node)
         object.__setattr__(self, "value_type", value_type)
@@ -91,8 +93,8 @@ class InspectorItemId:
         if s := self.__dict__.get("_str"):
             return s
 
-        graph_str = '.'.join(str(i) for i in self.graph)
-        path_str = '/'.join(str(self._internalise(i)) for i in self.value_path)
+        graph_str = ".".join(str(i) for i in self.graph)
+        path_str = "/".join(str(self._internalise(i)) for i in self.value_path)
 
         match self.item_type:
             case InspectorItemType.Graph:
@@ -123,7 +125,7 @@ class InspectorItemId:
             graph=tuple(int(i) for i in graph_str.split(".")) if graph_str else (),
             node=int(node_str) if node_str.isdigit() else None,
             value_type=NodeValueType(value_type_str) if value_type_str else None,
-            value_path=tuple(int(i) if i.isdigit() else cls._un_internalise(i) for i in path if i)
+            value_path=tuple(int(i) if i.isdigit() else cls._un_internalise(i) for i in path if i),
         )
 
     @classmethod
@@ -151,7 +153,7 @@ class InspectorItemId:
                 graph=o.owning_graph.graph_id,
                 node=o.owning_node.node_ndx,
                 value_type=NodeValueType.Inputs,
-                value_path=tuple(i for i in reversed(path))
+                value_path=tuple(i for i in reversed(path)),
             )
         elif isinstance(o, TimeSeriesOutput):
             path = []
@@ -167,7 +169,7 @@ class InspectorItemId:
                 graph=o.owning_graph.graph_id,
                 node=o.owning_node.node_ndx,
                 value_type=NodeValueType.Output,
-                value_path=tuple(i for i in reversed(path))
+                value_path=tuple(i for i in reversed(path)),
             )
         else:
             return None
@@ -250,7 +252,7 @@ class InspectorItemId:
     def indent(self, graph: "Graph"):
         # graph is a graph object that matches this object's graph id
 
-        tab = "\u00A0\u00A0"
+        tab = "\u00a0\u00a0"
         indent = ""
         i = 0
         while i < len(self.graph):
@@ -304,7 +306,9 @@ class InspectorItemId:
         if self.value_type is not None:
             sort_key += value_type_order[self.value_type]
 
-        sort_key += ''.join(base62(i) if type(i) is int and i < 62**3 else self._internalise(i)[1:] for i in self.value_path)
+        sort_key += "".join(
+            base62(i) if type(i) is int and i < 62**3 else self._internalise(i)[1:] for i in self.value_path
+        )
         return sort_key
 
     def sub_item(self, key: int | str | object, value):
@@ -319,38 +323,22 @@ class InspectorItemId:
             assert self.node == value.owning_node.node_ndx
             assert value.parent_input is None
 
-            return InspectorItemId(
-                graph=self.graph,
-                node=self.node,
-                value_type=NodeValueType.Inputs
-            )
+            return InspectorItemId(graph=self.graph, node=self.node, value_type=NodeValueType.Inputs)
 
         if isinstance(value, TimeSeriesOutput) and self.value_type is None:
             assert self.graph == value.owning_graph.graph_id
             assert self.node == value.owning_node.node_ndx
             assert value.parent_output is None
 
-            return InspectorItemId(
-                graph=self.graph,
-                node=self.node,
-                value_type=NodeValueType.Output
-            )
+            return InspectorItemId(graph=self.graph, node=self.node, value_type=NodeValueType.Output)
 
         if isinstance(value, NodeValueType):
-            return InspectorItemId(
-                graph=self.graph,
-                node=self.node,
-                value_type=value,
-                value_path=()
-            )
+            return InspectorItemId(graph=self.graph, node=self.node, value_type=value, value_path=())
 
         assert self.value_type is not None
 
         return InspectorItemId(
-            graph=self.graph,
-            node=self.node,
-            value_type=self.value_type,
-            value_path=self.value_path + (key,)
+            graph=self.graph, node=self.node, value_type=self.value_type, value_path=self.value_path + (key,)
         )
 
     def is_parent_of(self, other):
@@ -366,7 +354,9 @@ class InspectorItemId:
             parents.append(InspectorItemId(graph=self.graph[:i], node=self.graph[i]))
             i += 1
             if i < len(self.graph):
-                parents.append(InspectorItemId(graph=self.graph[:i-1], node=self.graph[i-1], value_type=NodeValueType.Graphs))
+                parents.append(
+                    InspectorItemId(graph=self.graph[: i - 1], node=self.graph[i - 1], value_type=NodeValueType.Graphs)
+                )
                 if i < len(self.graph) and self.graph[i] < 0:
                     i += 1
                     parents.append(InspectorItemId(graph=self.graph[:i]))
@@ -380,7 +370,11 @@ class InspectorItemId:
             parents.append(InspectorItemId(graph=self.graph, node=self.node, value_type=self.value_type))
 
         for i in range(len(self.value_path)):
-            parents.append(InspectorItemId(graph=self.graph, node=self.node, value_type=self.value_type, value_path=self.value_path[:i]))
+            parents.append(
+                InspectorItemId(
+                    graph=self.graph, node=self.node, value_type=self.value_type, value_path=self.value_path[:i]
+                )
+            )
 
         return parents[:-1]
 

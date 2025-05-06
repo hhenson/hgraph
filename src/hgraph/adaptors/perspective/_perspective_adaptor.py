@@ -15,8 +15,26 @@ from hgraph import (
     WiringGraphContext,
     WiringNodeInstance,
     CustomMessageWiringError,
-    register_adaptor, flip, map_, TSS, graph, REF, TSB, SCHEMA, TS_SCHEMA, race, nothing, combine, len_, emit, assert_,
-    pass_through, sink_node, reduce_tsd_with_race, reduce_tsd_of_bundles_with_race, operator,
+    register_adaptor,
+    flip,
+    map_,
+    TSS,
+    graph,
+    REF,
+    TSB,
+    SCHEMA,
+    TS_SCHEMA,
+    race,
+    nothing,
+    combine,
+    len_,
+    emit,
+    assert_,
+    pass_through,
+    sink_node,
+    reduce_tsd_with_race,
+    reduce_tsd_of_bundles_with_race,
+    operator,
 )
 from hgraph._wiring._wiring_node_class._service_adaptor_node_class import ServiceAdaptorNodeClass
 from hgraph.adaptors.perspective._perspetive_publish import _publish_table, _receive_table_edits, TableEdits
@@ -55,13 +73,13 @@ def publish_join_table(path: str, schema: Mapping[str, type], index: str, descri
 
 
 @sink_node
-def _publish_join_table(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]):
-    ...
+def _publish_join_table(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]): ...
 
 
 @_publish_join_table.start
 def _publish_join_table_start(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]):
     from hgraph.adaptors.perspective import PerspectiveTablesManager
+
     PerspectiveTablesManager.current().add_join(path, schema, index, description)
 
 
@@ -72,26 +90,39 @@ def publish_table_editable_impl(
     _assert_unique_type_per_path(publish_table_editable)
 
     _publish_table(path, ts, index_col_name=index_col_name, history=history, editable=True, empty_row=empty_row)
-    return _receive_table_edits(path, tp=ts.output_type.dereference().py_type, index_col_name=index_col_name, empty_row=empty_row)
+    return _receive_table_edits(
+        path, tp=ts.output_type.dereference().py_type, index_col_name=index_col_name, empty_row=empty_row
+    )
 
 
 @service_adaptor
-def publish_multitable(path: str, key: TS[SCALAR], ts: TIME_SERIES_TYPE, unique: bool, index_col_name: str, history: int = None): ...
+def publish_multitable(
+    path: str, key: TS[SCALAR], ts: TIME_SERIES_TYPE, unique: bool, index_col_name: str, history: int = None
+): ...
 
 
 @service_adaptor_impl(interfaces=publish_multitable)
 def publish_multitable_impl(
-    path: str, key: TSD[int, TS[SCALAR]], ts: TSD[int, TIME_SERIES_TYPE], unique: bool, index_col_name: str, history: int = None
+    path: str,
+    key: TSD[int, TS[SCALAR]],
+    ts: TSD[int, TIME_SERIES_TYPE],
+    unique: bool,
+    index_col_name: str,
+    history: int = None,
 ):
     _assert_unique_type_per_path(publish_multitable)
 
     if not unique:
+
         @operator
-        def merge_references(keys: TSS[int], ts: TSD[int, REF[TIME_SERIES_TYPE]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> REF[TIME_SERIES_TYPE]:
-            ...
+        def merge_references(
+            keys: TSS[int], ts: TSD[int, REF[TIME_SERIES_TYPE]], _schema: Type[TS_SCHEMA] = TS_SCHEMA
+        ) -> REF[TIME_SERIES_TYPE]: ...
 
         @graph(overloads=merge_references)
-        def merge_references_tsb(keys: TSS[int], ts: TSD[int, REF[TSB[TS_SCHEMA]]], _schema: Type[TS_SCHEMA] = TS_SCHEMA) -> TSB[TS_SCHEMA]:
+        def merge_references_tsb(
+            keys: TSS[int], ts: TSD[int, REF[TSB[TS_SCHEMA]]], _schema: Type[TS_SCHEMA] = TS_SCHEMA
+        ) -> TSB[TS_SCHEMA]:
             selection = ts[keys]
             return reduce_tsd_of_bundles_with_race(tsd=selection)
 

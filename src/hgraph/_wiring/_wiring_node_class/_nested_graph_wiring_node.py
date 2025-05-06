@@ -46,7 +46,6 @@ class NestedGraphWiringNodeClass(BaseWiringNodeClass):
 
             NestedGraphWiringNodeClass.BUILDER_CLASS = PythonNestedGraphNodeBuilder
 
-
         return NestedGraphWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,

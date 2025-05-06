@@ -8,6 +8,7 @@ def test_build_graph():
         print_(c)
 
     from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+
     with WiringNodeInstanceContext():
         g = wire_graph(hello_world)
 

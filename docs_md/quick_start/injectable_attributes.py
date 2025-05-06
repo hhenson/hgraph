@@ -15,6 +15,7 @@ def window(ts: TS[int], size: int, _state: STATE = None) -> TS[tuple[int, ...]]:
 @window.start
 def window_start(size: int, _state: STATE) -> STATE[int]:
     from collections import deque
+
     _state.window = deque(maxlen=size)
 
 
@@ -93,8 +94,10 @@ print(eval_node(sum_, ts=[1, 2, 3, 4, 5]))
 
 from hgraph import LOGGER
 
+
 @sink_node
 def log(ts: TS[int], _logger: LOGGER = None):
     _logger.info(f"Logging: {ts.value}")
+
 
 eval_node(log, ts=[1, 2, 3, 4, 5])

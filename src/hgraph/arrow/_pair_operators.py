@@ -49,7 +49,8 @@ def flatten_tsl(x: Pair[A, B]) -> TSL[OUT, SIZE]:
     tp = v[0].output_type.py_type
     if not all(tp == i.output_type.py_type for i in v):
         raise ValueError(
-            f"All elements must have the same type, got types: ({','.join(str(i.output_type) for i in v)})")
+            f"All elements must have the same type, got types: ({','.join(str(i.output_type) for i in v)})"
+        )
     return TSL.from_ts(*v)
 
 
@@ -70,8 +71,10 @@ def flatten_tsb(__schema__=None, **kwargs):
     def _wrapper(x):
         v = _flatten(x)
         if len(v) != len(schema.__meta_data_schema__):
-            raise ValueError(f"Expected {len(schema.__meta_data_schema__)} values, got {len(v)} for schema: "
-                             f"{dict({k: str(v) for k, v in schema.__meta_data_schema__.items()})}")
+            raise ValueError(
+                f"Expected {len(schema.__meta_data_schema__)} values, got {len(v)} for schema: "
+                f"{dict({k: str(v) for k, v in schema.__meta_data_schema__.items()})}"
+            )
         return TSB[schema].from_ts(**{k: v for k, v in zip(schema.__meta_data_schema__.keys(), v)})
 
     return arrow(_wrapper)

@@ -7,7 +7,7 @@ from hgraph.test import eval_node
 @dataclass
 class TestCS(CompoundScalar):
     a: int
-    b: str = ''
+    b: str = ""
 
 
 def test_getatttr_cs():
@@ -49,7 +49,7 @@ def test_getattr_cs_default():
 
     @graph
     def g(ts: TS[Test]) -> TS[str]:
-        return getattr_(ts, 'b', "DEFAULT")
+        return getattr_(ts, "b", "DEFAULT")
 
     assert eval_node(g, [Test()]) == ["DEFAULT"]
     assert eval_node(g, [Test(b="")]) == [""]

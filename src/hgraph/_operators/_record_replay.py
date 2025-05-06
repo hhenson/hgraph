@@ -97,6 +97,7 @@ IN_MEMORY = "InMemory"
 
 RECORDABLE_ID_TRAIT = "recordable_id"
 
+
 def record_replay_model() -> str:
     """Get the recordable model to make use of"""
     return GlobalState.instance().get("::record_replay_model::", IN_MEMORY)
@@ -104,6 +105,7 @@ def record_replay_model() -> str:
 
 def has_recordable_id_trait(trait: "Traits") -> bool:
     return trait.get_trait_or(RECORDABLE_ID_TRAIT, None) is not None
+
 
 def get_fq_recordable_id(traits: "Traits", recordable_id: str) -> str:
     """
@@ -171,9 +173,9 @@ def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) ->
 
 
 @operator
-def replay_const(key: str, tp: type[OUT] = AUTO_RESOLVE,
-                 recordable_id: str = None, tm: datetime = None,
-                 as_of: datetime = None) -> OUT:
+def replay_const(
+    key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None, tm: datetime = None, as_of: datetime = None
+) -> OUT:
     """
     Will return a const time-series of values <= start_time.
     This is used to intialise the graph prior to continued computations.

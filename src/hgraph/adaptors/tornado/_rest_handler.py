@@ -78,7 +78,7 @@ class RestResultEnum(Enum):
     GATEWAY_TIMEOUT = 504
     HTTP_VERSION_NOT_SUPPORTED = 505
 
-    TORNADO_TIMED_OUT = 599 # Unofficially used by Tornado to indicate network time-out
+    TORNADO_TIMED_OUT = 599  # Unofficially used by Tornado to indicate network time-out
 
 
 @dataclass(frozen=True)

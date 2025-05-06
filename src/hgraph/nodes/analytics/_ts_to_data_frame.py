@@ -18,7 +18,6 @@ import polars as pl
 
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
 
-
 __all__ = ("to_frame",)
 
 

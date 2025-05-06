@@ -130,7 +130,6 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
 
                 ServiceImplNodeClass.BUILDER_CLASS = PythonServiceImplNodeBuilder
 
-
             inner_graph = scalars["inner_graph"]
             return ServiceImplNodeClass.BUILDER_CLASS(
                 signature=node_signature,

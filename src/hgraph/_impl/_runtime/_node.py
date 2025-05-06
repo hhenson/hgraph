@@ -166,17 +166,20 @@ class BaseNodeImpl(Node, ABC):
     def _initialise_state(self):
         if self.recordable_state is not None:
             from hgraph._operators._record_replay import RecordReplayContext, RecordReplayEnum, replay_const
+
             mode = RecordReplayContext.instance().mode
             if RecordReplayEnum.RECOVER in mode:
                 # TODO: make recordable_id unique by using parent node context information.
                 from hgraph._operators._to_table import get_as_of
+
                 recordable_id = get_fq_recordable_id(self.graph.traits, self.signature.record_replay_id)
                 self.recordable_state.value = replay_const(
                     "__state__",
                     self.signature.recordable_state.tsb_type.py_type,
                     recordable_id=recordable_id,
-                    tm = (clock := self.graph.evaluation_clock).evaluation_time - MIN_TD,  # We want the state just before now
-                    as_of = get_as_of(clock),
+                    tm=(clock := self.graph.evaluation_clock).evaluation_time
+                    - MIN_TD,  # We want the state just before now
+                    as_of=get_as_of(clock),
                 ).value
 
     def do_eval(self): ...
@@ -502,12 +505,12 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
 
             self.messages_dequeued += 1
             return True
-        
+
         if self.elide or self.output.can_apply_result(message):
             self.output.apply_result(message)
             self.messages_dequeued += 1
             return True
-        
+
         return False
 
     @property

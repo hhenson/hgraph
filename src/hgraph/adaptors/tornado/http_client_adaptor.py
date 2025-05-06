@@ -123,16 +123,11 @@ def http_client_adaptor_impl(
             final = response2.headers.get("WWW-Authenticate")
             if final is not None:
                 try:
-                    challenge = [v[len(scheme) + 1:] for val in final.split(',') if scheme in (v := val.strip())]
+                    challenge = [v[len(scheme) + 1 :] for val in final.split(",") if scheme in (v := val.strip())]
                     if len(challenge) != 1:
-                        raise HTTPError(
-                            401, f'Did not get exactly one {scheme} challenge from server'
-                        )
+                        raise HTTPError(401, f"Did not get exactly one {scheme} challenge from server")
 
-                    tokenbuf = win32security.PySecBufferType(
-                        pkg_info['MaxToken'],
-                        sspicon.SECBUFFER_TOKEN
-                    )
+                    tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
                     tokenbuf.Buffer = base64.b64decode(challenge[0])
                     sec_buffer.append(tokenbuf)
                     err, auth = clientauth.authorize(sec_buffer)
@@ -149,8 +144,8 @@ def http_client_adaptor_impl(
             response2.request.headers["Cookie"] = set_cookie
 
         challenge = [
-            v[len(scheme) + 1:]
-            for val in response2.headers.get('WWW-Authenticate', '').split(',')
+            v[len(scheme) + 1 :]
+            for val in response2.headers.get("WWW-Authenticate", "").split(",")
             if scheme in (v := val.strip())
         ]
         if len(challenge) != 1:
@@ -304,7 +299,7 @@ def http_client_adaptor_impl(
             sender({id: HttpResponse(status_code=e.code, body=e.message.encode())})
             return
 
-        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time)/1000000))
+        logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time) / 1000000))
         sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body)})
 
     @sink_node

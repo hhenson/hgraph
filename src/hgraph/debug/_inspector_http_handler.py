@@ -12,11 +12,12 @@ class InspectorHttpHandler(tornado.web.RequestHandler):
 
     async def get(self, *args):
         request = HttpGetRequest(
-                url=self.request.uri,
-                url_parsed_args=args,
-                headers=self.request.headers,
-                query=frozendict({k: ''.join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
-                cookies=frozendict(self.request.cookies))
+            url=self.request.uri,
+            url_parsed_args=args,
+            headers=self.request.headers,
+            query=frozendict({k: "".join(i.decode() for i in v) for k, v in self.request.query_arguments.items()}),
+            cookies=frozendict(self.request.cookies),
+        )
 
         future = asyncio.Future()
         self.queue((future, request))

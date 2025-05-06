@@ -45,7 +45,6 @@ class TryExceptWiringNodeClass(BaseWiringNodeClass):
 
             TryExceptWiringNodeClass.BUILDER_CLASS = PythonTryExceptNodeBuilder
 
-
         return TryExceptWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,

@@ -1,15 +1,9 @@
-from hgraph import (
-    compute_node,
-    TSL,
-    TIME_SERIES_TYPE,
-    SIZE,
-    SCALAR,
-    TS,
-    REF,
-    TSD
-)
+from hgraph import compute_node, TSL, TIME_SERIES_TYPE, SIZE, SCALAR, TS, REF, TSD
 
-__all__ = ("flatten_tsl_values", "tsl_to_tsd",)
+__all__ = (
+    "flatten_tsl_values",
+    "tsl_to_tsd",
+)
 
 
 @compute_node

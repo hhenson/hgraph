@@ -106,7 +106,6 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         self._alarms: SortedList[tuple[datetime, str]] = SortedList[tuple[datetime, str]]()
         self._alarms_cb: dict[tuple[datetime, str], Callable] = dict[tuple[datetime, str], Callable]()
 
-
     @property
     def now(self) -> datetime:
         """This represents the current system clock time."""
@@ -153,7 +152,9 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
                 break
 
         self._ready_to_push = False
-        if next_scheduled_time > self.evaluation_time + MIN_TD or now > self._last_time_allowed_push + timedelta(seconds=15):
+        if next_scheduled_time > self.evaluation_time + MIN_TD or now > self._last_time_allowed_push + timedelta(
+            seconds=15
+        ):
             with self._push_node_requires_scheduling_condition:
                 self._ready_to_push = True
                 self._last_time_allowed_push = now
@@ -184,7 +185,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         with self._push_node_requires_scheduling_condition:
             self._push_node_requires_scheduling = False
 
-    def set_alarm(self, time: datetime |  timedelta, name: str, callback: Callable):
+    def set_alarm(self, time: datetime | timedelta, name: str, callback: Callable):
         if type(time) is timedelta:
             time = self.now + time
         elif time <= self.evaluation_time:
@@ -194,5 +195,6 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         self._alarms_cb[(time, name)] = callback
 
     def cancel_alarm(self, name: str):
-        self._alarms = SortedList((t, n) for t, n in self._alarms
-                                  if (n != name or (self._alarms_cb.pop((t, n), None) and False)))  # alarm_cb.pop is here so we dont have to iterate twice
+        self._alarms = SortedList(
+            (t, n) for t, n in self._alarms if (n != name or (self._alarms_cb.pop((t, n), None) and False))
+        )  # alarm_cb.pop is here so we dont have to iterate twice

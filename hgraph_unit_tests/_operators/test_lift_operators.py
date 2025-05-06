@@ -12,4 +12,5 @@ def test_call():
     @graph
     def g(v: TS[str]):
         call(print, v)
+
     eval_node(g, ["hello", "world"])

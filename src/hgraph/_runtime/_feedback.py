@@ -36,7 +36,9 @@ class FeedbackWiringPort(Generic[TIME_SERIES_TYPE]):
         return self
 
 
-def feedback(tp_or_wp: Union[type[TIME_SERIES_TYPE], "WiringPort"], default: SCALAR = None) -> FeedbackWiringPort[TIME_SERIES_TYPE]:
+def feedback(
+    tp_or_wp: Union[type[TIME_SERIES_TYPE], "WiringPort"], default: SCALAR = None
+) -> FeedbackWiringPort[TIME_SERIES_TYPE]:
     """
     Provides a mechanism to allow for cycles in the code without breaking the DAG nature of the graph.
     The ``feedback`` method creates a special node that can be used to wire into nodes prior to the value

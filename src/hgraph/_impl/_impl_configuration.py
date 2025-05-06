@@ -1,6 +1,5 @@
 import os
 
-
 __all__ = ("HG_TYPE_CHECKING",)
 
 

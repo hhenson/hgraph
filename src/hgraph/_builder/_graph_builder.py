@@ -21,9 +21,13 @@ class Edge:
     dst_node: int
     input_path: tuple["SCALAR", ...]
 
+
 EDGE_TYPE = Edge
 
-def make_edge(src_node: int, output_path: tuple["SCALAR", ...], dst_node: int, input_path: tuple["SCALAR", ...]) -> Edge:
+
+def make_edge(
+    src_node: int, output_path: tuple["SCALAR", ...], dst_node: int, input_path: tuple["SCALAR", ...]
+) -> Edge:
     global EDGE_TYPE
     return EDGE_TYPE(src_node, output_path, dst_node, input_path)
 

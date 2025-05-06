@@ -99,6 +99,7 @@ class WiringNodeClass:
         Add more direct support for arrow behaviour, this will correctly respond to the >> operator
         """
         from hgraph.arrow import arrow
+
         return arrow(self) >> arrow(item)
 
     def __eq__(self, other):
@@ -354,6 +355,7 @@ class BaseWiringNodeClass(WiringNodeClass):
 
                 if resolved_signature.uses_recordable_state:
                     from hgraph._operators._record_replay import RecordReplayContext, RecordReplayEnum, record
+
                     mode = RecordReplayContext.instance().mode
                     if RecordReplayEnum.RECORD in mode:
                         record(port.__state__, "__state__", recordable_id=resolved_signature.record_and_replay_id)
@@ -410,6 +412,7 @@ def validate_and_resolve_signature(
     WiringContext.current_kwargs = kwargs
     try:
         from hgraph._wiring._markers import _PassivateMarker
+
         passive_keys = set(k for k, v in kwargs.items() if isinstance(v, _PassivateMarker))
         if passive_keys:
             # Unpack passive keys
@@ -483,7 +486,9 @@ def validate_and_resolve_signature(
         ) from e
 
 
-def _adjust_active_inputs(signature: WiringNodeSignature, active_inputs: tuple[str, ...], passive_inputs: set[str]) -> WiringNodeSignature:
+def _adjust_active_inputs(
+    signature: WiringNodeSignature, active_inputs: tuple[str, ...], passive_inputs: set[str]
+) -> WiringNodeSignature:
     if active_inputs is None:
         active_inputs = tuple(signature.time_series_inputs.keys())
     active_inputs = tuple(k for k in active_inputs if k not in passive_inputs)

@@ -42,4 +42,3 @@ def test_emit_tsl():
         return emit(m)
 
     assert eval_node(g, [(1, None), None, (4, None), (5, 6)]) == [1, None, 4, 5, 6]
-

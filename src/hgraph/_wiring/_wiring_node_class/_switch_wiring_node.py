@@ -64,7 +64,6 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
 
             SwitchWiringNodeClass.BUILDER_CLASS = PythonSwitchNodeBuilder
 
-
         return SwitchWiringNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,

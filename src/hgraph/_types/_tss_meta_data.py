@@ -5,7 +5,6 @@ from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgSetScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 
-
 __all__ = (
     "HgTSSTypeMetaData",
     "HgTSSOutTypeMetaData",

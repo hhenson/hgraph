@@ -7,7 +7,11 @@ def test_const_wiring():
 
     assert type(const) is OperatorWiringNodeClass
     const_: PythonGeneratorWiringNodeClass = const
-    assert const_.signature.args == ("value", "tp", "delay",)
+    assert const_.signature.args == (
+        "value",
+        "tp",
+        "delay",
+    )
 
 
 def test_const():
@@ -15,7 +19,7 @@ def test_const():
 
 
 def test_delayed_const():
-    assert eval_node(const, 1, delay=MIN_TD*2) == [None, None, 1]
+    assert eval_node(const, 1, delay=MIN_TD * 2) == [None, None, 1]
 
 
 def test_delayed():

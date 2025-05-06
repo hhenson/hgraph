@@ -164,10 +164,9 @@ def test_mesh_removal():
                 DEFAULT: lambda key: mesh_(fib)[key - 1] + mesh_(fib)[key - 2],
             },
         )
-    
+
     @graph
     def g(i: TSS[int]) -> TSD[int, TS[int]]:
         return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
 
     assert eval_node(g, [{7}, {Removed(7)}]) == [{}, {}]
-

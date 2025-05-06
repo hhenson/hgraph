@@ -36,8 +36,7 @@ def test_compute_node():
 def test_sink_node():
 
     @sink_node
-    def simple_sink_node(ts: TS[int], s1: str = "test"):
-        ...
+    def simple_sink_node(ts: TS[int], s1: str = "test"): ...
 
     assert type(simple_sink_node) is PythonWiringNodeClass
     signature: WiringNodeSignature = simple_sink_node.signature
@@ -49,8 +48,7 @@ def test_sink_node():
 def test_graph():
 
     @graph
-    def simple_graph():
-        ...
+    def simple_graph(): ...
 
     assert type(simple_graph) is GraphWiringNodeClass
     signature: WiringNodeSignature = simple_graph.signature

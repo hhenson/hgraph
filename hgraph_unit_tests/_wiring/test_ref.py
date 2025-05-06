@@ -15,7 +15,8 @@ from hgraph import (
     Removed,
     K,
     KEYABLE_SCALAR,
-    if_, TSB,
+    if_,
+    TSB,
 )
 from hgraph._impl._operators._tss_operators import contains_tss
 from hgraph.test import eval_node
@@ -166,6 +167,7 @@ def test_merge_tsd():
 
 def test_free_bundle_ref():
     from hgraph import TimeSeriesSchema
+
     class AB(TimeSeriesSchema):
         a: TS[int]
         b: TS[int]
@@ -177,6 +179,7 @@ def test_free_bundle_ref():
     @graph
     def g(a: TS[int], b: TS[int]) -> TS[bool]:
         from hgraph import combine
+
         return ref_signal(combine[TSB[AB]](a=a, b=b))
 
     assert eval_node(g, a=[1, 2], b=[3, 4]) == [True, None]

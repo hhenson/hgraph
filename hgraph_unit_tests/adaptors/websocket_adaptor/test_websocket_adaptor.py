@@ -162,7 +162,9 @@ try:
             return combine[TSB[WebSocketResponse]](
                 connect_response=True,
                 message=convert[TS[bytes]](
-                    format_("Hello, {} and {}!", request.connect_request.url_parsed_args[0], sample(request.messages, b))
+                    format_(
+                        "Hello, {} and {}!", request.connect_request.url_parsed_args[0], sample(request.messages, b)
+                    )
                 ),
             )
 
@@ -190,7 +192,9 @@ try:
                 connect_response=True,
                 message=convert[TS[bytes]](
                     format_(
-                        "Hello, {}, {}!", request.connect_request.url_parsed_args[0], convert[TS[str]](emit(request.messages))
+                        "Hello, {}, {}!",
+                        request.connect_request.url_parsed_args[0],
+                        convert[TS[str]](emit(request.messages)),
                     )
                 ),
             )

@@ -3,7 +3,7 @@ from hgraph.test import eval_node
 
 
 def test_all_valid():
-    @compute_node(all_valid=('tsl',))
+    @compute_node(all_valid=("tsl",))
     def a_node(tsl: TSL[TS[int], Size[2]]) -> TS[bool]:
         return True
 
@@ -11,7 +11,7 @@ def test_all_valid():
 
 
 def test_valid():
-    @compute_node(valid=('tsl',))
+    @compute_node(valid=("tsl",))
     def a_node(tsl: TSL[TS[int], Size[2]]) -> TS[bool]:
         return True
 

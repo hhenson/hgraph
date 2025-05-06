@@ -37,7 +37,7 @@ def replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]:
     """
 
 
-@operator # Would need to define substr in imports
+@operator  # Would need to define substr in imports
 def substr(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
     """
     Extracts a substring from the input string time series based on start and end positions.
@@ -47,6 +47,7 @@ def substr(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
     :param end: Optional ending position (exclusive) of the substring. If None, extracts to the end of string.
     :return: Time series containing the extracted substring
     """
+
 
 @operator
 def split(s: TS[str], separator: str, maxsplits: int = -1, to: Type[OUT] = TS[Tuple[str, ...]]) -> DEFAULT[OUT]:

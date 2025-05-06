@@ -10,7 +10,8 @@ from hgraph import (
     MIN_TD,
     valid,
     last_modified_time,
-    modified, TimeSeriesReference,
+    modified,
+    TimeSeriesReference,
 )
 from hgraph.test import eval_node
 

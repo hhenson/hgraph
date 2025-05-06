@@ -37,16 +37,30 @@ class MyComplexCS(CompoundScalar):
         [TS[timedelta], timedelta(10, 15, microseconds=42), '"10:0:0:15.000042"'],
         [TS[ExpEnum], ExpEnum.E1, '"E1"'],
         [TS[MyCS], MyCS(p1="a", p2=date(2024, 6, 13)), '{"p1": "a", "p2": "2024-06-13"}'],
-        [TS[MyComplexCS], MyComplexCS(c1=(MyCS(p1="a", p2=date(2024, 6, 13)),)), '{"c1": [{"p1": "a", "p2": "2024-06-13"}]}'],
+        [
+            TS[MyComplexCS],
+            MyComplexCS(c1=(MyCS(p1="a", p2=date(2024, 6, 13)),)),
+            '{"c1": [{"p1": "a", "p2": "2024-06-13"}]}',
+        ],
         [TS[Mapping[int, int]], {1: 1, 2: 2}, '{"1": 1, "2": 2}'],
         [TS[Mapping[str, int]], fd(p1=1, p2=2), '{"p1": 1, "p2": 2}'],
         [TS[tuple[str, ...]], ("1", "2"), '["1", "2"]'],
-        [TS[Set[str]], {"1",}, '["1"]'],  # Can't have more than one as the hash is not stable
-        [TSL[TS[int], Size[2]], {0: 1, 1: 2}, '[1, 2]'],
-        [TSB[MyCS], {'p1': "a", 'p2': date(2024, 6, 13)}, '{"p1": "a", "p2": "2024-06-13"}'],
-        [TSS[int], {1, 2}, '[1, 2]'],
-        [TSD[int, TS[str]], {1: 'a', 2: 'b'}, '{"1": "a", "2": "b"}'],
-        [TSD[int, TSL[TS[str], Size[2]]], {1: {0: 'a', 1: 'b'}, 2: {0: 'b', 1: 'c'}}, '{"1": ["a", "b"], "2": ["b", "c"]}'],
+        [
+            TS[Set[str]],
+            {
+                "1",
+            },
+            '["1"]',
+        ],  # Can't have more than one as the hash is not stable
+        [TSL[TS[int], Size[2]], {0: 1, 1: 2}, "[1, 2]"],
+        [TSB[MyCS], {"p1": "a", "p2": date(2024, 6, 13)}, '{"p1": "a", "p2": "2024-06-13"}'],
+        [TSS[int], {1, 2}, "[1, 2]"],
+        [TSD[int, TS[str]], {1: "a", 2: "b"}, '{"1": "a", "2": "b"}'],
+        [
+            TSD[int, TSL[TS[str], Size[2]]],
+            {1: {0: "a", 1: "b"}, 2: {0: "b", 1: "c"}},
+            '{"1": ["a", "b"], "2": ["b", "c"]}',
+        ],
     ],
 )
 def test_to_json(tp: TIME_SERIES_TYPE, value: Any, expected: str):
@@ -58,12 +72,14 @@ def test_to_json(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     ["tp", "value", "expected"],
     [
         [TSL[TS[int], Size[2]], [{0: 1, 1: 2}], ['{"0": 1, "1": 2}']],
-        [TSB[MyCS], [{'p1': "a", 'p2': date(2024, 6, 13)}], ['{"p1": "a", "p2": "2024-06-13"}']],
+        [TSB[MyCS], [{"p1": "a", "p2": date(2024, 6, 13)}], ['{"p1": "a", "p2": "2024-06-13"}']],
         [TSS[int], [{1, 2}, {Removed(2)}], ['{"added": [1, 2]}', '{"removed": [2]}']],
-        [TSD[int, TS[str]], [{1: 'a', 2: 'b'}, {1: REMOVE}], ['{"1": "a", "2": "b"}', '{"1": null}']],
-        [TSD[int, TSL[TS[str], Size[2]]],
-         [{1: {0: 'a', 1: 'b'}, 2: {0: 'b', 1: 'c'}}, {1: {0: 'aa'}}, {2: REMOVE}],
-         ['{"1": {"0": "a", "1": "b"}, "2": {"0": "b", "1": "c"}}', '{"1": {"0": "aa"}}', '{"2": null}'],],
+        [TSD[int, TS[str]], [{1: "a", 2: "b"}, {1: REMOVE}], ['{"1": "a", "2": "b"}', '{"1": null}']],
+        [
+            TSD[int, TSL[TS[str], Size[2]]],
+            [{1: {0: "a", 1: "b"}, 2: {0: "b", 1: "c"}}, {1: {0: "aa"}}, {2: REMOVE}],
+            ['{"1": {"0": "a", "1": "b"}, "2": {"0": "b", "1": "c"}}', '{"1": {"0": "aa"}}', '{"2": null}'],
+        ],
     ],
 )
 def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):

@@ -267,9 +267,9 @@ def convert_df_to_frame(
 
 @compute_node(overloads=convert)
 def convert_cs_to_frame(
-        ts: TS[COMPOUND_SCALAR],
-        _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
-        _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE
+    ts: TS[COMPOUND_SCALAR],
+    _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
+    _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE,
 ) -> TS[Frame[COMPOUND_SCALAR]]:
     return pl.DataFrame(asdict(ts.value))
 

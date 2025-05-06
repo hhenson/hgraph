@@ -7,7 +7,7 @@ from hgraph.test import eval_node
 
 
 @pytest.mark.parametrize(
-    ['op', 'd1', 'd2', 'expected'],
+    ["op", "d1", "d2", "expected"],
     [
         [sub_, date(2020, 1, 2), date(2020, 1, 1), timedelta(days=1)],
         [sub_, datetime(2020, 1, 2), datetime(2020, 1, 1), timedelta(days=1)],
@@ -16,7 +16,7 @@ from hgraph.test import eval_node
         [add_, date(2020, 1, 2), timedelta(days=1), date(2020, 1, 3)],
         [add_, datetime(2020, 1, 2), timedelta(days=1), datetime(2020, 1, 3)],
         [add_, timedelta(hours=1), timedelta(seconds=1), timedelta(seconds=3601)],
-    ]
+    ],
 )
 def test_add_sub_date_datetime(op, d1, d2, expected):
     assert eval_node(op, d1, d2) == [expected]
@@ -46,19 +46,20 @@ def test_lt_timedelta():
     assert eval_node(lt_, timedelta(seconds=5), timedelta(minutes=1)) == [True]
 
 
-@pytest.mark.parametrize("attr,expected",
+@pytest.mark.parametrize(
+    "attr,expected",
     (
-            ("year", 2024),
-            ("month", 11),
-            ("day", 1),
-            ("weekday", 4),
-            ("isoformat", "2024-11-01"),
-            ("isoweekday", 5),
-    )
+        ("year", 2024),
+        ("month", 11),
+        ("day", 1),
+        ("weekday", 4),
+        ("isoformat", "2024-11-01"),
+        ("isoweekday", 5),
+    ),
 )
 def test_date_operators(attr, expected):
     @graph
     def g(d: TS[date]) -> TS[SCALAR]:
         return getattr(d, attr)
 
-    assert eval_node(g, date(2024,11,1)) == [expected]
+    assert eval_node(g, date(2024, 11, 1)) == [expected]

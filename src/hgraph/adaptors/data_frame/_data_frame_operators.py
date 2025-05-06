@@ -11,7 +11,9 @@ from hgraph._types import (
     COMPOUND_SCALAR_1,
     COMPOUND_SCALAR_2,
     compound_scalar,
-    KEYABLE_SCALAR, TS_SCHEMA, TSB,
+    KEYABLE_SCALAR,
+    TS_SCHEMA,
+    TSB,
 )
 from hgraph._wiring import compute_node
 

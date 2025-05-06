@@ -9,7 +9,7 @@ def test_recursive_scalar():
     class RecursiveCompoundScalar(CompoundScalar):
         w: int
         x: "RecursiveCompoundScalar"
-        
+
     r = RecursiveCompoundScalar(1, RecursiveCompoundScalar(2, None))
     assert r.w == 1
     assert r.x.w == 2
@@ -18,12 +18,13 @@ def test_recursive_scalar():
 
 T = TypeVar("T")
 
+
 def test_recursive_generic_scalar():
     @dataclass
     class RecursiveCompoundScalarT(CompoundScalar, Generic[T]):
         w: T
         x: "RecursiveCompoundScalarT"
-        
+
     r = RecursiveCompoundScalarT[int](1, RecursiveCompoundScalarT[int](2, None))
     assert r.w == 1
     assert r.x.w == 2
@@ -35,7 +36,6 @@ def test_recursive_scalar_in_graph():
     class RecursiveCompoundScalarG(CompoundScalar):
         w: int
         x: "RecursiveCompoundScalarG"
-        
 
     @graph
     def g(ts: TS[RecursiveCompoundScalarG]) -> TS[int]:
@@ -66,7 +66,7 @@ def test_recursive_scalar_2():
     class RecursiveCompoundScalar2(CompoundScalar):
         w: int
         x: "AnotherRecursiveCompoundScalar"
-        
+
     @dataclass
     class AnotherRecursiveCompoundScalar(CompoundScalar):
         w: int

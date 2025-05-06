@@ -10,7 +10,8 @@ from hgraph import (
     format_,
     log_,
     AUTO_RESOLVE,
-    to_json, )
+    to_json,
+)
 from hgraph.adaptors.tornado import (
     RestListResponse,
     RestReadResponse,
@@ -45,7 +46,9 @@ def rest_list(base_url: TS[str]) -> TS[RestListResponse]:
 
 
 @graph
-def rest_read(base_url: TS[str], id_: TS[str], value_type: type[COMPOUND_SCALAR] = AUTO_RESOLVE) -> TS[RestReadResponse[COMPOUND_SCALAR]]:
+def rest_read(
+    base_url: TS[str], id_: TS[str], value_type: type[COMPOUND_SCALAR] = AUTO_RESOLVE
+) -> TS[RestReadResponse[COMPOUND_SCALAR]]:
     """
     Requests the value associated with the id from the rest server. This is a once off operation. To force a refresh,
     re-tick the id_.
@@ -66,7 +69,7 @@ def rest_read(base_url: TS[str], id_: TS[str], value_type: type[COMPOUND_SCALAR]
 
 @graph
 def rest_create(
-        base_url: TS[str], id_: TS[str], value: TS[COMPOUND_SCALAR], _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE
+    base_url: TS[str], id_: TS[str], value: TS[COMPOUND_SCALAR], _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE
 ) -> TS[RestCreateResponse[COMPOUND_SCALAR]]:
     """
     Requests the ``value`` to be created using the ``id_`` provided.
@@ -92,7 +95,7 @@ def rest_create(
 
 @graph
 def rest_update(
-        base_url: TS[str], id_: TS[str], value: TS[COMPOUND_SCALAR], _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE
+    base_url: TS[str], id_: TS[str], value: TS[COMPOUND_SCALAR], _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE
 ) -> TS[RestUpdateResponse[COMPOUND_SCALAR]]:
     """
     Requests the ``value`` to be updated using the ``id_`` provided.

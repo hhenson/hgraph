@@ -20,7 +20,14 @@ from hgraph import (
     EvaluationEngineApi,
     SCHEDULER,
     generator,
-    EvaluationMode, push_queue, SCALAR, set_service_output, adaptor, adaptor_impl, register_adaptor, debug_print,
+    EvaluationMode,
+    push_queue,
+    SCALAR,
+    set_service_output,
+    adaptor,
+    adaptor_impl,
+    register_adaptor,
+    debug_print,
 )
 from hgraph.adaptors.kafka._api import (
     message_publisher_operator,
@@ -97,12 +104,13 @@ class KafkaMessageState(MessageState):
         self._kafka_sender[topic] = sender
 
     def start_subscriber(self, topic: str, consumer: KafkaConsumer):
-        self._kafka_consumer[topic] = (thread:=KafkaConsumerThread(topic, consumer, self._kafka_sender[topic]))
+        self._kafka_consumer[topic] = (thread := KafkaConsumerThread(topic, consumer, self._kafka_sender[topic]))
         thread.start()
 
     def stop_subscriber(self, topic: str):
         if topic in self._kafka_consumer:
             self._kafka_consumer.pop(topic).stop()
+
 
 def _registered_topics(m, s):
     """
@@ -148,7 +156,7 @@ def _message_subscriber_aggregator(path: str, topic: str) -> TS[bytes]:
 
 @service_impl(interfaces=(message_history_subscriber_service, message_subscriber_service))
 def _message_subscriber_impl(path: str, topic: str):
-    consumer = KafkaConsumer(**(ks:=KafkaMessageState.instance()).config)
+    consumer = KafkaConsumer(**(ks := KafkaMessageState.instance()).config)
     # First, get partition information by calling 'partitions_for_topic'.
     partitions = consumer.partitions_for_topic(topic)
     if not partitions:
@@ -167,20 +175,14 @@ def _message_subscriber_impl(path: str, topic: str):
         start_real_time_service = const(True)
 
     if topic in ks.subscribers:
-        set_service_output(
-            path, message_subscriber_service, _real_time_message_subscriber(path=topic)
-        )
+        set_service_output(path, message_subscriber_service, _real_time_message_subscriber(path=topic))
         _start_realtime_message_subscriber(topic, start_real_time_service, consumer)
-
 
 
 @generator
 def _message_subscriber_history_aggregator(
-        path: str,
-        consumer: KafkaConsumer,
-        topic_partitions: tuple[tuple[str, int], ...],
-        _api: EvaluationEngineApi = None
-) -> TSB["msg": TS[bytes], "recovered": TS[bool]]:
+    path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...], _api: EvaluationEngineApi = None
+) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
     """Recovered must tick after the last message has been delivered."""
     start_time = _api.start_time
     if _api.evaluation_mode == EvaluationMode.SIMULATION:
@@ -207,9 +209,7 @@ def _message_subscriber_history_aggregator(
             break
         all_messages = [m for tp, messages in records.items() for m in messages]
         if len(records) > 1:
-            all_messages = sorted(
-                all_messages, key=lambda m: (m.timestamp, m.topic, m.offset)
-            )
+            all_messages = sorted(all_messages, key=lambda m: (m.timestamp, m.topic, m.offset))
         for msg in all_messages:
             # We won't exit historical replay unless the engine exits to ensure smooth playback of messages.
             t = msg.timestamp
@@ -235,9 +235,7 @@ def _real_time_message_subscriber_impl(path: str, topic: str) -> TS[bytes]:
 
 
 @push_queue(TS[bytes])
-def _message_subscriber_queue(
-        sender: Callable[[SCALAR], None] = None, *, topic: str
-):
+def _message_subscriber_queue(sender: Callable[[SCALAR], None] = None, *, topic: str):
     KafkaMessageState.instance().set_subscriber_sender(topic, sender)
 
 
@@ -269,10 +267,7 @@ class KafkaConsumerThread(Thread):
                 records = self.consumer.poll(timeout_ms=1000, max_records=1000)
                 all_messages = [m for tp, messages in records.items() for m in messages]
                 if len(records) > 1:
-                    all_messages = sorted(
-                        all_messages,
-                        key=lambda m: (m.timestamp, m.topic, m.offset)
-                    )
+                    all_messages = sorted(all_messages, key=lambda m: (m.timestamp, m.topic, m.offset))
                 for msg in all_messages:
                     self.sender(msg.value)
         except:

@@ -52,6 +52,6 @@ def test_tss_empty():
 
 
 def test_set_delta_addition():
-    d = PythonSetDelta(added = {1, 2, 3}, removed = set())
-    d1 = d + PythonSetDelta(added = {4, 5}, removed = {3})
-    assert d1 == PythonSetDelta(added = {1, 2, 4, 5}, removed = set())
+    d = PythonSetDelta(added={1, 2, 3}, removed=set())
+    d1 = d + PythonSetDelta(added={4, 5}, removed={3})
+    assert d1 == PythonSetDelta(added={1, 2, 4, 5}, removed=set())

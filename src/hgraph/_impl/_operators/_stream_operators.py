@@ -205,7 +205,6 @@ def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIM
     def dedup_value(input: PythonTimeSeriesSetInput, output):
         return input.delta_value
 
-
     return dedup_item(ts, _output)
 
 
@@ -253,7 +252,6 @@ def throttle_default(
     from hgraph import PythonTimeSeriesDictInput
     from hgraph import PythonTimeSeriesSetInput
     from hgraph import PythonSetDelta
-
 
     @multimethod
     def collect_tick(input, out):

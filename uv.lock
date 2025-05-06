@@ -387,9 +387,10 @@ wheels = [
 
 [[package]]
 name = "hgraph"
-version = "0.4.46"
+version = "0.4.50"
 source = { editable = "." }
 dependencies = [
+    { name = "black" },
     { name = "duckdb" },
     { name = "frozendict" },
     { name = "multimethod" },
@@ -438,6 +439,7 @@ web = [
 
 [package.metadata]
 requires-dist = [
+    { name = "black", specifier = ">=25.1.0" },
     { name = "black", marker = "extra == 'test'" },
     { name = "coverage", marker = "extra == 'test'" },
     { name = "duckdb" },

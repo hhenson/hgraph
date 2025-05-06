@@ -98,7 +98,9 @@ class WiringGraphContext:
                 bool,
             ]
         ] = []
-        self._service_stubs: list[Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"] = []
+        self._service_stubs: list[
+            Tuple["WiringNodeClass", str, dict[TypeVar, HgTypeMetaData]], "WiringNodeInstance"
+        ] = []
         self._context_clients: list[Tuple[str, int, "WiringNOdeInstance"]] = []
         self._service_implementations: Dict[str, Tuple["WiringNodeClass", "ServiceImplNodeClass", dict]] = {}
         self._built_services = {}
@@ -297,13 +299,13 @@ class WiringGraphContext:
             if s == service
         )
 
-    def add_service_build_context(self, context, name = None):
-        assert WiringNodeInstanceContext.instance() is WiringNodeInstanceContext.__stack__[0], (
-            f"Service build context must be in the top level graph (i.e. not nested). {context} does not appear to be"
-        )
-        assert not any(n == name for _, n in self._service_build_contexts), (
-            f"Service build context with name {name} already exists in the graph"
-        )
+    def add_service_build_context(self, context, name=None):
+        assert (
+            WiringNodeInstanceContext.instance() is WiringNodeInstanceContext.__stack__[0]
+        ), f"Service build context must be in the top level graph (i.e. not nested). {context} does not appear to be"
+        assert not any(
+            n == name for _, n in self._service_build_contexts
+        ), f"Service build context with name {name} already exists in the graph"
         self._service_build_contexts.append((context, name))
 
     def _build_service(self, impl, **kwargs):
@@ -371,7 +373,9 @@ class WiringGraphContext:
                 for typed_path in services_to_build:
                     if typed_path not in self._built_services:
                         service, path, impl, kwargs, type_map = services_to_build[typed_path]
-                        self._build_service(impl, path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs)
+                        self._build_service(
+                            impl, path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs
+                        )
 
                 if len(self._service_clients) == len(service_clients):
                     break

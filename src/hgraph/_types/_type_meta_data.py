@@ -1,7 +1,6 @@
 from functools import lru_cache
 from typing import TypeVar, Type, Optional, TYPE_CHECKING
 
-
 if TYPE_CHECKING:
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
 

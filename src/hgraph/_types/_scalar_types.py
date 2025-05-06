@@ -206,11 +206,12 @@ class CompoundScalar(AbstractSchema):
     def from_dict(cls, d: dict) -> "CompoundScalar":
         """
         Creates an instance of the compound scalar from a dictionary of values.
-        
+
         :param d: Dictionary of values matching the schema
         :return: New instance of the compound scalar
         """
         from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
+
         kwargs = {}
         for k, v in d.items():
             if k in cls.__meta_data_schema__:

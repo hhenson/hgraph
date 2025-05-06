@@ -17,7 +17,9 @@ from hgraph import (
     SCALAR_1,
     AUTO_RESOLVE,
     CompoundScalar,
-    SIGNAL, TS_SCHEMA, REF,
+    SIGNAL,
+    TS_SCHEMA,
+    REF,
 )
 from hgraph.arrow import eval_, if_then, c, assert_
 

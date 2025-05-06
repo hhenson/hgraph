@@ -9,9 +9,7 @@ class ServiceInterfaceNodeClass(BaseWiringNodeClass):
 
     def default_path(self) -> str:
         """The default path of the service interface"""
-        return f"{self.signature.name}_default" \
-            if (p := self.signature.defaults.get("path")) is None \
-            else p
+        return f"{self.signature.name}_default" if (p := self.signature.defaults.get("path")) is None else p
 
     @abstractmethod
     def full_path(self, user_path: str | None) -> str:

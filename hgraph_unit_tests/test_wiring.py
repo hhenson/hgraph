@@ -1,5 +1,4 @@
-from hgraph import generator, compute_node, sink_node, graph, WiringGraphContext, \
-    SCALAR, WiringPort, WiringNodeInstance
+from hgraph import generator, compute_node, sink_node, graph, WiringGraphContext, SCALAR, WiringPort, WiringNodeInstance
 from hgraph._types import HgTypeMetaData
 from hgraph._types._ts_type import TS
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext

@@ -79,13 +79,17 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
                 if n in annotations:
                     new_params.append(
                         Parameter(
-                            n, Parameter.VAR_POSITIONAL, annotation=annotations[n], default=defaults.get(n, Parameter.empty)
+                            n,
+                            Parameter.VAR_POSITIONAL,
+                            annotation=annotations[n],
+                            default=defaults.get(n, Parameter.empty),
                         )
                     )
                     new_annotations[n] = annotations[n]
                 else:
                     raise ValueError(
-                        f"with_signature was not provided annotaitons for args however there is a *{n} and no entry in annotations"
+                        f"with_signature was not provided annotaitons for args however there is a *{n} and no entry in"
+                        " annotations"
                     )
             else:
                 for n, a in args.items():
@@ -137,11 +141,13 @@ class class_or_instance_method(object):
 
     def __get__(self, obj, klass=None):
         if obj is None:
+
             def class_call(*args, **kwargs):
                 return self.f(klass, *args, **kwargs)
 
             return class_call
         else:
+
             def instance_call(*args, **kwargs):
                 return self.f(obj, *args, **kwargs)
 

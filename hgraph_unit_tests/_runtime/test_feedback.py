@@ -4,11 +4,11 @@ from hgraph.test import eval_node
 
 def test_feedback():
 
-    @compute_node(active=('target',))
+    @compute_node(active=("target",))
     def trade_delta(target: TS[float], prev_position: TS[float]) -> TS[float]:
         return target.value - prev_position.value
 
-    @compute_node(active=('traded',))
+    @compute_node(active=("traded",))
     def update_position(traded: TS[float], prev_position: TS[float]) -> TS[float]:
         return traded.value + prev_position.value
 
@@ -24,7 +24,7 @@ def test_feedback():
 
         return position
 
-    assert eval_node(trade, [.75, .8, .5, .6], 100.0) == [75.0, 80.0, 50.0, 60.0]
+    assert eval_node(trade, [0.75, 0.8, 0.5, 0.6], 100.0) == [75.0, 80.0, 50.0, 60.0]
 
 
 # Tests to do

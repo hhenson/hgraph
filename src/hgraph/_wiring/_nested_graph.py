@@ -41,9 +41,7 @@ def nested_graph(
 
         time_series_args = resolved_signature.time_series_args
         has_ts_inputs = bool(time_series_args)
-        node_type = (
-            WiringNodeType.COMPUTE_NODE if has_ts_inputs else WiringNodeType.PULL_SOURCE_NODE
-        )
+        node_type = WiringNodeType.COMPUTE_NODE if has_ts_inputs else WiringNodeType.PULL_SOURCE_NODE
 
         resolved_signature_outer = WiringNodeSignature(
             node_type=node_type,

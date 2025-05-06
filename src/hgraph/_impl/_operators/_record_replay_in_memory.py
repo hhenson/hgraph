@@ -17,7 +17,6 @@ from hgraph._types import (
 )
 from hgraph._wiring import generator, sink_node, graph, const_fn
 
-
 __all__ = (
     "ReplaySource",
     "SimpleArrayReplaySource",

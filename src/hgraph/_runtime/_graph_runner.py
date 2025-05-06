@@ -14,7 +14,6 @@ from hgraph._runtime._global_state import GlobalState
 from hgraph._runtime._graph_executor import GraphEngineFactory
 from hgraph._wiring._wiring_observer import WiringObserver
 
-
 __all__ = ("run_graph", "evaluate_graph", "GraphConfiguration", "node_path_log_formatter")
 
 
@@ -37,7 +36,9 @@ def _default_logger() -> Logger:
     return logger
 
 
-def node_path_log_formatter(level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node_path=None, __orig_log__=None):
+def node_path_log_formatter(
+    level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, node_path=None, __orig_log__=None
+):
     """A formatter that prints out the node path in addition to the log message."""
     return __orig_log__(level, f"{node_path}:\n{msg}", args, exc_info, extra, stack_info, stacklevel)
 

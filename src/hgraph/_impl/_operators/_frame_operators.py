@@ -9,7 +9,6 @@ from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._types._frame_scalar_type_meta_data import Series
 from hgraph._operators._operators import getitem_, getattr_
 
-
 __all__ = tuple()
 
 

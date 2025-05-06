@@ -1,7 +1,6 @@
 import pytest
 
-from hgraph import compute_node, TS, graph, feedback, delayed_binding, const, Size, TSL, TSD, TSB, CompoundScalar, \
-    reduce, sum_, map_
+from hgraph import TS, graph, delayed_binding, const, Size, TSL, TSD, TSB, CompoundScalar, reduce, map_
 from hgraph import pass_through_node
 from hgraph.test import eval_node
 
@@ -41,7 +40,7 @@ def test_delayed_tsd_binding():
         value(v)  # Set the value
         return o
 
-    assert eval_node(g, [{'a': {'a': 1, 'b': 2}, 'b': {'a': -1, 'b': -2}}]) == [0]
+    assert eval_node(g, [{"a": {"a": 1, "b": 2}, "b": {"a": -1, "b": -2}}]) == [0]
 
 
 def test_cycle():

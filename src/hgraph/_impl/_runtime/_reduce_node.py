@@ -377,9 +377,9 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
             else:
                 prev_graph = self._get_node(ndx - 1)
                 lhs_out = prev_graph[self.output_node_id].output
-                (lhs_node:=new_graph[self.input_node_ids[0]]).input[0].bind_output(lhs_out)
+                (lhs_node := new_graph[self.input_node_ids[0]]).input[0].bind_output(lhs_out)
             rhs = self._tsd[ndx]
-            (rhs_node:=new_graph[self.input_node_ids[1]]).input[0].clone_binding(rhs)
+            (rhs_node := new_graph[self.input_node_ids[1]]).input[0].clone_binding(rhs)
             lhs_node.notify()
             rhs_node.notify()
 

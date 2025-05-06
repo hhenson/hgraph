@@ -10,8 +10,13 @@ from sqlalchemy.testing.util import total_size
 
 from hgraph import Node, Graph
 from hgraph.debug._inspector_state import InspectorState
-from hgraph.debug._inspector_util import format_value, format_modified, format_scheduled, estimate_size, \
-    estimate_value_size
+from hgraph.debug._inspector_util import (
+    format_value,
+    format_modified,
+    format_scheduled,
+    estimate_size,
+    estimate_value_size,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +51,8 @@ def process_tick(state: InspectorState, node: Node):
 
 def process_item_stats(state, item_id):
     v = item_id.find_item_on_graph(state.observer.get_graph_info(item_id.graph).graph)
-    state.value_data.append(
-        dict(
-            id=item_id.to_str(),
-            value_size=estimate_value_size(v),
-            size=estimate_size(v)
-        )
-    )
+    state.value_data.append(dict(id=item_id.to_str(), value_size=estimate_value_size(v), size=estimate_size(v)))
+
 
 def process_node_stats(state, node_id, item_id):
     root_graph = state.observer.get_graph_info(())
@@ -66,14 +66,14 @@ def process_node_stats(state, node_id, item_id):
                 time=gi.node_eval_times[node_ndx] / 1_000_000_000,
                 of_graph=gi.node_eval_times[node_ndx] / gi.eval_time if gi.eval_time else None,
                 of_total=gi.node_eval_times[node_ndx] / root_graph.eval_time if root_graph.eval_time else None,
-
                 value_size=(v_s := gi.node_value_sizes[node_ndx]),
                 size=(n_s := gi.node_sizes[node_ndx]),
-                total_value_size=gi.node_total_value_sizes[node_ndx] + gi.node_value_sizes[node_ndx] if v_s is not None else None,
+                total_value_size=(
+                    gi.node_total_value_sizes[node_ndx] + gi.node_value_sizes[node_ndx] if v_s is not None else None
+                ),
                 total_size=gi.node_total_sizes[node_ndx] + gi.node_sizes[node_ndx] if n_s is not None else None,
-
                 subgraphs=gi.node_total_subgraph_counts[node_ndx],
-                nodes=gi.node_total_node_counts[node_ndx]
+                nodes=gi.node_total_node_counts[node_ndx],
             )
         )
 
@@ -86,18 +86,15 @@ def process_graph_stats(state, graph_id, item_id):
         dict(
             id=item_id.to_str(),
             timestamp=gi.graph.parent_node.last_evaluation_time if gi.graph.parent_node else None,
-
             evals=gi.eval_count,
             time=gi.eval_time / 1_000_000_000,
             of_graph=gi.eval_time / parent_time if parent_time else None,
             of_total=gi.eval_time / root_graph.eval_time if root_graph.eval_time else None,
-
             size=gi.size,
             total_size=gi.total_size,
             value_size=gi.total_value_size,
-
             subgraphs=gi.total_subgraph_count,
-            nodes=gi.total_node_count
+            nodes=gi.total_node_count,
         )
     )
 
@@ -136,11 +133,18 @@ def check_requests_and_publish(state: InspectorState, start: int = None, stats_p
         start_ = time.perf_counter_ns()
 
     from hgraph.debug._inspector_handler import handle_requests
-    if state.last_request_process_time is None or (datetime.utcnow() - state.last_request_process_time).total_seconds() > 0.1:
+
+    if (
+        state.last_request_process_time is None
+        or (datetime.utcnow() - state.last_request_process_time).total_seconds() > 0.1
+    ):
         publish_values = handle_requests(state)
         state.last_request_process_time = datetime.utcnow()
 
-        publish = state.last_publish_time is None or (datetime.utcnow() - state.last_publish_time).total_seconds() > stats_period
+        publish = (
+            state.last_publish_time is None
+            or (datetime.utcnow() - state.last_publish_time).total_seconds() > stats_period
+        )
         if publish_values or publish:
             if start is not None:
                 state.inspector_time += (time.perf_counter_ns() - start) / 1_000_000_000
@@ -156,21 +160,15 @@ def check_requests_and_publish(state: InspectorState, start: int = None, stats_p
 
 def publish_tables(state: InspectorState, include_stats=True):
     state.manager.update_table(
-        "inspector",
-        [i for i in state.value_data if i["id"] not in state.value_removals],
-        state.value_removals
+        "inspector", [i for i in state.value_data if i["id"] not in state.value_removals], state.value_removals
     )
     state.value_data = []
 
-    state.manager.update_table(
-        "inspector",
-        [i for i in state.perf_data if i["id"] not in state.value_removals]
-    )
+    state.manager.update_table("inspector", [i for i in state.perf_data if i["id"] not in state.value_removals])
     state.perf_data = []
 
     state.manager.update_table(
-        "inspector",
-        [i for i in state.tick_data.values() if i["id"] not in state.value_removals]
+        "inspector", [i for i in state.tick_data.values() if i["id"] not in state.value_removals]
     )
     state.tick_data = {}
 
@@ -180,7 +178,7 @@ def publish_tables(state: InspectorState, include_stats=True):
     if data["time"]:
         total_time = (state.total_data["time"][-1] - state.total_data_prev.get("time", datetime.min)).total_seconds()
         total_graph_time = (data["graph_time"][-1] - state.total_data_prev.get("graph_time", 0)) / 1_000_000_000
-        total_os_graph_time = (data["os_graph_time"][-1] - state.total_data_prev.get("os_graph_time", 0))
+        total_os_graph_time = data["os_graph_time"][-1] - state.total_data_prev.get("os_graph_time", 0)
         lags = [(data["time"][i] - data["evaluation_time"][i]).total_seconds() for i in range(len(data["time"]))]
 
         meminfo = state.process.memory_info()
@@ -194,11 +192,16 @@ def publish_tables(state: InspectorState, include_stats=True):
             graph_time=total_graph_time,
             os_graph_time=total_os_graph_time,
             graph_load=total_graph_time / total_time,
-            avg_lag=sum(lags) / len(data["time"]), max_lag=max(lags),
+            avg_lag=sum(lags) / len(data["time"]),
+            max_lag=max(lags),
             inspection_time=state.inspector_time / total_graph_time,
             memory=meminfo.rss / (1024 * 1024),
             virt_memory=meminfo.vms / (1024 * 1024),
-            graph_memory=(state.total_data["total_size"][-1] / (1024 * 1024)) if state.total_data["total_size"][-1] is not None else None,
+            graph_memory=(
+                (state.total_data["total_size"][-1] / (1024 * 1024))
+                if state.total_data["total_size"][-1] is not None
+                else None
+            ),
         )
 
         state.manager.update_table("graph_performance", [readings])

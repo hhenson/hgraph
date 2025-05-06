@@ -59,7 +59,7 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
                 to_graph = self.implementation_graph.__call__(
                     __pre_resolved_types__=resolution_dict,
                     **{k: v for k, v in kwargs_.items() if k not in from_graph},
-                    **from_graph
+                    **from_graph,
                 )
                 __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
 

@@ -32,14 +32,22 @@ from hgraph import (
     combine,
     last_modified_time,
     convert,
-    drop, nothing, default, TSS, collapse_keys, MIN_DT, take, collect,
+    drop,
+    nothing,
+    default,
+    TSS,
+    collapse_keys,
+    MIN_DT,
+    take,
+    collect,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
     publish_table_editable,
     publish_table,
     register_perspective_adaptors,
-    publish_multitable, TableEdits,
+    publish_multitable,
+    TableEdits,
 )
 from hgraph.adaptors.perspective import perspective_web, PerspectiveTablesManager
 from hgraph.adaptors.perspective._perspective_adaptor import publish_join_table
@@ -101,8 +109,11 @@ def random_values(
     state.value = data["value"]
 
     freq_ms = config.frequency.value
-    sched.schedule(round_time_up(
-        ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)))
+    sched.schedule(
+        round_time_up(
+            ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)
+        )
+    )
     return data
 
 
@@ -118,19 +129,26 @@ def random_events(
     }
 
     freq_ms = config.frequency.value
-    sched.schedule(round_time_up(
-        ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)))
-    return data if data['magnitude'] else None
+    sched.schedule(
+        round_time_up(
+            ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)
+        )
+    )
+    return data if data["magnitude"] else None
 
 
 @graph
 def host_web_server():
     register_perspective_adaptors()
-    PerspectiveTablesManager.set_current(PerspectiveTablesManager(
-        host_server_tables=False,
-        table_config_file=[
-            os.path.join(os.path.dirname(__file__), "table_join.json"),
-            os.path.join(os.path.dirname(__file__), "total_table_join.json")]))
+    PerspectiveTablesManager.set_current(
+        PerspectiveTablesManager(
+            host_server_tables=False,
+            table_config_file=[
+                os.path.join(os.path.dirname(__file__), "table_join.json"),
+                os.path.join(os.path.dirname(__file__), "total_table_join.json"),
+            ],
+        )
+    )
     perspective_web(gethostname(), 8082, layouts_path=os.path.join(os.path.dirname(__file__), "layouts"))
 
     count = 5
@@ -144,7 +162,7 @@ def host_web_server():
     # publish_table("config", initial_config, index_col_name="sensor")
 
     initial_data = map_(
-        lambda key, c: map_(lambda c: random_values(c), __keys__=const(frozenset({'C', 'F'}), TSS[str]), c=c),
+        lambda key, c: map_(lambda c: random_values(c), __keys__=const(frozenset({"C", "F"}), TSS[str]), c=c),
         take(config, 1),
     )
 

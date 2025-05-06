@@ -35,7 +35,8 @@ dependencies = [
     "multimethod",
     "psutil",
     "typing-extensions",
-    "pycurl"
+    "pycurl",
+    "black>=25.1.0",
 ]
 
 [project.urls]

@@ -27,10 +27,10 @@ __all__ = ("reduce",)
 
 
 def reduce(
-        func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
-        ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
-        zero: TIME_SERIES_TYPE = ZERO,
-        is_associative: bool = True,
+    func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
+    ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
+    zero: TIME_SERIES_TYPE = ZERO,
+    is_associative: bool = True,
 ) -> TIME_SERIES_TYPE:
     """
     Reduce the input time-series collection into a single time-series value.
@@ -91,7 +91,8 @@ def reduce(
             if not is_associative:
                 if _tp.key_tp.py_type is not int:
                     raise CustomMessageWiringError(
-                        "Non-associative operators are not supported using TSD inputs that are not integer keyed")
+                        "Non-associative operators are not supported using TSD inputs that are not integer keyed"
+                    )
             return _reduce_tsd(func, ts, zero, is_associative)
         elif type(_tp) is HgTSTypeMetaData and type(_tp.value_scalar_tp) is HgTupleCollectionScalarType:
             if is_associative:
@@ -139,8 +140,9 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
     # We need to ensure that the reduction graph contains no push nodes. (We should be able to support pull nodes)
 
     @compute_node
-    def _reduce_tsd_signature(ts: TSD[K, REF[TIME_SERIES_TYPE_1]], zero: REF[TIME_SERIES_TYPE]) -> REF[
-        TIME_SERIES_TYPE]:
+    def _reduce_tsd_signature(
+        ts: TSD[K, REF[TIME_SERIES_TYPE_1]], zero: REF[TIME_SERIES_TYPE]
+    ) -> REF[TIME_SERIES_TYPE]:
         ...
         # Used to create a WiringNodeClass template
 
@@ -151,7 +153,8 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
     if not isinstance(zero, WiringPort):
         if not is_associative:
             raise CustomMessageWiringError(
-                "Non-associative operators require a time-series value for zero to be provided")
+                "Non-associative operators require a time-series value for zero to be provided"
+            )
         if zero is ZERO:
             import hgraph
 
@@ -199,7 +202,8 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
             parameters = list(inspect.signature(func).parameters)
             if len(parameters) != 2:
                 raise CustomMessageWiringError(
-                    f"The function must have exactly two arguments, but has {len(parameters)}")
+                    f"The function must have exactly two arguments, but has {len(parameters)}"
+                )
             annotations = {parameters[0]: zero_tp, parameters[1]: item_tp}
             func = graph(
                 with_signature(
@@ -211,16 +215,16 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
     if is_associative:
         input_types = {k: tp.value_tp for k in func.signature.input_types}
     else:
-        input_types = {k:v for k, v in zip(func.signature.args, (zero.output_type, item_tp_md))}
+        input_types = {k: v for k, v in zip(func.signature.args, (zero.output_type, item_tp_md))}
 
-    builder, ri = wire_nested_graph(
-        func, input_types, {}, resolved_signature, None, depth=2
-    )
+    builder, ri = wire_nested_graph(func, input_types, {}, resolved_signature, None, depth=2)
 
     reduce_signature = ReduceWiringSignature(**resolved_signature.as_dict(), inner_graph=builder)
-    wiring_node = TsdReduceWiringNodeClass(reduce_signature,
-                                           func) if is_associative else TsdNonAssociativeReduceWiringNodeClass(
-        reduce_signature, func)
+    wiring_node = (
+        TsdReduceWiringNodeClass(reduce_signature, func)
+        if is_associative
+        else TsdNonAssociativeReduceWiringNodeClass(reduce_signature, func)
+    )
     port = wiring_node(ts, zero)
 
     from hgraph import WiringGraphContext
@@ -232,5 +236,6 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
 
 def _reduce_tuple(func, ts, zero):
     from hgraph import convert, dedup
+
     tsd = dedup(convert[TSD](ts))
     return _reduce_tsd(func, tsd, zero, False)

@@ -36,4 +36,4 @@ class InspectorState(CompoundScalar):
     total_data_prev: list = field(default_factory=dict)
     total_data: list = field(default_factory=lambda: defaultdict(list))
     last_publish_time: datetime = None
-    inspector_time: float = 0.
+    inspector_time: float = 0.0

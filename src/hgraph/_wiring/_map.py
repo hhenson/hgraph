@@ -95,7 +95,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             (
                 i.key_set
                 for i in chain(args, kwargs.values())
-                if not isinstance(i, _Marker) and  isinstance(i.output_type.dereference(), HgTSDTypeMetaData)
+                if not isinstance(i, _Marker) and isinstance(i.output_type.dereference(), HgTSDTypeMetaData)
             ),
             None,
         )
@@ -118,9 +118,9 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
                 if isinstance(arg, (WiringPort, _Marker)):
                     tp = arg.output_type.dereference()
                     if (
-                            isinstance(tp, HgTSDTypeMetaData)
-                            and key_type.matches(tp.key_tp)
-                            and not isinstance(args[i], _PassthroughMarker)
+                        isinstance(tp, HgTSDTypeMetaData)
+                        and key_type.matches(tp.key_tp)
+                        and not isinstance(args[i], _PassthroughMarker)
                     ):
                         var_types.append(tp.value_tp)
                     else:
@@ -378,8 +378,9 @@ def _split_inputs(
 
     Key type is only present if validate_type is True.
     """
-    if non_ts_inputs := [arg for arg in kwargs_
-                         if not isinstance(kwargs_[arg], (WiringPort, _Marker)) and not arg == signature.var_arg]:
+    if non_ts_inputs := [
+        arg for arg in kwargs_ if not isinstance(kwargs_[arg], (WiringPort, _Marker)) and not arg == signature.var_arg
+    ]:
         if not all(k in signature.scalar_inputs for k in non_ts_inputs):
             raise CustomMessageWiringError(
                 f" The following args are not time-series inputs, but should be: {non_ts_inputs}"
@@ -397,8 +398,14 @@ def _split_inputs(
     _validate_pass_through(signature, kwargs_, pass_through_args)  # Ensure the pass through args are correctly typed.
 
     input_types = {k: v.output_type.dereference() for k, v in kwargs_.items() if k not in non_ts_inputs}
-    signature_types = {k: signature.input_types[k] if k.split('-')[0] != signature.var_arg else signature.input_types[
-        signature.var_arg].value_tp for k in input_types}
+    signature_types = {
+        k: (
+            signature.input_types[k]
+            if k.split("-")[0] != signature.var_arg
+            else signature.input_types[signature.var_arg].value_tp
+        )
+        for k in input_types
+    }
 
     # Figure out if the map is done over a TSD or TSL by finding the first miltiplexing input
     map_type = None
@@ -543,8 +550,9 @@ def _create_tsd_map_wiring_node(
     if resolved_signature.var_arg:
         resolved_input_types = dict(resolved_signature.input_types)
         for i in range(resolved_signature.input_types[resolved_signature.var_arg].size.SIZE):
-            resolved_input_types[f"{resolved_signature.var_arg}-{i}"] = (
-                resolved_signature.input_types[resolved_signature.var_arg].value_tp)
+            resolved_input_types[f"{resolved_signature.var_arg}-{i}"] = resolved_signature.input_types[
+                resolved_signature.var_arg
+            ].value_tp
         resolved_input_types.pop(resolved_signature.var_arg)
     else:
         resolved_input_types = resolved_signature.input_types

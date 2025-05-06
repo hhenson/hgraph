@@ -3,8 +3,19 @@ from datetime import datetime
 from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
-from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink, \
-    is_subclass_generic, compute_node, WiringGraphContext, TS_SCHEMA, EvaluationMode
+from hgraph import (
+    MIN_ST,
+    MAX_ET,
+    WiringNodeClass,
+    HgTimeSeriesTypeMetaData,
+    AUTO_RESOLVE,
+    null_sink,
+    is_subclass_generic,
+    compute_node,
+    WiringGraphContext,
+    TS_SCHEMA,
+    EvaluationMode,
+)
 from hgraph._impl._operators._record_replay_in_memory import (
     record_to_memory,
     get_recorded_value,
@@ -46,7 +57,7 @@ __all__ = (
     "extract_value",
     "convert_pairs_to_delta_tuples",
     "convert_pairs_to_tuples",
-    "a"
+    "a",
 )
 
 A: TypeVar = clone_type_var(TIME_SERIES_TYPE, "A")
@@ -58,8 +69,9 @@ D: TypeVar = clone_type_var(TIME_SERIES_TYPE, "D")
 class _Arrow(Generic[A, B]):
     """Arrow function wrapper exposing support for piping operations"""
 
-    def __init__(self, fn: Callable[[A], B], __name__=None, __has_side_effects__=False, bound_args=None,
-                 bound_kwargs=None):
+    def __init__(
+        self, fn: Callable[[A], B], __name__=None, __has_side_effects__=False, bound_args=None, bound_kwargs=None
+    ):
         # Avoid unnecessary nesting of wrappers
         self._bound_args = bound_args if bound_args is not None else ()
         self._bound_kwargs = bound_kwargs if bound_kwargs is not None else {}
@@ -68,10 +80,15 @@ class _Arrow(Generic[A, B]):
             self._fn = fn.fn
         else:
             self._fn = fn
-        self._name = __name__ if __name__ is not None else \
-            str(fn) if isinstance(fn, (_Arrow, _ArrowInput)) else \
-                fn.signature.name if isinstance(fn, WiringNodeClass) else \
-                    fn.__name__
+        self._name = (
+            __name__
+            if __name__ is not None
+            else (
+                str(fn)
+                if isinstance(fn, (_Arrow, _ArrowInput))
+                else fn.signature.name if isinstance(fn, WiringNodeClass) else fn.__name__
+            )
+        )
 
     @property
     def fn(self):
@@ -202,8 +219,13 @@ class _Arrow(Generic[A, B]):
             # We need to be consistent with a bound function, where the input value is supplied last
             return f(*self._bound_args, args[0], **self._bound_kwargs)
         else:
-            return _Arrow(self._fn, __name__=self._name, bound_args=args, bound_kwargs=kwargs,
-                          __has_side_effects__=self._has_side_effects)
+            return _Arrow(
+                self._fn,
+                __name__=self._name,
+                bound_args=args,
+                bound_kwargs=kwargs,
+                __has_side_effects__=self._has_side_effects,
+            )
 
     def __str__(self):
         return self._name
@@ -246,16 +268,16 @@ class _ArrowInput(Generic[A]):
 class _EvalArrowInput:
 
     def __init__(
-            self,
-            first,
-            second=None,
-            type_map: tuple = None,
-            start_time: datetime = MIN_ST,
-            end_time: datetime = MAX_ET,
-            trace: bool | dict = False,
-            trace_wiring: bool | dict = False,
-            profile: bool | dict = False,
-            run_mode: EvaluationMode = EvaluationMode.SIMULATION,
+        self,
+        first,
+        second=None,
+        type_map: tuple = None,
+        start_time: datetime = MIN_ST,
+        end_time: datetime = MAX_ET,
+        trace: bool | dict = False,
+        trace_wiring: bool | dict = False,
+        profile: bool | dict = False,
+        run_mode: EvaluationMode = EvaluationMode.SIMULATION,
     ):
         self.first = first
         self.second = second
@@ -283,23 +305,26 @@ class _EvalArrowInput:
                 record_to_memory(nothing[TS[int]]())
 
         with GlobalState() if GlobalState._instance is None else nullcontext():
-            evaluate_graph(g, GraphConfiguration(
-                start_time=self.start_time,
-                end_time=self.end_time,
-                trace=self.trace,
-                trace_wiring=self.trace_wiring,
-                run_mode=self.run_mode,
-            ))
+            evaluate_graph(
+                g,
+                GraphConfiguration(
+                    start_time=self.start_time,
+                    end_time=self.end_time,
+                    trace=self.trace,
+                    trace_wiring=self.trace_wiring,
+                    run_mode=self.run_mode,
+                ),
+            )
             results = get_recorded_value()
         return [result[1] for result in results]
 
 
 def _build_inputs(
-        first,
-        second=None,
-        type_map: tuple = None,
-        level: int = 0,
-        start_time: datetime = MIN_ST,
+    first,
+    second=None,
+    type_map: tuple = None,
+    level: int = 0,
+    start_time: datetime = MIN_ST,
 ):
     if type(first) is tuple:
         first = _build_inputs(*first, type_map=type_map[0] if type_map else None, level=level + 1)
@@ -322,15 +347,15 @@ def _build_inputs(
 
 
 def eval_(
-        first,
-        second=None,
-        type_map: tuple = None,
-        start_time: datetime = MIN_ST,
-        end_time: datetime = MAX_ET,
-        trace: bool | dict = False,
-        trace_wiring: bool | dict = False,
-        profile: bool | dict = False,
-        run_mode: EvaluationMode = EvaluationMode.SIMULATION,
+    first,
+    second=None,
+    type_map: tuple = None,
+    start_time: datetime = MIN_ST,
+    end_time: datetime = MAX_ET,
+    trace: bool | dict = False,
+    trace_wiring: bool | dict = False,
+    profile: bool | dict = False,
+    run_mode: EvaluationMode = EvaluationMode.SIMULATION,
 ):
     """
     Wraps inputs to the graph that can be used to evaluate the graph
@@ -348,10 +373,10 @@ def eval_(
 
 
 def arrow(
-        input_: Callable[[A], B] | A = None,
-        input_2: C = None,
-        __name__=None,
-        __has_side_effects__=False,
+    input_: Callable[[A], B] | A = None,
+    input_2: C = None,
+    __name__=None,
+    __has_side_effects__=False,
 ) -> _Arrow[A, B] | _ArrowInput[A] | _ArrowInput[tuple[A, C]]:
     """
     Converts the supplied graph / node / time-series value into an arrow suitable wrapper.
@@ -371,8 +396,11 @@ def arrow(
         # Then input_ must be a TimeSeries or _ArrowInput
         return _make_pair(input_, input_2)
     if isinstance(input_, _Arrow):
-        return input_ if __name__ is None else _Arrow(input_.fn, __name__=__name__,
-                                                      __has_side_effects__=__has_side_effects__)
+        return (
+            input_
+            if __name__ is None
+            else _Arrow(input_.fn, __name__=__name__, __has_side_effects__=__has_side_effects__)
+        )
     if isinstance(input_, _ArrowInput):
         return input_ if __name__ is None else _ArrowInput(input_.ts, __name__=__name__)
     elif isinstance(input_, WiringPort):
@@ -390,6 +418,7 @@ def arrow(
         else:
             # Assume if there is no wiring context then we must be chaining operators
             from hgraph.arrow._std_operators import const_
+
             return const_(input_)
 
 
@@ -448,10 +477,12 @@ Pair = _PairGenerator()
 
 
 @graph
-def make_pair(first: TIME_SERIES_TYPE_1, second: TIME_SERIES_TYPE_2,
-              _first_tp: type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE,
-              _second_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE) -> TSB[
-    PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
+def make_pair(
+    first: TIME_SERIES_TYPE_1,
+    second: TIME_SERIES_TYPE_2,
+    _first_tp: type[TIME_SERIES_TYPE_1] = AUTO_RESOLVE,
+    _second_tp: type[TIME_SERIES_TYPE_2] = AUTO_RESOLVE,
+) -> TSB[PairSchema[TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2]]:
     """
     Create a tuple from the two time-series values.
     If the types are the same OUT will be TSL[TIME_SERIES_TYPE, Size[2]]
@@ -493,7 +524,7 @@ def _flatten_wrapper(node: WiringNodeClass) -> Callable[[A], B]:
         args = args[:-1]
         sz = len(node.signature.time_series_args)
         # Unpack left to right
-        if len(node.signature.time_series_args) > 1 and not _MATCH_PAIR.matches(tp:=x.output_type.dereference()):
+        if len(node.signature.time_series_args) > 1 and not _MATCH_PAIR.matches(tp := x.output_type.dereference()):
             if not _MATCH_TSB.matches(tp):
                 raise ValueError(f"Expected a Pair or TSB but got {tp}")
             kwargs |= x.as_dict()
@@ -523,13 +554,13 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
         return tuple()
 
     if sz == 1:
-        return x,
+        return (x,)
 
-    if not _MATCH_PAIR.matches(tp:=x.output_type.dereference()):
+    if not _MATCH_PAIR.matches(tp := x.output_type.dereference()):
         if _check:
             raise ValueError(f"Expected an Arrow tuple, got {tp}")
         else:
-            return x,
+            return (x,)
 
     if sz == 2:
         return x[0], x[1]
@@ -546,7 +577,7 @@ def _unpack(x: WiringPort, sz: int, _check: bool = True) -> tuple:
 def _flatten(x: WiringPort) -> tuple:
     """Expand the input into a tuple of non-pair values."""
     if not _MATCH_PAIR.matches(x.output_type.dereference()):
-        return x,
+        return (x,)
     left = _flatten(x[0])
     right = _flatten(x[1])
     return left + right
@@ -556,7 +587,9 @@ def extract_value(ts, tp):
     """Extracts the value from a time-series where the type is a pair and returns the value as a tuple."""
     if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):
         return (
-            extract_value(ts.first, tp.__args__[0].__args__[0]), extract_value(ts.second, tp.__args__[0].__args__[1]))
+            extract_value(ts.first, tp.__args__[0].__args__[0]),
+            extract_value(ts.second, tp.__args__[0].__args__[1]),
+        )
     else:
         return ts.value
 
@@ -566,7 +599,7 @@ def extract_delta_value(ts, tp):
     if is_subclass_generic(tp, TSB) and issubclass(tp.__args__[0], PairSchema):
         return (
             extract_delta_value(ts.first, tp.__args__[0].__args__[0]) if ts.first.modified else None,
-            extract_delta_value(ts.second, tp.__args__[0].__args__[1]) if ts.second.modified else None
+            extract_delta_value(ts.second, tp.__args__[0].__args__[1]) if ts.second.modified else None,
         )
     else:
         return ts.delta_value

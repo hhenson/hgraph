@@ -22,11 +22,13 @@ import perspective
 if perspective.__version__ == "2.10.1":
     from perspective import PerspectiveManager, Table, View
     from perspective import PerspectiveTornadoHandler
+
     table = Table
     psp_new_api = False
 else:
     from perspective import Server, table, Table, View
     from perspective.handlers.tornado import PerspectiveTornadoHandler
+
     psp_new_api = True
 
 from hgraph import sink_node, GlobalState, TS, STATE
@@ -81,7 +83,9 @@ class PerspectiveTableUpdatesHandler:
 class PerspectiveTablesManager:
     def __init__(self, host_server_tables=True, table_config_file=(), **kwargs):
         self._host_server_tables = host_server_tables
-        self._table_config_files = table_config_file if isinstance(table_config_file, (list, tuple)) else [table_config_file]
+        self._table_config_files = (
+            table_config_file if isinstance(table_config_file, (list, tuple)) else [table_config_file]
+        )
         self._started = False
         self._tables = {}
         self._updaters = defaultdict(set)
@@ -95,15 +99,19 @@ class PerspectiveTablesManager:
         else:
             n = {}
 
-        self._index_table = table({
-            "name": str,
-            "type": str,  # 'table', 'client_table', 'view', 'join'
-            "editable": bool,
-            "url": str,
-            "schema": str,
-            "index": str,
-            "description": str,
-        }, index="name", **n)
+        self._index_table = table(
+            {
+                "name": str,
+                "type": str,  # 'table', 'client_table', 'view', 'join'
+                "editable": bool,
+                "url": str,
+                "schema": str,
+                "index": str,
+                "description": str,
+            },
+            index="name",
+            **n,
+        )
 
         view = self._index_table.view()
         arrow_schema = pyarrow.RecordBatchStreamReader(view.to_arrow()).read_all().schema
@@ -154,10 +162,9 @@ class PerspectiveTablesManager:
                 "type": "table" if self.server_tables else "client_table",
                 "editable": editable,
                 "url": f"",
-                "schema": json.dumps({k: v if type(v) is str else v.__name__
-                                      for k, v in table.schema().items()}),
+                "schema": json.dumps({k: v if type(v) is str else v.__name__ for k, v in table.schema().items()}),
                 "index": table.get_index(),
-                "description": ""
+                "description": "",
             }])
 
         if self._started:
@@ -175,7 +182,7 @@ class PerspectiveTablesManager:
             "url": f"",
             "schema": json.dumps({k: v.__name__ for k, v in schema.items()}),
             "index": index,
-            "description": json.dumps(description)
+            "description": json.dumps(description),
         }])
 
     def subscribe_table_updates(self, name, cb, self_updates: bool = False):
@@ -197,7 +204,6 @@ class PerspectiveTablesManager:
         self._start_manager()
         self._started = True
 
-
     def _start_manager(self):
         if not psp_new_api:
             self._manager = PerspectiveManager(lock=True)
@@ -205,7 +211,6 @@ class PerspectiveTablesManager:
 
         for name in self._tables:
             self._start_table(name)
-
 
     def _manager_for_table(self, name):
         if psp_new_api:
@@ -224,7 +229,7 @@ class PerspectiveTablesManager:
                 u.table = self._tables[name][0]
 
     @staticmethod
-    def _table_update(table, update, data, i = 0):
+    def _table_update(table, update, data, i=0):
         try:
             # logger.info(f"Updating table {table}: processing batch {i}")
             table.update(update)
@@ -235,20 +240,20 @@ class PerspectiveTablesManager:
     @staticmethod
     def _format_dict_of_lists_as_table(data):
         keys = list(data.keys())
-        
+
         str_data = {}
         for key in keys:
             str_data[key] = [key] + [str(item) for item in data[key]]
-        
+
         col_widths = {}
         for key in keys:
             col_widths[key] = max(len(item) for item in str_data[key])
-        
+
         header = " | ".join(key.ljust(col_widths[key]) for key in keys)
         line = "-" * len(header)
-        
+
         max_rows = max(len(data[key]) for key in keys) if keys else 0
-        
+
         rows = []
         for row_idx in range(max_rows):
             row_data = []
@@ -258,7 +263,7 @@ class PerspectiveTablesManager:
                     row_data.append(value.ljust(col_widths[key]))
                 else:
                     row_data.append("".ljust(col_widths[key]))
-            rows.append(" | ".join(row_data))    
+            rows.append(" | ".join(row_data))
 
         return f"{header}\n{line}\n" + "\n".join(rows) + f"\n{line}"
 
@@ -277,12 +282,12 @@ class PerspectiveTablesManager:
                             batch[k].append(v)
 
                     data = list(batches.values())
-                    
+
                     # for i, r in enumerate(data):
                     #     logger.info(f"\n{name} batch {i}:\n" + PerspectiveTablesManager._format_dict_of_lists_as_table(r))
                 else:
                     d0 = {}
-                    d1 = defaultdict(lambda: [None] * len(data))    
+                    d1 = defaultdict(lambda: [None] * len(data))
                     for i, r in enumerate(data):
                         for k, v in r.items():
                             if v is not None:
@@ -297,7 +302,10 @@ class PerspectiveTablesManager:
                 try:
                     batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
                 except Exception as e:
-                    logger.error(f"Error creating record batch :{e}\n" + PerspectiveTablesManager._format_dict_of_lists_as_table(d))
+                    logger.error(
+                        f"Error creating record batch :{e}\n"
+                        + PerspectiveTablesManager._format_dict_of_lists_as_table(d)
+                    )
                     continue
 
                 stream = pyarrow.BufferOutputStream()
@@ -310,12 +318,17 @@ class PerspectiveTablesManager:
                 if psp_new_api:
                     self._callback(lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i))
                 else:
-                    self._manager_for_table(name).call_loop(lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i))
+                    self._manager_for_table(name).call_loop(
+                        lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i)
+                    )
 
         if removals:
             if table.get_index() and not self.server_tables:
-                self.update_table(name + "_removes", {"i": list(removals)},
-                                  removals=reduce(operator.add, (d[table.get_index()] for d in data)) if data else [])
+                self.update_table(
+                    name + "_removes",
+                    {"i": list(removals)},
+                    removals=reduce(operator.add, (d[table.get_index()] for d in data)) if data else [],
+                )
 
             if table.get_index():
                 if psp_new_api:
@@ -396,8 +409,10 @@ class PerspectiveTablesManager:
 
 class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
     def _log_websocket_event(self, event: str) -> None:
-        logger.info(f"Websocket from {self.request.remote_ip} to {self.request.path} "
-                    f"with id {self.request.headers['Sec-Websocket-Key']}: {event}")
+        logger.info(
+            f"Websocket from {self.request.remote_ip} to {self.request.path} "
+            f"with id {self.request.headers['Sec-Websocket-Key']}: {event}"
+        )
 
     def open(self, *args: str, **kwargs: str) -> Optional[Awaitable[None]]:
         self._log_websocket_event("opened")
@@ -413,8 +428,10 @@ class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
 
 class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
     def _log_websocket_event(self, event: str) -> None:
-        logger.info(f"Websocket from {self.request.remote_ip} to {self.request.path} "
-                    f"with id {self.request.headers['Sec-Websocket-Key']}: {event}")
+        logger.info(
+            f"Websocket from {self.request.remote_ip} to {self.request.path} "
+            f"with id {self.request.headers['Sec-Websocket-Key']}: {event}"
+        )
 
     def initialize(self, perspective_server=None, manager=None):
         self.server = perspective_server or perspective.GLOBAL_SERVER
@@ -487,7 +504,7 @@ def _get_node_location():
     """Assuming node is installed this will retrieve the global local for npm modules"""
     import subprocess
 
-    result = subprocess.run(["npm", "root", "-g", "for", "npm"], shell=os.name == 'nt', capture_output=True, text=True)
+    result = subprocess.run(["npm", "root", "-g", "for", "npm"], shell=os.name == "nt", capture_output=True, text=True)
     node_path = result.stdout.rstrip()
     print(f"NPM found at '{node_path}'")
     return node_path
@@ -556,27 +573,30 @@ def perspective_web_start(
         + perspective_manager.tornado_config()
         + ([(k, tornado.web.StaticFileHandler, v) for k, v in static.items()] if static else [])
         + (
-            [(
-                r"/",
-                IndexPageHandler,
-                {
-                    "mgr": perspective_manager,
-                    "layouts_path": layouts_dir,
-                    "index_template": index_template,
-                    "host": host,
-                    "port": port,
-                },
-            ),(
-                r"/versions/(.*)",
-                IndexPageHandler,
-                {
-                    "mgr": perspective_manager,
-                    "layouts_path": layouts_dir,
-                    "index_template": index_template,
-                    "host": host,
-                    "port": port,
-                },
-            )]
+            [
+                (
+                    r"/",
+                    IndexPageHandler,
+                    {
+                        "mgr": perspective_manager,
+                        "layouts_path": layouts_dir,
+                        "index_template": index_template,
+                        "host": host,
+                        "port": port,
+                    },
+                ),
+                (
+                    r"/versions/(.*)",
+                    IndexPageHandler,
+                    {
+                        "mgr": perspective_manager,
+                        "layouts_path": layouts_dir,
+                        "index_template": index_template,
+                        "host": host,
+                        "port": port,
+                    },
+                ),
+            ]
             if index_template
             else []
         ),
@@ -631,7 +651,7 @@ class IndexPageHandler(tornado.web.RequestHandler):
         self.host = host
         self.port = port
 
-    def get(self, url = ""):
+    def get(self, url=""):
         tornado.log.app_log.info(f"requesting url {url} for template {self.index_template}")
         if url == "" or True:
             layouts = glob(os.path.join(self.layouts_path, f"{url or '*'}.json"))

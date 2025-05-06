@@ -17,7 +17,7 @@ def test_fixed_tsl_non_peered_input():
     @graph
     def my_tsl(ts1: TS[int], ts2: TS[int]) -> TS[tuple[int, ...]]:
         tsl = TSL.from_ts(ts1, ts2)
-        return flatten_tsl_values[SCALAR: int](tsl)
+        return flatten_tsl_values[SCALAR:int](tsl)
 
     assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1, 3), (2, 4)]
 
@@ -26,7 +26,7 @@ def test_fixed_tsl_non_peered_input_generator():
     @graph
     def my_tsl(ts1: TS[int], ts2: TS[int]) -> TS[tuple[int, ...]]:
         tsl = TSL.from_ts((g for g in (ts1, ts2)))
-        return flatten_tsl_values[SCALAR: int](tsl)
+        return flatten_tsl_values[SCALAR:int](tsl)
 
     assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1, 3), (2, 4)]
 
@@ -44,7 +44,7 @@ def test_peered_to_peered_tsl():
     @graph
     def my_tsl(ts1: TS[int], ts2: TS[int]) -> TS[tuple[int, ...]]:
         tsl = my_tsl_maker(ts1, ts2)
-        return flatten_tsl_values[SCALAR: int](tsl)
+        return flatten_tsl_values[SCALAR:int](tsl)
 
     assert eval_node(my_tsl, ts1=[1, 2], ts2=[3, 4]) == [(1, 3), (2, 4)]
 
@@ -67,4 +67,4 @@ def test_tsl_compatible_types():
 
 
 def test_tsl_get_item():
-    assert eval_node(getitem_, [(1, 2), (2, 3), (4, 5)], 0, resolution_dict={'ts': TSL[TS[int], Size[2]]}) == [1, 2, 4]
+    assert eval_node(getitem_, [(1, 2), (2, 3), (4, 5)], 0, resolution_dict={"ts": TSL[TS[int], Size[2]]}) == [1, 2, 4]

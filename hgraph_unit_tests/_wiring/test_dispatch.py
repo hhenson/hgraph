@@ -5,7 +5,9 @@ from hgraph.test import eval_node
 
 def test_dispatch_1():
     class Pet(CompoundScalar): ...
+
     class Dog(Pet): ...
+
     class Cat(Pet): ...
 
     @dispatch
@@ -24,23 +26,33 @@ def test_dispatch_1():
     def make_sound(pet: TS[Pet], count: TS[int]) -> TS[str]:
         return pet_sound(pet, count)
 
-    assert (eval_node(make_sound, [None, Dog(), None, Cat(), Pet(), None], [None, 1, None, None, 2, 3])
-            == [None, "woof", None, "meow", "unknown 2", "unknown 3"])
+    assert eval_node(make_sound, [None, Dog(), None, Cat(), Pet(), None], [None, 1, None, None, 2, 3]) == [
+        None,
+        "woof",
+        None,
+        "meow",
+        "unknown 2",
+        "unknown 3",
+    ]
 
 
 def test_dispatch_2():
     class Animal(CompoundScalar): ...
+
     class Cat(Animal): ...
+
     class Cow(Animal): ...
+
     class Bear(Animal): ...
 
     class Food(CompoundScalar): ...
+
     class Plant(Food): ...
+
     class Meat(Food): ...
 
     @operator
-    def eats(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
-        ...
+    def eats(animal: TS[Animal], food: TS[Food]) -> TS[bool]: ...
 
     @graph(overloads=eats)
     def eats_default(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
@@ -70,10 +82,9 @@ def test_dispatch_2():
     def eat(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
         return dispatch_(eats, animal, food)
 
-    assert (eval_node(eat,
-                      [None, Cat(),   None,   Cow(),   None,   Bear()],
-                      [None, Plant(), Meat(), Plant(), Meat(), Plant(), Meat()]) ==
-                      [None, False,   True,   True,    False,  True,    None])
+    assert eval_node(
+        eat, [None, Cat(), None, Cow(), None, Bear()], [None, Plant(), Meat(), Plant(), Meat(), Plant(), Meat()]
+    ) == [None, False, True, True, False, True, None]
 
     # Note: last tick is None because there is no change in key value - there is only one Bear related overload and
     # hence the implementation graph is not swapped out so that const(True) node is not ticked.

@@ -31,14 +31,19 @@ from hgraph import (
     combine,
     last_modified_time,
     convert,
-    drop, collect, TSS, default, MIN_DT,
+    drop,
+    collect,
+    TSS,
+    default,
+    MIN_DT,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
     publish_table_editable,
     publish_table,
     register_perspective_adaptors,
-    publish_multitable, TableEdits,
+    publish_multitable,
+    TableEdits,
 )
 from hgraph.adaptors.perspective import perspective_web, PerspectiveTablesManager
 from hgraph.debug import trace_controller
@@ -93,8 +98,11 @@ def random_values(
     }
 
     state.value = data["value"]
-    sched.schedule(round_time_up(
-        ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)))
+    sched.schedule(
+        round_time_up(
+            ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)
+        )
+    )
     return data
 
 
@@ -109,8 +117,11 @@ def random_events(
         "events": floor(randint(0, 100)) if randint(0, 100) > 95 else 0,
     }
 
-    sched.schedule(round_time_up(
-        ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)))
+    sched.schedule(
+        round_time_up(
+            ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)
+        )
+    )
     return data
 
 
@@ -151,6 +162,7 @@ def host_web_server():
 
     trace_controller(port=8081)
     inspector(port=8081)
+
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:

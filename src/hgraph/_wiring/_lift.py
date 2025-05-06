@@ -9,13 +9,13 @@ __all__ = ("lift", "lower")
 
 
 def lift(
-        fn: Callable,
-        inputs: dict[str, type[TimeSeries]] = None,
-        output: type[TimeSeries] = None,
-        active: Sequence[str] | Callable = None,
-        valid: Sequence[str] | Callable = None,
-        all_valid: Sequence[str] | Callable = None,
-        dedup_output: bool = False,
+    fn: Callable,
+    inputs: dict[str, type[TimeSeries]] = None,
+    output: type[TimeSeries] = None,
+    active: Sequence[str] | Callable = None,
+    valid: Sequence[str] | Callable = None,
+    all_valid: Sequence[str] | Callable = None,
+    dedup_output: bool = False,
 ):
     """
     Wraps a scalar function producing a time-series version of the function.
@@ -47,7 +47,7 @@ def lift(
         k: TS[v.annotation] if inputs is None or k not in inputs else inputs[k]
         for k, v in sig.parameters.items()
         if v.kind == Parameter.KEYWORD_ONLY
-           or (v.kind == Parameter.POSITIONAL_OR_KEYWORD and v.default is not Parameter.empty)
+        or (v.kind == Parameter.POSITIONAL_OR_KEYWORD and v.default is not Parameter.empty)
     }
 
     defaults = {k: v.default for k, v in sig.parameters.items() if v.default is not Parameter.empty}
@@ -76,12 +76,7 @@ def lift(
         return cn_fn
 
 
-def lower(
-        fn: Callable, /,
-        date_col: str = "date",
-        as_of_col: str = "as_of",
-        no_as_of_support: bool = True
-) -> Callable:
+def lower(fn: Callable, /, date_col: str = "date", as_of_col: str = "as_of", no_as_of_support: bool = True) -> Callable:
     """
     This is the opposite of ``lift``. It takes a reactive function (``graph`` or ``node``) and returns a
     normal scalar function that can be called in standard Python code.
@@ -116,11 +111,9 @@ def lower(
     The as-of column can be configured to be any name, but the default is ``as_of``.
     """
     from hgraph._operators._record_replay import replay, record, set_record_replay_model
-    from hgraph._operators._to_table import set_as_of, set_table_schema_date_key, \
-        set_table_schema_as_of_key
+    from hgraph._operators._to_table import set_as_of, set_table_schema_date_key, set_table_schema_as_of_key
     from hgraph._runtime import GlobalState, evaluate_graph, GraphConfiguration
-    from hgraph._wiring import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, extract_kwargs, \
-        graph
+    from hgraph._wiring import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, extract_kwargs, graph
     from hgraph.adaptors.data_frame import MemoryDataFrameStorage
     from hgraph.adaptors.data_frame import DATA_FRAME_RECORD_REPLAY
 
@@ -131,11 +124,7 @@ def lower(
     output: HgTimeSeriesTypeMetaData = signature.output_type
 
     def lower_wrapper(
-            *args,
-            __start_time__: datetime = None,
-            __end_time__: datetime = None,
-            __trace__: bool = False,
-            **kwargs
+        *args, __start_time__: datetime = None, __end_time__: datetime = None, __trace__: bool = False, **kwargs
     ):
 
         kwargs_ = extract_kwargs(signature, *args, **kwargs)
@@ -175,6 +164,7 @@ def lower(
 def _prepare_inputs(storage, ts_inputs, recordable_id, no_as_of_support, as_of_col, **kwargs):
     from hgraph import table_schema
     from hgraph import MIN_DT
+
     for k, v in ts_inputs.items():
         schema = table_schema(v.py_type).value
         # match value schema with supplied data-frame

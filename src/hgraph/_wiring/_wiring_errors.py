@@ -30,7 +30,7 @@ class WiringError(RuntimeError, ABC):
     def _print_error(self, msg):
         import sys
 
-        print(f"\n" f"Wiring Error\n" f"============\n" f"\n" f"{msg}", file=sys.stderr)
+        print(f"\nWiring Error\n============\n\n{msg}", file=sys.stderr)
 
     @abstractmethod
     def print_error(self):
@@ -149,7 +149,7 @@ class NoTimeSeriesInputsError(WiringError):
         super().__init__("No time-series inputs provided")
 
     def print_error(self):
-        msg = f"When resolving '{self.signature.signature}' \n" "No time-series inputs provided"
+        msg = f"When resolving '{self.signature.signature}' \nNo time-series inputs provided"
         self._print_error(msg)
 
 
@@ -161,7 +161,7 @@ class InvalidArgumentsProvided(WiringError):
         super().__init__(f"Invalid arguments: {self.bad_arguments}")
 
     def print_error(self):
-        msg = f"When resolving '{self.signature.signature}' \n" f"Invalid inputs provided: {self.bad_arguments}"
+        msg = f"When resolving '{self.signature.signature}' \nInvalid inputs provided: {self.bad_arguments}"
         self._print_error(msg)
 
 

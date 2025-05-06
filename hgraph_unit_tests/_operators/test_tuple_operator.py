@@ -6,8 +6,7 @@ from hgraph.test import eval_node
 
 def test_tuple_compatibility():
     @sink_node
-    def n(x: TS[Tuple[int, ...]]):
-        ...
+    def n(x: TS[Tuple[int, ...]]): ...
 
     @graph
     def g(i: TS[Tuple[int, int]]):

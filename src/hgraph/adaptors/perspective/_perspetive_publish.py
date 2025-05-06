@@ -21,7 +21,12 @@ from hgraph import (
     HgCompoundScalarType,
     HgDataFrameScalarTypeMetaData,
     push_queue,
-    SCHEDULER, operator, TimeSeriesSchema, TSB, TSS, Removed,
+    SCHEDULER,
+    operator,
+    TimeSeriesSchema,
+    TSB,
+    TSS,
+    Removed,
 )
 from ._perspective import PerspectiveTablesManager
 
@@ -89,7 +94,11 @@ def _publish_table_from_tsd(
             if state.create_index:
                 data = {**data, **state.create_index(data)}
 
-            new_index = data[state.index] if not state.map_index else data.setdefault("_id", state.index_to_id[data[state.index]])
+            new_index = (
+                data[state.index]
+                if not state.map_index
+                else data.setdefault("_id", state.index_to_id[data[state.index]])
+            )
 
             if (old_i := state.key_tracker.get(k)) is not None and old_i != new_index:
                 state.removed.add(old_i)
@@ -190,7 +199,7 @@ def _publish_table_from_tsd_start(
     else:
         raise ValueError(f"Unsupported schema type '{_schema}'")
 
-    state.index = (index_col_name or "index")
+    state.index = index_col_name or "index"
 
     if empty_row:
         state.map_index = True
@@ -205,14 +214,24 @@ def _publish_table_from_tsd_start(
         if state.multi_row:
             raise ValueError("Empty row is not supported for multi-row tables")
 
-        table = manager.create_table({"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}},
-                                     index="_id", name=name, editable=editable)
-        empty_values = [i.py_type() for i in _key.element_types] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
+        table = manager.create_table(
+            {"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}},
+            index="_id",
+            name=name,
+            editable=editable,
+        )
+        empty_values = (
+            [i.py_type() for i in _key.element_types] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
+        )
         table.update([{"_id": 0, **state.process_key(empty_values)}])
     else:
         state.map_index = False
-        table = manager.create_table({**state.key_schema, **{k: v for k, v in state.schema.items()}},
-                                     index=state.index, name=name, editable=editable)
+        table = manager.create_table(
+            {**state.key_schema, **{k: v for k, v in state.schema.items()}},
+            index=state.index,
+            name=name,
+            editable=editable,
+        )
 
     state.data = []
     state.removed = set()
@@ -221,7 +240,8 @@ def _publish_table_from_tsd_start(
     if history:
         history_table = manager.create_table(
             {"time": datetime, **state.key_schema, **{k: v for k, v in state.schema.items()}},
-            limit=min(history, 4294967295), name=name + "_history"
+            limit=min(history, 4294967295),
+            name=name + "_history",
         )
 
 
@@ -248,7 +268,9 @@ def _receive_table_edits_tsd(
         if isinstance(_schema.value_scalar_tp, HgCompoundScalarType):
             tp = _schema.value_scalar_tp.py_type
             tp_schema = {k: v.py_type for k, v in _schema.value_scalar_tp.meta_data_schema.items()}
-            process_row = lambda row, i: tp(**{k: tp_schema[k](row[k]) for k in row if k not in i and k not in ("index", "_id")})
+            process_row = lambda row, i: tp(
+                **{k: tp_schema[k](row[k]) for k in row if k not in i and k not in ("index", "_id")}
+            )
         else:
             process_row = lambda row, i: row["value"]
     else:
@@ -273,7 +295,9 @@ def _receive_table_edits_tsd(
                 key = row[index] if type(index) is str else tuple(row[i] for i in index)
                 if _id != 0:  # _id == 0 is for the `new row` in the editable table
                     edits[key] = process_row(row, index)
-                if _id < 0 and _id % 2 == 1:  # this is a row being inserted, the graph is supposed to re-add it with proper _id handling
+                if (
+                    _id < 0 and _id % 2 == 1
+                ):  # this is a row being inserted, the graph is supposed to re-add it with proper _id handling
                     manager.update_table(name, data=None, removals=set((_id,)))
                     removes.add(Removed(key))  # undo any previous removals of this key
                 if _id < 0 and _id % 2 == 0:  # this is a row being deleted

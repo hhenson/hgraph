@@ -64,12 +64,12 @@ class KeyValueRefState:
 
 @compute_node(overloads=getitem_, valid=("key",))
 def tsd_get_item_default(
-        ts: REF[TSD[K, TIME_SERIES_TYPE]],
-        key: TS[K],
-        _ref: REF[TIME_SERIES_TYPE] = None,
-        _ref_ref: REF[TIME_SERIES_TYPE] = None,
-        _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-        _state: STATE[KeyValueRefState] = None,
+    ts: REF[TSD[K, TIME_SERIES_TYPE]],
+    key: TS[K],
+    _ref: REF[TIME_SERIES_TYPE] = None,
+    _ref_ref: REF[TIME_SERIES_TYPE] = None,
+    _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _state: STATE[KeyValueRefState] = None,
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Returns the time-series associated to the key provided.
@@ -107,12 +107,12 @@ def tsd_get_item_default(
 
 @compute_node(overloads=getitem_, valid=())
 def tsd_get_items(
-        ts: REF[TSD[K, TIME_SERIES_TYPE]],
-        key: TSS[K],
-        _ref: TSD[K, REF[TIME_SERIES_TYPE]] = None,
-        _ref_ref: TSD[K, REF[TIME_SERIES_TYPE]] = None,
-        _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-        _state: STATE[KeyValueRefState] = None,
+    ts: REF[TSD[K, TIME_SERIES_TYPE]],
+    key: TSS[K],
+    _ref: TSD[K, REF[TIME_SERIES_TYPE]] = None,
+    _ref_ref: TSD[K, REF[TIME_SERIES_TYPE]] = None,
+    _value_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _state: STATE[KeyValueRefState] = None,
 ) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Returns TSD of the time-series associated to the keys provided.
@@ -193,7 +193,7 @@ def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
 @compute_node(
     overloads=keys_,
     requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
-                          or m[OUT].matches_type(TS[Set[m[K].py_type]]),
+    or m[OUT].matches_type(TS[Set[m[K].py_type]]),
 )
 def keys_tsd_as_set(tsd: TSD[K, TIME_SERIES_TYPE]) -> TS[Set[K]]:
     return set(tsd.keys())
@@ -249,12 +249,8 @@ def bit_xor_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[
 def eq_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE], epsilon: TS[float] = None) -> TS[bool]:
     return reduce(
         lambda l, r: and_(l, r),
-        map_(
-            lambda l, r: default(eq_(l, r) if epsilon is None else eq_(l, r, epsilon=epsilon), False),
-            lhs,
-            rhs
-        ),
-        True
+        map_(lambda l, r: default(eq_(l, r) if epsilon is None else eq_(l, r, epsilon=epsilon), False), lhs, rhs),
+        True,
     )
 
 
@@ -267,7 +263,7 @@ def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]
     resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
 )
 def tsd_get_bundle_item(
-        tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+    tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Returns a TSD of the given items from the bundles in the original TSD
@@ -350,10 +346,10 @@ def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD
 
 @graph(overloads=collapse_keys)
 def collapse_keys_tsd(
-        ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], max_depth: int = -1, v_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
+    ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], max_depth: int = -1, v_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
 ) -> OUT:
     assert (
-            max_depth >= 2 or max_depth == -1
+        max_depth >= 2 or max_depth == -1
     ), "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
 
     if max_depth == 2 or not isinstance(HgTypeMetaData.parse_type(v_tp), HgTSDTypeMetaData):
@@ -366,8 +362,9 @@ def collapse_keys_tsd(
 
 @compute_node(overloads=uncollapse_keys)
 def uncollapse_keys_tsd(
-        ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]], remove_empty: bool = True,
-        _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None
+    ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]],
+    remove_empty: bool = True,
+    _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None,
 ) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
     Un-Collapse the nested TSDs to a TSD with a tuple key.
@@ -472,7 +469,7 @@ class TsdRekeyState(CompoundScalar):
 
 @compute_node(overloads=rekey, valid=("new_keys",))
 def rekey_tsd(
-        ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
 ) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     """
     Rekey a TSD to the new keys.
@@ -518,7 +515,7 @@ def rekey_tsd(
 
 @compute_node(overloads=rekey, valid=("new_keys",))
 def rekey_tsd_with_set(
-        tsd: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TSS[K_1]], _state: STATE[TsdRekeyState] = None
+    tsd: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TSS[K_1]], _state: STATE[TsdRekeyState] = None
 ) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     prev = _state.prev
 
@@ -581,7 +578,7 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
 @compute_node(overloads=flip, requires=lambda m, s: s["unique"] is False)
 def flip_tsd_non_unique(
-        ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None
+    ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None
 ) -> TSD[K_1, TSS[K]]:
     """
     Flip the TSD to have the time-series as the key and the key as the time-series. Collect keys for duplicate values into TSS
@@ -609,7 +606,7 @@ def flip_tsd_non_unique(
 
 @compute_node(overloads=flip_keys)
 def flip_keys_tsd(
-        ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None
+    ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None
 ) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Switch the keys on a TSD of TSD's. This can be considered as a pivot.
@@ -644,10 +641,10 @@ def flip_keys_tsd(
 
 @graph(overloads=merge)
 def merge_tsd(
-        *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
-        _k_tp: type[K] = AUTO_RESOLVE,
-        _v_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-        _sz: type[SIZE] = AUTO_RESOLVE,
+    *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
+    _k_tp: type[K] = AUTO_RESOLVE,
+    _v_tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _sz: type[SIZE] = AUTO_RESOLVE,
 ) -> TSD[K, TIME_SERIES_TYPE]:
     """
     Merge TSD elements together
@@ -657,9 +654,9 @@ def merge_tsd(
 
 @compute_node(overloads=merge, requires=lambda m, s: s["disjoint"])
 def merge_tsd_disjoint(
-        *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE],
-        disjoint: bool = False,
-        _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None,
+    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE],
+    disjoint: bool = False,
+    _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None,
 ) -> TSD[K, REF[TIME_SERIES_TYPE]]:
     """
     Merge TSD of references assuming there is no overlap in key sets, otherwise only the leftmost values will be forwarded
@@ -693,7 +690,7 @@ def merge_tsd_disjoint(
 
 @compute_node(overloads=partition, valid=())
 def partition_tsd(
-        ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
 ) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Partition a TSD into partitions by the given mapping.
@@ -839,11 +836,7 @@ def str_tsd(tsd: TSD[K, V]) -> TS[str]:
 
 
 @graph(overloads=filter_by)
-def filter_by_tsd(
-        ts: TSD[K, V],
-        expr: Callable[[V, ...], bool],
-        **kwargs: TSB[TS_SCHEMA]
-) -> TSD[K, V]:
+def filter_by_tsd(ts: TSD[K, V], expr: Callable[[V, ...], bool], **kwargs: TSB[TS_SCHEMA]) -> TSD[K, V]:
     """
     Applies the filter, removing keys when the filter returns false.
     If you instead wish to remove values from the underlying stream, use map_ with a filter for

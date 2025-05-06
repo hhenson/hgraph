@@ -3,9 +3,7 @@ from typing import Generic
 from hgraph import OUT, WiringPort
 from hgraph.arrow import arrow
 
-__all__ = (
-    "const_", "apply_", "c"
-)
+__all__ = ("const_", "apply_", "c")
 
 from hgraph.arrow._arrow import _Arrow, A, B
 
@@ -27,12 +25,15 @@ def const_(first, second=None, tp=None):
     const value.
     """
     from hgraph.arrow._arrow import _build_inputs
+
     return arrow(
         lambda _, first_=first, second_=second, tp_=tp: _build_inputs(first_, second=second_, type_map=tp_),
         __name__=f"{first}" if second is None else f"{first}, {second}",
     )
 
+
 c = const_  # Use c when it will not be confusing.
+
 
 def apply_(tp: OUT):
     """
@@ -45,8 +46,6 @@ def apply_(tp: OUT):
 
 
 class _Binder(_Arrow[A, B], Generic[A, B]):
-
-
 
     def __rshift__(self, other):
         """If we get here then we are chaining so we can replace the function with the bound function"""

@@ -9,13 +9,39 @@ import polars as pl
 from frozendict import frozendict
 from multimethod import multimethod
 
-from hgraph import Node, Graph, PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput, \
-    PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput, \
-    TimeSeriesList, TimeSeriesDict, TimeSeriesBundle, TimeSeriesSet, TimeSeriesInput, TimeSeriesOutput, \
-    PythonNestedNodeImpl, PythonTsdMapNodeImpl, PythonServiceNodeImpl, PythonReduceNodeImpl, PythonSwitchNodeImpl, \
-    PythonTryExceptNodeImpl, HgTSBTypeMetaData, PythonPushQueueNodeImpl, CompoundScalar, HgTSLTypeMetaData, \
-    HgTSDTypeMetaData, HgCompoundScalarType, MIN_DT, HgTypeMetaData, EvaluationEngine, \
-    EvaluationLifeCycleObserver, TimeSeries, Builder, TimeSeriesReference
+from hgraph import (
+    Node,
+    Graph,
+    PythonTimeSeriesValueInput,
+    PythonTimeSeriesValueOutput,
+    PythonTimeSeriesReferenceOutput,
+    PythonTimeSeriesReferenceInput,
+    TimeSeriesList,
+    TimeSeriesDict,
+    TimeSeriesBundle,
+    TimeSeriesSet,
+    TimeSeriesInput,
+    TimeSeriesOutput,
+    PythonNestedNodeImpl,
+    PythonTsdMapNodeImpl,
+    PythonServiceNodeImpl,
+    PythonReduceNodeImpl,
+    PythonSwitchNodeImpl,
+    PythonTryExceptNodeImpl,
+    HgTSBTypeMetaData,
+    PythonPushQueueNodeImpl,
+    CompoundScalar,
+    HgTSLTypeMetaData,
+    HgTSDTypeMetaData,
+    HgCompoundScalarType,
+    MIN_DT,
+    HgTypeMetaData,
+    EvaluationEngine,
+    EvaluationLifeCycleObserver,
+    TimeSeries,
+    Builder,
+    TimeSeriesReference,
+)
 from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
 from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
@@ -28,16 +54,18 @@ def base62(i: int) -> str:
 
 
 def str_node_id(id: tuple[int, ...]) -> str:
-    return ''.join(base62(i) for i in id)
+    return "".join(base62(i) for i in id)
 
 
 def node_id_from_str(s: str) -> tuple:
     return tuple(
-        STR_ID_NUMBERS[ord(s[i])] * 3844 + STR_ID_NUMBERS[ord(s[i + 1])] * 62 + STR_ID_NUMBERS[ord(s[i + 2])] for i in
-        range(0, len(s), 3))
+        STR_ID_NUMBERS[ord(s[i])] * 3844 + STR_ID_NUMBERS[ord(s[i + 1])] * 62 + STR_ID_NUMBERS[ord(s[i + 2])]
+        for i in range(0, len(s), 3)
+    )
 
 
 # These are visitors that are used to extract information from the graph objects to display in the inspector
+
 
 @multimethod
 def format_name(value, key="?"):
@@ -114,7 +142,9 @@ def format_value_python_time_series_value_input(value: Union[PythonTimeSeriesVal
 
 
 @format_value.register
-def format_value_python_time_series_reference_output(value: Union[PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput]):
+def format_value_python_time_series_reference_output(
+    value: Union[PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput],
+):
     if value.valid:
         ref = value.value
         if ref.is_valid:
@@ -159,7 +189,8 @@ def format_modified(value):
 def format_timestamp_node(value: Node):
     return max(
         value.input.last_modified_time if value.input else MIN_DT,
-        value.output.last_modified_time if value.output else MIN_DT,)
+        value.output.last_modified_time if value.output else MIN_DT,
+    )
 
 
 @format_modified.register
@@ -232,7 +263,9 @@ def enum_items_python_time_series_value_output(value: Union[PythonTimeSeriesValu
 
 
 @enum_items.register
-def enum_items_python_time_series_reference_output(value: Union[PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput]):
+def enum_items_python_time_series_reference_output(
+    value: Union[PythonTimeSeriesReferenceOutput, PythonTimeSeriesReferenceInput],
+):
     if value.valid:
         ref = value.value
         if ref.is_valid:
@@ -357,12 +390,16 @@ def inspect_item_python_time_series_reference(value: TimeSeriesReference, key):
 
 
 @inspect_item.register
-def inspect_item_python_time_series_reference_output(value: Union[PythonTimeSeriesReferenceInput | PythonTimeSeriesReferenceOutput], key):
+def inspect_item_python_time_series_reference_output(
+    value: Union[PythonTimeSeriesReferenceInput | PythonTimeSeriesReferenceOutput], key
+):
     return value.value.items[key]
 
 
 @inspect_item.register
-def inspect_item_python_time_series_value_output(value: Union[PythonTimeSeriesValueInput | PythonTimeSeriesValueOutput], key):
+def inspect_item_python_time_series_value_output(
+    value: Union[PythonTimeSeriesValueInput | PythonTimeSeriesValueOutput], key
+):
     if value.valid:
         return inspect_item(value.value, key)
 
@@ -387,7 +424,7 @@ def inspect_type_cs(value: HgCompoundScalarType, key):
     return value.meta_data_schema[key]
 
 
-#-----------------------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------------------
 # object size computation
 
 
@@ -422,8 +459,19 @@ def subclasses_of(cls):
     for sub in cls.__subclasses__():
         yield from subclasses_of(sub)
 
-_ignore_general_types = {type, ABCMeta, *subclasses_of(GenericAlias), type(subclasses_of), type(max), property, staticmethod,
-                         *subclasses_of(HgTypeMetaData), *subclasses_of(EvaluationLifeCycleObserver), *subclasses_of(Builder)}
+
+_ignore_general_types = {
+    type,
+    ABCMeta,
+    *subclasses_of(GenericAlias),
+    type(subclasses_of),
+    type(max),
+    property,
+    staticmethod,
+    *subclasses_of(HgTypeMetaData),
+    *subclasses_of(EvaluationLifeCycleObserver),
+    *subclasses_of(Builder),
+}
 _ignore_graph_types = {*_ignore_general_types, *subclasses_of(Graph), *subclasses_of(EvaluationEngine)}
 
 _ignore_ts_types = {*_ignore_graph_types, *subclasses_of(TimeSeriesOutput), *subclasses_of(TimeSeriesInput)}
@@ -468,8 +516,8 @@ class SizeOpts:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._ignore_types.pop()
         self.__class__._opts = self._prev
-        self.__class__._stats_mode = getattr(self, '_prev_stats_mode', self.__class__._stats_mode)
-        self.__class__._cache_size = getattr(self, '_prev_cache_size', self.__class__._cache_size)
+        self.__class__._stats_mode = getattr(self, "_prev_stats_mode", self.__class__._stats_mode)
+        self.__class__._cache_size = getattr(self, "_prev_cache_size", self.__class__._cache_size)
 
     @classmethod
     def is_ignored(cls, tp):
@@ -493,7 +541,8 @@ class SizeOpts:
 
     @classmethod
     def add_stats(cls, v, s):
-        if cls._stats_mode == 0: return
+        if cls._stats_mode == 0:
+            return
         if cls._stats_mode == 1:
             tp = type(v).__name__
             cls._opts.stats[tp][0] += 1
@@ -550,28 +599,29 @@ def estimate_size_builtin(value: int | str | float | bool):
 @estimate_size_impl.register
 def estimate_size_dict(value: dict | frozendict):
     return (
+        (
             sum(estimate_size_dispatch(k) + estimate_size_dispatch(v) for k, v in value.items())
             + len(value) * type(value).__itemsize__
             + sys.getsizeof(value)
-    ) if value is not None else 0
+        )
+        if value is not None
+        else 0
+    )
 
 
 @estimate_size_impl.register
 def estimate_size_list(value: list | tuple | set | frozenset):
-    return (
-            sum(estimate_size_dispatch(v) for v in value)
-            + len(value) * type(value).__itemsize__
-            + sys.getsizeof(value)
-    )
+    return sum(estimate_size_dispatch(v) for v in value) + len(value) * type(value).__itemsize__ + sys.getsizeof(value)
 
 
 @estimate_size_impl.register
 def estimate_size_object(value: object):
     if not SizeOpts.is_ignored(type(value)):
-        return (estimate_size_dict(getattr(value, '__dict__', None))
-                + estimate_size_dispatch(getattr(value, '__slots__', None))
-                + sys.getsizeof(value)
-                )
+        return (
+            estimate_size_dict(getattr(value, "__dict__", None))
+            + estimate_size_dispatch(getattr(value, "__slots__", None))
+            + sys.getsizeof(value)
+        )
     else:
         return 0
 
@@ -585,13 +635,13 @@ def cached_ts_size(value: TimeSeries):
     if SizeOpts.seen(value.__dict__):
         return 0
 
-    size = getattr(value, '__cached_size__', None) if SizeOpts.cache_size() else None
+    size = getattr(value, "__cached_size__", None) if SizeOpts.cache_size() else None
     if not value.modified and size is not None:
         return size
 
     size = estimate_size_dict(value.__dict__) + sys.getsizeof(value)
     if SizeOpts.cache_size():
-        object.__setattr__(value, '__cached_size__', size)
+        object.__setattr__(value, "__cached_size__", size)
 
     return size
 
@@ -628,15 +678,17 @@ def estimate_size_python_time_series_reference(value: TimeSeriesReference):
 
 @estimate_size_impl.register
 def estimate_size_time_series_list(value: TimeSeriesList | TimeSeriesBundle):
-    return sum(estimate_size_dispatch(v) for v in value.values()) \
-        if SizeOpts.is_value_only() \
-        else cached_ts_size(value)
+    return sum(estimate_size_dispatch(v) for v in value.values()) if SizeOpts.is_value_only() else cached_ts_size(value)
 
 
 @estimate_size_impl.register
 def estimate_size_time_series_set(value: TimeSeriesSet):
     if SizeOpts.is_value_only():
-        return estimate_size_dispatch(value.value) + estimate_size_dispatch(value.added) + estimate_size_dispatch(value.removed)
+        return (
+            estimate_size_dispatch(value.value)
+            + estimate_size_dispatch(value.added)
+            + estimate_size_dispatch(value.removed)
+        )
     else:
         return cached_ts_size(value)
 
@@ -653,13 +705,13 @@ def estimate_size_time_series_dict(value: TimeSeriesDict):
 def estimate_size_node(value: Node):
     total = 0
     if not SizeOpts.is_value_only():
-        if SizeOpts.cache_size() and (const_size := getattr(value, '__const_size__', None)) is not None:
+        if SizeOpts.cache_size() and (const_size := getattr(value, "__const_size__", None)) is not None:
             total += const_size
         else:
             with SizeOpts(_ignore_ts_types):
                 const_size = estimate_size_dict(value.__dict__)
                 if SizeOpts.cache_size():
-                    object.__setattr__(value, '__const_size__', const_size)
+                    object.__setattr__(value, "__const_size__", const_size)
                 total += const_size
         with SizeOpts(_ignore_out_types):
             total += estimate_size_dispatch(value.input)
@@ -671,13 +723,13 @@ def estimate_size_node(value: Node):
 
 @estimate_size_impl.register
 def estimate_size_graph(value: Graph):
-    if SizeOpts.cache_size() and (const_size := getattr(value, '__const_size__', None)) is not None:
+    if SizeOpts.cache_size() and (const_size := getattr(value, "__const_size__", None)) is not None:
         return const_size
     else:
         with SizeOpts(_ignore_node_types):
             const_size = estimate_size_dict(value.__dict__)
             if SizeOpts.cache_size():
-                object.__setattr__(value, '__const_size__', const_size)
+                object.__setattr__(value, "__const_size__", const_size)
 
             return const_size
 

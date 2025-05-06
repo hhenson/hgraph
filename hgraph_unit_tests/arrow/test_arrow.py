@@ -18,7 +18,10 @@ from hgraph.arrow import (
     second,
     assoc,
     fb,
-    switch_, map_, reduce, debug_
+    switch_,
+    map_,
+    reduce,
+    debug_,
 )
 from hgraph.arrow._arrow import PairSchema, Pair
 from hgraph.test import eval_node
@@ -29,7 +32,7 @@ def test_make_tuple_tsl():
     def g(ts1: TS[int], ts2: TS[int]) -> Pair[TS[int]]:
         return arrow(ts1, ts2).ts
 
-    assert eval_node(g, [1, 2], [3, 4]) == [{'first': 1, 'second': 3}, {'first': 2, 'second': 4}]
+    assert eval_node(g, [1, 2], [3, 4]) == [{"first": 1, "second": 3}, {"first": 2, "second": 4}]
 
 
 def test_make_tuple_tsb():
@@ -66,8 +69,8 @@ def test_nested_inputs():
         return arrow((ts1, ts1), (ts2, ts2)).ts
 
     assert eval_node(g, [1, 2], ["A", "B"]) == [
-        {"first": {'first': 1, 'second': 1}, "second": {'first': "A", 'second': "A"}},
-        {"first": {'first': 2, 'second': 2}, "second": {'first': "B", 'second': "B"}},
+        {"first": {"first": 1, "second": 1}, "second": {"first": "A", "second": "A"}},
+        {"first": {"first": 2, "second": 2}, "second": {"first": "B", "second": "B"}},
     ]
 
 
@@ -104,7 +107,7 @@ def test_fan_out():
     def g(ts1: TS[int]) -> Pair[TS[int]]:
         return arrow(ts1) | arrow(lambda x: x * 3) / (lambda x: x + 1)
 
-    assert eval_node(g, [1, 2]) == [{'first': 3, 'second': 2}, {'first': 6, 'second': 3}]
+    assert eval_node(g, [1, 2]) == [{"first": 3, "second": 2}, {"first": 6, "second": 3}]
 
 
 def test_apply_():
@@ -117,9 +120,7 @@ def test_apply_():
 
 def test_assoc():
     @graph
-    def g(
-        ts1: TS[int], ts2: TS[float], ts3: TS[str]
-    ) -> Pair[TS[int], (TS[float], TS[str])]:
+    def g(ts1: TS[int], ts2: TS[float], ts3: TS[str]) -> Pair[TS[int], (TS[float], TS[str])]:
         return arrow((ts1, ts2), ts3) | assoc
 
     assert eval_node(g, [1, 2], [1.0, 2.0], ["A", "B"]) == [
@@ -167,7 +168,7 @@ def test_arrow_const_2():
     def g() -> Pair[TS[int]]:
         return arrow(1, 2) | i
 
-    assert eval_node(g) == [{'first': 1, 'second': 2}]
+    assert eval_node(g) == [{"first": 1, "second": 2}]
 
 
 def test_arrow_const_3():
@@ -175,7 +176,7 @@ def test_arrow_const_3():
     def g() -> Pair[(TS[int],), TS[int]]:
         return arrow((1, 2), 3) | i
 
-    assert eval_node(g) == [{"first": {'first': 1, 'second': 2}, "second": 3}]
+    assert eval_node(g) == [{"first": {"first": 1, "second": 2}, "second": 3}]
 
 
 def test_assert_too_many_args():
@@ -274,18 +275,15 @@ def test_feedback():
 
 
 def test_switch():
-    (eval_(["A", None, "B"], [1, 2, 3]) |
-     switch_({"A": lambda p: p+1, "B": lambda p: 1-p}) >> assert_(2, 3, -2))
+    (eval_(["A", None, "B"], [1, 2, 3]) | switch_({"A": lambda p: p + 1, "B": lambda p: 1 - p}) >> assert_(2, 3, -2))
 
 
 def test_map():
-    (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) |
-     map_(lambda x: x + 1) >> assert_(fd({"A": 2, "B": 3})))
+    (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) | map_(lambda x: x + 1) >> assert_(fd({"A": 2, "B": 3})))
 
 
 def test_reduce():
-    (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) |
-     reduce(add_, 0) >> assert_(3))
+    (eval_([fd({"A": 1, "B": 2})], type_map=TSD[str, TS[int]]) | reduce(add_, 0) >> assert_(3))
 
 
 def test_debug_():
@@ -297,7 +295,6 @@ def test_side_effects():
     @compute_node
     def side_effect(ts: TS[int]) -> TS[int]:
         GlobalState.instance()["t"] = ts.value
-
 
     @graph
     def g():
@@ -318,7 +315,3 @@ def test_side_effects():
     with GlobalState():
         eval_node(h)
         assert GlobalState.instance().get("t", None) == 1
-
-
-
-

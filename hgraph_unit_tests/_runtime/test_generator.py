@@ -13,4 +13,3 @@ def test_generator_duplicate_time():
 
     with pytest.raises(NodeException):
         print(eval_node(play_duplicate))
-

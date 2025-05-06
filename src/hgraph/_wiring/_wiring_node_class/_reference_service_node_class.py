@@ -43,7 +43,8 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
             typed_full_path = self.typed_full_path(path, resolution_dict)
 
             from hgraph.nodes import get_shared_reference_output
-            out = get_shared_reference_output[TIME_SERIES_TYPE: resolved_signature.output_type.dereference()](
+
+            out = get_shared_reference_output[TIME_SERIES_TYPE : resolved_signature.output_type.dereference()](
                 typed_full_path
             )
 

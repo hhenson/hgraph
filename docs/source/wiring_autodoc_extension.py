@@ -53,7 +53,7 @@ if __name__ == "__main__":
     def my_function(a: TS[int], b: TS[float]) -> TS[str]:
         """This is the docstring of my_function."""
 
-    node =    graph(my_function)
+    node = graph(my_function)
 
     # Mock Sphinx-generated locations to see results (for testing purposes)
     print("Signature:", inspect.signature(my_function))

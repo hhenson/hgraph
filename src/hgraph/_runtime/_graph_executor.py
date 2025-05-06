@@ -6,7 +6,6 @@ from typing import Iterable
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph import Graph
 
-
 __all__ = ("GraphExecutor", "GraphEngineFactory")
 
 

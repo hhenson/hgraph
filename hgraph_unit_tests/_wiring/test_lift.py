@@ -45,23 +45,15 @@ def test_lower():
 
     @graph
     def g(l: TS[int], r: TS[int]) -> TS[int]:
-        return l+r
+        return l + r
 
     import polars as pl
+
     f = lower(g, no_as_of_support=True)
     result = f(
-        l=pl.DataFrame({
-            "date": [MIN_ST, MIN_ST + MIN_TD],
-            "value": [1, 2]
-        }),
-        r=pl.DataFrame({
-            "date": [MIN_ST, MIN_ST + MIN_TD*2],
-            "value": [3, 4]
-        }),
-        #__trace__ = True
+        l=pl.DataFrame({"date": [MIN_ST, MIN_ST + MIN_TD], "value": [1, 2]}),
+        r=pl.DataFrame({"date": [MIN_ST, MIN_ST + MIN_TD * 2], "value": [3, 4]}),
+        # __trace__ = True
     )
-    expected = pl.DataFrame({
-        "date": [MIN_ST,MIN_ST + MIN_TD,  MIN_ST + MIN_TD * 2],
-        "value": [4, 5, 6]
-    })
+    expected = pl.DataFrame({"date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2], "value": [4, 5, 6]})
     assert expected.equals(result)

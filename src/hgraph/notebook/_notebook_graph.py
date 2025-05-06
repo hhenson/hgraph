@@ -12,7 +12,11 @@ from hgraph import (
     MAX_ET,
     record,
     WiringNodeInstanceContext,
-    get_recorded_value, WiringPort, HgTSTypeMetaData, HgTSBTypeMetaData, reset_recorded_value,
+    get_recorded_value,
+    WiringPort,
+    HgTSTypeMetaData,
+    HgTSBTypeMetaData,
+    reset_recorded_value,
 )
 
 __all__ = (
@@ -76,10 +80,11 @@ def notebook_plot_node(self: WiringPort, title: str = None, ylabel: str = None):
     """
     values = notebook_eval_node(self)
     from matplotlib import pyplot as plt
+
     if type(self.output_type) is HgTSTypeMetaData:
         data = {"date": [v[0] for v in values], "value": [v[1] for v in values]}
         plt.plot(data["date"], data["value"])
-        plt.xlabel('datetime')
+        plt.xlabel("datetime")
         if ylabel:
             plt.ylabel(ylabel)
         if title:
@@ -90,7 +95,7 @@ def notebook_plot_node(self: WiringPort, title: str = None, ylabel: str = None):
         data = {key: [d.get(key, None) for d in values] for key in schema.keys()}
         for key in schema.keys():
             plt.plot(ndx, data[key], label=key)
-        plt.xlabel('datetime')
+        plt.xlabel("datetime")
         if ylabel:
             plt.ylabel(ylabel)
         if title:

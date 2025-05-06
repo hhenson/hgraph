@@ -73,7 +73,7 @@ try:
             if isinstance(value, pl.DataFrame):
                 schema = compound_scalar(**value.schema.to_python())
                 schema = HgScalarTypeMetaData.parse_type(schema)
-                if my_schema := getattr(self, 'schema', None):
+                if my_schema := getattr(self, "schema", None):
                     if my_schema.matches(schema):
                         return self
                 return HgDataFrameScalarTypeMetaData(schema)

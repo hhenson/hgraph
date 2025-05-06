@@ -75,8 +75,7 @@ def test_combine_named_tsb2():
     class C(TimeSeriesSchema):
         c: TS[int]
 
-    class ABC(AB, C):
-        ...
+    class ABC(AB, C): ...
 
     @graph
     def g(a: TS[int], b: TS[str]) -> TSB[ABC]:

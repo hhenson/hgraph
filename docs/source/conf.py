@@ -36,7 +36,7 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinx.ext.mathjax",  # For HTML
     "sphinx.ext.imgmath",  # For PDF
-    'wiring_autodoc_extension'
+    "wiring_autodoc_extension",
 ]
 
 intersphinx_mapping = {

@@ -1,8 +1,22 @@
 from typing import Tuple
 
 from hgraph import match_
-from hgraph import mul_, contains_, TS, graph, format_, TIME_SERIES_TYPE_2, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE, \
-    replace, split, TSL, Size, join, substr
+from hgraph import (
+    mul_,
+    contains_,
+    TS,
+    graph,
+    format_,
+    TIME_SERIES_TYPE_2,
+    TIME_SERIES_TYPE_1,
+    TIME_SERIES_TYPE,
+    replace,
+    split,
+    TSL,
+    Size,
+    join,
+    substr,
+)
 from hgraph.test import eval_node
 
 
@@ -19,11 +33,11 @@ def test_contains_str():
 
 
 def test_match():
-    assert eval_node(match_, pattern=["a"], s=["a"]) == [{'is_match': True, 'groups': ()}]
-    assert eval_node(match_, pattern=["(a)"], s=["a"]) == [{'is_match': True, 'groups': ('a',)}]
-    assert eval_node(match_, pattern=["(a)"], s=["aa"]) == [{'is_match': True, 'groups': ('a',)}]
-    assert eval_node(match_, pattern=["(a)"], s=["aa"]) == [{'is_match': True, 'groups': ('a',)}]
-    assert eval_node(match_, pattern=["a"], s=["b"]) == [{'is_match': False}]
+    assert eval_node(match_, pattern=["a"], s=["a"]) == [{"is_match": True, "groups": ()}]
+    assert eval_node(match_, pattern=["(a)"], s=["a"]) == [{"is_match": True, "groups": ("a",)}]
+    assert eval_node(match_, pattern=["(a)"], s=["aa"]) == [{"is_match": True, "groups": ("a",)}]
+    assert eval_node(match_, pattern=["(a)"], s=["aa"]) == [{"is_match": True, "groups": ("a",)}]
+    assert eval_node(match_, pattern=["a"], s=["b"]) == [{"is_match": False}]
 
 
 def test_replace():
@@ -54,13 +68,13 @@ def test_split():
 def test_join():
     @graph
     def g(s: TSL[TS[str], Size[3]]) -> TS[str]:
-        return join(*s, separator=',')
+        return join(*s, separator=",")
 
     assert eval_node(g, [("a", "b", "c")]) == ["a,b,c"]
 
     @graph
     def g(s: TS[Tuple[str, ...]]) -> TS[str]:
-        return join(s, separator=',')
+        return join(s, separator=",")
 
     assert eval_node(g, [("a", "b", "c")]) == ["a,b,c"]
 
@@ -68,7 +82,7 @@ def test_join():
 def test_join_strict():
     @graph
     def g(s: TSL[TS[str], Size[3]]) -> TS[str]:
-        return join(*s, separator=',', __strict__=True)
+        return join(*s, separator=",", __strict__=True)
 
     assert eval_node(g, [("a", None, "c"), ("a", "b", "c")]) == [None, "a,b,c"]
 
@@ -76,7 +90,7 @@ def test_join_strict():
 def test_join_not_strict():
     @graph
     def g(s: TSL[TS[str], Size[3]]) -> TS[str]:
-        return join(*s, separator=',', __strict__=False)
+        return join(*s, separator=",", __strict__=False)
 
     assert eval_node(g, [("a", None, "c"), ("a", "b", "c")]) == ["a,c", "a,b,c"]
 
@@ -111,8 +125,9 @@ def test_format_kwargs():
 
 def test_format_mixed():
     @graph
-    def format_test(format_str: TS[str], ts: TIME_SERIES_TYPE, ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2) \
-            -> TS[str]:
+    def format_test(
+        format_str: TS[str], ts: TIME_SERIES_TYPE, ts1: TIME_SERIES_TYPE_1, ts2: TIME_SERIES_TYPE_2
+    ) -> TS[str]:
         return format_(format_str, ts, ts1=ts1, ts2=ts2)
 
     f_str = "{ts1} is a test {ts2}"

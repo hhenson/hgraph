@@ -1,6 +1,5 @@
 from hgraph._types._scalar_value import ScalarValue
 
-
 __all__ = ("PythonScalarValue", "PythonKeyableScalarValue")
 
 

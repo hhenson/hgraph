@@ -1,6 +1,5 @@
 from typing import Optional, Any
 
-
 __all__ = ("GlobalState",)
 
 
@@ -15,6 +14,7 @@ class GlobalState(object):
     @staticmethod
     def init_multithreading():
         from threading import local
+
         if isinstance(GlobalState._instance, local):
             return
 
@@ -44,7 +44,7 @@ class GlobalState(object):
 
     @staticmethod
     def instance_mt() -> "GlobalState":
-        if GlobalState._instance.__dict__.get('self') is None:
+        if GlobalState._instance.__dict__.get("self") is None:
             raise RuntimeError("No global state is present")  # default constructing one is very bad for tests
         return GlobalState._instance.self
 
@@ -54,7 +54,7 @@ class GlobalState(object):
 
     @staticmethod
     def has_instance_mt() -> bool:
-        return GlobalState._instance.__dict__.get('self') is not None
+        return GlobalState._instance.__dict__.get("self") is not None
 
     @staticmethod
     def reset():
@@ -116,7 +116,7 @@ class GlobalState(object):
         )
 
     def __str__(self):
-        return str(self._get_combined_dict())   
+        return str(self._get_combined_dict())
 
     def __bool__(self):
         return bool(self._state) or bool(self._previous)

@@ -66,5 +66,7 @@ class PythonLastValuePullWiringNodeClass(BaseWiringNodeClass):
             scalars=scalars,
             input_builder=None,
             output_builder=factory.make_output_builder(output_type),
-            error_builder=factory.make_error_builder(self.error_output_type) if node_signature.capture_exception else None,
+            error_builder=(
+                factory.make_error_builder(self.error_output_type) if node_signature.capture_exception else None
+            ),
         )

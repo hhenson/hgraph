@@ -19,7 +19,9 @@ def downcast_impl(tp: Type[SCALAR], ts: TS[SCALAR_1]) -> TS[SCALAR]:
     """
     Downcasts a time-series to the given type.
     """
-    assert isinstance(ts.value, getattr(tp, '__origin__', tp)), f"During downcast, expected an instance of {tp}, got {type(ts.value)} ({ts.value})"
+    assert isinstance(
+        ts.value, getattr(tp, "__origin__", tp)
+    ), f"During downcast, expected an instance of {tp}, got {type(ts.value)} ({ts.value})"
     return ts.value
 
 

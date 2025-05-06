@@ -5,7 +5,21 @@ from functools import reduce
 from hashlib import shake_256
 from inspect import get_annotations
 import sys
-from typing import TYPE_CHECKING, ForwardRef, List, Set, Type, TypeVar, KeysView, ItemsView, ValuesView, get_type_hints, ClassVar, Generic, Mapping
+from typing import (
+    TYPE_CHECKING,
+    ForwardRef,
+    List,
+    Set,
+    Type,
+    TypeVar,
+    KeysView,
+    ItemsView,
+    ValuesView,
+    get_type_hints,
+    ClassVar,
+    Generic,
+    Mapping,
+)
 
 from frozendict import frozendict
 
@@ -32,7 +46,9 @@ class AbstractSchema:
 
     __meta_data_schema__: frozendict[str, "HgTypeMetaData"] = {}
     __resolved__: dict[str, Type["AbstractSchema"]] = {}  # Cache of resolved classes
-    __forward_refs__: dict[str, Set[Type]] = defaultdict(set)  # Cache of classes pending resolution of forward references
+    __forward_refs__: dict[str, Set[Type]] = defaultdict(
+        set
+    )  # Cache of classes pending resolution of forward references
     __partial_resolution__: frozendict[TypeVar, Type]
     __partial_resolution_parent__: Type["AbstractSchema"]
     __serialise_discriminator_field__: str = None
@@ -96,25 +112,29 @@ class AbstractSchema:
     def __build_schema__(cls) -> None:
         from hgraph._types._type_meta_data import ParseError
 
-        schema = dict(reduce(operator.or_, [getattr(c, '__meta_data_schema__', {}) for c in cls.__bases__]))
+        schema = dict(reduce(operator.or_, [getattr(c, "__meta_data_schema__", {}) for c in cls.__bases__]))
         for k, v in get_annotations(cls).items():
             if isinstance(v, str):
                 try:
-                    v = eval(v, 
-                             getattr(sys.modules.get(getattr(cls, "__module__", None), None), "__dict__", None),
-                             dict(vars(cls))
-                             )
+                    v = eval(
+                        v,
+                        getattr(sys.modules.get(getattr(cls, "__module__", None), None), "__dict__", None),
+                        dict(vars(cls)),
+                    )
                 except Exception:
                     if v == cls.__name__:  # self reference
                         v = cls
                     elif isinstance(AbstractSchema.__forward_refs__.get(v), type):
                         v = AbstractSchema.__forward_refs__[v]
-                    elif '.' not in v and isinstance(AbstractSchema.__forward_refs__.get(cls.__qualname__.replace(cls.__name__, v)), type):
+                    elif "." not in v and isinstance(
+                        AbstractSchema.__forward_refs__.get(cls.__qualname__.replace(cls.__name__, v)), type
+                    ):
                         v = AbstractSchema.__forward_refs__.get(cls.__qualname__.replace(cls.__name__, v))
                     else:
-                        v = cls.__qualname__.replace(cls.__name__, v) if '.' not in v else v
+                        v = cls.__qualname__.replace(cls.__name__, v) if "." not in v else v
                         AbstractSchema.__forward_refs__[v].add(cls)
                         from hgraph._types._scalar_type_meta_data import HgCompoundScalarTypeForwardRef
+
                         v = HgCompoundScalarTypeForwardRef(v)
             if getattr(v, "__origin__", None) == ClassVar:
                 continue
@@ -129,6 +149,7 @@ class AbstractSchema:
                 continue
 
             from hgraph._types._type_meta_data import HgTypeMetaData
+
             s = cls._parse_type(v) if not isinstance(v, HgTypeMetaData) else v
 
             if s is None:
@@ -148,7 +169,7 @@ class AbstractSchema:
             cls.__parameters_meta_data__ = {v: cls._parse_type(v) for v in params}
         elif any(not v.is_resolved for v in schema.values()):
             raise ParseError(f"Schema '{cls}' has unresolved types while not being generic class")
-        
+
         if cls.__qualname__ in AbstractSchema.__forward_refs__:
             subs = AbstractSchema.__forward_refs__[cls.__qualname__]
             if isinstance(subs, set):
@@ -157,7 +178,6 @@ class AbstractSchema:
                     AbstractSchema.__build_schema__(t)
         else:
             AbstractSchema.__forward_refs__[cls.__qualname__] = cls
-
 
         if (s_c := getattr(cls, "__serialise_children__", None)) is not None:
             d_f = getattr(cls, "__serialise_discriminator_field__", None)
@@ -168,7 +188,6 @@ class AbstractSchema:
             cls.__serialise_children__ = {}
             if getattr(cls, "__serialise_discriminator_field__", None) is None:
                 cls.__serialise_discriminator_field__ = "__type__"
-
 
     @classmethod
     def _root_cls(cls) -> Type["AbstractSchema"]:
@@ -227,8 +246,9 @@ class AbstractSchema:
 
         if SchemaRecurseContext.is_in_context(cls_name):
             from hgraph._types._scalar_type_meta_data import HgCompoundScalarTypeForwardRef
+
             fwd = HgCompoundScalarTypeForwardRef(cls_name)
-            SchemaRecurseContext.attach_cb(cls_name, lambda: setattr(fwd, 'py_type', cls.__resolved__.get(cls_name)))
+            SchemaRecurseContext.attach_cb(cls_name, lambda: setattr(fwd, "py_type", cls.__resolved__.get(cls_name)))
             return fwd
 
         r_cls: Type["AbstractSchema"]

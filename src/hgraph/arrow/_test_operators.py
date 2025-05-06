@@ -1,8 +1,7 @@
 import string
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, compute_node, STATE, AUTO_RESOLVE, TS, OUT, \
-    EvaluationClock
+from hgraph import CompoundScalar, compute_node, STATE, AUTO_RESOLVE, TS, OUT, EvaluationClock
 from hgraph.arrow import arrow
 from hgraph.arrow._arrow import A, extract_value, extract_delta_value
 
@@ -49,8 +48,13 @@ def assert_(*args, message: str = None):
 
 @arrow(__has_side_effects__=True)
 @compute_node
-def debug_(msg_: OUT, fmt_str: str = None, delta_value: bool = False, _out_tp: type[OUT] = AUTO_RESOLVE,
-           _clock: EvaluationClock = None) -> OUT:
+def debug_(
+    msg_: OUT,
+    fmt_str: str = None,
+    delta_value: bool = False,
+    _out_tp: type[OUT] = AUTO_RESOLVE,
+    _clock: EvaluationClock = None,
+) -> OUT:
     """
     Useful utility for debugging. This will print the value of the input stream and then emit the value out.
     This ensures the debug statement will rank immediately after the input and before any subsequent consumers.

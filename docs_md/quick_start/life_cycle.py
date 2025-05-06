@@ -18,4 +18,11 @@ def life_cycle_example_stop():
     print("Stop")
 
 
-print(eval_node(life_cycle_example, a=["Hello",]))
+print(
+    eval_node(
+        life_cycle_example,
+        a=[
+            "Hello",
+        ],
+    )
+)

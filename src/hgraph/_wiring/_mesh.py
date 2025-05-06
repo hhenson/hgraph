@@ -28,7 +28,6 @@ from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNod
 from hgraph._wiring._wiring_port import WiringPort, DelayedBindingWiringPort, TSDREFWiringPort
 from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 
-
 __all__ = ("mesh_", "MeshWiringPort", "get_mesh")
 
 
@@ -61,6 +60,7 @@ def mesh_(func: Callable, *args, **kwargs):
         port = map_wiring_node(**calling_kwargs)
 
         from hgraph import WiringGraphContext
+
         WiringGraphContext.instance().reassign_items(ri, port.node_instance)
 
         out = port.out[calling_kwargs[KEYS_ARG]]

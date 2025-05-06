@@ -39,9 +39,7 @@ class MeshNestedEngineEvaluationClock(NestedEngineEvaluationClock):
             return
 
         rank = node._active_graphs_rank[self._key]
-        if next_time == let and (
-            rank == node.current_eval_rank or self.key == node.current_eval_graph
-        ):
+        if next_time == let and (rank == node.current_eval_rank or self.key == node.current_eval_graph):
             return
 
         tm = node._scheduled_keys_by_rank[rank].get(self._key)
@@ -265,6 +263,3 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
     def nested_graphs(self):
         graphs = super().nested_graphs()
         return {k: graphs[k] for k in sorted(graphs.keys(), key=lambda x: self._active_graphs_rank[x])}
-
-
-    

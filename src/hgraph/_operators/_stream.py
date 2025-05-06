@@ -12,7 +12,7 @@ from hgraph._types import (
     TSW,
     WINDOW_SIZE,
     WINDOW_SIZE_MIN,
-    TS_SCHEMA
+    TS_SCHEMA,
 )
 from hgraph._wiring._decorators import operator
 
@@ -98,9 +98,7 @@ def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 @operator
 def filter_by(
-        ts: TIME_SERIES_TYPE,
-        expr: Callable[[TIME_SERIES_TYPE, ...], bool],
-        **kwargs: TSB[TS_SCHEMA]
+    ts: TIME_SERIES_TYPE, expr: Callable[[TIME_SERIES_TYPE, ...], bool], **kwargs: TSB[TS_SCHEMA]
 ) -> TIME_SERIES_TYPE:
     """
     Filters the ``ts`` time-series using the expression provided.

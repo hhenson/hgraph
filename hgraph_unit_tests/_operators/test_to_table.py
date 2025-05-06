@@ -281,7 +281,7 @@ def test_to_table_from_table_frame():
         return from_table[TS[Frame[MySchema]]](to_table(ts))
 
     df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-    assert_frame_equal(eval_node(g, [df])[-1],df)
+    assert_frame_equal(eval_node(g, [df])[-1], df)
 
 
 def test_to_table_frame():
@@ -314,5 +314,5 @@ def test_to_table_schema_frame():
         partition_keys=(),
         removed_keys=(),
         date_time_key="__date_time__",
-        as_of_key="__as_of__"
+        as_of_key="__as_of__",
     )

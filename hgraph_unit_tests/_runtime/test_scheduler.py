@@ -3,8 +3,23 @@ from datetime import timedelta, datetime
 
 from frozendict import frozendict
 
-from hgraph import compute_node, TS, SCHEDULER, MIN_TD, graph, TSD, map_, run_graph, EvaluationMode, record, \
-    GlobalState, get_recorded_value, sink_node, SIGNAL, schedule
+from hgraph import (
+    compute_node,
+    TS,
+    SCHEDULER,
+    MIN_TD,
+    graph,
+    TSD,
+    map_,
+    run_graph,
+    EvaluationMode,
+    record,
+    GlobalState,
+    get_recorded_value,
+    sink_node,
+    SIGNAL,
+    schedule,
+)
 from hgraph import const
 from hgraph.test import eval_node
 
@@ -27,9 +42,11 @@ def test_map_scheduler():
     def map_scheduler(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
         return map_(my_scheduler, tsd, "TEST")
 
-    assert (eval_node(map_scheduler, [{"ab1": 9, "ab2": 9}, {"ab1": 9}, {"ab2": 9}] + [None] * 7 + [{"ab1": 2}]) == [
-        frozendict({"ab1": 9, "ab2": 9}), frozendict({"ab1": 9}), frozendict({"ab2": 9}), ] + [None] * 7 +
-            [frozendict({"ab1": 2}), frozendict({"ab2": -1}), {"ab1": -1}])
+    assert eval_node(map_scheduler, [{"ab1": 9, "ab2": 9}, {"ab1": 9}, {"ab2": 9}] + [None] * 7 + [{"ab1": 2}]) == [
+        frozendict({"ab1": 9, "ab2": 9}),
+        frozendict({"ab1": 9}),
+        frozendict({"ab2": 9}),
+    ] + [None] * 7 + [frozendict({"ab1": 2}), frozendict({"ab2": -1}), {"ab1": -1}]
 
 
 @compute_node(valid=("ts1",))
@@ -49,10 +66,19 @@ def test_tagged_scheduler():
         return map_(schedule_bool, ts, config)
 
     d = frozendict
-    assert eval_node(_schedule_graph,
-                     [None, None, None, None, None, {"b": True}]) == [
-               d(), None, None, d({"b": False}), None, d({"b": True}), None, None,
-               d({"b": False}), None, d({"a": False})]
+    assert eval_node(_schedule_graph, [None, None, None, None, None, {"b": True}]) == [
+        d(),
+        None,
+        None,
+        d({"b": False}),
+        None,
+        d({"b": True}),
+        None,
+        None,
+        d({"b": False}),
+        None,
+        d({"a": False}),
+    ]
 
 
 @compute_node
@@ -84,4 +110,3 @@ def test_wall_clock_scheduler():
     assert values[0][0] == now
     assert values[1][0] >= now + timedelta(milliseconds=42)  # we will expect to accumulate 100/7*3 = 42.8ms lag
     assert values[1][0] < now + timedelta(milliseconds=107)
-

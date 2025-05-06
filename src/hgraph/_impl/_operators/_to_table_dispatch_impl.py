@@ -91,7 +91,9 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             types=tuple(schema.types),
             partition_keys=tuple(),
             remove_partition_keys=tuple(),
-            to_table=lambda ts, schema=schema: schema.to_table(ts.delta_value) if ts.modified else (None,) * len(schema.keys),
+            to_table=lambda ts, schema=schema: (
+                schema.to_table(ts.delta_value) if ts.modified else (None,) * len(schema.keys)
+            ),
             to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.value),
             from_table=schema.from_table,
         )
@@ -107,10 +109,11 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             from_table=lambda iter: next(iter),
         )
 
+
 @extract_table_schema.register(HgTSWTypeMetaData)
 def _(tp: HgTSWTypeMetaData) -> PartialSchema:
     schema = extract_table_schema(HgTSTypeMetaData(tp.value_scalar_tp))
-    #TODO: ensure the from_table loads historical data
+    # TODO: ensure the from_table loads historical data
     return schema
 
 
@@ -265,8 +268,8 @@ def _tsd_to_table(tsd: TSD[K, V], schema: PartialSchema, snap=False) -> TABLE:
     if schema.partition_keys:
         # If there are partial keys in the value, then we will potentially get multiple rows
         out = []
-        for k, v in (tsd.modified_items() if not snap else tsd.valid_items()):
-            for row in (schema.to_table(v) if not snap else schema.to_table_snap(v)):
+        for k, v in tsd.modified_items() if not snap else tsd.valid_items():
+            for row in schema.to_table(v) if not snap else schema.to_table_snap(v):
                 out.append(
                     (
                         False,
@@ -326,6 +329,7 @@ def _tsd_from_table(it, schema: PartialSchema) -> fd:
 @extract_table_schema.register(HgDataFrameScalarTypeMetaData)
 def _(tp: HgDataFrameScalarTypeMetaData) -> PartialSchema:
     import polars as pl
+
     if type(tp.schema) is HgCompoundScalarType:
         schema = extract_table_schema(tp.schema)
         return PartialSchema(
@@ -336,7 +340,7 @@ def _(tp: HgDataFrameScalarTypeMetaData) -> PartialSchema:
             remove_partition_keys=tuple(),
             to_table=lambda v: tuple(schema.to_table(tp.schema.py_type(**i)) for i in v.rows(named=True)),
             to_table_snap=lambda v: tuple(schema.to_table(tp.schema.py_type(**i)) for i in v.rows(named=True)),
-            from_table=lambda it: pl.DataFrame(tuple(schema.from_table(iter(i)) for i in it))
+            from_table=lambda it: pl.DataFrame(tuple(schema.from_table(iter(i)) for i in it)),
         )
     else:
         return PartialSchema(
@@ -347,6 +351,5 @@ def _(tp: HgDataFrameScalarTypeMetaData) -> PartialSchema:
             remove_partition_keys=tuple(),
             to_table=lambda v: (v.value,) if v.modified else (None,),
             to_table_snap=lambda v: (v.value,) if v.modified else (None,),
-            from_table=lambda iter: next(iter)
+            from_table=lambda iter: next(iter),
         )
-

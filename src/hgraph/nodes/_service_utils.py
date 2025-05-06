@@ -47,6 +47,7 @@ def capture_output_to_global_state(path: str, ts: REF[TIME_SERIES_TYPE]):
 def capture_output_to_global_state_start(path: str, ts: REF[TIME_SERIES_TYPE]):
     """Place the reference into the global state"""
     from hgraph import TimeSeriesSubscriber
+
     global_state = GlobalState.instance()
     global_state[path] = ts.value
     global_state[f"{path}_subscriber"] = TimeSeriesSubscriber()
@@ -114,7 +115,7 @@ def write_subscription_key_start(path: str, _state: STATE):
     global_state = GlobalState.instance()
     if tracker_path not in global_state:
         global_state[tracker_path] = defaultdict(set)
-    _state.tracker =global_state[tracker_path]
+    _state.tracker = global_state[tracker_path]
 
 
 @write_subscription_key.stop
@@ -242,7 +243,9 @@ def write_service_requests(path: str, request: TIME_SERIES_TYPE):
 
 
 @pull_source_node
-def get_shared_reference_output(path: str, strict: bool = True, node: NODE = None, _state: STATE = None) -> REF[TIME_SERIES_TYPE]:
+def get_shared_reference_output(
+    path: str, strict: bool = True, node: NODE = None, _state: STATE = None
+) -> REF[TIME_SERIES_TYPE]:
     """Uses the special node to extract a node from the global state."""
     from hgraph._runtime._global_state import GlobalState
 

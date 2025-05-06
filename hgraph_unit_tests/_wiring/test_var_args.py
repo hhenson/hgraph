@@ -1,7 +1,19 @@
 from inspect import signature
 
-from hgraph import compute_node, TS, TIME_SERIES_TYPE, TSL, SIZE, graph, TSD, Size, with_signature, TSB, TS_SCHEMA, \
-    operator
+from hgraph import (
+    compute_node,
+    TS,
+    TIME_SERIES_TYPE,
+    TSL,
+    SIZE,
+    graph,
+    TSD,
+    Size,
+    with_signature,
+    TSB,
+    TS_SCHEMA,
+    operator,
+)
 from hgraph.test import eval_node
 
 
@@ -82,7 +94,7 @@ def test_var_args_tsb():
     def g(a: TS[int], b: TS[int], c: TS[float], d: TS[str]) -> TS[int]:
         return n(a, b, c, d)
 
-    assert eval_node(g, 1, 2, 3., "4") == [10]
+    assert eval_node(g, 1, 2, 3.0, "4") == [10]
 
 
 def test_var_kwarg_tsd():

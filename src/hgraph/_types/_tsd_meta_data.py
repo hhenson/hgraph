@@ -8,7 +8,6 @@ from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
 
-
 __all__ = (
     "HgTSDTypeMetaData",
     "HgTSDOutTypeMetaData",

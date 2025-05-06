@@ -14,6 +14,7 @@ class TimeSeriesReference:
     Contains a reference to a time-series output. This is the holder type used to tick references to outputs through the
     graph using the ``REF`` type.
     """
+
     # Preparation for alternative engine implementations
     _BUILDER = None
     _INSTANCE_OF = None
@@ -44,6 +45,7 @@ class TimeSeriesReference:
     ):
         if TimeSeriesReference._BUILDER is None:
             from hgraph._impl._types._ref import python_time_series_reference_builder
+
             TimeSeriesReference._BUILDER = python_time_series_reference_builder
 
         return TimeSeriesReference._BUILDER(ts=ts, from_items=from_items)
@@ -53,8 +55,6 @@ class TimeSeriesReference:
         if TimeSeriesReference._INSTANCE_OF is None:
             TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, TimeSeriesReference)
         return TimeSeriesReference._INSTANCE_OF(obj)
-
-
 
 
 class TimeSeriesReferenceOutput(

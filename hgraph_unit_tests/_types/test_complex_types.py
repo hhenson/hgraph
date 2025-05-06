@@ -1,9 +1,22 @@
 from dataclasses import dataclass
 from typing import Generic
 
-from hgraph import CompoundScalar, SCALAR, HgTimeSeriesTypeMetaData, WiringGraphContext, \
-    compound_scalar, ts_schema, HgScalarTypeMetaData, HgCompoundScalarType, TimeSeriesSchema, TSB, is_bundle, \
-    is_compound_scalar, TS, WiringNodeInstanceContext
+from hgraph import (
+    CompoundScalar,
+    SCALAR,
+    HgTimeSeriesTypeMetaData,
+    WiringGraphContext,
+    compound_scalar,
+    ts_schema,
+    HgScalarTypeMetaData,
+    HgCompoundScalarType,
+    TimeSeriesSchema,
+    TSB,
+    is_bundle,
+    is_compound_scalar,
+    TS,
+    WiringNodeInstanceContext,
+)
 
 
 @dataclass
@@ -32,6 +45,7 @@ def test_simple_bundle():
     assert is_bundle(TSB[SimpleSchema])
     assert is_bundle(TSB[LessSimpleBundle])
     from hgraph import const
+
     with WiringNodeInstanceContext(), WiringGraphContext(None):
         p1 = const(1)
         b1 = TSB[SimpleSchema].from_ts(p1=p1)
@@ -52,7 +66,7 @@ def test_simple_scalar_from_bundle():
 def test_less_simple_scalar_from_bundle():
     scalar_type = LessSimpleBundle.scalar_type()
     assert scalar_type is not None
-    assert scalar_type.__name__ == 'LessSimpleBundleStruct'
+    assert scalar_type.__name__ == "LessSimpleBundleStruct"
     assert scalar_type.__meta_data_schema__["p1"] == HgScalarTypeMetaData.parse_type(int)
     assert scalar_type.__meta_data_schema__["p2"] == HgScalarTypeMetaData.parse_type(str)
     assert scalar_type.__meta_data_schema__["p3"] == HgScalarTypeMetaData.parse_type(SimpleSchema.to_scalar_schema())
@@ -124,7 +138,6 @@ def test_multiple_inheritance():
     assert meta["p1"] == HgScalarTypeMetaData.parse_type(int)
     assert meta["p2"] == HgScalarTypeMetaData.parse_type(str)
     assert meta["p3"] == HgScalarTypeMetaData.parse_type(int)
-
 
 
 # def test_recursive_scalar():

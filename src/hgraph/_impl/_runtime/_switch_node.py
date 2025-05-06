@@ -50,8 +50,9 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         super().do_start()
         if has_recordable_id_trait(self.graph.traits):
             recordable_id = self.signature.record_replay_id
-            self._recordable_id = get_fq_recordable_id(self.graph.traits,
-                                                       recordable_id if recordable_id else f"switch_")
+            self._recordable_id = get_fq_recordable_id(
+                self.graph.traits, recordable_id if recordable_id else f"switch_"
+            )
 
     def eval(self):
         self.mark_evaluated()

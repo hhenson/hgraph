@@ -132,9 +132,11 @@ def toposort(
         cycle_print = "\n -> ".join(cycle_node_strings)
 
         raise RuntimeError(f"Cyclic sub graph detected that involves nodes: \n{cycle_print}")
-    
+
     push_nodes = [n for n in ordered if n.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE]
-    other_nodes = [n for n in ordered if not n.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE and not n.is_stub]
+    other_nodes = [
+        n for n in ordered if not n.resolved_signature.node_type is WiringNodeType.PUSH_SOURCE_NODE and not n.is_stub
+    ]
 
     if len(push_nodes) > 0 and not supports_push_nodes:
         raise CustomMessageWiringError(

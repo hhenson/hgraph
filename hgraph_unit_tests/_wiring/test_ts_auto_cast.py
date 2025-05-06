@@ -21,4 +21,4 @@ def test_auto_cast():
     def g(x: TS[Derived]) -> TS[bool]:
         return f(x)
 
-    assert eval_node(g, [Derived(i=1, s='a')]) == [True]
+    assert eval_node(g, [Derived(i=1, s="a")]) == [True]

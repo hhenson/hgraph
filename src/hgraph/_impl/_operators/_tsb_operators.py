@@ -1,7 +1,34 @@
 from typing import Type
 
-from hgraph._operators import sub_, getitem_, min_, max_, sum_, mean, var, str_, std, add_, mul_, div_, floordiv_, pow_, \
-    lshift_, rshift_, bit_and, bit_or, bit_xor, ne_, not_, neg_, pos_, invert_, eq_, all_, abs_
+from hgraph._operators import (
+    sub_,
+    getitem_,
+    min_,
+    max_,
+    sum_,
+    mean,
+    var,
+    str_,
+    std,
+    add_,
+    mul_,
+    div_,
+    floordiv_,
+    pow_,
+    lshift_,
+    rshift_,
+    bit_and,
+    bit_or,
+    bit_xor,
+    ne_,
+    not_,
+    neg_,
+    pos_,
+    invert_,
+    eq_,
+    all_,
+    abs_,
+)
 from hgraph._types._ref_type import TimeSeriesReference, REF
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
@@ -254,11 +281,13 @@ def abs_tsb(tsb: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
 
 
 @compute_node(
-    resolvers={TS_SCHEMA_1: lambda mapping, scalars: ts_schema(**{k: REF[v] for k, v in mapping[TS_SCHEMA].meta_data_schema.items()})},
+    resolvers={
+        TS_SCHEMA_1: lambda mapping, scalars: ts_schema(
+            **{k: REF[v] for k, v in mapping[TS_SCHEMA].meta_data_schema.items()}
+        )
+    },
 )
-def dereference(
-        tsb: REF[TSB[TS_SCHEMA]], _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
-) -> TSB[TS_SCHEMA_1]:
+def dereference(tsb: REF[TSB[TS_SCHEMA]], _schema: Type[TS_SCHEMA] = AUTO_RESOLVE) -> TSB[TS_SCHEMA_1]:
     """
     Return a bundle of references to the items in the TSB referenced
     """
@@ -267,27 +296,29 @@ def dereference(
             return {k: TimeSeriesReference.make(tsb.value.output[k]) for k in _schema.__meta_data_schema__}
         else:
             items = {k: tsb.value.items[_schema._schema_index_of(k)] for k in _schema.__meta_data_schema__}
-            return {k: item if isinstance(item, TimeSeriesReference) else TimeSeriesReference.make(item) for k, item in items.items()}
+            return {
+                k: item if isinstance(item, TimeSeriesReference) else TimeSeriesReference.make(item)
+                for k, item in items.items()
+            }
     else:
         return {k: TimeSeriesReference.make() for k in _schema.__meta_data_schema__}
 
 
-@graph(
-    overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
-)
+@graph(overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]})
 def tsb_get_item_by_name(
-        tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+    tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSB referenced, by its name
     """
     return getattr(dereference(tsb), key)
 
+
 @compute_node(
     overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
 )
 def tsb_get_item_by_index(
-        tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+    tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSB referenced, by its name

@@ -3,8 +3,20 @@ from typing import Generic
 
 import pytest
 
-from hgraph import SCALAR, Size, SIZE, TIME_SERIES_TYPE, CompoundScalar, K, KEYABLE_SCALAR, TSW, TSW_OUT, WINDOW_SIZE, \
-    WINDOW_SIZE_MIN, WindowSize
+from hgraph import (
+    SCALAR,
+    Size,
+    SIZE,
+    TIME_SERIES_TYPE,
+    CompoundScalar,
+    K,
+    KEYABLE_SCALAR,
+    TSW,
+    TSW_OUT,
+    WINDOW_SIZE,
+    WINDOW_SIZE_MIN,
+    WindowSize,
+)
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types import HgTypeMetaData, TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT, TimeSeriesSchema, TSB, REF
 from hgraph._types._typing_utils import clone_type_var
@@ -49,8 +61,16 @@ class UnResolvedCompoundScalar2(CompoundScalar, Generic[SCALAR, SCALAR_2]):
         [TS[int], TS[int], {}],
         [TS[SCALAR], TS[int], {SCALAR: int}],
         [TS_OUT[SCALAR], TS_OUT[int], {SCALAR: int}],
-        [TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], TSW[int, WindowSize[10]], {SCALAR: int, WINDOW_SIZE: WindowSize[10], WINDOW_SIZE_MIN: WindowSize[10]}],
-        [TSW_OUT[SCALAR], TSW_OUT[int, WindowSize[10], WindowSize[5]], {SCALAR: int, WINDOW_SIZE: WindowSize[10], WINDOW_SIZE_MIN: WindowSize[5]}],
+        [
+            TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
+            TSW[int, WindowSize[10]],
+            {SCALAR: int, WINDOW_SIZE: WindowSize[10], WINDOW_SIZE_MIN: WindowSize[10]},
+        ],
+        [
+            TSW_OUT[SCALAR],
+            TSW_OUT[int, WindowSize[10], WindowSize[5]],
+            {SCALAR: int, WINDOW_SIZE: WindowSize[10], WINDOW_SIZE_MIN: WindowSize[5]},
+        ],
         [TSL[TS[int], Size[2]], TSL[TS[int], Size[2]], {}],
         [TSL[TS[SCALAR], Size[2]], TSL[TS[int], Size[2]], {SCALAR: int}],
         [TSL[TIME_SERIES_TYPE, Size[2]], TSL[TS[int], Size[2]], {TIME_SERIES_TYPE: TS[int]}],

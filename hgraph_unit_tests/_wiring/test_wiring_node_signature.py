@@ -31,7 +31,3 @@ def test_extract_fn():
     assert not signature.output_type.is_atomic
     assert signature.output_type.is_resolved
     assert signature.output_type.py_type == TS[str]
-
-
-
-

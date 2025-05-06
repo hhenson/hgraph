@@ -151,7 +151,9 @@ def eval_node(
                 ts_type = ts_type.py_type if not ts_type.is_context_wired else ts_type.ts_type.py_type
             inputs[ts_arg] = replay_from_memory(ts_arg, ts_type)
             is_list = hasattr(arg_value, "__len__")
-            set_replay_values(ts_arg, SimpleArrayReplaySource((arg_value if is_list else [arg_value]), start_time=__start_time__))
+            set_replay_values(
+                ts_arg, SimpleArrayReplaySource((arg_value if is_list else [arg_value]), start_time=__start_time__)
+            )
         for scalar_args in node.signature.scalar_inputs.keys():
             inputs[scalar_args] = kwargs_[scalar_args]
 

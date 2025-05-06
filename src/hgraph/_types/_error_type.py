@@ -32,7 +32,9 @@ class BackTrace:
     def _arg_str(self, arg_name: str) -> str:
         if self.active_inputs and arg_name in self.active_inputs:
             return f"*{arg_name}*" + (
-                f"={self.input_short_values[arg_name]}" if (self.input_short_values and arg_name in self.input_short_values) else ""
+                f"={self.input_short_values[arg_name]}"
+                if (self.input_short_values and arg_name in self.input_short_values)
+                else ""
             )
         if self.input_values and arg_name in self.input_values:
             return f"{arg_name}={self.input_short_values[arg_name]}"
@@ -44,7 +46,10 @@ class BackTrace:
             return ""
         indent = " " * 2 * level
         args = ", ".join(self._arg_str(arg) for arg in self.signature.args if not arg.startswith("_"))
-        s = f"{indent}{self.signature.runtime_path_name}<{', '.join(str(i) for i in self.signature.node_id)}>: {self.signature.name}({args})\n"
+        s = (
+            f"{indent}{self.signature.runtime_path_name}<{', '.join(str(i) for i in self.signature.node_id)}>:"
+            f" {self.signature.name}({args})\n"
+        )
         arg_strs = []
         if self.input_values:
             for arg, value in self.input_values.items():
@@ -66,7 +71,7 @@ class BackTrace:
 
                 arg_strs.append(arg_str)
         else:
-            for arg, value in (self.active_inputs.items() if self.active_inputs else tuple()):
+            for arg, value in self.active_inputs.items() if self.active_inputs else tuple():
                 arg_strs.append(f"{indent}{arg}:\n{value._level_str(level + 1)}")
         return s + "\n".join(arg_strs)
 
@@ -82,19 +87,23 @@ class BackTrace:
             p_l = BackTrace.runtime_path_name(parent_node)
             p_n = BackTrace.runtime_path_name(parent_node, use_label=False)
             p_n = _remove_indices(p_n)
-            return f"{p_l}[{node.graph.label}].{sig.wiring_path_name.replace(p_n, '')}.{suffix}".replace('..', '.')
+            return f"{p_l}[{node.graph.label}].{sig.wiring_path_name.replace(p_n, '')}.{suffix}".replace("..", ".")
         else:
             return f"{sig.wiring_path_name}.{suffix}"
 
     @staticmethod
     def capture_back_trace(node: "Node", capture_values: bool = False, depth: int = 4) -> "BackTrace":
-        signature = BacktraceSignature(
-            name=node.signature.name,
-            args=node.signature.args,
-            wiring_path_name=node.signature.wiring_path_name,
-            runtime_path_name=BackTrace.runtime_path_name(node),
-            node_id=node.node_id,
-        ) if node else None
+        signature = (
+            BacktraceSignature(
+                name=node.signature.name,
+                args=node.signature.args,
+                wiring_path_name=node.signature.wiring_path_name,
+                runtime_path_name=BackTrace.runtime_path_name(node),
+                node_id=node.node_id,
+            )
+            if node
+            else None
+        )
 
         if depth > 0:
             active_inputs = {}
@@ -105,7 +114,9 @@ class BackTrace:
             for input_name, input in node.inputs.items() if node else tuple():
                 BackTrace.capture_input(active_inputs, input, input_name, capture_values, depth)
                 if capture_values:
-                    input_short_values[input_name] = (v := str(input.value).split('\n')[0])[0:32] + ("..." if len(v) > 32 else "")
+                    input_short_values[input_name] = (v := str(input.value).split("\n")[0])[0:32] + (
+                        "..." if len(v) > 32 else ""
+                    )
                     input_delta_values[input_name] = str(input.delta_value)
                     input_values[input_name] = v
                     input_last_modified_time[input_name] = input.last_modified_time
@@ -136,6 +147,7 @@ class BackTrace:
                 active_inputs[input_name] = BackTrace.capture_back_trace(
                     input.value.output.owning_node, capture_values, depth - 1
                 )
+
 
 def _remove_indices(s):
     # Remove [xyz] and [123] from "a[xyz].b.c.d[123].e.f.g" leaving "a.b.c.d.e.f.g"

@@ -33,7 +33,8 @@ from hgraph import (
     if_cmp,
     reduce_tsd_with_race,
     reduce_tsd_of_bundles_with_race,
-    TimeSeriesReference, CompoundScalar,
+    TimeSeriesReference,
+    CompoundScalar,
 )
 from hgraph.test import eval_node
 
@@ -168,7 +169,7 @@ def test_merge_compound_scalars():
         g,
         [initial],
         [None, LessSimpleCS(p3=SimpleCS(p1=None, p2="c"), p4=None)],
-       # __trace_wiring__=True,
+        # __trace_wiring__=True,
     ) == [initial, second]
 
 

@@ -48,7 +48,8 @@ from hgraph import (
     map_,
     PythonSetDelta,
     SIZE,
-    values_, eq_,
+    values_,
+    eq_,
 )
 from hgraph._operators._stream import filter_by
 from hgraph.nodes import keys_where_true, make_tsd, extract_tsd, flatten_tsd
@@ -66,7 +67,7 @@ def d(d):
 def test_flatten_expand_tsd():
     @graph
     def flatten_expand_test(ts: TS[frozendict[str, int]]) -> TS[frozendict[str, int]]:
-        tsd = extract_tsd[TIME_SERIES_TYPE: TS[int]](ts)
+        tsd = extract_tsd[TIME_SERIES_TYPE : TS[int]](ts)
         return flatten_tsd[SCALAR:int](tsd)
 
     assert eval_node(flatten_expand_test, [{"a": 1}, {"b": 2}, {"a": 3}]) == [{"a": 1}, {"b": 2}, {"a": 3}]
@@ -178,13 +179,13 @@ def test_rekey_tsd_set():
         [None, {1: 1, 3: 3}, {2: 2}, None, {2: REMOVE}, None],  # TSD
         [{1: {"a"}, 2: {"b"}}, None, None, {1: PythonSetDelta(added={"c", "d"}, removed={"a"})}, None, {1: REMOVE}],
     ) == [  # key mappings
-               None,
-               fd({"a": 1}),
-               fd({"b": 2}),
-               fd({"c": 1, "d": 1, "a": REMOVE}),
-               fd({"b": REMOVE}),
-               fd({"c": REMOVE, "d": REMOVE}),
-           ]  # expected results
+        None,
+        fd({"a": 1}),
+        fd({"b": 2}),
+        fd({"c": 1, "d": 1, "a": REMOVE}),
+        fd({"b": REMOVE}),
+        fd({"c": REMOVE, "d": REMOVE}),
+    ]  # expected results
 
 
 def test_flip():
@@ -250,10 +251,10 @@ def test_collapse_more_keys_tsd():
         [{1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, {1: {"c": {True: 5}, "a": REMOVE}}, {2: REMOVE}],
         __trace__=True,
     ) == [
-               fd({(1, "a", True): 5, (2, "b", False): 6}),
-               fd({(1, "c", True): 5, (1, "a", True): REMOVE}),
-               fd({(2, "b", False): REMOVE}),
-           ]
+        fd({(1, "a", True): 5, (2, "b", False): 6}),
+        fd({(1, "c", True): 5, (1, "a", True): REMOVE}),
+        fd({(2, "b", False): REMOVE}),
+    ]
 
 
 def test_uncollapse_keys_tsd():
@@ -297,13 +298,13 @@ def test_uncollapse_more_keys_tsd():
             {(2, "c", True): REMOVE},
         ],
     ) == [
-               {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
-               {2: {"b": {False: REMOVE}}},
-               {1: {"a": {True: REMOVE, False: 5}}},
-               {2: {"c": {True: 6}}},
-               {2: {"b": REMOVE}},
-               {2: REMOVE},
-           ]
+        {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
+        {2: {"b": {False: REMOVE}}},
+        {1: {"a": {True: REMOVE, False: 5}}},
+        {2: {"c": {True: 6}}},
+        {2: {"b": REMOVE}},
+        {2: REMOVE},
+    ]
 
 
 def test_uncollapse_more_keys_tsd_keep_empty():
@@ -322,13 +323,13 @@ def test_uncollapse_more_keys_tsd_keep_empty():
             {(2, "c", True): REMOVE},
         ],
     ) == [
-               {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
-               {2: {"b": {False: REMOVE}}},
-               {1: {"a": {True: REMOVE, False: 5}}},
-               {2: {"c": {True: 6}}},
-               {2: {"b": {True: REMOVE}}},
-               {2: {"c": {True: REMOVE}}},
-           ]
+        {1: {"a": {True: 5}}, 2: {"b": {False: 6, True: 7}}},
+        {2: {"b": {False: REMOVE}}},
+        {1: {"a": {True: REMOVE, False: 5}}},
+        {2: {"c": {True: 6}}},
+        {2: {"b": {True: REMOVE}}},
+        {2: {"c": {True: REMOVE}}},
+    ]
 
 
 def test_merge_tsd():
@@ -362,29 +363,29 @@ def test_merge_nested_tsd():
         ],
         resolution_dict={"tsl": TSL[TSD[int, TSD[int, TS[int]]], Size[2]]},
     ) == [
-               fd({1: fd({1: 1}), 2: fd({2: 2}), 3: fd({3: 6})}),
-               fd({2: fd({2: 4}), 3: fd({3: 8})}),
-               fd({1: fd({1: 5}), 2: fd({2: REMOVE})}),
-               fd({1: REMOVE}),
-           ]
+        fd({1: fd({1: 1}), 2: fd({2: 2}), 3: fd({3: 6})}),
+        fd({2: fd({2: 4}), 3: fd({3: 8})}),
+        fd({1: fd({1: 5}), 2: fd({2: REMOVE})}),
+        fd({1: REMOVE}),
+    ]
 
 
 def test_tsd_partition():
     @graph
     def g(ts: TSD[int, TS[int]], partitions: TSD[int, TS[str]]) -> TSD[str, TSD[int, TS[int]]]:
-        return partition[K:int, K_1:str, TIME_SERIES_TYPE: TS[int]](ts, partitions)
+        return partition[K:int, K_1:str, TIME_SERIES_TYPE : TS[int]](ts, partitions)
 
     assert eval_node(
         g,
         [{1: 1, 2: 2, 3: 3}, {1: 4, 2: 5, 3: 6}, {1: REMOVE}],
         [{1: "odd"}, {2: "even", 3: "odd"}, None, {2: REMOVE}, {3: "prime"}],
     ) == [
-               {"odd": {1: 1}},
-               {"odd": {1: 4, 3: 6}, "even": {2: 5}},
-               {"odd": {1: REMOVE}},
-               {"even": {2: REMOVE}},
-               {"prime": {3: 6}, "odd": {3: REMOVE}},
-           ]
+        {"odd": {1: 1}},
+        {"odd": {1: 4, 3: 6}, "even": {2: 5}},
+        {"odd": {1: REMOVE}},
+        {"even": {2: REMOVE}},
+        {"prime": {3: 6}, "odd": {3: REMOVE}},
+    ]
 
 
 def test_tsd_unpartition():
@@ -460,12 +461,11 @@ def test_eq_tsds_with_epsilon():
     def app(tsd1: TSD[int, TS[float]], tsd2: TSD[int, TS[float]], epsilon: TS[float]) -> TS[bool]:
         return eq_(tsd1, tsd2, epsilon=epsilon)
 
-    assert eval_node(
-        app,
-        [{1: 1.00001}, {2: 2.0}],
-        [{2: 2.00001}, {1: 1.00002}],
-        [0.0001, None, 0.000001]
-    ) == [False, True, False]
+    assert eval_node(app, [{1: 1.00001}, {2: 2.0}], [{2: 2.00001}, {1: 1.00002}], [0.0001, None, 0.000001]) == [
+        False,
+        True,
+        False,
+    ]
 
 
 @pytest.mark.parametrize(["tp", "expected", "values"], [[TSD[int, TS[int]], [0, 1, 0], [{}, {0: 1}, {0: REMOVE}]]])
@@ -519,7 +519,7 @@ def test_keys_as_tss():
 def test_keys_as_set():
     @graph
     def g(tsd: TSD[int, TS[int]]) -> TS[Set[int]]:
-        return keys_[OUT: TS[Set[int]]](tsd)
+        return keys_[OUT : TS[Set[int]]](tsd)
 
     assert eval_node(g, [{1: 1, 2: 2, 3: 3}, {1: REMOVE}]) == [{1, 2, 3}, {2, 3}]
 
@@ -601,8 +601,7 @@ def test_tsd_values_as_tss():
 
 def test_keys_where_true():
     assert eval_node(
-        keys_where_true[K:int],
-        [{1: True, 2: False, 3: True}, {1: False, 2: True, 3: False}, {2: REMOVE}]
+        keys_where_true[K:int], [{1: True, 2: False, 3: True}, {1: False, 2: True, 3: False}, {2: REMOVE}]
     ) == [{1, 3}, {Removed(1), 2, Removed(3)}, {Removed(2)}]
 
 

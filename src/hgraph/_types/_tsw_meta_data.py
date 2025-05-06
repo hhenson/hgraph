@@ -11,7 +11,6 @@ from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
 
-
 __all__ = ("HgTSWTypeMetaData", "HgTSWOutTypeMetaData")
 
 
@@ -22,7 +21,9 @@ class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
     size_tp: HgScalarTypeMetaData
     min_size_tp: HgScalarTypeMetaData
 
-    def __init__(self, scalar_type: HgScalarTypeMetaData, size_tp: HgScalarTypeMetaData, min_size_tp: HgScalarTypeMetaData):
+    def __init__(
+        self, scalar_type: HgScalarTypeMetaData, size_tp: HgScalarTypeMetaData, min_size_tp: HgScalarTypeMetaData
+    ):
         self.value_scalar_tp = scalar_type
         self.size_tp = size_tp
         self.min_size_tp = min_size_tp
@@ -49,9 +50,11 @@ class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
         if self.is_resolved:
             return self
         else:
-            return type(self)(self.value_scalar_tp.resolve(resolution_dict, weak),
-                              self.size_tp.resolve(resolution_dict, weak),
-                              self.min_size_tp.resolve(resolution_dict, weak))
+            return type(self)(
+                self.value_scalar_tp.resolve(resolution_dict, weak),
+                self.size_tp.resolve(resolution_dict, weak),
+                self.min_size_tp.resolve(resolution_dict, weak),
+            )
 
     def do_build_resolution_dict(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData"):
         super().do_build_resolution_dict(resolution_dict, wired_type)
@@ -102,14 +105,16 @@ class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
     def matches(self, tp: "HgTypeMetaData") -> bool:
         # TODO: If we loose the TS_OUT type we can return to an is, which is much faster.
         return (
-                issubclass((tp_ := type(tp)), HgTSWTypeMetaData) and self.value_scalar_tp.matches(tp.value_scalar_tp)
+            issubclass((tp_ := type(tp)), HgTSWTypeMetaData) and self.value_scalar_tp.matches(tp.value_scalar_tp)
         ) or tp_ in (HgTimeSeriesTypeMetaData, HgTsTypeVarTypeMetaData)
 
     def __eq__(self, o: object) -> bool:
-        return type(o) is HgTSWTypeMetaData and \
-            self.value_scalar_tp == o.value_scalar_tp and \
-            self.size_tp == o.size_tp and \
-            self.min_size_tp == o.min_size_tp
+        return (
+            type(o) is HgTSWTypeMetaData
+            and self.value_scalar_tp == o.value_scalar_tp
+            and self.size_tp == o.size_tp
+            and self.min_size_tp == o.min_size_tp
+        )
 
     def __str__(self) -> str:
         return f"TSW[{str(self.value_scalar_tp)}]"
@@ -138,9 +143,12 @@ class HgTSWOutTypeMetaData(HgTSWTypeMetaData):
             )
 
     def __eq__(self, o: object) -> bool:
-        return type(o) is HgTSWOutTypeMetaData and self.value_scalar_tp == o.value_scalar_tp and \
-            self.size_tp == o.size_tp and \
-            self.min_size_tp == o.min_size_tp
+        return (
+            type(o) is HgTSWOutTypeMetaData
+            and self.value_scalar_tp == o.value_scalar_tp
+            and self.size_tp == o.size_tp
+            and self.min_size_tp == o.min_size_tp
+        )
 
     def __str__(self) -> str:
         return f"TSW_OUT[{str(self.value_scalar_tp)}]"

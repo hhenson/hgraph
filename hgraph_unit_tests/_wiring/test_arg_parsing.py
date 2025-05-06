@@ -9,7 +9,7 @@ def test_extract_kwargs_extra_args():
         return a + b
 
     with pytest.raises(SyntaxError):
-        extract_kwargs(n.signature, 'a', 'b', 'c')
+        extract_kwargs(n.signature, "a", "b", "c")
 
 
 def test_extract_kwargs_extra_kwargs():
@@ -18,4 +18,4 @@ def test_extract_kwargs_extra_kwargs():
         return a + b
 
     with pytest.raises(SyntaxError):
-        extract_kwargs(n.signature, a='a', b='b', c='c')
+        extract_kwargs(n.signature, a="a", b="b", c="c")

@@ -145,13 +145,17 @@ def split_default(s: TS[str], separator: str, maxsplit: int = -1) -> DEFAULT[OUT
 @graph(overloads=join)
 def join_str_tsl(*strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = False) -> TS[str]:
     if __strict__:
+
         @compute_node(all_valid=("strings",))
         def _join(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
             return separator.join(s.value for s in strings.values())
+
     else:
+
         @compute_node
         def _join(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
             return separator.join(s.value for s in strings.valid_values())
+
     return _join(*strings, separator=separator)
 
 
@@ -198,5 +202,5 @@ def substr_default(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
         The extracted substring
     """
     if end is None:
-        return s.value[start.value:]
-    return s.value[start.value:end.value]
+        return s.value[start.value :]
+    return s.value[start.value : end.value]

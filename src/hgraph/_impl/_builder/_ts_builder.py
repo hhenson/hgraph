@@ -19,7 +19,9 @@ from hgraph._builder._ts_builder import (
     TSDOutputBuilder,
     TSDInputBuilder,
     REFOutputBuilder,
-    REFInputBuilder, TSWInputBuilder, TSWOutputBuilder,
+    REFInputBuilder,
+    TSWInputBuilder,
+    TSWOutputBuilder,
 )
 from hgraph._runtime._node import Node
 from hgraph._types._tsw_meta_data import HgTSWTypeMetaData
@@ -72,8 +74,11 @@ class PythonITSWOutputBuilder(TSWOutputBuilder):
         from hgraph import PythonTimeSeriesFixedWindowOutput
 
         return PythonTimeSeriesFixedWindowOutput(
-            _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
-            _min_size=self._min_size
+            _owning_node=owning_node,
+            _parent_output=owning_output,
+            _tp=self.value_tp.py_type,
+            _size=self._size,
+            _min_size=self._min_size,
         )
 
     def release_instance(self, item):
@@ -90,8 +95,11 @@ class PythonTTSWOutputBuilder(TSWOutputBuilder):
         from hgraph import PythonTimeSeriesTimeWindowOutput
 
         return PythonTimeSeriesTimeWindowOutput(
-            _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type, _size=self._size,
-            _min_size=self._min_size
+            _owning_node=owning_node,
+            _parent_output=owning_output,
+            _tp=self.value_tp.py_type,
+            _size=self._size,
+            _min_size=self._min_size,
         )
 
     def release_instance(self, item):
@@ -393,25 +401,32 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
 
 
 def _make_buff_output(meta_data: HgTSWTypeMetaData) -> TSOutputBuilder:
-    return PythonITSWOutputBuilder(
-        value_tp=meta_data.value_scalar_tp,
-        _size=meta_data.size_tp.py_type.SIZE,
-        _min_size=meta_data.min_size_tp.py_type.SIZE
-    ) if meta_data.size_tp.py_type.FIXED_SIZE else \
-        PythonTTSWOutputBuilder(
+    return (
+        PythonITSWOutputBuilder(
+            value_tp=meta_data.value_scalar_tp,
+            _size=meta_data.size_tp.py_type.SIZE,
+            _min_size=meta_data.min_size_tp.py_type.SIZE,
+        )
+        if meta_data.size_tp.py_type.FIXED_SIZE
+        else PythonTTSWOutputBuilder(
             value_tp=meta_data.value_scalar_tp,
             _size=meta_data.size_tp.py_type.TIME_RANGE,
-            _min_size=meta_data.min_size_tp.py_type.TIME_RANGE
+            _min_size=meta_data.min_size_tp.py_type.TIME_RANGE,
         )
+    )
+
 
 def _make_buff_input(meta_data: HgTSWTypeMetaData) -> TSInputBuilder:
-    return PythonTSWInputBuilder(
-        value_tp=meta_data.value_scalar_tp,
-        _size=meta_data.size_tp.py_type.SIZE,
-        _min_size=meta_data.min_size_tp.py_type.SIZE
-    ) if meta_data.size_tp.py_type.FIXED_SIZE else \
+    return (
         PythonTSWInputBuilder(
             value_tp=meta_data.value_scalar_tp,
-            _size=meta_data.size_tp.py_type.TIME_RANGE,
-            _min_size=meta_data.min_size_tp.py_type.TIME_RANGE
+            _size=meta_data.size_tp.py_type.SIZE,
+            _min_size=meta_data.min_size_tp.py_type.SIZE,
         )
+        if meta_data.size_tp.py_type.FIXED_SIZE
+        else PythonTSWInputBuilder(
+            value_tp=meta_data.value_scalar_tp,
+            _size=meta_data.size_tp.py_type.TIME_RANGE,
+            _min_size=meta_data.min_size_tp.py_type.TIME_RANGE,
+        )
+    )

@@ -459,7 +459,7 @@ def test_throttle_tss():
         PythonSetDelta(added={1}, removed=set()),
         PythonSetDelta(added={6}, removed=set()),
         None,
-        PythonSetDelta(added=set(), removed={6})
+        PythonSetDelta(added=set(), removed={6}),
     ]
     expected = [
         None,
@@ -472,7 +472,7 @@ def test_throttle_tss():
         PythonSetDelta(added={5}, removed=set()),
         None,
         None,
-        None
+        None,
     ]
     assert eval_node(g, inputs, 3 * MIN_TD, __end_time__=MIN_ST + 12 * MIN_TD) == expected
 
@@ -718,17 +718,46 @@ def test_slice_():
 
 
 @pytest.mark.parametrize(
-"messages,new_message,expected",
-[
-    ("Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",                             "Using stale price for x2",                                                 "No price for a1 for a week; Using a for b; Using something else for y; Using stale price for x1, x2"),
-    ("Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",                             "No price for a2 for a week",                                               "No price for a1, a2 for a week; Using a for b; Using something else for y; Using stale price for x1"),
-    ("Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD): No price yet for def",  "In UnitConversionPricingModel (in lot and USD): No price yet for abc",     "In UnitConversionPricingModel (in lot and USD): No price yet for abc, def; No price for a1 for a week; Using stale price for x1"),
-    ("Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD): No price yet for def",  "Using different one; Using another different one",                         "In UnitConversionPricingModel (in lot and USD): No price yet for def; No price for a1 for a week; Using another different one; Using different one; Using stale price for x1"),
-    ("Using stale price for x1, x2",                                                                                                "Using stale price for x3, x1",                                             "Using stale price for x1, x2, x3"),
-])
+    "messages,new_message,expected",
+    [
+        (
+            "Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",
+            "Using stale price for x2",
+            "No price for a1 for a week; Using a for b; Using something else for y; Using stale price for x1, x2",
+        ),
+        (
+            "Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",
+            "No price for a2 for a week",
+            "No price for a1, a2 for a week; Using a for b; Using something else for y; Using stale price for x1",
+        ),
+        (
+            (
+                "Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD):"
+                " No price yet for def"
+            ),
+            "In UnitConversionPricingModel (in lot and USD): No price yet for abc",
+            (
+                "In UnitConversionPricingModel (in lot and USD): No price yet for abc, def; No price for a1 for a week;"
+                " Using stale price for x1"
+            ),
+        ),
+        (
+            (
+                "Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD):"
+                " No price yet for def"
+            ),
+            "Using different one; Using another different one",
+            (
+                "In UnitConversionPricingModel (in lot and USD): No price yet for def; No price for a1 for a week;"
+                " Using another different one; Using different one; Using stale price for x1"
+            ),
+        ),
+        ("Using stale price for x1, x2", "Using stale price for x3, x1", "Using stale price for x1, x2, x3"),
+    ],
+)
 def test_combine_status_messages(messages, new_message, expected):
     register_status_message_pattern(r"Using stale price for (\w+)")
     register_status_message_pattern(r"No price for (\w+) for a week")
     register_status_message_pattern("In UnitConversionPricingModel (in lot and USD): No price yet for (\w+)")
-    result = eval_node(combine_status_messages, [messages], [new_message],  __elide__=True)
+    result = eval_node(combine_status_messages, [messages], [new_message], __elide__=True)
     assert result[-1] == expected

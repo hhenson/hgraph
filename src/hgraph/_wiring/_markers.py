@@ -3,6 +3,7 @@ from hgraph._wiring._wiring_port import WiringPort
 
 __all__ = ("pass_through", "no_key", "passive")
 
+
 def pass_through(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     """
     Marks the TSD input as a pass through value. This will ensure the TSD is not included in the key mapping in the
@@ -22,6 +23,7 @@ def no_key(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     # noinspection PyTypeChecker
     return _NoKeyMarker(tsd)
 
+
 def passive(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Marks a time-series as being passive. This will ensure that the wiring signature of the receiving node will
@@ -35,6 +37,7 @@ class _Marker:
     """
     Provide a placeholder for a wrapped wiring port. The wiring port should be unwrapped before being used.
     """
+
     def __init__(self, value: TIME_SERIES_TYPE):
         if not isinstance(value, WiringPort):
             raise AssertionError("Marker must wrap a valid time-series input.")

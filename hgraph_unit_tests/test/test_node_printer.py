@@ -17,8 +17,7 @@ def test_node_printer(capsys):
         "not_.+False\\[OUT\\]",
         "Eval Done",
         "Graph Stopping",
-        "not_.+Stopped node"
-        "Graph Stopped"
+        "not_.+Stopped nodeGraph Stopped",
     ])
     expected_next = re.compile(next(expected))
     for line in expected:

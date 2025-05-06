@@ -10,16 +10,31 @@ from typing import Generic, Tuple
 
 from pytz import UTC
 
-from hgraph import COMPOUND_SCALAR, Base, graph, TS, default, max_, compute_node, CompoundScalar, SCALAR, add_, TSB, \
-    WiringNodeClass, AUTO_RESOLVE, combine, convert
+from hgraph import (
+    COMPOUND_SCALAR,
+    Base,
+    graph,
+    TS,
+    default,
+    max_,
+    compute_node,
+    CompoundScalar,
+    SCALAR,
+    add_,
+    TSB,
+    WiringNodeClass,
+    AUTO_RESOLVE,
+    combine,
+    convert,
+)
 
 __all__ = ("Data", "StreamStatus", "Stream", "combine_statuses", "combine_status_messages", "merge_join")
 
 
 class StreamStatus(Enum):
     # Values ordered by increasing severity
-    OK = 0   # price is valid, up to date and ticking
-    STALE = 1 # price exists but is stale
+    OK = 0  # price is valid, up to date and ticking
+    STALE = 1  # price exists but is stale
     WAITING = 2  # waiting on dependencies to come up
     NA = 3  # outside of hours, or other reason why the price is not available for a valid request
     ERROR = 4  # price is invalid, there is a failure in the pricing pipeline
@@ -47,6 +62,7 @@ def combine_statuses(status1: TS[StreamStatus], status2: TS[StreamStatus]) -> TS
 
 
 STATUS_MESSAGE_PATTERN_DUPLICATES = []
+
 
 def register_status_message_pattern(pattern: str):
     # Register a pattern to search for when combining status messages, and collapse groups into a comma-separated list
@@ -90,7 +106,12 @@ def dedup_components(pattern, substr1, substr2, components) -> str:
 
 
 @graph
-def stream_op(lhs: TSB[Stream[COMPOUND_SCALAR]], rhs: TSB[Stream[COMPOUND_SCALAR]], op: WiringNodeClass, cs_: type[COMPOUND_SCALAR] = AUTO_RESOLVE):
+def stream_op(
+    lhs: TSB[Stream[COMPOUND_SCALAR]],
+    rhs: TSB[Stream[COMPOUND_SCALAR]],
+    op: WiringNodeClass,
+    cs_: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+):
     return combine[TSB[Stream[cs_]]](
         **op(convert[TSB[cs_]](lhs), convert[TSB[cs_]](rhs)).as_dict(),
         status=combine_statuses(lhs.status, rhs.status),
@@ -115,6 +136,5 @@ def merge_join(str1: TS[str], str2: TS[str], separator: str) -> TS[str]:
         return ""
     else:
         return separator.join(
-            sorted({piece
-                    for piece in chain(str1.strip().split(separator), str2.strip().split(separator))
-                    if piece}))
+            sorted({piece for piece in chain(str1.strip().split(separator), str2.strip().split(separator)) if piece})
+        )

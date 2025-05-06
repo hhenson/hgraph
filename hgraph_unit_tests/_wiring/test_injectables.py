@@ -12,6 +12,6 @@ def test_logger_injectable(capsys):
 
     read = capsys.readouterr()
     log = read.err
-    if log != '':
+    if log != "":
         assert "Tick: 1" in log
         assert "Tick: 2" in log

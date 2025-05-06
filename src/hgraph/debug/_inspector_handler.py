@@ -7,17 +7,31 @@ from collections import deque
 
 import pyarrow
 
-from hgraph import Node, PythonNestedNodeImpl, TimeSeriesInput, PythonTimeSeriesReferenceOutput, \
-    TimeSeriesReference, PythonTimeSeriesReferenceInput, to_table
+from hgraph import (
+    Node,
+    PythonNestedNodeImpl,
+    TimeSeriesInput,
+    PythonTimeSeriesReferenceOutput,
+    TimeSeriesReference,
+    PythonTimeSeriesReferenceInput,
+    to_table,
+)
 from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
 from hgraph.debug._inspector_item_id import InspectorItemId, NodeValueType
 from hgraph.debug._inspector_publish import process_graph_stats, process_node_stats, process_item_stats
 from hgraph.debug._inspector_state import InspectorState
-from hgraph.debug._inspector_util import enum_items, format_type, format_value, format_modified, format_name, \
-    format_scheduled
+from hgraph.debug._inspector_util import (
+    enum_items,
+    format_type,
+    format_value,
+    format_modified,
+    format_name,
+    format_scheduled,
+)
 
 logger = logging.getLogger(__name__)
+
 
 def graph_object_from_id(state: InspectorState, item_id: InspectorItemId):
     gi = state.observer.get_graph_info(item_id.graph)
@@ -80,16 +94,18 @@ def inspector_expand_item(state: InspectorState, item_id: InspectorItemId):
             else:
                 graph = gi.graph
 
-        data.append(dict(
-            id=i.to_str(),
-            ord=i.sort_key(),
-            X="+",
-            name=i.indent(graph) + format_name(v, k),
-            type=format_type(v),
-            value=format_value(v),
-            modified=format_modified(v),
-            scheduled=format_scheduled(v),
-        ))
+        data.append(
+            dict(
+                id=i.to_str(),
+                ord=i.sort_key(),
+                X="+",
+                name=i.indent(graph) + format_name(v, k),
+                type=format_type(v),
+                value=format_value(v),
+                modified=format_modified(v),
+                scheduled=format_scheduled(v),
+            )
+        )
 
         subscribe_item(state, i)
         items += 1
@@ -118,16 +134,18 @@ def inspector_show_item(state: InspectorState, item_id: InspectorItemId):
 
     key = item_id.value_path[-1] if item_id.value_path else item_id.value_type.value if item_id.value_type else None
 
-    state.value_data.append(dict(
-        id=item_id.to_str(),
-        ord=item_id.sort_key(),
-        X="+",
-        name=item_id.indent(graph) + format_name(value, key),
-        type=format_type(value),
-        value=format_value(value),
-        modified=format_modified(value),
-        scheduled=format_scheduled(value)
-    ))
+    state.value_data.append(
+        dict(
+            id=item_id.to_str(),
+            ord=item_id.sort_key(),
+            X="+",
+            name=item_id.indent(graph) + format_name(value, key),
+            type=format_type(value),
+            value=format_value(value),
+            modified=format_modified(value),
+            scheduled=format_scheduled(value),
+        )
+    )
 
     subscribe_item(state, item_id)
 
@@ -213,11 +231,7 @@ def inspector_follow_ref(state, item_id):
     if item_id is None:
         raise ValueError(f"Referenced item not found")
 
-    commands = [
-        ("show", i) for i in item_id.parent_item_ids()
-    ] + [
-        ("show", item_id)
-    ]
+    commands = [("show", i) for i in item_id.parent_item_ids()] + [("show", item_id)]
 
     return item_id.to_str(), commands
 
@@ -240,7 +254,7 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
         name = format_name(v, k)
         if search_re.search(name) is None:
             if depth:
-                found, new_commands = inspector_search_item(state, i, search_re, depth-1)
+                found, new_commands = inspector_search_item(state, i, search_re, depth - 1)
                 if found:
                     return found, new_commands
 
@@ -253,16 +267,18 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
             else:
                 graph = gi.graph
 
-        state.value_data.append(dict(
-            id=i.to_str(),
-            ord=i.sort_key(),
-            X="?",
-            name=i.indent(graph) + name,
-            type=format_type(v),
-            value=format_value(v),
-            modified=format_modified(v),
-            scheduled=format_scheduled(v)
-        ))
+        state.value_data.append(
+            dict(
+                id=i.to_str(),
+                ord=i.sort_key(),
+                X="?",
+                name=i.indent(graph) + name,
+                type=format_type(v),
+                value=format_value(v),
+                modified=format_modified(v),
+                scheduled=format_scheduled(v),
+            )
+        )
 
         items += 1
 
@@ -298,27 +314,32 @@ def inspector_read_value(state, item_id):
         if not schema.partition_keys:
             table = [table]
 
-
         def map_type(t: type, values):
             match t:
-                case builtins.int: return pyarrow.int64(), values
-                case builtins.str: return pyarrow.string(), values
-                case builtins.float: return pyarrow.float64(), values
-                case builtins.bool: return pyarrow.bool_(), values
-                case datetime.date: return pyarrow.date32(), values
-                case datetime.datetime: return pyarrow.timestamp('us'), values
-                case datetime.time: return pyarrow.time64('us'), values
-                case datetime.timedelta: return pyarrow.duration('us'), values
-                case _: return pyarrow.string(), [str(v) for v in values]
+                case builtins.int:
+                    return pyarrow.int64(), values
+                case builtins.str:
+                    return pyarrow.string(), values
+                case builtins.float:
+                    return pyarrow.float64(), values
+                case builtins.bool:
+                    return pyarrow.bool_(), values
+                case datetime.date:
+                    return pyarrow.date32(), values
+                case datetime.datetime:
+                    return pyarrow.timestamp("us"), values
+                case datetime.time:
+                    return pyarrow.time64("us"), values
+                case datetime.timedelta:
+                    return pyarrow.duration("us"), values
+                case _:
+                    return pyarrow.string(), [str(v) for v in values]
 
         mapped_types, mapped_values = zip(*(map_type(t, v) for t, v in zip(schema.types, zip(*table))))
 
-        pyarrow_schema = pyarrow.schema([
-            (k, v)
-            for k, v in zip(schema.keys, mapped_types)])
+        pyarrow_schema = pyarrow.schema([(k, v) for k, v in zip(schema.keys, mapped_types)])
 
-        batch = pyarrow.record_batch(list(mapped_values),
-                                     schema=pyarrow_schema)
+        batch = pyarrow.record_batch(list(mapped_values), schema=pyarrow_schema)
         stream = pyarrow.BufferOutputStream()
 
         with pyarrow.ipc.new_stream(stream, batch.schema) as writer:
@@ -485,6 +506,5 @@ def set_result(f, r):
             pass
 
     from hgraph.adaptors.tornado._tornado_web import TornadoWeb
+
     TornadoWeb.get_loop().add_callback(lambda f, r: apply_result(f, r), f, r)
-
-
