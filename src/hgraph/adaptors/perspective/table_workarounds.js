@@ -753,7 +753,7 @@ async function enableActions(table, viewer, config, model) {
 
                                     tooltip_info.view = view;
                                     tooltip_info.show(table, td);
-                                    tooltip_info.update(text);
+                                    update_tt(text);
 
                                     view.on_update(tooltip_info.view_cb = async () => {
                                         const row = (await get_rows())[0];
