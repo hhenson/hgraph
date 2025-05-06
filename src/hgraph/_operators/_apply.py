@@ -1,8 +1,7 @@
 from typing import Callable
 
-from hgraph import sink_node
 from hgraph._types import DEFAULT, TSB, TS_SCHEMA, TS_SCHEMA_1, TS, OUT, TIME_SERIES_TYPE
-from hgraph._wiring._decorators import compute_node
+from hgraph._wiring._decorators import compute_node, sink_node
 
 __all__ = ["apply", "call"]
 
