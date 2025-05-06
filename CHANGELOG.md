@@ -1233,3 +1233,10 @@ Version 0.4.48 (06-05-2025)
 
 * Small bug fixes
 * Expose debugging options to eval_ in arrow api.
+
+Version 0.4.49 (06-05-2025)
+---------------------------
+
+* Fix to kafka subscriber logic.
+* Fix to_json decode when no value is present
+* Add call (sink node version of apply)
