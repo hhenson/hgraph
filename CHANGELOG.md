@@ -1227,3 +1227,9 @@ Version 0.4.47 (02-05-2025)
 * Faster graph topological sorting
 * Support for forward reference in schemas
 * Initial support for threaded GlobalContext
+
+Version 0.4.48 (06-05-2025)
+---------------------------
+
+* Small bug fixes
+* Expose debugging options to eval_ in arrow api.
