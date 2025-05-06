@@ -37,7 +37,7 @@ from hgraph import (
     get_service_inputs,
     MIN_ST,
 )
-from hgraph.nodes import pass_through_node
+from hgraph import pass_through_node
 from hgraph.test import eval_node
 
 

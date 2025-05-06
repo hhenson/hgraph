@@ -1,14 +1,14 @@
 import logging
 
-from hgraph._types._scalar_types import DEFAULT
+from hgraph._runtime import EvaluationEngineApi
+from hgraph._types._scalar_types import DEFAULT, LOGGER
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1
-from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE
+from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, SIGNAL
 from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._wiring._decorators import operator
+from hgraph._wiring._decorators import operator, sink_node, compute_node
 
-
-__all__ = ("default", "nothing", "null_sink", "print_", "log_", "assert_")
+__all__ = ("default", "nothing", "null_sink", "print_", "log_", "assert_", "stop_engine", "pass_through_node")
 
 
 @operator
@@ -94,8 +94,21 @@ def log_(
     """
 
 
+@sink_node
+def stop_engine(ts: SIGNAL, msg: str = "Stopping", _engine: EvaluationEngineApi = None, _logger: LOGGER = None):
+    """Stops the engine"""
+    _logger.info(f"[{_engine.evaluation_clock.now}][{_engine.evaluation_clock.evaluation_time}] stop_engine: {msg}")
+    _engine.request_engine_stop()
+
+
 @operator
 def assert_(condition: TS[bool], error_msg: str):
     """
     Asserts that the condition is True, if not raises an AssertionError with the error message.
     """
+
+
+@compute_node
+def pass_through_node(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """Just passes the value through, this is useful for testing and for rank adjustment"""
+    return ts.delta_value

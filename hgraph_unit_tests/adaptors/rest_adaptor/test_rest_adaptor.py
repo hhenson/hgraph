@@ -49,7 +49,7 @@ from hgraph.adaptors.tornado.http_server_adaptor import (
     http_server_handler,
     register_http_server_adaptor,
 )
-from hgraph.nodes import stop_engine
+from hgraph import stop_engine
 from hgraph.test import eval_node
 
 URL = "http://localhost:8080/test"

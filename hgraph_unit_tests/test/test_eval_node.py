@@ -1,5 +1,5 @@
 from hgraph import compute_node
-from hgraph.nodes._pass_through import pass_through_node
+from hgraph import pass_through_node
 from hgraph.test._node_unit_tester import eval_node
 
 

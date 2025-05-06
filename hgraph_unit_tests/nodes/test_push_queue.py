@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Tuple
 
 from hgraph import record, TS, run_graph, GlobalState, push_queue, graph, const, if_true, EvaluationMode, contains_
-from hgraph.nodes import stop_engine
+from hgraph import stop_engine
 from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
 

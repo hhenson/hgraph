@@ -32,7 +32,7 @@ from hgraph import (
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
-from hgraph.nodes import pass_through_node
+from hgraph._operators import pass_through_node
 from hgraph.test import eval_node
 
 

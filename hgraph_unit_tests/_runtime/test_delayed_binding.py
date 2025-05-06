@@ -2,7 +2,7 @@ import pytest
 
 from hgraph import compute_node, TS, graph, feedback, delayed_binding, const, Size, TSL, TSD, TSB, CompoundScalar, \
     reduce, sum_, map_
-from hgraph.nodes import pass_through_node
+from hgraph import pass_through_node
 from hgraph.test import eval_node
 
 

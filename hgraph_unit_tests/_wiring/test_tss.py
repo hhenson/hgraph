@@ -1,5 +1,5 @@
 from hgraph import graph, TS, TSS, compute_node, PythonSetDelta, Removed, contains_, SIGNAL
-from hgraph.nodes import pass_through_node
+from hgraph import pass_through_node
 from hgraph.test import eval_node
 
 
