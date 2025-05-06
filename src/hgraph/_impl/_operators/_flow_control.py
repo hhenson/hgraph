@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from hgraph import combine
 from hgraph._operators._flow_control import all_, any_, merge, if_cmp
 from hgraph._operators._flow_control import race, BoolResult, if_, route_by_index, if_true, if_then_else
 from hgraph._operators._operators import bit_and, bit_or, CmpResult, index_of
@@ -55,10 +56,10 @@ def merge_ts_scalar(*tsl: TSL[TS[SCALAR], SIZE], _output: TS[SCALAR] = None) -> 
             return out
 
 
-@compute_node(overloads=merge, valid=("orig",))
-def merge_compound_scalars(orig: TS[COMPOUND_SCALAR], delta: TS[COMPOUND_SCALAR]) -> TS[COMPOUND_SCALAR]:
+@compute_node(overloads=combine, valid=("orig",))
+def combine_compound_scalars(orig: TS[COMPOUND_SCALAR], delta: TS[COMPOUND_SCALAR]) -> TS[COMPOUND_SCALAR]:
     """
-    Merges two compound scalars. This assumes that the merge is right applied to left with the left value considered
+    Combines two compound scalars. This assumes that the merge is right applied to left with the left value considered
     as the original and the right the change to apply.
     """
     if not delta.valid:

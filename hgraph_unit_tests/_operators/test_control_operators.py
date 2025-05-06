@@ -159,7 +159,7 @@ def test_merge_compound_scalars():
 
     @graph
     def g(orig: TS[LessSimpleCS], delta: TS[LessSimpleCS]) -> TS[LessSimpleCS]:
-        return merge(orig, delta)
+        return combine(orig, delta)
 
     initial = LessSimpleCS(p3=SimpleCS(p1="a", p2="b"), p4=1)
     second = LessSimpleCS(p3=SimpleCS(p1="a", p2="c"), p4=1)
