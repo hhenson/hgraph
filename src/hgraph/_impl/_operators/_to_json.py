@@ -197,7 +197,7 @@ def _compound_scalar_parent_decode(value: HgCompoundScalarType, delta:bool):
     tp = value.py_type
     switches = {k: from_json_converter(HgCompoundScalarType(v)) for k, v in tp.__serialise_children__.items()}
     discriminator = tp.__serialise_discriminator_field__
-    return lambda v, switches_=switches, d=discriminator: switches_[v.get(d)](v)
+    return lambda v, switches_=switches, d=discriminator: switches_[v.get(d)](v) if v is not None else None
 
 
 @from_json_converter.register
