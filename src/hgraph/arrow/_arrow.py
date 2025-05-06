@@ -252,12 +252,18 @@ class _EvalArrowInput:
             type_map: tuple = None,
             start_time: datetime = MIN_ST,
             end_time: datetime = MAX_ET,
+            trace: bool | dict = False,
+            trace_wiring: bool | dict = False,
+            profile: bool | dict = False,
     ):
         self.first = first
         self.second = second
         self.type_map = type_map if type_map is None or type(type_map) is tuple else (type_map,)
         self.start_time = start_time
         self.end_time = end_time
+        self.trace = trace
+        self.trace_wiring = trace_wiring
+        self.profile = profile
 
     def __or__(self, other: "Arrow[A, B]") -> B:
         # Evaluate the other function call passing in the value captured in this
@@ -275,7 +281,12 @@ class _EvalArrowInput:
                 record_to_memory(nothing[TS[int]]())
 
         with GlobalState() if GlobalState._instance is None else nullcontext():
-            evaluate_graph(g, GraphConfiguration(start_time=self.start_time, end_time=self.end_time))
+            evaluate_graph(g, GraphConfiguration(
+                start_time=self.start_time,
+                end_time=self.end_time,
+                trace=self.trace,
+                trace_wiring=self.trace_wiring
+            ))
             results = get_recorded_value()
         return [result[1] for result in results]
 
@@ -313,6 +324,9 @@ def eval_(
         type_map: tuple = None,
         start_time: datetime = MIN_ST,
         end_time: datetime = MAX_ET,
+        trace: bool | dict = False,
+        trace_wiring: bool | dict = False,
+        profile: bool | dict = False,
 ):
     """
     Wraps inputs to the graph that can be used to evaluate the graph
@@ -326,7 +340,7 @@ def eval_(
     If the types of the inputs are not just TS[SCALAR], then the user
     must supply the appropriate types to use for each input stream.
     """
-    return _EvalArrowInput(first, second, type_map, start_time, end_time)
+    return _EvalArrowInput(first, second, type_map, start_time, end_time, trace, trace_wiring, profile)
 
 
 def arrow(
