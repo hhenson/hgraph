@@ -4,7 +4,7 @@ from functools import partial, wraps
 from typing import Generic, TypeVar, Callable
 
 from hgraph import MIN_ST, MAX_ET, WiringNodeClass, HgTimeSeriesTypeMetaData, AUTO_RESOLVE, null_sink, \
-    is_subclass_generic, compute_node, WiringGraphContext, TS_SCHEMA
+    is_subclass_generic, compute_node, WiringGraphContext, TS_SCHEMA, EvaluationMode
 from hgraph._impl._operators._record_replay_in_memory import (
     record_to_memory,
     get_recorded_value,
@@ -255,6 +255,7 @@ class _EvalArrowInput:
             trace: bool | dict = False,
             trace_wiring: bool | dict = False,
             profile: bool | dict = False,
+            run_mode: EvaluationMode = EvaluationMode.SIMULATION,
     ):
         self.first = first
         self.second = second
@@ -264,6 +265,7 @@ class _EvalArrowInput:
         self.trace = trace
         self.trace_wiring = trace_wiring
         self.profile = profile
+        self.run_mode = run_mode
 
     def __or__(self, other: "Arrow[A, B]") -> B:
         # Evaluate the other function call passing in the value captured in this
@@ -285,7 +287,8 @@ class _EvalArrowInput:
                 start_time=self.start_time,
                 end_time=self.end_time,
                 trace=self.trace,
-                trace_wiring=self.trace_wiring
+                trace_wiring=self.trace_wiring,
+                run_mode=self.run_mode,
             ))
             results = get_recorded_value()
         return [result[1] for result in results]
@@ -327,6 +330,7 @@ def eval_(
         trace: bool | dict = False,
         trace_wiring: bool | dict = False,
         profile: bool | dict = False,
+        run_mode: EvaluationMode = EvaluationMode.SIMULATION,
 ):
     """
     Wraps inputs to the graph that can be used to evaluate the graph
@@ -340,7 +344,7 @@ def eval_(
     If the types of the inputs are not just TS[SCALAR], then the user
     must supply the appropriate types to use for each input stream.
     """
-    return _EvalArrowInput(first, second, type_map, start_time, end_time, trace, trace_wiring, profile)
+    return _EvalArrowInput(first, second, type_map, start_time, end_time, trace, trace_wiring, profile, run_mode)
 
 
 def arrow(

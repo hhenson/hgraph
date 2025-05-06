@@ -220,6 +220,7 @@ def _message_subscriber_history_aggregator(
             last_time = t
             yield tm, dict(msg=msg.value)
     tm = datetime.utcfromtimestamp(last_time / 1000) + timedelta(milliseconds=last_time % 1000)
+    tm = max(tm, start_time)
     yield tm + MIN_TD, dict(recovered=True)
 
 
