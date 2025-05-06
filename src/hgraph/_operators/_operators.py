@@ -50,6 +50,7 @@ __all__ = (
     "pos_",
     "pow_",
     "rshift_",
+    "setattr_",
     "std",
     "str_",
     "sub_",
@@ -632,6 +633,13 @@ def getattr_(ts: TIME_SERIES_TYPE, attr: str, default_value: SCALAR = None) -> T
 
 
 WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
+
+
+@operator
+def setattr_(ts: OUT, attr: str, value: TIME_SERIES_TYPE_1) -> OUT:
+    """
+    Sets the value on the ``ts`` provided for the ``attr`` to the ``value`` provided.
+    """
 
 
 @operator

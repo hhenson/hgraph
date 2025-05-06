@@ -1,6 +1,8 @@
 from typing import Type
 
-from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, getattr_
+from numpy.distutils.system_info import dfftw_info
+
+from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, getattr_, setattr_
 
 __all__ = tuple()
 
@@ -12,6 +14,16 @@ __all__ = tuple()
 def getattr_cs(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = None) -> TS[SCALAR]:
     attr_value = getattr(ts.value, attr, default_value.value)
     return default_value.value if attr_value is None else attr_value
+
+
+@compute_node(
+    overloads=setattr_,
+    resolvers={SCALAR: lambda mapping, scalars: mapping[COMPOUND_SCALAR].meta_data_schema[scalars["attr"]].py_type}
+)
+def setattr_cs(ts: TS[COMPOUND_SCALAR], attr: str, value: TS[SCALAR]) -> TS[COMPOUND_SCALAR]:
+    v = (v_ := ts.value).to_dict()
+    v[attr] = value.value
+    return type(v_)(**v)
 
 
 @compute_node(overloads=getattr_)

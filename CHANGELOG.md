@@ -1246,3 +1246,8 @@ Version 0.4.50 (06-05-2025)
 
 * Clean-up logging to make it work more consistently.
 * Modify merge_compound_scalars to be combine_compound_scalars overriding comnbine instead of merge.
+
+Version 0.4.51 (06-05-2025)
+---------------------------
+
+* Add setattr_
