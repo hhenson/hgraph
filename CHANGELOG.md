@@ -1251,3 +1251,8 @@ Version 0.4.51 (06-05-2025)
 ---------------------------
 
 * Add setattr_
+
+Version 0.4.52 (07-05-2025)
+---------------------------
+
+* Remove a feature added by AI (bad import)
