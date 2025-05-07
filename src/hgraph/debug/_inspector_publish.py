@@ -62,6 +62,7 @@ def process_node_stats(state, node_id, item_id):
         state.perf_data.append(
             dict(
                 id=item_id.to_str(),
+                
                 evals=gi.node_eval_counts[node_ndx],
                 time=gi.node_eval_times[node_ndx] / 1_000_000_000,
                 of_graph=gi.node_eval_times[node_ndx] / gi.eval_time if gi.eval_time else None,
@@ -85,7 +86,7 @@ def process_graph_stats(state, graph_id, item_id):
     state.perf_data.append(
         dict(
             id=item_id.to_str(),
-            timestamp=gi.graph.parent_node.last_evaluation_time if gi.graph.parent_node else None,
+
             evals=gi.eval_count,
             time=gi.eval_time / 1_000_000_000,
             of_graph=gi.eval_time / parent_time if parent_time else None,
