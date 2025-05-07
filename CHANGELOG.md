@@ -1256,3 +1256,9 @@ Version 0.4.52 (07-05-2025)
 ---------------------------
 
 * Remove a feature added by AI (bad import)
+
+
+Version 0.4.53
+--------------
+
+* Change setattr to make use of copy instead of to_dict
