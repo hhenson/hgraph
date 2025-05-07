@@ -1,7 +1,5 @@
 from typing import Type
 
-from numpy.distutils.system_info import dfftw_info
-
 from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, getattr_, setattr_
 
 __all__ = tuple()
