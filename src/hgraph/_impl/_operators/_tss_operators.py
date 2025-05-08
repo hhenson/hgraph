@@ -5,26 +5,27 @@ from typing import Type
 
 from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._operators import (
+    add_,
+    and_,
+    bit_and,
+    bit_or,
+    bit_xor,
     contains_,
+    eq_,
     is_empty,
     len_,
-    bit_or,
-    sub_,
-    bit_and,
-    bit_xor,
-    eq_,
-    and_,
-    or_,
-    min_,
     max_,
-    sum_,
-    zero,
-    std,
-    var,
-    str_,
-    not_,
     mean,
+    min_,
+    not_,
+    or_,
+    std,
+    str_,
+    sub_,
+    sum_,
     union,
+    var,
+    zero,
 )
 from hgraph._types._ref_type import REF, TimeSeriesReference
 from hgraph._types._scalar_types import STATE, KEYABLE_SCALAR, CompoundScalar
@@ -240,7 +241,7 @@ def str_tss(tss: TSS[KEYABLE_SCALAR]) -> TS[str]:
 
 @compute_node(valid=tuple(), overloads=union)
 def union_multiple_tss(
-    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None
+        *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None
 ) -> TSS[KEYABLE_SCALAR]:
     tss: TSS[KEYABLE_SCALAR, SIZE]
     to_add: set[KEYABLE_SCALAR] = set()
@@ -270,7 +271,7 @@ class OverlapState(CompoundScalar):
 
 @compute_node
 def overlap_multiple_tss(
-    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None
+        *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None
 ) -> TSS[KEYABLE_SCALAR]:
     """
     Returns the set of items that are in more than one of the inputs.
@@ -296,3 +297,29 @@ def overlap_multiple_tss(
                     pass
 
     return PythonSetDelta({k for k in modified if items[k] > 1}, {k for k in modified if items[k] <= 1})
+
+
+@compute_node(overloads=add_)
+def add_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR], _output: TSS[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
+    tss_added = lhs.added()
+    tss_removed = lhs.removed()
+    rhs = rhs.value
+    if rhs in tss_removed:
+        tss_removed -= {rhs}
+    elif rhs not in _output.value:
+        tss_added |= {rhs}
+    if tss_added or tss_removed:
+        return PythonSetDelta(tss_added, tss_removed)
+
+
+@compute_node(overloads=sub_)
+def sub_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR], _output: TSS[KEYABLE_SCALAR] = None) -> TSS[KEYABLE_SCALAR]:
+    tss_added = lhs.added()
+    tss_removed = lhs.removed()
+    rhs = rhs.value
+    if rhs in tss_added:
+        tss_added -= {rhs}
+    elif rhs in _output.value:
+        tss_removed |= {rhs}
+    if tss_added or tss_removed:
+        return PythonSetDelta(tss_added, tss_removed)

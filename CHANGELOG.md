@@ -1262,3 +1262,8 @@ Version 0.4.53 (07-05-2025)
 ---------------------------
 
 * Change setattr to make use of copy instead of to_dict
+
+Version 0.4.54 (08-05-2025)
+---------------------------
+
+* add add_(TSS, TS) and sub_(TSS, TS)

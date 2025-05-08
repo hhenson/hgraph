@@ -24,6 +24,7 @@ from hgraph import (
     TIME_SERIES_TYPE,
     contains_,
 )
+from hgraph.arrow import eval_, arrow, assert_
 from hgraph.test import eval_node
 
 
@@ -93,22 +94,22 @@ def test_bit_xor_tsss():
     assert eval_node(
         app, [{1, 2, 3, 4}, {5, 6}, {Removed(1)}, {Removed(2)}, None], [{0, 2, 3, 5}, None, None, None, {-1, 1, 4}]
     ) == [
-        PythonSetDelta(added={0, 1, 4, 5}, removed=set()),
-        PythonSetDelta(removed={5}, added={6}),
-        PythonSetDelta(added=set(), removed={1}),
-        PythonSetDelta(added={2}, removed=set()),
-        PythonSetDelta(added={-1, 1}, removed={4}),
-    ]
+               PythonSetDelta(added={0, 1, 4, 5}, removed=set()),
+               PythonSetDelta(removed={5}, added={6}),
+               PythonSetDelta(added=set(), removed={1}),
+               PythonSetDelta(added={2}, removed=set()),
+               PythonSetDelta(added={-1, 1}, removed={4}),
+           ]
 
 
 def test_eq_tsss():
     assert eval_node(
-        eq_[TIME_SERIES_TYPE : TSS[int]], [None, {1, 2}, {1, 2, 3}], [{1}, {4}, {1, 2, 3, Removed(4)}]
+        eq_[TIME_SERIES_TYPE: TSS[int]], [None, {1, 2}, {1, 2, 3}], [{1}, {4}, {1, 2, 3, Removed(4)}]
     ) == [
-        None,
-        False,
-        True,
-    ]
+               None,
+               False,
+               True,
+           ]
 
 
 @pytest.mark.parametrize(
@@ -219,9 +220,25 @@ def test_contains_tss():
     assert eval_node(g, [{1, 2, 3}], [1, 4]) == [True, False]
 
 
-def test_contains_tss():
+def test_contains_tss_2():
     @graph
     def g(tss: TSS[int], item: TSS[int]) -> TS[bool]:
         return contains_(tss, item)
 
     assert eval_node(g, [{1, 2, 3}], [{1, 2}, {3, 4}]) == [True, False]
+
+
+def test_add_tss_scalar():
+    (
+            eval_([{1, 2}], [3, 4], type_map=(TSS[int], TS[int]))
+            | arrow(lambda p: p[0] + p[1])
+            >> assert_(frozenset({1, 2, 3}), frozenset({1, 2, 3, 4}))
+    )
+
+
+def test_sub_tss_scalar():
+    (
+            eval_([{1, 2, 3, 4}], [3, 4], type_map=(TSS[int], TS[int]))
+            | arrow(lambda p: p[0] - p[1])
+            >> assert_(frozenset({1, 2, 4}), frozenset({1, 2}))
+    )
