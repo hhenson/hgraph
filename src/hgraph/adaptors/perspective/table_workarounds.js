@@ -716,7 +716,19 @@ async function enableActions(table, viewer, config, model) {
                             const tbl = await viewer.getTable();
                             const view_config = await viewer.save();
                             const index = await tbl.get_index();
-                            const required_cols = [...action.format.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+
+                            let required_cols = [];
+                            let method = action.action;
+                            let format = undefined;
+                            if (action.format !== undefined) {
+                                required_cols = [...action.format.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+                                format = action.format;
+                                method = "format";
+                            } else if (action.url !== undefined) {
+                                required_cols = [...action.url.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+                                format = action.url;
+                                method = "url";
+                            }
 
                             let view;
                             let get_rows;
@@ -740,25 +752,29 @@ async function enableActions(table, viewer, config, model) {
                             const rows = await get_rows();
                             if (rows && rows.length == 1) {
                                 const row = rows[0];
-                                const text = action.format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                const text = format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
                                 if (text && text != "null"){
-                                    const update_tt = (text) => {
+                                    const update_tt = async (text) => {
+                                        let data = text;
+                                        if (method === "url") {
+                                            data = await (await fetch(text, {method: 'GET'})).text();
+                                        }
                                         if (action.line_separator) {
-                                            const lines = text.split(action.line_separator).map(line => `${line}<br/>`).join('');
+                                            const lines = data.split(action.line_separator).map(line => `${line}<br/>`).join('');
                                             tooltip_info.update(lines);
                                         } else {
-                                            tooltip_info.update(text);
+                                            tooltip_info.update(data);
                                         }
                                     };
 
-                                    tooltip_info.view = view;
                                     tooltip_info.show(table, td);
-                                    update_tt(text);
+                                    tooltip_info.view = view;
+                                    await update_tt(text);
 
                                     view.on_update(tooltip_info.view_cb = async () => {
                                         const row = (await get_rows())[0];
-                                        const text = action.format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
-                                        update_tt(text);
+                                        const text = format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        await update_tt(text);
                                     });
                                 } else {
                                     view.delete();
