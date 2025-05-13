@@ -57,7 +57,7 @@ try:
         http_server_adaptor,
         http_server_adaptor_helper,
     )
-    from hgraph.nodes import stop_engine
+    from hgraph import stop_engine
 
     PORT = randrange(3300, 32000)
 

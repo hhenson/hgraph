@@ -276,9 +276,7 @@ def enum_items_python_time_series_reference_output(
 
 @enum_items.register
 def enum_items_time_series_collection(value: Union[TimeSeriesList, TimeSeriesBundle, TimeSeriesDict]):
-    if value.valid:
-        yield from value.items()
-    yield from ()
+    yield from value.items()
 
 
 @enum_items.register

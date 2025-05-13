@@ -142,11 +142,12 @@ class InspectorItemId:
         elif isinstance(o, TimeSeriesInput):
             path = []
             input = o
-            while input.parent_input:
+            while input.parent_input is not None:
                 key = input.parent_input.key_from_value(input)
-                if key is None:
-                    return None
-                path.append(key)
+                if key is None:  # this can happen for 'special' items like key_set, or for items that got removed
+                    path = []
+                else:
+                    path.append(key)
                 input = input.parent_input
 
             return cls(
@@ -158,11 +159,12 @@ class InspectorItemId:
         elif isinstance(o, TimeSeriesOutput):
             path = []
             output = o
-            while output.parent_output:
+            while output.parent_output is not None:
                 key = output.parent_output.key_from_value(output)
-                if key is None:
-                    return None
-                path.append(key)
+                if key is None:  # this can happen for 'special' items like key_set, or for items that got removed
+                    path = []
+                else:
+                    path.append(key)
                 output = output.parent_output
 
             return cls(

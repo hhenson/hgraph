@@ -33,12 +33,12 @@ __all__ = ("Data", "StreamStatus", "Stream", "combine_statuses", "combine_status
 
 class StreamStatus(Enum):
     # Values ordered by increasing severity
-    OK = 0  # price is valid, up to date and ticking
-    STALE = 1  # price exists but is stale
-    WAITING = 2  # waiting on dependencies to come up
-    NA = 3  # outside of hours, or other reason why the price is not available for a valid request
-    ERROR = 4  # price is invalid, there is a failure in the pricing pipeline
-    FATAL = 5  # this price stream is invalid and will not be expected to ever produce a price
+    OK = 0          # data is valid, up to date and ticking
+    STALE = 1       # data exists but is out of date
+    WAITING = 2     # data is waiting on dependencies (may or may not have a value yet)
+    NA = 3          # data is not available for a valid request (e.g. out of hours)
+    ERROR = 4       # data is invalid, there is a failure in the pipeline
+    FATAL = 5       # data is invalid and is not expected to ever be valid
 
 
 @dataclass(frozen=True)
@@ -56,9 +56,6 @@ class Data(CompoundScalar, Generic[SCALAR]):
 @graph
 def combine_statuses(status1: TS[StreamStatus], status2: TS[StreamStatus]) -> TS[StreamStatus]:
     return default(max_(status1, status2, __strict__=True), StreamStatus.WAITING)
-
-
-# Bloomberg bid/ask spread (x) for (symbol) is greater than permitted maximum ((z) ticks)
 
 
 STATUS_MESSAGE_PATTERN_DUPLICATES = []

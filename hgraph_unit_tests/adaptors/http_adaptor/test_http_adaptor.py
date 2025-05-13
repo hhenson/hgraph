@@ -45,7 +45,7 @@ try:
         HttpGetRequest,
         register_http_server_adaptor,
     )
-    from hgraph.nodes import stop_engine
+    from hgraph import stop_engine
 
     @pytest.fixture(scope="function")
     def port() -> int:

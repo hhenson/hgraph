@@ -53,7 +53,7 @@ def flip(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
 @operator
 def partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> OUT:
     """
-    Splits a TSD into multiple TSDs give a mapping TSD. Its output is a TSD[K1, TSD[K, V]] for inputs of TSD[K, V]
+    Splits a TSD into multiple TSDs given a mapping TSD. Its output is a TSD[K1, TSD[K, V]] for inputs of TSD[K, V]
     and TSD[K, K1] for mapping
     """
 

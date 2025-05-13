@@ -206,17 +206,17 @@ def inspector_follow_ref(state, item_id):
         value = value.output
 
     if isinstance(value, TimeSeriesInput):
-        if value.output:
+        if value.output is not None:
             item_id = InspectorItemId.from_object(value.output)
         elif isinstance(value, PythonTimeSeriesReferenceInput):
-            if value.valid and value.value.output:
+            if value.valid and value.value.has_output:
                 item_id = InspectorItemId.from_object(value.value.output)
             else:
                 raise ValueError(f"Reference input {item_id} has no output and no value")
         else:
             raise ValueError(f"Input {item_id} has no output")
     elif isinstance(value, PythonTimeSeriesReferenceOutput):
-        if value.valid and value.value.output:
+        if value.valid and value.value.has_output:
             item_id = InspectorItemId.from_object(value.value.output)
         else:
             raise ValueError(f"TimeSeriesReference {item_id} references no output")
