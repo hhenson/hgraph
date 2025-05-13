@@ -1267,3 +1267,11 @@ Version 0.4.54 (08-05-2025)
 ---------------------------
 
 * add add_(TSS, TS) and sub_(TSS, TS)
+
+Version 0.4.55 (13-05-2025)
+---------------------------
+
+* Bug fix to mesh
+* fixes to documentation
+* other small fixes
+
