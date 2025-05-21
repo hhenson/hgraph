@@ -38,7 +38,7 @@ from hgraph._types._tsl_type import TSL, SIZE
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
 
-__all__ = tuple()
+__all__ = ("dereference",)
 
 
 @graph(overloads=add_)
