@@ -214,7 +214,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         for observer in self._key_observers:
             observer.on_key_added(key)
 
-    def _clear_key_changes(self):
+    def _clear_key_changes(self):  # clear_on_end_of_evaluation_cycle (C++)
         self._removed_items = {}
         self._added_keys = set()
 
@@ -389,11 +389,13 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         v.bind_output(self.output[key])
 
     def on_key_removed(self, key: K):
-        if not self._removed_items:
-            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
         value: TimeSeriesInput = self._ts_values.pop(key, None)
         if value is None:
             return
+
+        if not self._removed_items:
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
+
         was_valid = value.valid
         if value.parent_input is self:
             if value.active:
