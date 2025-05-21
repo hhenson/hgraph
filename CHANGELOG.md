@@ -1275,3 +1275,7 @@ Version 0.4.55 (13-05-2025)
 * fixes to documentation
 * other small fixes
 
+Version 0.4.56 (21-05-2025)
+---------------------------
+
+* Expose dereference operator
