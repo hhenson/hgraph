@@ -181,8 +181,9 @@ def _message_subscriber_impl(path: str, topic: str):
 
 @generator
 def _message_subscriber_history_aggregator(
-    path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...], _api: EvaluationEngineApi = None
-) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
+        path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...],
+        _api: EvaluationEngineApi = None
+) -> TSB["msg": TS[bytes], "recovered": TS[bool]]:
     """Recovered must tick after the last message has been delivered."""
     start_time = _api.start_time
     if _api.evaluation_mode == EvaluationMode.SIMULATION:
@@ -191,7 +192,7 @@ def _message_subscriber_history_aggregator(
         # Use now as the base-line to catch up to in real-time mode. By the time we actually catch up if this is still
         # ticking, then we can move to real-time processing.
         end_time = _api.evaluation_clock.now
-    end_time_ts = end_time.timestamp() * 1000
+
     # Convert the start_time to milliseconds (Kafka uses epoch time in ms).
     timestamp_ms = int(start_time.replace(tzinfo=pytz.UTC).timestamp() * 1000)
     # Prepare a timestamp lookup dict for each TopicPartition.
@@ -201,9 +202,9 @@ def _message_subscriber_history_aggregator(
     for tp, offset in offsets.items():
         consumer.seek(tp, offset.offset)
     first = True
-    last_time = timestamp_ms
+    last_time = _timestamp_to_datetime(timestamp_ms)
     yield start_time, dict(recovered=False)
-    while last_time < end_time_ts:
+    while last_time < end_time:
         records = consumer.poll(timeout_ms=500, max_records=1000)
         if records is None or len(records) == 0:
             break
@@ -212,16 +213,19 @@ def _message_subscriber_history_aggregator(
             all_messages = sorted(all_messages, key=lambda m: (m.timestamp, m.topic, m.offset))
         for msg in all_messages:
             # We won't exit historical replay unless the engine exits to ensure smooth playback of messages.
-            t = msg.timestamp
-            tm = datetime.utcfromtimestamp(t / 1000) + timedelta(milliseconds=t % 1000)
-            if t == last_time:
+            tm = _timestamp_to_datetime(msg.timestamp)
+            if tm <= last_time:
                 # Offset if it is the same
-                tm += MIN_TD
-            last_time = t
+                tm = last_time + MIN_TD
+            last_time = tm
             yield tm, dict(msg=msg.value)
-    tm = datetime.utcfromtimestamp(last_time / 1000) + timedelta(milliseconds=last_time % 1000)
-    tm = max(tm, start_time)
+    tm = last_time
+    tm = max(tm, start_time - MIN_TD)
     yield tm + MIN_TD, dict(recovered=True)
+
+
+def _timestamp_to_datetime(t: int) -> datetime:
+    return datetime.utcfromtimestamp(t / 1000) + timedelta(milliseconds=t % 1000)
 
 
 @adaptor

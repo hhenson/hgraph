@@ -2,7 +2,6 @@
 Ability to create breakpoints in the graph.
 """
 from hgraph import compute_node, TSB, TS_SCHEMA, graph, const, debug_print, operator, OUT, TS
-from hgraph.test import eval_node
 
 
 __all__ = ("breakpoint_",)
@@ -40,6 +39,8 @@ def breakpoint_many(**kwargs: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
 
 
 if __name__ == "__main__":
+    from hgraph.test import eval_node
+
     @graph
     def breakpoint_graph():
         c = const(1)
