@@ -155,7 +155,7 @@ interface Node {
     + signature: NodeSignature
     + input: TimeSeriesBundleInput | None
     + output: TimeSeriesOutput | None
-    + scheduler: NodeScheduler | None
+    + scheduler: SCHEDULER | None
     + eval()
     + notify()
 }

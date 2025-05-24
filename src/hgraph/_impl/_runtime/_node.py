@@ -16,7 +16,7 @@ from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
-from hgraph._runtime._node import NodeSignature, Node, NodeScheduler, NodeDelegate
+from hgraph._runtime._node import NodeSignature, Node, NodeDelegate, SCHEDULER
 from hgraph._types import TimeSeriesDictOutput
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
@@ -138,7 +138,7 @@ class BaseNodeImpl(Node, ABC):
         return self._start_inputs
 
     @property
-    def scheduler(self) -> "NodeScheduler":
+    def scheduler(self) -> "SCHEDULER":
         if self._scheduler is None:
             self._scheduler = NodeSchedulerImpl(self)
         return self._scheduler
@@ -323,7 +323,7 @@ class NodeImpl(BaseNodeImpl):
             return f"{self.signature.wiring_path_name}.{self.signature.name}"
 
 
-class NodeSchedulerImpl(NodeScheduler):
+class NodeSchedulerImpl(SCHEDULER):
 
     def __init__(self, node: NodeImpl):
         self._node = node

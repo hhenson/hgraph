@@ -297,8 +297,32 @@ NUMBER_2 = clone_type_var(NUMBER, "NUMBER_2")
 
 class STATE(Generic[COMPOUND_SCALAR]):
     """
-    State is basically just a dictionary.
-    Add the ability to access the state as attributes.
+    Used in a ``compute_node`` or ``sink_node`` to indicate that the function requires state to be injected into
+    the function. This is used as follows::
+
+        @dataclass
+        class MyStateSchema(CompoundScalar):
+            p1: str = "Initial Value"
+
+        @compute_node
+        def my_node(ts: TIME_SERIES_VALUE, ..., _state: STATE[MyStateSchema] = None) -> OUT:
+            ...
+
+    The state can be used in two ways. The first is naked, i.e. ``_state: STATE = None``, in this case the state
+    is effectively an attribute dictionary.
+
+    The other way is as shown above, where a dataclass (CompoundScalar) is used to describe the schema for the
+    state. This allows for state initialization to be performed without having to create a start for the function.
+
+    The state can be accessed using the attribute name, for example::
+
+        _state.p1 = "New Value"
+
+    alternatively, it is possible to use the ``__getitem__`` syntax, for example::
+
+        a = _state["p1"]
+
+    The state also works as a dictionary, with methods such as ``keys``, ``items`` and ``values`` available.
     """
 
     def __init__(self, __schema__: type[COMPOUND_SCALAR] = None, **kwargs):

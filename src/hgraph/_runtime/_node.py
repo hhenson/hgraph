@@ -19,7 +19,6 @@ __all__ = (
     "NodeTypeEnum",
     "NodeSignature",
     "SCHEDULER",
-    "NodeScheduler",
     "InjectableTypesEnum",
     "NodeDelegate",
     "ERROR_PATH",
@@ -292,7 +291,7 @@ class Node(ComponentLifeCycle, ABC):
 
     @property
     @abstractmethod
-    def scheduler(self) -> "NodeScheduler":
+    def scheduler(self) -> "SCHEDULER":
         """
         The scheduler for this node.
         """
@@ -367,7 +366,7 @@ class NodeDelegate(Node):
         return self._node.error_output
 
     @property
-    def scheduler(self) -> "NodeScheduler":
+    def scheduler(self) -> "SCHEDULER":
         return self._node.scheduler
 
     def eval(self):
@@ -380,7 +379,7 @@ class NodeDelegate(Node):
         self._node.notify_next_cycle()
 
 
-class NodeScheduler(ABC):
+class SCHEDULER(ABC):
     """
     An input that is scheduled to be evaluated at a particular time. This is used for time-series
     inputs that are not bound to an output, but are still required to be evaluated at a particular time.
@@ -442,6 +441,4 @@ class NodeScheduler(ABC):
         Remove all scheduled events.
         """
 
-
-SCHEDULER = NodeScheduler
 NODE = Node

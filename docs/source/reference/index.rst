@@ -6,6 +6,7 @@ HGraph Reference
     decorator
     time_series_types
     typing
+    injectables
     dynamic_graphs
     operators
     operators_support
