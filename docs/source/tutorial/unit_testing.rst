@@ -8,12 +8,13 @@ testing is not considered in this section.
 HGraph does not dictate the use of test frameworks, internally we make use of `pytest <https://docs.pytest.org>`_.
 Instead HGraph provides a light weight set of tools to simplify event based testing.
 
-Most code written is in the form of ``compute_node`` 's or ``graph`` 's that are in the form of a ``compute_node``.
-That is the logic has time-series inputs and time-series outputs. What we want to test is: if, given a set of inputs,
-the outputs are correct.
+Most code written is in the form of ``compute_node`` 's or ``graph`` 's. The graph typically take some inputs and return
+a result, it is possible to evaluate other shapes, but these are the most common for unit testing.
+
+What we want to test is: if, given a set of inputs, that the outputs are correct.
 
 The ``eval_node`` Function
--------------------------
+--------------------------
 
 To support this we introduce the ``eval_node`` function.
 
@@ -99,7 +100,7 @@ There are also options to adjust the start and end times when required to valida
 the start and end times, elide is usually set true as well.
 
 The ``debug_print`` Function
----------------------------
+----------------------------
 
 Another useful probe when trying to trace issues in code is the ``debug_print`` operator. This takes a label and a
 time-series and will print out the value of the time-series each time it ticks.
@@ -143,3 +144,47 @@ This is really useful to pin-point where, in a complex flow, things are not beha
 
 It is also reasonably easy to scan the code base for the debug_print to remove prior to putting the code into production.
 As a rule of thumb it is recommended to not commit code with debug statements in it.
+
+``breakpoint_``
+---------------
+
+When working with nodes (e.g. ``compute_node`` and ``sink_node``) it is possible to place a break-point in your code
+much as you would in any python code. However, as your use of the framework matures, most of the code is likely to be
+written as ``graph`` code, once you do this, the drawback is that putting a breakpoint in your code is only hit during
+the wiring phase of the evaluation cycle.
+
+To assist with breaking into the evaluation flow in a graph, there is the ``breakpoint_`` operator. Here is an example
+of this:
+
+::
+
+    from hgraph.test import eval_node, breakpoint_
+    from hgraph import graph, TS
+
+    @graph
+    def my_add(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        # The code we want to test
+        out = lhs + rhs
+        out = breakpoint_(out)
+        return out
+
+    def test_my_add():
+        assert eval_node(my_add, [None, 2], [3, 4], __elide__=True) == [6]
+
+What will occur is that each time ``out`` ticks the code will break inside the ``breakpoint_`` operator.
+This will give access to the time-series input value. From that the rest of the graph and it's values are reachable
+via the debugger.
+
+The general usage pattern is to use the operator as a pass-through (as in the example). This ensures the break-point
+will be reached in the correct rank order (i.e. after the value is created and before it is consumed).
+
+There are a couple of other variations that can be used, namely:
+
+Conditional
+    ``breakpoint_(condition, value)`` where the break-point is only triggered when the condition or value changes and
+    the value of the condition is ``True``.
+
+Many
+    ``breakpoint_(**kwargs)`` where many inputs can be provided and the operator will break each time any one of the
+    inputs is modified.
+

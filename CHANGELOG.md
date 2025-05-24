@@ -1279,3 +1279,9 @@ Version 0.4.56 (21-05-2025)
 ---------------------------
 
 * Expose dereference operator
+
+Version 0.4.57 (TBD)
+--------------------
+
+* Add breakpoint_ operator
+* 

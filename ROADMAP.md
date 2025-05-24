@@ -44,8 +44,8 @@ The following features are planned for this release:
 ## 0.4.0
 
 The following features are planned for this release:
-* distributed network services.
-* External API support (REST, gRPC, etc.). Allows for exposure of the graph to non-graph users.
+* distributed network services. [For now move this to a post 1.0 feature]
+* External API support (REST, gRPC, etc.). Allows for exposure of the graph to non-graph users. [This is in place as adaptors to various external protocols]
 
 ## 0.5.0
 

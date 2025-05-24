@@ -8,3 +8,5 @@ to :doc:`../getting_started`.
 .. toctree::
     basic_program_structure
     unit_testing
+    the_compute_node
+

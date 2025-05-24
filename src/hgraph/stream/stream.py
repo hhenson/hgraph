@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from itertools import chain
-from typing import Generic, Tuple
-
-from pytz import UTC
+from typing import Generic
 
 from hgraph import (
     COMPOUND_SCALAR,
