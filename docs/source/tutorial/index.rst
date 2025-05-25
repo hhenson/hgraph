@@ -10,4 +10,8 @@ to :doc:`../getting_started`.
     unit_testing
     the_compute_node
     injectables
+    typing
+
+    common_pitfalls
+
 

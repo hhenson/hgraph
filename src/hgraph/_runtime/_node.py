@@ -36,13 +36,28 @@ class NodeTypeEnum(Enum):
 class InjectableTypesEnum(IntFlag):
     NONE = 0
     STATE = auto()
+    """This node is stateful, provide a state instance here"""
+
     RECORDABLE_STATE = auto()
+
     SCHEDULER = auto()
+    """This node will schedule itself outside of its defined inputs for evaluation"""
+
     OUTPUT = auto()
+    """Access to the output is required"""
+
     CLOCK = auto()
+    """Needs to have access to the current engine clock for it's logic"""
+
     ENGINE_API = auto()
+    """Needs access to the engine API, typically start and end times for the engine"""
+
     LOGGER = auto()
+    """This node produces logging output"""
+
     NODE = auto()
+    """Requires access to the node, this should generally be reserved for use in framework nodes"""
+
     TRAIT = auto()
 
 
