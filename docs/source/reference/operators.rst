@@ -22,6 +22,8 @@ These are the operators that are provided by the HGraph library.
 
 .. autofunction:: hgraph.bit_xor
 
+.. autofunction:: hgraph.cast_
+
 .. autofunction:: hgraph.contains_
 
 .. autofunction:: hgraph.difference
@@ -31,6 +33,10 @@ These are the operators that are provided by the HGraph library.
 .. autofunction:: hgraph.div_
 
 .. autofunction:: hgraph.divmod_
+
+.. autofunction:: hgraph.downcast_
+
+.. autofunction:: hgraph.downcast_ref
 
 .. autofunction:: hgraph.eq_
 
