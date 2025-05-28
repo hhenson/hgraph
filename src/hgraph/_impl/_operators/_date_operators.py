@@ -1,6 +1,8 @@
-from datetime import date
+from datetime import date, time, datetime
 
-from hgraph import compute_node, TS, TSL, Size, explode, graph, day_of_month, month_of_year, year
+import pytz
+
+from hgraph import compute_node, TS, TSL, Size, explode, graph, day_of_month, month_of_year, year, add_
 
 __all__ = []
 
@@ -39,3 +41,19 @@ def month_of_year_impl(ts: TS[date]) -> TS[int]:
 def year_impl(ts: TS[date]) -> TS[int]:
     """The year of the given date."""
     return explode(ts)[0]
+
+
+@compute_node(overloads=add_)
+def add_date_time(lhs: TS[date], rhs: TS[time]) -> TS[datetime]:
+    """
+    Add date and time to produce a datetime, this will be returned in UTC. Thus, if the time
+    has a time-zone, it will be adjusted to UTC once combined and then returned.
+    """
+    dt: date = lhs.value
+    tm: time = rhs.value
+    dt_tm: datetime = datetime.combine(dt, tm.replace(tzinfo=None))
+    if (tz:=tm.tzinfo) is not None:
+        dt_tm = tz.localize(dt_tm)
+        dt_tm = dt_tm.astimezone(pytz.UTC)
+        dt_tm = dt_tm.replace(tzinfo=None)
+    return dt_tm

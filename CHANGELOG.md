@@ -1280,8 +1280,8 @@ Version 0.4.56 (21-05-2025)
 
 * Expose dereference operator
 
-Version 0.4.57 (TBD)
---------------------
+Version 0.4.57 (28-05-2025)
+---------------------------
 
 * Add breakpoint_ operator
-* 
+* Add date + time, including support for time-zone handling.
