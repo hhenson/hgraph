@@ -1285,3 +1285,9 @@ Version 0.4.57 (28-05-2025)
 
 * Add breakpoint_ operator
 * Add date + time, including support for time-zone handling.
+
+
+Version 0.4.58 (28-05-2025)
+---------------------------
+
+* Add evaluation_time_in_range to support checking if a value is within a particular range of time.
