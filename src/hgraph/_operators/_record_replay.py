@@ -1,11 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import auto, IntFlag
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
-from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._types._scalar_types import DEFAULT
 from hgraph._runtime._global_state import GlobalState
+from hgraph._types._scalar_types import DEFAULT, COMPOUND_SCALAR
+from hgraph._types._frame_scalar_type_meta_data import Frame
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ __all__ = (
     "replay_const",
     "compare",
     "IN_MEMORY",
+    "from_data_frame",
 )
 
 
@@ -192,4 +194,24 @@ def compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
     """
     Perform a comparison between two time series (when the context is set to COMPARE).
     This will write the results of the comparison to a comparison result file.
+    """
+
+
+@operator
+def from_data_frame(
+    df: Frame[COMPOUND_SCALAR],
+    dt_col: str = "date",
+    offset: timedelta = timedelta(),
+    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _out_tp: type[OUT] = AUTO_RESOLVE,
+) -> DEFAULT[OUT]:
+    """
+    Produce a time-series from a dataframe.
+    The dataframe must have a date/datetime column. By default, this is expected to be called "date".
+    The date can have a fixed offset applied to it (offset).
+
+    The following schema types are supported:
+
+    * TS[SCALAR] - Over and above the std types, we also support value_col (default: "value")
+
     """

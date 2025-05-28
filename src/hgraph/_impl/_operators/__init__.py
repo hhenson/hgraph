@@ -1,4 +1,5 @@
 from hgraph._impl._operators._bool_operators import *
+from hgraph._impl._operators._data_frame_operators import *
 from hgraph._impl._operators._date_operators import *
 from hgraph._impl._operators._conversion_operators import *
 from hgraph._impl._operators._date_time_operators import *

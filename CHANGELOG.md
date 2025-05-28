@@ -1291,3 +1291,8 @@ Version 0.4.58 (28-05-2025)
 ---------------------------
 
 * Add evaluation_time_in_range to support checking if a value is within a particular range of time.
+
+Version 0.4.59 (28-05-2025)
+---------------------------
+
+* add initial support for from_data_frame
