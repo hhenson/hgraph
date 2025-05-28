@@ -24,7 +24,7 @@ def test_data_frame_record_replay():
         eval_node(record[TS[int]], ts=[1, 2, 3], key="ts", recordable_id="test")
         assert len(ds._frames) == 1
         assert eval_node(replay[TS[int]], key="ts", recordable_id="test") == [1, 2, 3]
-        data_frame = ds.read_frame("test::ts")
+        data_frame = ds.read_frame("test-ts")
         assert eval_node(replay_data_frame[TS[int]], data_frame) == [1, 2, 3]
 
 

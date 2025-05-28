@@ -28,6 +28,7 @@ from hgraph import (
     from_data_frame,
     OUT,
     AUTO_RESOLVE,
+    HgTSBTypeMetaData,
 )
 
 from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, DataStore
@@ -107,6 +108,9 @@ def from_data_source_ts(
 
 
 def _validate_tsb_schema(mapping, scalars) -> str:
+    out = mapping[OUT]
+    if type(out) is not HgTSBTypeMetaData:
+        return f"Expected OUT to be TSB, got: {out}"
     cs = mapping[COMPOUND_SCALAR]
     dt_col = scalars["dt_col"]
     if dt_col not in cs.meta_data_schema:

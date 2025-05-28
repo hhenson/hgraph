@@ -153,7 +153,7 @@ def lower(fn: Callable, /, date_col: str = "date", as_of_col: str = "as_of", no_
                 config_kwargs["trace"] = __trace__
             evaluate_graph(g, GraphConfiguration(**config_kwargs))
             if output:
-                result = storage.read_frame(f"{recordable_id}::__out__")
+                result = storage.read_frame(f"{recordable_id}-__out__")
                 if no_as_of_support:
                     result = result.drop(as_of_col)
                 return result
@@ -174,4 +174,4 @@ def _prepare_inputs(storage, ts_inputs, recordable_id, no_as_of_support, as_of_c
         assert all(k in df_schema for k in schema.keys if not no_as_of_support and k != as_of_col)
         if no_as_of_support:
             df = df.with_columns(pl.lit(MIN_DT).alias(as_of_col))
-        storage.write_frame(f"{recordable_id}::{k}", df)
+        storage.write_frame(f"{recordable_id}-{k}", df)

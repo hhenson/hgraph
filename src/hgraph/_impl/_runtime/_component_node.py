@@ -113,7 +113,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         """The id and True or no id and False if required inputs are not ready yet"""
         outer_id = self.graph.traits.get_trait_or("recordable_id")
         id_ = (
-            f"{'' if outer_id is None else outer_id}{'' if outer_id is None else '::'}{self.signature.record_replay_id}"
+            f"{'' if outer_id is None else outer_id}{'' if outer_id is None else '-'}{self.signature.record_replay_id}"
         )
         dependencies = [k for _, k, _, _ in Formatter().parse(id_) if k is not None]
         if any(k == "" for k in dependencies):
