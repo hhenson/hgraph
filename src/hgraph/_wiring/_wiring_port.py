@@ -73,7 +73,7 @@ class WiringPort:
         return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
 
     def edges_for(
-        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+            self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
     ) -> set["Edge"]:
         """Return the edges required to bind this output to the dst_node"""
         assert (
@@ -263,7 +263,7 @@ class TSBWiringPort(WiringPort):
         return convert[TS[CompoundScalar]](self)
 
     def edges_for(
-        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+            self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
     ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
@@ -392,7 +392,7 @@ class TSLWiringPort(WiringPort):
             return input_wiring_port
 
     def edges_for(
-        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+            self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
     ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
@@ -424,5 +424,25 @@ class TSLREFWiringPort(WiringPort):
 
     def __getitem__(self, item):
         from hgraph import getitem_
+        if isinstance(item, WiringPort):
+            return getitem_(self, item)
+
+        output_type: HgTSLTypeMetaData = self.output_type.value_tp
+        tp_ = output_type.value_tp
+        size_ = output_type.size
+        if not size_.FIXED_SIZE:
+            raise CustomMessageWiringError(
+                "Currently we are unable to select a time-series element from an unbounded TSL"
+            )
+        elif item >= size_.SIZE:
+            # Unfortunately, zip seems to depend on an IndexError being raised, so try and provide
+            # as much useful context in the error message as possible
+            msg = f"When resolving '{WIRING_CONTEXT.signature}' \n"
+            f"Trying to select an element from a TSL that is out of bounds: {item} >= {size_.SIZE}"
+            raise IndexError(msg)
+
+        if item < 0:
+            # TODO: Temp fix for negative indices. This needs a different solution when we have non-fixed TSL impl
+            item = size_.SIZE + item
 
         return getitem_(self, item)
