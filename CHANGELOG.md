@@ -1296,3 +1296,8 @@ Version 0.4.59 (28-05-2025)
 ---------------------------
 
 * add initial support for from_data_frame
+
+Version 0.4.60 (29-05-2025)
+---------------------------
+
+* Fix TSL Ref wiring port for iteration __getitem__
