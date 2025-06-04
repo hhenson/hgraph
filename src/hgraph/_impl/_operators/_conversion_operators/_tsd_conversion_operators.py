@@ -207,8 +207,7 @@ def combine_tsd_from_tuple_and_tuple(
 @compute_node(
     overloads=collect,
     requires=lambda m, s: m[OUT].py_type is TSD
-    or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]),
-    resolvers={TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
+    or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
     valid=("key", "ts"),
 )
 def collect_tsd(
