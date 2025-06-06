@@ -37,6 +37,7 @@ dependencies = [
     "typing-extensions",
     "pycurl",
     "black>=25.1.0",
+    "pytz"
 ]
 
 [project.urls]

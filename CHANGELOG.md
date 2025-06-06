@@ -1301,3 +1301,9 @@ Version 0.4.60 (29-05-2025)
 ---------------------------
 
 * Fix TSL Ref wiring port for iteration __getitem__
+
+Version 0.4.61 (06-06-2025)
+---------------------------
+
+* Fix imports
+* Fix conversion logic for tsd collect
