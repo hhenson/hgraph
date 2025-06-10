@@ -36,6 +36,7 @@ __all__ = (
     "is_empty",
     "le_",
     "len_",
+    "ln",
     "lshift_",
     "lt_",
     "max_",
@@ -833,3 +834,7 @@ def index_of(ts: TIME_SERIES_TYPE_1, item: TIME_SERIES_TYPE_2) -> TS[int]:
     TSL[TIME_SERIES_TYPE_2, SIZE]
         returns the index of the first occurrence of the item in the TSL
     """
+
+@operator
+def ln(ts: TS[float]) -> TS[float]:
+    """The natural logarithm of the time-series value"""
