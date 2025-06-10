@@ -11,10 +11,10 @@ import hgraph
     requires=lambda m, s: True if m[WINDOW_SIZE].py_type.FIXED_SIZE else "Only fixed size windows are supported.",
 )
 def as_array(tsw: TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
-             zero: SCALAR = None, 
-             tp: type[SCALAR] = AUTO_RESOLVE,
-             sz: type[WINDOW_SIZE] = AUTO_RESOLVE,
-             m_sz: type[WINDOW_SIZE_MIN] = AUTO_RESOLVE) -> TS[Array[SCALAR, SIZE]]:
+             zero: SCALAR = None,
+             _tp: type[SCALAR] = AUTO_RESOLVE,
+             _sz: type[WINDOW_SIZE] = AUTO_RESOLVE,
+             _m_sz: type[WINDOW_SIZE_MIN] = AUTO_RESOLVE) -> TS[Array[SCALAR, SIZE]]:
     """
     Converts the values from TSW into a numpy array output of size ``SIZE``. If the min-size is smaller than ``SIZE``
     then the array is zero padded. By default, if not provided, zero is obtained using::
@@ -23,11 +23,11 @@ def as_array(tsw: TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
         
     Forcing the shape of the array to be consistent with ``SIZE``.
     """
-    if sz.SIZE == m_sz.SIZE:
-        return _as_array[SIZE: Size[sz.SIZE]](tsw)
+    if _sz.SIZE == _m_sz.SIZE:
+        return _as_array[SIZE: Size[_sz.SIZE]](tsw)
     else:
         from hgraph import sum_
-        return _as_array_with_padding[SIZE: Size[sz.SIZE]](tsw, hgraph.zero(TS[tp], sum_) if zero is None else zero, sz=sz.SIZE)
+        return _as_array_with_padding[SIZE: Size[_sz.SIZE]](tsw, hgraph.zero(TS[_tp], sum_) if zero is None else zero, sz=_sz.SIZE)
     
     
 @compute_node(all_valid=("tsw",))

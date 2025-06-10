@@ -11,3 +11,4 @@ HGraph Reference
     operators
     operators_support
     services
+    numpy
