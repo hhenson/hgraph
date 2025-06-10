@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, Sequence, Mapping
+from typing import Callable, Sequence, Mapping, Any
 
 import polars as pl
 
@@ -9,13 +9,14 @@ __all__ = ("lift", "lower")
 
 
 def lift(
-    fn: Callable,
-    inputs: dict[str, type[TimeSeries]] = None,
-    output: type[TimeSeries] = None,
-    active: Sequence[str] | Callable = None,
-    valid: Sequence[str] | Callable = None,
-    all_valid: Sequence[str] | Callable = None,
-    dedup_output: bool = False,
+        fn: Callable,
+        inputs: dict[str, type[TimeSeries]] = None,
+        output: type[TimeSeries] = None,
+        active: Sequence[str] | Callable = None,
+        valid: Sequence[str] | Callable = None,
+        all_valid: Sequence[str] | Callable = None,
+        dedup_output: bool = False,
+        defaults: dict[str, Any] = None,
 ):
     """
     Wraps a scalar function producing a time-series version of the function.
@@ -47,10 +48,11 @@ def lift(
         k: TS[v.annotation] if inputs is None or k not in inputs else inputs[k]
         for k, v in sig.parameters.items()
         if v.kind == Parameter.KEYWORD_ONLY
-        or (v.kind == Parameter.POSITIONAL_OR_KEYWORD and v.default is not Parameter.empty)
+           or (v.kind == Parameter.POSITIONAL_OR_KEYWORD and v.default is not Parameter.empty)
     }
 
-    defaults = {k: v.default for k, v in sig.parameters.items() if v.default is not Parameter.empty}
+    defaults = {k: v.default for k, v in sig.parameters.items() if
+                v.default is not Parameter.empty} | (defaults if defaults is not None else {})
 
     out = sig.return_annotation
     return_annotation = TS[out] if output is None else output
@@ -124,7 +126,7 @@ def lower(fn: Callable, /, date_col: str = "date", as_of_col: str = "as_of", no_
     output: HgTimeSeriesTypeMetaData = signature.output_type
 
     def lower_wrapper(
-        *args, __start_time__: datetime = None, __end_time__: datetime = None, __trace__: bool = False, **kwargs
+            *args, __start_time__: datetime = None, __end_time__: datetime = None, __trace__: bool = False, **kwargs
     ):
 
         kwargs_ = extract_kwargs(signature, *args, **kwargs)
