@@ -84,7 +84,7 @@ def _record_to_data_frame(
 def _record_to_data_frame_start(key: str, recordable_id: str, _state: STATE, _traits: Traits = None):
     _state.value = []
     recordable_id = get_fq_recordable_id(_traits, recordable_id)
-    _state.recordable_id = f"{recordable_id}-{key}"
+    _state.recordable_id = f"{recordable_id}.{key}"
 
 
 @_record_to_data_frame.stop
@@ -122,7 +122,7 @@ def replay_data_frame(
 
 def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
     recordable_id = get_fq_recordable_id(traits, recordable_id) if traits is not None else recordable_id
-    return DataFrameStorage.instance().read_frame(f"{recordable_id}-{key}")
+    return DataFrameStorage.instance().read_frame(f"{recordable_id}.{key}")
 
 
 def _replay_from_data_frame_output_shape(m, s):

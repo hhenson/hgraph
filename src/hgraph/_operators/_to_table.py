@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TypeVar, Callable, Any
+from typing import TypeVar
 
-from hgraph._types._scalar_type_meta_data import HgTupleFixedScalarType, HgTupleCollectionScalarType
-from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._operators._operators import operator
 from hgraph._runtime import GlobalState, EvaluationClock
 from hgraph._types import TIME_SERIES_TYPE, CompoundScalar, TS, OUT, DEFAULT
+from hgraph._types._scalar_type_meta_data import HgTupleFixedScalarType, HgTupleCollectionScalarType
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 
 __all__ = (
     "to_table",
