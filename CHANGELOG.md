@@ -1313,4 +1313,4 @@ Version 0.4.62 (10-06-2025)
 ---------------------------
 
 * add ln operator
-* start work on a set of numpy wrappers
+* start on a set of numpy wrappers and utilities to work with numpy objects
