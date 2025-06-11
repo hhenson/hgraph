@@ -1,7 +1,6 @@
 from datetime import timedelta, date, datetime, time
 from typing import Callable, OrderedDict
 
-import numpy as np
 import polars as pl
 
 from hgraph import (
@@ -13,12 +12,6 @@ from hgraph import (
     SCALAR_1,
     TS,
     ts_schema,
-    Array,
-    SIZE,
-    TSL,
-    clone_type_var,
-    Size,
-    SCALAR_2,
     HgScalarTypeMetaData,
     HgTSTypeMetaData,
     Frame,
@@ -28,10 +21,8 @@ from hgraph import (
     from_data_frame,
     OUT,
     AUTO_RESOLVE,
-    HgTSBTypeMetaData,
+    HgTSBTypeMetaData, HgTSDTypeMetaData,
 )
-
-from hgraph.adaptors.data_frame._data_frame_source import DATA_FRAME_SOURCE, DataStore
 
 __all__ = []
 
@@ -44,7 +35,7 @@ def schema_from_frame(frame: pl.DataFrame) -> COMPOUND_SCALAR:
 
 
 def _schema_and_dt_col(
-    mapping, scalars
+        mapping, scalars
 ) -> tuple[OrderedDict[str, HgScalarTypeMetaData], tuple[str, HgScalarTypeMetaData]]:
     df: pl.DataFrame = scalars["df"]
     schema = df.schema
@@ -87,21 +78,21 @@ def _validate_ts_schema(mapping, scalars) -> str:
     resolvers={SCALAR: _extract_scalar, COMPOUND_SCALAR: _cs_from_frame},
     requires=_validate_ts_schema,
 )
-def from_data_source_ts(
-    df: Frame[COMPOUND_SCALAR],
-    dt_col: str = "date",
-    value_col: str = "value",
-    offset: timedelta = timedelta(),
-    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-    _out_tp: type[OUT] = AUTO_RESOLVE,
-    _api: EvaluationEngineApi = None,
+def from_data_frame_ts(
+        df: Frame[COMPOUND_SCALAR],
+        dt_col: str = "date",
+        value_col: str = "value",
+        offset: timedelta = timedelta(),
+        _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+        _out_tp: type[OUT] = AUTO_RESOLVE,
+        _api: EvaluationEngineApi = None,
 ) -> TS[SCALAR]:
     dt_converter = _dt_converter(_df_tp.__meta_data_schema__[dt_col].py_type)
     if not df.is_empty():
         for dt, value in (
-            df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time))
-            .select([dt_col, value_col])
-            .iter_rows(named=False)
+                df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time))
+                        .select([dt_col, value_col])
+                        .iter_rows(named=False)
         ):
             dt = dt_converter(dt)
             yield dt + offset, value
@@ -123,13 +114,13 @@ def _validate_tsb_schema(mapping, scalars) -> str:
     resolvers={TS_SCHEMA: _extract_schema, COMPOUND_SCALAR: _cs_from_frame},
     requires=_validate_tsb_schema,
 )
-def from_data_source_tsb(
-    df: Frame[COMPOUND_SCALAR],
-    dt_col: str = "date",
-    offset: timedelta = timedelta(),
-    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-    _out_tp: type[OUT] = AUTO_RESOLVE,
-    _api: EvaluationEngineApi = None,
+def from_data_frame_tsb(
+        df: Frame[COMPOUND_SCALAR],
+        dt_col: str = "date",
+        offset: timedelta = timedelta(),
+        _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+        _out_tp: type[OUT] = AUTO_RESOLVE,
+        _api: EvaluationEngineApi = None,
 ) -> TSB[TS_SCHEMA]:
     """
     Iterates over the data_frame, returning an instance of TS_SCHEMA for each row in the table.
@@ -141,48 +132,65 @@ def from_data_source_tsb(
         yield dt + offset, value
 
 
-# def _extract_tsd_key_scalar(mapping, scalars) -> SCALAR:
-#     schema, _ = _schema_and_dt_col(mapping, scalars)
-#     return schema[scalars["key_col"]].py_type
-#
-#
-# def _extract_tsd_key_value_scalar(mapping, scalars) -> SCALAR_1:
-#     schema, _ = _schema_and_dt_col(mapping, scalars)
-#     schema.pop(scalars["key_col"])
-#     assert len(schema) == 1
-#     return next(iter(schema.values())).py_type
-#
-#
-# @generator(resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar})
-# def tsd_k_v_from_data_source(
-#     dfs: type[DATA_FRAME_SOURCE],
-#     dt_col: str,
-#     key_col: str,
-#     offset: timedelta = timedelta(),
-#     _api: EvaluationEngineApi = None,
-# ) -> TSD[SCALAR, TS[SCALAR_1]]:
-#     """
-#     Extract a TSD instance from the data frame source. This will extract the key_col column and will
-#     set the value to be the remaining column.
-#     The requirement is that the results are ordered by date at a minimum. It is useful to order by key_col as well.
-#     The expected shape of the data frame would be:
-#         +------+---------+-------+
-#         | date | key_col | value |
-#         +------+---------+-------+
-#         |  ...                   |
-#     """
-#     df: pl.DataFrame
-#     dfs_instance = DataStore.instance().get_data_source(dfs)
-#     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col)))
-#     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-#     for df_1 in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
-#         if df_1.is_empty():
-#             continue
-#         for (dt,), df in df_1.group_by(dt_col, maintain_order=True):
-#             dt = dt_converter(dt)
-#             yield dt + offset, {k: v for k, v in df.select(key_col, value_col).iter_rows()}
-#
-#
+def _extract_tsd_key_scalar(mapping, scalars) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    return schema[scalars["key_col"]].py_type
+
+
+def _extract_tsd_key_value_scalar(mapping, scalars) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema.pop(scalars["key_col"])
+    assert len(schema) == 1
+    return next(iter(schema.values())).py_type
+
+
+def _validate_tsd_k_v_schema(mapping, scalars) -> str:
+    out = mapping[OUT]
+    if type(out) is not HgTSDTypeMetaData:
+        return f"Expected OUT to be TSD, got: {out}"
+    cs = mapping[COMPOUND_SCALAR]
+    dt_col = scalars["dt_col"]
+    if dt_col not in cs.meta_data_schema:
+        return f"dt_col '{dt_col}' not found in schema: {cs.meta_data_schema}"
+    k_col = scalars["key_col"]
+    if k_col not in cs.meta_data_schema:
+        return f"key_col '{k_col}' not found in schema: {cs.meta_data_schema}"
+    if len(cs.meta_data_schema) != 3:
+        return f"Expected 3 columns, got: {cs.meta_data_schema}"
+    return True
+
+
+@generator(
+    overloads=from_data_frame,
+    resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar, COMPOUND_SCALAR: _cs_from_frame},
+    requires=_validate_tsd_k_v_schema,
+)
+def from_data_frame_tsd_k_v(
+        df: Frame[COMPOUND_SCALAR],
+        dt_col: str = "date",
+        key_col: str = "key",
+        offset: timedelta = timedelta(),
+        _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+        _out_tp: type[OUT] = AUTO_RESOLVE,
+        _api: EvaluationEngineApi = None,
+) -> TSD[SCALAR, TS[SCALAR_1]]:
+    """
+    Extract a TSD instance from the data frame source. This will extract the key_col column and will
+    set the value to be the remaining column.
+    The requirement is that the results are ordered by date at a minimum. It is useful to order by key_col as well.
+    The expected shape of the data frame would be:
+        +------+---------+-------+
+        | date | key_col | value |
+        +------+---------+-------+
+        |  ...                   |
+    """
+    value_col = next((k for k in _df_tp.__meta_data_schema__.keys() if k not in (key_col, dt_col)))
+    dt_converter = _dt_converter(_df_tp.__meta_data_schema__[dt_col].py_type)
+    for (dt,), df_ in df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time)).group_by(dt_col, maintain_order=True):
+        dt = dt_converter(dt)
+        yield dt + offset, {k: v for k, v in df_.select(key_col, value_col).iter_rows()}
+
+
 # def _extract_tsd_pivot_key_value_scalar(mapping, scalars) -> SCALAR_1:
 #     schema, _ = _schema_and_dt_col(mapping, scalars)
 #     return schema[scalars["pivot_col"]].py_type

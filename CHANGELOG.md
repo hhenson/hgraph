@@ -1314,3 +1314,9 @@ Version 0.4.62 (10-06-2025)
 
 * add ln operator
 * start on a set of numpy wrappers and utilities to work with numpy objects
+
+Version 0.4.63 (11-06-2025)
+---------------------------
+
+* Add from_data_frame_tsd_k_v overload
+

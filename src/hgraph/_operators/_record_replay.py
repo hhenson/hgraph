@@ -62,7 +62,6 @@ class RecordReplayEnum(IntFlag):
 
 
 class RecordReplayContext:
-
     _instance: list["RecordReplayContext"] = []
 
     def __init__(self, mode: RecordReplayEnum = RecordReplayEnum.RECORD, recordable_id: str = None):
@@ -176,7 +175,7 @@ def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) ->
 
 @operator
 def replay_const(
-    key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None, tm: datetime = None, as_of: datetime = None
+        key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None, tm: datetime = None, as_of: datetime = None
 ) -> OUT:
     """
     Will return a const time-series of values <= start_time.
@@ -199,11 +198,9 @@ def compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
 
 @operator
 def from_data_frame(
-    df: Frame[COMPOUND_SCALAR],
-    dt_col: str = "date",
-    offset: timedelta = timedelta(),
-    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-    _out_tp: type[OUT] = AUTO_RESOLVE,
+        df: Frame[COMPOUND_SCALAR],
+        dt_col: str = "date",
+        offset: timedelta = timedelta()
 ) -> DEFAULT[OUT]:
     """
     Produce a time-series from a dataframe.

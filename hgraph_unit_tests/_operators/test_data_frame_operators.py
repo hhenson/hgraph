@@ -1,4 +1,7 @@
-from hgraph import from_data_frame, TS, MIN_ST, MIN_TD, TSB, ts_schema
+from datetime import date, datetime
+
+from hgraph import from_data_frame, TS, MIN_ST, MIN_TD, TSB, ts_schema, TSD, Frame, COMPOUND_SCALAR, graph, \
+    compound_scalar
 
 from hgraph.test import eval_node
 
@@ -17,4 +20,18 @@ def test_data_frame_tsb():
         fd(a=1, b=4),
         fd(a=2, b=5),
         fd(a=3, b=6),
+    ]
+
+
+def test_data_frame_tsd_k_v():
+
+    @graph
+    def g(df: Frame[compound_scalar(date=datetime, a=int, b=int)]) -> TSD[int, TS[int]]:
+        return from_data_frame[TSD[int, TS[int]]](df, key_col="a")
+
+    df = pl.DataFrame({"date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD], "a": [1, 2, 3], "b": [4, 5, 6]})
+    assert eval_node(g, df=df) == [
+        fd({1: 4}),
+        fd({2: 5}),
+        fd({3: 6}),
     ]
