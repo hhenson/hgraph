@@ -6,6 +6,7 @@ from hgraph._runtime._global_state import GlobalState
 from hgraph._types._scalar_types import DEFAULT, COMPOUND_SCALAR
 from hgraph._types._frame_scalar_type_meta_data import Frame
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
+from hgraph._types._ts_type import TS
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import operator
 
@@ -27,6 +28,7 @@ __all__ = (
     "compare",
     "IN_MEMORY",
     "from_data_frame",
+    "to_data_frame",
 )
 
 
@@ -210,5 +212,15 @@ def from_data_frame(
     The following schema types are supported:
 
     * TS[SCALAR] - Over and above the std types, we also support value_col (default: "value")
+    * TSB[TS_SCHEMA]
+    * TSD[SCALAR, TS[SCALAR_1]]
+    """
 
+
+@operator
+def to_data_frame(ts: TIME_SERIES_TYPE, dt_col: str = "date", as_date: bool=False, include_date: bool=True) -> TS[Frame[COMPOUND_SCALAR]]:
+    """
+    Provides a very simplistic mechanism to convert a time-series to a dataframe.
+    For more complex conversions, use the 'to_table' tooling. This will not record key removals and represents
+    the value at a point in time, not the delta value.
     """

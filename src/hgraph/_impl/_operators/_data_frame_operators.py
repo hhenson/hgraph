@@ -21,7 +21,7 @@ from hgraph import (
     from_data_frame,
     OUT,
     AUTO_RESOLVE,
-    HgTSBTypeMetaData, HgTSDTypeMetaData,
+    HgTSBTypeMetaData, HgTSDTypeMetaData, compute_node, to_data_frame, TIME_SERIES_TYPE,
 )
 
 __all__ = []
@@ -162,7 +162,8 @@ def _validate_tsd_k_v_schema(mapping, scalars) -> str:
 
 @generator(
     overloads=from_data_frame,
-    resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar, COMPOUND_SCALAR: _cs_from_frame},
+    resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar,
+               COMPOUND_SCALAR: _cs_from_frame},
     requires=_validate_tsd_k_v_schema,
 )
 def from_data_frame_tsd_k_v(
@@ -186,7 +187,8 @@ def from_data_frame_tsd_k_v(
     """
     value_col = next((k for k in _df_tp.__meta_data_schema__.keys() if k not in (key_col, dt_col)))
     dt_converter = _dt_converter(_df_tp.__meta_data_schema__[dt_col].py_type)
-    for (dt,), df_ in df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time)).group_by(dt_col, maintain_order=True):
+    for (dt,), df_ in df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time)).group_by(dt_col,
+                                                                                                    maintain_order=True):
         dt = dt_converter(dt)
         yield dt + offset, {k: v for k, v in df_.select(key_col, value_col).iter_rows()}
 
@@ -475,3 +477,64 @@ def _dt_converter(dt_tp: pl.DataType) -> Callable[[date | datetime], datetime]:
     if issubclass(dt_tp, date):
         return lambda dt: datetime.combine(dt, time())
     raise RuntimeError(f"Attempting to convert: {dt_tp} to a datetime but it is neither a date or a datime as requried")
+
+
+def _base_schema(m, s):
+    include_date = s["include_date"]
+    schema = {}
+    if include_date:
+        dt_col = s["dt_col"]
+        as_date = s["as_date"]
+        schema[dt_col] = date if as_date else datetime
+    return schema
+
+
+def _resolve_ts(m, s):
+    schema = _base_schema(m, s)
+    value_col = s["value_col"]
+    scalar_tp = m[SCALAR].py_type
+    schema[value_col] = scalar_tp
+    return compound_scalar(**schema)
+
+
+@compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_ts})
+def to_data_frame_ts(ts: TS[SCALAR], dt_col: str = "date", value_col: str = "value", as_date: bool = False,
+                     include_date: bool = True) -> TS[Frame[COMPOUND_SCALAR]]:
+    if include_date:
+        data = {dt_col: [ts.last_modified_time.date() if as_date else ts.last_modified_time]}
+    else:
+        data = {}
+    data[value_col] = ts.value
+    return pl.DataFrame(data)
+
+
+def _resolve_tsd_k_v(m, s):
+    schema = _base_schema(m, s)
+    key_col = s["key_col"]
+    schema[key_col] = m[SCALAR].py_type
+    value_col = s["value_col"]
+    scalar_tp = m[TIME_SERIES_TYPE].value_scalar_tp.py_type
+    schema[value_col] = scalar_tp
+    return compound_scalar(**schema)
+
+
+@compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_tsd_k_v})
+def to_data_frame_ts(ts: TSD[SCALAR, TIME_SERIES_TYPE], dt_col: str = "date", key_col: str = "key",
+                     value_col: str = "value", as_date: bool = False,
+                     include_date: bool = True) -> TS[Frame[COMPOUND_SCALAR]]:
+    value = ts.value
+    if include_date:
+        data = {
+            dt_col: [ts.last_modified_time.date() if as_date else ts.last_modified_time] * len(value),
+            key_col: [],
+            value_col: [],
+        }
+    else:
+        data = {
+            key_col: [],
+            value_col: [],
+        }
+    for k, v in value.items():
+        data[key_col].append(k)
+        data[value_col].append(v)
+    return pl.DataFrame(data)

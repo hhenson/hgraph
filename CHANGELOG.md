@@ -1319,5 +1319,6 @@ Version 0.4.63 (11-06-2025)
 ---------------------------
 
 * Add from_data_frame_tsd_k_v overload
+* Add to_data_frame for TS[...] and TSD[K, TS[...]]
 * move recording to use . as the separator rather than - as this still causes some unpleasantness. 
 
