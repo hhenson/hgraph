@@ -1,11 +1,46 @@
 Typing
 ======
 
+TS
+--
+
+The most basic type is the ``TS`` type. We have been using this in the previous examples, this represents a time-series
+of "scalar" values. Where a scalar value is a non-time-varying data type. These include things such as int, float, tuple,
+etc. Scalars should be immutable, although this constraint is not formally enforced, using a mutable data type can cause
+undefined behaviour if the value is mutated during processing.
+
+We have already covered a number of examples using the key time-series properties such as ``value``, ``active``, and
+``valid``. There are two other important properties, namely:
+
+* ``delta_value`` - This represents the change in value but is equivalent to ``value`` in the case of the ``TS`` type.
+
+* ``last_modified_time`` - The time the value was last changed.
+
+* ``modified`` - A boolean value representing if this input was modified in this engine cycle.
+
+Modified can be useful when there are more than one input that can change and the code behaves differently depending
+on which input was modified, for example:
+
+.. testcode::
+
+    from hgraph import compute_node, TS
+    from hgraph.test import eval_node
+
+    @compute_node
+    def my_compute_node(ts1: TS[int], ts2: TS[int]) -> TS[int]:
+        if ts1.modified and ts2.modified:
+            return ts1.value + ts2.value
+        elif ts1.modified:
+            return ts1.value
+        else:
+            return ts2.value  # ts2 must have been modified in this case
+
+    assert eval_node(my_compute_node, [1, 2, None], [3, None, 4]) == [4, 2, 4]
 
 As mentioned previously, HGraph is strongly typed. Whilst Python itself does not enforce any
 form of typing, this is not true for HGraph functions. They require each input and output to
 be typed. These types are validated when connecting an output to an input. There is no
-automatic type conversions, thus an output of type TS[int] cannot be bound to a type of TS[float]
+automatic type conversions, thus an output of type ``TS[int]`` cannot be bound to a type of ``TS[float]``
 without an explicit type cast.
 
 Casting
@@ -270,4 +305,78 @@ Exercise
 
 Try creating a compute node (or sink node) that prints the ``value`` and ``delta_value`` with different input
 combinations being ticked.
+
+TimeSeriesList
+--------------
+
+The ``TSL`` is the time-series equivalent of a list, at this point in time, the list have a fixed size. This list is
+of homogenous time-series values. This is different to the ``TSB`` which is a collection of heterogeneous time-series
+values. When specifying the ``TSL`` two generics need to be provided, the first is the time-series type making up the
+elements of the list and the second is the size of the list, for example:
+
+.. testcode::
+
+    from hgraph import compute_node, TSL, TS, Size
+    from hgraph.test import eval_node
+
+    @compute_node
+    def my_compute_node(tsl: TSL[TS[int], Size[2]]) -> TS[int]:
+        return tsl[0].value + tsl[1].value
+
+    assert eval_node(my_compute_node, [(1, 2), (3, 4)]) == [3, 7]
+
+.. note:: The use of the ``Size`` class to specifying the size of the list. This is done as Python does not support
+          values as generics and only types. This provides a mechanism to specify the type including it's size using
+          the generic tooling provided by Python.
+
+When accessing a collection type, as with the ``TSB``, referencing an element of the type within a node the return value
+is the time-series value, in this case it is ``TS[int]`` that gets returned.
+
+If value is called on the collection type, the returned value is the collection of recursive calls to value on the
+elements of the collection, for example:
+
+.. testcode::
+
+    from hgraph import compute_node, TSL, TS, Size
+    from hgraph.test import eval_node
+
+    @compute_node
+    def my_compute_node(tsl: TSL[TS[int], Size[2]]) -> TS[tuple[int, ...]]:
+        return tsl.value
+
+    assert eval_node(my_compute_node, [(1, 2), (3, 4)]) == [(1, 2), (3, 4)]
+
+Collection types can be dereferenced in graph code as well, for example:
+
+.. testcode::
+
+    from hgraph import graph, TSL, TS, Size
+    from hgraph.test import eval_node
+
+    @graph
+    def my_compute_node(tsl: TSL[TS[int], Size[2]]) -> TS[int]:
+        return tsl[0] + tsl[1]
+
+    assert eval_node(my_compute_node, [(1, 2), (3, 4)]) == [3, 7]
+
+This code is the same as the node implementation. Since we are at graph level, the ``+`` operator results in the
+following equivalent code::
+
+     @graph
+    def my_compute_node(tsl: TSL[TS[int], Size[2]]) -> TS[int]:
+        return add_(tsl[0], tsl[1])
+
+Where the ``add_`` node takes two TS inputs.
+
+TimeSeriesSet
+-------------
+
+Another often used data type is the ``set``, the time-series equivalent is the time-series set or ``TSS``.
+This is a collection time-series type as well, but behaves more closely to the TS type as it can only contain
+scalar values.
+
+The type supports tracking the contents of a set over time and can provide the changes made in the form of the
+``SetDelta`` protocol class. The delta contains the items added and removed. The type itself contains the current
+state (accessible via the ``value`` property). The ``SetDelta`` is obtained from the ``delta_value`` property on
+the time-series instance.
 
