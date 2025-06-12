@@ -519,7 +519,7 @@ def _resolve_tsd_k_v(m, s):
 
 
 @compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_tsd_k_v})
-def to_data_frame_ts(ts: TSD[SCALAR, TIME_SERIES_TYPE], dt_col: str = "date", key_col: str = "key",
+def to_data_frame_tsd_k_v(ts: TSD[SCALAR, TIME_SERIES_TYPE], dt_col: str = "date", key_col: str = "key",
                      value_col: str = "value", as_date: bool = False,
                      include_date: bool = True) -> TS[Frame[COMPOUND_SCALAR]]:
     value = ts.value
