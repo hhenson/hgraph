@@ -380,3 +380,18 @@ The type supports tracking the contents of a set over time and can provide the c
 state (accessible via the ``value`` property). The ``SetDelta`` is obtained from the ``delta_value`` property on
 the time-series instance.
 
+Here is an example of the ``TSS`` used in a compute node.
+
+.. testcode::
+
+    from hgraph import compute_node, TSS, PythonSetDelta
+    from hgraph.test import eval_node
+
+    @compute_node
+    def my_compute_node(tss_1: TSS[int], tss_2: TSS[int]) -> TSS[int]:
+        added = (tss_1.added() - tss_2.value) | (tss_2.added() - tss_1.value)
+        removed = tss_1.removed() - tss_2.value
+        removed |= tss_2.removed() - tss_1.value
+        return PythonSetDelta(added=added, removed=removed)
+
+    assert eval_node(my_compute_node, [frozenset({1, 2}),], [frozenset({3, 4})]) == [frozenset({1, 2, 3, 4})]
