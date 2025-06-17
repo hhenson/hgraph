@@ -43,6 +43,7 @@ from hgraph import (
     Array,
     ts_schema,
     PythonSetDelta,
+    WINDOW_SIZE, WINDOW_SIZE_MIN
 )
 from hgraph.stream import combine_status_messages
 from hgraph.stream.stream import register_status_message_pattern
@@ -134,7 +135,6 @@ def test_tss_proxy_lag():
 
 
 def test_lag_proxy_tsb():
-
     s = ts_schema(a=TS[int], b=TS[float])
 
     @graph
@@ -154,7 +154,6 @@ def test_lag_proxy_tsb():
 
 
 def test_lag_proxy_tsl():
-
     @graph
     def g(ts: TSL[TS[int], Size[2]], delay: int, proxy: TS[bool]) -> TSL[TS[int], Size[2]]:
         return lag(ts, delay, proxy)
@@ -250,17 +249,17 @@ def test_schedule_ts_with_start():
     assert eval_node(
         g, delay=[MIN_TD, None, None, MIN_TD * 2], start=MIN_DT + MIN_TD * 2, max_ticks=4, initial_delay=True
     ) == [
-        None,
-        None,
-        True,
-        None,
-        None,
-        True,
-        None,
-        True,
-        None,
-        True,
-    ]
+               None,
+               None,
+               True,
+               None,
+               None,
+               True,
+               None,
+               True,
+               None,
+               True,
+           ]
 
 
 def test_resample():
@@ -572,6 +571,20 @@ def test_window_timedelta():
     assert eval_node(g, [1, 2, 3, 4, 5], MIN_TD * 2, MIN_TD) == expected
 
 
+def test_to_window_removed_int():
+    @compute_node
+    def h(ts: TSW[int, WINDOW_SIZE, WINDOW_SIZE_MIN]) -> TS[int]:
+        if ts.has_removed_value:
+            return int(ts.removed_value)
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        tsw = to_window(ts, 3, 3)
+        return h(tsw)
+
+    assert eval_node(g, [1, 2, 3, 4, 5]) == [None, None, None, 1, 2]
+
+
 def test_to_window_delta():
     result = eval_node(to_window[SCALAR:int], [1, 2, 3, 4, 5], 3)
     assert result == [1, 2, 3, 4, 5]
@@ -588,7 +601,6 @@ def test_to_window_delta_td():
 
 
 def test_to_window_value():
-
     @compute_node
     def _as_value(ts: TSW[int, WindowSize[3]]) -> TS[Array[int, Size[3]]]:
         return ts.value
@@ -606,7 +618,6 @@ def test_to_window_value():
 
 
 def test_to_window_value_min_size():
-
     @compute_node
     def _as_value(ts: TSW[int, WindowSize[3], WindowSize[2]]) -> TS[Array[int]]:
         return ts.value
@@ -637,7 +648,6 @@ def test_to_window_value_min_size():
 
 
 def test_to_window_value_td():
-
     @compute_node
     def _as_value(ts: TSW[int, WindowSize[MIN_TD * 2]]) -> TS[Array[int, Size[-1]]]:
         return ts.value
@@ -721,36 +731,36 @@ def test_slice_():
     "messages,new_message,expected",
     [
         (
-            "Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",
-            "Using stale price for x2",
-            "No price for a1 for a week; Using a for b; Using something else for y; Using stale price for x1, x2",
+                "Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",
+                "Using stale price for x2",
+                "No price for a1 for a week; Using a for b; Using something else for y; Using stale price for x1, x2",
         ),
         (
-            "Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",
-            "No price for a2 for a week",
-            "No price for a1, a2 for a week; Using a for b; Using something else for y; Using stale price for x1",
+                "Using a for b; Using stale price for x1; Using something else for y; No price for a1 for a week",
+                "No price for a2 for a week",
+                "No price for a1, a2 for a week; Using a for b; Using something else for y; Using stale price for x1",
         ),
         (
-            (
-                "Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD):"
-                " No price yet for def"
-            ),
-            "In UnitConversionPricingModel (in lot and USD): No price yet for abc",
-            (
-                "In UnitConversionPricingModel (in lot and USD): No price yet for abc, def; No price for a1 for a week;"
-                " Using stale price for x1"
-            ),
+                (
+                        "Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD):"
+                        " No price yet for def"
+                ),
+                "In UnitConversionPricingModel (in lot and USD): No price yet for abc",
+                (
+                        "In UnitConversionPricingModel (in lot and USD): No price yet for abc, def; No price for a1 for a week;"
+                        " Using stale price for x1"
+                ),
         ),
         (
-            (
-                "Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD):"
-                " No price yet for def"
-            ),
-            "Using different one; Using another different one",
-            (
-                "In UnitConversionPricingModel (in lot and USD): No price yet for def; No price for a1 for a week;"
-                " Using another different one; Using different one; Using stale price for x1"
-            ),
+                (
+                        "Using stale price for x1; No price for a1 for a week; In UnitConversionPricingModel (in lot and USD):"
+                        " No price yet for def"
+                ),
+                "Using different one; Using another different one",
+                (
+                        "In UnitConversionPricingModel (in lot and USD): No price yet for def; No price for a1 for a week;"
+                        " Using another different one; Using different one; Using stale price for x1"
+                ),
         ),
         ("Using stale price for x1, x2", "Using stale price for x3, x1", "Using stale price for x1, x2, x3"),
     ],

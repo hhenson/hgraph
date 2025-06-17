@@ -1322,3 +1322,9 @@ Version 0.4.63 (11-06-2025)
 * Add to_data_frame for TS[...] and TSD[K, TS[...]]
 * move recording to use . as the separator rather than - as this still causes some unpleasantness. 
 
+
+Version 0.4.64 (17-06-2025)
+---------------------------
+
+* Add removed_value to the TSW data type.
+

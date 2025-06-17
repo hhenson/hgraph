@@ -31,6 +31,7 @@ class PythonTimeSeriesFixedWindowOutput(
     _min_size: int = -1
     _start: int = 0
     _length: int = 0
+    _removed_value: Optional[SCALAR] = None
 
     def __post_init__(self):
         self._value = np.ndarray(shape=[self._size], dtype=self._tp)
@@ -122,6 +123,9 @@ class PythonTimeSeriesFixedWindowOutput(
             length: int = self._length
             length += 1
             if length > capacity:
+                #We are about to cycle the buffer and overwrite the first element so capture it as being removed.
+                self._removed_value = buffer[self._start]
+                self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_removed)
                 start += 1
                 start %= capacity
                 self._start = start
@@ -135,6 +139,9 @@ class PythonTimeSeriesFixedWindowOutput(
             raise TypeError(
                 f"Cannot apply node output {result} of type {result.__class__.__name__} to {self}: {e}"
             ) from e
+
+    def _reset_removed(self):
+        self._removed_value = None
 
     def clear(self):
         # TODO: what is the right semantics here? Value time series don't do anything, collections remove all items
@@ -168,6 +175,14 @@ class PythonTimeSeriesFixedWindowOutput(
     def min_size(self) -> int | timedelta:
         return self._min_size
 
+    @property
+    def has_removed_value(self) -> bool:
+        return self._removed_value is not None
+
+    @property
+    def removed_value(self) -> SCALAR:
+        return self._removed_value
+
     def __len__(self) -> int:
         return self._size
 
@@ -184,13 +199,20 @@ class PythonTimeSeriesTimeWindowOutput(
     _size: timedelta = None
     _min_size: timedelta = None
     _ready: bool = False
+    _removed_values: Optional[tuple[SCALAR, ...]] = None
 
     def _roll(self):
         tm = self.owning_graph.evaluation_clock.evaluation_time - self._size
         if self._times and self._times[0] < tm:
+            removed = []
             while self._times and self._times[0] < tm:
                 self._times.popleft()
-                self._value.popleft()
+                removed.append(self._value.popleft())
+            self._removed_values = tuple(removed)
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_removed_values)
+
+    def _reset_removed_values(self):
+        self._removed_values = None
 
     @property
     def ready(self) -> bool:
@@ -222,6 +244,16 @@ class PythonTimeSeriesTimeWindowOutput(
             return
         self._value = deque(value)
         self.mark_modified()
+
+    @property
+    def has_removed_value(self) -> bool:
+        self._roll()
+        return self.removed_value is not None
+
+    @property
+    def removed_value(self) -> SCALAR:
+        self._roll()
+        return self.removed_value
 
     @property
     def delta_value(self) -> Optional[SCALAR]:
@@ -318,6 +350,14 @@ class PythonTimeSeriesWindowInput(
     def first_modified_time(self) -> datetime:
         output: TimeSeriesWindowOutput[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN] = self.output
         return output.first_modified_time
+
+    @property
+    def has_removed_value(self) -> bool:
+        return self.output.has_removed_value
+
+    @property
+    def removed_value(self) -> SCALAR:
+        return self.output.removed_value
 
     @property
     def min_size(self) -> int | timedelta:

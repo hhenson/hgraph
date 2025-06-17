@@ -85,6 +85,19 @@ class TimeSeriesWindow(
         The time the first tick in the buffer was modified.
         """
 
+    @property
+    @abstractmethod
+    def has_removed_value(self) -> bool:
+        """True if there is a removed value available to make use of."""
+
+    @property
+    @abstractmethod
+    def removed_value(self) -> SCALAR:
+        """
+        When the window is cycled, the item/s evicted from the buffer is returned by this method.
+        This will return None if there is no removed value.
+        """
+
 
 class TimeSeriesWindowInput(
     TimeSeriesWindow[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
