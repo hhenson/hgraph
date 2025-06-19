@@ -1,8 +1,8 @@
 Typing
 ======
 
-TS
---
+TimeSeriesValue (TS)
+--------------------
 
 The most basic type is the ``TS`` type. We have been using this in the previous examples, this represents a time-series
 of "scalar" values. Where a scalar value is a non-time-varying data type. These include things such as int, float, tuple,
@@ -132,8 +132,8 @@ The types can be sub-classed as well.
 To use the type, these are type to time standard time-series type (``TS``)
 
 
-TimeSeriesBundle
-----------------
+TimeSeriesBundle (TSB)
+----------------------
 
 Sometimes it is useful to describe a related collection of time-series values, these related values do not necessarily
 change in unison with each other, but do form a natural grouping. Alternatively they may represent values that, whilst
@@ -306,8 +306,8 @@ Exercise
 Try creating a compute node (or sink node) that prints the ``value`` and ``delta_value`` with different input
 combinations being ticked.
 
-TimeSeriesList
---------------
+TimeSeriesList (TSL)
+--------------------
 
 The ``TSL`` is the time-series equivalent of a list, at this point in time, the list have a fixed size. This list is
 of homogenous time-series values. This is different to the ``TSB`` which is a collection of heterogeneous time-series
@@ -368,8 +368,8 @@ following equivalent code::
 
 Where the ``add_`` node takes two TS inputs.
 
-TimeSeriesSet
--------------
+TimeSeriesSet (TSS)
+-------------------
 
 Another often used data type is the ``set``, the time-series equivalent is the time-series set or ``TSS``.
 This is a collection time-series type as well, but behaves more closely to the TS type as it can only contain
@@ -395,3 +395,127 @@ Here is an example of the ``TSS`` used in a compute node.
         return PythonSetDelta(added=added, removed=removed)
 
     assert eval_node(my_compute_node, [frozenset({1, 2}),], [frozenset({3, 4})]) == [frozenset({1, 2, 3, 4})]
+
+TimeSeriesDict (TSD)
+--------------------
+
+This represents a dictionary of time-series values, the ``TSD`` is comprised of a ``key_set`` that is a ``TSS`` instance.
+The values of the dictionary are themselves time-series values in the same manor as for the ``TSB`` and ``TSL``
+collection types. This is currently the only dynamic type, in that it can grow and shrink the number of collected
+time-series values.
+
+Another way to think of the ``TSD`` is to view it as a multiplex of time-series values.
+
+The ``TSD`` takes generics as for dict, i.e. ``TSD[K, V]`` where the ``K`` must be a keyable scalar value (must support
+the hashable protocol). and ``V`` is a time-series type.
+
+The following key behaviours are provided by the ``TSD`` that are accessible in the node, namely:
+
+``key_set``
+    As already discussed this is a time-series set with type ``K``. The set contains the keys of the dictionary.
+
+``keys()``, ``values()``, ``items()``
+    As for any dictionary, these represent an iterator over the keys, values, and items. Where values are the time-series
+    type instances.
+
+``modified_keys()``, ``modified_values()``, ``modified_items()``
+    As above, but will only provide values that have been modified in this engine cycle.
+
+``valid_keys()``, ``valid_values()``, ``valid_items()``
+    As above, but will only provide values that are valid in this engine cycle.
+
+``added_keys()``, ``added_values()``, ``added_items()``
+    As above, but will only provide values that have been added in this engine cycle.
+
+``removed_keys()``, ``removed_values()``, ``removed_items()``
+    As above, but will only provide values that have been removed in this engine cycle.
+
+Standard methods such as ``__len__``, ``__iter__``, and ``__contains__`` are implemented as expected for a dict.
+
+Here is an example to create a ``TSD`` as an output:
+
+.. testcode::
+
+    from hgraph import compute_node, TSD, REMOVE_IF_EXISTS, REMOVE, TS
+    from hgraph.test import eval_node
+    from frozendict import frozendict as fd
+
+    @compute_node(valid=("key", "value"))
+    def my_compute_node(key: TS[int], value: TS[str], remove: TS[int]) -> TSD[int, TS[str]]:
+        out = {}
+        if key.modified or value.modified:
+            out[key.value] = value.value
+        if remove.modified:
+            out[remove.value] = REMOVE_IF_EXISTS
+        return out
+
+    assert eval_node(my_compute_node,
+                [1, None, 2],
+                ["a", "b", "c", "d"],
+                [None, None, None, 1]
+            ) == [fd({1: "a"}), fd({1: "b"}), fd({2: "c"}), fd({1: REMOVE, 2: "d"})]
+
+In this example we create a time-series dictionary from the time-series supplying keys and values and removing
+keys when the remove time-series ticks.
+
+Note the use of ``valid`` to advice the engine that we only require the ``key`` and ``value`` attribute to be
+valid, thus if the ``remove`` has not ticked the code will still be evaluated. See what happens if you remove the
+``valid`` constraints.
+
+We also use ``REMOVE_IF_EXISTS``, this is a soft instruction to the ``TSD`` to remove a key, if the key does not
+exist then it nothing happens. If we had used ``REMOVE``, this will raise an exception if the key does not exist.
+In this example this would work, try change this and then supply a key that does not exist to see how that behaves.
+
+The delta-value of the ``TSD`` will contain ``REMOVE`` if a key is removed.
+
+Next an example of using a ``TSD`` as in input is considered:
+
+.. testcode::
+
+    from hgraph import compute_node, TSD, REMOVE, TS
+    from hgraph.test import eval_node
+    from frozendict import frozendict as fd
+
+    @compute_node
+    def my_compute_node(tsd: TSD[int, TS[str]], key: TS[int]) -> TS[str]:
+        if key.value in tsd:
+            v = tsd[key.value]
+            if v.modified or key.modified:
+                return v.delta_value
+
+
+    assert eval_node(my_compute_node,
+                [fd({1: "a"}), None, fd({1: "b"}), fd({2: "c"}), fd({1: REMOVE, 2: "d"})],
+                [None, 1, None, 2]
+            ) == [None, "a", "b", "c", "d"]
+
+This is a very low performing approach to extracting a value from a ``TSD`` based on the key.
+This shows the basic dictionary nature of the input.
+
+Note that this has a graph solution that is more performant, here is the example of this:
+
+.. testcode::
+
+    from hgraph import graph, TSD, REMOVE, TS
+    from hgraph.test import eval_node
+    from frozendict import frozendict as fd
+
+    @graph
+    def my_compute_node(tsd: TSD[int, TS[str]], key: TS[int]) -> TS[str]:
+        return tsd[key]
+
+    assert eval_node(my_compute_node,
+                [fd({1: "a"}), None, fd({1: "b"}), fd({2: "c"}), fd({1: REMOVE, 2: "d"})],
+                [None, 1, None, 2]
+            ) == [None, "a", "b", "c", "d"]
+
+The ``TSD`` has a number of useful features that can be accessed in graph mode, these include:
+
+``[SCALAR|TS|TSS]``
+    By using the ``[]`` operator on the time-series dictionary with a scalar value (say ``tsd[1]``) or a time-series
+    of scalar values, this returns a time-series of values for the matching key, if a time-series set is used, then
+    the set is used to filter the keys in the dictionary.
+
+``key_set``
+    Returns a reference to the key-set of the time-series dictionary.
+
