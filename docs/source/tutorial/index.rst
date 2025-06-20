@@ -11,6 +11,7 @@ to :doc:`../getting_started`.
     the_compute_node
     injectables
     typing
+    generics
 
     common_pitfalls
 
