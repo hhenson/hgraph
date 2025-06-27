@@ -51,7 +51,7 @@ def _guess_type(added, removed) -> type[KEYABLE_SCALAR]:
     return object
 
 
-def set_delta(added=Iterable[KEYABLE_SCALAR], removed=Iterable[KEYABLE_SCALAR], tp: type[KEYABLE_SCALAR] = None):
+def set_delta(added: Iterable[KEYABLE_SCALAR] = None, removed: Iterable[KEYABLE_SCALAR] = None, tp: type[KEYABLE_SCALAR] = None):
     global SET_DELTA_FACTORY
     if SET_DELTA_FACTORY is None:
         from hgraph import PythonSetDelta
@@ -59,6 +59,10 @@ def set_delta(added=Iterable[KEYABLE_SCALAR], removed=Iterable[KEYABLE_SCALAR], 
             added=None if a is None else frozenset(a), removed=None if d is None else frozenset(d))
     if tp is None:
         tp = _guess_type(added, removed)
+    if added is None:
+        added = frozenset()
+    if removed is None:
+        removed = frozenset()
     return SET_DELTA_FACTORY(added, removed, tp)
 
 
