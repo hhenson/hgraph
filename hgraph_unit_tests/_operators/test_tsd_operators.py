@@ -46,10 +46,8 @@ from hgraph import (
     MIN_TD,
     register_service,
     map_,
-    PythonSetDelta,
-    SIZE,
     values_,
-    eq_,
+    eq_, set_delta,
 )
 from hgraph._operators._stream import filter_by
 from hgraph.nodes import keys_where_true, make_tsd, extract_tsd, flatten_tsd
@@ -177,7 +175,7 @@ def test_rekey_tsd_set():
     assert eval_node(
         g,
         [None, {1: 1, 3: 3}, {2: 2}, None, {2: REMOVE}, None],  # TSD
-        [{1: {"a"}, 2: {"b"}}, None, None, {1: PythonSetDelta(added={"c", "d"}, removed={"a"})}, None, {1: REMOVE}],
+        [{1: {"a"}, 2: {"b"}}, None, None, {1: set_delta(added={"c", "d"}, removed={"a"})}, None, {1: REMOVE}],
     ) == [  # key mappings
         None,
         fd({"a": 1}),
@@ -594,8 +592,8 @@ def test_tsd_values_as_tss():
 
     actual = eval_node(g, [{1: 4, 2: 5, 3: 6}, {1: REMOVE}])
     assert actual == [
-        PythonSetDelta(added={4, 5, 6}, removed=set()),
-        PythonSetDelta(added=set(), removed={4}),
+        set_delta(added={4, 5, 6}, removed=set()),
+        set_delta(added=set(), removed={4}),
     ]
 
 

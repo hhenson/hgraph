@@ -384,7 +384,7 @@ Here is an example of the ``TSS`` used in a compute node.
 
 .. testcode::
 
-    from hgraph import compute_node, TSS, PythonSetDelta
+    from hgraph import compute_node, TSS, set_delta
     from hgraph.test import eval_node
 
     @compute_node
@@ -392,7 +392,7 @@ Here is an example of the ``TSS`` used in a compute node.
         added = (tss_1.added() - tss_2.value) | (tss_2.added() - tss_1.value)
         removed = tss_1.removed() - tss_2.value
         removed |= tss_2.removed() - tss_1.value
-        return PythonSetDelta(added=added, removed=removed)
+        return set_delta(added=added, removed=removed)
 
     assert eval_node(my_compute_node, [frozenset({1, 2}),], [frozenset({3, 4})]) == [frozenset({1, 2, 3, 4})]
 

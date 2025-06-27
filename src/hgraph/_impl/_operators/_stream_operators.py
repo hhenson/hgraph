@@ -50,7 +50,7 @@ from hgraph import (
     TS_SCHEMA,
     AUTO_RESOLVE,
     TSS,
-    union,
+    union, set_delta,
 )
 
 __all__ = ()
@@ -251,7 +251,6 @@ def throttle_default(
     from hgraph import PythonTimeSeriesValueInput
     from hgraph import PythonTimeSeriesDictInput
     from hgraph import PythonTimeSeriesSetInput
-    from hgraph import PythonSetDelta
 
     @multimethod
     def collect_tick(input, out):
@@ -273,11 +272,11 @@ def throttle_default(
     @collect_tick.register
     def collect_set(input: PythonTimeSeriesSetInput, out):
         if not out:
-            out = PythonSetDelta(set(), set())
+            out = set_delta(set(), set())
         new_added, new_removed = input.added(), input.removed()
         added = (out.added - new_removed) | new_added
         removed = (out.removed - new_added) | new_removed
-        return PythonSetDelta(added, removed)
+        return set_delta(added, removed)
 
     @collect_tick.register
     def collect_value(input: PythonTimeSeriesValueInput, out):

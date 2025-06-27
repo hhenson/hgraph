@@ -28,10 +28,9 @@ from hgraph import (
     TSB,
     MIN_TD,
     SCALAR_1,
-    values_,
+    values_, set_delta,
 )
 from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState, KeyValue
-from hgraph._impl._types._tss import PythonSetDelta
 
 __all__ = []
 
@@ -318,4 +317,4 @@ def values_tsd_to_tss(ts: TSD[SCALAR, TS[SCALAR_1]], _output: TSS[SCALAR_1] = No
         all = {v.value for v in ts.values()}
         added = {v for v in all if v not in current}
         removed = {v for v in current if v not in all}
-        return PythonSetDelta(added=added, removed=removed)
+        return set_delta(added=added, removed=removed)

@@ -3,7 +3,6 @@ from dataclasses import field, dataclass
 from statistics import stdev, variance
 from typing import Type
 
-from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._operators import (
     add_,
     and_,
@@ -30,9 +29,9 @@ from hgraph._operators import (
 from hgraph._types._ref_type import REF, TimeSeriesReference
 from hgraph._types._scalar_types import STATE, KEYABLE_SCALAR, CompoundScalar
 from hgraph._types._ts_type import TS
-from hgraph._types._type_meta_data import AUTO_RESOLVE
-from hgraph._types._tss_type import TSS, TSS_OUT
 from hgraph._types._tsl_type import TSL, SIZE
+from hgraph._types._tss_type import TSS, TSS_OUT, set_delta
+from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
 
 __all__ = ("overlap_multiple_tss",)
@@ -93,7 +92,7 @@ def bit_or_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYAB
     for i in rhs.removed():
         if i not in lhs_value:
             removed.add(i)
-    return PythonSetDelta(added, removed)
+    return set_delta(added, removed)
 
 
 @compute_node(overloads=sub_)
@@ -113,14 +112,14 @@ def sub_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_
     for i in rhs.removed():
         if i in lhs_value:
             added.add(i)
-    return PythonSetDelta(added, removed)
+    return set_delta(added, removed)
 
 
 @compute_node(overloads=bit_and)
 def bit_and_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
     removed = lhs.removed() | rhs.removed()
     added = rhs.value.intersection(lhs.value)
-    return PythonSetDelta(added, removed)
+    return set_delta(added, removed)
 
 
 @compute_node(overloads=bit_xor)
@@ -150,7 +149,7 @@ def bit_xor_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYA
             added.add(i)
         else:
             removed.add(i)
-    return PythonSetDelta(added, removed)
+    return set_delta(added, removed)
 
 
 @compute_node(overloads=eq_)
@@ -261,7 +260,7 @@ def union_multiple_tss(
             to_remove -= to_remove.intersection(tss.value)  # Remove items that exist in an input
             if not to_remove:
                 break
-    return PythonSetDelta(to_add, to_remove)
+    return set_delta(to_add, to_remove)
 
 
 @dataclass
@@ -296,7 +295,7 @@ def overlap_multiple_tss(
                 case _:
                     pass
 
-    return PythonSetDelta({k for k in modified if items[k] > 1}, {k for k in modified if items[k] <= 1})
+    return set_delta({k for k in modified if items[k] > 1}, {k for k in modified if items[k] <= 1})
 
 
 @compute_node(overloads=add_)
@@ -309,7 +308,7 @@ def add_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR], _outpu
     elif rhs not in _output.value:
         tss_added |= {rhs}
     if tss_added or tss_removed:
-        return PythonSetDelta(tss_added, tss_removed)
+        return set_delta(tss_added, tss_removed)
 
 
 @compute_node(overloads=sub_)
@@ -322,4 +321,4 @@ def sub_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR], _outpu
     elif rhs in _output.value:
         tss_removed |= {rhs}
     if tss_added or tss_removed:
-        return PythonSetDelta(tss_added, tss_removed)
+        return set_delta(tss_added, tss_removed)

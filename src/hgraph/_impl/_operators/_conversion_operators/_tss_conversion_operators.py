@@ -1,18 +1,16 @@
 from collections import deque
 from typing import Type, Tuple, Set
 
+from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState
 from hgraph._operators._time_series_conversion import convert, combine, emit, collect
-from hgraph._wiring._decorators import compute_node
+from hgraph._runtime._constants import MIN_TD
+from hgraph._runtime._node import SCHEDULER
+from hgraph._types._scalar_types import SCALAR, STATE, DEFAULT
 from hgraph._types._time_series_types import OUT, SIGNAL, TIME_SERIES_TYPE
 from hgraph._types._ts_type import TS, TS_OUT
-from hgraph._types._tss_type import TSS, TSS_OUT
 from hgraph._types._tsl_type import TSL, SIZE
-from hgraph._types._scalar_types import SCALAR, STATE, DEFAULT
-from hgraph._impl._types._tss import PythonSetDelta
-from hgraph._runtime._node import SCHEDULER
-from hgraph._runtime._constants import MIN_TD
-
-from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState
+from hgraph._types._tss_type import TSS, TSS_OUT, set_delta
+from hgraph._wiring._decorators import compute_node
 
 _all__ = tuple()
 
@@ -22,7 +20,7 @@ _all__ = tuple()
     requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
 def convert_ts_to_tss(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None) -> TSS[SCALAR]:
-    return PythonSetDelta({ts.value}, _output.value if _output.valid else set())
+    return set_delta({ts.value}, _output.value if _output.valid else set())
 
 
 @compute_node(
@@ -34,7 +32,7 @@ def convert_tuple_to_tss(
 ) -> TSS[SCALAR]:
     prev = _output.value if _output.valid else set()
     new = set(ts.value)
-    return PythonSetDelta(new - prev, prev - new)
+    return set_delta(new - prev, prev - new)
 
 
 @compute_node(
@@ -46,7 +44,7 @@ def convert_set_to_tss(
 ) -> TSS[SCALAR]:
     prev = _output.value if _output.valid else set()
     new = ts.value
-    return PythonSetDelta(new - prev, prev - new)
+    return set_delta(new - prev, prev - new)
 
 
 @compute_node(
@@ -59,7 +57,7 @@ def combine_tss(
 ) -> TSS[SCALAR]:
     prev = _output.value if _output.valid else set()
     new = {v.value for v in tsl.valid_values()}
-    return PythonSetDelta(new - prev, prev - new)
+    return set_delta(new - prev, prev - new)
 
 
 @compute_node(
@@ -72,7 +70,7 @@ def collect_tss_from_ts(
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     add = {ts.value} if ts.modified else set()
-    return PythonSetDelta(add, remove)
+    return set_delta(add, remove)
 
 
 @compute_node(
@@ -89,7 +87,7 @@ def collect_tss_from_tuples(
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     new = set(ts.value) if ts.modified else set()
-    return PythonSetDelta(new, remove)
+    return set_delta(new, remove)
 
 
 @compute_node(
@@ -102,7 +100,7 @@ def collect_tss_from_sets(
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     new = ts.value if ts.modified else set()
-    return PythonSetDelta(new, remove)
+    return set_delta(new, remove)
 
 
 @compute_node(
@@ -115,7 +113,7 @@ def collect_tss_from_tss(
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     new = tss.value if tss.modified else set()
-    return PythonSetDelta(new, remove)
+    return set_delta(new, remove)
 
 
 @compute_node(overloads=emit)

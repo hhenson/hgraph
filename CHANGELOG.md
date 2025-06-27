@@ -1329,3 +1329,7 @@ Version 0.4.64 (17-06-2025)
 * Add removed_value to the TSW data type.
 * Update sum to make use of the removed_value and add mean window operator
 
+Version 0.4.65 (27-06-2025)
+---------------------------
+
+* Add set_delta method to support factory-based instantiation of the set delta.

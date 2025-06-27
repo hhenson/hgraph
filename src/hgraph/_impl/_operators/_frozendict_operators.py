@@ -4,7 +4,6 @@ from typing import Type
 
 from frozendict import frozendict
 
-from hgraph._impl._types._tss import PythonSetDelta
 from hgraph._operators import (
     sub_,
     getitem_,
@@ -30,7 +29,7 @@ from hgraph._types._scalar_types import KEYABLE_SCALAR, SCALAR
 from hgraph._types._time_series_types import OUT, K, K_1
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types._tsl_type import TSL, SIZE
-from hgraph._types._tss_type import TSS
+from hgraph._types._tss_type import TSS, set_delta
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import compute_node, graph
 from hgraph._wiring._wiring_errors import WiringError
@@ -212,7 +211,7 @@ def keys_frozendict_as_set(ts: TS[frozendict[K, SCALAR]]) -> TS[Set[K]]:
 def keys_frozendict_as_tss(ts: TS[frozendict[K, SCALAR]], _output: TS_OUT[Set[K]] = None) -> TSS[K]:
     prev = _output.value if _output.valid else set()
     new = set(ts.value.keys()) if ts.modified else set()
-    return PythonSetDelta(new - prev, prev - new)
+    return set_delta(new - prev, prev - new)
 
 
 @compute_node(overloads=values_)

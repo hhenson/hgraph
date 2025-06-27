@@ -6,14 +6,13 @@ from hgraph import (
     TIME_SERIES_TYPE,
     TSD,
     TSS,
-    PythonSetDelta,
     compute_node,
     REMOVE_IF_EXISTS,
     graph,
     operator,
     K,
     K_1,
-    TIME_SERIES_TYPE_1,
+    TIME_SERIES_TYPE_1, set_delta,
 )
 
 __all__ = (
@@ -99,4 +98,4 @@ def keys_where_true(ts: TSD[K, TS[bool]]) -> TSS[K]:
         else:
             removed.add(key)
 
-    return PythonSetDelta(added, removed)
+    return set_delta(added, removed)

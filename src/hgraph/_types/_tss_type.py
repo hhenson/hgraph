@@ -1,11 +1,12 @@
 from abc import abstractmethod
-from typing import Protocol, Iterable, Generic, Set, runtime_checkable
+from typing import Protocol, Iterable, Generic, Set, runtime_checkable, Callable
 
 from hgraph._types._scalar_types import KEYABLE_SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, TimeSeriesDeltaValue
 from hgraph._types._ts_type import TS
 
-__all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput")
+__all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput", "set_delta",
+           "set_set_delta_factory")
 
 
 @runtime_checkable
@@ -29,6 +30,24 @@ class SetDelta(Protocol[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
         """
         The elements that were removed
         """
+
+
+SET_DELTA_FACTORY: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR]], None] = None
+
+
+def set_set_delta_factory(fn: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR]], None]):
+    """Set the builder function for set_delta instances, by default we will use the PythonSetDelta class"""
+    global SET_DELTA_FACTORY
+    SET_DELTA_FACTORY = fn
+
+
+def set_delta(added=Iterable[KEYABLE_SCALAR], removed=Iterable[KEYABLE_SCALAR]):
+    global SET_DELTA_FACTORY
+    if SET_DELTA_FACTORY is None:
+        from hgraph import PythonSetDelta
+        SET_DELTA_FACTORY = lambda a, d: PythonSetDelta(
+            added=None if a is None else frozenset(a), removed=None if d is None else frozenset(d))
+    return SET_DELTA_FACTORY(added, removed)
 
 
 class TimeSeriesSet(TimeSeriesDeltaValue[KEYABLE_SCALAR, SetDelta[KEYABLE_SCALAR]], Generic[KEYABLE_SCALAR]):

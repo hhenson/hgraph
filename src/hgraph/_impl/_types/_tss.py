@@ -1,14 +1,14 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Generic, Iterable, Any, Set, Optional, cast
+from typing import Generic, Iterable, Any, Set, Optional
 
-from hgraph._impl._types._feature_extension import FeatureOutputRequestTracker, FeatureOutputExtension
+from hgraph._impl._types._feature_extension import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._types._ts_type import TS
-from hgraph._types._tss_type import SetDelta, TimeSeriesSetOutput, TimeSeriesSetInput
+from hgraph._types._tss_type import SetDelta, TimeSeriesSetOutput, TimeSeriesSetInput, set_delta
 
 __all__ = ("PythonSetDelta", "PythonTimeSeriesSetOutput", "PythonTimeSeriesSetInput", "Removed")
 
@@ -42,7 +42,7 @@ class PythonSetDelta(SetDelta[SCALAR], Generic[SCALAR]):
 
         added = (self.added_elements - other.removed_elements) | other.added_elements
         removed = (other.removed_elements - self.added_elements) | (self.removed_elements - other.added_elements)
-        return PythonSetDelta(added=added, removed=removed)
+        return set_delta(added=added, removed=removed)
 
 
 @dataclass(frozen=True)
@@ -124,7 +124,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     @property
     def delta_value(self) -> SetDelta[SCALAR]:
-        return PythonSetDelta(self._added, self._removed)
+        return set_delta(self._added, self._removed)
 
     def add(self, element: SCALAR, extensions=None):
         if element not in self._value:
@@ -268,7 +268,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     @property
     def delta_value(self):
-        return PythonSetDelta(self.added(), self.removed())
+        return set_delta(self.added(), self.removed())
 
     def values(self) -> Iterable[SCALAR]:
         return frozenset(self.output.values()) if self.bound else frozenset()

@@ -1,9 +1,9 @@
 from datetime import timedelta, datetime
 from typing import Tuple
-from frozendict import frozendict as fd
 
 import numpy as np
 import pytest
+from frozendict import frozendict as fd
 
 from hgraph import (
     TS,
@@ -42,8 +42,7 @@ from hgraph import (
     WindowSize,
     Array,
     ts_schema,
-    PythonSetDelta,
-    WINDOW_SIZE, WINDOW_SIZE_MIN
+    WINDOW_SIZE, WINDOW_SIZE_MIN, set_delta
 )
 from hgraph.stream import combine_status_messages
 from hgraph.stream.stream import register_status_message_pattern
@@ -113,11 +112,11 @@ def test_tss_proxy_lag():
     result = eval_node(
         g,
         [
-            PythonSetDelta(added=frozenset({1, 3}), removed=frozenset()),
-            PythonSetDelta(added=frozenset({2}), removed=frozenset({3})),
-            PythonSetDelta(added=frozenset({4, 5}), removed=frozenset({1})),
-            PythonSetDelta(added=frozenset({6}), removed=frozenset({4})),
-            PythonSetDelta(added=frozenset(), removed=frozenset({5})),
+            set_delta(added=frozenset({1, 3}), removed=frozenset()),
+            set_delta(added=frozenset({2}), removed=frozenset({3})),
+            set_delta(added=frozenset({4, 5}), removed=frozenset({1})),
+            set_delta(added=frozenset({6}), removed=frozenset({4})),
+            set_delta(added=frozenset(), removed=frozenset({5})),
         ],
         2,
         [True, None, True, True, True, None, None, True],
@@ -126,11 +125,11 @@ def test_tss_proxy_lag():
         None,
         None,
         None,
-        PythonSetDelta(added=frozenset({1, 2}), removed=frozenset()),
-        PythonSetDelta(added=frozenset({4, 5}), removed=frozenset({1})),
+        set_delta(added=frozenset({1, 2}), removed=frozenset()),
+        set_delta(added=frozenset({4, 5}), removed=frozenset({1})),
         None,
         None,
-        PythonSetDelta(added=frozenset({6}), removed=frozenset({4})),
+        set_delta(added=frozenset({6}), removed=frozenset({4})),
     ]
 
 
@@ -449,26 +448,26 @@ def test_throttle_tss():
 
     inputs = [
         None,
-        PythonSetDelta(added={1, 2}, removed=set()),
-        PythonSetDelta(added={3}, removed=set()),
-        PythonSetDelta(added=set(), removed={2}),
+        set_delta(added={1, 2}, removed=set()),
+        set_delta(added={3}, removed=set()),
+        set_delta(added=set(), removed={2}),
         None,
-        PythonSetDelta(added={5}, removed={1}),
+        set_delta(added={5}, removed={1}),
         None,
-        PythonSetDelta(added={1}, removed=set()),
-        PythonSetDelta(added={6}, removed=set()),
+        set_delta(added={1}, removed=set()),
+        set_delta(added={6}, removed=set()),
         None,
-        PythonSetDelta(added=set(), removed={6}),
+        set_delta(added=set(), removed={6}),
     ]
     expected = [
         None,
-        PythonSetDelta(added={1, 2}, removed=set()),
+        set_delta(added={1, 2}, removed=set()),
         None,
         None,
-        PythonSetDelta(added={3}, removed={2}),
+        set_delta(added={3}, removed={2}),
         None,
         None,
-        PythonSetDelta(added={5}, removed=set()),
+        set_delta(added={5}, removed=set()),
         None,
         None,
         None,

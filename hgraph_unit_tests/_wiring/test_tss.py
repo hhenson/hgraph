@@ -1,4 +1,4 @@
-from hgraph import graph, TS, TSS, compute_node, PythonSetDelta, Removed, contains_, SIGNAL
+from hgraph import graph, TS, TSS, compute_node, Removed, contains_, set_delta
 from hgraph import pass_through_node
 from hgraph.test import eval_node
 
@@ -6,17 +6,17 @@ from hgraph.test import eval_node
 @compute_node
 def create_tss(key: TS[str], add: TS[bool]) -> TSS[str]:
     if add.value:
-        return PythonSetDelta(added=frozenset([key.value]), removed=frozenset())
+        return set_delta(added=frozenset([key.value]), removed=frozenset())
     else:
-        return PythonSetDelta(added=frozenset(), removed=frozenset([key.value]))
+        return set_delta(added=frozenset(), removed=frozenset([key.value]))
 
 
 def test_tss_strait():
     assert eval_node(create_tss, key=["a", "a", "b", "a"], add=[True, True, True, False]) == [
-        PythonSetDelta(frozenset("a"), frozenset()),
+        set_delta(frozenset("a"), frozenset()),
         None,
-        PythonSetDelta(frozenset("b"), frozenset()),
-        PythonSetDelta(frozenset(), frozenset("a")),
+        set_delta(frozenset("b"), frozenset()),
+        set_delta(frozenset(), frozenset("a")),
     ]
 
 
@@ -28,9 +28,9 @@ def test_tss_pass_through():
         return pass_through_node(tss)
 
     assert eval_node(pass_through_test, key=["a", "b", "a"], add=[True, True, False]) == [
-        PythonSetDelta(frozenset("a"), frozenset()),
-        PythonSetDelta(frozenset("b"), frozenset()),
-        PythonSetDelta(frozenset(), frozenset("a")),
+        set_delta(frozenset("a"), frozenset()),
+        set_delta(frozenset("b"), frozenset()),
+        set_delta(frozenset(), frozenset("a")),
     ]
 
 
@@ -52,6 +52,6 @@ def test_tss_empty():
 
 
 def test_set_delta_addition():
-    d = PythonSetDelta(added={1, 2, 3}, removed=set())
-    d1 = d + PythonSetDelta(added={4, 5}, removed={3})
-    assert d1 == PythonSetDelta(added={1, 2, 4, 5}, removed=set())
+    d = set_delta(added={1, 2, 3}, removed=set())
+    d1 = d + set_delta(added={4, 5}, removed={3})
+    assert d1 == set_delta(added={1, 2, 4, 5}, removed=set())

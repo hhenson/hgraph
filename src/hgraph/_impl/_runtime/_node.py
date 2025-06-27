@@ -9,10 +9,11 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 
 from sortedcontainers import SortedList
 
-from hgraph._operators import get_fq_recordable_id
-from hgraph._runtime._constants import MIN_TD
+from hgraph import set_delta
 from hgraph._impl._types._tss import PythonSetDelta, Removed
+from hgraph._operators import get_fq_recordable_id
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
+from hgraph._runtime._constants import MIN_TD
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._lifecycle import start_guard, stop_guard
@@ -598,12 +599,12 @@ class PythonLastValuePullNodeImpl(NodeImpl):
             return new_delta | old_delta
 
         if isinstance(old_delta, set):
-            old_delta = PythonSetDelta(
+            old_delta = set_delta(
                 added={i for i in old_delta if type(i) is not Removed},
                 removed={i for i in old_delta if type(i) is Removed},
             )
         if isinstance(new_delta, set):
-            new_delta = PythonSetDelta(
+            new_delta = set_delta(
                 added={i for i in new_delta if type(i) is not Removed},
                 removed={i for i in new_delta if type(i) is Removed},
             )
@@ -612,7 +613,7 @@ class PythonLastValuePullNodeImpl(NodeImpl):
         added = (old_delta.added - new_delta.removed) | (new_delta.added - old_delta.removed)
         removed = (old_delta.removed - new_delta.added) | (new_delta.removed - old_delta.added)
         # Only remove elements that have not been recently added and don't remove old removes that have been re-added
-        return PythonSetDelta(added=added, removed=removed)
+        return set_delta(added=added, removed=removed)
 
     @staticmethod
     def _combine_tsd_delta(old_delta: Mapping, new_delta: Mapping) -> Mapping:
