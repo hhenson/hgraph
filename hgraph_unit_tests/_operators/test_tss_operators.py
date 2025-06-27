@@ -94,11 +94,11 @@ def test_bit_xor_tsss():
     assert eval_node(
         app, [{1, 2, 3, 4}, {5, 6}, {Removed(1)}, {Removed(2)}, None], [{0, 2, 3, 5}, None, None, None, {-1, 1, 4}]
     ) == [
-               set_delta(added={0, 1, 4, 5}, removed=set()),
-               set_delta(removed={5}, added={6}),
-               set_delta(added=set(), removed={1}),
-               set_delta(added={2}, removed=set()),
-               set_delta(added={-1, 1}, removed={4}),
+               set_delta(added={0, 1, 4, 5}, removed=set(), tp=int),
+               set_delta(removed={5}, added={6}, tp=int),
+               set_delta(added=set(), removed={1}, tp=int),
+               set_delta(added={2}, removed=set(), tp=int),
+               set_delta(added={-1, 1}, removed={4}, tp=int),
            ]
 
 

@@ -175,7 +175,7 @@ def test_rekey_tsd_set():
     assert eval_node(
         g,
         [None, {1: 1, 3: 3}, {2: 2}, None, {2: REMOVE}, None],  # TSD
-        [{1: {"a"}, 2: {"b"}}, None, None, {1: set_delta(added={"c", "d"}, removed={"a"})}, None, {1: REMOVE}],
+        [{1: {"a"}, 2: {"b"}}, None, None, {1: set_delta(added={"c", "d"}, removed={"a"}, tp=str)}, None, {1: REMOVE}],
     ) == [  # key mappings
         None,
         fd({"a": 1}),
@@ -592,8 +592,8 @@ def test_tsd_values_as_tss():
 
     actual = eval_node(g, [{1: 4, 2: 5, 3: 6}, {1: REMOVE}])
     assert actual == [
-        set_delta(added={4, 5, 6}, removed=set()),
-        set_delta(added=set(), removed={4}),
+        set_delta(added={4, 5, 6}, removed=set(), tp=int),
+        set_delta(added=set(), removed={4}, tp=int),
     ]
 
 

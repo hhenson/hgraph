@@ -32,22 +32,34 @@ class SetDelta(Protocol[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
         """
 
 
-SET_DELTA_FACTORY: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR]], None] = None
+SET_DELTA_FACTORY: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR], type[KEYABLE_SCALAR]], None] = None
 
 
-def set_set_delta_factory(fn: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR]], None]):
+def set_set_delta_factory(
+        fn: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR], type[KEYABLE_SCALAR]], SetDelta[KEYABLE_SCALAR]]
+):
     """Set the builder function for set_delta instances, by default we will use the PythonSetDelta class"""
     global SET_DELTA_FACTORY
     SET_DELTA_FACTORY = fn
 
 
-def set_delta(added=Iterable[KEYABLE_SCALAR], removed=Iterable[KEYABLE_SCALAR]):
+def _guess_type(added, removed) -> type[KEYABLE_SCALAR]:
+    if added:
+        return type(next(iter(added)))
+    if removed:
+        return type(next(iter(removed)))
+    return object
+
+
+def set_delta(added=Iterable[KEYABLE_SCALAR], removed=Iterable[KEYABLE_SCALAR], tp: type[KEYABLE_SCALAR] = None):
     global SET_DELTA_FACTORY
     if SET_DELTA_FACTORY is None:
         from hgraph import PythonSetDelta
-        SET_DELTA_FACTORY = lambda a, d: PythonSetDelta(
+        SET_DELTA_FACTORY = lambda a, d, t: PythonSetDelta[t](
             added=None if a is None else frozenset(a), removed=None if d is None else frozenset(d))
-    return SET_DELTA_FACTORY(added, removed)
+    if tp is None:
+        tp = _guess_type(added, removed)
+    return SET_DELTA_FACTORY(added, removed, tp)
 
 
 class TimeSeriesSet(TimeSeriesDeltaValue[KEYABLE_SCALAR, SetDelta[KEYABLE_SCALAR]], Generic[KEYABLE_SCALAR]):

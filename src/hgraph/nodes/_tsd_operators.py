@@ -12,7 +12,7 @@ from hgraph import (
     operator,
     K,
     K_1,
-    TIME_SERIES_TYPE_1, set_delta,
+    TIME_SERIES_TYPE_1, set_delta, AUTO_RESOLVE,
 )
 
 __all__ = (
@@ -88,7 +88,7 @@ def extract_tsd(ts: TS[Mapping[K_1, SCALAR]]) -> TSD[K_1, TIME_SERIES_TYPE]:
 
 
 @compute_node
-def keys_where_true(ts: TSD[K, TS[bool]]) -> TSS[K]:
+def keys_where_true(ts: TSD[K, TS[bool]], _tp: type[K] = AUTO_RESOLVE) -> TSS[K]:
     added = set()
     removed = ts.key_set.removed()
 
@@ -98,4 +98,4 @@ def keys_where_true(ts: TSD[K, TS[bool]]) -> TSS[K]:
         else:
             removed.add(key)
 
-    return set_delta(added, removed)
+    return set_delta(added, removed, _tp)

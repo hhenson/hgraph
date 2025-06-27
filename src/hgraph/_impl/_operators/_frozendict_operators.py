@@ -39,7 +39,7 @@ __all__ = ()
 
 @compute_node(overloads=union)
 def union_frozendicts(
-    lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]], rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]
+        lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]], rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]
 ) -> TS[frozendict[KEYABLE_SCALAR, SCALAR]]:
     """
     Combine two timeseries of frozendicts
@@ -49,7 +49,7 @@ def union_frozendicts(
 
 @compute_node(overloads=sub_)
 def sub_frozendicts(
-    lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]], rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]
+        lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]], rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]
 ) -> TS[frozendict[KEYABLE_SCALAR, SCALAR]]:
     """
     Return the difference of the two frozendicts (by key)
@@ -59,7 +59,7 @@ def sub_frozendicts(
 
 @compute_node(overloads=getitem_)
 def getitem_frozendict(
-    ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], key: TS[KEYABLE_SCALAR], default_value: TS[SCALAR] = None
+        ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], key: TS[KEYABLE_SCALAR], default_value: TS[SCALAR] = None
 ) -> TS[SCALAR]:
     """
     Retrieve the dict item by key from the timeseries of scalar frozen dicts
@@ -70,7 +70,7 @@ def getitem_frozendict(
 
 @graph(overloads=min_)
 def min_frozendict(
-    *ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE], default_value: TS[SCALAR] = None
+        *ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE], default_value: TS[SCALAR] = None
 ) -> TS[SCALAR]:
     if len(ts) == 1:
         return min_frozendict_unary(ts[0], default_value)
@@ -89,7 +89,7 @@ def min_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], default_val
 
 @graph(overloads=max_)
 def max_frozendict(
-    *ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE], default_value: TS[SCALAR] = None
+        *ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE], default_value: TS[SCALAR] = None
 ) -> TS[SCALAR]:
     if len(ts) == 1:
         return max_frozendict_unary(ts[0], default_value)
@@ -108,7 +108,7 @@ def max_frozendict_unary(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]], default_val
 
 @graph(overloads=sum_)
 def sum_frozendict(
-    *ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE], tp: Type[TS[SCALAR]] = AUTO_RESOLVE
+        *ts: TSL[TS[frozendict[KEYABLE_SCALAR, SCALAR]], SIZE], tp: Type[TS[SCALAR]] = AUTO_RESOLVE
 ) -> TS[SCALAR]:
     if len(ts) == 1:
         return _sum_frozendict_unary(ts[0], zero(tp, sum_))
@@ -196,7 +196,7 @@ def str_frozendict(ts: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[str]:
 @compute_node(
     overloads=keys_,
     requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
-    or m[OUT].matches_type(TS[Set[m[K].py_type]]),
+                          or m[OUT].matches_type(TS[Set[m[K].py_type]]),
     resolvers={OUT: lambda m, s: TS[Set[m[K].py_type]]},
 )
 def keys_frozendict_as_set(ts: TS[frozendict[K, SCALAR]]) -> TS[Set[K]]:
@@ -208,10 +208,11 @@ def keys_frozendict_as_set(ts: TS[frozendict[K, SCALAR]]) -> TS[Set[K]]:
     requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[K].py_type]),
     valid=("ts",),
 )
-def keys_frozendict_as_tss(ts: TS[frozendict[K, SCALAR]], _output: TS_OUT[Set[K]] = None) -> TSS[K]:
+def keys_frozendict_as_tss(ts: TS[frozendict[K, SCALAR]],
+                           _output: TS_OUT[Set[K]] = None, _tp: type[SCALAR] = AUTO_RESOLVE) -> TSS[K]:
     prev = _output.value if _output.valid else set()
     new = set(ts.value.keys()) if ts.modified else set()
-    return set_delta(new - prev, prev - new)
+    return set_delta(new - prev, prev - new, _tp)
 
 
 @compute_node(overloads=values_)
@@ -234,7 +235,7 @@ def flip_frozendict(ts: TS[frozendict[K, K_1]]) -> TS[frozendict[K_1, K]]:
 
 @compute_node(overloads=partition)
 def partition_frozendict(
-    ts: TS[frozendict[K, SCALAR]], partitions: TS[frozendict[K, K_1]]
+        ts: TS[frozendict[K, SCALAR]], partitions: TS[frozendict[K, K_1]]
 ) -> TS[frozendict[K_1, frozendict[K, SCALAR]]]:
     partitions_value = partitions.value
     out = {}

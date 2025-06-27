@@ -42,7 +42,7 @@ class PythonSetDelta(SetDelta[SCALAR], Generic[SCALAR]):
 
         added = (self.added_elements - other.removed_elements) | other.added_elements
         removed = (other.removed_elements - self.added_elements) | (self.removed_elements - other.added_elements)
-        return set_delta(added=added, removed=removed)
+        return PythonSetDelta(added=added, removed=removed)
 
 
 @dataclass(frozen=True)
@@ -124,7 +124,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     @property
     def delta_value(self) -> SetDelta[SCALAR]:
-        return set_delta(self._added, self._removed)
+        return set_delta(self._added, self._removed, self._tp)
 
     def add(self, element: SCALAR, extensions=None):
         if element not in self._value:
@@ -268,7 +268,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     @property
     def delta_value(self):
-        return set_delta(self.added(), self.removed())
+        return PythonSetDelta(self.added(), self.removed())
 
     def values(self) -> Iterable[SCALAR]:
         return frozenset(self.output.values()) if self.bound else frozenset()

@@ -293,9 +293,11 @@ def _(value: HgTSLTypeMetaData, delta=False) -> Callable[[list], Any]:
 @from_json_converter.register
 def _(value: HgTSSTypeMetaData, delta=False) -> Callable[[list], Any]:
     fn = from_json_converter(value.value_scalar_tp, delta)
-    return lambda v, fn_=fn: (
+    tp = value.value_scalar_tp.py_type
+    return lambda v, fn_=fn, _tp=tp: (
         (
-            set_delta(added={fn_(i) for i in v.get("added", ())}, removed={fn_(i) for i in v.get("removed", ())})
+            set_delta(added={fn_(i) for i in v.get("added", ())}, removed={fn_(i) for i in v.get("removed", ())},
+                      tp=_tp)
             if isinstance(v, dict)
             else tuple(fn_(i) for i in v)
         )

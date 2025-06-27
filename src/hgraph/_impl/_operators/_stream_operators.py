@@ -50,7 +50,7 @@ from hgraph import (
     TS_SCHEMA,
     AUTO_RESOLVE,
     TSS,
-    union, set_delta,
+    union
 )
 
 __all__ = ()
@@ -238,6 +238,8 @@ class _ThrottleState(CompoundScalar):
     tick: dict = field(default_factory=dict)
 
 
+# TODO: This code will need to be re-written to support C++, it currently depends on instance checks of inputs
+# which will not work going forwards.
 @compute_node(overloads=throttle)
 def throttle_default(
     ts: TIME_SERIES_TYPE,
@@ -271,12 +273,13 @@ def throttle_default(
 
     @collect_tick.register
     def collect_set(input: PythonTimeSeriesSetInput, out):
+        from hgraph import PythonSetDelta
         if not out:
-            out = set_delta(set(), set())
+            out = PythonSetDelta(set(), set())
         new_added, new_removed = input.added(), input.removed()
         added = (out.added - new_removed) | new_added
         removed = (out.removed - new_added) | new_removed
-        return set_delta(added, removed)
+        return PythonSetDelta(added, removed)
 
     @collect_tick.register
     def collect_value(input: PythonTimeSeriesValueInput, out):
