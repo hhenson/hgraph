@@ -13,21 +13,22 @@ from hgraph._types._tss_type import SetDelta, TimeSeriesSetOutput, TimeSeriesSet
 __all__ = ("PythonSetDelta", "PythonTimeSeriesSetOutput", "PythonTimeSeriesSetInput", "Removed")
 
 
-@dataclass(frozen=True, eq=False)
 class PythonSetDelta(SetDelta[SCALAR], Generic[SCALAR]):
-    added: frozenset[SCALAR]
-    removed: frozenset[SCALAR]
+
+    def __init__(self, added: frozenset[SCALAR], removed: frozenset[SCALAR]):
+        self._added: frozenset[SCALAR] = added
+        self._removed: frozenset[SCALAR] = removed
 
     @property
-    def added_elements(self) -> Iterable[SCALAR]:
-        return self.added or set()
+    def added(self) -> Iterable[SCALAR]:
+        return self._added or set()
 
     @property
-    def removed_elements(self) -> Iterable[SCALAR]:
-        return self.removed or set()
+    def removed(self) -> Iterable[SCALAR]:
+        return self._removed or set()
 
     def __eq__(self, other):
-        if type(self) == type(other):
+        if isinstance(other, SetDelta):
             return (self.added, self.removed) == (other.added, other.removed)
         if isinstance(other, (set, frozenset, list, tuple)):
             # Check the number of added and removed are the same, if not then they are not equal
@@ -36,13 +37,22 @@ class PythonSetDelta(SetDelta[SCALAR], Generic[SCALAR]):
             return all(i in self.added if type(i) is not Removed else i.item in self.removed for i in other)
         return NotImplemented
 
+    def __hash__(self):
+        return hash((self.added, self.removed))
+
     def __add__(self, other: "PythonSetDelta[SCALAR]") -> "PythonSetDelta[SCALAR]":
-        if type(self) != type(other):
+        if not isinstance(other, SetDelta):
             raise TypeError(f"Cannot add {type(self)} to {type(other)}")
 
-        added = (self.added_elements - other.removed_elements) | other.added_elements
-        removed = (other.removed_elements - self.added_elements) | (self.removed_elements - other.added_elements)
+        added = (self.added - other.removed) | other.added
+        removed = (other.removed - self.added) | (self.removed - other.added)
         return PythonSetDelta(added=added, removed=removed)
+
+    def __str__(self):
+        return f"SetDelta(added={self.added}, removed={self.removed})"
+
+    def __repr__(self):
+        return f"PythonSetDelta(added={self.added}, removed={self.removed})"
 
 
 @dataclass(frozen=True)
@@ -92,8 +102,8 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
             self.invalidate()
             return
         if isinstance(v, SetDelta):
-            self._added = {e for e in v.added_elements if e not in self._value}
-            self._removed = {e for e in v.removed_elements if e in self._value}
+            self._added = {e for e in v.added if e not in self._value}
+            self._removed = {e for e in v.removed if e in self._value}
             if self._removed.intersection(self._added):
                 raise ValueError("Cannot remove and add the same element")
             self._value.update(self._added)

@@ -19,14 +19,14 @@ class SetDelta(Protocol[KEYABLE_SCALAR], Generic[KEYABLE_SCALAR]):
 
     @property
     @abstractmethod
-    def added_elements(self) -> Iterable[KEYABLE_SCALAR]:
+    def added(self) -> Iterable[KEYABLE_SCALAR]:
         """
         The elements that were added
         """
 
     @property
     @abstractmethod
-    def removed_elements(self) -> Iterable[KEYABLE_SCALAR]:
+    def removed(self) -> Iterable[KEYABLE_SCALAR]:
         """
         The elements that were removed
         """

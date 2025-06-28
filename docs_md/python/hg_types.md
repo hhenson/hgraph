@@ -205,8 +205,8 @@ def f(...) -> TSS[int]:
 ```
 
 This also has methods:
-* ``added_elements`` - The elements added in this engine cycle.
-* ``removed_elements`` - The elements removed in this engine cycle.
+* ``added`` - The elements added in this engine cycle.
+* ``removed`` - The elements removed in this engine cycle.
 
 
 The set can also implement operations such as ``__contains__``.
