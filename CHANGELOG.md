@@ -1334,3 +1334,8 @@ Version 0.4.65 (27-06-2025)
 
 * Add set_delta method to support factory-based instantiation of the set delta.
 * Add type support to set_delta factory method and update code to make use of this.
+
+Version 0.4.66 (30-06-2025)
+---------------------------
+
+* Clean up added / removed.
