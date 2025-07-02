@@ -34,12 +34,14 @@ __all__ = (
     "REMOVE",
     "REMOVE_IF_EXISTS",
     "KEY_SET_ID",
+    "KEY_SET_PATH_ID",
 )
 
 REMOVE = Sentinel("REMOVE")
 REMOVE_IF_EXISTS = Sentinel("REMOVE_IF_EXISTS")
 
 KEY_SET_ID = "__key_set__"
+KEY_SET_PATH_ID = -3
 
 
 class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, frozendict], Generic[K, V]):

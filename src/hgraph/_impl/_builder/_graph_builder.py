@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Iterable
 
+from hgraph import KEY_SET_PATH_ID
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._runtime._graph import Graph
@@ -22,9 +23,12 @@ class PythonGraphBuilder(GraphBuilder):
         output = node.output
         for item in path:
             try:
-                output = output[item]
+                if item == KEY_SET_PATH_ID:
+                    output = output.key_set
+                else:
+                    output = output[item]
             except:
-                ...
+                raise
         return output
 
     @staticmethod

@@ -11,7 +11,7 @@ from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._types._tsb_type import TimeSeriesSchema
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
-from hgraph._types._tsd_type import KEY_SET_ID
+from hgraph._types._tsd_type import KEY_SET_PATH_ID, KEY_SET_ID
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -93,7 +93,10 @@ class WiringPort:
         output_type = self.node_instance.output_type
         for p in self.path:
             # This is the path within a TSB
-            output_type = output_type[p]
+            if p == KEY_SET_PATH_ID:
+                output_type = output_type[KEY_SET_ID]
+            else:
+                output_type = output_type[p]
         return output_type
 
     def __error__(self, trace_back_depth: int = 1, capture_values: bool = False) -> "WiringPort":
@@ -177,7 +180,7 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
 
     @property
     def key_set(self) -> TSS[SCALAR]:
-        return WiringPort(self.node_instance, self.path + (KEY_SET_ID,))
+        return WiringPort(self.node_instance, self.path + (KEY_SET_PATH_ID,))
 
     def __getitem__(self, key):
         from hgraph import getitem_
