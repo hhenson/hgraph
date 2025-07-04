@@ -85,7 +85,7 @@ def len_tss(ts: TSS[KEYABLE_SCALAR]) -> TS[int]:
 
 
 @compute_node(overloads=bit_or, valid=())
-def bit_or_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR]) -> TSS[KEYABLE_SCALAR]:
+def bit_or_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[KEYABLE_SCALAR]:
     added = lhs.added() | rhs.added()
     lhs_value = lhs.value
     removed = lhs.removed() - rhs.value
