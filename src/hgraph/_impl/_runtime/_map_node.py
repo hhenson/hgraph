@@ -72,6 +72,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self._count: int = 1
         self._recordable_id: str | None = None
 
+    def tsd_output(self):
+        return self._output
+
     def do_start(self):
         super().do_start()
         if has_recordable_id_trait(self.graph.traits):
@@ -188,7 +191,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
 
         if self.output_node_id:
             # Replace the nodes output with the map node's output for the key
-            del self.output[key]
+            del self.tsd_output()[key]
 
     def _wire_graph(self, key: K, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
@@ -217,4 +220,4 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         if self.output_node_id:
             node: Node = graph.nodes[self.output_node_id]
             # Replace the nodes output with the map node's output for the key
-            node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.output).get_or_create(key)
+            node.output = cast(TSD_OUT[str, TIME_SERIES_TYPE], self.tsd_output()).get_or_create(key)

@@ -124,6 +124,9 @@ class WiringNodeInstance:
     non_input_dependencies: list["WiringNodeInstance"] = field(default_factory=list)
     ranking_alternatives: list["WiringNodeInstance"] = field(default_factory=list)
 
+    def __post_init__(self):
+        self.label = self.label or self.resolved_signature.label
+
     def __lt__(self, other: "WiringNodeInstance") -> bool:
         # The last part gives potential for inconsistent ordering, a better solution would be to
         # consider the inputs, but that may contain values which do not support ordering.

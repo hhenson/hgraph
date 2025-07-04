@@ -197,6 +197,9 @@ def _dispatch_impl(
 
         from hgraph import type_
 
+        if len(dispatch_map) == 0:
+            raise RuntimeError(f"No suitable overloads found for when wiring {signature} for {kwargs}")
+
         key = adjust_dispatch_key(type_(kwargs_[nth(dispatch_args.keys(), 0)]), tuple(dispatch_map.keys()))
     else:
 

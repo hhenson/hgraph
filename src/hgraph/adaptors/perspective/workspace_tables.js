@@ -3,7 +3,7 @@ import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.j
 let DEBUG = false;
 let DEBUG_LOCK = false;
 
- class DefaultMap extends Map {
+ export class DefaultMap extends Map {
    constructor(defaultFactory, iterable) {
      super(iterable);
      this.defaultFactory = defaultFactory;
@@ -85,6 +85,12 @@ class Stats {
     static active_updates_count = 0;
     static last_activity_change_time = performance.now();
     static total_active_time = 0;
+    
+    // New metrics for parsing time
+    static parsing_times = [];
+    static max_parsing_time = 0;
+    static total_parsing_time = 0;
+    static parsing_time_samples = 0;
 
     static startProcessing() {
         const now = performance.now();
@@ -93,9 +99,10 @@ class Stats {
             Stats.last_activity_change_time = now;
         }
         Stats.active_updates_count++;
+        return now;
     }
 
-    static endProcessing() {
+    static endProcessing(start = null) {
         const now = performance.now();
         if (Stats.active_updates_count > 0) {
             Stats.active_updates_count--;
@@ -105,6 +112,9 @@ class Stats {
                 Stats.total_active_time += active_duration;
                 Stats.last_activity_change_time = now;
             }
+        }
+        if (start !== null) {
+            this.trackUpdateProcessingTime(now - start);
         }
     }
 
@@ -157,9 +167,35 @@ class Stats {
         };
     }
 
+    static trackParsingTime(time) {
+        Stats.parsing_times.push(time);
+        // Keep only the last 100 samples for memory efficiency
+        if (Stats.parsing_times.length > 100) {
+            Stats.parsing_times.shift();
+        }
+        Stats.max_parsing_time = Math.max(Stats.max_parsing_time, time);
+        Stats.total_parsing_time += time;
+        Stats.parsing_time_samples++;
+    }
+    
+    static getAverageParsingTime() {
+        return Stats.parsing_time_samples > 0 ? 
+            Stats.total_parsing_time / Stats.parsing_time_samples : 0;
+    }
+    
+    static getParsingPercentiles() {
+        if (Stats.parsing_times.length === 0) return { p90: 0 };
+        
+        const sorted = [...Stats.parsing_times].sort((a, b) => a - b);
+        return {
+            p90: sorted[Math.floor(sorted.length * 0.9)]
+        };
+    }
+
     static getTelemetryData(elapsed) {
         Stats.updateActivityTracking();
         const percentiles = Stats.getPercentiles();
+        const parsingPercentiles = Stats.getParsingPercentiles();
         
         return {
             max_updates_waiting: Stats.max_updates_waiting,
@@ -169,7 +205,11 @@ class Stats {
             avg_processing_time_ms: Stats.getAverageProcessingTime(),
             max_processing_time_ms: Stats.max_processing_time,
             p90_processing_time_ms: percentiles.p90,
-            processing_time_percent: Stats.getProcessingPercentage()
+            processing_time_percent: Stats.getProcessingPercentage(),
+            avg_parsing_time_ms: Stats.getAverageParsingTime(),
+            max_parsing_time_ms: Stats.max_parsing_time,
+            p90_parsing_time_ms: parsingPercentiles.p90,
+            parsing_time_percent: Stats.total_parsing_time / (Stats.total_processing_time || 1) * 100
         };
     }
 
@@ -186,6 +226,11 @@ class Stats {
         Stats.total_active_time = 0;
         Stats.last_activity_change_time = performance.now();
         Stats.last_reset_time = performance.now();
+        // Reset parsing metrics
+        Stats.parsing_times = [];
+        Stats.max_parsing_time = 0;
+        Stats.total_parsing_time = 0;
+        Stats.parsing_time_samples = 0;
     }
 }
 
@@ -267,16 +312,13 @@ async function buildClientOnlyTable(workspace, table_name, index, worker) {
 }
 
 
-async function connectClientTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
-    const table = await websocket.open_table(table_name);
-    const view = await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})
+async function connectDataView(workspace, table_name, schema, index, worker) {
+    const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
     let client = undefined;
     if (index)
-        client = await worker.table(await view.to_arrow(), {index: await table.get_index()});
+        client = await worker.table(blank, {index: index});
     else
-        client = await worker.table(await view.to_arrow());
-
-    view.delete();
+        client = await worker.table(blank);
 
     workspace.addTable(table_name, client);
 
@@ -285,6 +327,30 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
     workspace_tables[table_name].start = async () => {
         workspace_tables[table_name].start = async () => {};
 
+        const data = await (await fetch(`/data_view/${table_name}.arrow`)).arrayBuffer();
+        const table = await worker.table(data);
+        const view = await table.view();
+        client.replace(await view.to_arrow());
+    }
+}
+
+
+async function connectClientTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
+    const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
+    let client = undefined;
+    if (index)
+        client = await worker.table(blank, {index: index});
+    else
+        client = await worker.table(blank);
+
+    workspace.addTable(table_name, client);
+
+    workspace_tables[table_name].table = client;
+    workspace_tables[table_name].started = false;
+    workspace_tables[table_name].start = async () => {
+        workspace_tables[table_name].start = async () => {};
+
+        const table = await websocket.open_table(table_name);
         const view = await table.view();
         client.replace(await view.to_arrow());
 
@@ -358,15 +424,12 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
 }
 
 async function connectEditableTable(workspace, table_name, removes_table, index, websocket, websocket_ro, worker) {
-    const table = await websocket.open_table(table_name);
-    const view = await table.view({filter: [["__i__", ">", 0]], expressions: {"__i__": "0"}})
+    const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
     let client = undefined;
     if (index)
-        client = await worker.table(await view.to_arrow(), {index: await table.get_index()});
+        client = await worker.table(blank, {index: index});
     else
-        client = await worker.table(await view.to_arrow());
-
-    view.delete();
+        client = await worker.table(blank);
 
     workspace.addTable(table_name, client);
 
@@ -376,6 +439,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
         workspace_tables[table_name].start = async () => {
         };
 
+        const table = await websocket.open_table(table_name);
         const view = await table.view();
         client.replace(await view.to_arrow());
 
@@ -457,7 +521,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     const update_table = await worker.table(updated.delta);
                     const update_view = await update_table.view();
                     const update_data = await update_view.to_json();
-                    const update_data_filtered = update_data.filter((x) => x._id !== 0 && x._id !== null && _id !== 'undefined');
+                    const update_data_filtered = update_data.filter((x) => x._id !== 0 && x._id !== null && x._id !== 'undefined');
                     await table.update(update_data_filtered, {port_id: workspace_table.edit_port});
                 } else {
                     await table.update(updated.delta, {port_id: workspace_table.edit_port});
@@ -684,7 +748,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
             workspace_table.edit_table = edit_table;
             workspace_table.edit_table_name = edit_table_name;
             workspace_table.edit_port = edit_port;
-            workspace_table.editable = true;
+            workspace_table.editable = workspace_tables[edit_table_name].editable;
 
             if ('column_editors' in workspace_table && workspace_table.column_editors === 'inherit') {
                 workspace_table.column_editors = workspace_tables[edit_table_name].column_editors;
@@ -838,8 +902,7 @@ async function drop_join_rows(target, removes_table, drop_rows_indices, join_tab
 async function join_table_updated(target, removes_table, join_tables, table_name, workspace, worker, updated) {
     if (updated.port_id > 0) return;
 
-    Stats.startProcessing();
-    const startProcessing = performance.now();
+    const startProcessing = Stats.startProcessing();
     
     let update_data = undefined;
     let force_republish = false;
@@ -847,15 +910,28 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         update_data = updated.delta;  // this is supposed to be a list of rows already
         force_republish = true;
     } else if (updated.port_id === 0) {
+        const parseStart = performance.now();
         const update_table = await worker.table(updated.delta);
         const update_view = await update_table.view();
         await update_view.schema();
         update_data = await update_view.to_columns();
+        const parseEnd = performance.now();
+        Stats.trackParsingTime(parseEnd - parseStart);
+        
         update_view.delete();
         update_table.delete();
+
+        if (Object.keys(update_data).length === 0) {
+            DEBUG && console.log("No data to update in", join_tables._total.name, "from", table_name);
+            Stats.endProcessing(startProcessing);
+            return;
+        }
     } else {
+        const parseStart = performance.now();
         const view = updated.delta;
         update_data = await view.to_columns();
+        const parseEnd = performance.now();
+        Stats.trackParsingTime(parseEnd - parseStart);
     }
 
     const table = join_tables[table_name];
@@ -1090,10 +1166,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         await drop_join_rows(target, removes_table, drop_rows_indices, join_tables);
     }
 
-    const endProcessing = performance.now();
-    const processingTime = endProcessing - startProcessing;
-    Stats.trackUpdateProcessingTime(processingTime);
-    Stats.endProcessing();
+    Stats.endProcessing(startProcessing);
 }
 
 const workspace_tables = {};
@@ -1102,7 +1175,7 @@ export function getWorkspaceTables() {
     return workspace_tables;
 }
 
-export async function connectWorkspaceTables(workspace, table_config, new_api, management_ws){
+export async function connectWorkspaceTables(workspace, table_config, user_roles, new_api, management_ws){
     const is_new_api = new_api === "true";
     const worker = is_new_api ? await perspective.worker(): perspective.worker();
 
@@ -1114,7 +1187,12 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
     const index = await websocket_ro.open_table("index");
     const table_list = await (await index.view()).to_json();
     const tables = Object.fromEntries(table_list.map(x => [x.name, {...x, ...table_config[x.name]}]));
-    const table_index = {...table_config, ...tables};
+
+    const data_views = await fetch("/data_views.json", { signal: AbortSignal.timeout(10000) })
+                        .then(response => response.json())
+                        .catch(() => ({}));
+
+    const table_index = {...table_config, ...tables, ...data_views};
 
     let table_promises = [];
 
@@ -1126,6 +1204,13 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
         if (typeof(table.description) === 'string')
             table.description = table.description ? JSON.parse(table.description) : {};
 
+        const websocket = table.editable ? websocket_rw : websocket_ro;
+        if (table.editable && table.edit_role){
+            if (!user_roles.includes(table.edit_role)){
+                table.editable = false;
+            }
+        }
+
         table.start = () => {};
 
         workspace_tables[table.name] = table
@@ -1134,7 +1219,7 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
             table_promises.push(connectServerTable(
                 workspace,
                 table.name,
-                table.editable ? websocket_rw : websocket_ro,
+                table.editable ? websocket : websocket_ro,
                 worker));
 
         } else if (table.type === "client_table" && !table.editable) {
@@ -1143,7 +1228,7 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 table.name,
                 !!table.index,
                 table.index,
-                websocket_ro,
+                websocket,
                 websocket_ro,
                 worker));
         } else if (table.type === "client_table" && table.editable) {
@@ -1152,13 +1237,20 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 table.name,
                 !!table.index,
                 table.index,
-                websocket_rw,
+                websocket,
                 websocket_ro,
                 worker));
         } else if (table.type === "client_only_table") {
             table_promises.push(buildClientOnlyTable(
                 workspace,
                 table.name,
+                table.index,
+                worker));
+        } else if (table.type === "data_view") {
+            table_promises.push(connectDataView(
+                workspace,
+                table.name,
+                table.schema,
                 table.index,
                 worker));
         }
@@ -1194,8 +1286,12 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
             const update_table = await worker.table(updated.delta);
             const update_view = await update_table.view();
             const update_data = await update_view.to_columns();
+            update_view.delete();
+            update_table.delete();
+
             const names = update_data['name'];
             if (!names) return; // empty update
+
             const hb_index = names.indexOf("heartbeat");
             if (hb_index !== -1) {
                 DEBUG && console.log("Heartbeat received");
@@ -1230,10 +1326,46 @@ export async function connectWorkspaceTables(workspace, table_config, new_api, m
                 if (heartbeat_timer)
                     window.clearTimeout(heartbeat_timer);
 
-                heartbeat_timer = window.setTimeout(() => {
+                heartbeat_timer = window.setTimeout(async() => {
                     DEBUG && console.log("Heartbeat timeout");
-                    management_ws && management_ws.send({type: "reload"});
-                    window.location.reload();
+                    if (management_ws){
+                        let should_reload = true;
+                        while (true) {
+                            const probe_succeeded = await fetch("/graph-probe", { signal: AbortSignal.timeout(5000) })
+                                .then(async (response) => {
+                                    if (response.status == 200) {
+                                        document.querySelector("#announcement").innerHTML = "Data on the page is stale, will be reloaded in 15 seconds. <button id='wait'>Wait</button> <button id='reload'>Reload now</button>";
+                                        document.querySelector("#wait").onclick = () => {
+                                            should_reload = false;
+                                            document.querySelector("#announcement").innerHTML = "Data on the page is stale please reload at your convenience";
+                                        };
+                                        document.querySelector("#reload").onclick = () => {
+                                            window.location.reload();
+                                        };
+                                        return true;
+                                    } else {
+                                        document.querySelector("#announcement").innerHTML = 
+                                            `Server is not reachable, the information on the page is likely stale as of ${heartbeat_time.toISOString()}, the page will reload once the server is back up`;
+                                        await new Promise(resolve => setTimeout(resolve, 5000));
+                                        return false;
+                                    }
+                                })
+                                .catch(async (e) => {
+                                    document.querySelector("#announcement").innerHTML = 
+                                        `Server is not responding, the information on the page is likely stale as of ${heartbeat_time.toISOString()}, the page will reload once the server is back up`;
+                                    await new Promise(resolve => setTimeout(resolve, 5000));
+                                    return false;
+                                });
+                            if (probe_succeeded) {
+                                DEBUG && console.log("Graph probe succeeded, reloading page");
+                                break;
+                            }
+                        }
+                        window.setTimeout(() => { 
+                            if (should_reload)
+                                window.location.reload(); 
+                        }, 15000);
+                    }
                 }, 120000);
             }
         },

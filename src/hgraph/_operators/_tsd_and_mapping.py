@@ -44,9 +44,11 @@ def rekey(ts: TIME_SERIES_TYPE, new_keys: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
 
 
 @operator
-def flip(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
+def flip(ts: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
     """
     Flips the dictionary so that the values become the keys and the keys become the values.
+    Params:
+    * unique: bool - if False, collects multiple keys into a TSS output instead of a single TS
     """
 
 

@@ -313,7 +313,7 @@ class TSBREFWiringPort(WiringPort):
         from hgraph._operators import getitem_
 
         if item not in self.__schema__.__meta_data_schema__:
-            raise AttributeError(f"'{item}' is defined on {self.__schema__}")
+            raise AttributeError(f"'{item}' is not defined on {self.__schema__}")
         return getitem_(self, item)
 
     def __getitem__(self, item):

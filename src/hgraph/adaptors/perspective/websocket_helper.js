@@ -1,5 +1,5 @@
 export class WebSocketHelper {
-    constructor(url) {
+    constructor(url, cb = null) {
         this.url = url;
         this.ws = null;
         this.connected = false;
@@ -11,6 +11,8 @@ export class WebSocketHelper {
         this.connectionReject = null;
 
         this.connectMessages = [];
+
+        this.on_message = cb;
     }
 
     async connect(timeout = 30000) {
@@ -30,10 +32,11 @@ export class WebSocketHelper {
             for (const message of this.connectMessages) {
                 this.send(message);
             }
-            for (const message of this.pendingMessages) {
+            const pending = this.pendingMessages;
+            this.pendingMessages = [];
+            for (const message of pending) {
                 this.send(message);
             }
-            this.pendingMessages = [];
         };
 
         this.ws.onclose = () => {
@@ -42,16 +45,14 @@ export class WebSocketHelper {
                 this.connectionReject(new Error('Connection closed'));
             }
             console.log('Disconnected from WebSocket, attempting to reconnect...');
-            setTimeout(() => this.connect(), 3000);
+            setTimeout(() => this.connect().catch(() => {}), 10000);
         };
 
-        this.ws.onmessage = (event) => {
+        this.ws.onmessage = async (event) => {
             try {
-                const response = JSON.parse(event.data);
-                if (response.request_id && this.pendingRequests.has(response.request_id)) {
-                    const { resolve, reject } = this.pendingRequests.get(response.request_id);
-                    this.pendingRequests.delete(response.request_id);
-                    resolve(response.message);
+                const message = JSON.parse(typeof(event.data) === 'string' || event.data instanceof String ? event.data : await event.data.text());
+                if (this.on_message) {
+                    this.on_message(message);
                 }
             } catch (error) {
                 console.error('Error processing message:', error);
@@ -59,7 +60,7 @@ export class WebSocketHelper {
         };
 
         this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
+            console.error('WebSocket error:', JSON.stringify(error));
         };
 
         // Add connection timeout
@@ -90,12 +91,10 @@ export class WebSocketHelper {
             return;
         }
 
-        const payload = {
-            message
-        };
+        const payload = typeof message === "string" || message instanceof String ? `{"message": ${message}}` : JSON.stringify({message});
 
         try {
-            this.ws.send(JSON.stringify(payload));
+            this.ws.send(payload);
         } catch (error) {
             console.error('Error sending message:', error);
             this.pendingMessages.push(message);
@@ -109,12 +108,10 @@ export class WebSocketHelper {
             return;
         }
 
-        const payload = {
-            message
-        };
+        const payload = typeof message === "string" || message instanceof String ? `{"message": ${message}}` : JSON.stringify({message});
 
         try {
-            this.ws.send(JSON.stringify(payload));
+            this.ws.send(payload);
         } catch (error) {
             console.error('Error sending message:', error);
         }

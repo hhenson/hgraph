@@ -37,6 +37,7 @@ def test_match():
     assert eval_node(match_, pattern=["(a)"], s=["a"]) == [{"is_match": True, "groups": ("a",)}]
     assert eval_node(match_, pattern=["(a)"], s=["aa"]) == [{"is_match": True, "groups": ("a",)}]
     assert eval_node(match_, pattern=["(a)"], s=["aa"]) == [{"is_match": True, "groups": ("a",)}]
+    assert eval_node(match_, pattern=["a"], s=["baa"]) == [{"is_match": True, "groups": ()}]
     assert eval_node(match_, pattern=["a"], s=["b"]) == [{"is_match": False}]
 
 

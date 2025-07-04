@@ -1,27 +1,29 @@
 from collections import defaultdict, deque
-from typing import Callable
+from typing import Callable, Type
 
 from tornado import httpclient
 from tornado.websocket import websocket_connect
 
-from hgraph import service_adaptor, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node, STATE, TSB
+from hgraph import AUTO_RESOLVE, service_adaptor, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node, STATE, TSB
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
-from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketClientRequest, WebSocketResponse
+from hgraph.adaptors.tornado.websocket_server_adaptor import STR_OR_BYTES, WebSocketClientRequest, WebSocketResponse
 
 
 @service_adaptor
 def websocket_client_adaptor(
-    request: TSB[WebSocketClientRequest], path: str = "websocket_client"
-) -> TSB[WebSocketResponse]: ...
+    request: TSB[WebSocketClientRequest[STR_OR_BYTES]], path: str = "websocket_client"
+) -> TSB[WebSocketResponse[STR_OR_BYTES]]: ...
 
 
 @service_adaptor_impl(interfaces=websocket_client_adaptor)
 def websocket_client_adaptor_impl(
-    request: TSD[int, TSB[WebSocketClientRequest]], path: str = "websocket_client"
-) -> TSD[int, TSB[WebSocketResponse]]:
+    request: TSD[int, TSB[WebSocketClientRequest[STR_OR_BYTES]]], path: str = "websocket_client", _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE
+) -> TSD[int, TSB[WebSocketResponse[STR_OR_BYTES]]]:
 
-    @push_queue(TSD[int, TSB[WebSocketResponse]])
-    def from_web(sender, path: str = "websocket_client") -> TSD[int, TSB[WebSocketResponse]]:
+    is_binary = _tp is bytes
+
+    @push_queue(TSD[int, TSB[WebSocketResponse[_tp]]])
+    def from_web(sender, path: str = "websocket_client") -> TSD[int, TSB[WebSocketResponse[_tp]]]:
         GlobalState.instance()[f"websocket_client_adaptor://{path}/queue"] = sender
         return None
 
@@ -42,20 +44,24 @@ def websocket_client_adaptor_impl(
                 msg = await ws.read_message()
                 if msg is None:
                     break
+                if type(msg) is str and is_binary:
+                    msg = msg.encode("utf-8")
+                elif type(msg) is bytes and not is_binary:
+                    msg = msg.decode("utf-8")
                 sender({id: {"message": msg}})
         finally:
             ws.close()
             del state.sockets[id]
             sender({id: {"connect_response": False}})
 
-    async def send_websocket_message(state: STATE, id: int, message: bytes):
+    async def send_websocket_message(state: STATE, id: int, message: STR_OR_BYTES):
         if ws := state.sockets.get(id):
-            await ws.write_message(message, binary=True)
+            await ws.write_message(message, binary=is_binary)
         else:
             state.queues[id].append(message)
 
     @sink_node
-    def to_web(request: TSD[int, TSB[WebSocketClientRequest]], _state: STATE = None):
+    def to_web(request: TSD[int, TSB[WebSocketClientRequest[STR_OR_BYTES]]], _state: STATE = None):
         sender = GlobalState.instance()[f"websocket_client_adaptor://{path}/queue"]
 
         for i, r in request.modified_items():

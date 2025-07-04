@@ -90,9 +90,9 @@ def test_any_invalid():
 
 
 def test_if_then_else():
-    expected = [None, 2, 6, 3]
+    expected = [None, 2, 6, 3, None]
 
-    assert eval_node(if_then_else, [None, True, False, True], [1, 2, 3], [4, 5, 6]) == expected
+    assert eval_node(if_then_else, [None, True, False, True, True], [1, 2, 3], [4, 5, 6]) == expected
 
 
 def test_if_cmp():

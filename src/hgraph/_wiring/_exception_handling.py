@@ -109,7 +109,7 @@ def try_except(
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
-            label=f"try_except({resolved_signature.signature}, {', '.join(resolved_signature.args)})",
+            # label=f"try_except({resolved_signature.signature}, {', '.join(resolved_signature.args)})",
         )
         from hgraph import TryExceptWiringNodeClass
 

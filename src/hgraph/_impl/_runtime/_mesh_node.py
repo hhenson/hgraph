@@ -102,7 +102,9 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
 
         self.output["ref"].value = TimeSeriesReference.make(self.output["out"])
         GlobalState.instance()[self._full_context_path] = self.output["ref"]
-        self._output = self.output["out"]
+
+    def tsd_output(self):
+        return self._output["out"]
 
     def do_stop(self):
         del GlobalState.instance()[self._full_context_path]

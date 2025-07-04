@@ -83,8 +83,8 @@ class EvaluationTrace(EvaluationLifeCycleObserver):
         while graph:
             if graph.parent_node:
                 graph_str.append(
-                    f"{(graph.parent_node.signature.label + ':') if graph.parent_node.signature.label else ''}"
-                    + f"{graph.parent_node.signature.name}<{', '.join(str(i) for i in graph.graph_id)}>"
+                    f"{graph.parent_node.signature.name}<{', '.join(str(i) for i in graph.graph_id)}>" +
+                    f"{(':' + graph.parent_node.signature.label) if graph.parent_node.signature.label else ''}"
                 )
                 graph = graph.parent_node.graph
             else:

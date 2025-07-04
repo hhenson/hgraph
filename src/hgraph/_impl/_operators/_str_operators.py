@@ -79,7 +79,7 @@ def match_default(pattern: TS[str], s: TS[str]) -> TSB[Match]:
     """
     import re
 
-    m = re.match(pattern.value, s.value)
+    m = re.search(pattern.value, s.value)
     if m:
         return {"is_match": True, "groups": m.groups()}
     else:

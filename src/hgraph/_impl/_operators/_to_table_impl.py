@@ -1,6 +1,6 @@
 from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema_raw_type, PartialSchema
 from hgraph._operators import to_table, get_as_of, table_schema, TableSchema, make_table_schema, from_table
-from hgraph._operators._to_table import from_table_const, TABLE, table_shape
+from hgraph._operators._to_table import ToTableMode, from_table_const, TABLE, table_shape
 from hgraph._runtime import EvaluationClock
 from hgraph._types import TS, TIME_SERIES_TYPE, STATE, AUTO_RESOLVE, OUT
 from hgraph._wiring._decorators import compute_node, const_fn
@@ -38,15 +38,25 @@ def table_schema_generic(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
 @compute_node(overloads=to_table, resolvers={TABLE: lambda m, s: table_shape(m[TIME_SERIES_TYPE].py_type)})
 def to_table_generic(
     ts: TIME_SERIES_TYPE,
+    mode: TS[ToTableMode] = ToTableMode.Tick,
     _clock: EvaluationClock = None,
     _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
     _state: STATE = None,
 ) -> TS[TABLE]:
     schema: PartialSchema = _state.partial_schema
+
+    if mode.value == ToTableMode.Tick:
+        fn = schema.to_table
+    elif mode.value == ToTableMode.Sample:
+        fn = schema.to_table_sample
+    elif mode.value == ToTableMode.Snap:
+        fn = schema.to_table_snap
+        
+
     if schema.partition_keys:
-        return tuple(((ts.last_modified_time, get_as_of(_clock)) + i) for i in schema.to_table(ts))
+        return tuple(((ts.last_modified_time, get_as_of(_clock)) + i) for i in fn(ts))
     else:
-        return (ts.last_modified_time, get_as_of(_clock)) + schema.to_table(ts)
+        return (ts.last_modified_time, get_as_of(_clock)) + fn(ts)
 
 
 @to_table_generic.start

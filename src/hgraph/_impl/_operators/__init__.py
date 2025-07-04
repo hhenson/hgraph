@@ -31,3 +31,4 @@ from hgraph._impl._operators._tuple_operators import *
 from hgraph._impl._operators._type import *
 from hgraph._impl._operators._type_operators import *
 from hgraph._impl._operators._zero import *
+from hgraph._impl._operators._json import *

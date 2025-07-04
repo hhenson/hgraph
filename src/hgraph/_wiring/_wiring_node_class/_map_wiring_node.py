@@ -99,18 +99,22 @@ class TslMapWiringNodeClass(BaseWiringNodeClass):
 
     def _map_with_index(self, **kwargs) -> "WiringPort": ...
 
-    def _map_no_index(self, **kwargs) -> "WiringPort":
+    def _map_no_index(self, __label__=None, **kwargs) -> "WiringPort":
         """In this scenario, we can just map the nodes using the max size"""
         from hgraph._types._scalar_types import Size
         from hgraph._operators._time_series_conversion import const
         from hgraph._types._tsl_type import TSL
 
-        out = []
+        outs = []
 
         for i in range(cast(Size, self.signature.size_tp.py_type).SIZE):
             kwargs_ = {k: v[i] if k in self.signature.multiplexed_args else v for k, v in kwargs.items()}
             if self.signature.key_arg:
                 kwargs_ = {self.signature.key_arg: const(i)} | kwargs_
-            out.append(self.fn(**kwargs_))
+            outs.append(self.fn(**kwargs_))
 
-        return TSL.from_ts(*out)
+        out = TSL.from_ts(*outs)
+        if __label__ is not None:
+            out.node_instance.label = __label__
+
+        return out

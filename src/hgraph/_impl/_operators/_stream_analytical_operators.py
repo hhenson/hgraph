@@ -1,19 +1,19 @@
 from dataclasses import dataclass
 
 from hgraph import (
-    graph,
-    TS,
     NUMBER,
-    compute_node,
+    SCALAR,
     SIGNAL,
+    STATE,
+    TS,
     TS_OUT,
     CompoundScalar,
-    STATE,
-    diff,
-    count,
     clip,
+    compute_node,
+    count,
+    diff,
     ewma,
-    SCALAR,
+    graph,
 )
 
 __all__ = tuple()
@@ -39,20 +39,18 @@ def count_impl(ts: SIGNAL, reset: SIGNAL = None, _output: TS_OUT[int] = None) ->
 
 
 @compute_node(overloads=clip)
-def clip_number(ts: TS[NUMBER], min_: NUMBER, max_: NUMBER) -> TS[NUMBER]:
+def clip_number(ts: TS[NUMBER], min_: TS[NUMBER], max_: TS[NUMBER]) -> TS[NUMBER]:
+    min_value = min_.value
+    max_value = max_.value
+    if (min_.modified or max_.modified) and (min_value > max_value):
+        raise RuntimeError(f"clip given min: {min_.value}, max: {max_.value}, but min is not < max")
+
     v = ts.value
-    if v < min_:
-        return min_
-    if v > max_:
-        return max_
+    if v < min_value:
+        return min_value
+    if v > max_value:
+        return max_value
     return v
-
-
-@clip_number.start
-def clip_number_start(min_: NUMBER, max_: NUMBER):
-    if min_ < max_:
-        return
-    raise RuntimeError(f"clip given min: {min_}, max: {max_}, but min is not < max")
 
 
 @dataclass

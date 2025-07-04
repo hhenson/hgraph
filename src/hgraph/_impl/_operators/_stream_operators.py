@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 from typing import Mapping, Generic
 
+from multimethod import multimethod
+
 from hgraph import (
     TSW,
     WINDOW_SIZE,
@@ -50,7 +52,13 @@ from hgraph import (
     TS_SCHEMA,
     AUTO_RESOLVE,
     TSS,
-    union
+    union,
+)
+
+from hgraph._impl._types import (
+    PythonTimeSeriesDictInput,
+    PythonTimeSeriesSetInput,
+    PythonTimeSeriesValueInput,
 )
 
 __all__ = ()
@@ -166,45 +174,40 @@ def resample_default(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYP
     return sample(schedule(period), ts)
 
 
+@multimethod
+def dedup_item(input, output):
+    return {
+        k_new: v_new
+        for k_new, v_new in ((k, dedup_item(v, output[k])) for k, v in input.modified_items())
+        if v_new is not None
+    }
+
+@dedup_item.register
+def dedup_dicts(input: PythonTimeSeriesDictInput, output):
+    out = {
+        k_new: v_new
+        for k_new, v_new in ((k, dedup_item(v, output.get_or_create(k))) for k, v in input.modified_items())
+        if v_new is not None
+    }
+    return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
+
+@dedup_item.register
+def dedup_value(input: PythonTimeSeriesValueInput, output):
+    if output.valid:
+        if input.value != output.value:
+            return input.delta_value
+    else:
+        return input.value
+
+@dedup_item.register
+def dedup_value(input: PythonTimeSeriesSetInput, output):
+    return input.delta_value
+
 @compute_node(overloads=dedup)
 def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
     """
-    from multimethod import multimethod
-    from hgraph import PythonTimeSeriesValueInput
-    from hgraph import PythonTimeSeriesDictInput
-    from hgraph import PythonTimeSeriesSetInput
-
-    @multimethod
-    def dedup_item(input, output):
-        return {
-            k_new: v_new
-            for k_new, v_new in ((k, dedup_item(v, output[k])) for k, v in input.modified_items())
-            if v_new is not None
-        }
-
-    @dedup_item.register
-    def dedup_dicts(input: PythonTimeSeriesDictInput, output):
-        out = {
-            k_new: v_new
-            for k_new, v_new in ((k, dedup_item(v, output.get_or_create(k))) for k, v in input.modified_items())
-            if v_new is not None
-        }
-        return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
-
-    @dedup_item.register
-    def dedup_value(input: PythonTimeSeriesValueInput, output):
-        if output.valid:
-            if input.value != output.value:
-                return input.delta_value
-        else:
-            return input.value
-
-    @dedup_item.register
-    def dedup_value(input: PythonTimeSeriesSetInput, output):
-        return input.delta_value
-
     return dedup_item(ts, _output)
 
 
@@ -238,6 +241,39 @@ class _ThrottleState(CompoundScalar):
     tick: dict = field(default_factory=dict)
 
 
+@multimethod
+def collect_tick(input, out):
+    return {
+        k_new: v_new
+        for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
+        if v_new is not None
+    }
+
+@collect_tick.register
+def collect_dict(input: PythonTimeSeriesDictInput, out):
+    out |= {
+        k_new: v_new
+        for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
+        if v_new is not None
+    }
+    return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
+
+@collect_tick.register
+def collect_set(input: PythonTimeSeriesSetInput, out):
+    from hgraph import PythonSetDelta
+    if not out:
+        out = PythonSetDelta(set(), set())
+    new_added, new_removed = input.added(), input.removed()
+    added = (out.added - new_removed) | new_added
+    removed = (out.removed - new_added) | new_removed
+    return PythonSetDelta(added, removed)
+
+@collect_tick.register
+def collect_value(input: PythonTimeSeriesValueInput, out):
+    return input.value
+
+
+
 # TODO: This code will need to be re-written to support C++, it currently depends on instance checks of inputs
 # which will not work going forwards.
 @compute_node(overloads=throttle)
@@ -253,37 +289,7 @@ def throttle_default(
     from hgraph import PythonTimeSeriesValueInput
     from hgraph import PythonTimeSeriesDictInput
     from hgraph import PythonTimeSeriesSetInput
-
-    @multimethod
-    def collect_tick(input, out):
-        return {
-            k_new: v_new
-            for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
-            if v_new is not None
-        }
-
-    @collect_tick.register
-    def collect_dict(input: PythonTimeSeriesDictInput, out):
-        out |= {
-            k_new: v_new
-            for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
-            if v_new is not None
-        }
-        return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
-
-    @collect_tick.register
-    def collect_set(input: PythonTimeSeriesSetInput, out):
-        from hgraph import PythonSetDelta
-        if not out:
-            out = PythonSetDelta(set(), set())
-        new_added, new_removed = input.added(), input.removed()
-        added = (out.added - new_removed) | new_added
-        removed = (out.removed - new_added) | new_removed
-        return PythonSetDelta(added, removed)
-
-    @collect_tick.register
-    def collect_value(input: PythonTimeSeriesValueInput, out):
-        return input.value
+    from hgraph import PythonSetDelta
 
     if ts.modified:
         if _sched.is_scheduled:
@@ -326,7 +332,7 @@ class TimeState(CompoundScalar):
 
 
 @compute_node(overloads=take)
-def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta = MIN_TD, state: STATE[TimeState] = None) -> TIME_SERIES_TYPE:
+def take_by_time(ts: TIME_SERIES_TYPE, count: timedelta, state: STATE[TimeState] = None) -> TIME_SERIES_TYPE:
     if state.time == MIN_DT:  # First tick
         state.time = ts.last_modified_time
 

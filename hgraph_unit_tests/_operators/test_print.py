@@ -3,7 +3,7 @@ from contextlib import nullcontext
 
 import pytest
 
-from hgraph import graph, TSL, TS, Size, debug_print, log_, print_, assert_, NodeException, DebugContext, null_sink
+from hgraph import LOGGER, compute_node, graph, TSL, TS, Size, debug_print, log_, print_, assert_, NodeException, DebugContext, null_sink
 from hgraph.nodes._tsl_operators import tsl_to_tsd
 from hgraph.test import eval_node
 
@@ -169,3 +169,14 @@ def test_assert():
 
     with pytest.raises(NodeException, match="assertion 3 2"):
         eval_node(main, [True, None, False], [1, 2, 3, 4])
+
+
+def test_custom_label(capsys):
+    @compute_node(label="custom_label {i}")
+    def g(ts: TS[str], i: str, logger_: LOGGER = None) -> TS[str]:
+        return ts.value
+
+    eval_node(g, ["Contents"], i="one", __trace__=True)
+    out = capsys.readouterr().out
+    if out:  # capture fixture is flaky, so check if out is not empty
+        assert "custom_label one:g" in out

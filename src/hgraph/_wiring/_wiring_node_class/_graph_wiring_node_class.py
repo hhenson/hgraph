@@ -72,8 +72,20 @@ class WiringGraphContext:
 
     @classmethod
     def wiring_path_name(cls) -> str:
+        return cls.__stack__[-1]._wiring_path_name if WiringGraphContext.__stack__ else ""
+    
+    @property
+    def _wiring_path_name(self) -> str:
         """Return a graph call stack in names of graphs"""
-        return ".".join(graph.wiring_node_signature.name for graph in cls.__stack__[1:] if graph.wiring_node_signature)
+
+        path = ".".join(
+            graph.wiring_node_signature.name + (':' + graph.wiring_node_signature.label if graph.wiring_node_signature.label else '')
+            for i, graph in enumerate(self.__stack__[1:])
+            if graph.wiring_node_signature
+            )
+        
+        self.__dict__['_wiring_path_name'] = path
+        return path
 
     @classmethod
     def instance(cls) -> "WiringGraphContext":
@@ -432,6 +444,9 @@ class WiringGraphContext:
             for c, n in self._service_build_contexts:
                 WiringGraphContext.__stack__[-1].add_service_build_context(c, n)
 
+        del self._current_frame
+        del self._other_nodes
+
 
 class GraphWiringNodeClass(BaseWiringNodeClass):
 
@@ -479,7 +494,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
             )
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
-            with WiringGraphContext(self.signature) as g:
+            with WiringGraphContext(resolved_signature) as g:
                 out: WiringPort = self.fn(**kwargs_)
                 WiringGraphContext.instance().label_nodes()
                 if output_type := resolved_signature.output_type:

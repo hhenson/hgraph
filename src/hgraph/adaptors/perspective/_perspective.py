@@ -1,6 +1,6 @@
 import asyncio
+import base64
 import concurrent.futures
-import enum
 import json
 import logging
 import operator
@@ -13,26 +13,24 @@ from functools import reduce
 from glob import glob
 from pathlib import Path
 from threading import Thread
-from typing import Dict, Optional, Callable, List, Awaitable
+from typing import Awaitable, Callable, Dict, Optional
 
+import perspective
 import pyarrow
 import tornado
-import perspective
 
 if perspective.__version__ == "2.10.1":
-    from perspective import PerspectiveManager, Table, View
-    from perspective import PerspectiveTornadoHandler
+    from perspective import PerspectiveManager, PerspectiveTornadoHandler, Table, View
 
     table = Table
     psp_new_api = False
 else:
-    from perspective import Server, table, Table, View
+    from perspective import Server, Table, View, table
     from perspective.handlers.tornado import PerspectiveTornadoHandler
 
     psp_new_api = True
 
-from hgraph import sink_node, GlobalState, TS, STATE
-
+from hgraph import TS, GlobalState, sink_node
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
 __all__ = ["perspective_web", "PerspectiveTablesManager", "TablePageHandler", "IndexPageHandler"]
@@ -81,11 +79,12 @@ class PerspectiveTableUpdatesHandler:
 
 
 class PerspectiveTablesManager:
-    def __init__(self, host_server_tables=True, table_config_file=(), **kwargs):
+    def __init__(self, host_server_tables=True, table_config_file=(), table_configs=(), **kwargs):
         self._host_server_tables = host_server_tables
         self._table_config_files = (
             table_config_file if isinstance(table_config_file, (list, tuple)) else [table_config_file]
         )
+        self._table_configs = table_configs
         self._started = False
         self._tables = {}
         self._updaters = defaultdict(set)
@@ -104,8 +103,10 @@ class PerspectiveTablesManager:
                 "name": str,
                 "type": str,  # 'table', 'client_table', 'view', 'join'
                 "editable": bool,
+                "edit_role": str,
                 "url": str,
                 "schema": str,
+                "blank": str,
                 "index": str,
                 "description": str,
             },
@@ -122,6 +123,9 @@ class PerspectiveTablesManager:
         for c in self._table_config_files:
             with open(c, "r") as f:
                 json.load(f)  # check if it is valid json
+
+        for c in self._table_configs:
+            json.loads(c)  # check if it is valid json
 
     def is_new_api(self):
         return psp_new_api
@@ -144,14 +148,15 @@ class PerspectiveTablesManager:
     def server_tables(self):
         return self._host_server_tables
 
-    def create_table(self, *args, name, editable=False, user=True, **kwargs):
+    def create_table(self, *args, name, editable=False, user=True, edit_role=None, **kwargs):
         tbl = table(*args, **kwargs, **({"name": name} if psp_new_api else {}))
-        self.add_table(name, tbl, editable=editable, user=user)
+        self.add_table(name, tbl, editable=editable, user=user, edit_role=edit_role)
         return tbl
 
-    def add_table(self, name, table, editable=False, user=True):
+    def add_table(self, name, table, editable=False, user=True, edit_role: str = None):
         view = table.view()
-        arrow_schema = pyarrow.RecordBatchStreamReader(view.to_arrow()).read_all().schema
+        blank = view.to_arrow()
+        arrow_schema = pyarrow.RecordBatchStreamReader(blank).read_all().schema
         view.delete()
 
         self._tables[name] = [table, editable, arrow_schema]
@@ -161,8 +166,10 @@ class PerspectiveTablesManager:
                 "name": name,
                 "type": "table" if self.server_tables else "client_table",
                 "editable": editable,
+                "edit_role": edit_role,
                 "url": f"",
                 "schema": json.dumps({k: v if type(v) is str else v.__name__ for k, v in table.schema().items()}),
+                "blank": base64.b64encode(blank),
                 "index": table.get_index(),
                 "description": "",
             }])
@@ -173,17 +180,6 @@ class PerspectiveTablesManager:
         if table.get_index() and not self.server_tables:
             # client tables need removes sent separately (because bug in perspective)
             self.create_table({"i": table.schema()[table.get_index()]}, name=name + "_removes", user=False)
-
-    def add_join(self, name, schema, index, description):
-        self._index_table.update([{
-            "name": name,
-            "type": "join",
-            "editable": False,
-            "url": f"",
-            "schema": json.dumps({k: v.__name__ for k, v in schema.items()}),
-            "index": index,
-            "description": json.dumps(description),
-        }])
 
     def subscribe_table_updates(self, name, cb, self_updates: bool = False):
         if (table := self._tables.get(name)) and not table[1]:
@@ -267,10 +263,7 @@ class PerspectiveTablesManager:
 
         return f"{header}\n{line}\n" + "\n".join(rows) + f"\n{line}"
 
-    def update_table(self, name, data, removals=None):
-        table = self._tables[name][0]
-        schema = self._tables[name][2]
-
+    def _update_to_arrows(self, schema, data):
         if data:
             if isinstance(data, list):
                 if self.is_new_api():
@@ -298,6 +291,7 @@ class PerspectiveTablesManager:
             if not isinstance(data, list):
                 data = [data]
 
+            arrows = []
             for i, d in enumerate(data):
                 try:
                     batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
@@ -309,17 +303,28 @@ class PerspectiveTablesManager:
                     continue
 
                 stream = pyarrow.BufferOutputStream()
-
                 with pyarrow.ipc.new_stream(stream, batch.schema) as writer:
                     writer.write_batch(batch)
 
-                arrow = stream.getvalue().to_pybytes()
+                arrows.append(stream.getvalue().to_pybytes())
 
+            return arrows
+        
+        return []
+
+
+    def update_table(self, name, data, removals=None):
+        table = self._tables[name][0]
+        schema = self._tables[name][2]
+
+        if data:
+            arrows = self._update_to_arrows(schema, data)
+            for i, arrow in enumerate(arrows):
                 if psp_new_api:
-                    self._callback(lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i))
+                    self._callback(lambda a=arrow, d=data, i_=i: PerspectiveTablesManager._table_update(table, a, d, i_))
                 else:
                     self._manager_for_table(name).call_loop(
-                        lambda a=arrow, d=data, i=i: PerspectiveTablesManager._table_update(table, a, d, i)
+                        lambda a=arrow, d=data, i_=i: PerspectiveTablesManager._table_update(table, a, d, i_)
                     )
 
         if removals:
@@ -336,7 +341,21 @@ class PerspectiveTablesManager:
                 else:
                     self._manager_for_table(name).call_loop(lambda: table.remove(removals))
 
-        # table.update(data)
+
+    def replace_table(self, name, data):
+        table = self._tables[name][0]
+        schema = self._tables[name][2]
+
+        if data:
+            arrows = self._update_to_arrows(schema, data)
+            replace = True
+            for arrow in arrows:
+                fn = table.replace if replace else table.update
+                if psp_new_api:
+                    self._callback(lambda a=arrow, f=fn: f(a))
+                else:
+                    self._manager_for_table(name).call_loop(lambda a=arrow, f=fn: f(a))
+
 
     def get_table_names(self):
         return list(self._tables.keys())
@@ -352,8 +371,10 @@ class PerspectiveTablesManager:
         for file in self._table_config_files:
             with open(file, "r") as f:
                 config |= json.load(f)
+        for c in self._table_configs:
+            config |= json.loads(c)
         return config
-
+            
     def tornado_config(self):
         if psp_new_api:
             return [
@@ -619,6 +640,17 @@ def _perspective_thread(manager, cb):
         loop.start()
 
 
+class TemplatePageHandler(tornado.web.RequestHandler):
+    def initialize(self, mgr: PerspectiveTablesManager):
+        self.mgr = mgr
+
+    async def prepare(self):
+        if gcu := self.mgr.options.get("get_current_user", False):
+            self.current_user = gcu(self.request)
+        if agcu := self.mgr.options.get("get_current_user_async", False):
+            self.current_user = await agcu(self.request)
+
+
 class TablePageHandler(tornado.web.RequestHandler):
     def initialize(self, mgr: PerspectiveTablesManager, template: str, host: str, port: int):
         self.mgr = mgr
@@ -643,7 +675,7 @@ class TablePageHandler(tornado.web.RequestHandler):
             self.write("Table not found")
 
 
-class IndexPageHandler(tornado.web.RequestHandler):
+class IndexPageHandler(TemplatePageHandler):
     def initialize(self, mgr: PerspectiveTablesManager, layouts_path: str, index_template: str, host: str, port: int):
         self.index_template = index_template
         self.layouts_path = layouts_path

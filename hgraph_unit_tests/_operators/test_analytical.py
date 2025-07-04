@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import TS, average, accumulate, graph, diff, count, clip, center_of_mass_to_alpha, span_to_alpha
+from hgraph import TS, NodeException, average, accumulate, graph, diff, count, clip, center_of_mass_to_alpha, span_to_alpha
 from hgraph.test import eval_node
 
 
@@ -21,7 +21,7 @@ def test_clip(values, min, max, expected):
 
 
 def test_clip_failure():
-    with pytest.raises(RuntimeError):
+    with pytest.raises(NodeException):
         assert eval_node(clip, [1.0], 1.0, -1.0) == [1.0]
 
 

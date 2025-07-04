@@ -581,7 +581,8 @@ def flip_tsd_non_unique(
     ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None
 ) -> TSD[K_1, TSS[K]]:
     """
-    Flip the TSD to have the time-series as the key and the key as the time-series. Collect keys for duplicate values into TSS
+    Flip the TSD to have the time-series as the key and the key as the time-series.
+    Collect keys for duplicate values into TSS
     """
     prev = _state.prev
 

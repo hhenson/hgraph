@@ -106,8 +106,8 @@ try:
     @pytest.mark.serial
     def test_single_websocket_request_graph():
         @websocket_server_handler(url="/test")
-        def x(request: TSB[WebSocketServerRequest]) -> TSB[WebSocketResponse]:
-            return combine[TSB[WebSocketResponse]](
+        def x(request: TSB[WebSocketServerRequest[bytes]]) -> TSB[WebSocketResponse[bytes]]:
+            return combine[TSB[WebSocketResponse[bytes]]](
                 connect_response=True,
                 message=request.messages[-1],
             )
@@ -130,7 +130,7 @@ try:
     def test_multiple_websocket_request_graph():
         @websocket_server_handler(url="/test")
         @compute_node
-        def x(request: TSD[int, TSB[WebSocketServerRequest]], _state: STATE = None) -> TSD[int, TSB[WebSocketResponse]]:
+        def x(request: TSD[int, TSB[WebSocketServerRequest[bytes]]], _state: STATE = None) -> TSD[int, TSB[WebSocketResponse[bytes]]]:
             out = defaultdict(dict)
             for i, v in request.modified_items():
                 if v.connect_request.modified:
@@ -158,8 +158,8 @@ try:
     @pytest.mark.serial
     def test_websocket_server_adaptor_graph():
         @websocket_server_handler(url="/test/(.*)")
-        def x(request: TSB[WebSocketServerRequest], b: TS[int]) -> TSB[WebSocketResponse]:
-            return combine[TSB[WebSocketResponse]](
+        def x(request: TSB[WebSocketServerRequest[bytes]], b: TS[int]) -> TSB[WebSocketResponse[bytes]]:
+            return combine[TSB[WebSocketResponse[bytes]]](
                 connect_response=True,
                 message=convert[TS[bytes]](
                     format_(
@@ -187,8 +187,8 @@ try:
     @pytest.mark.serial
     def test_single_request_graph_client():
         @websocket_server_handler(url="/test/(.*)")
-        def x(request: TSB[WebSocketServerRequest]) -> TSB[WebSocketResponse]:
-            return combine[TSB[WebSocketResponse]](
+        def x(request: TSB[WebSocketServerRequest[bytes]]) -> TSB[WebSocketResponse[bytes]]:
+            return combine[TSB[WebSocketResponse[bytes]]](
                 connect_response=True,
                 message=convert[TS[bytes]](
                     format_(
@@ -213,7 +213,7 @@ try:
             def ws_client(i: TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]) -> TS[bytes]:
                 connected = feedback(TS[bool])
                 resp = websocket_client_adaptor(
-                    combine[TSB[WebSocketClientRequest]](connect_request=i[0], message=gate(connected(), emit(i[1])))
+                    combine[TSB[WebSocketClientRequest[bytes]]](connect_request=i[0], message=gate(connected(), emit(i[1])))
                 )
                 connected(resp.connect_response)
                 return resp.message

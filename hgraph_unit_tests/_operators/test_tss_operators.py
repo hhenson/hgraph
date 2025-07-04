@@ -76,6 +76,16 @@ def test_bit_or_tsss():
     ) == [{1}, {2}, {3}, {4, 5}, None, None, {Removed(5)}]
 
 
+def test_bit_or_tsss_2():
+    @graph
+    def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:
+        return tss1 | tss2
+
+    assert eval_node(
+        app, [{1}, {2}, None, {4}, {5}, None, {Removed(5)}], [None, None, {3}, {5}, None, {Removed(5)}, None], __trace__=True
+    ) == [{1}, {2}, {3}, {4, 5}, None, None, {Removed(5)}]
+
+
 def test_bit_and_tsss():
     @graph
     def app(tss1: TSS[int], tss2: TSS[int]) -> TSS[int]:

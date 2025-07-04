@@ -79,10 +79,10 @@ def http_client_adaptor_impl(
             raise HTTPError(401, "missing www-authenticate header")
 
         auth_header = auth_header.lower()
-        if "ntlm" in auth_header:
-            scheme = "NTLM"
-        elif "negotiate" in auth_header:
-            scheme = "Negotiate"
+        if 'negotiate' in auth_header:
+            scheme = 'Negotiate'
+        elif 'ntlm' in auth_header:
+            scheme = 'NTLM'
         else:
             raise HTTPError(401, "unhandled protocol")
 
@@ -123,11 +123,16 @@ def http_client_adaptor_impl(
             final = response2.headers.get("WWW-Authenticate")
             if final is not None:
                 try:
-                    challenge = [v[len(scheme) + 1 :] for val in final.split(",") if scheme in (v := val.strip())]
-                    if len(challenge) != 1:
-                        raise HTTPError(401, f"Did not get exactly one {scheme} challenge from server")
+                    challenge = [v[len(scheme) + 1:] for val in final.split(',') if scheme in (v := val.strip())]
+                    if len(challenge) > 1:
+                        raise HTTPError(
+                            401, f'Received more than one {scheme} challenge from server'
+                        )
 
-                    tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
+                    tokenbuf = win32security.PySecBufferType(
+                        pkg_info['MaxToken'],
+                        sspicon.SECBUFFER_TOKEN
+                    )
                     tokenbuf.Buffer = base64.b64decode(challenge[0])
                     sec_buffer.append(tokenbuf)
                     err, auth = clientauth.authorize(sec_buffer)
@@ -148,8 +153,18 @@ def http_client_adaptor_impl(
             for val in response2.headers.get("WWW-Authenticate", "").split(",")
             if scheme in (v := val.strip())
         ]
-        if len(challenge) != 1:
-            raise HTTPError(401, f"Did not get exactly one {scheme} challenge from server")
+        if len(challenge) > 1:
+            raise HTTPError(
+                401, f'Received more than one {scheme} challenge from server'
+            )
+        elif len(challenge) == 0:
+            import re
+            base64_pattern = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?'
+            matches = re.findall(base64_pattern, final)
+            if matches:
+                challenge = [matches[0]]
+            else:
+                raise HTTPError(401, f'Could not find any {scheme} challenge in WWW-Authenticate header: {final}')
 
         tokenbuf = win32security.PySecBufferType(pkg_info["MaxToken"], sspicon.SECBUFFER_TOKEN)
         tokenbuf.Buffer = base64.b64decode(challenge[0])
@@ -174,6 +189,7 @@ def http_client_adaptor_impl(
         if not auth_header:
             raise HTTPError(401, "missing www-authenticate header")
 
+        # Parse auth header to handle case when both NTLM and Negotiate are present
         auth_header = auth_header.lower()
         if "negotiate" in auth_header:
             scheme = "Negotiate"
@@ -231,12 +247,20 @@ def http_client_adaptor_impl(
                 final = response2.headers.get("WWW-Authenticate")
                 if final is not None:
                     try:
-                        final = re.search(f"{scheme}\\s*([^,]*)", final, re.I)
-                        if final is None:
-                            raise HTTPError(401, "No auth token found")
+                        scheme_match = re.search(f"{scheme}\\s*([^,]*)", final, re.I)
+                        if scheme_match is not None:
+                            token = scheme_match[1]
+                        else:
+                            # Try to find any Base64-encoded token in the header
+                            base64_pattern = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?'
+                            matches = re.findall(base64_pattern, final)
 
-                        final = final[1]
-                        ctx.step(in_token=base64.b64decode(final))
+                            if matches and len(matches[0]) > 8: 
+                                token = matches[0]
+                            else:
+                                raise HTTPError(401, f"No valid auth token found in header: {final}")
+                            
+                        ctx.step(in_token=base64.b64decode(token))
                     except spnego.exceptions.SpnegoError:
                         logger.error("authenticate_server(): ctx step() failed:")
                         raise HTTPError(401, "Kerberos Authentication failed")
@@ -296,7 +320,7 @@ def http_client_adaptor_impl(
 
         except Exception as e:
             logger.error("request %i failed : %s", id, e)
-            sender({id: HttpResponse(status_code=e.code, body=e.message.encode())})
+            sender({id: HttpResponse(status_code=400, body=str(e).encode())})
             return
 
         logger.info("request %i succeeded in %i ms", id, int((time.perf_counter_ns() - start_time) / 1000000))

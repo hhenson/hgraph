@@ -141,7 +141,7 @@ def switch_(
             # We have constructed the map so that the key are is always present.
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
-            label=f"switch_({{{', '.join(f'{k}: ...' for k in cases)}}}, ...)",
+            # label=f"switch_({{{', '.join(f'{k}: ...' for k in cases)}}}, ...)",
         )
 
         nested_graphs = {}

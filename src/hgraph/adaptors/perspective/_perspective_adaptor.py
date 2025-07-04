@@ -63,33 +63,17 @@ def publish_table_impl(path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: 
 
 @adaptor
 def publish_table_editable(
-    path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None, empty_row: bool = False
+    path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None, edit_role: str = None, empty_row: bool = False
 ) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]: ...
-
-
-@graph
-def publish_join_table(path: str, schema: Mapping[str, type], index: str, description: object):
-    _publish_join_table(path, schema, index, description, nothing(TS[bool]))
-
-
-@sink_node
-def _publish_join_table(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]): ...
-
-
-@_publish_join_table.start
-def _publish_join_table_start(path: str, schema: dict[str, type], index: str, description: object, _: TS[bool]):
-    from hgraph.adaptors.perspective import PerspectiveTablesManager
-
-    PerspectiveTablesManager.current().add_join(path, schema, index, description)
 
 
 @adaptor_impl(interfaces=publish_table_editable)
 def publish_table_editable_impl(
-    path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None, empty_row: bool = False
+    path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None, edit_role: str = None, empty_row: bool = False
 ) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]:
     _assert_unique_type_per_path(publish_table_editable)
 
-    _publish_table(path, ts, index_col_name=index_col_name, history=history, editable=True, empty_row=empty_row)
+    _publish_table(path, ts, index_col_name=index_col_name, history=history, editable=True, empty_row=empty_row, edit_role=edit_role)
     return _receive_table_edits(
         path, tp=ts.output_type.dereference().py_type, index_col_name=index_col_name, empty_row=empty_row
     )
