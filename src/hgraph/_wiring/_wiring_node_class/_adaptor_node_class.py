@@ -39,7 +39,7 @@ class AdaptorNodeClass(ServiceInterfaceNodeClass):
                 self.signature, *args, __pre_resolved_types__=__pre_resolved_types__, **kwargs
             )
 
-            with WiringGraphContext(self.signature) as g:
+            with WiringGraphContext(resolved_signature) as g:
                 inputs = {k: v for k, v in kwargs_.items() if k in resolved_signature.time_series_inputs}
                 scalars = {k: v for k, v in kwargs_.items() if k in resolved_signature.scalar_inputs and k != "path"}
 
@@ -85,7 +85,7 @@ class AdaptorNodeClass(ServiceInterfaceNodeClass):
             )
 
             if resolved_signature.output_type:
-                with WiringGraphContext(self.signature) as g:
+                with WiringGraphContext(resolved_signature) as g:
                     scalars = {
                         k: v for k, v in kwargs_.items() if k in resolved_signature.scalar_inputs and k != "path"
                     }

@@ -87,7 +87,7 @@ def format_name_node(node: "Node", key=None) -> str:
         f"{(':' + node.signature.label) if node.signature.label else ''}"
     )
 
-    if node.graph.parent_node:
+    if node.graph.parent_node and node.graph.parent_node.signature.wiring_path_name:
         return long_name.replace(node.graph.parent_node.signature.wiring_path_name + ".", "")
     else:
         return long_name
@@ -409,7 +409,7 @@ def inspect_type(value, key):
 
 @inspect_type.register
 def inspect_type_tsb(value: HgTSBTypeMetaData, key):
-    return value.meta_data_schema[key]
+    return value.bundle_schema_tp.meta_data_schema[key]
 
 
 @inspect_type.register

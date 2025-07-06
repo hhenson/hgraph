@@ -200,19 +200,47 @@ def divmod_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = Divid
 
 
 @compute_node(overloads=pow_)
-def pow_int_float(lhs: TS[int], rhs: TS[float]) -> TS[float]:
+def pow_int_float(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TS[float]:
     """
     Raises an int time-series value to the power of a float time-series value
     """
-    return lhs.value ** rhs.value
+    try:
+        return lhs.value ** rhs.value
+    except ZeroDivisionError:
+        if divide_by_zero is DivideByZero.NAN:
+            return float("NaN")
+        elif divide_by_zero is DivideByZero.INF:
+            return float("inf")
+        elif divide_by_zero is DivideByZero.NONE:
+            return
+        elif divide_by_zero is DivideByZero.ZERO:
+            return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
+        else:
+            raise
 
 
 @compute_node(overloads=pow_)
-def pow_float_int(lhs: TS[float], rhs: TS[int]) -> TS[float]:
+def pow_float_int(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TS[float]:
     """
     Raises a float time-series value to the power of an int time-series value
     """
-    return lhs.value ** rhs.value
+    try:
+        return lhs.value ** rhs.value
+    except ZeroDivisionError:
+        if divide_by_zero is DivideByZero.NAN:
+            return float("NaN")
+        elif divide_by_zero is DivideByZero.INF:
+            return float("inf")
+        elif divide_by_zero is DivideByZero.NONE:
+            return
+        elif divide_by_zero is DivideByZero.ZERO:
+            return 0.0
+        elif divide_by_zero is DivideByZero.ONE:
+            return 1.0
+        else:
+            raise
 
 
 EPSILON = 1e-10

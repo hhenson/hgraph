@@ -45,7 +45,7 @@ def test_error_not_handling_in_switch(caplog):
         run_graph(main, __capture_values__=True, __trace_back_depth__=3)
 
     assert "ZeroDivisionError" in caplog.text
-    assert "main.switch[True].<lambda>.div_numbers" in caplog.text
+    assert ".<lambda>.div_numbers" in caplog.text
 
 
 def test_error_handling():

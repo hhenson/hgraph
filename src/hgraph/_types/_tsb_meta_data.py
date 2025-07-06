@@ -164,7 +164,13 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         return super().parse_value(value)
 
     def __eq__(self, o: object) -> bool:
-        return type(o) is HgTimeSeriesSchemaTypeMetaData and self.meta_data_schema == o.meta_data_schema
+        from ._tsb_type import UnNamedTimeSeriesSchema
+        if type(o) is HgTimeSeriesSchemaTypeMetaData:
+            if self.py_type == o.py_type:
+                return True
+            elif isinstance(self.py_type, UnNamedTimeSeriesSchema) or isinstance(o.py_type, UnNamedTimeSeriesSchema):
+                return self.meta_data_schema == o.meta_data_schema
+        return False
 
     def __str__(self) -> str:
         return self.py_type.__name__

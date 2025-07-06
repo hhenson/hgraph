@@ -400,6 +400,16 @@ def test_sum_scalars(lhs, rhs, expected):
     assert eval_node(app, lhs, rhs) == expected
 
 
+def test_sum_scalars_unary():
+
+    @graph
+    def app(ts: TS[int], reset: TS[bool]) -> TS[int]:
+        return sum_(ts, reset=reset)
+
+    expected = [1, 3, 0, 3, 7]
+    assert eval_node(app, [1, 2, None, 3, 4], [None, None, True, None, None]) == expected
+
+
 def test_sum_scalars_multi():
     @graph
     def app(ts1: TS[float], ts2: TS[float], ts3: TS[float]) -> TS[float]:

@@ -86,15 +86,18 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
                 self.signature, *args, __pre_resolved_types__=pre_resolved_types, **(kwargs | scalars)
             )
 
-            with WiringGraphContext(node_signature=self.signature):
-                if len(self.interfaces) == 1:
+            if len(self.interfaces) == 1:
+                with WiringGraphContext(node_signature=resolved_signature):
                     from_graph = __interface__.wire_impl_inputs_stub(path, resolution_dict, **scalars)
-                    to_graph = self.implementation_graph.__call__(
-                        __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph.as_dict()
-                    )
-                    if to_graph is not None:
+
+                to_graph = self.implementation_graph.__call__(
+                    __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph.as_dict()
+                )
+                if to_graph is not None:
+                    with WiringGraphContext(node_signature=resolved_signature):
                         __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
-                else:  # multiadaptor/multiservice implementations use the interface stub APIs to wire up the service
+            else:  # multiadaptor/multiservice implementations use the interface stub APIs to wire up the service
+                with WiringGraphContext(node_signature=resolved_signature):
                     self.implementation_graph.__call__(__pre_resolved_types__=resolution_dict, **kwargs_)
 
     def __eq__(self, other):

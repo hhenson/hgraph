@@ -50,7 +50,7 @@ from hgraph import (
     eq_, set_delta,
 )
 from hgraph._operators._stream import filter_by
-from hgraph.nodes import keys_where_true, make_tsd, extract_tsd, flatten_tsd
+from hgraph.nodes import keys_where_true, make_tsd, extract_tsd, flatten_tsd, where_true
 from hgraph.test import eval_node
 
 
@@ -601,6 +601,12 @@ def test_keys_where_true():
     assert eval_node(
         keys_where_true[K:int], [{1: True, 2: False, 3: True}, {1: False, 2: True, 3: False}, {2: REMOVE}]
     ) == [{1, 3}, {Removed(1), 2, Removed(3)}, {Removed(2)}]
+
+
+def test_where_true():
+    assert eval_node(
+        where_true[K:int], [{1: True, 2: False, 3: True}, {1: False, 2: True, 3: False}, {2: REMOVE}]
+    ) == [{1: True, 3: True}, {1: REMOVE, 2: True, 3: REMOVE}, {2: REMOVE}]
 
 
 def test_filter_by_tsd():

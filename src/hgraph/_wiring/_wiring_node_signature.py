@@ -600,6 +600,24 @@ class WiringNodeSignature:
                         if not v.dereference().matches(kwarg_types[k].dereference()):
                             raise IncorrectTypeBinding(v, kwarg_types[k])
 
+    def resolve_label(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs) -> str:
+        """
+        Format the label for the node, this is used to display the node in the logs/inspector UI.
+        :return: The formatted label
+        """
+        if self.label and "{" in self.label:
+            try:
+                return self.label.format(
+                    **{
+                        k: v.py_type.__name__ if isinstance(v, HgTypeMetaData) else str(v)
+                        for k, v in resolution_dict.items()
+                    },
+                    **kwargs,
+                )
+            except:
+                pass
+        return self.label
+
 
 def extract_signature(
     fn,
@@ -609,6 +627,7 @@ def extract_signature(
     all_valid_inputs: frozenset[str] | None = None,
     deprecated: bool = False,
     requires: Callable[[...], bool] | None = None,
+    label: str | None = None,
     record_and_replay_id: str | None = None,
 ) -> WiringNodeSignature:
     """
@@ -718,7 +737,7 @@ def extract_signature(
         unresolved_args=unresolved_inputs,
         time_series_args=time_series_inputs,
         injectables=injectables,
-        label=None,
+        label=label,
         record_and_replay_id=record_and_replay_id,
         deprecated=deprecated,
         requires=requires,

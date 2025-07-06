@@ -70,6 +70,9 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             return out
         if item != (K, V):
             from hgraph._types._type_meta_data import HgTypeMetaData
+            
+            if hasattr(out, "__init_fix__"):
+                return out
 
             __key_tp__ = HgTypeMetaData.parse_type(item[0])
             __value_tp__ = HgTypeMetaData.parse_type(item[1])
@@ -89,6 +92,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             out.__value_tp__ = __value_tp__
             _init = out.__init__
             out.__init__ = lambda *args, **kwargs: _init(out.__key_tp__, out.__value_tp__, *args, **kwargs)
+            out.__init_fix__ = True
         return out
 
     def __len__(self):

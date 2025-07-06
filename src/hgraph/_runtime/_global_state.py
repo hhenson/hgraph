@@ -148,6 +148,15 @@ class GlobalState(object):
         else:
             return self._previous.get(key, default)
 
+    def setdefault(self, key: str, default: Any) -> Any:
+        if key in self._state:
+            return self._state[key]
+        if self._previous is not None:
+            return self._previous.setdefault(key, default)
+        else:
+            self._state[key] = default
+            return default
+
     def keys(self):
         return self._state.keys()
 

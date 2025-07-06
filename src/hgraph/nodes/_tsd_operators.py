@@ -21,6 +21,7 @@ __all__ = (
     "flatten_tsd",
     "extract_tsd",
     "keys_where_true",
+    "where_true",
 )
 
 
@@ -99,3 +100,19 @@ def keys_where_true(ts: TSD[K, TS[bool]], _tp: type[K] = AUTO_RESOLVE) -> TSS[K]
             removed.add(key)
 
     return set_delta(added, removed, _tp)
+
+
+@compute_node
+def where_true(ts: TSD[K, TS[bool]]) -> TSD[K, TS[bool]]:
+    out = {}
+
+    for key, value in ts.modified_items():
+        if value.value:
+            out[key] = value.value
+        else:
+            out[key] = REMOVE_IF_EXISTS
+
+    for key in ts.removed_keys():
+        out[key] = REMOVE_IF_EXISTS
+
+    return out

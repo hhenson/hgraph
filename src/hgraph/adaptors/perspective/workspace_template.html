@@ -5,6 +5,20 @@
 
         <title>ACE: {{url}}</title>
 
+    	<script language='javascript'>
+            const display_errors = false;
+            if (display_errors){
+                window.onerror = (errorMsg, url, lineNumber) => {
+                    document.getElementById('errors').innerText = `Error: ${errorMsg} at ${url}:${lineNumber}`;
+                    return false;
+                };
+
+                window.addEventListener("unhandledrejection", (event) => {
+                    document.getElementById('errors').innerText = `Error: ${event.reason.message} at ${event.reason.stack}`;
+                });
+            }
+        </script>
+
         <script type="module" src="/node_modules/@finos/perspective-viewer/dist/cdn/perspective-viewer.js"></script>
         <script type="module" src="/node_modules/@finos/perspective-workspace/dist/cdn/perspective-workspace.js"></script>
         <script type="module" src="/node_modules/@finos/perspective-viewer-datagrid/dist/cdn/perspective-viewer-datagrid.js"></script>
@@ -32,6 +46,42 @@
                 overflow: hidden;
                 white-space: nowrap;
                 text-overflow: clip;
+            }
+
+            .announcement-banner {
+                display: block;
+                position: fixed; /* Stay in place */
+                z-index: 9999; /* Sit on top */
+                left: 50%;
+                top: 0%;
+                transform: translate(-50%, 0%);
+                padding: 5px;
+                background-color: rgba(99, 55, 55, 0.8); /* Dark red background with opacity */
+                color: white;
+                font-family: "ui-monospace","SFMono-Regular","SF Mono","Menlo","Consolas","Liberation Mono",monospace;
+                font-size: small;
+                text-align: center;
+                justify-content: center;
+            }
+
+            .announcement-banner:empty {
+                padding: 0px;
+            }
+
+            .error-banner {
+                display: block;
+                position: fixed; /* Stay in place */
+                z-index: 9999; /* Sit on top */
+                left: 50%;
+                top: 100%;
+                transform: translate(-50%, -100%);
+                padding: 0px;
+                background-color: rgba(0, 0, 0, 0.8); /* Black background with opacity */
+                color: white;
+                font-family: "ui-monospace","SFMono-Regular","SF Mono","Menlo","Consolas","Liberation Mono",monospace;
+                font-size: small;
+                text-align: center;
+                justify-content: center;
             }
 
             .loading-banner {
@@ -123,27 +173,28 @@
             }
         </style>
     </head>
-
-    <div id="loading-banner" class="loading-banner">
-        <span id="loading-message"></span>
-        <div class="progress-indicator"></div>
-        <div>
-            <ul class="error-list"></ul>
-        </div>
-    </div>
-
-    <div id="login-dialog" class="login-dialog">
-        <h3>Login Required</h3>
-        <input type="text" id="username" placeholder="Username" />
-        <input type="password" id="password" placeholder="Password" />
-        <button id="login-button">Login</button>
-    </div>
-
     <body>
+        <div id="loading-banner" class="loading-banner">
+            <span id="loading-message">...</span>
+            <div class="progress-indicator"></div>
+            <div>
+                <ul class="error-list"></ul>
+            </div>
+        </div>
+
+        <div id="login-dialog" class="login-dialog">
+            <h3>Login Required</h3>
+            <input type="text" id="username" placeholder="Username" />
+            <input type="password" id="password" placeholder="Password" />
+            <button id="login-button">Login</button>
+        </div>
+
+        <div id="errors" class="error-banner"></div>
+        <div id="announcement" class="announcement-banner"></div>
         <perspective-workspace id="workspace"></perspective-workspace>
 
         <script type="module">
-            import {connectWorkspaceTables, wait_for_table} from "/workspace_code/workspace_tables.js";
+            import {connectWorkspaceTables, wait_for_table, DefaultMap} from "/workspace_code/workspace_tables.js";
             import {installTableWorkarounds, ensureTablesForConfig, loadLayout, saveLayout} from "/workspace_code/table_workarounds.js";
             import {setupInspectorTable} from "/workspace_code/inspector.js";
             import {WebSocketHelper} from "/workspace_code/websocket_helper.js";
@@ -223,6 +274,19 @@
                     document.getElementById('loading-message').innerText = "Logging in...";
                     await new Promise(res => setTimeout(res, 100));
 
+                    {% try %}
+                    {% if mgr.options.get('user_roles') %}
+                    const user_roles = [{{ ', '.join(f'"{r}"' for r in mgr.options.get('user_roles').get(current_user, mgr.options.get('user_roles').get("DEFAULT", []))) }}]
+                    {% else %}
+                    const user_roles = [];
+                    {% end %}
+                    {% except %}
+                    const user_roles = [];
+                    {% end %}
+
+                    {% if mgr.options.get('require_login') %}
+                    {% end %}
+
                     {% if mgr.options.get('require_login') %}
                     const token = await (await fetchWithAuth("{{mgr.options['login_url']}}")).text();
                     {% else %}
@@ -239,6 +303,41 @@
                         const errorList = document.querySelector('.error-list');
                         errorList.innerHTML += `<li>Failed to connect to management server</li>`;
                     });
+
+                    if (management_ws) {
+                        const error_stats = new DefaultMap(() => ({count: 0, last: new Date()}));
+                        function publishError(message) {
+                            const now = new Date();
+                            const stats = error_stats.get(message);
+                            if (stats.count == 0 || (now - stats.last) > 60000) {
+                                management_ws.send({type: "error", message: `${stats.count ? stats.count : 'first'} of: ${message}`});
+                                stats.last = now;
+                                stats.count = 0;
+                            }
+                            stats.count += 1;
+                        }
+
+                        const error_fn = console.error;
+                        console.error = (...args) => {
+                            error_fn(...args);
+                            const message = args.join(' ');
+                            publishError(message);
+                        };
+
+                        window.onerror = (errorMsg, url, lineNumber) => {
+                            publishError(`Error: ${errorMsg} at ${url}:${lineNumber}`);
+                            return false;
+                        }
+
+                        window.addEventListener("unhandledrejection", (event) => {
+                            publishError(`Error: ${event.reason.message} at ${event.reason.stack}`);
+                        });
+
+                        console.server = (...args) => {
+                            error_fn(...args);
+                            management_ws.send({type: "log", message: args.join(' ')});
+                        };
+                    }
                     {% else %}
                     const management_ws = undefined;
                     {% end %}
@@ -253,7 +352,7 @@
                     setTimeout(async () => {
                         document.getElementById('loading-message').innerText = "Setting up tables...";
                         const req = fetch("/layout/{{url}}");
-                        await connectWorkspaceTables(workspace, table_config, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
+                        await connectWorkspaceTables(workspace, table_config, user_roles, "{{'true' if mgr.is_new_api() else 'false'}}", management_ws);
 
                         document.getElementById('loading-message').innerText = "Loading layout...";
                         let json = await (await req).json();
@@ -294,7 +393,7 @@
 
                         }, 1000);
 
-                    }, 5000);
+                    }, 50);
 
                     window.setTimeout(async () => {
                         window.workspace.addEventListener("workspace-layout-update", async () => {

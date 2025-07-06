@@ -54,6 +54,8 @@ export async function installTableWorkarounds(mode) {
             const view_config = config.viewers[viewer.slot];
             const table_config = getWorkspaceTables()[view_config.table];
 
+            if (!table_config) continue;
+            
             if (!table_config.started){
                 wait_for_table(window.workspace, view_config.table)
             }
@@ -83,14 +85,23 @@ export async function installTableWorkarounds(mode) {
 
     }
 
+    await customElements.whenDefined("perspective-viewer-datagrid");
+    await customElements.whenDefined("perspective-viewer-datagrid-norollups");
+
     for (const g of document.querySelectorAll(
         "perspective-viewer perspective-viewer-datagrid, perspective-viewer perspective-viewer-datagrid-norollups")) {
 
-        const table = g.shadowRoot.querySelector("regular-table")
+        const shadow = window.CSS?.supports && window.CSS?.supports("selector(:host-context(foo))");
+
+        const root = shadow ? g.shadowRoot : g;
+    	const table = root.querySelector("regular-table");
         const model = g.model;
         const viewer = g.parentElement;
         const view_config = config.viewers[viewer.slot];
         const table_config = getWorkspaceTables()[view_config.table];
+
+        if (!table_config)
+            continue;
 
         if (!table_config.started){
             wait_for_table(window.workspace, view_config.table)
@@ -98,7 +109,7 @@ export async function installTableWorkarounds(mode) {
 
         if (table_config && table_config.locked_columns) {
             model._column_paths.map((x, i) => {
-                if (table_config.locked_columns.includes(x) || !table_config.schema[x]) {
+                if (!table_config.editable || table_config.locked_columns.includes(x) || !table_config.schema[x]) {
                     model._is_editable[i] = false;
                 }
             })
@@ -114,18 +125,17 @@ export async function installTableWorkarounds(mode) {
 
         // the built-in stylesheet limits the min-width of table cells to 52px for no apparent reason
         // we override this so that we can have columns that are arbitrary small
-        let psp_stylesheet = g.shadowRoot.adoptedStyleSheets[0];
-        for (let i = 0; i < psp_stylesheet.cssRules.length; i++) {
-            if (psp_stylesheet.cssRules[i].selectorText === 'regular-table table tbody td') {
-                psp_stylesheet.deleteRule(i);
-                psp_stylesheet.insertRule('regular-table table tbody td { min-width: 1px !important; }');
-                psp_stylesheet.insertRule('regular-table table tbody td.invalid { color: red; }');
-                psp_stylesheet.insertRule('regular-table table tbody td.hidden { overflow: hidden; white-space: nowrap; text-overflow: clip; width: 0; min-width: 0; max-width: 0; padding-left: 1px; padding-right: 0; }');
+        for (const psp_stylesheet of (shadow ? root.adoptedStyleSheets : document.styleSheets)){
+            for (let i = 0; i < psp_stylesheet.cssRules.length; i++) {
+                if (psp_stylesheet.cssRules[i].selectorText === 'regular-table table tbody td') {
+                    psp_stylesheet.deleteRule(i);
+                    psp_stylesheet.insertRule('regular-table table tbody td { min-width: 1px !important; }');
+                    psp_stylesheet.insertRule('regular-table table tbody td.invalid { color: red; }');
+                    psp_stylesheet.insertRule('regular-table table tbody td.hidden { overflow: hidden; white-space: nowrap; text-overflow: clip; width: 0; min-width: 0; max-width: 0; padding-left: 1px; padding-right: 0; }');
+                    psp_stylesheet.insertRule( `.highlight { background-color: pink }`);
+                }
             }
         }
-        var sheet = new CSSStyleSheet
-        sheet.replaceSync( `.highlight { background-color: pink }`)
-        g.shadowRoot.adoptedStyleSheets.push(sheet)
 
         table.addStyleListener(() => {
             addTooltips(table, table_config)
@@ -362,12 +372,12 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
             const text = ["", "\n"].includes(event.target.innerText) ? "" : event.target.innerText;
             if (option === text) {
                 option_el.style.backgroundColor = "whitesmoke";
-                option_el.hidden = "";
+                option_el.parentElement.hidden = "";
             } else if (option.includes(text)) {
                 option_el.style.backgroundColor = "";
-                option_el.hidden = "";
+                option_el.parentElement.hidden = "";
             } else {
-                option_el.hidden = true;
+                option_el.parentElement.hidden = true;
             }
         }
     })
@@ -467,6 +477,8 @@ async function focusin(event, viewer, table, model, table_config) {
 }
 
 async function refreshTimeSensitiveViews(event, viewer) {
+    if (!event.detail || !event.detail.expressions) return;
+    
     const has_now = Object.entries(event.detail.expressions)
             .map(([k, v]) => v.includes("var refresh := now()"))
             .some((x) => x);
@@ -585,32 +597,41 @@ async function fireContextActions(from, row) {
     }
 }
 
+import {WebSocketHelper} from "/workspace_code/websocket_helper.js";
+
 class tooltip_info{
     static tooltip = null;
     static view = null;
     static view_cb = null;
+    static pinned = false;
+
+    static tooltip_ws = null;
+    static tooltip_ws_cb = null;
+    static tooltip_ws_url = null;
 
     static show(table, td) {
         tooltip_info.clear();
 
+        const style = window.getComputedStyle(td.parentElement);
+        const style_2 = window.getComputedStyle(td);
         const tooltip = document.createElement("p");
-        tooltip.id = "tooltip";
+        tooltip.id = "tooltip"; 
         tooltip.className = "tooltip";
-        tooltip.style = td.style;
         tooltip.style.position = "absolute";
         tooltip.style.zIndex = "1000";
         tooltip.style.border = "1px solid grey";
         tooltip.style.padding = "5px";
+        tooltip.style.paddingRight = "25px";
         tooltip.style.whiteSpace = "normal";
-        tooltip.style.top = (td.getBoundingClientRect().bottom - table.getBoundingClientRect().top - 12) + 'px';
-        tooltip.style.left = (td.getBoundingClientRect().right - table.getBoundingClientRect().left - 12) + 'px';
+        tooltip.style.top = (td.getBoundingClientRect().bottom - 12) + 'px';
+        tooltip.style.left = (td.getBoundingClientRect().right - 12) + 'px';
         tooltip.style.overflow = "hidden";
         tooltip.style.textOverflow = "ellipsis";
         tooltip.style.backdropFilter = "blur(6px)";
         tooltip.style.boxShadow = "0 2px 5px rgba(0,0,0,0.2)";
         tooltip.style.fontSize = "12px";
 
-        const tableBackgroundColor = window.getComputedStyle(table).backgroundColor;
+        const tableBackgroundColor = style.backgroundColor;
         if (tableBackgroundColor && tableBackgroundColor !== "rgba(0, 0, 0, 0)") {
             const rgbaMatch = tableBackgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
             if (rgbaMatch) {
@@ -618,29 +639,139 @@ class tooltip_info{
             }
         }
 
-        table.appendChild(tooltip);
-                                    
-        const tooltipRect = tooltip.getBoundingClientRect();
-        const tableRect = table.getBoundingClientRect();
-        if (tooltipRect.right > tableRect.right) {
-            tooltip.style.left = `${tableRect.right - tooltipRect.width - table.getBoundingClientRect().left - 10}px`;
-        }
+
+        tooltip.style.color = style.color;
+        tooltip.style.font = style.font;
+        tooltip.style.fontSize = style_2.fontSize;
+        tooltip.innerHTML = "<span id='tooltip-loading'>loading...</span>";
+
+        // Add pin button container at the top-right
+        const pinContainer = document.createElement("div");
+        pinContainer.style.position = "absolute";
+        pinContainer.style.top = "2px";
+        pinContainer.style.right = "2px";
+        pinContainer.style.cursor = "pointer";
+        
+        // Create pin button
+        const pinButton = document.createElement("div");
+        pinButton.textContent = "🖈";
+        pinButton.style.background = "transparent";
+        pinButton.style.border = "none";
+        pinButton.style.cursor = "pointer";
+        pinButton.style.padding = "2px";
+        pinButton.title = "Pin tooltip";
+        pinButton.dataset.pinned = "false";
+        
+        // Pin/unpin behavior
+        pinButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const isPinned = pinButton.dataset.pinned === "true";
+            pinButton.dataset.pinned = !isPinned;
+            tooltip_info.pinned = !isPinned;
+            pinButton.title = isPinned ? "Pin tooltip" : "Unpin tooltip";
+            pinButton.textContent = isPinned ? "🖈" : "✖";
+        });
+        
+        pinContainer.appendChild(pinButton);
+        tooltip.appendChild(pinContainer);
+        document.body.appendChild(tooltip);
 
         tooltip.addEventListener("mouseenter", () => {
             clearTimeout(tooltip_info.clear_timeout);
         });
         
         tooltip.addEventListener("mouseleave", () => {
+            if (tooltip_info.pinned) return;
             tooltip_info.clear();
         });
 
         tooltip_info.tooltip = tooltip;
+        return tooltip;
+    }
+
+    static render_json(node, json, depth = 0) {
+        for (const [key, value] of Object.entries(json)) {
+            let key_node = node.querySelector(`:scope > div[data-key="${key}"]`)
+            if (key_node === null) {
+                key_node = document.createElement("div");
+                key_node.dataset.key = key;
+                key_node.innerHTML = `<div><span data-expand style="cursor: pointer"></span>${key}: <span data-key="value"></span><div data-container="true" style="margin-left: 12px"></div></div>`;
+                node.appendChild(key_node);
+            }
+
+            if (value === null) {
+                key_node.querySelector(':scope > div > span[data-key="value"]').innerText = 'null';
+            } else if (typeof value === "object") {
+                if (Array.isArray(value)) {
+                    key_node.querySelector(':scope > div > span[data-key="value"]').innerText = `${value.length} items`;
+                } else {
+                    if (value.value !== undefined) {
+                        key_node.querySelector('[data-key="value"]').innerText = value.value;
+                    }
+                }
+                tooltip_info.render_json(key_node.querySelector('[data-container]'), value, depth + 1);
+                if (!key_node.querySelector(':scope > div > span[data-expand]').innerHTML){
+                    key_node.querySelector(':scope > div > span[data-expand]').innerHTML =  depth == 0 ? "-&nbsp;" : "+&nbsp;";
+                    key_node.querySelector(':scope > div > div[data-container]').style.display = depth == 0 ? "block" : "none";
+                }
+            } else {
+                key_node.querySelector(':scope > div > span[data-key="value"]').innerText = value;
+            }
+        }
+        for (const child of node.children) {
+            if (child.dataset.key !== undefined && !(child.dataset.key in json)) {
+                child.remove();
+            }
+        }
+        if (node === tooltip_info.tooltip) {
+            if (!node.dataset.events_set_up) {
+                node.addEventListener("click", (event) => {
+                    if (event.target.dataset.expand !== undefined) {
+                        const container = event.target.parentElement.querySelector(':scope > div[data-container]');
+                        if (container) {
+                            if (container.style.display === "none") {
+                                container.style.display = "block";
+                                event.target.innerHTML = "-&nbsp;";
+                            } else {
+                                container.style.display = "none";
+                                event.target.innerHTML = "+&nbsp;";
+                            }
+                        }
+                    }
+                });
+                node.dataset.events_set_up = "true";
+            }
+        }
+    }
+
+    static subscribe_tooltip_ws(url, msg, cb) {
+        if (tooltip_info.tooltip_ws == null || tooltip_info.tooltip_ws_url !== url) {
+            tooltip_info.tooltip_ws = new WebSocketHelper(url, (msg) => { tooltip_info.update_tooltip_ws(msg); });
+            tooltip_info.tooltip_ws.connect();
+            tooltip_info.tooltip_ws_url = url;
+        }
+        tooltip_info.tooltip_ws_cb = cb;
+        tooltip_info.tooltip_ws.send(msg);
+    }
+
+    static update_tooltip_ws(msg) {
+        if (tooltip_info.tooltip_ws_cb) {
+            tooltip_info.tooltip_ws_cb(msg);
+        }
     }
 
     static update(text) {
         if (!tooltip_info.tooltip) return;
 
-        tooltip_info.tooltip.innerHTML = text;
+        const loader = tooltip_info.tooltip.querySelector("#tooltip-loading");
+        if (loader)
+            loader.style.display = "none";
+        
+        if (typeof text === "object") { // render json
+            tooltip_info.render_json(tooltip_info.tooltip, text);
+        } else {
+            tooltip_info.tooltip.innerHTML = text;
+        }
     }
 
     static clear() {
@@ -668,6 +799,8 @@ class tooltip_info{
     }
 };
 
+const FORMAT_REGEX = /(?<!\{)\{([^\{\}]*?)\}(?!\})/g;
+
 async function enableActions(table, viewer, config, model) {
     if (!config || !config.column_actions) return;
 
@@ -694,7 +827,7 @@ async function enableActions(table, viewer, config, model) {
                             if (row){
                                     switch (action.action.type) {
                                     case 'url':
-                                        const url = action.action.url.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
                                         btn.disabled = true;
                                         await fetch (url, {method: 'GET'});
                                         btn.disabled = false;
@@ -705,10 +838,11 @@ async function enableActions(table, viewer, config, model) {
                 }
             }
             if (action.type === 'tooltip') {
-                td.addEventListener("mouseenter", (event) => {
+                td.addEventListener("mouseenter", (event, a=action) => {
                     if (td.dataset.tooltipTimeout) return;
 
                     td.dataset.tooltipTimeout = setTimeout(async () => {
+                        const action = a;
                         tooltip_info.clear();
 
                         const id = model._ids[metadata.y - metadata.y0];
@@ -721,13 +855,17 @@ async function enableActions(table, viewer, config, model) {
                             let method = action.action;
                             let format = undefined;
                             if (action.format !== undefined) {
-                                required_cols = [...action.format.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+                                required_cols = [...action.format.matchAll(FORMAT_REGEX)].map((x) => x[1]);
                                 format = action.format;
                                 method = "format";
                             } else if (action.url !== undefined) {
-                                required_cols = [...action.url.matchAll(/\{(.*?)\}/g)].map((x) => x[1]);
+                                required_cols = [...action.url.matchAll(FORMAT_REGEX)].map((x) => x[1]);
                                 format = action.url;
                                 method = "url";
+                            } else if (action.ws !== undefined) {
+                                required_cols = [...new Set([...action.subscribe.matchAll(FORMAT_REGEX), ...action.unsubscribe.matchAll(FORMAT_REGEX)].map((x) => x[1]))];
+                                format = action.subscribe;
+                                method = "ws";
                             }
 
                             let view;
@@ -739,25 +877,47 @@ async function enableActions(table, viewer, config, model) {
                                 const query_config = {
                                     filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
                                     group_by: view_config.group_by,
-                                    aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique'])), [index]: 'count'},
+                                    aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
                                     columns: [index, ...required_cols]
                                 }
                                 view = await tbl.view(query_config);
                                 get_rows = async () => {
                                     const rows = await view.to_json()
-                                    return rows.filter((x) => x[index] === 1 && x["__ROW_PATH__"].length === view_config.group_by.length);
+                                    return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x["col"] !== null));
                                 }
                             } else if (view_config.group_by.length > 0) {
                             }
                             const rows = await get_rows();
                             if (rows && rows.length == 1) {
                                 const row = rows[0];
-                                const text = format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                const text = format.replace(FORMAT_REGEX, (match, p1) => row[p1]).replace('{{', '{').replace('}}', '}');
                                 if (text && text != "null"){
+                                    const tt = tooltip_info.show(table, td);
+
                                     const update_tt = async (text) => {
                                         let data = text;
                                         if (method === "url") {
-                                            data = await (await fetch(text, {method: 'GET'})).text();
+                                            const request = await fetch(text, {method: 'GET'});
+                                            if (request.headers.get('content-type') === "application/json") {
+                                                data = await request.json();
+                                            } else {
+                                                data = await request.text();
+                                            }
+                                        } else if (method === "ws") {
+                                            const request_id = `${Math.round(Math.random() * 1_000_000_000)}`;
+                                            tooltip_info.subscribe_tooltip_ws(action.ws, `{"request_id": "${request_id}", "request": ${text} }`, async (msg) => {
+                                                if (tt !== tooltip_info.tooltip) {
+                                                    return;
+                                                }
+                                                if (msg.request_id !== request_id) {
+                                                    return;
+                                                }
+                                                tooltip_info.update(msg.response);
+                                            });
+                                            return;
+                                        }
+                                        if (tt !== tooltip_info.tooltip) {
+                                            return;
                                         }
                                         if (action.line_separator) {
                                             const lines = data.split(action.line_separator).map(line => `${line}<br/>`).join('');
@@ -767,14 +927,22 @@ async function enableActions(table, viewer, config, model) {
                                         }
                                     };
 
-                                    tooltip_info.show(table, td);
                                     tooltip_info.view = view;
                                     await update_tt(text);
 
-                                    view.on_update(tooltip_info.view_cb = async () => {
+                                    let udpate_timer = undefined;
+                                    const update = async () => {
                                         const row = (await get_rows())[0];
-                                        const text = format.replace(/\{(.*?)\}/g, (match, p1) => row[p1]);
+                                        const text = format.replace(FORMAT_REGEX, (match, p1) => row[p1]).replace('{{', '{').replace('}}', '}');
                                         await update_tt(text);
+                                        udpate_timer = undefined;
+                                    };
+
+                                    view.on_update(tooltip_info.view_cb = async () => {
+                                        if (udpate_timer) {
+                                            return;
+                                        }
+                                        udpate_timer = setTimeout(update, 10000);
                                     });
                                 } else {
                                     view.delete();
@@ -813,7 +981,10 @@ async function enableAddRemove(table, viewer, config, model) {
                     td.innerHTML = "<button style='font: inherit'>Add</button>";
                     btn = td.querySelector("button");
                     btn.addEventListener("click", async () => {
-                        const data = (await (await (await viewer.getTable()).view({filter: [['_id', '==', 0]]})).to_json())[0];
+                        const id = model._ids[metadata.y - metadata.y0];
+                        if (!id) {return;}
+                        const source_tbl = await viewer.getTable();
+                        const data = (await (await (source_tbl).view({filter: [[await source_tbl.get_index(), '==', id[0]]]})).to_json())[0];
                         for (const item of td.parentElement.children) {
                             const meta = table.getMeta(item);
                             const col_name = meta.column_header[meta.column_header.length - 1];
@@ -950,7 +1121,7 @@ function addTooltips(table) {
 
 async function recordCollapseState(table, viewer, model) {
     if (viewer.dataset.config_open) return;
-    if (!model._config.group_by.length) return;    
+    if (model._config && !model._config.group_by.length) return;    
     if (viewer.dataset.collapse_state_timer) return;
 
     viewer.dataset.collapse_state_timer = setTimeout(async () => {

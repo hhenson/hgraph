@@ -14,11 +14,16 @@ __all__ = ("merge", "all_", "any_", "race", "BoolResult", "if_", "route_by_index
 
 
 @operator
-def merge(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
+def merge(*tsl: TSL[TIME_SERIES_TYPE, SIZE], **kwargs) -> TIME_SERIES_TYPE:
     """
     Selects and returns the first of the values that tick (are modified) in the list provided.
     If more than one input is modified in the engine-cycle, it will return the first one that ticked in order of the
     list.
+    if the inputs are TSDs:
+    * If keys from multiple of the TSDs tick in the same cycle, the output will contain all the unique keys.
+    * If the ticking keys are the same, the first value is returned in order of the list.
+    * If `disjoint` is set True, the TSDs are assumed to have non-overlapping keys.  This parameter should be set
+        True to optimise performance when merging disjoint TSDs.
     """
 
 

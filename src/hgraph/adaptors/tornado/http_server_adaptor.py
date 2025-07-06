@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from abc import ABC
 from dataclasses import dataclass
 from logging import info, getLogger
@@ -6,6 +7,7 @@ from typing import Callable
 
 import tornado
 from frozendict import frozendict
+import tornado.iostream
 
 from hgraph import (
     CompoundScalar,
@@ -30,7 +32,6 @@ from hgraph import (
     HgTSBTypeMetaData,
     HgTSDTypeMetaData,
     REMOVE_IF_EXISTS,
-    LOGGER,
     default_path,
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
@@ -48,6 +49,9 @@ __all__ = (
     "http_server_adaptor",
     "register_http_server_adaptor",
 )
+
+
+logger = logging.getLogger("http_server_adaptor")
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,9 @@ class HttpResponse(CompoundScalar):
     headers: frozendict[str, str] = frozendict()
     cookies: frozendict[str, dict[str, object]] = frozendict()
     body: bytes = b""
+
+    def __repr__(self):
+        return f"HttpResponse(status_code={self.status_code}, headers={self.headers}, cookies={self.cookies}, body_length={len(self.body)})"
 
 
 @dataclass(frozen=True)
@@ -135,15 +142,20 @@ class HttpAdaptorManager:
         try:
             future = asyncio.Future()
         except Exception as e:
-            print(f"Error creating future: {e}")
+            logger.exception(f"Error creating future")
             raise e
         self.requests[request_id] = future
         self.queue({request_id: request})
         return future
 
     def complete_request(self, request_id, response):
-        self.requests[request_id].set_result(response)
-        print(f"Completed request {request_id} with response {response}")
+        if request_id in self.requests:
+            request = self.requests[request_id]
+            if not request.done():
+                request.set_result(response)
+                logger.info(f"Completed request {request_id} with response {response if len(response.body) < 1000 else str(len(response.body)) + ' bytes response'}")
+            else:
+                logger.warning(f"Request {request_id} already completed or cancelled.")
 
     def remove_request(self, request_id):
         self.queue({request_id: REMOVE_IF_EXISTS})
@@ -211,15 +223,20 @@ class HttpHandler(tornado.web.RequestHandler):
             id(request_obj),
             request_obj,
         )
-        self.set_status(response.status_code)
-        for k, v in response.headers.items():
-            self.set_header(k, v)
-        for k, v in response.cookies.items():
-            if isinstance(v, str):
-                self.set_cookie(k, v)
-            elif isinstance(v, dict):
-                self.set_cookie(k, **v)
-        await self.finish(response.body)
+
+        try:
+            self.set_status(response.status_code)
+            for k, v in response.headers.items():
+                self.set_header(k, v)
+            for k, v in response.cookies.items():
+                if isinstance(v, str):
+                    self.set_cookie(k, v)
+                elif isinstance(v, dict):
+                    self.set_cookie(k, **v)
+            await self.finish(response.body)
+        except tornado.iostream.StreamClosedError:
+            pass  # the client closed the connection before we could send the response
+
         self.mgr.remove_request(id(request_obj))
 
 
@@ -370,7 +387,6 @@ def http_server_adaptor_impl(path: str, port: int):
     from hgraph import WiringNodeClass
     from hgraph import WiringGraphContext
 
-    logger = getLogger("hgraph")
     logger.info("Wiring HTTP Server Adaptor on port %d", port)
 
     @push_queue(TSD[int, TS[HttpRequest]])
@@ -406,11 +422,11 @@ def http_server_adaptor_impl(path: str, port: int):
         if isinstance(handler, WiringNodeClass):
             logger.info("Adding handler: [%s] %s", url, handler.signature.signature)
             if handler.signature.time_series_inputs["request"].matches_type(TS[HttpRequest]):
-                responses[url] = map_(handler, request=requests_by_url[url])
+                responses[url] = map_(handler, request=requests_by_url[url], __label__=url)
             elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TS[HttpRequest]]):
                 responses[url] = handler(request=requests_by_url[url])
         elif handler is None:
-            pass
+            logger.info("Pre-wired handler: [%s]", url)
         else:
             raise ValueError(f"Invalid REST handler type for the http_ adaptor: {handler}")
 

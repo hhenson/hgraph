@@ -345,7 +345,6 @@ def wire_request_reply_service(
 
     from hgraph._wiring._decorators import graph
 
-    @graph
     def request_reply_service():
         g = graph(fn)
         if "path" in g.signature.args:
@@ -356,7 +355,7 @@ def wire_request_reply_service(
         out = g[resolution_dict](**(requests.as_dict() | scalars))
         interface[interface_resolution_dict].wire_impl_out_stub(path, out)
 
-    with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
+    with WiringNodeInstanceContext(), WiringGraphContext() as context:
         request_reply_service()
         sink_nodes = context.pop_sink_nodes()
         reassignable = context.pop_reassignable_items()
@@ -381,7 +380,6 @@ def wire_reference_data_service(
     from hgraph._wiring._decorators import graph
     from hgraph.nodes._service_utils import capture_output_to_global_state
 
-    @graph
     def ref_svc_inner_graph():
         g = graph(fn)
         if "path" in g.signature.args:
@@ -389,9 +387,10 @@ def wire_reference_data_service(
 
         # Call the implementation graph with the scalars provided
         out = g[resolution_dict](**scalars)
-        capture_output_to_global_state(typed_full_path, out)
+        with WiringGraphContext(out.node_instance.resolved_signature):
+            capture_output_to_global_state(typed_full_path, out)
 
-    with WiringNodeInstanceContext(), WiringGraphContext(wiring_signature) as context:
+    with WiringNodeInstanceContext(), WiringGraphContext() as context:
         ref_svc_inner_graph()
         sink_nodes = context.pop_sink_nodes()
         reassignable = context.pop_reassignable_items()

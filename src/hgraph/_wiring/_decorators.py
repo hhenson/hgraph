@@ -109,6 +109,7 @@ def compute_node(
     overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
     resolvers: Mapping["Type", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> COMPUTE_NODE_SIGNATURE:
     """
@@ -215,6 +216,7 @@ def compute_node(
         overloads=overloads,
         resolvers=resolvers,
         requires=requires,
+        label=label,
         deprecated=deprecated,
     )
 
@@ -225,6 +227,7 @@ def pull_source_node(
     node_impl=None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
     """
@@ -234,7 +237,7 @@ def pull_source_node(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.PULL_SOURCE_NODE, fn, node_impl, resolvers=resolvers, requires=requires, deprecated=deprecated
+        WiringNodeType.PULL_SOURCE_NODE, fn, node_impl, resolvers=resolvers, requires=requires, label=label, deprecated=deprecated
     )
 
 
@@ -244,6 +247,7 @@ def push_source_node(
     node_impl=None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
     """
@@ -252,7 +256,7 @@ def push_source_node(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl, resolvers=resolvers, requires=requires, deprecated=deprecated
+        WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl, resolvers=resolvers, requires=requires, label=label, deprecated=deprecated
     )
 
 
@@ -266,6 +270,7 @@ def sink_node(
     overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None,
     resolvers: Mapping["Type", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> SINK_NODE_SIGNATURE:
     """
@@ -305,6 +310,7 @@ def sink_node(
         overloads=overloads,
         resolvers=resolvers,
         requires=requires,
+        label=label,
         deprecated=deprecated,
     )
 
@@ -314,6 +320,7 @@ def graph(
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> GRAPH_SIGNATURE:
     """
@@ -357,7 +364,7 @@ def graph(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires, deprecated=deprecated
+        WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires, label=label, deprecated=deprecated
     )
 
 
@@ -366,6 +373,7 @@ def const_fn(
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
     """
@@ -401,6 +409,7 @@ def const_fn(
         node_class=PythonConstWiringNodeClass,
         resolvers=resolvers,
         requires=requires,
+        label=label,
         deprecated=deprecated,
     )
 
@@ -410,6 +419,7 @@ def generator(
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> SOURCE_NODE_SIGNATURE:
     """
@@ -442,6 +452,7 @@ def generator(
         node_class=PythonGeneratorWiringNodeClass,
         resolvers=resolvers,
         requires=requires,
+        label=label,
         deprecated=deprecated,
     )
 
@@ -451,6 +462,7 @@ def push_queue(
     overloads: "WiringNodeClass" | SOURCE_NODE_SIGNATURE = None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ):
     """
@@ -511,6 +523,7 @@ def push_queue(
                 node_type=WiringNodeType.PUSH_SOURCE_NODE,
                 deprecated=deprecated,
                 requires=requires,
+                label=label,
             ),
             impl_fn=fn,
             node_type=WiringNodeType.PUSH_SOURCE_NODE,
@@ -750,6 +763,7 @@ def service_adaptor_impl(
     *,
     interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
     resolvers: Mapping["TypeVar", Callable] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ):
     """
@@ -758,7 +772,7 @@ def service_adaptor_impl(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.SERVICE_ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
+        WiringNodeType.SERVICE_ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, label=label, deprecated=deprecated
     )
 
 
@@ -795,6 +809,7 @@ def component(
     *,
     recordable_id: str | None = None,
     resolvers: Mapping["TypeVar", Callable] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
 ) -> GRAPH_SIGNATURE:
     """
@@ -837,7 +852,7 @@ def component(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.COMPONENT, fn, resolvers=resolvers, deprecated=deprecated, record_and_replay_id=recordable_id
+        WiringNodeType.COMPONENT, fn, resolvers=resolvers, deprecated=deprecated, record_and_replay_id=recordable_id, label=label
     )
 
 
@@ -853,6 +868,7 @@ def _node_decorator(
     interfaces=None,
     resolvers: Mapping["TypeVar", Callable] = None,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     deprecated: bool | str = False,
     record_and_replay_id: str | None = None,
     wrap_with_graph: bool = False,
@@ -871,6 +887,7 @@ def _node_decorator(
         interfaces=interfaces,
         deprecated=deprecated,
         requires=requires,
+        label=label,
         record_and_replay_id=record_and_replay_id,
         wrap_with_graph=wrap_with_graph,
     )
@@ -1001,6 +1018,7 @@ def _create_node(
     interfaces=None,
     deprecated: bool | str = False,
     requires: Callable[[..., ...], bool] = None,
+    label: str | None = None,
     record_and_replay_id: str | None = None,
     wrap_with_graph: bool = False,
 ) -> "WiringNodeClass":
@@ -1038,6 +1056,7 @@ def _create_node(
             all_valid_inputs=all_valid_inputs,
             deprecated=deprecated,
             requires=requires,
+            label=label,
             record_and_replay_id=record_and_replay_id,
         )
     )
@@ -1059,6 +1078,7 @@ def _create_node_signature(
     all_valid_inputs: frozenset[str] = None,
     defaults: dict[str, Any] = None,
     deprecated: bool | str = False,
+    label: str | None = None,
     requires: Callable[[..., ...], bool] | None = None,
 ) -> Callable:
     """
@@ -1087,6 +1107,7 @@ def _create_node_signature(
         time_series_args=frozenset(),
         injectables=extract_injectables(**kwargs),
         deprecated=deprecated,
+        label=label,
         requires=requires,
     )
     return signature

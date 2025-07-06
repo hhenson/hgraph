@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TypeVar
+from enum import Enum, auto
+from operator import le
+from typing import TypeVar, Callable, Any
 
 from hgraph._operators._operators import operator
 from hgraph._runtime import GlobalState, EvaluationClock
@@ -61,6 +63,19 @@ class TableSchema(CompoundScalar):
     date_time_key: str
     as_of_key: str
 
+
+@dataclass(frozen=True)
+class TableOptions(CompoundScalar):
+    key_names: tuple[str, ...]
+    date_time_key: str
+    as_of_key: str
+
+
+class ToTableMode(Enum):
+    Tick = auto()  # Write only modifies values into the table, if a time series was not modified, write None
+    Sample = auto()  # Write all values to the table, but only for TSD keys where values were modified, also write key removals
+    Snap = auto()  # Write all values to the table, modified of not, does not write removals
+    
 
 def table_shape(ts: type[TIME_SERIES_TYPE]) -> TABLE:
     """The table shape from the time-series type"""
@@ -158,7 +173,7 @@ def table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
 
 
 @operator
-def to_table(ts: TIME_SERIES_TYPE) -> TS[TABLE]:
+def to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ToTableMode.Tick) -> TS[TABLE]:
     """
     Convert the incoming time-series value to a tabular form.
     The result includes a schema description that represents the shape

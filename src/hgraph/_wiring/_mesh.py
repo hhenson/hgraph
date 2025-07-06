@@ -178,7 +178,7 @@ def _create_mesh_wiring_node(
         context_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
-        label=f"mesh('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+        # label=f"mesh('{resolved_signature.signature}', {', '.join(input_types.keys())})",
     )
 
     try:

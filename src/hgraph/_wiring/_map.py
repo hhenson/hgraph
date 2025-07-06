@@ -38,7 +38,7 @@ KEYS_ARG = "__keys__"
 _KEY_ARG = "__key_arg__"
 
 
-def map_(func: Callable, *args, **kwargs):
+def map_(func: Callable, *args, __label__: str = None, **kwargs):
     """
     This is a simple wrapper that makes it easier to use the map without having to think about the inputs too much.
     This will attempt to infer which of the map functions are suitable to make use of based on the inputs provided.
@@ -62,12 +62,12 @@ def map_(func: Callable, *args, **kwargs):
     if isinstance(func, WiringNodeClass):
         with WiringContext(current_signature=STATE(signature=f"map_('{func.signature.signature}', ...)")):
             signature: WiringNodeSignature = func.signature
-            return _build_and_wire_map(func, signature, *args, **kwargs)
+            return _build_and_wire_map(func, signature, *args, **kwargs, __label__=__label__)
     elif isfunction(func) and func.__name__ == "<lambda>":
         graph = _deduce_signature_from_lambda_and_args(func, *args, **kwargs)
         signature: WiringNodeSignature = graph.signature
         with WiringContext(current_signature=STATE(signature=f"map_('{signature.signature}', ...)")):
-            return _build_and_wire_map(graph, signature, *args, **kwargs)
+            return _build_and_wire_map(graph, signature, *args, **kwargs, __label__=__label__)
     else:
         raise RuntimeError(f"The supplied function is not a graph or node function or lambda: '{func.__name__}'")
 
@@ -305,12 +305,12 @@ def _build_map_wiring(
 
 
 def _build_and_wire_map(
-    fn: Callable, signature: WiringNodeSignature, *args, __keys__=None, __key_arg__=None, **kwargs
+    fn: Callable, signature: WiringNodeSignature, *args, __keys__=None, __key_arg__=None, __label__=None, **kwargs
 ) -> WiringPort:
     map_wiring_node, kwargs_, ri = _build_map_wiring(
         fn, signature, *args, __keys__=__keys__, __key_arg__=__key_arg__, **kwargs
     )
-    port = map_wiring_node(**kwargs_, __return_sink_wp__=True)
+    port = map_wiring_node(**kwargs_, __return_sink_wp__=True, __label__=__label__)
 
     from hgraph import WiringGraphContext
 
@@ -544,7 +544,7 @@ def _create_tsd_map_wiring_node(
         context_inputs=None,
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
-        label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+        # label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
     )
 
     if resolved_signature.var_arg:

@@ -50,7 +50,6 @@ from hgraph.adaptors.perspective import (
     TableEdits,
 )
 from hgraph.adaptors.perspective import perspective_web, PerspectiveTablesManager
-from hgraph.adaptors.perspective._perspective_adaptor import publish_join_table
 from hgraph.debug import trace_controller
 from hgraph.debug import inspector
 

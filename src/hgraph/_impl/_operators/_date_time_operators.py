@@ -200,7 +200,7 @@ def div_timedeltas(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[float]:
 
 
 @compute_node(overloads=floordiv_)
-def div_timedeltas(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[int]:
+def floordiv_timedeltas(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[int]:
     return lhs.value // rhs.value
 
 

@@ -451,11 +451,11 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
     """
 
     @staticmethod
-    def _validate_kwargs(schema: TS_SCHEMA, **kwargs):
+    def _validate_kwargs(__schema__: TS_SCHEMA, **kwargs):
         from hgraph._wiring._wiring_port import WiringPort
         from hgraph._types._type_meta_data import HgTypeMetaData
 
-        meta_data_schema: dict[str, "HgTypeMetaData"] = schema.__meta_data_schema__
+        meta_data_schema: dict[str, "HgTypeMetaData"] = __schema__.__meta_data_schema__
         if any(k not in meta_data_schema for k in kwargs.keys()):
             from hgraph._wiring._wiring_errors import InvalidArgumentsProvided
 
@@ -473,7 +473,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
                     with WiringContext(
                         current_arg=k,
                         current_signature=STATE(
-                            signature=f"TSB[{schema.__name__}].from_ts({', '.join(kwargs.keys())})"
+                            signature=f"TSB[{__schema__.__name__}].from_ts({', '.join(kwargs.keys())})"
                         ),
                     ):
                         raise IncorrectTypeBinding(expected_type=meta_data_schema[k], actual_type=v.output_type)
@@ -494,7 +494,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
 
                 with WiringContext(
                     current_arg=k,
-                    current_signature=STATE(signature=f"TSB[{schema.__name__}].from_ts({', '.join(kwargs.keys())})"),
+                    current_signature=STATE(signature=f"TSB[{__schema__.__name__}].from_ts({', '.join(kwargs.keys())})"),
                 ):
                     raise IncorrectTypeBinding(expected_type=meta_data_schema[k], actual_type=v)
 
@@ -526,7 +526,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             else:
                 raise ParseError(f"Expected a dictionary of values, got {arg}")
 
-        kwargs = TimeSeriesBundleInput._validate_kwargs(schema, **kwargs)
+        kwargs = TimeSeriesBundleInput._validate_kwargs(__schema__=schema, **kwargs)
 
         from hgraph import (
             WiringNodeSignature,
