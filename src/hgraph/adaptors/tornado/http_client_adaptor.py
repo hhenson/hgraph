@@ -37,6 +37,8 @@ class Credentials:
         return f"credentials"
 
 
+authorization_match = re.compile(r"'Authorization':\s*'(?:Bearer|Basic|Digest|Negotiate|NTLM)\s+[^']+'")
+
 @service_adaptor
 def http_client_adaptor(request: TS[HttpRequest], path: str = "http_client") -> TS[HttpResponse]:
     """
@@ -272,23 +274,25 @@ def http_client_adaptor_impl(
                 url = f"{request.url}?{urlencode(request.query)}"
             else:
                 url = request.url
+            
+            log_url = authorization_match.sub("'Authorization': '[REDACTED]'", url)
 
             timeouts = {"connect_timeout": request.connect_timeout, "request_timeout": request.request_timeout}
             if isinstance(request, HttpGetRequest):
-                logger.debug("[GET][%i][%s]", id, url)
+                logger.debug("[GET][%i][%s]", id, log_url)
                 response = await client.fetch(url, method="GET", headers=request.headers, raise_error=False, **timeouts)
             elif isinstance(request, HttpPostRequest):
-                logger.debug("[POST][%i][%s] body: %s", id, url, request.body)
+                logger.debug("[POST][%i][%s] body: %s", id, log_url, request.body)
                 response = await client.fetch(
                     url, method="POST", headers=request.headers, body=request.body, raise_error=False, **timeouts
                 )
             elif isinstance(request, HttpPutRequest):
-                logger.debug("[PUT][%i][%s] body: %s", id, url, request.body)
+                logger.debug("[PUT][%i][%s] body: %s", id, log_url, request.body)
                 response = await client.fetch(
                     url, method="PUT", headers=request.headers, body=request.body, raise_error=False, **timeouts
                 )
             elif isinstance(request, HttpDeleteRequest):
-                logger.debug("[DELETE][%i][%s]", id, url)
+                logger.debug("[DELETE][%i][%s]", id, log_url)
                 response = await client.fetch(
                     url, method="DELETE", headers=request.headers, raise_error=False, **timeouts
                 )

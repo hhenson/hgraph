@@ -1344,3 +1344,8 @@ Version 0.4.67 (02-07-2025)
 ---------------------------
 
 * Clean up path
+
+Version 0.4.68 (14-07-2025)
+---------------------------
+
+* redact Athorization cookie value
