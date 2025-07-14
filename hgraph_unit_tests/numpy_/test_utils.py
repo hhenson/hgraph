@@ -1,5 +1,5 @@
 from hgraph import Size, Array
-from hgraph.numpy._utils import extract_dimensions_from_array, extract_type_from_array
+from hgraph.numpy_._utils import extract_dimensions_from_array, extract_type_from_array
 
 
 def test_extract_type_info():

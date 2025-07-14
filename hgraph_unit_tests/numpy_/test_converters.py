@@ -1,5 +1,5 @@
 from hgraph import graph, TS, Array, Size, to_window
-from hgraph.numpy import as_array, get_item
+from hgraph.numpy_ import as_array, get_item
 from hgraph.test import eval_node
 import numpy as np
 

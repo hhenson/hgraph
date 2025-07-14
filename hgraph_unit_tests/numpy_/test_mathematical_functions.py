@@ -1,5 +1,5 @@
 from hgraph import Array, Size
-from hgraph.numpy import cumsum, ARRAY
+from hgraph.numpy_ import cumsum, ARRAY
 from hgraph.test import eval_node
 import numpy as nd
 

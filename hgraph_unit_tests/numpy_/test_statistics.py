@@ -1,7 +1,7 @@
 import numpy as np
 
 from hgraph import TS, Array, Size, graph
-from hgraph.numpy import corrcoef
+from hgraph.numpy_ import corrcoef
 from hgraph.test import eval_node
 
 

@@ -5,8 +5,8 @@ from functools import wraps
 import numpy as np
 
 from hgraph import TS, lift, graph, AUTO_RESOLVE
-from hgraph.numpy._constants import ARRAY
-from hgraph.numpy._utils import add_docs
+from hgraph.numpy_._constants import ARRAY
+from hgraph.numpy_._utils import add_docs
 
 
 @graph

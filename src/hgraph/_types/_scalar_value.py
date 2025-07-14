@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import _SpecialGenericAlias, _tp_cache, TypeVar
 
-import numpy as np
+from numpy import ndarray
 
 from hgraph._types._scalar_types import Size
 
@@ -79,4 +79,4 @@ class _ArrayTypeclass(_SpecialGenericAlias, _root=True):
         return self.copy_with(params)
 
 
-Array = _ArrayTypeclass(np.ndarray, -1, inst=False, name="Array")
+Array = _ArrayTypeclass(ndarray, -1, inst=False, name="Array")

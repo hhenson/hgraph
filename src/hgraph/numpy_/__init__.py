@@ -41,7 +41,7 @@ The actual type of the output in the second case is ``TSW`` or time-series windo
 To use the window as a ticking value of array, use the ``as_array`` to convert from ``TSW`` to numpy array.
 """
 
-from hgraph.numpy._constants import *
-from hgraph.numpy._converters import *
-from hgraph.numpy._mathematical_functions import *
-from hgraph.numpy._statistics import *
+from hgraph.numpy_._constants import *
+from hgraph.numpy_._converters import *
+from hgraph.numpy_._mathematical_functions import *
+from hgraph.numpy_._statistics import *

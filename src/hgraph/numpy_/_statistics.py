@@ -3,8 +3,8 @@ __all__ = ["corrcoef",]
 import numpy as np
 
 from hgraph import TS, graph, lift, AUTO_RESOLVE, Array, Size, compute_node, SCALAR
-from hgraph.numpy._constants import ARRAY, ARRAY_1
-from hgraph.numpy._utils import extract_dimensions_from_array, extract_type_from_array, add_docs
+from hgraph.numpy_._constants import ARRAY, ARRAY_1
+from hgraph.numpy_._utils import extract_dimensions_from_array, extract_type_from_array, add_docs
 
 
 @graph

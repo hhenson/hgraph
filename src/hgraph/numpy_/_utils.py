@@ -1,4 +1,4 @@
-from hgraph.numpy._constants import ARRAY
+from hgraph.numpy_._constants import ARRAY
 
 __all__ = ["extract_type_from_array", "extract_dimensions_from_array", "add_docs"]
 
