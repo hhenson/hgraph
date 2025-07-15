@@ -1349,3 +1349,8 @@ Version 0.4.68 (14-07-2025)
 ---------------------------
 
 * redact Athorization cookie value
+
+Version 0.4.69 (15-07-2025)
+---------------------------
+
+* Use json.dumps to convert str to json string in _to_json (to handle correctly escaping special characters)

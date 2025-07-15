@@ -93,7 +93,7 @@ def _(value: HgAtomicType, delta=False) -> Callable[[Any], str]:
             bool: lambda v: None if v is None else "true" if v else "false",
             int: lambda v: None if v is None else f"{v}",
             float: lambda v: None if v is None else f"{v}",
-            str: lambda v: None if v is None else f'"{v}"',
+            str: lambda v: None if v is None else json.dumps(str),
             date: lambda v: None if v is None else f'"{v.strftime("%Y-%m-%d")}"',
             time: lambda v: None if v is None else f'"{v.strftime("%H:%M:%S.%f")}"',
             timedelta: _td_to_str,
