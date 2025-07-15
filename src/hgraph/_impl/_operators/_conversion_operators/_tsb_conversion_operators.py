@@ -34,9 +34,24 @@ def combine_unnamed_tsb_strict(*, __strict__: bool, _output: OUT = None, **bundl
     return bundle.value if not _output.valid else bundle.delta_value
 
 
-@graph(overloads=combine)
-def combine_named_tsb(tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT], **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
+@graph(overloads=combine, requires=lambda m, s: not s["__strict__"])
+def combine_named_tsb(
+    __strict__: bool = True,
+    tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT],
+    **bundle: TSB[TS_SCHEMA]
+) -> TSB[TS_SCHEMA]:
     return bundle
+
+
+@compute_node(overloads=combine, requires=lambda m, s: s["__strict__"], all_valid=("bundle",))
+def combine_named_tsb_strict(
+    *,
+    __strict__: bool = True,
+    tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT],
+    _output: OUT = None,
+    **bundle: TSB[TS_SCHEMA]
+) -> TSB[TS_SCHEMA]:
+    return bundle.value if not _output.valid else bundle.delta_value
 
 
 def _combine_tsb_partial_requirements(mapping, scalars):
