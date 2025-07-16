@@ -91,8 +91,8 @@ def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_
     """
     This represents the ``*`` operator for time series types.
     Parameters:
-    __strict__: bool:
-    * if True will return nothing if eiher lhs or rhs is not valid or present
+    __strict__: bool: (default False)
+    * if True will return nothing if either lhs or rhs is not valid or present
     * if False will return lhs or rhs if rhs or lhs respectively is not present
     """
 
