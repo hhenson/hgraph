@@ -1,8 +1,8 @@
 
-hgraph.numpy
-============
+hgraph.numpy_
+=============
 
-.. module:: hgraph.numpy
+.. module:: hgraph.numpy_
 
 Numpy Bindings
 --------------
@@ -46,17 +46,17 @@ The actual type of the output in the second case is ``TSW`` or time-series windo
 Converters
 ----------
 
-.. autofunction:: hgraph.numpy.as_array
+.. autofunction:: hgraph.numpy_.as_array
 
 
 Mathematical Functions
 ----------------------
 
-.. autofunction:: hgraph.numpy.cumsum
+.. autofunction:: hgraph.numpy_.cumsum
 
 Statistical Functions
 ---------------------
 
-.. autofunction:: hgraph.numpy.corrcoef
+.. autofunction:: hgraph.numpy_.corrcoef
 
 
