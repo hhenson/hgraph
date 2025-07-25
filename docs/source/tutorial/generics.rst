@@ -196,7 +196,7 @@ if the function has an ``TS[int]`` for type one, then the second one can only be
 
 (For example when performing a division).
 
-The use fo requires and resolvers do add additional cost to type resolution and as such should only be used when
+The use of requires and resolvers do add additional cost to type resolution and as such should only be used when
 absolutely necessary.
 
 
