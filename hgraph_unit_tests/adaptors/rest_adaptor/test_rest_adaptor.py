@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import timedelta, datetime
 from random import randrange
 from threading import Thread
 
@@ -190,7 +190,8 @@ def test_single_rest_request_graph(port):
         time.sleep(0.5)
         requests.request("GET", f"http://localhost:{port}/stop_rest", timeout=1)
 
-    run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
+                                         end_time=datetime.utcnow() + timedelta(seconds=3)))
 
     assert response1 is not None
     assert response1.status_code == 404
