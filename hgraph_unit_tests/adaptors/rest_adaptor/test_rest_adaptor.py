@@ -250,7 +250,8 @@ def test_multiple_request_graph(port):
         time.sleep(0.1)
         requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
 
-    run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
+                                         end_time=datetime.utcnow() + timedelta(seconds=3)))
 
     assert response1 is not None
     assert response1.status_code == 404
