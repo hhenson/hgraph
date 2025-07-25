@@ -1,5 +1,5 @@
 
-hgraph.numpy_
+hgraph.numpy\_
 =============
 
 .. module:: hgraph.numpy_
