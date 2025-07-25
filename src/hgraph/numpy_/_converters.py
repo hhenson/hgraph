@@ -1,5 +1,3 @@
-__all__ = ["as_array", "get_item"]
-
 import numpy as np
 
 import hgraph
@@ -7,6 +5,8 @@ from hgraph import compute_node, TSW, SCALAR, SIZE, TS, Array, WINDOW_SIZE_MIN, 
     operator, OUT
 from hgraph.numpy_._constants import ARRAY
 from hgraph.numpy_._utils import extract_type_from_array, extract_dimensions_from_array
+
+__all__ = ["as_array", "get_item"]
 
 
 @graph(
