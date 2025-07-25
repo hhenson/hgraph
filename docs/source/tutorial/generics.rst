@@ -160,3 +160,43 @@ name of the scalar inputs and contains the values supplied.
 
 If, using this information, it is possible to resolve a type, then the resolver function is a great tool to make
 generic types more usable making the user experience a bit better.
+
+Requires
+--------
+
+Very closely related to ``resolvers`` is the requires attribute, this allows a graph or node to specify requirements
+that must be met in order to pass wiring successfully. The signature for a requires function is the same as for
+the resolver for inputs, but is expected to return True if the requirements are met, otherwise it can return False or
+a message indicating why it did not resolve the inputs.
+
+There are many potential uses for this feature, however, a simple example is provided below:
+
+.. testcode::
+
+    import pytest
+    from hgraph import compute_node, TS, RequirementsNotMetWiringError
+    from hgraph.test import eval_node
+
+    def _requires_true(mappings, scalars):
+        return scalars["__strict__"] or "This requires strict to be True"
+
+    @compute_node(requires=_requires_true)
+    def add_strict(lhs: TS[int], rhs: TS[int], __strict__: bool) -> TS[int]:
+        return lhs.value + rhs.value
+
+    assert eval_node(add_strict, [1], [2], True) == [3]
+
+    with pytest.raises(RequirementsNotMetWiringError):
+        assert eval_node(add_strict, [1], [2], False) == [3]
+
+The above example may seem a bit strange, however, this will make more sense when reviewing the ``operators`` section.
+
+This can also be helpful when constraining generics, or the interoperability of different generic inputs, for example
+if the function has an ``TS[int]`` for type one, then the second one can only be of type ``TS[int]`` or ``TS[float]``.
+
+(For example when performing a division).
+
+The use fo requires and resolvers do add additional cost to type resolution and as such should only be used when
+absolutely necessary.
+
+
