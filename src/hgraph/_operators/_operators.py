@@ -87,9 +87,13 @@ WiringPort.__rsub__ = lambda x, y: sub_(y, x)
 
 
 @operator
-def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_TYPE:
     """
     This represents the ``*`` operator for time series types.
+    Parameters:
+    __strict__: bool: (default False)
+    * if True will return nothing if either lhs or rhs is not valid or present
+    * if False will return lhs or rhs if rhs or lhs respectively is not present
     """
 
 
@@ -113,7 +117,7 @@ def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]
     """
     This represents the `/` operator for time series types.
 
-    Params:
+    Parameters:
     * divide_by_zero: DivideByZero - controls the behaviour when dividing by zero
     """
 
