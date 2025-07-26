@@ -137,7 +137,7 @@ def compute_node(
     For example:
     ::
 
-        @compute_node(active('trade_request',))
+        @compute_node(active=('trade_request',))
         def accept_trade_request(trade_request: TS[Trade], market_data: TS[float]) -> TS[bool]:
             return trade_request.value.price == market_data.value
 

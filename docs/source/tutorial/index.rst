@@ -12,6 +12,7 @@ to :doc:`../getting_started`.
     injectables
     typing
     generics
+    operators
 
     common_pitfalls
 
