@@ -52,21 +52,6 @@ def convert_ts_to_tsd(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD
-                          or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
-)
-def convert_tuple_to_tsd(
-        key: TS[Tuple[KEYABLE_SCALAR, ...]],
-        ts: TS[Tuple[SCALAR, ...]],
-        to: Type[OUT] = DEFAULT[OUT],
-        _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
-) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
-    remove = {k: REMOVE for k in _output.keys() if k not in key.value} if _output.valid and key.modified else {}
-    return {key.value: ts.value, **remove}
-
-
-@compute_node(
-    overloads=convert,
     requires=lambda m, s: m[OUT].py_type is TSD or m[OUT].matches_type(TSD[int, TS[m[SCALAR].py_type]]),
 )
 def convert_tuple_to_enumerated_tsd(
@@ -197,10 +182,12 @@ def combine_tsd_from_tuple_and_tuple(
         __strict__: bool = True,
         _output: TSD_OUT[SCALAR, TS[SCALAR_1]] = None,
 ) -> TSD[SCALAR, TS[SCALAR_1]]:
-    out = {k: v for k, v in zip(keys.value, values.value)}
-    if _output.valid:
-        out |= {k: REMOVE for k in _output if k not in out}
-    return out
+    keys_ = keys.value
+    values_ = values.value
+    out_value = _output.value if _output.valid else {}
+    remove = {k: REMOVE for k in out_value if k not in keys_} if _output.valid and keys.modified else {}
+    add = {k: v for k, v in zip(keys_, values_) if k not in out_value or out_value[k] != v}
+    return add | remove
 
 
 @compute_node(
