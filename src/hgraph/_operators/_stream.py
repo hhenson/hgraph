@@ -175,9 +175,12 @@ def to_window(
 @operator
 def gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = sys.maxsize) -> TIME_SERIES_TYPE:
     """
-    Queues up ticks of a time series when the value of ``condition`` if ``False``. Once it turns `True` the queued up
-    ticks are released one by one. The, default buffer length is sys.maxsize (which is roughly the same as unbounded).
+    Queues up ticks of a time series when the value of ``condition`` is ``False``. Once it turns `True` the queued-up
+    ticks are released one by one. The default buffer length is sys.maxsize (which is roughly the same as unbounded).
     A ``RuntimeError`` is raised if the buffer exceeds the given buffer_length (when set to a positive value).
+    Setting the length to -1 will put the gate in last tick mode. In this mode the values are overwritten whilst the
+    process is gating, once it has finished gating, the last modified value is released, and then ticks are processed
+    as usual.
     """
 
 
