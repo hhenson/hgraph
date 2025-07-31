@@ -1,4 +1,5 @@
 from typing import Mapping, Set, Tuple
+from frozendict import frozendict as fd
 
 from hgraph import TS, combine, TSD, graph, convert, REMOVE, Size, TSL, collect, TSS, Removed, TSB, emit, KeyValue
 from hgraph.test import eval_node
@@ -62,6 +63,15 @@ def test_combine_tsd_from_tuple_and_tsl():
         return combine[TSD[str, TS[int]]](("a", "b"), a, b)
 
     assert eval_node(g, [1, 2], [3, None]) == [{"a": 1, "b": 3}, {"a": 2}]
+
+
+def test_combine_tsd_from_tuple_and_tuple():
+    @graph
+    def g(k: TS[tuple[str, ...]], v: TS[tuple[int, ...]]) -> TSD[str, TS[int]]:
+        return combine[TSD](k, v)
+
+    result= eval_node(g, [("a", "b"), None, ("a", "c")], [(1, 2), (1, 3), None], __trace_wiring__=True)
+    assert result == [fd({"a": 1, "b": 2}), fd({"b": 3}), fd({"b": REMOVE, "c": 3})]
 
 
 def test_collect_tsd():
