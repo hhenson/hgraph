@@ -2,11 +2,6 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-try:
-    import psutil
-except ImportError:
-    psutil = None
-
 from hgraph import EvaluationLifeCycleObserver, MAX_ET
 
 if TYPE_CHECKING:
@@ -51,9 +46,10 @@ class EvaluationProfiler(EvaluationLifeCycleObserver):
         self.node = node
         self.graph = graph
 
-        if psutil is not None:
+        try:
+            import psutil
             self.process = psutil.Process(os.getpid())
-        else:
+        except ImportError:
             self.process = None
 
     def _print(self, evaluation_clock: "EvaluationClock", msg: str) -> None:

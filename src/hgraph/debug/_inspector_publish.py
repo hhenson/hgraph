@@ -1,12 +1,7 @@
 import logging
-import os
 import time
 from collections import defaultdict
 from datetime import datetime
-
-import perspective
-import psutil
-from sqlalchemy.testing.util import total_size
 
 from hgraph import Node, Graph
 from hgraph.debug._inspector_state import InspectorState
