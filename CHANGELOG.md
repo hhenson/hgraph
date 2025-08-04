@@ -1360,8 +1360,8 @@ Version 0.4.70 (31-07-2025)
 
 * Clean up imports and documentation.
 
-Version 0.4.71 (TBD)
---------------------
+Version 0.4.71 (04-08-2025)
+---------------------------
 
 * Remove untested and broken convert of tuples to TSD
 * Add test and fix combine of tuples to TSD
