@@ -13,6 +13,7 @@ to :doc:`../getting_started`.
     typing
     generics
     operators
+    graph
 
     common_pitfalls
 

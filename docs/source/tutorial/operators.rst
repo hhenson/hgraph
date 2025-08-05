@@ -41,3 +41,5 @@ Here is an example:
 
     assert eval_node(g, [1], [None, 2], __strict__=True) == [None, 3]
     assert eval_node(g, [1], [None, 2], __strict__=False, ) == [1, 3]
+
+In this example, we define an ``add_`` operator.
