@@ -165,7 +165,7 @@ class PythonTimeSeriesFixedWindowOutput(
 
     @property
     def first_modified_time(self) -> datetime:
-        return self._times[0] if self._times else MIN_DT
+        return self._times[0] if len(self._times)>0 else MIN_DT
 
     @property
     def size(self) -> int | timedelta:
@@ -281,7 +281,7 @@ class PythonTimeSeriesTimeWindowOutput(
 
     @property
     def first_modified_time(self) -> datetime:
-        return self._times[0] if self._times else MIN_TD
+        return self._times[0] if len(self._times)>0 else MIN_TD
 
     def invalidate(self):
         self.mark_invalid()
