@@ -1,6 +1,6 @@
 import asyncio
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import Callable, Generic, Type, TypeVar
 
 import tornado.websocket
@@ -8,33 +8,32 @@ from frozendict import frozendict
 
 from hgraph import (
     AUTO_RESOLVE,
-    CompoundScalar,
-    HgTypeMetaData,
-    graph,
-    push_queue,
-    TSD,
-    TS,
-    GlobalState,
-    sink_node,
+    REMOVE,
     STATE,
-    partition,
-    map_,
+    TIME_SERIES_TYPE,
+    TS,
+    TS_SCHEMA,
+    TSB,
+    TSD,
+    CompoundScalar,
+    GlobalState,
+    HgTSBTypeMetaData,
+    HgTypeMetaData,
+    TimeSeriesSchema,
     adaptor,
     adaptor_impl,
-    merge,
-    register_service,
-    TSB,
-    TS_SCHEMA,
-    TIME_SERIES_TYPE,
-    HgTSBTypeMetaData,
-    TimeSeriesSchema,
     combine,
-    REMOVE,
+    graph,
+    map_,
+    merge,
+    partition,
+    push_queue,
+    register_service,
+    sink_node,
 )
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 
-
-logger = logging.getLogger("wensocket_server_adaptor")
+logger = logging.getLogger("websocket_server_adaptor")
 
 
 @dataclass(frozen=True)
@@ -275,8 +274,7 @@ def websocket_server_adaptor_helper(path: str, port: int):
 
 @adaptor_impl(interfaces=())
 def websocket_server_adaptor_impl(path: str, port: int):
-    from hgraph import WiringNodeClass
-    from hgraph import WiringGraphContext
+    from hgraph import WiringGraphContext, WiringNodeClass
 
     @push_queue(TSD[int, TS[WebSocketConnectRequest]])
     def connections_from_web(

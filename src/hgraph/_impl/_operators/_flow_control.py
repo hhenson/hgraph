@@ -400,7 +400,7 @@ def if_then_else_impl(
     if condition_value and true_value.modified and _output.value != true_value.value:
         return true_value.value
 
-    if not condition_value and false_value.modified and _output.value != true_value.value:
+    if not condition_value and false_value.modified and _output.value != false_value.value:
         return false_value.value
 
 

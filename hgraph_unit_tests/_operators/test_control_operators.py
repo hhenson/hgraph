@@ -95,6 +95,16 @@ def test_if_then_else():
     assert eval_node(if_then_else, [None, True, False, True, True], [1, 2, 3], [4, 5, 6]) == expected
 
 
+def test_if_then_else_nested():
+    @graph
+    def g(b: TS[bool]) -> TS[str]:
+        m1 = const("m1")
+        m2 = const("m2")
+        return if_then_else(const(False), m1, if_then_else(b, m2, m1))
+
+    assert eval_node(g, [False, True], __trace__=True) == ["m1", "m2"]
+
+
 def test_if_cmp():
     lt = [1, 2, 3, 4, 5]
     eq = [10, 20, 30, 40, 50]
