@@ -8,7 +8,7 @@ and the linkages between the outputs and the inputs.
 The use of the ``compute_node`` and related node decorators is really intended for extending the system behaviour with
 new primitives. The ``graph`` is intended for describing the intended behaviour of the graph.
 
-We have encoutered graphs before, but we will not go through their behaviour in more detail now.
+We have encoutered graphs before, but we will go through their behaviour in more detail now.
 
 To start with lets create a simple graph, note the graph follows the same signature pattern as for nodes.
 
@@ -25,3 +25,10 @@ To start with lets create a simple graph, note the graph follows the same signat
 
 In this example we are using the :func:`add_ <hgraph.add_>` library node. This does much the same as what we saw in the
 :doc:`operators` tutorial section.
+
+Note, the signature structure is the same for nodes, this allows for nodes and graph to be interchanged, that is the
+user may start with a node based implementation of some logic and then re-factor the logic into a graph, or visa-versa.
+
+The graph signature does not support property injection, that is the use of injectables (such as loggers, state, etc.)
+are not supported in the graph signature. These are only for use in nodes.
+
