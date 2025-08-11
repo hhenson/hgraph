@@ -62,6 +62,8 @@ class PythonTimeSeriesFixedWindowOutput(
             np.copyto(self._value, value)
         else:
             self._value[:l] = value
+        self._start = 0
+        self._length = l
         self.mark_modified()
 
     @property
@@ -150,22 +152,27 @@ class PythonTimeSeriesFixedWindowOutput(
     def mark_invalid(self):
         self._value = np.ndarray(shape=[self._size], dtype=self._tp)
         self._times = np.full(shape=[self._size], fill_value=MIN_TD, dtype=datetime)
+        self._start = 0
+        self._length = 0
         super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
-        self.value = output._value
-        self.value_times = output._times
+        self._value = output._value
+        self._times = output._times
+        self._start = output._size
+        self._length = output._length
+        self.mark_modified()
 
     def copy_from_input(self, input: "TimeSeriesInput"):
         assert isinstance(input, PythonTimeSeriesWindowInput)
         assert isinstance(input.output, PythonTimeSeriesFixedWindowOutput)
-        self.value = input.output._value
-        self.value_times = input.output._times
+        self.value = input.output.value
+        self.value_times = input.output.value_times
 
     @property
     def first_modified_time(self) -> datetime:
-        return self._times[0] if len(self._times)>0 else MIN_DT
+        return self._times[self._start] if len(self._times)>0 else MIN_DT
 
     @property
     def size(self) -> int | timedelta:
@@ -281,6 +288,7 @@ class PythonTimeSeriesTimeWindowOutput(
 
     @property
     def first_modified_time(self) -> datetime:
+        self._roll()
         return self._times[0] if len(self._times)>0 else MIN_TD
 
     def invalidate(self):
@@ -316,14 +324,17 @@ class PythonTimeSeriesTimeWindowOutput(
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
-        self.value = output._value
-        self.value_times = output._times
+        self._value = output._value
+        self._value_times = output._times
+        self._ready = output._ready
 
     def copy_from_input(self, input: "TimeSeriesInput"):
         assert isinstance(input, PythonTimeSeriesWindowInput)
-        assert isinstance(input.output, PythonTimeSeriesFixedWindowOutput)
-        self.value = input.output._value
-        self.value_times = input.output._times
+        output = input.output
+        assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
+        self._value = output._value
+        self._value_times = output._times
+        self._ready = output._ready
 
     def __len__(self) -> int:
         self._roll()
