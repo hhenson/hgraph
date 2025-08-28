@@ -1370,3 +1370,8 @@ Version 0.4.72 (11-08-2025)
 ---------------------------
 
 * Small fixes TSW
+
+Version 0.4.73 (TBD)
+--------------------
+
+* Small fix to type description handling of underlying array in TSW.
