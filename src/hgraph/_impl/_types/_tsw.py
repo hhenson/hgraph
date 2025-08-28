@@ -3,6 +3,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Generic, Optional
+from datetime import date, datetime, time, timedelta
 
 import numpy as np
 
@@ -34,7 +35,7 @@ class PythonTimeSeriesFixedWindowOutput(
     _removed_value: Optional[SCALAR] = None
 
     def __post_init__(self):
-        self._value = np.ndarray(shape=[self._size], dtype=self._tp)
+        self._value = np.ndarray(shape=[self._size], dtype=self._tp if self._tp in {bool, int, float, str, date, datetime, time, timedelta} else object)
         self._times = np.full(shape=[self._size], fill_value=MIN_DT, dtype=datetime)
 
     @property
