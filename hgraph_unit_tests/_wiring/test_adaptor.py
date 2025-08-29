@@ -309,7 +309,7 @@ def test_write_adaptor_request():
         capture_output_node_to_global_state(f"test/foo", out)
         return out
 
-    assert eval_node(g, i=[1, None, 2], x=[True, False, True], __trace__=True) == [
+    assert eval_node(g, i=[1, None, 2], x=[True, False, True]) == [
         {1: True},
         {1: False},
         {1: REMOVE, 2: True},

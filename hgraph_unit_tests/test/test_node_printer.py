@@ -5,7 +5,7 @@ from hgraph.test import eval_node
 
 
 def test_node_printer(capsys):
-    eval_node(not_, [True], __trace__=True)
+    eval_node(not_, [True])
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
     expected = iter([

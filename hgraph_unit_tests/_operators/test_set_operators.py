@@ -15,7 +15,7 @@ def test_union_tss_multi_rebind_to_nothing():
     def app(ts1_flag: TS[bool], ts1: TSS[int], ts2_flag: TS[bool], ts2: TSS[int]) -> TSS[int]:
         return union(if_then_else(ts1_flag, ts1, nothing(TSS[int])), if_then_else(ts2_flag, ts2, nothing(TSS[int])))
 
-    assert eval_node(app, [True, False], [{1, 2, 3}], [True, None, False], [{3, 4, 5}], __trace__=True) == [
+    assert eval_node(app, [True, False], [{1, 2, 3}], [True, None, False], [{3, 4, 5}]) == [
         {1, 2, 3, 4, 5},
         {Removed(1), Removed(2)},
         {Removed(3), Removed(4), Removed(5)},

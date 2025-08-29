@@ -364,7 +364,7 @@ def test_map_over_lambda_args():
     def map_l(tsd: TSD[int, TS[int]], a: TS[int], b: TS[int]) -> TSD[int, TS[int]]:
         return map_(lambda *args: sum_(args), tsd, a, b)
 
-    assert eval_node(map_l, [{1: 1, 2: 2}], [2], [3], __trace__=True) == [{1: 6, 2: 7}]
+    assert eval_node(map_l, [{1: 1, 2: 2}], [2], [3]) == [{1: 6, 2: 7}]
 
 
 def test_map_restricted_keys():

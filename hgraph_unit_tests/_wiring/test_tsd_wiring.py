@@ -115,4 +115,4 @@ def test_tsd_add_clear_in_same_cycle():
         r = feedback(add_remove(a))()
         return r
 
-    assert eval_node(main, [True], __trace__=True) == [None, {}]
+    assert eval_node(main, [True]) == [None, {}]

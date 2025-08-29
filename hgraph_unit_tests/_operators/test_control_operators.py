@@ -102,7 +102,7 @@ def test_if_then_else_nested():
         m2 = const("m2")
         return if_then_else(const(False), m1, if_then_else(b, m2, m1))
 
-    assert eval_node(g, [False, True], __trace__=True) == ["m1", "m2"]
+    assert eval_node(g, [False, True]) == ["m1", "m2"]
 
 
 def test_if_cmp():
@@ -297,7 +297,6 @@ def test_race_tsd_of_bundles_switch_bundle_types():
 
     assert eval_node(
         g,
-        __trace__=True,
         ts=[
             {1: {"free": False}, 2: {"free": True}},
             {1: {"a": 0, "cond": False}},

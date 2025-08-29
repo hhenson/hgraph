@@ -180,7 +180,7 @@ def test_free_tsb_signal():
     def g(ts1: TS[int], ts2: TS[str]) -> TS[bool]:
         return s(tsb_non_peered(ts1, ts2))
 
-    assert eval_node(g, [None, 1, None], [None, None, "b"], __trace__=True) == [None, True, True]
+    assert eval_node(g, [None, 1, None], [None, None, "b"]) == [None, True, True]
 
 
 def test_free_tsb_ref_signal():
@@ -202,7 +202,7 @@ def test_free_tsb_ref_signal():
 
         return s(switch_(c, {True: tsb_non_peered, False: tsb_peered}, ts1, ts2))
 
-    assert eval_node(g, [None, False, True, False], [None, 1, None], [None, None, "b"], __trace__=True) == [
+    assert eval_node(g, [None, False, True, False], [None, 1, None], [None, None, "b"]) == [
         None,
         True,
         True,

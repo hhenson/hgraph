@@ -176,7 +176,7 @@ def test_custom_label(capsys):
     def g(ts: TS[str], i: str, logger_: LOGGER = None) -> TS[str]:
         return ts.value
 
-    eval_node(g, ["Contents"], i="one", __trace__=True)
+    eval_node(g, ["Contents"], i="one")
     out = capsys.readouterr().out
     if out:  # capture fixture is flaky, so check if out is not empty
         assert "custom_label one:g" in out

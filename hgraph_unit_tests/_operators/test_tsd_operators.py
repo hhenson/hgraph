@@ -118,7 +118,6 @@ def test_tsd_get_items():
         [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
         [None, {1}, {2, 5}, {Removed(2)}, None],
         resolution_dict={"ts": TSD[int, TS[int]], "key": TSS[int]},
-        __trace__=True,
     ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
 
 
@@ -274,7 +273,6 @@ def test_collapse_more_keys_tsd():
     assert eval_node(
         g,
         [{1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, {1: {"c": {True: 5}, "a": REMOVE}}, {2: REMOVE}],
-        __trace__=True,
     ) == [
         fd({(1, "a", True): 5, (2, "b", False): 6}),
         fd({(1, "c", True): 5, (1, "a", True): REMOVE}),
@@ -459,7 +457,7 @@ def test_bit_xor_tsds():
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
         return tsd1 ^ tsd2
 
-    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}], __trace__=True) == [
+    assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}]) == [
         frozendict({1: 1, 2: 3}),
         frozendict({3: 2, 2: REMOVE}),
     ]
