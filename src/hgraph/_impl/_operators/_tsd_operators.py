@@ -1,10 +1,10 @@
 from collections import defaultdict
-from dataclasses import field, dataclass
-from datetime import datetime, date
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from statistics import stdev, variance
-from typing import Type, cast, Tuple, Set, Callable
+from typing import Callable, Set, Tuple, Type, cast
 
-from hgraph import HgTupleFixedScalarType, HgTSDTypeMetaData, and_, default, modified
+from hgraph import K_2, TIME_SERIES_TYPE_1, HgTSDTypeMetaData, HgTupleFixedScalarType, and_, default
 from hgraph._operators import (
     add_,
     bit_and,
@@ -39,13 +39,13 @@ from hgraph._operators import (
 )
 from hgraph._operators._stream import filter_by
 from hgraph._types._frame_scalar_type_meta_data import SCHEMA
-from hgraph._types._ref_type import REF, TimeSeriesReferenceOutput, TimeSeriesReference
-from hgraph._types._scalar_types import SCALAR, STATE, CompoundScalar, NUMBER
-from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT, K_1, V
+from hgraph._types._ref_type import REF, TimeSeriesReference, TimeSeriesReferenceOutput
+from hgraph._types._scalar_types import NUMBER, SCALAR, STATE, CompoundScalar
+from hgraph._types._time_series_types import K_1, OUT, TIME_SERIES_TYPE, V
 from hgraph._types._ts_type import TS
-from hgraph._types._tsb_type import TSB, TS_SCHEMA
-from hgraph._types._tsd_type import TSD, K, REMOVE_IF_EXISTS, TSD_OUT
-from hgraph._types._tsl_type import TSL, SIZE
+from hgraph._types._tsb_type import TS_SCHEMA, TSB
+from hgraph._types._tsd_type import REMOVE_IF_EXISTS, TSD, TSD_OUT, K
+from hgraph._types._tsl_type import SIZE, TSL
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import AUTO_RESOLVE, HgTypeMetaData
 from hgraph._wiring._decorators import compute_node, graph
@@ -277,11 +277,39 @@ def tsd_get_bundle_item(
                 out[k] = v.value.items[_schema._schema_index_of(key)]
         else:
             out[k] = TimeSeriesReference.make()
-
     for k in tsd.removed_keys():
         out[k] = REMOVE_IF_EXISTS
 
     return out
+
+
+@graph
+def tsd_get_bundle_item_nested(
+    tsd: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], key: str
+) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE_1]]]:
+    collapsed_tsd = collapse_keys(tsd)
+    tsd_out = getattr_(collapsed_tsd, key)
+    return uncollapse_keys(tsd_out)
+
+
+@graph(
+    overloads=getattr_,
+    resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
+)
+def tsd_get_bundle_item_2(
+    tsd: TSD[K, TSD[K_1, REF[TSB[TS_SCHEMA]]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
+    return tsd_get_bundle_item_nested(tsd, key)
+
+
+@graph(
+    overloads=getattr_,
+    resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
+)
+def tsd_get_bundle_item_3(
+    tsd: TSD[K, TSD[K_1, TSD[K_2, REF[TSB[TS_SCHEMA]]]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSD[K, TSD[K_1, TSD[K_2, REF[TIME_SERIES_TYPE]]]]:
+    return tsd_get_bundle_item_nested(tsd, key)
 
 
 @compute_node(
@@ -311,11 +339,13 @@ def _collapse_keys_tsd_impl(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[
     out = {}
 
     for k, v in ts.removed_items():
-        out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
+        if v is not None:
+            out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
 
     for k, v in ts.modified_items():
-        out.update({(k, k1): v1.value for k1, v1 in v.modified_items()})
-        out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
+        if v is not None:
+            out.update({(k, k1): v1.value for k1, v1 in v.modified_items()})
+            out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
 
     return out
 
@@ -348,9 +378,9 @@ def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD
 def collapse_keys_tsd(
     ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], max_depth: int = -1, v_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
 ) -> OUT:
-    assert (
-        max_depth >= 2 or max_depth == -1
-    ), "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
+    assert max_depth >= 2 or max_depth == -1, (
+        "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
+    )
 
     if max_depth == 2 or not isinstance(HgTypeMetaData.parse_type(v_tp), HgTSDTypeMetaData):
         return _collapse_keys_tsd_impl(ts)
