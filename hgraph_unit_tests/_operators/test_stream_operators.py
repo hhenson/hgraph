@@ -498,10 +498,19 @@ def test_take():
 
 def test_drop():
     @graph
-    def g(ts: TS[int], count: int):
+    def g(ts: TS[int], count: int) -> TS[int]:
         return drop(ts, count)
 
     assert eval_node(drop, [1, 2, 3, 4, 5], 3) == [None, None, None, 4, 5]
+
+
+def test_drop_timedelta():
+    @graph
+    def g(ts: TS[int], period: timedelta) -> TS[int]:
+        return drop(ts, period)
+
+    # Using period=2*MIN_TD should drop the first three ticks (0,1,2) and pass from the 4th
+    assert eval_node(g, [1, 2, 3, 4, 5], 2 * MIN_TD) == [None, None, None, 4, 5]
 
 
 def test_window_cyclic_buffer():

@@ -1375,3 +1375,6 @@ Version 0.4.73 (TBD)
 --------------------
 
 * Small fix to type description handling of underlying array in TSW.
+* new run_on_thread adaptor
+* Improvements to get-item with nested TSD
+* Add a drop with a time-period constraint.

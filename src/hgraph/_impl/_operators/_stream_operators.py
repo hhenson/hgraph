@@ -349,7 +349,6 @@ def drop_default(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
     """
     return _drop(ts, ts, count)
 
-
 @compute_node(active=("ts_counter",))
 def _drop(
     ts: REF[TIME_SERIES_TYPE], ts_counter: SIGNAL, count: int = 1, state: STATE[CounterState] = None
@@ -358,6 +357,27 @@ def _drop(
     if state.count > count:
         ts_counter.make_passive()
         return ts.value
+
+
+@graph(overloads=drop)
+def _drop_by_time(ts: REF[TIME_SERIES_TYPE], count: timedelta, _schedule: SCHEDULER = None) -> REF[TIME_SERIES_TYPE]:
+    return _drop_by_time(ts, ts, count, _schedule)
+
+
+@compute_node(overloads=drop, active=("ts",))
+def _drop_by_time(ts: TIME_SERIES_TYPE, ts_ref: REF[TIME_SERIES_TYPE], count: timedelta, _schedule: SCHEDULER = None) -> REF[TIME_SERIES_TYPE]:
+    """
+    Drops ticks until the elapsed time since the first tick exceeds the given timedelta.
+    Thereafter, all subsequent ticks are passed through.
+    """
+    if ts.modified and ts.active:
+        _schedule.schedule(count + MIN_TD) # Ensure this gap is maintained
+        ts.make_passive()
+    elif _schedule.is_scheduled_now:
+        ts_ref.make_active()
+        return ts_ref.value
+    else:
+        return ts_ref.value
 
 
 @compute_node(overloads=window)
