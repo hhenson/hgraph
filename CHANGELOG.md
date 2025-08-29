@@ -1371,8 +1371,8 @@ Version 0.4.72 (11-08-2025)
 
 * Small fixes TSW
 
-Version 0.4.73 (TBD)
---------------------
+Version 0.4.73 (29-08-2025)
+---------------------------
 
 * Small fix to type description handling of underlying array in TSW.
 * new run_on_thread adaptor
