@@ -5,8 +5,7 @@ from hgraph._impl._builder._node_builder import PythonBaseNodeBuilder
 from hgraph._impl._runtime._map_node import PythonTsdMapNodeImpl
 
 if TYPE_CHECKING:
-    from hgraph._builder._graph_builder import GraphBuilder
-
+    from hgraph import GraphBuilder, HgScalarTypeMetaData
 
 @dataclass(frozen=True)
 class PythonTsdMapNodeBuilder(PythonBaseNodeBuilder):
@@ -15,6 +14,7 @@ class PythonTsdMapNodeBuilder(PythonBaseNodeBuilder):
     output_node_id: int | None = None  # The node representing the stub output in the nested graph.
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
     key_arg: str | None = None  # The key arg to use, None if no key exists
+    key_tp: Optional["HgScalarTypeMetaData"] = None
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonTsdMapNodeImpl:
         node = PythonTsdMapNodeImpl(

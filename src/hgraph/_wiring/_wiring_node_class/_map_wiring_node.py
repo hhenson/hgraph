@@ -69,6 +69,7 @@ class TsdMapWiringNodeClass(BaseWiringNodeClass):
             output_node_id=output_node_id,
             multiplexed_args=self.signature.multiplexed_args,
             key_arg=self.signature.key_arg,
+            key_tp=self.signature.key_tp,
         )
 
     @property
