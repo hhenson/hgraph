@@ -481,9 +481,11 @@ def sum_scalars_multi(*ts: TSL[TS[SCALAR], SIZE], zero_value: TS[SCALAR] = None)
 
 
 @graph(overloads=mean)
-def mean_scalars(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
+def mean_scalars(*ts: TSL[TS[SCALAR], SIZE], reset: SIGNAL = None) -> TS[float]:
     if len(ts) == 1:
-        return mean_scalar_unary(ts[0])
+        if reset is None:
+            reset = nothing(TS[bool])
+        return mean_scalar_unary(ts[0], reset=reset)
     elif len(ts) == 2:
         return mean_scalars_binary(ts[0], ts[1])
     else:
@@ -491,7 +493,7 @@ def mean_scalars(*ts: TSL[TS[SCALAR], SIZE]) -> TS[float]:
 
 
 @graph
-def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[float]:
+def mean_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[float]:
     """
     Unary mean()
     The default implementation (here) is a running mean
@@ -499,11 +501,13 @@ def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[flo
     These are overloaded separately
     """
     from hgraph import cast_, count
+    if reset is None:
+        reset = nothing(TS[bool])
 
     if tp is float:
-        return sum_(ts) / count(ts)
+        return sum_(ts, reset=reset) / count(ts, reset=reset)
     else:
-        return cast_(float, sum_(ts)) / count(ts)
+        return cast_(float, sum_(ts, reset=reset)) / count(ts, reset=reset)
 
 
 @graph
