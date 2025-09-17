@@ -506,12 +506,6 @@ def mean_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[flo
         return cast_(float, sum_(ts)) / count(ts)
 
 
-@compute_node(overloads=mean, all_valid=("ts",))
-def mean(ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN]) -> TS[float]:
-    """Computes the mean of a time series window"""
-    return np.mean(ts.value)
-
-
 @graph
 def mean_scalars_binary(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[float]:
     """

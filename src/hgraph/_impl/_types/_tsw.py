@@ -192,7 +192,7 @@ class PythonTimeSeriesFixedWindowOutput(
         return self._removed_value
 
     def __len__(self) -> int:
-        return self._size
+        return self._length
 
 
 @dataclass
