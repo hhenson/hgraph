@@ -1378,3 +1378,9 @@ Version 0.4.73 (29-08-2025)
 * new run_on_thread adaptor
 * Improvements to get-item with nested TSD
 * Add a drop with a time-period constraint.
+
+Version 0.4.74 (17-09-2025)
+---------------------------
+
+* Update mean over TSW (remove bad override and correct bugs in incremental implementation)
+
