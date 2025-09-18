@@ -12,7 +12,7 @@ from typing import Callable
 
 from flask import Flask
 
-from hgraph import graph, push_queue, TS, sink_node, run_graph, EvaluationMode
+from hgraph import graph, push_queue, TS, sink_node, evaluate_graph, GraphConfiguration, EvaluationMode
 
 app = Flask(__name__)
 
@@ -59,7 +59,7 @@ class HGraphApp:
         threading.Thread(target=self.run).start()
 
     def run(self):
-        run_graph(self._graph, run_mode=EvaluationMode.REAL_TIME)
+        evaluate_graph(self._graph, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME))
 
 
 def main():

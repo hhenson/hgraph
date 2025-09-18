@@ -14,7 +14,8 @@ from hgraph import (
     TimeSeriesSchema,
     TSB,
     TSD,
-    run_graph,
+    evaluate_graph,
+    GraphConfiguration,
     EvaluationMode,
     TS,
     EvaluationClock,
@@ -172,4 +173,4 @@ def wall_clock_time(ts: SIGNAL) -> TS[datetime]:
 if __name__ == "__main__":
     gc.disable()
     print(f"pid={os.getpid()}")
-    run_graph(host_web_server, run_mode=EvaluationMode.REAL_TIME, __trace__=False)
+    evaluate_graph(host_web_server, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, trace=False))
