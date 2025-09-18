@@ -1,4 +1,4 @@
-from hgraph import graph, TS, run_graph, print_, replay, GlobalState
+from hgraph import graph, TS, print_, replay, GlobalState, evaluate_graph, GraphConfiguration
 from hgraph._impl._operators._record_replay_in_memory import SimpleArrayReplaySource, set_replay_values
 
 
@@ -12,4 +12,4 @@ def test_replay_simple():
             values = replay("test", TS[str])
             print_(values)
 
-        run_graph(main)
+        evaluate_graph(main, GraphConfiguration())

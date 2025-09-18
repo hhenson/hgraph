@@ -1,4 +1,5 @@
-from hgraph import graph, TS, run_graph, MIN_ST, MIN_TD, print_, replay, record, GlobalState
+from hgraph import graph, TS, MIN_ST, MIN_TD, print_, replay, record, GlobalState, evaluate_graph, \
+    GraphConfiguration
 from hgraph._impl._operators._record_replay_in_memory import (
     SimpleArrayReplaySource,
     set_replay_values,
@@ -22,7 +23,7 @@ def test_recorder():
             record(value_ts)
             print_(value_ts)
 
-        run_graph(main)
+        evaluate_graph(main, GraphConfiguration())
 
         values = get_recorded_value()
         assert values == [(MIN_ST, "1"), (MIN_ST + MIN_TD, "2"), (MIN_ST + 2 * MIN_TD, "3")]

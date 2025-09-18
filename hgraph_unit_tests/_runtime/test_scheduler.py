@@ -11,7 +11,6 @@ from hgraph import (
     graph,
     TSD,
     map_,
-    run_graph,
     EvaluationMode,
     record,
     GlobalState,
@@ -19,6 +18,8 @@ from hgraph import (
     sink_node,
     SIGNAL,
     schedule,
+    evaluate_graph,
+    GraphConfiguration,
 )
 from hgraph import const
 from hgraph.test import eval_node
@@ -103,7 +104,9 @@ def test_wall_clock_scheduler():
 
     now = datetime.utcnow()
     with GlobalState():
-        run_graph(g, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(milliseconds=250))
+        config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, start_time=now,
+                                    end_time=now + timedelta(milliseconds=250))
+        evaluate_graph(g, config)
         values = get_recorded_value()
 
     assert [v[1] for v in values] == [100000, -1]
