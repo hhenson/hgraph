@@ -237,7 +237,13 @@ def pull_source_node(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.PULL_SOURCE_NODE, fn, node_impl, resolvers=resolvers, requires=requires, label=label, deprecated=deprecated
+        WiringNodeType.PULL_SOURCE_NODE,
+        fn,
+        node_impl,
+        resolvers=resolvers,
+        requires=requires,
+        label=label,
+        deprecated=deprecated,
     )
 
 
@@ -256,7 +262,13 @@ def push_source_node(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.PUSH_SOURCE_NODE, fn, node_impl, resolvers=resolvers, requires=requires, label=label, deprecated=deprecated
+        WiringNodeType.PUSH_SOURCE_NODE,
+        fn,
+        node_impl,
+        resolvers=resolvers,
+        requires=requires,
+        label=label,
+        deprecated=deprecated,
     )
 
 
@@ -364,7 +376,13 @@ def graph(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.GRAPH, fn, overloads=overloads, resolvers=resolvers, requires=requires, label=label, deprecated=deprecated
+        WiringNodeType.GRAPH,
+        fn,
+        overloads=overloads,
+        resolvers=resolvers,
+        requires=requires,
+        label=label,
+        deprecated=deprecated,
     )
 
 
@@ -772,7 +790,12 @@ def service_adaptor_impl(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.SERVICE_ADAPTOR_IMPL, None, interfaces=interfaces, resolvers=resolvers, label=label, deprecated=deprecated
+        WiringNodeType.SERVICE_ADAPTOR_IMPL,
+        None,
+        interfaces=interfaces,
+        resolvers=resolvers,
+        label=label,
+        deprecated=deprecated,
     )
 
 
@@ -852,7 +875,12 @@ def component(
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.COMPONENT, fn, resolvers=resolvers, deprecated=deprecated, record_and_replay_id=recordable_id, label=label
+        WiringNodeType.COMPONENT,
+        fn,
+        resolvers=resolvers,
+        deprecated=deprecated,
+        record_and_replay_id=recordable_id,
+        label=label,
     )
 
 

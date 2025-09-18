@@ -85,7 +85,10 @@ class HttpResponse(CompoundScalar):
     body: bytes = b""
 
     def __repr__(self):
-        return f"HttpResponse(status_code={self.status_code}, headers={self.headers}, cookies={self.cookies}, body_length={len(self.body)})"
+        return (
+            f"HttpResponse(status_code={self.status_code}, headers={self.headers}, cookies={self.cookies},"
+            f" body_length={len(self.body)})"
+        )
 
 
 @dataclass(frozen=True)
@@ -153,7 +156,10 @@ class HttpAdaptorManager:
             request = self.requests[request_id]
             if not request.done():
                 request.set_result(response)
-                logger.info(f"Completed request {request_id} with response {response if len(response.body) < 1000 else str(len(response.body)) + ' bytes response'}")
+                logger.info(
+                    f"Completed request {request_id} with response"
+                    f" {response if len(response.body) < 1000 else str(len(response.body)) + ' bytes response'}"
+                )
             else:
                 logger.warning(f"Request {request_id} already completed or cancelled.")
 

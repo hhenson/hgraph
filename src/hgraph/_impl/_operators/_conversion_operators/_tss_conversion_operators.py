@@ -20,8 +20,9 @@ _all__ = tuple()
     overloads=convert,
     requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
-def convert_ts_to_tss(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None,
-                      _tp: type[SCALAR] = AUTO_RESOLVE) -> TSS[SCALAR]:
+def convert_ts_to_tss(
+    ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+) -> TSS[SCALAR]:
     return set_delta({ts.value}, _output.value if _output.valid else set(), _tp)
 
 
@@ -30,8 +31,10 @@ def convert_ts_to_tss(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT], _output: TSS
     requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
 def convert_tuple_to_tss(
-        ts: TS[Tuple[SCALAR, ...]], to: Type[OUT] = DEFAULT[OUT],
-        _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+    ts: TS[Tuple[SCALAR, ...]],
+    to: Type[OUT] = DEFAULT[OUT],
+    _output: TSS_OUT[SCALAR] = None,
+    _tp: type[SCALAR] = AUTO_RESOLVE,
 ) -> TSS[SCALAR]:
     prev = _output.value if _output.valid else set()
     new = set(ts.value)
@@ -43,8 +46,7 @@ def convert_tuple_to_tss(
     requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
 def convert_set_to_tss(
-        ts: TS[Set[SCALAR]], to: Type[OUT] = DEFAULT[OUT],
-        _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+    ts: TS[Set[SCALAR]], to: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
 ) -> TSS[SCALAR]:
     prev = _output.value if _output.valid else set()
     new = ts.value
@@ -57,8 +59,10 @@ def convert_set_to_tss(
     resolvers={SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
 )
 def combine_tss(
-        *tsl: TSL[TIME_SERIES_TYPE, SIZE], to: Type[OUT] = DEFAULT[OUT],
-        _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+    *tsl: TSL[TIME_SERIES_TYPE, SIZE],
+    to: Type[OUT] = DEFAULT[OUT],
+    _output: TSS_OUT[SCALAR] = None,
+    _tp: type[SCALAR] = AUTO_RESOLVE,
 ) -> TSS[SCALAR]:
     prev = _output.value if _output.valid else set()
     new = {v.value for v in tsl.valid_values()}
@@ -71,8 +75,12 @@ def combine_tss(
     valid=("ts",),
 )
 def collect_tss_from_ts(
-        ts: TS[SCALAR], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAULT[OUT],
-        _output: TS_OUT[Set[SCALAR]] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+    ts: TS[SCALAR],
+    *,
+    reset: SIGNAL = None,
+    tp_: Type[OUT] = DEFAULT[OUT],
+    _output: TS_OUT[Set[SCALAR]] = None,
+    _tp: type[SCALAR] = AUTO_RESOLVE,
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     add = {ts.value} if ts.modified else set()
@@ -85,12 +93,12 @@ def collect_tss_from_ts(
     valid=("ts",),
 )
 def collect_tss_from_tuples(
-        ts: TS[Tuple[SCALAR, ...]],
-        *,
-        reset: SIGNAL = None,
-        tp_: Type[OUT] = DEFAULT[OUT],
-        _output: TS_OUT[Set[SCALAR]] = None,
-        _tp: type[SCALAR] = AUTO_RESOLVE
+    ts: TS[Tuple[SCALAR, ...]],
+    *,
+    reset: SIGNAL = None,
+    tp_: Type[OUT] = DEFAULT[OUT],
+    _output: TS_OUT[Set[SCALAR]] = None,
+    _tp: type[SCALAR] = AUTO_RESOLVE,
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     new = set(ts.value) if ts.modified else set()
@@ -103,8 +111,12 @@ def collect_tss_from_tuples(
     valid=("ts",),
 )
 def collect_tss_from_sets(
-        ts: TS[Set[SCALAR]], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAULT[OUT],
-        _output: TS_OUT[Set[SCALAR]] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+    ts: TS[Set[SCALAR]],
+    *,
+    reset: SIGNAL = None,
+    tp_: Type[OUT] = DEFAULT[OUT],
+    _output: TS_OUT[Set[SCALAR]] = None,
+    _tp: type[SCALAR] = AUTO_RESOLVE,
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     new = ts.value if ts.modified else set()
@@ -117,8 +129,12 @@ def collect_tss_from_sets(
     valid=("tss",),
 )
 def collect_tss_from_tss(
-        tss: TSS[SCALAR], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAULT[OUT],
-        _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+    tss: TSS[SCALAR],
+    *,
+    reset: SIGNAL = None,
+    tp_: Type[OUT] = DEFAULT[OUT],
+    _output: TSS_OUT[SCALAR] = None,
+    _tp: type[SCALAR] = AUTO_RESOLVE,
 ) -> TSS[SCALAR]:
     remove = _output.value if _output.valid and reset.modified else set()
     new = tss.value if tss.modified else set()

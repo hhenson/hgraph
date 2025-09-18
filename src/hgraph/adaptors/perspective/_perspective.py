@@ -309,9 +309,8 @@ class PerspectiveTablesManager:
                 arrows.append(stream.getvalue().to_pybytes())
 
             return arrows
-        
-        return []
 
+        return []
 
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]
@@ -321,7 +320,9 @@ class PerspectiveTablesManager:
             arrows = self._update_to_arrows(schema, data)
             for i, arrow in enumerate(arrows):
                 if psp_new_api:
-                    self._callback(lambda a=arrow, d=data, i_=i: PerspectiveTablesManager._table_update(table, a, d, i_))
+                    self._callback(
+                        lambda a=arrow, d=data, i_=i: PerspectiveTablesManager._table_update(table, a, d, i_)
+                    )
                 else:
                     self._manager_for_table(name).call_loop(
                         lambda a=arrow, d=data, i_=i: PerspectiveTablesManager._table_update(table, a, d, i_)
@@ -341,7 +342,6 @@ class PerspectiveTablesManager:
                 else:
                     self._manager_for_table(name).call_loop(lambda: table.remove(removals))
 
-
     def replace_table(self, name, data):
         table = self._tables[name][0]
         schema = self._tables[name][2]
@@ -355,7 +355,6 @@ class PerspectiveTablesManager:
                     self._callback(lambda a=arrow, f=fn: f(a))
                 else:
                     self._manager_for_table(name).call_loop(lambda a=arrow, f=fn: f(a))
-
 
     def get_table_names(self):
         return list(self._tables.keys())
@@ -374,7 +373,7 @@ class PerspectiveTablesManager:
         for c in self._table_configs:
             config |= json.loads(c)
         return config
-            
+
     def tornado_config(self):
         if psp_new_api:
             return [

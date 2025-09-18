@@ -6,7 +6,6 @@ from hgraph._types._time_series_types import TIME_SERIES_TYPE, SIGNAL
 from hgraph._types._ts_type import TS
 from hgraph._wiring._decorators import operator
 
-
 __all__ = ("valid", "last_modified_date", "last_modified_time", "modified", "evaluation_time_in_range", "TIME_TYPE")
 
 

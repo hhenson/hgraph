@@ -181,9 +181,8 @@ def _message_subscriber_impl(path: str, topic: str):
 
 @generator
 def _message_subscriber_history_aggregator(
-        path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...],
-        _api: EvaluationEngineApi = None
-) -> TSB["msg": TS[bytes], "recovered": TS[bool]]:
+    path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...], _api: EvaluationEngineApi = None
+) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
     """Recovered must tick after the last message has been delivered."""
     start_time = _api.start_time
     if _api.evaluation_mode == EvaluationMode.SIMULATION:

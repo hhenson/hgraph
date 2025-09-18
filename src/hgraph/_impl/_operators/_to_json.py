@@ -26,7 +26,8 @@ from hgraph import (
     HgTSBTypeMetaData,
     HgTSDTypeMetaData,
     REMOVE_IF_EXISTS,
-    HgSetScalarType, set_delta,
+    HgSetScalarType,
+    set_delta,
 )
 
 __all__ = []
@@ -296,8 +297,9 @@ def _(value: HgTSSTypeMetaData, delta=False) -> Callable[[list], Any]:
     tp = value.value_scalar_tp.py_type
     return lambda v, fn_=fn, _tp=tp: (
         (
-            set_delta(added={fn_(i) for i in v.get("added", ())}, removed={fn_(i) for i in v.get("removed", ())},
-                      tp=_tp)
+            set_delta(
+                added={fn_(i) for i in v.get("added", ())}, removed={fn_(i) for i in v.get("removed", ())}, tp=_tp
+            )
             if isinstance(v, dict)
             else tuple(fn_(i) for i in v)
         )

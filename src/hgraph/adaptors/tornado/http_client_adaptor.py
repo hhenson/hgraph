@@ -39,6 +39,7 @@ class Credentials:
 
 authorization_match = re.compile(r"'Authorization':\s*'(?:Bearer|Basic|Digest|Negotiate|NTLM)\s+[^']+'")
 
+
 @service_adaptor
 def http_client_adaptor(request: TS[HttpRequest], path: str = "http_client") -> TS[HttpResponse]:
     """
@@ -274,7 +275,7 @@ def http_client_adaptor_impl(
                 url = f"{request.url}?{urlencode(request.query)}"
             else:
                 url = request.url
-            
+
             log_url = authorization_match.sub("'Authorization': '[REDACTED]'", url)
 
             timeouts = {"connect_timeout": request.connect_timeout, "request_timeout": request.request_timeout}

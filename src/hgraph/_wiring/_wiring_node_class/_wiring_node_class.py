@@ -337,7 +337,7 @@ class BaseWiringNodeClass(WiringNodeClass):
             wiring_node_instance = create_wiring_node_instance(self, resolved_signature, frozendict(kwargs_))
             if __label__ is not None:
                 wiring_node_instance.label = __label__
-                
+
             # Select the correct wiring port for the TS type! That we can provide useful wiring syntax
             # to support this like out.p1 on a bundle or out.s1 on a ComplexScalar, etc.
 

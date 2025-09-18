@@ -4,17 +4,18 @@ from hgraph import TS, graph, AUTO_RESOLVE, Array, Size, compute_node, SCALAR
 from hgraph.numpy_._constants import ARRAY
 from hgraph.numpy_._utils import extract_dimensions_from_array, extract_type_from_array, add_docs
 
-
-__all__ = ["corrcoef",]
+__all__ = [
+    "corrcoef",
+]
 
 
 @graph
 @add_docs(np.corrcoef)
 def corrcoef(
-        x: TS[ARRAY],
-        y: TS[ARRAY] = None,
-        rowvar: bool = True,
-        tp_a: type[ARRAY] = AUTO_RESOLVE,
+    x: TS[ARRAY],
+    y: TS[ARRAY] = None,
+    rowvar: bool = True,
+    tp_a: type[ARRAY] = AUTO_RESOLVE,
 ) -> TS[SCALAR]:
     tp = extract_type_from_array(tp_a)
     dimensions = extract_dimensions_from_array(tp_a)
@@ -24,10 +25,10 @@ def corrcoef(
         sz = dimensions[0]
 
     if y is None:
-        return _corrcoef_no_y[SCALAR: Array[tp, Size[sz], Size[sz]] if sz > 1 else tp](x, rowvar)
+        return _corrcoef_no_y[SCALAR : Array[tp, Size[sz], Size[sz]] if sz > 1 else tp](x, rowvar)
     else:
         sz *= 2
-        return _corrcoef[SCALAR: Array[tp, Size[sz], Size[sz]]](x, y, rowvar)
+        return _corrcoef[SCALAR : Array[tp, Size[sz], Size[sz]]](x, y, rowvar)
 
 
 @compute_node

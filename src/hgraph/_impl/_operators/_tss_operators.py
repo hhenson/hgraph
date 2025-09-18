@@ -85,7 +85,9 @@ def len_tss(ts: TSS[KEYABLE_SCALAR]) -> TS[int]:
 
 
 @compute_node(overloads=bit_or, valid=())
-def bit_or_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[KEYABLE_SCALAR]:
+def bit_or_tsss(
+    lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
+) -> TSS[KEYABLE_SCALAR]:
     added = lhs.added() | rhs.added()
     lhs_value = lhs.value
     removed = lhs.removed() - rhs.value
@@ -96,8 +98,9 @@ def bit_or_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KE
 
 
 @compute_node(overloads=sub_)
-def sub_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[
-    KEYABLE_SCALAR]:
+def sub_tsss(
+    lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
+) -> TSS[KEYABLE_SCALAR]:
     added = set()
     removed = set()
     lhs_value = lhs.value
@@ -117,16 +120,18 @@ def sub_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYAB
 
 
 @compute_node(overloads=bit_and)
-def bit_and_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[
-    KEYABLE_SCALAR]:
+def bit_and_tsss(
+    lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
+) -> TSS[KEYABLE_SCALAR]:
     removed = lhs.removed() | rhs.removed()
     added = rhs.value.intersection(lhs.value)
     return set_delta(added, removed, _tp)
 
 
 @compute_node(overloads=bit_xor)
-def bit_xor_tsss(lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[
-    KEYABLE_SCALAR]:
+def bit_xor_tsss(
+    lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
+) -> TSS[KEYABLE_SCALAR]:
     # Symmetrical difference - i.e. items which are in either but not both TSS's
     added = set()
     removed = set()
@@ -243,8 +248,9 @@ def str_tss(tss: TSS[KEYABLE_SCALAR]) -> TS[str]:
 
 @compute_node(valid=tuple(), overloads=union)
 def union_multiple_tss(
-        *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _output: TSS_OUT[KEYABLE_SCALAR] = None,
-        _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
+    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE],
+    _output: TSS_OUT[KEYABLE_SCALAR] = None,
+    _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE,
 ) -> TSS[KEYABLE_SCALAR]:
     tss: TSS[KEYABLE_SCALAR, SIZE]
     to_add: set[KEYABLE_SCALAR] = set()
@@ -274,8 +280,7 @@ class OverlapState(CompoundScalar):
 
 @compute_node
 def overlap_multiple_tss(
-        *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None,
-        _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
+    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE], _state: STATE[OverlapState] = None, _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
 ) -> TSS[KEYABLE_SCALAR]:
     """
     Returns the set of items that are in more than one of the inputs.
@@ -304,9 +309,12 @@ def overlap_multiple_tss(
 
 
 @compute_node(overloads=add_)
-def add_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR],
-                       _output: TSS[KEYABLE_SCALAR] = None, _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[
-    KEYABLE_SCALAR]:
+def add_tss_and_scalar(
+    lhs: TSS[KEYABLE_SCALAR],
+    rhs: TS[KEYABLE_SCALAR],
+    _output: TSS[KEYABLE_SCALAR] = None,
+    _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE,
+) -> TSS[KEYABLE_SCALAR]:
     tss_added = lhs.added()
     tss_removed = lhs.removed()
     rhs = rhs.value
@@ -319,9 +327,12 @@ def add_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR],
 
 
 @compute_node(overloads=sub_)
-def sub_tss_and_scalar(lhs: TSS[KEYABLE_SCALAR], rhs: TS[KEYABLE_SCALAR],
-                       _output: TSS[KEYABLE_SCALAR] = None, _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE) -> TSS[
-    KEYABLE_SCALAR]:
+def sub_tss_and_scalar(
+    lhs: TSS[KEYABLE_SCALAR],
+    rhs: TS[KEYABLE_SCALAR],
+    _output: TSS[KEYABLE_SCALAR] = None,
+    _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE,
+) -> TSS[KEYABLE_SCALAR]:
     tss_added = lhs.added()
     tss_removed = lhs.removed()
     rhs = rhs.value

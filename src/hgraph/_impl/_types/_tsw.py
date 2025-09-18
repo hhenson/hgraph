@@ -35,7 +35,10 @@ class PythonTimeSeriesFixedWindowOutput(
     _removed_value: Optional[SCALAR] = None
 
     def __post_init__(self):
-        self._value = np.ndarray(shape=[self._size], dtype=self._tp if self._tp in {bool, int, float, str, date, datetime, time, timedelta} else object)
+        self._value = np.ndarray(
+            shape=[self._size],
+            dtype=self._tp if self._tp in {bool, int, float, str, date, datetime, time, timedelta} else object,
+        )
         self._times = np.full(shape=[self._size], fill_value=MIN_DT, dtype=datetime)
 
     @property
@@ -126,7 +129,7 @@ class PythonTimeSeriesFixedWindowOutput(
             length: int = self._length
             length += 1
             if length > capacity:
-                #We are about to cycle the buffer and overwrite the first element so capture it as being removed.
+                # We are about to cycle the buffer and overwrite the first element so capture it as being removed.
                 self._removed_value = buffer[self._start]
                 self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_removed)
                 start += 1
@@ -173,7 +176,7 @@ class PythonTimeSeriesFixedWindowOutput(
 
     @property
     def first_modified_time(self) -> datetime:
-        return self._times[self._start] if len(self._times)>0 else MIN_DT
+        return self._times[self._start] if len(self._times) > 0 else MIN_DT
 
     @property
     def size(self) -> int | timedelta:
@@ -290,7 +293,7 @@ class PythonTimeSeriesTimeWindowOutput(
     @property
     def first_modified_time(self) -> datetime:
         self._roll()
-        return self._times[0] if len(self._times)>0 else MIN_TD
+        return self._times[0] if len(self._times) > 0 else MIN_TD
 
     def invalidate(self):
         self.mark_invalid()

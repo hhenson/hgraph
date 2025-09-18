@@ -16,7 +16,7 @@ from hgraph import (
     pow_,
     eq_,
     DivideByZero,
-    ln
+    ln,
 )
 from hgraph._types._scalar_types import NUMBER_2
 
@@ -95,7 +95,7 @@ def div_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
 
 @compute_node(overloads=floordiv_)
 def floordiv_numbers(
-        lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR
+    lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR
 ) -> TS[float]:
     """
     Floor divides a numeric timeseries by another
@@ -169,7 +169,7 @@ def mod_ints(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = DivideBy
 
 @compute_node(overloads=divmod_)
 def divmod_numbers(
-        lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR
+    lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero = DivideByZero.ERROR
 ) -> TSL[TS[float], Size[2]]:
     try:
         return divmod(lhs.value, rhs.value)
@@ -205,7 +205,7 @@ def pow_int_float(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero = D
     Raises an int time-series value to the power of a float time-series value
     """
     try:
-        return lhs.value ** rhs.value
+        return lhs.value**rhs.value
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
             return float("NaN")
@@ -227,7 +227,7 @@ def pow_float_int(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero = D
     Raises a float time-series value to the power of an int time-series value
     """
     try:
-        return lhs.value ** rhs.value
+        return lhs.value**rhs.value
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
             return float("NaN")

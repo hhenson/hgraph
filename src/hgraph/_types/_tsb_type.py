@@ -494,7 +494,9 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
 
                 with WiringContext(
                     current_arg=k,
-                    current_signature=STATE(signature=f"TSB[{__schema__.__name__}].from_ts({', '.join(kwargs.keys())})"),
+                    current_signature=STATE(
+                        signature=f"TSB[{__schema__.__name__}].from_ts({', '.join(kwargs.keys())})"
+                    ),
                 ):
                     raise IncorrectTypeBinding(expected_type=meta_data_schema[k], actual_type=v)
 

@@ -73,7 +73,7 @@ class WiringPort:
         return not isinstance(self.node_instance.node, NonPeeredWiringNodeClass)
 
     def edges_for(
-            self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
     ) -> set["Edge"]:
         """Return the edges required to bind this output to the dst_node"""
         assert (
@@ -266,7 +266,7 @@ class TSBWiringPort(WiringPort):
         return convert[TS[CompoundScalar]](self)
 
     def edges_for(
-            self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
     ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
@@ -395,7 +395,7 @@ class TSLWiringPort(WiringPort):
             return input_wiring_port
 
     def edges_for(
-            self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
+        self, node_map: Mapping["WiringNodeInstance", int], dst_node_ndx: int, dst_path: tuple[SCALAR, ...]
     ) -> set["Edge"]:
         edges = set()
         if self.has_peer:
@@ -427,6 +427,7 @@ class TSLREFWiringPort(WiringPort):
 
     def __getitem__(self, item):
         from hgraph import getitem_
+
         if isinstance(item, WiringPort):
             return getitem_(self, item)
 

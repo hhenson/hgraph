@@ -12,7 +12,9 @@ from hgraph import (
     operator,
     K,
     K_1,
-    TIME_SERIES_TYPE_1, set_delta, AUTO_RESOLVE,
+    TIME_SERIES_TYPE_1,
+    set_delta,
+    AUTO_RESOLVE,
 )
 
 __all__ = (

@@ -7,8 +7,9 @@ __all__ = ("sum_tsw",)
 
 
 @compute_node(overloads=sum_)
-def sum_tsw(ts: TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], _tp: type[SCALAR] = AUTO_RESOLVE,
-            _output: TS[SCALAR] = None) -> TS[SCALAR]:
+def sum_tsw(
+    ts: TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN], _tp: type[SCALAR] = AUTO_RESOLVE, _output: TS[SCALAR] = None
+) -> TS[SCALAR]:
     value = _output.value if _output.valid else _tp()
     value += ts.delta_value
     if ts.has_removed_value:
@@ -23,9 +24,7 @@ def abs_tsw(ts: TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN]) -> TSW[SCALAR, WINDOW
 
 @compute_node(overloads=mean, all_valid=("ts",))
 def mean_tsw(
-        ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN],
-        _tp: type[NUMBER] = AUTO_RESOLVE,
-        _output: TS[float] = None
+    ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN], _tp: type[NUMBER] = AUTO_RESOLVE, _output: TS[float] = None
 ) -> TS[float]:
     if not _output.valid:
         return np.mean(ts.value)

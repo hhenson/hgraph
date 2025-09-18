@@ -154,7 +154,11 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
     def generic_rank(self) -> dict[type, float]:
         avg_constraints_rank = fmean(
             itertools.chain(*(
-                (c.generic_rank.values() if isinstance(c, HgTypeMetaData) else [1.0 / ((c.__mro__.index(object) if hasattr(c, "__mro__") else 1) + 1.0)])
+                (
+                    c.generic_rank.values()
+                    if isinstance(c, HgTypeMetaData)
+                    else [1.0 / ((c.__mro__.index(object) if hasattr(c, "__mro__") else 1) + 1.0)]
+                )
                 for c in self.constraints()
             ))
         )

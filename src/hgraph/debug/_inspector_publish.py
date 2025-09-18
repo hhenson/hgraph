@@ -57,7 +57,6 @@ def process_node_stats(state, node_id, item_id):
         state.perf_data.append(
             dict(
                 id=item_id.to_str(),
-                
                 evals=gi.node_eval_counts[node_ndx],
                 time=gi.node_eval_times[node_ndx] / 1_000_000_000,
                 of_graph=gi.node_eval_times[node_ndx] / gi.eval_time if gi.eval_time else None,
@@ -81,7 +80,6 @@ def process_graph_stats(state, graph_id, item_id):
     state.perf_data.append(
         dict(
             id=item_id.to_str(),
-
             evals=gi.eval_count,
             time=gi.eval_time / 1_000_000_000,
             of_graph=gi.eval_time / parent_time if parent_time else None,
@@ -172,7 +170,9 @@ def publish_tables(state: InspectorState, include_stats=True):
 
     data = state.total_data
     if data["time"]:
-        total_time = max((state.total_data["time"][-1] - state.total_data_prev.get("time", datetime.min)).total_seconds(), 1e-6)  # in case we went below system clock resolution
+        total_time = max(
+            (state.total_data["time"][-1] - state.total_data_prev.get("time", datetime.min)).total_seconds(), 1e-6
+        )  # in case we went below system clock resolution
         total_graph_time = (data["graph_time"][-1] - state.total_data_prev.get("graph_time", 0)) / 1_000_000_000
         total_os_graph_time = data["os_graph_time"][-1] - state.total_data_prev.get("os_graph_time", 0)
         lags = [(data["time"][i] - data["evaluation_time"][i]).total_seconds() for i in range(len(data["time"]))]

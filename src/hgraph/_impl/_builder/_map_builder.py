@@ -7,6 +7,7 @@ from hgraph._impl._runtime._map_node import PythonTsdMapNodeImpl
 if TYPE_CHECKING:
     from hgraph import GraphBuilder, HgScalarTypeMetaData
 
+
 @dataclass(frozen=True)
 class PythonTsdMapNodeBuilder(PythonBaseNodeBuilder):
     nested_graph: Optional["GraphBuilder"] = None  # This is the generator function

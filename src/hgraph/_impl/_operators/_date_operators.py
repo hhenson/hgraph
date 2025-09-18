@@ -4,7 +4,9 @@ import pytz
 
 from hgraph import compute_node, TS, TSL, Size, explode, graph, day_of_month, month_of_year, year, add_
 
-__all__ = ["add_date_time",]
+__all__ = [
+    "add_date_time",
+]
 
 
 @compute_node(overloads=explode)

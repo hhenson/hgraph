@@ -73,9 +73,11 @@ class TableOptions(CompoundScalar):
 
 class ToTableMode(Enum):
     Tick = auto()  # Write only modifies values into the table, if a time series was not modified, write None
-    Sample = auto()  # Write all values to the table, but only for TSD keys where values were modified, also write key removals
+    Sample = (
+        auto()
+    )  # Write all values to the table, but only for TSD keys where values were modified, also write key removals
     Snap = auto()  # Write all values to the table, modified of not, does not write removals
-    
+
 
 def table_shape(ts: type[TIME_SERIES_TYPE]) -> TABLE:
     """The table shape from the time-series type"""

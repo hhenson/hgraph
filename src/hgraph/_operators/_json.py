@@ -19,5 +19,3 @@ def json_decode(ts: TS[SCALAR]) -> TS[JSON]:
 @operator
 def json_encode(ts: TS[JSON], _tp: Type[SCALAR] = DEFAULT[SCALAR]) -> TS[SCALAR]:
     pass
-
-

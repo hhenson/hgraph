@@ -182,6 +182,7 @@ def dedup_item(input, output):
         if v_new is not None
     }
 
+
 @dedup_item.register
 def dedup_dicts(input: PythonTimeSeriesDictInput, output):
     out = {
@@ -191,6 +192,7 @@ def dedup_dicts(input: PythonTimeSeriesDictInput, output):
     }
     return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
 
+
 @dedup_item.register
 def dedup_value(input: PythonTimeSeriesValueInput, output):
     if output.valid:
@@ -199,9 +201,11 @@ def dedup_value(input: PythonTimeSeriesValueInput, output):
     else:
         return input.value
 
+
 @dedup_item.register
 def dedup_value(input: PythonTimeSeriesSetInput, output):
     return input.delta_value
+
 
 @compute_node(overloads=dedup)
 def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
@@ -249,6 +253,7 @@ def collect_tick(input, out):
         if v_new is not None
     }
 
+
 @collect_tick.register
 def collect_dict(input: PythonTimeSeriesDictInput, out):
     out |= {
@@ -258,9 +263,11 @@ def collect_dict(input: PythonTimeSeriesDictInput, out):
     }
     return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
 
+
 @collect_tick.register
 def collect_set(input: PythonTimeSeriesSetInput, out):
     from hgraph import PythonSetDelta
+
     if not out:
         out = PythonSetDelta(set(), set())
     new_added, new_removed = input.added(), input.removed()
@@ -268,10 +275,10 @@ def collect_set(input: PythonTimeSeriesSetInput, out):
     removed = (out.removed - new_added) | new_removed
     return PythonSetDelta(added, removed)
 
+
 @collect_tick.register
 def collect_value(input: PythonTimeSeriesValueInput, out):
     return input.value
-
 
 
 # TODO: This code will need to be re-written to support C++, it currently depends on instance checks of inputs
@@ -349,6 +356,7 @@ def drop_default(ts: TIME_SERIES_TYPE, count: int = 1) -> TIME_SERIES_TYPE:
     """
     return _drop(ts, ts, count)
 
+
 @compute_node(active=("ts_counter",))
 def _drop(
     ts: REF[TIME_SERIES_TYPE], ts_counter: SIGNAL, count: int = 1, state: STATE[CounterState] = None
@@ -365,13 +373,15 @@ def _drop_by_time(ts: REF[TIME_SERIES_TYPE], count: timedelta, _schedule: SCHEDU
 
 
 @compute_node(overloads=drop, active=("ts",))
-def _drop_by_time(ts: TIME_SERIES_TYPE, ts_ref: REF[TIME_SERIES_TYPE], count: timedelta, _schedule: SCHEDULER = None) -> REF[TIME_SERIES_TYPE]:
+def _drop_by_time(
+    ts: TIME_SERIES_TYPE, ts_ref: REF[TIME_SERIES_TYPE], count: timedelta, _schedule: SCHEDULER = None
+) -> REF[TIME_SERIES_TYPE]:
     """
     Drops ticks until the elapsed time since the first tick exceeds the given timedelta.
     Thereafter, all subsequent ticks are passed through.
     """
     if ts.modified and ts.active:
-        _schedule.schedule(count + MIN_TD) # Ensure this gap is maintained
+        _schedule.schedule(count + MIN_TD)  # Ensure this gap is maintained
         ts.make_passive()
     elif _schedule.is_scheduled_now:
         ts_ref.make_active()

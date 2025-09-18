@@ -5,8 +5,16 @@ from hgraph._types._scalar_types import KEYABLE_SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TimeSeriesOutput, TimeSeriesDeltaValue
 from hgraph._types._ts_type import TS
 
-__all__ = ("SetDelta", "TSS", "TSS_OUT", "TimeSeriesSet", "TimeSeriesSetInput", "TimeSeriesSetOutput", "set_delta",
-           "set_set_delta_factory")
+__all__ = (
+    "SetDelta",
+    "TSS",
+    "TSS_OUT",
+    "TimeSeriesSet",
+    "TimeSeriesSetInput",
+    "TimeSeriesSetOutput",
+    "set_delta",
+    "set_set_delta_factory",
+)
 
 
 @runtime_checkable
@@ -36,7 +44,7 @@ SET_DELTA_FACTORY: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR],
 
 
 def set_set_delta_factory(
-        fn: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR], type[KEYABLE_SCALAR]], SetDelta[KEYABLE_SCALAR]]
+    fn: Callable[[Iterable[KEYABLE_SCALAR], Iterable[KEYABLE_SCALAR], type[KEYABLE_SCALAR]], SetDelta[KEYABLE_SCALAR]],
 ):
     """Set the builder function for set_delta instances, by default we will use the PythonSetDelta class"""
     global SET_DELTA_FACTORY
@@ -51,12 +59,16 @@ def _guess_type(added, removed) -> type[KEYABLE_SCALAR]:
     return object
 
 
-def set_delta(added: Iterable[KEYABLE_SCALAR] = None, removed: Iterable[KEYABLE_SCALAR] = None, tp: type[KEYABLE_SCALAR] = None):
+def set_delta(
+    added: Iterable[KEYABLE_SCALAR] = None, removed: Iterable[KEYABLE_SCALAR] = None, tp: type[KEYABLE_SCALAR] = None
+):
     global SET_DELTA_FACTORY
     if SET_DELTA_FACTORY is None:
         from hgraph import PythonSetDelta
+
         SET_DELTA_FACTORY = lambda a, d, t: PythonSetDelta[t](
-            added=None if a is None else frozenset(a), removed=None if d is None else frozenset(d))
+            added=None if a is None else frozenset(a), removed=None if d is None else frozenset(d)
+        )
     if tp is None:
         tp = _guess_type(added, removed)
     if added is None:

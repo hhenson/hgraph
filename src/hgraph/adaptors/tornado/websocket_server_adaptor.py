@@ -185,16 +185,16 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
         is_single = True
         resolution = {}
         single_request_type.build_resolution_dict(resolution, fn.signature.time_series_inputs["request"])
-        assert STR_OR_BYTES in resolution, (
-            f"STR_OR_BYTES is expected in the resolution of the request type, but got {resolution.keys()}"
-        )
+        assert (
+            STR_OR_BYTES in resolution
+        ), f"STR_OR_BYTES is expected in the resolution of the request type, but got {resolution.keys()}"
         is_binary = resolution[STR_OR_BYTES].matches_type(bytes)
     elif multi_request_type.matches(fn.signature.time_series_inputs["request"]):
         is_single = False
         resolution = {}
         multi_request_type.build_resolution_dict(resolution, fn.signature.time_series_inputs["request"])
         is_binary = resolution[STR_OR_BYTES].matches_type(bytes)
-    else: 
+    else:
         assert False, (
             "WebSocket graph must have a single input named 'request' of type TSB[WebSocketServerRequest] or TSD[int,"
             " TSB[WebSocketServerRequest]]"
@@ -209,23 +209,28 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
         resolution = {}
         single_response_type.build_resolution_dict(resolution, output_type)
         assert is_binary == resolution[STR_OR_BYTES].matches_type(bytes), (
-            "WebSocket graph must have a single output of type TSB[WebSocketResponse] with the same str/binary type as the input"
+            "WebSocket graph must have a single output of type TSB[WebSocketResponse] with the same str/binary type as"
+            " the input"
         )
         assert is_single, (
-            "WebSocket graph must have a single output of type TSB[WebSocketResponse] when the input is TSB[WebSocketServerRequest]"
+            "WebSocket graph must have a single output of type TSB[WebSocketResponse] when the input is"
+            " TSB[WebSocketServerRequest]"
         )
     elif multi_response_type.matches(output_type):
         resolution = {}
         multi_response_type.build_resolution_dict(resolution, output_type)
         assert is_binary == resolution[STR_OR_BYTES].matches_type(bytes), (
-            "WebSocket graph must have a single output of type TSD[int, TSB[WebSocketResponse]] with the same str/binary type as the input"
+            "WebSocket graph must have a single output of type TSD[int, TSB[WebSocketResponse]] with the same"
+            " str/binary type as the input"
         )
         assert not is_single, (
-            "WebSocket graph must have a single output of type TSD[int, TSB[WebSocketResponse]] when the input is TSD[int, TSB[WebSocketServerRequest]]"
+            "WebSocket graph must have a single output of type TSD[int, TSB[WebSocketResponse]] when the input is"
+            " TSD[int, TSB[WebSocketServerRequest]]"
         )
     else:
         assert False, (
-            "WebSocket graph must have a single output of type TSB[WebSocketResponse] or TSD[int, TSB[WebSocketResponse]]"
+            "WebSocket graph must have a single output of type TSB[WebSocketResponse] or TSD[int,"
+            " TSB[WebSocketResponse]]"
         )
 
     msg_type = bytes if is_binary else str
@@ -233,13 +238,12 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
     # this makes the handler to be auto-wired in the http_server_adaptor
     mgr.add_handler(url, fn)
 
-
     @graph
     def websocket_server_handler_graph(**inputs: TSB[TS_SCHEMA]) -> TIME_SERIES_TYPE:
         # if however this is wired into the graph explicitly, it will be used instead of the auto-wiring the handler
         mgr.add_handler(url, None)  # prevent auto-wiring
 
-        requests = websocket_server_adaptor[STR_OR_BYTES: msg_type].to_graph(path=url, __no_ts_inputs__=True)
+        requests = websocket_server_adaptor[STR_OR_BYTES:msg_type].to_graph(path=url, __no_ts_inputs__=True)
         if fn.signature.time_series_inputs["request"].matches_type(TSB[WebSocketServerRequest[msg_type]]):
             if inputs.as_dict():
                 responses = map_(lambda r, i: fn(request=r, **i.as_dict()), requests, inputs)
@@ -252,10 +256,10 @@ def websocket_server_handler(fn: Callable = None, *, url: str):
             isinstance(responses.output_type, HgTSBTypeMetaData)
             and "response" in responses.output_type.bundle_schema_tp.meta_data_schema
         ):
-            websocket_server_adaptor[STR_OR_BYTES: msg_type].from_graph(responses.response, path=url)
+            websocket_server_adaptor[STR_OR_BYTES:msg_type].from_graph(responses.response, path=url)
             return responses
         else:
-            websocket_server_adaptor[STR_OR_BYTES: msg_type].from_graph(responses, path=url)
+            websocket_server_adaptor[STR_OR_BYTES:msg_type].from_graph(responses, path=url)
             return combine()
 
     return websocket_server_handler_graph
@@ -291,10 +295,12 @@ def websocket_server_adaptor_impl(path: str, port: int):
         return None
 
     @graph
-    def from_web(path: str, _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE) -> TSD[int, TSB[WebSocketServerRequest[STR_OR_BYTES]]]:
+    def from_web(
+        path: str, _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE
+    ) -> TSD[int, TSB[WebSocketServerRequest[STR_OR_BYTES]]]:
         path = f"{path}[{_tp.__name__.lower()}]"
         requests = connections_from_web(path=path)
-        messages = messages_from_web[STR_OR_BYTES: _tp](path=path)
+        messages = messages_from_web[STR_OR_BYTES:_tp](path=path)
         return map_(
             lambda r, m: combine[TSB[WebSocketServerRequest[_tp]]](connect_request=r, messages=m), requests, messages
         )
@@ -327,7 +333,7 @@ def websocket_server_adaptor_impl(path: str, port: int):
     adaptors_dedup = set()
     for msg_type in (str, bytes):
         if WebSocketAdaptorManager.instance(msg_type).handlers:
-            requests = from_web[STR_OR_BYTES: msg_type](path=path)
+            requests = from_web[STR_OR_BYTES:msg_type](path=path)
             requests_by_url = partition(requests, requests.connect_request.url)
 
             responses = {}
@@ -336,7 +342,9 @@ def websocket_server_adaptor_impl(path: str, port: int):
                     logger.info("Adding WS handler: [%s] %s", url, handler.signature.signature)
                     if handler.signature.time_series_inputs["request"].matches_type(TSB[WebSocketServerRequest]):
                         responses[url] = map_(handler, request=requests_by_url[url])
-                    elif handler.signature.time_series_inputs["request"].matches_type(TSD[int, TSB[WebSocketServerRequest]]):
+                    elif handler.signature.time_series_inputs["request"].matches_type(
+                        TSD[int, TSB[WebSocketServerRequest]]
+                    ):
                         responses[url] = handler(request=requests_by_url[url])
                 elif handler is None:
                     logger.info("Pre-wired WS handler: [%s]", url)
@@ -347,12 +355,15 @@ def websocket_server_adaptor_impl(path: str, port: int):
             for handler_path, type_map, node, receive in WiringGraphContext.__stack__[0].registered_service_clients(
                 websocket_server_adaptor
             ):
-                logger.info(f"Adding WS adaptor: {handler_path} for type {type_map[STR_OR_BYTES]} when msg_type is {msg_type}")
+                logger.info(
+                    f"Adding WS adaptor: {handler_path} for type {type_map[STR_OR_BYTES]} when msg_type is {msg_type}"
+                )
                 if type_map[STR_OR_BYTES].py_type != msg_type:
                     continue
                 if (handler_path, receive) in adaptors_dedup:
                     raise ValueError(
-                        f"Duplicate websocket_ adaptor client for handler_path {handler_path}: only one client is allowed"
+                        f"Duplicate websocket_ adaptor client for handler_path {handler_path}: only one client is"
+                        " allowed"
                     )
                 adaptors_dedup.add((handler_path, receive))
                 adaptors.add(handler_path.replace("/from_graph", "").replace("/to_graph", ""))
@@ -363,7 +374,9 @@ def websocket_server_adaptor_impl(path: str, port: int):
                 mgr = WebSocketAdaptorManager.instance(msg_type)
                 mgr.add_handler(url, None)  # prevent auto-wiring the handler
 
-                responses[url] = websocket_server_adaptor[STR_OR_BYTES: msg_type].wire_impl_inputs_stub(handler_path).response
-                websocket_server_adaptor[STR_OR_BYTES: msg_type].wire_impl_out_stub(handler_path, requests_by_url[url])
+                responses[url] = (
+                    websocket_server_adaptor[STR_OR_BYTES:msg_type].wire_impl_inputs_stub(handler_path).response
+                )
+                websocket_server_adaptor[STR_OR_BYTES:msg_type].wire_impl_out_stub(handler_path, requests_by_url[url])
 
             to_web(merge(*responses.values(), disjoint=True), port, path=path)

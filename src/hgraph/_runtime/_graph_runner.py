@@ -220,7 +220,7 @@ def _build_main_graph(graph, config, args, kwargs):
     from hgraph._wiring._graph_builder import wire_graph
     from hgraph._operators._record_replay import record
     from hgraph._builder._graph_builder import GraphBuilder
-    
+
     config.graph_logger.debug("Wiring graph: %s", graph.signature.signature)
     signature = graph.signature
     if signature.output_type:

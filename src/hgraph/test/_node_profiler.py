@@ -48,6 +48,7 @@ class EvaluationProfiler(EvaluationLifeCycleObserver):
 
         try:
             import psutil
+
             self.process = psutil.Process(os.getpid())
         except ImportError:
             self.process = None

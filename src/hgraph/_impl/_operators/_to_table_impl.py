@@ -51,7 +51,6 @@ def to_table_generic(
         fn = schema.to_table_sample
     elif mode.value == ToTableMode.Snap:
         fn = schema.to_table_snap
-        
 
     if schema.partition_keys:
         return tuple(((ts.last_modified_time, get_as_of(_clock)) + i) for i in fn(ts))

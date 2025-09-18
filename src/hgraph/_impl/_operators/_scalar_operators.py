@@ -88,7 +88,7 @@ def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR], divide_by_zero: DivideByZero =
     Raises a timeseries value to the power of the other timeseries value
     """
     try:
-        return lhs.value ** rhs.value
+        return lhs.value**rhs.value
     except ZeroDivisionError:
         if divide_by_zero is DivideByZero.NAN:
             return float("NaN")
@@ -308,10 +308,8 @@ def contains_scalar(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
 
 @graph(overloads=min_)
 def min_scalar(
-    *ts: TSL[TS[SCALAR], SIZE],
-    default_value: TS[SCALAR] = None,
-    reset: SIGNAL = None,
-    __strict__: bool = True) -> TS[SCALAR]:
+    *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, reset: SIGNAL = None, __strict__: bool = True
+) -> TS[SCALAR]:
     if len(ts) == 1:
         if reset is None:
             reset = nothing(TS[bool])
@@ -336,11 +334,7 @@ def min_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True)
 
 
 @compute_node(valid=("ts",))
-def min_scalar_unary(
-    ts: TS[SCALAR],
-    reset: SIGNAL = None,
-    _output: TS_OUT[SCALAR] = None
-) -> TS[SCALAR]:
+def min_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, _output: TS_OUT[SCALAR] = None) -> TS[SCALAR]:
     """
     Unary min()
     The default implementation (here) is a running min
@@ -357,9 +351,7 @@ def min_scalar_unary(
 
 @compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
 def min_scalar_multi(
-    *ts: TSL[TS[SCALAR], SIZE],
-    default_value: TS[SCALAR] = None,
-    __strict__: bool = True
+    *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True
 ) -> TS[SCALAR]:
     """
     Multi-arg min()
@@ -369,10 +361,8 @@ def min_scalar_multi(
 
 @graph(overloads=max_)
 def max_scalar(
-    *ts: TSL[TS[SCALAR], SIZE],
-    default_value: TS[SCALAR] = None,
-    reset: SIGNAL = None,
-    __strict__: bool = True) -> TS[SCALAR]:
+    *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, reset: SIGNAL = None, __strict__: bool = True
+) -> TS[SCALAR]:
     if len(ts) == 1:
         if reset is None:
             reset = nothing(TS[bool])
@@ -384,11 +374,7 @@ def max_scalar(
 
 
 @compute_node(valid=("ts",))
-def max_scalar_unary(
-    ts: TS[SCALAR],
-    reset: SIGNAL = None,
-    _output: TS_OUT[SCALAR] = None
-) -> TS[SCALAR]:
+def max_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, _output: TS_OUT[SCALAR] = None) -> TS[SCALAR]:
     """
     Unary max()
     The default implementation (here) is a running max
@@ -427,10 +413,7 @@ def max_scalar_multi(
 
 
 @graph(overloads=sum_)
-def sum_scalars(
-    *ts: TSL[TS[SCALAR], SIZE],
-    reset: SIGNAL = None,
-    tp: Type[TS[SCALAR]] = AUTO_RESOLVE) -> TS[SCALAR]:
+def sum_scalars(*ts: TSL[TS[SCALAR], SIZE], reset: SIGNAL = None, tp: Type[TS[SCALAR]] = AUTO_RESOLVE) -> TS[SCALAR]:
     if len(ts) == 1:
         if reset is None:
             reset = nothing(TS[bool])
@@ -443,10 +426,7 @@ def sum_scalars(
 
 @compute_node(valid=("ts", "zero_value"))
 def sum_scalar_unary(
-    ts: TS[SCALAR],
-    reset: SIGNAL,
-    zero_value: TS[SCALAR] = None,
-    _output: TS_OUT[SCALAR] = None
+    ts: TS[SCALAR], reset: SIGNAL, zero_value: TS[SCALAR] = None, _output: TS_OUT[SCALAR] = None
 ) -> TS[SCALAR]:
     """
     Unary sum()
@@ -501,6 +481,7 @@ def mean_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, tp: Type[SCALAR] = A
     These are overloaded separately
     """
     from hgraph import cast_, count
+
     if reset is None:
         reset = nothing(TS[bool])
 

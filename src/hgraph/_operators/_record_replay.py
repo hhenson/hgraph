@@ -177,7 +177,7 @@ def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) ->
 
 @operator
 def replay_const(
-        key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None, tm: datetime = None, as_of: datetime = None
+    key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None, tm: datetime = None, as_of: datetime = None
 ) -> OUT:
     """
     Will return a const time-series of values <= start_time.
@@ -199,11 +199,7 @@ def compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE):
 
 
 @operator
-def from_data_frame(
-        df: Frame[COMPOUND_SCALAR],
-        dt_col: str = "date",
-        offset: timedelta = timedelta()
-) -> DEFAULT[OUT]:
+def from_data_frame(df: Frame[COMPOUND_SCALAR], dt_col: str = "date", offset: timedelta = timedelta()) -> DEFAULT[OUT]:
     """
     Produce a time-series from a dataframe.
     The dataframe must have a date/datetime column. By default, this is expected to be called "date".
@@ -218,7 +214,9 @@ def from_data_frame(
 
 
 @operator
-def to_data_frame(ts: TIME_SERIES_TYPE, dt_col: str = "date", as_date: bool=False, include_date: bool=True) -> TS[Frame[COMPOUND_SCALAR]]:
+def to_data_frame(
+    ts: TIME_SERIES_TYPE, dt_col: str = "date", as_date: bool = False, include_date: bool = True
+) -> TS[Frame[COMPOUND_SCALAR]]:
     """
     Provides a very simplistic mechanism to convert a time-series to a dataframe.
     For more complex conversions, use the 'to_table' tooling. This will not record key removals and represents

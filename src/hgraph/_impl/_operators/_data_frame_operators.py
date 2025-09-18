@@ -21,7 +21,11 @@ from hgraph import (
     from_data_frame,
     OUT,
     AUTO_RESOLVE,
-    HgTSBTypeMetaData, HgTSDTypeMetaData, compute_node, to_data_frame, TIME_SERIES_TYPE,
+    HgTSBTypeMetaData,
+    HgTSDTypeMetaData,
+    compute_node,
+    to_data_frame,
+    TIME_SERIES_TYPE,
 )
 
 __all__ = []
@@ -35,7 +39,7 @@ def schema_from_frame(frame: pl.DataFrame) -> COMPOUND_SCALAR:
 
 
 def _schema_and_dt_col(
-        mapping, scalars
+    mapping, scalars
 ) -> tuple[OrderedDict[str, HgScalarTypeMetaData], tuple[str, HgScalarTypeMetaData]]:
     df: pl.DataFrame = scalars["df"]
     schema = df.schema
@@ -79,20 +83,20 @@ def _validate_ts_schema(mapping, scalars) -> str:
     requires=_validate_ts_schema,
 )
 def from_data_frame_ts(
-        df: Frame[COMPOUND_SCALAR],
-        dt_col: str = "date",
-        value_col: str = "value",
-        offset: timedelta = timedelta(),
-        _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-        _out_tp: type[OUT] = AUTO_RESOLVE,
-        _api: EvaluationEngineApi = None,
+    df: Frame[COMPOUND_SCALAR],
+    dt_col: str = "date",
+    value_col: str = "value",
+    offset: timedelta = timedelta(),
+    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _out_tp: type[OUT] = AUTO_RESOLVE,
+    _api: EvaluationEngineApi = None,
 ) -> TS[SCALAR]:
     dt_converter = _dt_converter(_df_tp.__meta_data_schema__[dt_col].py_type)
     if not df.is_empty():
         for dt, value in (
-                df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time))
-                        .select([dt_col, value_col])
-                        .iter_rows(named=False)
+            df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time))
+            .select([dt_col, value_col])
+            .iter_rows(named=False)
         ):
             dt = dt_converter(dt)
             yield dt + offset, value
@@ -115,12 +119,12 @@ def _validate_tsb_schema(mapping, scalars) -> str:
     requires=_validate_tsb_schema,
 )
 def from_data_frame_tsb(
-        df: Frame[COMPOUND_SCALAR],
-        dt_col: str = "date",
-        offset: timedelta = timedelta(),
-        _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-        _out_tp: type[OUT] = AUTO_RESOLVE,
-        _api: EvaluationEngineApi = None,
+    df: Frame[COMPOUND_SCALAR],
+    dt_col: str = "date",
+    offset: timedelta = timedelta(),
+    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _out_tp: type[OUT] = AUTO_RESOLVE,
+    _api: EvaluationEngineApi = None,
 ) -> TSB[TS_SCHEMA]:
     """
     Iterates over the data_frame, returning an instance of TS_SCHEMA for each row in the table.
@@ -162,18 +166,21 @@ def _validate_tsd_k_v_schema(mapping, scalars) -> str:
 
 @generator(
     overloads=from_data_frame,
-    resolvers={SCALAR: _extract_tsd_key_scalar, SCALAR_1: _extract_tsd_key_value_scalar,
-               COMPOUND_SCALAR: _cs_from_frame},
+    resolvers={
+        SCALAR: _extract_tsd_key_scalar,
+        SCALAR_1: _extract_tsd_key_value_scalar,
+        COMPOUND_SCALAR: _cs_from_frame,
+    },
     requires=_validate_tsd_k_v_schema,
 )
 def from_data_frame_tsd_k_v(
-        df: Frame[COMPOUND_SCALAR],
-        dt_col: str = "date",
-        key_col: str = "key",
-        offset: timedelta = timedelta(),
-        _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-        _out_tp: type[OUT] = AUTO_RESOLVE,
-        _api: EvaluationEngineApi = None,
+    df: Frame[COMPOUND_SCALAR],
+    dt_col: str = "date",
+    key_col: str = "key",
+    offset: timedelta = timedelta(),
+    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _out_tp: type[OUT] = AUTO_RESOLVE,
+    _api: EvaluationEngineApi = None,
 ) -> TSD[SCALAR, TS[SCALAR_1]]:
     """
     Extract a TSD instance from the data frame source. This will extract the key_col column and will
@@ -187,8 +194,9 @@ def from_data_frame_tsd_k_v(
     """
     value_col = next((k for k in _df_tp.__meta_data_schema__.keys() if k not in (key_col, dt_col)))
     dt_converter = _dt_converter(_df_tp.__meta_data_schema__[dt_col].py_type)
-    for (dt,), df_ in df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time)).group_by(dt_col,
-                                                                                                    maintain_order=True):
+    for (dt,), df_ in df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time)).group_by(
+        dt_col, maintain_order=True
+    ):
         dt = dt_converter(dt)
         yield dt + offset, {k: v for k, v in df_.select(key_col, value_col).iter_rows()}
 
@@ -498,8 +506,9 @@ def _resolve_ts(m, s):
 
 
 @compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_ts})
-def to_data_frame_ts(ts: TS[SCALAR], dt_col: str = "date", value_col: str = "value", as_date: bool = False,
-                     include_date: bool = True) -> TS[Frame[COMPOUND_SCALAR]]:
+def to_data_frame_ts(
+    ts: TS[SCALAR], dt_col: str = "date", value_col: str = "value", as_date: bool = False, include_date: bool = True
+) -> TS[Frame[COMPOUND_SCALAR]]:
     if include_date:
         data = {dt_col: [ts.last_modified_time.date() if as_date else ts.last_modified_time]}
     else:
@@ -519,9 +528,14 @@ def _resolve_tsd_k_v(m, s):
 
 
 @compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_tsd_k_v})
-def to_data_frame_tsd_k_v(ts: TSD[SCALAR, TIME_SERIES_TYPE], dt_col: str = "date", key_col: str = "key",
-                     value_col: str = "value", as_date: bool = False,
-                     include_date: bool = True) -> TS[Frame[COMPOUND_SCALAR]]:
+def to_data_frame_tsd_k_v(
+    ts: TSD[SCALAR, TIME_SERIES_TYPE],
+    dt_col: str = "date",
+    key_col: str = "key",
+    value_col: str = "value",
+    as_date: bool = False,
+    include_date: bool = True,
+) -> TS[Frame[COMPOUND_SCALAR]]:
     value = ts.value
     if include_date:
         data = {

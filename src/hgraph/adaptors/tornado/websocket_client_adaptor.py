@@ -4,7 +4,17 @@ from typing import Callable, Type
 from tornado import httpclient
 from tornado.websocket import websocket_connect
 
-from hgraph import AUTO_RESOLVE, service_adaptor, service_adaptor_impl, TSD, push_queue, GlobalState, sink_node, STATE, TSB
+from hgraph import (
+    AUTO_RESOLVE,
+    service_adaptor,
+    service_adaptor_impl,
+    TSD,
+    push_queue,
+    GlobalState,
+    sink_node,
+    STATE,
+    TSB,
+)
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 from hgraph.adaptors.tornado.websocket_server_adaptor import STR_OR_BYTES, WebSocketClientRequest, WebSocketResponse
 
@@ -17,7 +27,9 @@ def websocket_client_adaptor(
 
 @service_adaptor_impl(interfaces=websocket_client_adaptor)
 def websocket_client_adaptor_impl(
-    request: TSD[int, TSB[WebSocketClientRequest[STR_OR_BYTES]]], path: str = "websocket_client", _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE
+    request: TSD[int, TSB[WebSocketClientRequest[STR_OR_BYTES]]],
+    path: str = "websocket_client",
+    _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE,
 ) -> TSD[int, TSB[WebSocketResponse[STR_OR_BYTES]]]:
 
     is_binary = _tp is bytes

@@ -73,18 +73,19 @@ class WiringGraphContext:
     @classmethod
     def wiring_path_name(cls) -> str:
         return cls.__stack__[-1]._wiring_path_name if WiringGraphContext.__stack__ else ""
-    
+
     @property
     def _wiring_path_name(self) -> str:
         """Return a graph call stack in names of graphs"""
 
         path = ".".join(
-            graph.wiring_node_signature.name + (':' + graph.wiring_node_signature.label if graph.wiring_node_signature.label else '')
+            graph.wiring_node_signature.name
+            + (":" + graph.wiring_node_signature.label if graph.wiring_node_signature.label else "")
             for i, graph in enumerate(self.__stack__[1:])
             if graph.wiring_node_signature
-            )
-        
-        self.__dict__['_wiring_path_name'] = path
+        )
+
+        self.__dict__["_wiring_path_name"] = path
         return path
 
     @classmethod

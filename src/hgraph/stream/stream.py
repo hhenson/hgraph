@@ -30,12 +30,12 @@ __all__ = ("Data", "StreamStatus", "Stream", "combine_statuses", "combine_status
 
 class StreamStatus(Enum):
     # Values ordered by increasing severity
-    OK = 0          # data is valid, up to date and ticking
-    STALE = 1       # data exists but is out of date
-    WAITING = 2     # data is waiting on dependencies (may or may not have a value yet)
-    NA = 3          # data is not available for a valid request (e.g. out of hours)
-    ERROR = 4       # data is invalid, there is a failure in the pipeline
-    FATAL = 5       # data is invalid and is not expected to ever be valid
+    OK = 0  # data is valid, up to date and ticking
+    STALE = 1  # data exists but is out of date
+    WAITING = 2  # data is waiting on dependencies (may or may not have a value yet)
+    NA = 3  # data is not available for a valid request (e.g. out of hours)
+    ERROR = 4  # data is invalid, there is a failure in the pipeline
+    FATAL = 5  # data is invalid and is not expected to ever be valid
 
 
 @dataclass(frozen=True)

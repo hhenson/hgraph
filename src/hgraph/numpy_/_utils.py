@@ -13,13 +13,16 @@ def extract_dimensions_from_array(a: ARRAY) -> tuple[int, ...]:
 
 def add_docs(from_fn):
     def _add_docs(to_fn):
-        to_fn.__doc__ = (f"Wraps the function: '**{from_fn.__name__}**' as a node.\n"
-                         "\n"
-                         "Below is the original documentation of the function, see the main function signature for"
-                         " the time-series types expected (and supported inputs).\n"
-                         "\n"
-                         "**Original documentation:**\n"
-                         "\n"
-                         f"{from_fn.__doc__}")
+        to_fn.__doc__ = (
+            f"Wraps the function: '**{from_fn.__name__}**' as a node.\n"
+            "\n"
+            "Below is the original documentation of the function, see the main function signature for"
+            " the time-series types expected (and supported inputs).\n"
+            "\n"
+            "**Original documentation:**\n"
+            "\n"
+            f"{from_fn.__doc__}"
+        )
         return to_fn
+
     return _add_docs

@@ -22,7 +22,7 @@ from hgraph._types import (
     HgREFTypeMetaData,
     STATE,
     HgDataFrameScalarTypeMetaData,
-    CompoundScalar
+    CompoundScalar,
 )
 
 __all__ = ("PartialSchema", "extract_table_schema", "extract_table_schema_raw_type")
@@ -97,8 +97,12 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
             to_table=lambda ts, schema=schema: (
                 schema.to_table(ts.delta_value) if ts.modified else (None,) * len(schema.keys)
             ),
-            to_table_sample=lambda ts, schema=schema: schema.to_table_sample(ts.value) if ts.valid else (None,) * len(schema.keys),
-            to_table_snap=lambda ts, schema=schema: schema.to_table_snap(ts.value) if ts.valid else (None,) * len(schema.keys),
+            to_table_sample=lambda ts, schema=schema: (
+                schema.to_table_sample(ts.value) if ts.valid else (None,) * len(schema.keys)
+            ),
+            to_table_snap=lambda ts, schema=schema: (
+                schema.to_table_snap(ts.value) if ts.valid else (None,) * len(schema.keys)
+            ),
             from_table=schema.from_table,
         )
     else:
@@ -135,23 +139,35 @@ def _(tp: HgREFTypeMetaData) -> PartialSchema:
         to_table=lambda v, schema=schema: schema.to_table(
             v.value.output
             if v.value.has_output
-            else STATE(**{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)})
-            if v.value.is_valid
-            else (None,) * len(schema.keys)
+            else (
+                STATE(
+                    **{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)}
+                )
+                if v.value.is_valid
+                else (None,) * len(schema.keys)
+            )
         ),
         to_table_sample=lambda v, schema=schema: schema.to_table_sample(
             v.value.output
             if v.value.has_output
-            else STATE(**{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)})
-            if v.value.is_valid
-            else (None,) * len(schema.keys)
+            else (
+                STATE(
+                    **{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)}
+                )
+                if v.value.is_valid
+                else (None,) * len(schema.keys)
+            )
         ),
         to_table_snap=lambda v, schema=schema: schema.to_table_snap(
             v.value.output
             if v.value.has_output
-            else STATE(**{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)})
-            if v.value.is_valid
-            else (None,) * len(schema.keys)
+            else (
+                STATE(
+                    **{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)}
+                )
+                if v.value.is_valid
+                else (None,) * len(schema.keys)
+            )
         ),
         from_table=lambda iter: next(iter),
     )
@@ -209,10 +225,10 @@ def _(tp: HgTSDTypeMetaData) -> PartialSchema:
     with PartitionKeyCounter():
         key_type = tp.key_tp.py_type
         if key_type in (bool, int, str, date, datetime, time, timedelta):
-            key_names = f"__key_{PartitionKeyCounter.count}__",
+            key_names = (f"__key_{PartitionKeyCounter.count}__",)
             key_schema = PartialSchema(
                 tp,
-                keys=('',),
+                keys=("",),
                 types=(key_type,),
                 partition_keys=tuple(),
                 remove_partition_keys=tuple(),
@@ -228,27 +244,22 @@ def _(tp: HgTSDTypeMetaData) -> PartialSchema:
             raise ValueError(
                 f"Cannot extract table schema from '{tp}' as {key_type} is not supported as a keyable column"
             )
-            
 
         removed_name = f"__key_{PartitionKeyCounter.count}_removed__"
         schema = extract_table_schema(tp.value_tp)
     return PartialSchema(
         tp,
-        keys=(
-            removed_name,
-        )
-        + key_names
-        + schema.keys,
-        types=(
-            bool,
-        )
-        + key_schema.types
-        + schema.types,
+        keys=(removed_name,) + key_names + schema.keys,
+        types=(bool,) + key_schema.types + schema.types,
         partition_keys=key_names + schema.partition_keys,
         remove_partition_keys=(removed_name,) + schema.remove_partition_keys,
         to_table=lambda tsd, k=key_names, key_schema=key_schema, schema=schema: _tsd_to_table(tsd, key_schema, schema),
-        to_table_sample=lambda tsd, k=key_names, key_schema=key_schema, schema=schema: _tsd_to_table(tsd, key_schema, schema, False, True),
-        to_table_snap=lambda tsd, k=key_names, key_schema=key_schema, schema=schema: _tsd_to_table(tsd, key_schema, schema, True),
+        to_table_sample=lambda tsd, k=key_names, key_schema=key_schema, schema=schema: _tsd_to_table(
+            tsd, key_schema, schema, False, True
+        ),
+        to_table_snap=lambda tsd, k=key_names, key_schema=key_schema, schema=schema: _tsd_to_table(
+            tsd, key_schema, schema, True
+        ),
         from_table=lambda it, key_schema=key_schema, schema=schema: _tsd_from_table(it, key_schema, schema),
     )
 
@@ -267,13 +278,7 @@ def _tsd_to_table(tsd: TSD[K, V], key_schema, schema: PartialSchema, snap=False,
                 rows = schema.to_table(v)
 
             for row in rows:
-                out.append(
-                    (
-                        False,
-                    )
-                    + keys
-                    + row
-                )
+                out.append((False,) + keys + row)
         if not snap:
             for k in tsd.removed_keys():
                 keys = key_schema.to_table(k)
@@ -288,15 +293,12 @@ def _tsd_to_table(tsd: TSD[K, V], key_schema, schema: PartialSchema, snap=False,
             fn = schema.to_table
 
         return tuple(
-            (
-                (
-                    False,
-                )
-                + key_schema.to_table(k)
-                + fn(v)
-            )
+            ((False,) + key_schema.to_table(k) + fn(v))
             for k, v in (tsd.modified_items() if not snap else tsd.valid_items())
-        ) + tuple(((True,) + key_schema.to_table(k) + (None,) * len(schema.keys)) for k in (tsd.removed_keys() if not snap else ()))
+        ) + tuple(
+            ((True,) + key_schema.to_table(k) + (None,) * len(schema.keys))
+            for k in (tsd.removed_keys() if not snap else ())
+        )
 
 
 def _tsd_from_table(it, key_schema: PartialSchema, schema: PartialSchema) -> fd:

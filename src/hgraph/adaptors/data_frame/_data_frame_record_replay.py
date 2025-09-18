@@ -39,7 +39,7 @@ __all__ = (
     "FileBasedDataFrameStorage",
     "BaseDataFrameStorage",
     "replay_data_frame",
-    "WriteMode"
+    "WriteMode",
 )
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"

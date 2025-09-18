@@ -62,7 +62,7 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
                 **{k: v for k, v in kwargs_.items() if k not in from_graph},
                 **from_graph,
             )
-            
+
             with WiringGraphContext(node_signature=resolved_signature):
                 __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
 

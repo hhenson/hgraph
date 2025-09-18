@@ -33,13 +33,17 @@ from hgraph import (
 )
 from ._perspective import PerspectiveTablesManager
 
-
 logger = logging.getLogger(__name__)
 
 
 @operator
 def _publish_table(
-    name: str, ts: TIME_SERIES_TYPE, editable: bool = False, edit_role: str = None, empty_row: bool = False, history: int = None
+    name: str,
+    ts: TIME_SERIES_TYPE,
+    editable: bool = False,
+    edit_role: str = None,
+    empty_row: bool = False,
+    history: int = None,
 ): ...
 
 
@@ -82,10 +86,12 @@ def _publish_table_from_tsd(
             data = [{**state.process_key(k), **row} for row in state.process_row(v)]
             if state.create_index:
                 data = [{**i, **state.create_index(i)} for i in data]
-                
+
             if history is not None:
                 sample = [{**data, "time": ec.evaluation_time} for data in data]
-                state.history += sample  # multirow types do not do partial updates do data and a sample are always the same
+                state.history += (
+                    sample  # multirow types do not do partial updates do data and a sample are always the same
+                )
 
             index = state.index
             updated_indices = set(i[index] for i in data)
@@ -242,8 +248,8 @@ def _publish_table_from_tsd_start(
         state.index_to_id = defaultdbldict(_new_id)
         state.index_to_id_lock = threading.Lock()
         index_to_id_and_lock = GlobalState.instance().setdefault(f"perspective_table_index_to_id_{name}", dict())
-        index_to_id_and_lock['mapping'] = state.index_to_id
-        index_to_id_and_lock['lock'] = state.index_to_id_lock
+        index_to_id_and_lock["mapping"] = state.index_to_id
+        index_to_id_and_lock["lock"] = state.index_to_id_lock
 
         if state.multi_row:
             raise ValueError("Empty row is not supported for multi-row tables")
@@ -253,7 +259,7 @@ def _publish_table_from_tsd_start(
             index="_id",
             name=name,
             editable=editable,
-            edit_role=edit_role
+            edit_role=edit_role,
         )
         empty_values = (
             [i.py_type() for i in _key.element_types] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
@@ -266,7 +272,7 @@ def _publish_table_from_tsd_start(
             index=state.index,
             name=name,
             editable=editable,
-            edit_role=edit_role
+            edit_role=edit_role,
         )
 
     state.data = []
@@ -305,9 +311,7 @@ def _receive_table_edits_tsd(
         if isinstance(_schema.value_scalar_tp, HgCompoundScalarType):
             tp = _schema.value_scalar_tp.py_type
             tp_schema = {k: v.py_type for k, v in _schema.value_scalar_tp.meta_data_schema.items()}
-            process_row = lambda row, i: tp(
-                **{k: tp_schema[k](row[k]) for k in row if k in tp_schema}
-            )
+            process_row = lambda row, i: tp(**{k: tp_schema[k](row[k]) for k in row if k in tp_schema})
         else:
             process_row = lambda row, i: row["value"]
     else:
@@ -375,6 +379,7 @@ class defaultdbldict(defaultdict):
     """
     A defaultdict that keeps a reverse lookup if values back to keys and assumes that mapping is 1-to-1
     """
+
     def __init__(self, default_factory: Callable):
         super().__init__(default_factory)
         self.key_tracker = {}
@@ -407,5 +412,3 @@ class defaultdbldict(defaultdict):
         Get the key for a given value
         """
         return self.key_tracker.get(value, None)
-
-

@@ -70,7 +70,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
             return out
         if item != (K, V):
             from hgraph._types._type_meta_data import HgTypeMetaData
-            
+
             if hasattr(out, "__init_fix__"):
                 return out
 

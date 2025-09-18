@@ -378,9 +378,9 @@ def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD
 def collapse_keys_tsd(
     ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], max_depth: int = -1, v_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
 ) -> OUT:
-    assert max_depth >= 2 or max_depth == -1, (
-        "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
-    )
+    assert (
+        max_depth >= 2 or max_depth == -1
+    ), "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
 
     if max_depth == 2 or not isinstance(HgTypeMetaData.parse_type(v_tp), HgTSDTypeMetaData):
         return _collapse_keys_tsd_impl(ts)
