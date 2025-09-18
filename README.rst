@@ -71,3 +71,12 @@ Run Tests
 
     # Generate Coverage Report
     python -m pytest --cov=hgraph --cov-report=xml
+
+
+Indexing with Context7 MCP
+--------------------------
+
+This repository includes a baseline configuration for Context7 MCP to improve code search and retrieval quality.
+
+- See ``docs/context7_indexing.md`` for guidance.
+- The root-level ``context7.yaml`` config sets sensible include/exclude rules, priorities, and summarization hints.

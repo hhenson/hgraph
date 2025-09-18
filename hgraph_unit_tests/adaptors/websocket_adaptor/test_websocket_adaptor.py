@@ -104,6 +104,7 @@ try:
 
         q(True)
 
+    @pytest.mark.xfail(reason="Does not run with xdist correctly")
     @pytest.mark.serial
     def test_single_websocket_request_graph():
         @websocket_server_handler(url="/test")

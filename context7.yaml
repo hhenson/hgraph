@@ -1,0 +1,111 @@
+# Context7 MCP baseline configuration for the hgraph project
+# This config helps the indexer prioritize core source files, reduce noise,
+# and generate better summaries and cross-references.
+
+project:
+  name: hgraph
+  description: >-
+    HGraph is a functional reactive programming engine and DSL in Python for building
+    time-series based computation graphs supporting simulation and real-time event processing.
+  homepage: https://hgraph.readthedocs.io/en/latest/
+
+indexing:
+  include:
+    - README.rst
+    - pyproject.toml
+    - src/hgraph/**
+    - docs/source/**
+  exclude:
+    - ".git/**"
+    - ".idea/**"
+    - ".vscode/**"
+    - ".venv/**"
+    - "venv/**"
+    - ".mypy_cache/**"
+    - ".pytest_cache/**"
+    - "dist/**"
+    - "build/**"
+    - "site/**"
+    - "docs/_build/**"
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    - "uv.lock"
+    # De-prioritize by exclusion; examples and tests can be included with lower priority if desired
+    - "docs_md/**"
+  # Files that are allowed but should be lower priority for retrieval
+  low_priority:
+    - examples/**
+    - hgraph_unit_tests/**
+
+priorities:
+  # Higher numbers mean higher priority
+  - pattern: src/hgraph/**
+    score: 1.0
+  - pattern: docs/**
+    score: 0.8
+  - pattern: README.*
+    score: 0.7
+  - pattern: examples/**
+    score: 0.4
+  - pattern: hgraph_unit_tests/**
+    score: 0.4
+
+chunking:
+  code:
+    max_lines: 200
+    overlap_lines: 20
+  markdown:
+    max_chars: 2000
+    overlap_chars: 200
+
+summarization:
+  enabled: true
+  per_file: true
+  hints:
+    - Prefer summarizing public APIs, decorators, and type aliases exposed by hgraph.
+    - Capture the meaning of TS, TSL, TSB, TSD, TSS, REF, SCALAR, OUT, TSW, and TIME_SERIES_TYPE type constructs.
+    - Capture the meaning of compute_node, sink_node, graph, generator, and push_queue decorators.
+    - Note relationships between nodes, graphs, schedulers, and the runtime.
+    - For operator modules, summarize available operators and their signatures, note that operators are implemented when 
+      the overloads attribute is defined in a graph or node decorator. Overloads are not called directly, but the 
+      differences in signature and behaviour is useful to aggregate under the operator function.
+
+cross_reference:
+  symbols: true
+  link_code_to_docs: true
+
+entrypoints:
+  - src/hgraph/__init__.py
+  - README.rst
+
+terminology:
+  glossary:
+    TS: Time Series of scalar values. The generic form is TS[SCALAR], where SCALAR represents the element type of the 
+        time-series. An example of a time-series of int values is TS[int].
+    TSL: A list collection of homogeneous time-series values, this has the generic form of TSL[TIME_SERIES_TYPE, SIZE], where 
+         TIME_SERIES_TYPE represents the type of the time-series values making up the list and SIZE is an instance of 
+         Size, describing the size of the list. To indicate a list of TS[int] with size two, use TSL[TS[int], Size[2]].
+    TSB: A named collection of heterogeneous time-series values, this has the generic form of TSB[TS_SCHEMA], where
+         TS_SCHEMA represents an instance of a TimeSeriesSchema, this is a dataclass defining the properties of the
+         bundle. The types of the properties defined in the dataclass must be TimeSeries types.
+    TSD: Time Series Dictionary mapping scalar keys to time-series values, the generic form is TSD[K, V], where K is a 
+         scalar type and V is a time-series type, for example TSD[str, TS[int]] represents a dictionary mapping string 
+         key to a time-series of int values.
+    TSS: Time Series Set of scalar values, the generic form is TSS[SCALAR], where SCALAR represents the element type of
+         the elements of the set, TSS[str] represents a set of strings.
+    REF: This indicates the node (or graph) expects to receive a reference to a time-series and not the time-series itself.
+         The generic form is REF[TIME_SERIES_TYPE], for example REF[TS[int]] indicates a reference to an integer time-series.
+    TSW: A time-series window, this supports a sliding window over a time-series. The generic form is 
+         TSW[TIME_SERIES_TYPE, WINDOW_SIZE, MIN_WINDOW_SIZE], the MIN_WINDOW_SIZE is optional and defaults to WINDOW_SIZE.
+         For example, TSW[TS[int], WindowSize[5], WindowSize[3]] indicates a window of size 5 with a minimum size of 3.
+    SCALAR: Represents a non-time-series value. These should be immutable types such as int, float, str, bool, etc.
+    TIME_SERIES_TYPE: Represents a time-series type.
+    OUT: Represents a time-series value, often used as a return type.
+    compute_node: Node decorator indicating the node has both inputs and output time-series values.
+    sink_node: Node decorator indicating the node has no inputs and output time-series values.
+    generator: Decorator indicating the node is a generator function, this is also a pull source node.
+    graph: Used to indicate the wrapped function is a wiring function (describes the relationship between nodes).
+    push_queue: Indicates a push source node, the wrapped function is called at start and is provided a sender function
+                as an input that can be used to push values to the node.
+
+# You can override these on a per-directory basis using .c7local.yaml files if needed.
