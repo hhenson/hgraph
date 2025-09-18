@@ -25,7 +25,7 @@ from typing import Callable
 import sys
 from datetime import datetime, timedelta
 import threading
-from hgraph import push_queue, TS, graph, run_graph, EvaluationMode, debug_print, if_true
+from hgraph import push_queue, TS, graph, evaluate_graph, GraphConfiguration, EvaluationMode, debug_print, if_true
 from hgraph import stop_engine
 
 
@@ -49,5 +49,5 @@ def main():
     stop_engine(if_true(in_ == "exit"))
 
 
-run_graph(main, run_mode=EvaluationMode.REAL_TIME, end_time=datetime.utcnow() + timedelta(minutes=2))
+evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(minutes=2)))
 ```

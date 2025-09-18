@@ -106,12 +106,12 @@ sink node, then the graph would have been empty.
 Once again, the graph is not a Python function, it is a graph object. It is only when
 the graph is evaluated by the graph builder that the graph is constructed.
 
-The general form of running the graph is to call the ``run_graph`` function:
+The general form of running the graph is to call the ``evaluate_graph`` function:
 
 ```python
-from hgraph import run_graph
+from hgraph import evaluate_graph, GraphConfiguration
 
-run_graph(main)
+evaluate_graph(main, GraphConfiguration())
 ```
 
 This will build the graph (*main*) and then run it in simulation mode.

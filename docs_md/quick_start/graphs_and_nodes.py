@@ -1,4 +1,4 @@
-from hgraph import graph, generator, compute_node, sink_node, run_graph, EvaluationMode, TS, MIN_TD, MIN_ST, TS_OUT
+from hgraph import graph, generator, compute_node, sink_node, evaluate_graph, GraphConfiguration, EvaluationMode, TS, MIN_TD, MIN_ST, TS_OUT
 
 
 @generator
@@ -32,4 +32,4 @@ def main():
     print_time_series(s)
 
 
-run_graph(main, run_mode=EvaluationMode.SIMULATION)
+evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.SIMULATION))

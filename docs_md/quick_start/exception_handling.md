@@ -97,7 +97,7 @@ this for all use-cases, the key difference being how the output is returned.
 Here is an example using this:
 
 ```python
-from hgraph import graph, TS, try_except, const, debug_print, run_graph
+from hgraph import graph, TS, try_except, const, debug_print, evaluate_graph, GraphConfiguration
 
 @graph
 def a_graph(lhs: TS[float], rhs: TS[float]) -> TS[float]:
@@ -111,5 +111,5 @@ def capture_an_exception():
     debug_print("exception", result.exception)
 
 
-run_graph(capture_an_exception)
+evaluate_graph(capture_an_exception, GraphConfiguration())
 ```

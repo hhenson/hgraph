@@ -1,4 +1,4 @@
-from hgraph import graph, run_graph, EvaluationMode, const, debug_print
+from hgraph import graph, evaluate_graph, GraphConfiguration, EvaluationMode, const, debug_print
 
 
 @graph
@@ -7,4 +7,4 @@ def hello_world():
     debug_print("Hello", c)
 
 
-run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)
+evaluate_graph(hello_world, GraphConfiguration(run_mode=EvaluationMode.SIMULATION))

@@ -4,14 +4,14 @@ Hello World
 The obligatory hello world example.
 
 ```python
-from hgraph import graph, run_graph, EvaluationMode, const, debug_print
+from hgraph import graph, evaluate_graph, GraphConfiguration, EvaluationMode, const, debug_print
 
 @graph
 def hello_world() -> None:
     c = const("World")
     debug_print("Hello", c)
 
-run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)
+evaluate_graph(hello_world, GraphConfiguration(run_mode=EvaluationMode.SIMULATION))
 
 >> [1970-01-01 00:00:00.000425][1970-01-01 00:00:00.000001] Hello: World
 ```

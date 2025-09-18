@@ -1,7 +1,6 @@
 from hgraph import (
     graph,
     exception_time_series,
-    run_graph,
     TS,
     try_except,
     const,
@@ -21,7 +20,7 @@ def capture_an_exception():
     debug_print("exception", e)
 
 
-run_graph(capture_an_exception)
+evaluate_graph(capture_an_exception, GraphConfiguration())
 
 
 @graph
@@ -34,7 +33,7 @@ def capture_an_exception_2():
     debug_print("exception", e)
 
 
-run_graph(capture_an_exception_2)
+evaluate_graph(capture_an_exception_2, GraphConfiguration())
 
 
 @graph
@@ -49,4 +48,4 @@ def capture_an_exception_3():
     debug_print("exception", result.exception)
 
 
-run_graph(capture_an_exception_3)
+evaluate_graph(capture_an_exception_3, GraphConfiguration())

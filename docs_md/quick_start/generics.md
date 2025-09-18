@@ -33,7 +33,7 @@ def main():
     debug_print("1+2", add(a=1, b=2))
 
 
-run_graph(main)
+evaluate_graph(main, GraphConfiguration())
 ```
 
 In this case the attributes ``a`` and ``b`` are both time-series types, so the scalar's 1 and 2 will
@@ -54,7 +54,7 @@ be pre-resolved by performing explicit resolution using the [] syntax as depicte
 ```python
 from typing import Mapping
 from frozendict import frozendict
-from hgraph import compute_node, TS, TSD, TSL, SCALAR, TIME_SERIES_TYPE, graph, run_graph, Size, debug_print
+from hgraph import compute_node, TS, TSD, TSL, SCALAR, TIME_SERIES_TYPE, graph, evaluate_graph, GraphConfiguration, Size, debug_print
 
 @compute_node
 def cast(value: TS[SCALAR]) -> TIME_SERIES_TYPE:
@@ -68,7 +68,7 @@ def main():
     debug_print("TSD[int, TS[str]]", cast[TIME_SERIES_TYPE: TSD[int, TS[str]]](value=frozendict({1: 'a'})))
 
 
-run_graph(main)
+evaluate_graph(main, GraphConfiguration())
 ```
 
 In this case, you can see the same function being used in three different ways. In any scenario, there 

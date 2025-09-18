@@ -30,8 +30,7 @@ It is best-practice to write the bulk of the logic in the form of graph function
 For example:
 
 ```python
-from hgraph import graph, run_graph
-from hgraph.nodes import const, debug_print
+from hgraph import graph, evaluate_graph, GraphConfiguration, const, debug_print
 
 @graph
 def what_is_one_plus_one():
@@ -39,7 +38,7 @@ def what_is_one_plus_one():
     one_plus_one = one + one  # NOTE: This is equivalent to add_(one, one), lots of syntactic sugar
     debug_print("1 + 1", one_plus_one)
 
-run_graph(what_is_one_plus_one)
+evaluate_graph(what_is_one_plus_one, GraphConfiguration())
 ```
 
 In this case, when run initiates its wiring, the graph ``what_is_one_plus_one`` is evaluated, this builds a wiring

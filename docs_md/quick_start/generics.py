@@ -2,7 +2,7 @@ from typing import TypeVar, Mapping
 
 from frozendict import frozendict
 
-from hgraph import compute_node, TS, graph, run_graph, SCALAR, TIME_SERIES_TYPE, Size, TSL, TSD, debug_print
+from hgraph import compute_node, TS, graph, evaluate_graph, GraphConfiguration, SCALAR, TIME_SERIES_TYPE, Size, TSL, TSD, debug_print
 
 NUMERIC = TypeVar("NUMERIC", int, float)
 
@@ -17,7 +17,7 @@ def main():
     debug_print("1+2", add(a=1, b=2))
 
 
-run_graph(main)
+evaluate_graph(main, GraphConfiguration())
 
 ### Example two
 
@@ -34,4 +34,4 @@ def main():
     debug_print("TSD[int, TS[str]]", cast[TIME_SERIES_TYPE : TSD[int, TS[str]]](value=frozendict({1: "a"})))
 
 
-run_graph(main)
+evaluate_graph(main, GraphConfiguration())
