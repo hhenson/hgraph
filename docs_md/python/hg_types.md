@@ -162,8 +162,7 @@ The ``TSB`` has a useful method ``as_schema`` which makes the type appear to be 
 PyCharm type inference. 
 
 ```python
-from hgraph import TimeSeriesSchema, TSB, TS, sink_node, graph
-from hgraph.nodes import debug_print
+from hgraph import TimeSeriesSchema, TSB, TS, sink_node, graph, debug_print
 
 class MySchema(TimeSeriesSchema):
     p1: TS[int]

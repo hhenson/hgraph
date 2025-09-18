@@ -216,7 +216,7 @@ class TimeSeriesListInput(
 
                 inputs[i] = const(v, tp=tp_.py_type)
             elif v is None:
-                from hgraph.nodes import nothing
+                from hgraph import nothing
 
                 inputs[i] = nothing(tp=tp_.py_type)
             else:

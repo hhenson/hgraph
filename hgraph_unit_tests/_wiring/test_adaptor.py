@@ -43,7 +43,6 @@ from hgraph import (
     feedback,
 )
 from hgraph._wiring._decorators import GRAPH_SIGNATURE
-from hgraph.nodes import request_id
 from hgraph.nodes._service_utils import write_adaptor_request, adaptor_request, capture_output_node_to_global_state
 from hgraph.test import eval_node
 

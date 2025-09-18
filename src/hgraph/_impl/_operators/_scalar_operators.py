@@ -602,7 +602,7 @@ def var_scalar_unary(ts: TS[SCALAR], tp: Type[SCALAR] = AUTO_RESOLVE) -> TS[floa
     Unary variance for scalar collections return the variance of the current collection value.
     These are overloaded separately
     """
-    from hgraph.nodes import count
+    from hgraph import count
 
     # TODO - this is a naive implementation.  See Welford's algorithm
     count_x = count(ts)

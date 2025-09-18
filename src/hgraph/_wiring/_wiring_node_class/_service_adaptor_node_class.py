@@ -3,9 +3,9 @@ from typing import Callable, TypeVar
 from frozendict import frozendict
 
 from hgraph import TS
-from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._tsd_type import TSD
+from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext
 from hgraph._wiring._wiring_node_class._service_interface_node_class import ServiceInterfaceNodeClass
@@ -17,7 +17,6 @@ __all__ = ("ServiceAdaptorNodeClass",)
 from hgraph.nodes._service_utils import (
     write_adaptor_request,
     adaptor_request,
-    capture_output_to_global_state,
     capture_output_node_to_global_state,
     request_id,
 )
