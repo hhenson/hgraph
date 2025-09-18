@@ -14,7 +14,7 @@ indexing:
     - README.rst
     - pyproject.toml
     - src/hgraph/**
-    - docs/source/**
+    - docs/**
   exclude:
     - ".git/**"
     - ".idea/**"
@@ -43,7 +43,7 @@ priorities:
     score: 1.0
   - pattern: docs/**
     score: 0.8
-  - pattern: README.*
+  - pattern: 'README.*'
     score: 0.7
   - pattern: examples/**
     score: 0.4
