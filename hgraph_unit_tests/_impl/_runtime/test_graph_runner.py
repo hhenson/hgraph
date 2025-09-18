@@ -2,7 +2,6 @@ from datetime import datetime
 
 from hgraph import (
     graph,
-    run_graph,
     compute_node,
     TS,
     TIME_SERIES_TYPE,
@@ -22,7 +21,7 @@ def test_hello_world():
         c = const("Hello World")
         print_(c)
 
-    run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)
+    evaluate_graph(hello_world, GraphConfiguration(run_mode=EvaluationMode.SIMULATION))
 
 
 def test_compute_node():
@@ -37,7 +36,7 @@ def test_compute_node():
         t = tick(c)
         debug_print("t", t)
 
-    run_graph(hello_world, run_mode=EvaluationMode.SIMULATION)
+    evaluate_graph(hello_world, GraphConfiguration(run_mode=EvaluationMode.SIMULATION))
 
 
 def test_return_result():

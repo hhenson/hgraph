@@ -19,7 +19,6 @@ try:
         combine,
         graph,
         register_adaptor,
-        run_graph,
         EvaluationMode,
         sink_node,
         TIME_SERIES_TYPE,
@@ -87,7 +86,7 @@ try:
             response2 = requests.request("GET", f"http://localhost:{port}/test_http", timeout=1)
             requests.request("GET", f"http://localhost:{port}/stop_http", timeout=1)
 
-        run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+        evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
 
         assert response1 is not None
         assert response1.status_code == 200
@@ -139,7 +138,7 @@ try:
             response2 = requests.request("GET", f"http://localhost:{port}/test_multiple_request", timeout=1)
             requests.request("GET", f"http://localhost:{port}/stop_multiple_request", timeout=1)
 
-        run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+        evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
 
         assert response1 is not None
         assert response1.status_code == 200
@@ -189,7 +188,7 @@ try:
             response2 = requests.request("GET", f"http://localhost:{port}/test/two", timeout=1)
             requests.request("GET", f"http://localhost:{port}/stop", timeout=1)
 
-        run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+        evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
 
         assert response1 is not None
         assert response1.status_code == 200

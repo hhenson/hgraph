@@ -73,7 +73,7 @@ def test_adaptor():
         register_adaptor("test_adaptor", my_adaptor_impl)
         return my_adaptor("test_adaptor", count(schedule(timedelta(milliseconds=10), max_ticks=10)))
 
-    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=1000))
+    result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=1000)))
 
     assert [x[1] for x in result] == list(range(1, 11))
 
@@ -105,7 +105,7 @@ def test_adaptor_with_parameters():
         a2 = my_adaptor("test_adaptor", True, count(schedule(timedelta(milliseconds=11), max_ticks=10)))
         return combine(a1, a2)
 
-    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250))
+    result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250)))
 
     assert [x[1] for x in result] == list(chain(*zip([{0: x} for x in range(2, 12)], [{1: x} for x in range(1, 11)])))
 
@@ -137,7 +137,7 @@ def test_adaptor_with_impl_parameters():
         a2 = my_adaptor("test_adaptor", ts=count(schedule(timedelta(milliseconds=11), max_ticks=10)))
         return combine(a1, a2)
 
-    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250))
+    result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250)))
 
     assert [x[1] for x in result] == list(chain(*zip([{0: x} for x in range(2, 12)], [{1: x} for x in range(2, 12)])))
 
@@ -265,7 +265,7 @@ def test_adaptor_and_service():
         requests = collect[TSS](count(schedule(timedelta(milliseconds=10), max_ticks=10)))
         return map_(lambda key: my_service("test", key), __keys__=requests)
 
-    result = run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250))
+    result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250)))
 
     assert [x[1] for x in result if x[1]] == [{x: x} for x in list(range(1, 11))]
 

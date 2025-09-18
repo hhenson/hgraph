@@ -9,10 +9,9 @@ from hgraph import (
     TryExceptTsdMapResult,
     exception_time_series,
     div_,
-    TIME_SERIES_TYPE,
-    TIME_SERIES_TYPE_2,
     NodeException,
-    run_graph,
+    evaluate_graph,
+    GraphConfiguration,
     const,
     null_sink,
 )
@@ -27,7 +26,7 @@ def test_error_not_handling(caplog):
         null_sink(out)
 
     with pytest.raises(NodeException):
-        run_graph(main, __capture_values__=True, __trace_back_depth__=3)
+        evaluate_graph(main, GraphConfiguration(capture_values=True, trace_back_depth=3))
 
     assert "ZeroDivisionError" in caplog.text
     assert "main.div_numbers" in caplog.text
@@ -42,7 +41,7 @@ def test_error_not_handling_in_switch(caplog):
         null_sink(out)
 
     with pytest.raises(NodeException):
-        run_graph(main, __capture_values__=True, __trace_back_depth__=3)
+        evaluate_graph(main, GraphConfiguration(capture_values=True, trace_back_depth=3))
 
     assert "ZeroDivisionError" in caplog.text
     assert ".<lambda>.div_numbers" in caplog.text

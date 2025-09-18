@@ -29,7 +29,6 @@ try:
         combine,
         graph,
         register_adaptor,
-        run_graph,
         EvaluationMode,
         sink_node,
         TIME_SERIES_TYPE,
@@ -48,6 +47,8 @@ try:
         gate,
         emit,
         feedback,
+        GraphConfiguration,
+        evaluate_graph,
     )
     from hgraph.adaptors.tornado.http_server_adaptor import (
         http_server_handler,
@@ -121,7 +122,7 @@ try:
         with GlobalState() as gs:
             gs.responses = {}
 
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3)))
 
             assert gs.responses[1] == b"Hello, world!"
             assert gs.responses[2] == b"Hello, world again!"
@@ -150,7 +151,7 @@ try:
         with GlobalState() as gs:
             gs.responses = {}
 
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3)))
 
             assert gs.responses[1] == b"Hello, world #0!"
             assert gs.responses[2] == b"Hello, world #1!"
@@ -179,7 +180,7 @@ try:
         with GlobalState() as gs:
             gs.responses = {}
 
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
+            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3)))
 
             assert gs.responses["a"] == b"Hello, a and 33!"
             assert gs.responses["b"] == b"Hello, b and 33!"
@@ -230,7 +231,7 @@ try:
             )
 
         with GlobalState():
-            run_graph(g, run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
             value = get_recorded_value()
             result = {"one": [], "two": []}
             for _, d in value:
