@@ -1,6 +1,7 @@
 from datetime import timedelta, date, datetime, time
 from typing import Callable, OrderedDict
 
+from hgraph._types._scalar_types import STATE
 import polars as pl
 
 from hgraph import (
@@ -515,6 +516,42 @@ def to_data_frame_ts(
         data = {}
     data[value_col] = ts.value
     return pl.DataFrame(data)
+
+
+SUPPORTED_TYPES = {int, float, bool, str, date, datetime, time, timedelta}
+
+
+def _resolve_tsb(m, s):
+    schema = _base_schema(m, s)
+    schema.update({k: v.scalar_type().py_type for k, v in m[TS_SCHEMA].py_type.__meta_data_schema__.items()})
+    return compound_scalar(**schema)
+
+
+def _requires_tsb(mapping, scalars) -> str | bool:
+    cs_tp = mapping[COMPOUND_SCALAR]
+    if any(i.py_type not in SUPPORTED_TYPES for i in cs_tp.py_type.__meta_data_schema__.values()):
+        return f"Schema containts non-convertable types: {cs_tp.__meta_data_schema__}"
+    return True
+
+
+@compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_tsb}, requires=_requires_tsb)
+def to_data_frame_tsb(
+    tsb: TSB[TS_SCHEMA],
+    dt_col: str = "date",
+    as_date: bool = False,
+    include_date: bool = True,
+    _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _state: STATE = None,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    value = {dt_col: tsb.last_modified_time.date() if as_date else tsb.last_modified_time} if include_date else {}
+    value.update({k: ts.value for k, ts in tsb.items()})
+    # The current mapping does not support nested structures in the schema, so we should be safe with the above logic.
+    return pl.DataFrame(value, schema=_state.schema)
+
+
+@to_data_frame_tsb.start
+def to_data_frame_tsb_start(_cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE, _state: STATE = None):
+    _state.schema = {k: v.py_type for k, v in _cs_tp.__meta_data_schema__.items()}
 
 
 def _resolve_tsd_k_v(m, s):

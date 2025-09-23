@@ -21,6 +21,15 @@ def test_data_frame_tsb():
         fd(a=3, b=6),
     ]
 
+def test_to_data_frame_tsb():
+    @graph
+    def g(tsb: TSB[ts_schema(a=TS[int], b=TS[int])]) -> TS[Frame[compound_scalar(date=datetime, a=int, b=int)]]:
+        return to_data_frame(tsb)
+
+    actual = eval_node(g, tsb=[fd(a=1, b=4), fd(a=2, b=5), fd(a=3, b=6)])
+    expected = pl.DataFrame({"date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD], "a": [1, 2, 3], "b": [4, 5, 6]})
+    assert pl.concat(actual).equals(expected)
+    
 
 def test_data_frame_tsd_k_v():
     @graph

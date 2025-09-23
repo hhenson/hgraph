@@ -1389,3 +1389,8 @@ Version 0.4.75 (23-09-2025)
 ---------------------------
 
 * Add basic quantile support
+  
+Version 0.4.76 (23-09-2025)
+---------------------------
+
+* Add to_data_frame support for TSB.
