@@ -80,3 +80,13 @@ def test_to_data_frame_tsd_k_tsb():
     assert actual.equals(expected) 
 
 
+def test_from_data_frame_tsd_k_tsb():
+
+    df = pl.DataFrame({
+        "date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 2 * MIN_TD],
+        "key": [1, 1, 2, 1, 2],
+        "a": [1, 1, 2, 2, 3],
+        "b": [4, 4, 5, 5, 6]})
+
+    result = eval_node(from_data_frame[TSD[str, TSB[ts_schema(a=TS[int], b=TS[int])]]], df=df)
+    assert result == [ {1: fd(a=1, b=4)}, {1: fd(a=1, b=4), 2: fd(a=2, b=5)}, {1: fd(a=2, b=5), 2: fd(a=3, b=6)} ]

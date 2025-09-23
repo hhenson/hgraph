@@ -153,6 +153,8 @@ def _validate_tsd_k_v_schema(mapping, scalars) -> str:
     out = mapping[OUT]
     if type(out) is not HgTSDTypeMetaData:
         return f"Expected OUT to be TSD, got: {out}"
+    if type(out.value_tp) is not HgTSTypeMetaData:
+        return f"Expected OUT value type to be TS, got: {out.value_tp}"
     cs = mapping[COMPOUND_SCALAR]
     dt_col = scalars["dt_col"]
     if dt_col not in cs.meta_data_schema:
@@ -202,58 +204,72 @@ def from_data_frame_tsd_k_v(
         yield dt + offset, {k: v for k, v in df_.select(key_col, value_col).iter_rows()}
 
 
-# def _extract_tsd_pivot_key_value_scalar(mapping, scalars) -> SCALAR_1:
-#     schema, _ = _schema_and_dt_col(mapping, scalars)
-#     return schema[scalars["pivot_col"]].py_type
-#
-#
-# def _extract_tsd_pivot_value_value_scalar(mapping, scalars) -> SCALAR_1:
-#     schema, _ = _schema_and_dt_col(mapping, scalars)
-#     schema.pop(scalars["key_col"])
-#     schema.pop(scalars["pivot_col"])
-#     assert len(schema) == 1
-#     return next(iter(schema.values())).py_type
-#
-#
-# @generator(
-#     resolvers={
-#         SCALAR: _extract_tsd_key_scalar,
-#         SCALAR_1: _extract_tsd_pivot_key_value_scalar,
-#         SCALAR_2: _extract_tsd_pivot_value_value_scalar,
-#     }
-# )
-# def tsd_k_tsd_from_data_source(
-#     dfs: type[DATA_FRAME_SOURCE],
-#     dt_col: str,
-#     key_col: str,
-#     pivot_col: str,
-#     offset: timedelta = timedelta(),
-#     _api: EvaluationEngineApi = None,
-# ) -> TSD[SCALAR, TSD[SCALAR_1, TS[SCALAR_2]]]:
-#     """
-#     Extract a TSD instance from the data frame source. This uses key_col for the first dimension and pivot_col for the
-#     second dimension.
-#     The requirement is that the results are ordered by date and key_col at a minimum. It is useful to order by pivot_col
-#     as well.
-#     The expected shape of the data frame would be:
-#         +------+---------+------------+-------+
-#         | date | key_col |  pivot_col | value |
-#         +------+---------+------------+-------+
-#         |  ...                                |
-#     """
-#     df: pl.DataFrame
-#     dfs_instance = DataStore.instance().get_data_source(dfs)
-#     value_col = next((k for k in dfs_instance.schema.keys() if k not in (key_col, dt_col, pivot_col)))
-#     dt_converter = _dt_converter(dfs_instance.schema[dt_col])
-#     for df_all in dfs_instance.iter_frames(start_time=_api.start_time, end_time=_api.end_time):
-#         if df_all.is_empty():
-#             continue
-#         for (dt,), df_1 in df_all.group_by(dt_col, maintain_order=True):
-#             dt = dt_converter(dt)
-#             out = {}
-#             for (key,), df in df_1.group_by(key_col, maintain_order=True):
-#                 out[key] = {k: v for k, v in df.select(pivot_col, value_col).iter_rows()}
-#             yield dt + offset, out
+def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:
+    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema.pop(scalars["key_col"])
+    return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
+
+
+def _validate_tsd_k_tsb(mapping, scalars) -> str | bool:
+    out = mapping[OUT]
+    if type(out) is not HgTSDTypeMetaData:
+        return f"Expected OUT to be TSD, got: {out}"
+    if type(out.value_tp) is not HgTSBTypeMetaData:
+        return f"Expected OUT value to be TSB, got: {out.value_tp}"
+    cs = mapping[COMPOUND_SCALAR]
+    dt_col = scalars["dt_col"]
+    if dt_col not in cs.meta_data_schema:
+        return f"dt_col '{dt_col}' not found in schema: {cs.meta_data_schema}"
+    k_col = scalars["key_col"]
+    if k_col not in cs.meta_data_schema:
+        return f"key_col '{k_col}' not found in schema: {cs.meta_data_schema}"
+    if len(cs.meta_data_schema) < 3:
+        return f"Expected at least 3 columns, got: {cs.meta_data_schema}"
+    ts_schema = mapping[TS_SCHEMA]
+    for k in ts_schema.py_type.__meta_data_schema__.keys():
+        if k not in cs.meta_data_schema:
+            return f"TS_SCHEMA key '{k}' not found in schema: {cs.meta_data_schema}"
+    return True
+
+@generator(
+    overloads=from_data_frame,
+    resolvers={
+        SCALAR: _extract_tsd_key_scalar, 
+        TS_SCHEMA: _extract_tsd_key_value_bundle,
+        COMPOUND_SCALAR: _cs_from_frame,
+    },
+    requires=_validate_tsd_k_tsb,
+)
+def from_data_frame_tsd_k_tsb(
+    df: Frame[COMPOUND_SCALAR],
+    dt_col: str = "date",
+    key_col: str = "key",
+    offset: timedelta = timedelta(),
+    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _out_tp: type[OUT] = AUTO_RESOLVE,
+    _api: EvaluationEngineApi = None,
+) -> TSD[SCALAR, TSB[TS_SCHEMA]]:
+    """
+    Extract a TSD instance from the data frame source. This will extract the key_col column and will
+    set the value to be the remainder of the data frames columns.
+    The requirement is that the results are ordered by date at a minimum. It is useful to order by key_col as well.
+    The expected shape of the data frame would be:
+        +------+---------+----+-----+----+
+        | date | key_col | p1 | ... | pn |
+        +------+---------+----+-----+----+
+        |          ...                   |
+    """
+
+    dt_converter = _dt_converter(_df_tp.__meta_data_schema__[dt_col].py_type)
+    value_keys = tuple(k for k in _df_tp.__meta_data_schema__.keys() if k not in (key_col, dt_col))
+    for (dt,), df_ in df.filter(pl.col(dt_col).is_between(_api.start_time, _api.end_time)).group_by(
+        dt_col, maintain_order=True
+    ):
+        dt = dt_converter(dt)
+        key_df = df_[key_col]
+        value_df = df_.select(*value_keys)
+        yield dt + offset, {k: v for k, v in zip(key_df, value_df.iter_rows(named=True))}
+
 #
 #
 # def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:

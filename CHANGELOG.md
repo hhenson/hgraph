@@ -1398,4 +1398,5 @@ Version 0.4.76 (23-09-2025)
 Version 0.4.77 (23-09-2025)
 ---------------------------
 
-* Add to_data_frame support for TSD[K, TSB[V]]
+* Add to_data_frame support for TSD[K, TSB]
+* Add from_data_frame support for TSD[K, TSB]
