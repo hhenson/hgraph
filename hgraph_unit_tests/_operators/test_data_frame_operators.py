@@ -65,3 +65,18 @@ def test_to_data_frame_tsd_k_v():
         "key": [1, 1, 2, 1, 2],
         "value": [1, 1, 2, 1, 3]})
     assert actual.equals(expected)
+
+def test_to_data_frame_tsd_k_tsb():
+    @graph
+    def g(ts: TSD[int, TSB[ts_schema(a=TS[int], b=TS[int])]]) -> TS[Frame[compound_scalar(date=datetime, key=int, a=int, b=int)]]:
+        return to_data_frame(ts)
+    
+    actual = pl.concat(eval_node(g, ts=[fd({1: fd(a=1, b=4)}), fd({2: fd(a=2, b=5)}), fd({2: fd(a=3, b=6)})]))
+    expected = pl.DataFrame({
+        "date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 2 * MIN_TD],
+        "key": [1, 1, 2, 1, 2],
+        "a": [1, 1, 2, 1, 3],
+        "b": [4, 4, 5, 4, 6]})
+    assert actual.equals(expected) 
+
+

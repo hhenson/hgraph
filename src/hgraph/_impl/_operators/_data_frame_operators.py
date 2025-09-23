@@ -1,7 +1,7 @@
 from datetime import timedelta, date, datetime, time
 from typing import Callable, OrderedDict
 
-from hgraph._types._scalar_types import STATE
+from hgraph._types._scalar_types import STATE, CompoundScalar
 import polars as pl
 
 from hgraph import (
@@ -530,7 +530,7 @@ def _resolve_tsb(m, s):
 def _requires_tsb(mapping, scalars) -> str | bool:
     cs_tp = mapping[COMPOUND_SCALAR]
     if any(i.py_type not in SUPPORTED_TYPES for i in cs_tp.py_type.__meta_data_schema__.values()):
-        return f"Schema containts non-convertable types: {cs_tp.__meta_data_schema__}"
+        return f"Schema constraints non-convertable types: {cs_tp.__meta_data_schema__}"
     return True
 
 
@@ -559,14 +559,14 @@ def _resolve_tsd_k_v(m, s):
     key_col = s["key_col"]
     schema[key_col] = m[SCALAR].py_type
     value_col = s["value_col"]
-    scalar_tp = m[TIME_SERIES_TYPE].value_scalar_tp.py_type
+    scalar_tp = m[SCALAR_1].py_type
     schema[value_col] = scalar_tp
     return compound_scalar(**schema)
 
 
 @compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_tsd_k_v})
 def to_data_frame_tsd_k_v(
-    ts: TSD[SCALAR, TIME_SERIES_TYPE],
+    ts: TSD[SCALAR, TS[SCALAR_1]],
     dt_col: str = "date",
     key_col: str = "key",
     value_col: str = "value",
@@ -589,3 +589,47 @@ def to_data_frame_tsd_k_v(
         data[key_col].append(k)
         data[value_col].append(v)
     return pl.DataFrame(data)
+
+
+def _resolve_tsd_k_tsb(m, s):
+    schema = _base_schema(m, s)
+    key_col = s["key_col"]
+    schema[key_col] = m[SCALAR].py_type
+    schema.update({k: v.scalar_type().py_type for k, v in m[TS_SCHEMA].py_type.__meta_data_schema__.items()})
+    return compound_scalar(**schema)
+
+
+@compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_tsd_k_tsb})
+def to_data_frame_tsd_k_tsb(
+    ts: TSD[SCALAR, TSB[TS_SCHEMA]],
+    dt_col: str = "date",
+    key_col: str = "key",
+    as_date: bool = False,
+    include_date: bool = True,
+    _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _tsb_tp: type[TS_SCHEMA] = AUTO_RESOLVE,
+    _state: STATE = None,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    tsb_schema = tuple(_tsb_tp.__meta_data_schema__.keys())
+    if include_date:
+        data = {
+            dt_col: [ts.last_modified_time.date() if as_date else ts.last_modified_time] * len(ts),
+            key_col: [],
+        } | {k: [] for k in tsb_schema}
+    else:
+        data = {
+            key_col: [],
+        } | {k: [] for k in tsb_schema}
+    for k, v in ts.items():
+        data[key_col].append(k)
+        tsb_value = v.value
+        if isinstance(tsb_value, CompoundScalar):
+            tsb_value = tsb_value.to_dict()
+        for k_ in tsb_schema:
+            data[k_].append(tsb_value.get(k_, None))
+    return pl.DataFrame(data, schema=_state.schema)
+
+
+@to_data_frame_tsd_k_tsb.start
+def to_data_frame_tsd_k_tsb_start(_cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE, _state: STATE = None):
+    _state.schema = {k: v.py_type for k, v in _cs_tp.__meta_data_schema__.items()}
