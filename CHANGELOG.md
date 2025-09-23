@@ -1385,3 +1385,7 @@ Version 0.4.74 (17-09-2025)
 * Update mean over TSW (remove bad override and correct bugs in incremental implementation)
 * Add reset to mean
 
+Version 0.4.75 (23-09-2025)
+---------------------------
+
+* Add basic quantile support
