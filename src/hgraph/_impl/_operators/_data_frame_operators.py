@@ -526,14 +526,21 @@ def _resolve_ts(m, s):
 
 @compute_node(overloads=to_data_frame, resolvers={COMPOUND_SCALAR: _resolve_ts})
 def to_data_frame_ts(
-        ts: TS[SCALAR], dt_col: str = "date", value_col: str = "value", as_date: bool = False, include_date: bool = True
+        ts: TS[SCALAR], dt_col: str = "date", value_col: str = "value", as_date: bool = False, include_date: bool = True,
+        _cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+        _state: STATE = None,
 ) -> TS[Frame[COMPOUND_SCALAR]]:
     if include_date:
         data = {dt_col: [ts.last_modified_time.date() if as_date else ts.last_modified_time]}
     else:
         data = {}
     data[value_col] = ts.value
-    return pl.DataFrame(data)
+    return pl.DataFrame(data, schema=_state.schema)
+
+
+@to_data_frame_ts.start
+def to_data_frame_tsd_k_tsb_start(_cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE, _state: STATE = None):
+    _state.schema = {k: v.py_type for k, v in _cs_tp.__meta_data_schema__.items()}
 
 
 SUPPORTED_TYPES = {int, float, bool, str, date, datetime, time, timedelta}
