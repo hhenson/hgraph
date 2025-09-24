@@ -1400,3 +1400,8 @@ Version 0.4.77 (23-09-2025)
 
 * Add to_data_frame support for TSD[K, TSB]
 * Add from_data_frame support for TSD[K, TSB]
+
+Version 0.4.78 (24-09-2025)
+---------------------------
+
+* Add to_data_frame schema setting to ensure even values are missing the frames have the correct schema.
