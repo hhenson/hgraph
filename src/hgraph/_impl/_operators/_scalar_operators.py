@@ -457,7 +457,7 @@ def sum_scalars_multi(*ts: TSL[TS[SCALAR], SIZE], zero_value: TS[SCALAR] = None)
     """
     Multi-arg sum()
     """
-    return sum((arg.value for arg in ts), start=zero_value.value)
+    return sum((arg.value for arg in ts.valid_values()), start=zero_value.value)
 
 
 @graph(overloads=mean)
