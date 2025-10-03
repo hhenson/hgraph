@@ -11,6 +11,7 @@ that make up the framework.
     typing_system
     time_series_types
     dynamic_graphs
+    tsd_map_node
     services
 
 

@@ -1410,3 +1410,8 @@ Version 0.4.79 (24-09-2025)
 ---------------------------
 
 * Ensure we only sum valid values in the TSL scalars case.
+
+Version 0.4.80 (03-10-2025)
+---------------------------
+
+* Add the ability to better describe the schema shape to produce for record/replay with data-frames.

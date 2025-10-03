@@ -2,9 +2,11 @@ from abc import abstractmethod, ABC
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
+from typing import Sequence
 
 import polars as pl
 
+from hgraph import MIN_DT
 from hgraph._operators import (
     record,
     to_table,
@@ -40,10 +42,12 @@ __all__ = (
     "BaseDataFrameStorage",
     "replay_data_frame",
     "WriteMode",
+    "set_data_frame_overrides"
 )
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
 DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
+DATA_FRAME_RECORD_OVERRIDES = ":data_frame:__overrides__"
 
 
 def set_data_frame_record_path(path: Path):
@@ -51,12 +55,53 @@ def set_data_frame_record_path(path: Path):
     GlobalState.instance()[DATA_FRAME_RECORD_REPLAY_PATH] = path
 
 
+def _get_raw_data_frame_overrides():
+    d = GlobalState.instance().setdefault(DATA_FRAME_RECORD_REPLAY_PATH, {})
+    if len(d) == 0:
+        d["all"] = {"track_as_of": False, "track_removes": False, "partition_keys": None,
+                    "remove_partition_keys": None, }
+        d["key"] = {}
+        d["recordable_id"] = {}
+        d["key_recordable_id"] = {}
+    return d
+
+
+def set_data_frame_overrides(
+        key: str = None, recordable_id: str = None, track_as_of: bool = None, track_removes: bool = None,
+        partition_keys: Sequence[str] = None, remove_partition_keys: Sequence[str] = None,
+):
+    """This helps re-format the data frame to be more appropriately shaped for the given use-case."""
+    d = _get_raw_data_frame_overrides()
+    if key is None and recordable_id is None:
+        d = d["all"]
+    elif key is None:
+        d = d["recordable_id"].setdefault(recordable_id, {})
+    elif recordable_id is None:
+        d = d["key"].setdefault(key, {})
+    else:
+        d = d["key_recordable_id"].setdefault((recordable_id, key), {})
+
+    d["track_as_of"] = True if track_as_of is None else track_as_of
+    d["track_removes"] = True if track_removes is None else track_removes
+    d["partition_keys"] = partition_keys
+    d["remove_partition_keys"] = remove_partition_keys
+
+
+def get_data_frame_record_overrides(key: str, recordable_id: str) -> dict:
+    """Find the closest match and return the overrides"""
+    d = _get_raw_data_frame_overrides()
+    # Overrides are more specific in the order all, recordable_id, key, key_recordable_id
+    v = d["all"] | d["recordable_id"].get(recordable_id, {}) | d["key"].get(key, {}) | d["key_recordable_id"].get(
+        (recordable_id, key), {})
+    return v
+
+
 @graph(overloads=record, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
 def record_to_data_frame(
-    ts: TIME_SERIES_TYPE,
-    key: str,
-    recordable_id: str = None,
-    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+        ts: TIME_SERIES_TYPE,
+        key: str,
+        recordable_id: str = None,
+        tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
 ):
     """
     converts the ts to a table and then records the table to memory, writing to a parquet file in the end.
@@ -69,13 +114,13 @@ def record_to_data_frame(
 
 @sink_node
 def _record_to_data_frame(
-    ts: TIME_SERIES_TYPE,
-    schema: TS[TableSchema],
-    key: str,
-    recordable_id: str = None,
-    _state: STATE = None,
-    _traits: Traits = None,
-    _logger: LOGGER = None,
+        ts: TIME_SERIES_TYPE,
+        schema: TS[TableSchema],
+        key: str,
+        recordable_id: str = None,
+        _state: STATE = None,
+        _traits: Traits = None,
+        _logger: LOGGER = None,
 ):
     _state.value.append(ts.value)
 
@@ -88,14 +133,27 @@ def _record_to_data_frame_start(key: str, recordable_id: str, _state: STATE, _tr
 
 
 @_record_to_data_frame.stop
-def _record_to_data_frame_stop(_state: STATE, schema: TS[TableSchema], _logger: LOGGER):
+def _record_to_data_frame_stop(key: str, recordable_id: str, _state: STATE, schema: TS[TableSchema], _logger: LOGGER):
     schema: TableSchema = schema.value
     if schema.partition_keys:
         rows = list(i for row in _state.value for i in row)
     else:
         rows = _state.value
-    df = pl.from_records(rows, schema=[(k, t) for k, t in zip(schema.keys, schema.types)], orient="row")
-    DataFrameStorage.instance().write_frame(_state.recordable_id, df)
+    df = pl.from_records(rows, schema=[(k, t) for k, t in zip(schema.keys, schema.types)], orient="row").lazy()
+    overrides = get_data_frame_record_overrides(key, recordable_id)
+    if not overrides["track_as_of"]:
+        df = df.drop(schema.as_of_key)
+    if not overrides["track_removes"]:
+        if schema.removed_keys:
+            df = df.drop(schema.removed_keys)
+    elif r_p_k := overrides["remove_partition_keys"]:
+        assert len(r_p_k) == len(schema.removed_keys), f"Remove partition keys: {schema.removed_keys} not same length as: {r_p_k}"
+        df = df.rename({k: v for k, v in zip(schema.removed_keys, r_p_k)})
+    if p_k := overrides["partition_keys"]:
+        assert len(p_k) == len(schema.partition_keys), f"Partition keys: {schema.partition_keys} not same length as: {p_k}"
+        df = df.rename({k: v for k, v in zip(schema.partition_keys, p_k)})
+
+    DataFrameStorage.instance().write_frame(_state.recordable_id, df.collect())
 
 
 @graph(overloads=replay, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
@@ -106,7 +164,7 @@ def replay_from_data_frame(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id
 
 @graph
 def replay_data_frame(
-    data_frame: Frame, schema: TableSchema = None, as_of_time: datetime = None, tp: type[OUT] = AUTO_RESOLVE
+        data_frame: Frame, schema: TableSchema = None, as_of_time: datetime = None, tp: type[OUT] = AUTO_RESOLVE
 ) -> DEFAULT[OUT]:
     """
     Support replay of a raw polars data frame. Supports supplying a custom schema, if the schema is not supplied it
@@ -136,27 +194,41 @@ def _replay_from_data_frame_output_shape(m, s):
 
 @generator(resolvers={OUT: _replay_from_data_frame_output_shape})
 def _replay_from_data_frame(
-    key: str,
-    tp: type[TIME_SERIES_TYPE],
-    recordable_id: str = None,
-    _traits: Traits = None,
-    _api: EvaluationEngineApi = None,
+        key: str,
+        tp: type[TIME_SERIES_TYPE],
+        recordable_id: str = None,
+        _traits: Traits = None,
+        _api: EvaluationEngineApi = None,
 ) -> TS[OUT]:
     schema: TableSchema = table_schema(tp).value
-    df_source = _get_df(key, recordable_id, _traits)
+    df = _get_df(key, recordable_id, _traits).lazy()
+
+    overrides = get_data_frame_record_overrides(key, recordable_id)
+    if not overrides["track_as_of"]:
+        df = df.with_columns(pl.lit(MIN_DT).alias(schema.as_of_key))
+    if not overrides["track_removes"]:
+        if schema.removed_keys:
+            df = df.with_columns(**{k: pl.lit(False) for k in schema.removed_keys})
+    elif r_p_k := overrides["remove_partition_keys"]:
+        assert len(r_p_k) == len(schema.removed_keys), f"Remove partition keys: {schema.removed_keys} not same length as: {r_p_k}"
+        df = df.rename({k: v for v, k in zip(schema.removed_keys, r_p_k)})
+    if p_k := overrides["partition_keys"]:
+        assert len(p_k) == len(schema.partition_keys), f"Partition keys: {schema.partition_keys} not same length as: {p_k}"
+        df = df.rename({k: v for v, k in zip(schema.partition_keys, p_k)})
+
     start_time = _api.start_time
     as_of_time = get_as_of(_api.evaluation_clock)
-    return _do_replay_from_data_frame(schema, df_source, start_time, as_of_time)
+    return _do_replay_from_data_frame(schema, df.collect(), start_time, as_of_time)
 
 
 @generator(resolvers={OUT: _replay_from_data_frame_output_shape})
 def _replay_from_data_frame_raw(
-    data_frame: Frame,
-    tp: type[TIME_SERIES_TYPE],
-    schema: TableSchema,
-    as_of_time: datetime,
-    _traits: Traits = None,
-    _api: EvaluationEngineApi = None,
+        data_frame: Frame,
+        tp: type[TIME_SERIES_TYPE],
+        schema: TableSchema,
+        as_of_time: datetime,
+        _traits: Traits = None,
+        _api: EvaluationEngineApi = None,
 ) -> TS[OUT]:
     if as_of_time is MAX_DT:
         as_of_time = get_as_of(_api.evaluation_clock)
@@ -165,10 +237,10 @@ def _replay_from_data_frame_raw(
 
 
 def _do_replay_from_data_frame(
-    schema: TableSchema,
-    df_source: pl.DataFrame,
-    start_time: datetime,
-    as_of_time: datetime,
+        schema: TableSchema,
+        df_source: pl.DataFrame,
+        start_time: datetime,
+        as_of_time: datetime,
 ):
     dt_col_str = get_table_schema_date_key()
     dt_col = pl.col(dt_col_str)
@@ -198,13 +270,13 @@ def _do_replay_from_data_frame(
 
 @const_fn(overloads=replay_const, requires=record_replay_model_restriction(DATA_FRAME_RECORD_REPLAY))
 def replay_const_from_data_frame(
-    key: str,
-    tp: type[OUT] = AUTO_RESOLVE,
-    recordable_id: str = None,
-    tm: datetime = None,
-    as_of: datetime = None,
-    _traits: Traits = None,
-    _api: EvaluationEngineApi = None,
+        key: str,
+        tp: type[OUT] = AUTO_RESOLVE,
+        recordable_id: str = None,
+        tm: datetime = None,
+        as_of: datetime = None,
+        _traits: Traits = None,
+        _api: EvaluationEngineApi = None,
 ) -> OUT:
     schema: TableSchema = table_schema(tp).value
     df_source = _get_df(key, recordable_id, _traits)
@@ -270,7 +342,7 @@ class DataFrameStorage(ABC):
 
     @abstractmethod
     def read_frame(
-        self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None
+            self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None
     ) -> pl.DataFrame:
         """
         Read the data frame from the source. Given most of our use-case is for temporal data-frames.
@@ -284,7 +356,7 @@ class DataFrameStorage(ABC):
 
     @abstractmethod
     def write_frame(
-        self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
+            self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
     ) -> pl.DataFrame:
         """
         Write the data frame to the source. If the data schema includes as_of information, then if this schema has the
@@ -321,7 +393,7 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         """Get the underlying schema data"""
 
     def read_frame(
-        self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None
+            self, path: str, start_time: datetime = None, end_time: datetime = None, as_of: datetime = None
     ) -> pl.DataFrame:
         date_time_col, as_of_col = self._get_schema_info(path)
         df = self._read(path).lazy()
@@ -336,7 +408,7 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         return df.collect()
 
     def write_frame(
-        self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
+            self, path: str, df: pl.DataFrame, mode: WriteMode = WriteMode.OVERWRITE, as_of: datetime = None
     ) -> pl.DataFrame:
         self.set_schema_info(path, date_time_col=get_table_schema_date_key(), as_of_col=get_table_schema_as_of_key())
         if mode != WriteMode.OVERWRITE:
