@@ -58,7 +58,7 @@ def set_data_frame_record_path(path: Path):
 def _get_raw_data_frame_overrides():
     d = GlobalState.instance().setdefault(DATA_FRAME_RECORD_REPLAY_PATH, {})
     if len(d) == 0:
-        d["all"] = {"track_as_of": False, "track_removes": False, "partition_keys": None,
+        d["all"] = {"track_as_of": True, "track_removes": False, "partition_keys": None,
                     "remove_partition_keys": None, }
         d["key"] = {}
         d["recordable_id"] = {}
