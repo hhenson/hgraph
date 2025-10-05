@@ -3,15 +3,6 @@ from typing import Callable, TypeVar, Optional
 
 from frozendict import frozendict
 
-from hgraph import (
-    merge,
-    RecordReplayEnum,
-    RecordReplayContext,
-    record,
-    replay,
-    compare,
-    replay_const,
-)
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._type_meta_data import HgTypeMetaData
@@ -140,6 +131,7 @@ def wrap_component(fn: Callable, signature: WiringNodeSignature) -> Callable:
 
 @graph
 def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
+    from hgraph import RecordReplayContext, RecordReplayEnum, merge, replay_const, replay, record
     mode = RecordReplayContext.instance().mode
     if RecordReplayEnum.RECOVER in mode:
         ts = merge(ts, replay_const(key, ts.output_type.dereference().py_type))
@@ -155,6 +147,7 @@ def input_wrapper(ts: TIME_SERIES_TYPE, key: str) -> TIME_SERIES_TYPE:
 
 @graph
 def output_wrapper(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    from hgraph import RecordReplayContext, RecordReplayEnum, replay, record, compare
     mode = RecordReplayContext.instance().mode
     if RecordReplayEnum.RECORD in mode:
         record(ts, "__out__")

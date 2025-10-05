@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
     from hgraph._runtime._node import NodeSignature
 
-__all__ = ("TsdReduceWiringNodeClass",)
+__all__ = ("TsdReduceWiringNodeClass", "TsdNonAssociativeReduceWiringNodeClass")
 
 
 @dataclass(frozen=True)
