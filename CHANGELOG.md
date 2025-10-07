@@ -1415,3 +1415,8 @@ Version 0.4.80 (03-10-2025)
 ---------------------------
 
 * Add the ability to better describe the schema shape to produce for record/replay with data-frames.
+
+Version 0.4.81 (07-10-2025)
+---------------------------
+
+* Fix missing imports
