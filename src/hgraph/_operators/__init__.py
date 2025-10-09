@@ -15,4 +15,5 @@ from hgraph._operators._json import *
 from hgraph._operators._to_json import *
 from hgraph._operators._to_table import *
 from hgraph._operators._tsd_and_mapping import *
+from hgraph._operators._tss_operators import *
 from hgraph._operators._type_operators import *

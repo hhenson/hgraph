@@ -22,7 +22,7 @@ from hgraph import (
     std,
     var,
     TIME_SERIES_TYPE,
-    contains_,
+    contains_, compute_node, compute_set_delta,
 )
 from hgraph.arrow import eval_, arrow, assert_
 from hgraph.test import eval_node
@@ -251,4 +251,16 @@ def test_sub_tss_scalar():
             eval_([{1, 2, 3, 4}], [3, 4], type_map=(TSS[int], TS[int]))
             | arrow(lambda p: p[0] - p[1])
             >> assert_(frozenset({1, 2, 4}), frozenset({1, 2}))
+    )
+
+
+def test_compute_set_delta():
+    @compute_node
+    def n(a: TS[frozenset[int]], _output: TSS[int] = None) -> TSS[int]:
+        return compute_set_delta(a, _output)
+
+    (
+            eval_([frozenset({1, 2, 3}), frozenset({1, 2, }), frozenset({2, 3, 4})])
+            | arrow(n)
+            >> assert_(frozenset({1, 2, 3}), frozenset({1, 2}), frozenset({2, 3, 4}))
     )
