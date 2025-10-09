@@ -311,7 +311,7 @@ def test_rest_list_client(port):
 
 def test_rest_read_client(port):
     URL = f"http://localhost:{port}{BASE_URL}"
-    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     @graph
     def rest_read_test() -> TS[MyCS]:
@@ -325,7 +325,7 @@ def test_rest_read_client(port):
 
 def test_rest_create_client(port):
     URL = f"http://localhost:{port}{BASE_URL}"
-    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     @graph
     def rest_create_test() -> TS[MyCS]:
@@ -339,7 +339,7 @@ def test_rest_create_client(port):
 
 def test_rest_update_client(port):
     URL = f"http://localhost:{port}{BASE_URL}"
-    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     @graph
     def rest_update_test() -> TS[MyCS]:
@@ -353,7 +353,7 @@ def test_rest_update_client(port):
 
 def test_rest_delete_client(port):
     URL = f"http://localhost:{port}{BASE_URL}"
-    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     @graph
     def rest_delete_test() -> TS[RestResultEnum]:
