@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Optional, Any, Type
 
 __all__ = ("GlobalState",)
 
@@ -10,6 +10,28 @@ class GlobalState(object):
     """
 
     _instance: Optional["GlobalState"] = None
+    _implementation_class: Type["GlobalState"] = None
+
+    @classmethod
+    def set_implementation_class(cls, implementation_class: Type["GlobalState"]):
+        """
+        Set the implementation class to use when constructing GlobalState instances.
+        This allows for patching with C++ or other custom implementations.
+
+        Args:
+            implementation_class: The class to use for new GlobalState instances
+        """
+        cls._implementation_class = implementation_class
+
+    @classmethod
+    def get_implementation_class(cls) -> Type["GlobalState"]:
+        """
+        Get the current implementation class, defaulting to GlobalState if not set.
+
+        Returns:
+            The implementation class to use for construction
+        """
+        return cls._implementation_class if cls._implementation_class is not None else cls
 
     @staticmethod
     def init_multithreading():
@@ -68,6 +90,16 @@ class GlobalState(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         GlobalState.set_instance(self._previous)
         self._previous = None
+
+    def __new__(cls, **kwargs):
+        """
+        Override __new__ to support implementation class patching.
+        If an implementation class is set, instantiate that instead of GlobalState.
+        """
+        if cls is GlobalState and cls._implementation_class is not None:
+            # Use the implementation class instead
+            return object.__new__(cls._implementation_class)
+        return object.__new__(cls)
 
     def __init__(self, **kwargs):
         self._state: dict[str, Any] = dict(**kwargs)
