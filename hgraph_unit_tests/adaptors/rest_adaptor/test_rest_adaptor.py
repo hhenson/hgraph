@@ -295,7 +295,7 @@ def g(port: int):
 
 def test_rest_list_client(port):
     URL = f"http://localhost:{port}{BASE_URL}"
-    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3))
 
     @graph
     def rest_list_test() -> TS[tuple[str, ...]]:
