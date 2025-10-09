@@ -1425,3 +1425,11 @@ Version 0.4.82 (09-10-2025)
 ---------------------------
 
 * Add compute_set_delta utility function.
+
+Version 0.4.83 (09-10-2025)
+---------------------------
+
+* Add support for patching GlobalState with custom implementations.
+* Add set_implementation_class and get_implementation_class methods to GlobalState.
+* Override __new__ to support implementation class patching.
+
