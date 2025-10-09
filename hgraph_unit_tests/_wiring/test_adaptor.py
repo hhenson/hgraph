@@ -184,7 +184,7 @@ def test_multi_client_adaptor_w_parameters():
         a3 = my_adaptor("test_adaptor", True, count(schedule(timedelta(milliseconds=120), max_ticks=5)))
         return combine(a[100], a[110], a3)
 
-    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2))
+    config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
     result = evaluate_graph(g, config)
     final_result = [(k, v) for d in [x[1] for x in result] for k, v in d.items()]
     expected = [

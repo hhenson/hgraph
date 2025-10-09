@@ -27,4 +27,4 @@ def main():
     stop_engine(if_true(in_ == "exit"))
 
 
-evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(minutes=2)))
+evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=2)))

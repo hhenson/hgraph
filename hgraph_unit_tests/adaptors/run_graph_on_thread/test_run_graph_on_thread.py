@@ -43,7 +43,7 @@ def test_run_graph_on_thread():
 
     with GlobalState():
         evaluate_graph(
-            main, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=10))
+            main, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
         )
         value = get_recorded_value()
         assert value[0][1]["out"] == 3

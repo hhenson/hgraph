@@ -123,11 +123,12 @@ try:
         with GlobalState() as gs:
             gs.responses = {}
 
-            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3)))
+            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
 
             assert gs.responses[1] == b"Hello, world!"
             assert gs.responses[2] == b"Hello, world again!"
 
+    @pytest.mark.xfail(reason="Does not run with xdist correctly")
     @pytest.mark.serial
     def test_multiple_websocket_request_graph():
         @websocket_server_handler(url="/test")
@@ -152,7 +153,7 @@ try:
         with GlobalState() as gs:
             gs.responses = {}
 
-            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=3)))
+            evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
 
             assert gs.responses[1] == b"Hello, world #0!"
             assert gs.responses[2] == b"Hello, world #1!"
