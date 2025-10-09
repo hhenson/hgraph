@@ -1420,3 +1420,8 @@ Version 0.4.81 (07-10-2025)
 ---------------------------
 
 * Fix missing imports
+
+Version 0.4.82 (09-10-2025)
+---------------------------
+
+* Add compute_set_delta utility function.
