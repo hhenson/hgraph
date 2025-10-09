@@ -1433,3 +1433,8 @@ Version 0.4.83 (09-10-2025)
 * Add set_implementation_class and get_implementation_class methods to GlobalState.
 * Override __new__ to support implementation class patching.
 
+Version 0.4.84 (09-10-2025)
+---------------------------
+
+* Put GlobalState back to its original state.
+* Reduce some timeouts on tests as they are starting to take too long.
