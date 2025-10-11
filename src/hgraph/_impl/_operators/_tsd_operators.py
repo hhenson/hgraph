@@ -94,9 +94,13 @@ def tsd_get_item_default(
     # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
     # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
     # and the below 'if' deals with that by subscribing to the inner reference too
-    if _ref.modified and _ref.value.has_output and isinstance(_ref.value.output, TimeSeriesReferenceOutput):
-        _ref_ref.bind_output(_ref.value.output)
-        _ref_ref.make_active()
+    if _ref.modified:
+        if _ref.value.has_output and isinstance(_ref.value.output, TimeSeriesReferenceOutput):
+            _ref_ref.bind_output(_ref.value.output)
+            _ref_ref.make_active()
+        elif _ref_ref.bound:
+            _ref_ref.make_passive()
+            _ref_ref.un_bind_output(unbind_refs=True)
 
     result = _ref_ref.value if _ref_ref.bound else _ref.value
     if result is None or ts.value.is_empty:
@@ -160,6 +164,7 @@ def tsd_get_items(
     # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
     # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
     # and the below 'if' deals with that by subscribing to the inner reference too
+    remove_ref_refs = []
     for k, v in _ref.modified_items():
         if k in _state.tsd.key_set.removed():
             out[k] = REMOVE_IF_EXISTS
@@ -167,14 +172,32 @@ def tsd_get_items(
             _ref_ref._create(k)
             _ref_ref[k].bind_output(v.value.output)
             _ref_ref[k].make_active()
+            continue
         elif not v.value.is_empty or k in _state.tsd.key_set:
             out[k] = v.value
+            
+        if k in _ref_ref._ts_values:
+            remove_ref_refs.append(k)
+            
+    for k in remove_ref_refs:
+        _ref_ref.on_key_removed(k)
 
     for k, v in _ref_ref.modified_items():
         out[k] = v.value
 
     return out
 
+
+@tsd_get_items.stop
+def tsd_get_items_stop(
+        _ref: TSD[K, REF[TIME_SERIES_TYPE]],
+        _ref_ref: TSD[K, REF[TIME_SERIES_TYPE]]):
+    
+    for k, _ in list(_ref.items()):
+        _ref.on_key_removed(k)
+    for k, _ in list(_ref_ref.items()):
+        _ref_ref.on_key_removed(k)
+    
 
 @compute_node(
     overloads=keys_,
@@ -378,9 +401,9 @@ def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD
 def collapse_keys_tsd(
     ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], max_depth: int = -1, v_tp: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE
 ) -> OUT:
-    assert (
-        max_depth >= 2 or max_depth == -1
-    ), "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
+    assert max_depth >= 2 or max_depth == -1, (
+        "max_depth must be greater than or equal to 2, or -1 for full depth of the TSD"
+    )
 
     if max_depth == 2 or not isinstance(HgTypeMetaData.parse_type(v_tp), HgTSDTypeMetaData):
         return _collapse_keys_tsd_impl(ts)

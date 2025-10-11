@@ -272,11 +272,17 @@ def test_collapse_more_keys_tsd():
     fd = frozendict
     assert eval_node(
         g,
-        [{1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, {1: {"c": {True: 5}, "a": REMOVE}}, {2: REMOVE}],
+        [
+            {1: {"a": {True: 5}}, 2: {"b": {False: 6}}}, 
+            {1: {"c": {True: 5}, "a": REMOVE}}, 
+            {2: REMOVE},
+            None,
+        ],
     ) == [
         fd({(1, "a", True): 5, (2, "b", False): 6}),
         fd({(1, "c", True): 5, (1, "a", True): REMOVE}),
         fd({(2, "b", False): REMOVE}),
+        None
     ]
 
 

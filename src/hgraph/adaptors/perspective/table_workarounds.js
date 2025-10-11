@@ -1,8 +1,13 @@
 export async function loadLayout(layout) {
-    if (layout.context_mapping){
-        await getWorkspaceTables()["context_mapping"].table.update(layout.context_mapping);
-    } else if ("context_mapping" in getWorkspaceTables()){
-        await getWorkspaceTables()["context_mapping"].table.update([{'_id': 0}]);
+    const workspaceTables = getWorkspaceTables()
+    for (const [table_name, table_config] of Object.entries(workspaceTables)) {
+        if (table_config.type === "client_only_table") {
+            if (layout[table_name]){
+                await getWorkspaceTables()[table_name].table.update(layout[table_name]); 
+            } else if (table_name in getWorkspaceTables()){
+                await getWorkspaceTables()[table_name].table.update([{'_id': 0}]); 
+            }
+        } 
     }
 
     return layout.psp_config;
@@ -10,9 +15,11 @@ export async function loadLayout(layout) {
 
 export async function saveLayout(config) {
     const layout = {version: 1, psp_config: config};
-
-    if ("context_mapping" in getWorkspaceTables()){
-        layout.context_mapping = await (await getWorkspaceTables()["context_mapping"].table.view()).to_json();
+    const workspaceTables = getWorkspaceTables()
+    for (const [table_name, table_config] of Object.entries(workspaceTables)) {
+        if (table_config.type === "client_only_table") {
+            layout[table_name] = await (await table_config.table.view()).to_json();
+        } 
     }
 
     return layout;
@@ -23,20 +30,30 @@ export async function ensureTablesForConfig(config, progress_callback) {
         const total = Object.keys(config.viewers).length;
         let i = 0;
         const table_promises = [];
-        const table_progress = [];
+        const table_progress = {};
+
+        const calc_progress = () => {
+            return (Object.values(table_progress).reduce((x, y) => x + y)) / Object.values(table_progress).length;
+        }
+
         for (const [_, viewer] of Object.entries(config.viewers)) {
             const index = i;
             i += 1;
 
-            progress_callback(0, `${index + 1} tables`);
-            table_progress.push(0);
-            table_promises.push(wait_for_table(window.workspace, viewer.table, (x, y) => {
-                    table_progress[index] = x;
-                    progress_callback((table_progress.reduce((x, y) => x + y)) / total, y);
+            progress_callback(0, `${index + 1} views`);
+            table_promises.push(wait_for_table(window.workspace, viewer.table, (progress, msg, key, status) => {
+                    table_progress[key] = progress;
+                    progress_callback(
+                        calc_progress(), 
+                        msg, undefined, key, status);
                 }).catch((e) => {
-                    progress_callback((table_progress.reduce((x, y) => x + y)) / total, undefined, e.toString());
+                    progress_callback(
+                        calc_progress(), 
+                        undefined, e.toString());
                 }).then(() => {
-                    progress_callback((table_progress.reduce((x, y) => x + y)) / total);
+                    progress_callback(
+                        calc_progress()
+                    );
                 })
             );
         }
@@ -44,9 +61,45 @@ export async function ensureTablesForConfig(config, progress_callback) {
     }
 }
 
-export async function installTableWorkarounds(mode) {
-    const config = await window.workspace.save();
+async function initViewSettings() {
+    if (viewSettings.cache !== undefined) return;
 
+    const view_settings_raw = getWorkspaceTables()["view_settings"] ? await (await getWorkspaceTables()["view_settings"].table.view()).to_json() : [];
+    const view_settings = view_settings_raw
+                                .filter(({_id}) => _id != 0)
+                                .flatMap(({view, setting, value}) => view.split(',').map((x) => [setting, value, x.trim()]))
+                                .reduce((r, [setting, value, view]) => (r[view] = {...r[view], [setting]: value}) && r, {})
+
+    viewSettings.cache = view_settings;
+}
+
+export function viewSettings(view, setting) {
+    const view_settings = viewSettings.cache;
+    return view_settings[view]?.[setting] ?? view_settings['all']?.[setting];
+}
+
+async function initColumnSettings() {
+    if (columnSettings.cache !== undefined) return;
+
+    const column_settings_raw = getWorkspaceTables()["column_settings"] ? await (await getWorkspaceTables()["column_settings"].table.view()).to_json() : [];
+    const column_settings = column_settings_raw
+                                .filter(({_id}) => _id != 0)
+                                .flatMap(({view, column, setting, value}) => view.split(',').map((x) => [column, setting, value, x.trim()]))
+                                .reduce((r, [column, setting, value, view]) => (r[view] = {...r[view], [column]: {...r[view]?.[column], [setting]: value}}) && r, {})
+
+    columnSettings.cache = column_settings;
+}
+
+export function columnSettings(view, column, setting) {
+    const col_settings = columnSettings.cache;
+    return col_settings[view]?.[column]?.[setting] ?? col_settings['all']?.[column]?.[setting];
+}
+
+export async function installTableWorkarounds(mode) {
+    await initViewSettings();
+    await initColumnSettings();
+
+    const config = await window.workspace.save();
     for (const g of document.querySelectorAll("perspective-viewer")) {
         if (!g.dataset.events_set_up) {
             const viewer = g;
@@ -83,14 +136,28 @@ export async function installTableWorkarounds(mode) {
             g.dataset.events_set_up = "true";
         }
 
+        new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type === "childList") {
+                    for (const node of mutation.addedNodes) {
+                        if (node.tagName === "PERSPECTIVE-VIEWER-DATAGRID" || node.tagName === "PERSPECTIVE-VIEWER-DATAGRID-NOROLLUPS") {
+                            setTimeout(() => {
+                                installTableWorkarounds(mode);
+                            }, 100);
+                        }
+                    }
+                }
+            }
+        }).observe(g, {
+            childList: true,
+            subtree: false
+        });
     }
-
-    await customElements.whenDefined("perspective-viewer-datagrid");
-    await customElements.whenDefined("perspective-viewer-datagrid-norollups");
 
     for (const g of document.querySelectorAll(
         "perspective-viewer perspective-viewer-datagrid, perspective-viewer perspective-viewer-datagrid-norollups")) {
 
+        // the mobile version of chrome/edge does not support shadow DOM
         const shadow = window.CSS?.supports && window.CSS?.supports("selector(:host-context(foo))");
 
         const root = shadow ? g.shadowRoot : g;
@@ -102,6 +169,13 @@ export async function installTableWorkarounds(mode) {
 
         if (!table_config)
             continue;
+
+        if (!model){
+            setTimeout(() => {
+                installTableWorkarounds(mode);
+            }, 100);
+            continue;
+        }
 
         if (!table_config.started){
             wait_for_table(window.workspace, view_config.table)
@@ -138,7 +212,7 @@ export async function installTableWorkarounds(mode) {
         }
 
         table.addStyleListener(() => {
-            addTooltips(table, table_config)
+            addOverflowTooltips(table, table_config)
         });
         table.addStyleListener(() => {
             hideColumns(table, table_config)
@@ -147,15 +221,14 @@ export async function installTableWorkarounds(mode) {
             enableAddRemove(table, viewer, table_config, model)
         });
         table.addStyleListener(() => {
-            enableActions(table, viewer, table_config, model)
+            enableActions(table, viewer, table_config, model, view_config)
         });
-
-        if (g.tagName === "PERSPECTIVE-VIEWER-DATAGRID-NOROLLUPS") {
+        
+        if (g.tagName === "PERSPECTIVE-VIEWER-DATAGRID-NOROLLUPS" || viewSettings(view_config.title, "no_rollups")) {
             table.addStyleListener(() => {
                 noRollups(table)
             });
         }
-
         g.parentElement.addEventListener("perspective-config-update", async (event) => {
             await maintainAddButtonOnFilter(event, table, viewer, table_config);
         });
@@ -172,9 +245,28 @@ export async function installTableWorkarounds(mode) {
             await restoreCollapseState(table, viewer, model);
         }
         g.parentElement.addEventListener("perspective-config-update", async (event) => {
-            viewer.dataset.collapse_state_remainder = viewer.dataset.collapse_state;
-            await restoreCollapseState(table, viewer, model);
+            if (viewer.dataset.conllapse_state !== undefined) {
+                viewer.dataset.collapse_state_remainder = viewer.dataset.collapse_state;
+                await restoreCollapseState(table, viewer, model);
+            }
         });
+
+        if(viewSettings(view_config.title, "hide_expanded_row")) {
+            table.addStyleListener(() => {
+                hideExpandedRowContent(table);
+            });
+        }
+        if(viewSettings(view_config.title, "hide_dashes")) {
+            table.addStyleListener(() => {
+                replaceDashesWithEmpty(table);
+            });
+        }
+   
+        // Fix conflicting expand/collapse classes
+        table.addStyleListener(() => {
+            fixConflictingExpandCollapseClasses(table);
+        });
+
 
         setTimeout(() => {
             table.addStyleListener(async () => {
@@ -250,6 +342,13 @@ async function load_options(editor) {
             const view = await table.view({...editor.options.view, ...{"columns": [editor.options.column]}});
             const data = await view.to_columns();
             options.push(...new Set(data[editor.options.column].filter((x) => x !== null && x !== undefined)));
+        } else if (editor.options.source === "views") {
+            const config = await window.workspace.save();
+            const displayedViews = Object.values(config.viewers)
+                    .map(viewer => viewer.title)
+                    .filter((table, index, arr) => arr.indexOf(table) === index);
+            options.push('all', ...displayedViews);
+          
         }
     }
     return options;
@@ -551,10 +650,12 @@ async function trackSelection(event, table, viewer, config, model) {
 
                 const id = model._ids[metadata.y - metadata.y0];
                 if (id){
-                    const row = (await (await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]})).to_json())[0];
+                    const view = await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]});
+                    const row = (await (view).to_json())[0];
                     if (row){
                         await fireContextActions(viewer.slot, row);
                     }
+                    await view.delete();
                 }
             } else {
                 await fireContextActions(viewer.slot, null);
@@ -608,6 +709,8 @@ class tooltip_info{
     static tooltip_ws = null;
     static tooltip_ws_cb = null;
     static tooltip_ws_url = null;
+
+    static update_timer = null;
 
     static show(table, td) {
         tooltip_info.clear();
@@ -774,17 +877,21 @@ class tooltip_info{
         }
     }
 
-    static clear() {
+    static async clear() {
+        if (tooltip_info.update_timer) {
+            clearTimeout(tooltip_info.update_timer);
+            delete tooltip_info.update_timer;
+        }
         if (tooltip_info.tooltip) {
             tooltip_info.tooltip.remove();
             delete tooltip_info.tooltip;
         }
         if (tooltip_info.view) {
             if (tooltip_info.view_cb) {
-                tooltip_info.view.remove_update(tooltip_info.view_cb);
+                await tooltip_info.view.remove_update(tooltip_info.view_cb);
                 delete tooltip_info.view_cb;
             }
-            tooltip_info.view.delete();
+            await tooltip_info.view.delete();
             delete tooltip_info.view;
         }
         delete tooltip_info.clear_timeout;
@@ -801,7 +908,189 @@ class tooltip_info{
 
 const FORMAT_REGEX = /(?<!\{)\{([^\{\}]*?)\}(?!\})/g;
 
-async function enableActions(table, viewer, config, model) {
+function createButtonAction(td, action, metadata, model, viewer) {
+    if (td.querySelector("button") === null) {
+        td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
+        const btn = td.querySelector("button");
+        btn.addEventListener("click", async () => {
+            const id = model._ids[metadata.y - metadata.y0];
+            if (id){
+                const tbl = await viewer.getTable();
+                const index = await tbl.get_index();
+                const row = (await (await tbl.view({filter: [[index, '==', id.join(',')]]})).to_json())[0];
+                if (row){
+                    switch (action.action.type) {
+                    case 'url':
+                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
+                        btn.disabled = true;
+                        await fetch (url, {method: 'GET'});
+                        btn.disabled = false;
+                    }
+                }
+            }
+        });
+    }
+}
+
+function parseActionConfig(action) {
+    let required_cols = [];
+    let method = action.action;
+    let format = undefined;
+    
+    if (action.format !== undefined) {
+        required_cols = [...action.format.matchAll(FORMAT_REGEX)].map((x) => x[1]);
+        format = action.format;
+        method = "format";
+    } else if (action.url !== undefined) {
+        required_cols = [...action.url.matchAll(FORMAT_REGEX)].map((x) => x[1]);
+        format = action.url;
+        method = "url";
+    } else if (action.ws !== undefined) {
+        required_cols = [...new Set([...action.subscribe.matchAll(FORMAT_REGEX), ...action.unsubscribe.matchAll(FORMAT_REGEX)].map((x) => x[1]))];
+        format = action.subscribe;
+        method = "ws";
+    }
+    
+    return { required_cols, method, format };
+}
+
+async function createViewAndGetRows(tbl, view_config, id, metadata, required_cols, index) {
+    let view;
+    let get_rows;
+    
+    if (view_config.group_by.length == 0 && view_config.split_by.length == 0) {
+        view = await tbl.view({filter: [[index, '==', id[0]]]});
+        get_rows = async () => await view.to_json();
+    } else if (view_config.split_by.length == 0) {
+        const query_config = {
+            filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
+            group_by: view_config.group_by,
+            aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
+            expressions: view_config.expressions,
+            columns: [index, ...required_cols]
+        }
+        view = await tbl.view(query_config);
+        get_rows = async () => {
+            const rows = await view.to_json()
+            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x["col"] !== null));
+        }
+    } else if (view_config.group_by.length > 0) {
+        const query_config = {
+            filter: [
+                ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])),
+                ...view_config.group_by.map((x, i) => [x, '==', id[i]]),
+                ...view_config.split_by.map((x, i) => [x, '==', metadata.column_header[i]])
+                ],
+            group_by: view_config.group_by,
+            aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
+            expressions: view_config.expressions,
+            columns: [index, ...required_cols]
+        }
+        view = await tbl.view(query_config);
+        get_rows = async () => {
+            const rows = await view.to_json()
+            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x["col"] !== null));
+        }
+    }
+    
+    return { view, get_rows };
+}
+
+async function updateTooltipContent(text, method, action, tt) {
+    let data = text;
+    if (method === "url") {
+        const request = await fetch(text, {method: 'GET'});
+        if (request.headers.get('content-type') === "application/json") {
+            data = await request.json();
+        } else {
+            data = await request.text();
+        }
+    } else if (method === "ws") {
+        const request_id = `${Math.round(Math.random() * 1_000_000_000)}`;
+        tooltip_info.subscribe_tooltip_ws(action.ws, `{"request_id": "${request_id}", "request": ${text} }`, async (msg) => {
+            if (tt !== tooltip_info.tooltip) {
+                return;
+            }
+            if (msg.request_id !== request_id) {
+                return;
+            }
+            tooltip_info.update(msg.response);
+        });
+        return;
+    }
+    if (tt !== tooltip_info.tooltip) {
+        return;
+    }
+    if (action.line_separator) {
+        const lines = data.split(action.line_separator).map(line => `${line}<br/>`).join('');
+        tooltip_info.update(lines);
+    } else {
+        tooltip_info.update(data);
+    }
+}
+
+function createTooltipAction(td, action, metadata, model, viewer, table) {
+    td.addEventListener("mouseenter", (event, a=action) => {
+        if (td.dataset.tooltipTimeout) return;
+
+        td.dataset.tooltipTimeout = setTimeout(async () => {
+            const action = a;
+            tooltip_info.clear();
+
+            const id = model._ids[metadata.y - metadata.y0];
+            if (id){
+                const tbl = await viewer.getTable();
+                const view_config = await viewer.save();
+                const index = await tbl.get_index();
+
+                const { required_cols, method, format } = parseActionConfig(action);
+                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, id, metadata, required_cols, index);
+                
+                const rows = await get_rows();
+                if (rows && rows.length == 1) {
+                    const row = rows[0];
+                    const text = format.replace(FORMAT_REGEX, (match, p1) => row[p1]).replace('{{', '{').replace('}}', '}');
+                    if (text && text != "null"){
+                        const tt = tooltip_info.show(table, td);
+
+                        const update_tt = async (text) => {
+                            await updateTooltipContent(text, method, action, tt);
+                        };
+
+                        tooltip_info.view = view;
+                        await update_tt(text);
+
+                        const update = async () => {
+                            const row = (await get_rows())[0];
+                            const text = format.replace(FORMAT_REGEX, (match, p1) => row[p1]).replace('{{', '{').replace('}}', '}');
+                            await update_tt(text);
+                            tooltip_info.update_timer = undefined;
+                        };
+
+                        tooltip_info.view_cb = await view.on_update(async () => {
+                            if (tooltip_info.update_timer) {
+                                return;
+                            }
+                            tooltip_info.update_timer = setTimeout(update, 10000);
+                        });
+                    } else {
+                        view.delete();
+                    }
+                } else {
+                    view.delete();
+                }
+            }
+        }, 500); // 500ms delay before showing tooltip
+    });
+
+    td.addEventListener("mouseleave", () => {
+        clearTimeout(Number(td.dataset.tooltipTimeout));
+        delete td.dataset.tooltipTimeout;
+        tooltip_info.enqueue_clear();
+    });
+}
+
+async function enableActions(table, viewer, config, model, view_config) {
     if (!config || !config.column_actions) return;
 
     for (const td of table.querySelectorAll("td")) {
@@ -812,153 +1101,16 @@ async function enableActions(table, viewer, config, model) {
                 continue;
             }
         }
-        if (metadata.column_header[metadata.column_header.length - 1] in config.column_actions) {
-            const action = config.column_actions[metadata.column_header[metadata.column_header.length - 1]];
+
+        const col_name = metadata.column_header[metadata.column_header.length - 1];
+        const col_alias = columnSettings(view_config.title, col_name, "copy_actions") ?? col_name;
+        if (col_alias in config.column_actions) {
+            const action = config.column_actions[col_alias];
             if (action.type === 'button') {
-                if (td.querySelector("button") === null) {
-                    td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
-                    const btn = td.querySelector("button");
-                    btn.addEventListener("click", async () => {
-                        const id = model._ids[metadata.y - metadata.y0];
-                        if (id){
-                            const tbl = await viewer.getTable();
-                            const index = await tbl.get_index();
-                            const row = (await (await tbl.view({filter: [[index, '==', id.join(',')]]})).to_json())[0];
-                            if (row){
-                                    switch (action.action.type) {
-                                    case 'url':
-                                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
-                                        btn.disabled = true;
-                                        await fetch (url, {method: 'GET'});
-                                        btn.disabled = false;
-                                }
-                            }
-                        }
-                    });
-                }
+                createButtonAction(td, action, metadata, model, viewer);
             }
             if (action.type === 'tooltip') {
-                td.addEventListener("mouseenter", (event, a=action) => {
-                    if (td.dataset.tooltipTimeout) return;
-
-                    td.dataset.tooltipTimeout = setTimeout(async () => {
-                        const action = a;
-                        tooltip_info.clear();
-
-                        const id = model._ids[metadata.y - metadata.y0];
-                        if (id){
-                            const tbl = await viewer.getTable();
-                            const view_config = await viewer.save();
-                            const index = await tbl.get_index();
-
-                            let required_cols = [];
-                            let method = action.action;
-                            let format = undefined;
-                            if (action.format !== undefined) {
-                                required_cols = [...action.format.matchAll(FORMAT_REGEX)].map((x) => x[1]);
-                                format = action.format;
-                                method = "format";
-                            } else if (action.url !== undefined) {
-                                required_cols = [...action.url.matchAll(FORMAT_REGEX)].map((x) => x[1]);
-                                format = action.url;
-                                method = "url";
-                            } else if (action.ws !== undefined) {
-                                required_cols = [...new Set([...action.subscribe.matchAll(FORMAT_REGEX), ...action.unsubscribe.matchAll(FORMAT_REGEX)].map((x) => x[1]))];
-                                format = action.subscribe;
-                                method = "ws";
-                            }
-
-                            let view;
-                            let get_rows;
-                            if (view_config.group_by.length == 0 && view_config.split_by.length == 0) {
-                                view = await tbl.view({filter: [[index, '==', id[0]]]});
-                                get_rows = async () => await view.to_json();
-                            } else if (view_config.split_by.length == 0) {
-                                const query_config = {
-                                    filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
-                                    group_by: view_config.group_by,
-                                    aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
-                                    columns: [index, ...required_cols]
-                                }
-                                view = await tbl.view(query_config);
-                                get_rows = async () => {
-                                    const rows = await view.to_json()
-                                    return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x["col"] !== null));
-                                }
-                            } else if (view_config.group_by.length > 0) {
-                            }
-                            const rows = await get_rows();
-                            if (rows && rows.length == 1) {
-                                const row = rows[0];
-                                const text = format.replace(FORMAT_REGEX, (match, p1) => row[p1]).replace('{{', '{').replace('}}', '}');
-                                if (text && text != "null"){
-                                    const tt = tooltip_info.show(table, td);
-
-                                    const update_tt = async (text) => {
-                                        let data = text;
-                                        if (method === "url") {
-                                            const request = await fetch(text, {method: 'GET'});
-                                            if (request.headers.get('content-type') === "application/json") {
-                                                data = await request.json();
-                                            } else {
-                                                data = await request.text();
-                                            }
-                                        } else if (method === "ws") {
-                                            const request_id = `${Math.round(Math.random() * 1_000_000_000)}`;
-                                            tooltip_info.subscribe_tooltip_ws(action.ws, `{"request_id": "${request_id}", "request": ${text} }`, async (msg) => {
-                                                if (tt !== tooltip_info.tooltip) {
-                                                    return;
-                                                }
-                                                if (msg.request_id !== request_id) {
-                                                    return;
-                                                }
-                                                tooltip_info.update(msg.response);
-                                            });
-                                            return;
-                                        }
-                                        if (tt !== tooltip_info.tooltip) {
-                                            return;
-                                        }
-                                        if (action.line_separator) {
-                                            const lines = data.split(action.line_separator).map(line => `${line}<br/>`).join('');
-                                            tooltip_info.update(lines);
-                                        } else {
-                                            tooltip_info.update(data);
-                                        }
-                                    };
-
-                                    tooltip_info.view = view;
-                                    await update_tt(text);
-
-                                    let udpate_timer = undefined;
-                                    const update = async () => {
-                                        const row = (await get_rows())[0];
-                                        const text = format.replace(FORMAT_REGEX, (match, p1) => row[p1]).replace('{{', '{').replace('}}', '}');
-                                        await update_tt(text);
-                                        udpate_timer = undefined;
-                                    };
-
-                                    view.on_update(tooltip_info.view_cb = async () => {
-                                        if (udpate_timer) {
-                                            return;
-                                        }
-                                        udpate_timer = setTimeout(update, 10000);
-                                    });
-                                } else {
-                                    view.delete();
-                                }
-                            } else {
-                                view.delete();
-                            }
-                        }
-                    }, 100); // 100ms delay before showing tooltip
-                });
-
-                td.addEventListener("mouseleave", () => {
-                    clearTimeout(Number(td.dataset.tooltipTimeout));
-                    delete td.dataset.tooltipTimeout;
-                    tooltip_info.enqueue_clear();
-                });
+                createTooltipAction(td, action, metadata, model, viewer, table);
             }
         }
     }
@@ -1090,7 +1242,7 @@ function isOverflown(element) {
     return element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth;
 }
 
-function addTooltips(table) {
+function addOverflowTooltips(table) {
     for (const tr of table.children[0].children[0].children) {
         for (const td of tr.children) {
             if (isOverflown(td)) {
@@ -1117,6 +1269,14 @@ function addTooltips(table) {
     }
 
     table.invalidate();
+}
+
+function replaceDashesWithEmpty(table) {
+    for (const td of table.querySelectorAll("td")) {
+        if (td.textContent.trim() === '-') {
+            td.textContent = '';
+        }
+    }
 }
 
 async function recordCollapseState(table, viewer, model) {
@@ -1147,7 +1307,7 @@ async function recordCollapseState(table, viewer, model) {
                 continue;
             }
             const row_header = ids.map((x) => x === null ? '-' : x).join(',')
-            state[row_header] = view.get_row_expanded === undefined ? true : await view.get_row_expanded(metadata.y);
+            state[row_header] = view.get_row_expanded === undefined ? false : await view.get_row_expanded(metadata.y);
         }
 
         if (viewer.dataset.collapse_state_remainder) {
@@ -1168,8 +1328,16 @@ async function recordCollapseState(table, viewer, model) {
     }, 1000);
 }
 
+function fixConflictingExpandCollapseClasses(table) {
+    const conflictingElements = table.children[0].children[1].querySelectorAll("th.psp-tree-label-expand.psp-tree-label-collapse");
+    for (const element of conflictingElements) {
+        element.classList.remove('psp-tree-label-collapse');
+    }
+}
+
 async function restoreCollapseState(table, viewer, model, can_invalidate = false) {
     if (!viewer.dataset.collapse_state_remainder) return;
+    if (viewer.dataset.collapse_state_remainder == "undefined") return;
     if (!model._config.group_by.length) return;    
     const state = JSON.parse(viewer.dataset.collapse_state_remainder);
     delete viewer.dataset.collapse_state_remainder;
@@ -1356,3 +1524,46 @@ function noRollups(table) {
 
     table.invalidate();
 }
+
+const hiddenRowContent = new Map();
+
+function hideExpandedRowContent(table) {
+    const tbody = table.children[0].children[1];
+    
+    for (const row of tbody.children) {
+        for (const [cellIndex, cell] of Array.from(row.children).entries()) {
+            if (cell.tagName === 'TD') {
+                const metadata = table.getMeta(cell);
+                if (metadata && metadata.y !== undefined) {
+                    const cellKey = `${metadata.y}-${cellIndex}`;
+                    if (hiddenRowContent.has(cellKey)) {
+                        const originalValue = metadata.value !== null && metadata.value !== undefined ? metadata.value : '';
+                        cell.textContent = originalValue;
+                    }
+                }
+            }
+        }
+    }
+    hiddenRowContent.clear();
+    
+    const collapsedRows = tbody.querySelectorAll("th.psp-tree-label-collapse:not(.psp-tree-label-expand)");
+
+    for (const collapsedCell of collapsedRows) {
+        if (collapsedCell.textContent.trim() === "TOTAL") continue;
+        
+        const row = collapsedCell.parentElement;
+        const collapsedMetadata = table.getMeta(collapsedCell);
+        const rowId = collapsedMetadata.y;
+        const collapsedIndex = Array.from(row.children).indexOf(collapsedCell);
+        
+        for (let i = collapsedIndex + 1; i < row.children.length; i++) {
+            const cell = row.children[i];
+            if (cell.tagName === 'TD') {
+                const cellKey = `${rowId}-${i}`;
+                hiddenRowContent.set(cellKey, true);
+                cell.textContent = '';
+            }
+        }
+    }
+}
+

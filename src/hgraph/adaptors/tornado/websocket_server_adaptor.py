@@ -31,7 +31,7 @@ from hgraph import (
     register_service,
     sink_node,
 )
-from hgraph.adaptors.tornado._tornado_web import TornadoWeb
+from hgraph.adaptors.tornado._tornado_web import BaseHandler, TornadoWeb
 
 logger = logging.getLogger("websocket_server_adaptor")
 
@@ -42,6 +42,7 @@ class WebSocketConnectRequest(CompoundScalar):
     url_parsed_args: tuple[str, ...] = ()
     headers: dict[str, str] = frozendict()
     cookies: dict[str, dict[str, object]] = frozendict()
+    auth: object = None
 
 
 STR_OR_BYTES = TypeVar("STR_OR_BYTES", bytes, str)
@@ -133,6 +134,9 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
         self.mgr = mgr
         self.binary = binary
 
+    async def prepare(self):
+        await BaseHandler.prepare(self)
+
     async def open(self, *args):
         request_obj = object()
         request_id = id(request_obj)
@@ -147,6 +151,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
                     k: frozendict({"value": v.value, **{p: w for p, w in v.items()}})
                     for k, v in self.request.cookies.items()
                 }),
+                auth=getattr(self, "current_user", None),
             ),
             lambda m: self.write_message(m, binary=self.binary),
         )

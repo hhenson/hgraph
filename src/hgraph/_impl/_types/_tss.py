@@ -261,11 +261,11 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
         return super().do_bind_output(output)
 
-    def do_un_bind_output(self):
+    def do_un_bind_output(self, unbind_refs: bool = False):
         self._prev_output = self.output
         if self._prev_output is not None:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_prev)
-        super().do_un_bind_output()
+        super().do_un_bind_output(unbind_refs=unbind_refs)
 
     def _reset_prev(self):
         self._prev_output = None
@@ -275,6 +275,10 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
 
     def __len__(self):
         return self.output.__len__() if self.output is not None else 0
+
+    @property
+    def modified(self) -> bool:
+        return (self._output is not None and self._output.modified) or self._sampled
 
     @property
     def delta_value(self):
@@ -291,8 +295,10 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
             return self.values() - (
                 (self._prev_output.values() | self._prev_output.removed()) - self._prev_output.added()
             )
-        else:
+        elif self.output is not None:
             return self.values() if self._sampled else self.output.added()
+        else:
+            return set()
 
     def was_added(self, item: SCALAR) -> bool:
         if self._prev_output is not None:

@@ -29,10 +29,19 @@ class InspectorState(CompoundScalar):
     node_item_subscriptions: dict = field(default_factory=lambda: defaultdict(set))  # node_id -> {item_ids}
     found_items: set = field(default_factory=set)
 
-    value_data: list = field(default_factory=list)
     value_removals: set = field(default_factory=set)
+    tick_node_ids = set()
+
+    value_data: dict = field(default_factory=dict)
     tick_data: dict = field(default_factory=dict)
-    perf_data: list = field(default_factory=list)
+    perf_data: dict = field(default_factory=dict)
+    
+    track_detailed_performance: bool = True
+    detailed_perf_data: dict = field(default_factory=lambda: defaultdict(list))
+    detailed_perf_data_time: datetime = datetime.utcnow()
+    detailed_perf_data_node_times = dict()
+    detailed_perf_data_graph_times = dict()
+    
     total_data_prev: list = field(default_factory=dict)
     total_data: list = field(default_factory=lambda: defaultdict(list))
     last_publish_time: datetime = None

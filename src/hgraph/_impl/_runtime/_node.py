@@ -254,11 +254,14 @@ class BaseNodeImpl(Node, ABC):
 
     @stop_guard
     def stop(self):
-        self.do_stop()
-        if self.input is not None:
-            self.input.un_bind_output()
-        if self._scheduler is not None:
-            self._scheduler.reset()
+        try:
+            self.do_stop()
+        finally:
+            if self.input is not None:
+                for k, i in self.input.items():
+                    i.un_bind_output(unbind_refs=True)
+            if self._scheduler is not None:
+                self._scheduler.reset()
 
     def dispose(self):
         self._kwargs = None  # For neatness purposes only, not required here.

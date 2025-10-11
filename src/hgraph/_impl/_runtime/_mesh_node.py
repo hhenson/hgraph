@@ -215,11 +215,15 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
         graph: Graph = self._active_graphs.pop(key, None)
         if graph is not None:  # None can happen during shutdown as shutdown order is not dependency-driven
             self._un_wire_graph(key, graph)
-            graph.stop()
-            self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
-            self._active_graphs_rank.pop(key)
-            self._re_rank_requests = [(k, d) for k, d in self._re_rank_requests if k != key]
-            graph.dispose()
+            try:
+                graph.stop()
+            finally:
+                self._scheduled_keys_by_rank[self._active_graphs_rank[key]].pop(key, None)
+                self._active_graphs_rank.pop(key)
+                self._re_rank_requests = [(k, d) for k, d in self._re_rank_requests if k != key]
+                self.graph.evaluation_engine_api.add_before_evaluation_notification(
+                    lambda g=graph: self.nested_graph_builder.release_instance(g)
+                )
 
     def _add_graph_dependency(self, key: K, depends_on: K) -> bool:  # returns True if the key is available now
         self._active_graphs_dependencies[depends_on].add(key)

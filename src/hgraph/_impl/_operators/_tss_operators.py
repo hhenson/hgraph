@@ -89,8 +89,9 @@ def bit_or_tsss(
     lhs: TSS[KEYABLE_SCALAR], rhs: TSS[KEYABLE_SCALAR], _tp: type[KEYABLE_SCALAR] = AUTO_RESOLVE
 ) -> TSS[KEYABLE_SCALAR]:
     added = lhs.added() | rhs.added()
-    lhs_value = lhs.value
-    removed = lhs.removed() - rhs.value
+    lhs_value = lhs.value if lhs.valid else set()
+    rhs_value = rhs.value if rhs.valid else set()
+    removed = lhs.removed() - rhs_value
     for i in rhs.removed():
         if i not in lhs_value:
             removed.add(i)

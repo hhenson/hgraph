@@ -28,10 +28,17 @@ class PythonTimeSeriesSignal(PythonBoundTimeSeriesInput, TimeSeriesSignalInput):
             self._ts_values.append(new_item)
         return self._ts_values[index]
 
-    def do_un_bind_output(self):
-        if self._ts_values is not None:
+    def do_un_bind_output(self, unbind_refs: bool = False):
+        if self._output is not None:  # signal bound to a free standing bundle/TSL will not have an _output 
+            super().do_un_bind_output(unbind_refs=unbind_refs)
+        if self._ts_values is not None:  # signal attached to any peer time series will not have items
             for item in self._ts_values:
-                item.do_un_bind_output()
+                item.do_un_bind_output(unbind_refs=unbind_refs)
+            self._ts_values = None
+
+    @property
+    def bound(self) -> bool:
+        return self._output is not None or (self._ts_values is not None and len(self._ts_values) > 0)
 
     def make_active(self):
         super().make_active()

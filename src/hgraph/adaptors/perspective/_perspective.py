@@ -25,13 +25,13 @@ if perspective.__version__ == "2.10.1":
     table = Table
     psp_new_api = False
 else:
-    from perspective import Server, Table, View, table
+    from perspective import Server, Client, Table, View, table
     from perspective.handlers.tornado import PerspectiveTornadoHandler
 
     psp_new_api = True
 
 from hgraph import TS, GlobalState, sink_node
-from hgraph.adaptors.tornado._tornado_web import TornadoWeb
+from hgraph.adaptors.tornado._tornado_web import BaseHandler, TornadoWeb
 
 __all__ = ["perspective_web", "PerspectiveTablesManager", "TablePageHandler", "IndexPageHandler"]
 
@@ -79,26 +79,35 @@ class PerspectiveTableUpdatesHandler:
 
 
 class PerspectiveTablesManager:
-    def __init__(self, host_server_tables=True, table_config_file=(), table_configs=(), **kwargs):
+    def __init__(self, host_server_tables=True, table_config_file=(), table_configs=(), view_config_file=(), **kwargs):
         self._host_server_tables = host_server_tables
+        self._table_configs = table_configs
         self._table_config_files = (
             table_config_file if isinstance(table_config_file, (list, tuple)) else [table_config_file]
         )
-        self._table_configs = table_configs
+        self._view_config_files = (
+            view_config_file if isinstance(view_config_file, (list, tuple)) else [view_config_file]
+        )
         self._started = False
+        self._views = {}
         self._tables = {}
+        self._temp_tables = {}
         self._updaters = defaultdict(set)
+        self._stats = defaultdict(int)
+        self._table_stats = []
 
         self.options = kwargs
 
         if psp_new_api:
-            self._server = perspective.GLOBAL_SERVER
-            self._client = perspective.GLOBAL_CLIENT
+            self._server = Server(on_poll_request=self.schedule_poll)
+            self._client = Client.from_server(self._server)
+            self._callback = lambda f, *args, **kwargs: f(*args, **kwargs)
+            self._auto_poll = False
             n = {"name": "index"}
         else:
             n = {}
 
-        self._index_table = table(
+        self._index_table = self.table(
             {
                 "name": str,
                 "type": str,  # 'table', 'client_table', 'view', 'join'
@@ -120,6 +129,14 @@ class PerspectiveTablesManager:
 
         self._tables["index"] = [self._index_table, False, arrow_schema]
 
+        self.create_table({"table": str, "batch": int, "rows": int, "time": datetime}, name="table_stats")
+
+        for c in self._view_config_files:
+            with open(c, "r") as f:
+                views = json.load(f)  # check if it is valid json
+                for name, config in views.items():
+                    self._views[name] = config
+
         for c in self._table_config_files:
             with open(c, "r") as f:
                 json.load(f)  # check if it is valid json
@@ -129,6 +146,12 @@ class PerspectiveTablesManager:
 
     def is_new_api(self):
         return psp_new_api
+
+    def table(self, *args, **kwargs):
+        if not psp_new_api:
+            return table(*args, **kwargs)
+        else:
+            return self._client.table(*args, **kwargs)
 
     @classmethod
     def set_current(cls, self):
@@ -148,12 +171,12 @@ class PerspectiveTablesManager:
     def server_tables(self):
         return self._host_server_tables
 
-    def create_table(self, *args, name, editable=False, user=True, edit_role=None, **kwargs):
-        tbl = table(*args, **kwargs, **({"name": name} if psp_new_api else {}))
-        self.add_table(name, tbl, editable=editable, user=user, edit_role=edit_role)
+    def create_table(self, *args, name, editable=False, user=True, edit_role=None, temporary=False, **kwargs):
+        tbl = self.table(*args, **kwargs, **({"name": name} if psp_new_api else {}))
+        self.add_table(name, tbl, editable=editable, user=user, edit_role=edit_role, temporary=temporary)
         return tbl
 
-    def add_table(self, name, table, editable=False, user=True, edit_role: str = None):
+    def add_table(self, name, table, editable=False, user=True, edit_role: str = None, temporary: bool = False):
         view = table.view()
         blank = view.to_arrow()
         arrow_schema = pyarrow.RecordBatchStreamReader(blank).read_all().schema
@@ -169,7 +192,7 @@ class PerspectiveTablesManager:
                 "edit_role": edit_role,
                 "url": f"",
                 "schema": json.dumps({k: v if type(v) is str else v.__name__ for k, v in table.schema().items()}),
-                "blank": base64.b64encode(blank),
+                "blank": base64.b64encode(blank).decode("utf-8"),
                 "index": table.get_index(),
                 "description": "",
             }])
@@ -180,6 +203,9 @@ class PerspectiveTablesManager:
         if table.get_index() and not self.server_tables:
             # client tables need removes sent separately (because bug in perspective)
             self.create_table({"i": table.schema()[table.get_index()]}, name=name + "_removes", user=False)
+
+        if temporary:
+            self._temp_tables[name] = 0
 
     def subscribe_table_updates(self, name, cb, self_updates: bool = False):
         if (table := self._tables.get(name)) and not table[1]:
@@ -230,11 +256,11 @@ class PerspectiveTablesManager:
             # logger.info(f"Updating table {table}: processing batch {i}")
             table.update(update)
         except Exception as e:
-            logger.error(f"Error updating table {table} with {data}: {e}")
+            logger.error(f"Error updating table {table}:{e}\ndata was {data[:1000]} (truncated)")
             raise
 
     @staticmethod
-    def _format_dict_of_lists_as_table(data):
+    def _format_dict_of_lists_as_table(data, max_rows=20):
         keys = list(data.keys())
 
         str_data = {}
@@ -248,7 +274,7 @@ class PerspectiveTablesManager:
         header = " | ".join(key.ljust(col_widths[key]) for key in keys)
         line = "-" * len(header)
 
-        max_rows = max(len(data[key]) for key in keys) if keys else 0
+        max_rows = min(max_rows, max(len(data[key]) for key in keys) if keys else 0)
 
         rows = []
         for row_idx in range(max_rows):
@@ -263,8 +289,11 @@ class PerspectiveTablesManager:
 
         return f"{header}\n{line}\n" + "\n".join(rows) + f"\n{line}"
 
-    def _update_to_arrows(self, schema, data):
+    def _update_to_arrows(self, name, schema, data):
         if data:
+            if isinstance(data, bytes):
+                return [data]
+            
             if isinstance(data, list):
                 if self.is_new_api():
                     batches = defaultdict(lambda: defaultdict(list))
@@ -295,6 +324,9 @@ class PerspectiveTablesManager:
             for i, d in enumerate(data):
                 try:
                     batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
+                    self._stats['batches'] += 1
+                    self._stats['rows'] += batch.num_rows
+                    self._table_stats.append({'table': name, 'batch': i, 'rows': batch.num_rows, 'time': datetime.utcnow()})
                 except Exception as e:
                     logger.error(
                         f"Error creating record batch :{e}\n"
@@ -315,9 +347,11 @@ class PerspectiveTablesManager:
     def update_table(self, name, data, removals=None):
         table = self._tables[name][0]
         schema = self._tables[name][2]
+        
+        self._stats['updates'] += 1
 
         if data:
-            arrows = self._update_to_arrows(schema, data)
+            arrows = self._update_to_arrows(name, schema, data)
             for i, arrow in enumerate(arrows):
                 if psp_new_api:
                     self._callback(
@@ -347,7 +381,7 @@ class PerspectiveTablesManager:
         schema = self._tables[name][2]
 
         if data:
-            arrows = self._update_to_arrows(schema, data)
+            arrows = self._update_to_arrows(name, schema, data)
             replace = True
             for arrow in arrows:
                 fn = table.replace if replace else table.update
@@ -355,6 +389,9 @@ class PerspectiveTablesManager:
                     self._callback(lambda a=arrow, f=fn: f(a))
                 else:
                     self._manager_for_table(name).call_loop(lambda a=arrow, f=fn: f(a))
+                    
+                replace = False
+
 
     def get_table_names(self):
         return list(self._tables.keys())
@@ -374,6 +411,12 @@ class PerspectiveTablesManager:
             config |= json.loads(c)
         return config
 
+    def get_view_names(self):
+        return list(self._views.keys())
+    
+    def get_view(self, name):
+        return self._views[name]
+            
     def tornado_config(self):
         if psp_new_api:
             return [
@@ -399,7 +442,8 @@ class PerspectiveTablesManager:
 
     def set_loop_callback(self, cb, *args):
         if psp_new_api:
-            self._client.set_loop_callback(cb, *args)
+            pass
+            # self._client.set_loop_callback(lambda *a: cb(*args, *a))
         else:
             self._manager.set_loop_callback(cb, *args)
             self._editable_manager.set_loop_callback(cb, *args)
@@ -408,9 +452,38 @@ class PerspectiveTablesManager:
 
         if self._started:
             self._publish_heartbeat_table()
+            self._callback(self._cleanup_temp_tables)
+            self._callback(self._publish_stats)
+            if psp_new_api: 
+                self._callback(self._poll)
 
     def get_loop_callback(self):
         return self._callback
+
+    def schedule_callback(self, f, *args, **kwargs):
+        self._callback(f, *args, **kwargs)
+
+    def schedule_poll(self, server):
+        if not self._auto_poll:
+            self._stats['polling'] += 1
+            server.poll()
+    
+    async def _poll(self):
+        self._auto_poll = True
+        while True:
+            await asyncio.sleep(0.25)  # poll 4 times a sec
+            self._stats['polling'] += 1
+            self._server.poll()
+        
+    def get_stats(self):
+        return self._stats
+
+    async def _publish_stats(self):
+        while True:
+            stats = self._table_stats
+            self._table_stats = []
+            self.update_table("table_stats", stats)
+            await asyncio.sleep(5)
 
     def is_table_editable(self, name):
         return self._tables[name][1]
@@ -425,6 +498,21 @@ class PerspectiveTablesManager:
     def _publish_heartbeat_table(self):
         self.create_table({"name": str, "time": datetime, "sequence": int}, index="name", name="heartbeat")
         self._callback(self._publish_heartbeat)
+
+    async def _cleanup_temp_tables(self):
+        while True:
+            await asyncio.sleep(15)  # Cleanup every 15 seconds
+            for name, prev_views in list(self._temp_tables.items()):
+                if name in self._tables:
+                    table, editable, _ = self._tables[name]
+                    views = table.get_num_views()
+                    if views == 0 and prev_views > 0:
+                        logger.info(f"Removing temporary table {name} with {views} views")
+                        self._manager_for_table(name).call_loop(lambda t=table: t.delete())
+                        del self._tables[name]
+                        del self._temp_tables[name]
+                    else:
+                        self._temp_tables[name] = views
 
 
 class PerspectiveTornadoHandlerWithLog(PerspectiveTornadoHandler):
@@ -479,7 +567,7 @@ class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
             return
 
         self.callback(self.session.handle_request, msg)
-        self.callback(self.session.poll)
+        # self.callback(self.session.poll)
 
 
 @sink_node
@@ -568,6 +656,11 @@ def perspective_web_start(
                 {"mgr": perspective_manager, "template": table_template, "host": host, "port": port},
             ),
             (
+                r"/view/(.*)\.(.*)",
+                ViewPageHandler,
+                {"mgr": perspective_manager, "host": host, "port": port},
+            ),
+            (
                 r"/workspace/(.*)",
                 IndexPageHandler,
                 {
@@ -639,18 +732,7 @@ def _perspective_thread(manager, cb):
         loop.start()
 
 
-class TemplatePageHandler(tornado.web.RequestHandler):
-    def initialize(self, mgr: PerspectiveTablesManager):
-        self.mgr = mgr
-
-    async def prepare(self):
-        if gcu := self.mgr.options.get("get_current_user", False):
-            self.current_user = gcu(self.request)
-        if agcu := self.mgr.options.get("get_current_user_async", False):
-            self.current_user = await agcu(self.request)
-
-
-class TablePageHandler(tornado.web.RequestHandler):
+class TablePageHandler(BaseHandler):
     def initialize(self, mgr: PerspectiveTablesManager, template: str, host: str, port: int):
         self.mgr = mgr
         self.template = template
@@ -674,7 +756,40 @@ class TablePageHandler(tornado.web.RequestHandler):
             self.write("Table not found")
 
 
-class IndexPageHandler(TemplatePageHandler):
+class ViewPageHandler(BaseHandler):
+    def initialize(self, mgr: PerspectiveTablesManager, host: str, port: int):
+        self.mgr = mgr
+        self.host = host
+        self.port = port
+
+    def get(self, view_name, format):
+        tornado.log.app_log.info(f"requesting view {view_name}")
+        if view_name in self.mgr.get_view_names():
+            view_config = self.mgr.get_view(view_name)
+            table_name = view_config['table']
+            table = self.mgr.get_table(table_name)
+            view = table.view(**{k: v for k, v in view_config.items() if k != 'table' and v not in (None, {}, [])})
+            
+            match format:
+                case "json":
+                    self.set_header("Content-Type", "application/json")
+                    self.write(json.dumps(view.to_json()))
+                case "arrow":
+                    self.set_header("Content-Type", "application/octet-stream")
+                    self.write(view.to_arrow())
+                case "csv":
+                    self.set_header("Content-Type", "text/csv")
+                    self.write(view.to_csv())
+                case _:
+                    self.set_status(400)
+                    self.write("Unsupported format")
+            view.delete()
+        else:
+            self.set_status(404)
+            self.write("View not found")
+
+
+class IndexPageHandler(BaseHandler):
     def initialize(self, mgr: PerspectiveTablesManager, layouts_path: str, index_template: str, host: str, port: int):
         self.index_template = index_template
         self.layouts_path = layouts_path
@@ -703,7 +818,7 @@ class IndexPageHandler(TemplatePageHandler):
             self.write("not found")
 
 
-class WorkspacePageHandler(tornado.web.RequestHandler):
+class WorkspacePageHandler(BaseHandler):
     def initialize(self, path: str):
         self.path = path
 

@@ -107,7 +107,12 @@ def _publish_table_from_tsd(
                 state.removed.add(v)
 
         for k, v in ts.modified_items():
-            data = {**state.process_key(k), **state.process_row(v)}
+            # psp3 treats nulls differently so sampling always reduces load (EXPERIMENTAL CODE)
+            if False and state.sample_row:
+                data = {**state.process_key(k), **state.sample_row(v)}
+            else:
+                data = {**state.process_key(k), **state.process_row(v)}
+                
             if state.create_index:
                 data = {**data, **state.create_index(data)}
             if history is not None:

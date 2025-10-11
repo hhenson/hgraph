@@ -139,11 +139,11 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         super().do_bind_output(output if peer else None)
         return peer
 
-    def do_un_bind_output(self):
+    def do_un_bind_output(self, unbind_refs: bool = False):
         for ts in self.values():
-            ts.un_bind_output()
+            ts.un_bind_output(unbind_refs=unbind_refs)
         if self.has_peer:
-            super().do_un_bind_output()
+            super().do_un_bind_output(unbind_refs=unbind_refs)
 
     @property
     def value(self) -> Any:

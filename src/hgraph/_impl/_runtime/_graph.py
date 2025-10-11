@@ -191,11 +191,18 @@ class PythonGraph(Graph):
     def stop(self):
         engine = self._evaluation_engine
         engine.notify_before_stop_graph(self)
+        exception = None
         for node in self._nodes:
             engine.notify_before_stop_node(node)
-            node.stop()
+            try:
+                node.stop()
+            except Exception as e:
+                if exception is None:
+                    exception = e
             engine.notify_after_stop_node(node)
         engine.notify_after_stop_graph(self)
+        if exception is not None:
+            raise exception
 
     def stop_subgraph(self, start: int, end: int):
         """Stop the subgraph (end is exclusive), i.e. [start, end)"""
@@ -206,8 +213,7 @@ class PythonGraph(Graph):
             engine.notify_after_stop_node(node)
 
     def dispose(self):
-        for node in self.nodes:  # Since we initialise nodes from within the graph, we need to dispose them here.
-            node.dispose()
+        pass  # nodes were created outside the graph so they should be disposed by the caller.
 
     def dispose_subgraph(self, start: int, end: int):
         """

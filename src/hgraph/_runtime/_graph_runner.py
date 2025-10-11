@@ -213,6 +213,7 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
             raise e
         finally:
             config.graph_logger.debug("Finished running graph")
+            graph_builder.release_instance(engine.graph)
 
 
 def _build_main_graph(graph, config, args, kwargs):
@@ -264,8 +265,8 @@ def run_graph(
     """
     Use this to initiate the graph engine run loop.
 
-    The run_mode indicates how the graph engine should evaluate the graph, in RunMOde.REAL_TIME the graph will be
-    evaluated using the system clock, in RunMode.BACK_TEST the graph will be evaluated using a simulated clock.
+    The run_mode indicates how the graph engine should evaluate the graph, in EvaluationMode.REAL_TIME the graph will be
+    evaluated using the system clock, in EvaluationMode.SIMULATION the graph will be evaluated using a simulated clock.
     The simulated clock is advanced as fast as possible without following the system clock timings. This allows a
     back-test to be evaluated as fast as possible.
 

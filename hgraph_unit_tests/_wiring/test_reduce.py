@@ -1,6 +1,6 @@
 import pytest
 
-from hgraph import REMOVE_IF_EXISTS, graph, TSD, TS, reduce, add_, Size, TSL, SIZE, map_, default, format_
+from hgraph import DEFAULT, REMOVE, REMOVE_IF_EXISTS, const, debug_print, graph, TSD, TS, log_, reduce, add_, Size, TSL, SIZE, map_, default, format_, sum_, switch_
 from hgraph.test import eval_node
 
 
@@ -128,3 +128,46 @@ def test_reduce_simple():
         g,
         [{1: 1, 2: 2}],
     ) == [3]
+
+
+def test_reduce_map_and_switch():
+    @graph
+    def g(items: TSD[int, TS[int]]) -> TS[int]:
+        return map_(lambda i: switch_(i, {0: lambda: const(0), DEFAULT: lambda: const(1)}), items).reduce(lambda x, y: x + y, 0)
+
+    res = eval_node(g, [
+        {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16},
+        None,
+        {1: REMOVE, 3: REMOVE, 5: REMOVE, 7: REMOVE, 9: REMOVE, 11: REMOVE, 13: REMOVE, 15: REMOVE},
+        None,
+        {0: 0, 2: 0, 4: 0, 6: 0, 8: 0, 10: 0, 12: 0, 14: 0, 16: 0},
+        None,
+        {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16},
+        None
+        ])
+    
+    assert res == [16, None, 8, None, 0, None, 16, None]
+    
+    
+def test_reduce_map_and_switch_2():
+    @graph
+    def g(items: TSD[int, TS[int]]) -> TS[int]:
+        a = map_(lambda i: switch_(i, {
+                0: lambda: const({0: 0}, TSD[int, TS[int]]), 
+                DEFAULT: lambda: const({1: 1}, TSD[int, TS[int]])}), items)
+        b = a.reduce(lambda x, y: map_(lambda i, j: default(i, 0) + default(j, 0), x, y))
+        c = b.reduce(lambda x, y: x + y, 0)
+        return c
+
+    res = eval_node(g, [
+        {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16},
+        None,
+        {1: REMOVE, 2: REMOVE, 3: REMOVE, 5: REMOVE, 6: REMOVE, 7: REMOVE, 9: REMOVE, 10: REMOVE, 11: REMOVE, 13: REMOVE, 15: REMOVE},
+        None,
+        {0: 0, 2: 0, 4: 0, 6: 0, 8: 0, 10: 0, 12: 0, 14: 0, 16: 0},
+        None,
+        {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16},
+        None
+        ])
+    
+    assert res == [16, None, 5, None, 0, None, 16, None]

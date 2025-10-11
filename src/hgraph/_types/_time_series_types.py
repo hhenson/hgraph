@@ -303,7 +303,7 @@ class TimeSeriesInput(TimeSeries):
         """
 
     @abstractmethod
-    def un_bind_output(self):
+    def un_bind_output(self, unbind_refs: bool = False) -> None:
         """
         FOR LIBRARY USE ONLY.
 
@@ -317,7 +317,7 @@ class TimeSeriesInput(TimeSeries):
         """
 
     @abstractmethod
-    def do_un_bind_output(self):
+    def do_un_bind_output(self, unbind_refs: bool = False):
         """
         Derived classes override this to implement specific behaviours
         """

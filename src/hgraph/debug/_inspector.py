@@ -8,6 +8,7 @@ import tornado.web
 from hgraph._wiring._decorators import sink_node
 from hgraph._types import TS, STATE
 
+from hgraph.adaptors.tornado._tornado_web import BaseHandler
 from hgraph.debug._inspector_http_handler import InspectorHttpHandler
 from hgraph.debug._inspector_publish import process_tick, process_graph, check_requests_and_publish
 from hgraph.debug._inspector_state import InspectorState
@@ -36,6 +37,8 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
         callback_graph=lambda n: process_graph(_state._value, n, publish_interval),
         callback_progress=lambda: check_requests_and_publish(_state._value, None, 5.0),
         progress_interval=0.1,
+        compute_sizes=False,
+        track_recent_performance=_state.track_detailed_performance
     )
     _state.observer.on_before_node_evaluation(start.owning_node)
     start.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
@@ -68,6 +71,17 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
         name="inspector",
     )
 
+    _state.recent_performance_table = _state.manager.create_table(
+        {
+            "time": datetime,
+            "id": str,
+            "eval_count": int,
+            "eval_time": float
+        },
+        limit=100_000,
+        name = "recent_performance",
+    )
+
     _state.total_cycle_table = _state.manager.create_table(
         {
             "time": datetime,
@@ -85,6 +99,10 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
             "memory": int,
             "virt_memory": int,
             "graph_memory": int,
+            "psp_polls": float,
+            "psp_updates": float,
+            "psp_batches": float,
+            "psp_rows": float,
         },
         limit=24 * 3600,
         name="graph_performance",
@@ -132,7 +150,7 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
     app.start()
 
 
-class ValuePageHandler(tornado.web.RequestHandler):
+class ValuePageHandler(BaseHandler):
     def initialize(self, template: str):
         self.template = template
 

@@ -118,11 +118,13 @@ export async function setupInspectorTable(){
                 }
                 if (meta.column_header[0] === 'name'){
                     if (!event.ctrlKey && !event.altKey && !event.shiftKey) {
-                        const selectedRow = table.querySelector(".highlight");
-                        if (selectedRow){
+                        if (SELECTED_ROW == meta.y) {
                             SELECTED_ROW = null;
-                            selectedRow.classList.remove("highlight");
-                            table.draw();
+                            const selectedRow = table.querySelector(".highlight");
+                            if (selectedRow){
+                                selectedRow.classList.remove("highlight");
+                                table.draw();
+                            }
                         } else {
                             SELECTED_ROW = meta.y;
                             event.target.parentElement.classList.add("highlight");

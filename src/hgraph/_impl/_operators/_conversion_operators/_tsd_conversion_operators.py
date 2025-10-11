@@ -120,7 +120,7 @@ def convert_tsl_to_tsd(
 @compute_node(
     overloads=convert,
     requires=lambda m, s: m[OUT].py_type is TSD
-    or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]),
+                          or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, TS[m[SCALAR].py_type]]),
     resolvers={TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
 )
 def convert_mapping_to_tsd(

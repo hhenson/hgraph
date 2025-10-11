@@ -196,7 +196,7 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
         self._reference_observers.pop(id(input_), None)
 
     def clear(self):
-        pass
+        self.value = EmptyTimeSeriesReference()
 
     def invalidate(self):
         self._value = None
@@ -220,6 +220,10 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     _value: typing.Optional[TimeSeriesReference] = None
     _items: list[TimeSeriesReferenceInput] | None = None
+
+    @property
+    def bound(self) -> bool:
+        return super().bound or self._items is not None
 
     def bind_output(self, output: TimeSeriesOutput) -> bool:
         peer = self.do_bind_output(output)
@@ -245,9 +249,9 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
                 self.owning_node.start_inputs.append(self)
             return False
 
-    def un_bind_output(self):
+    def un_bind_output(self, unbind_refs: bool = False):
         was_valid = self.valid
-        self.do_un_bind_output()
+        self.do_un_bind_output(unbind_refs=unbind_refs)
 
         if self.owning_node.is_started and was_valid:
             self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
@@ -255,9 +259,9 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
                 # Notify as the state of the node has changed from bound to un_bound
                 self.owning_node.notify(self._sample_time)
 
-    def do_un_bind_output(self):
+    def do_un_bind_output(self, unbind_refs: bool = False):
         if self._output is not None:
-            super().do_un_bind_output()
+            super().do_un_bind_output(unbind_refs=unbind_refs)
         if self._value is not None:
             self._value = None
             # TODO: Do we need to notify here? should we not only notify if the input is active?
@@ -266,7 +270,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             )
         if self._items:
             for item in self._items:
-                item.un_bind_output()
+                item.un_bind_output(unbind_refs=unbind_refs)
             self._items = None
 
     def clone_binding(self, other: TimeSeriesReferenceInput):
@@ -289,13 +293,25 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         self.notify(self._sample_time)
 
     def make_active(self):
-        super().make_active()
+        if self._output is not None:
+            super().make_active()
+        else:
+            self._active = True
+            
         if self._items:
             for item in self._items:
                 item.make_active()
+                
+        if self.valid:
+            self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
+            self.notify(self.last_modified_time)
 
     def make_passive(self):
-        super().make_passive()
+        if self._output is not None:
+            super().make_passive()
+        else:            
+            self._active = False
+
         if self._items:
             for item in self._items:
                 item.make_passive()
@@ -344,7 +360,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     @property
     def valid(self) -> bool:
-        return self._value is not None or (self._items and any(i.valid for i in self._items)) or super().valid
+        return self._value is not None or (self._items and any(i.valid for i in self._items)) or (self._output is not None and self._output.valid)
 
     @property
     def all_valid(self) -> bool:
@@ -352,9 +368,10 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     @property
     def last_modified_time(self) -> datetime:
+        times = []
         if self._items:
-            return max(i.last_modified_time for i in self._items)
-        elif self._output is not None:
-            return self._output.last_modified_time
-        else:
-            return self._sample_time
+            times.extend(i.last_modified_time for i in self._items)
+        if self._output is not None:
+            times.append(self._output.last_modified_time)
+        
+        return max(*times, self._sample_time) if times else self._sample_time

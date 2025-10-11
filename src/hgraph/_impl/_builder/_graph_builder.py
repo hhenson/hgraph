@@ -66,7 +66,8 @@ class PythonGraphBuilder(GraphBuilder):
         return nodes
 
     def release_instance(self, item: Graph):
-        for node, node_builder in zip(item.nodes, self.node_builders):
+        for node, node_builder in zip(reversed(item.nodes), reversed(self.node_builders)):
+            node.dispose()
             node_builder.release_instance(node)
         item.dispose()
 

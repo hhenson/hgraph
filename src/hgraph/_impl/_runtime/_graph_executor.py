@@ -58,13 +58,20 @@ class PythonGraphExecutor(GraphExecutor):
         graph.evaluation_engine = evaluation_engine
         for observer in self.observers:
             evaluation_engine.add_life_cycle_observer(observer)
-        with initialise_dispose_context(self.graph), start_stop_context(self.graph):
-            while clock.evaluation_time < end_time:
-                self.evaluate(evaluation_engine, graph)
+            
+        try:
+            with initialise_dispose_context(self.graph), start_stop_context(self.graph):
+                while clock.evaluation_time < end_time:
+                    self.evaluate(evaluation_engine, graph)
+        finally:
+            evaluation_engine.notify_after_evaluation()  # stop() creates after evaluation events that need to be processed for the shutdown to be clean
+        
 
     @staticmethod
     def evaluate(evaluation_engine, graph):
         evaluation_engine.notify_before_evaluation()
-        graph.evaluate_graph()
-        evaluation_engine.notify_after_evaluation()
+        try:
+            graph.evaluate_graph()
+        finally:
+            evaluation_engine.notify_after_evaluation()
         evaluation_engine.advance_engine_time()

@@ -3,10 +3,11 @@ import asyncio
 import tornado.web
 from frozendict import frozendict
 
+from hgraph.adaptors.tornado._tornado_web import BaseHandler
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest
 
 
-class InspectorHttpHandler(tornado.web.RequestHandler):
+class InspectorHttpHandler(BaseHandler):
     def initialize(self, queue):
         self.queue = queue
 

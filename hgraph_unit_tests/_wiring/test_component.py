@@ -77,7 +77,16 @@ def test_record_replay():
                 fd(a=5.0, b=3.0),
             ]
         assert len(a_ts := gs.get(f":memory:my_component.a")) == 2
+        assert a_ts == [
+            (MIN_ST, fd(a=1.0, b=2.0)),
+            (MIN_ST + MIN_TD, fd(a=2.0)),
+        ]
         assert len(b_ts := gs.get(f":memory:my_component.b")) == 2
+        assert b_ts == [
+            (MIN_ST, fd(a=3.0, b=2.0)),
+            (MIN_ST + MIN_TD, fd(b=1.0)),
+        ]
+        assert len(gs.get(f":memory:my_component.__out__")) == 2
 
         with RecordReplayContext(mode=RecordReplayEnum.REPLAY):
             assert eval_node(my_component, a=[], b=[]) == [

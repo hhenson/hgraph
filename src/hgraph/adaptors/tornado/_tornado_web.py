@@ -84,3 +84,29 @@ def _tornado_thread(cb):
     TornadoWeb._loop = tornado.ioloop.IOLoop()
     cb()
     TornadoWeb._loop.start()
+
+
+class BaseHandler(tornado.web.RequestHandler):
+    def initialize(self):
+        ...
+
+    @staticmethod
+    def set_auth_callback(func):
+        BaseHandler._auth_callback = func
+        
+    @staticmethod
+    def set_auth_callback_async(func):
+        BaseHandler._auth_callback_async = func
+
+    async def prepare(self):
+        if gcu := getattr(BaseHandler, "_auth_callback", False):
+            self.current_user = gcu(self.request)
+        elif agcu := getattr(BaseHandler, "_auth_callback_async", False):
+            self.current_user = await agcu(self.request)
+        else:
+            self.current_user = "Anonymous", "Anonymous"
+
+        if self.current_user is None:
+            self.set_status(401)
+            self.finish()
+            return

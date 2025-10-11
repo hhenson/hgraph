@@ -28,7 +28,6 @@ NODE = TypeVar("NODE", bound=BaseNodeImpl)
 
 
 class PythonBaseNodeBuilder(NodeBuilder, ABC):
-
     def _build_inputs_and_outputs(self, node: NODE) -> NODE:
         if self.input_builder:
             ts_input: TimeSeriesBundleInput = self.input_builder.make_instance(owning_node=node)
@@ -47,6 +46,21 @@ class PythonBaseNodeBuilder(NodeBuilder, ABC):
             node.recordable_state = ts_output
 
         return node
+
+    def release_instance(self, item):
+        if self.input_builder:
+            self.input_builder.release_instance(item.input)
+
+        if self.output_builder:
+            self.output_builder.release_instance(item.output)
+
+        if self.error_builder:
+            self.error_builder.release_instance(item.error_output)
+
+        if self.recordable_state_builder:
+            self.recordable_state_builder.release_instance(item.recordable_state)
+
+        item.dispose()
 
 
 @dataclass(frozen=True)
@@ -68,9 +82,6 @@ class PythonNodeBuilder(PythonBaseNodeBuilder):
 
         return self._build_inputs_and_outputs(node)
 
-    def release_instance(self, item: NodeImpl):
-        """Nothing to do"""
-
 
 @dataclass(frozen=True)
 class PythonGeneratorNodeBuilder(PythonBaseNodeBuilder):
@@ -86,9 +97,6 @@ class PythonGeneratorNodeBuilder(PythonBaseNodeBuilder):
         )
 
         return self._build_inputs_and_outputs(node)
-
-    def release_instance(self, item: GeneratorNodeImpl):
-        """Nothing to do"""
 
 
 @dataclass(frozen=True)
@@ -106,9 +114,6 @@ class PythonPushQueueNodeBuilder(PythonBaseNodeBuilder):
 
         return self._build_inputs_and_outputs(node)
 
-    def release_instance(self, item: PythonPushQueueNodeImpl):
-        """Nothing to do"""
-
 
 @dataclass(frozen=True)
 class PythonLastValuePullNodeBuilder(PythonBaseNodeBuilder):
@@ -122,6 +127,3 @@ class PythonLastValuePullNodeBuilder(PythonBaseNodeBuilder):
         )
 
         return self._build_inputs_and_outputs(node)
-
-    def release_instance(self, item: PythonLastValuePullNodeImpl):
-        """Nothing to do"""

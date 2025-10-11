@@ -1,5 +1,12 @@
 from hgraph import (
+    AUTO_RESOLVE,
+    DEFAULT,
+    OUT,
+    TSS,
+    TSS_OUT,
+    Type,
     compute_node,
+    convert,
     getitem_,
     TS,
     Series,
@@ -7,6 +14,7 @@ from hgraph import (
     min_,
     max_,
     div_,
+    set_delta,
     sub_,
     NUMBER,
     NUMBER_2,
@@ -113,3 +121,15 @@ def add_series_float_series_int(lhs: TS[Series[float]], rhs: TS[Series[int]]) ->
 @compute_node(overloads=contains_)
 def contains_series(series: TS[Series[SCALAR]], value: TS[SCALAR]) -> TS[bool]:
     return value.value in series.value
+
+
+@compute_node(
+    overloads=convert,
+    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    )
+def convert_series_to_tss(ts: TS[Series[SCALAR]], to: Type[OUT] = DEFAULT[OUT],
+        _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
+) -> TSS[SCALAR]:
+    prev = _output.value if _output.valid else set()
+    new = set(ts.value)
+    return set_delta(new - prev, prev - new, _tp)
