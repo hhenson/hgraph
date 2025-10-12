@@ -169,7 +169,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     def do_un_bind_output(self):
         if self.active:
-            self._output.unsubscribe(self.owning_node)
+            self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
         self._output = None
 
     @property
