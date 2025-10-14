@@ -409,6 +409,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                 value.un_bind_output()
         else:
             self._ts_values[key] = value
+            self._ts_values_to_keys[id(value)] = key
             value.un_bind_output()
 
     def _clear_key_changes(self):
