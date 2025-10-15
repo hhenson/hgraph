@@ -1438,3 +1438,8 @@ Version 0.4.84 (09-10-2025)
 
 * Put GlobalState back to its original state.
 * Reduce some timeouts on tests as they are starting to take too long.
+
+Version 0.4.85 (15-10-2025)
+---------------------------
+
+* Cleanups to better support the C++ build.
