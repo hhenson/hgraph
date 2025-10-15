@@ -166,7 +166,7 @@ class ContextNodeClass(BaseWiringNodeClass):
             node_signature, self.error_output_type
         )
 
-        from hgraph._impl._runtime._context_node import _PythonContextStubSourceNode
+        from hgraph._impl._runtime._context_node import PythonContextStubSourceNode
 
         return PythonNodeImplNodeBuilder(
             signature=node_signature,
@@ -174,7 +174,7 @@ class ContextNodeClass(BaseWiringNodeClass):
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
-            node_impl=_PythonContextStubSourceNode,
+            node_impl=PythonContextStubSourceNode,
         )
 
 

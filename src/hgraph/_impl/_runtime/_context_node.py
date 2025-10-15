@@ -1,8 +1,8 @@
 from hgraph._impl._runtime._node import BaseNodeImpl
 
-__all__ = ["_PythonContextStubSourceNode"]
+__all__ = ["PythonContextStubSourceNode"]
 
-class _PythonContextStubSourceNode(BaseNodeImpl):
+class PythonContextStubSourceNode(BaseNodeImpl):
     def do_eval(self):
         """The service must be available by now, so we can retrieve the output reference."""
         from hgraph._runtime._global_state import GlobalState
