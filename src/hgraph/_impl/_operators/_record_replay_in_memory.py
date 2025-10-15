@@ -2,15 +2,14 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Protocol, Iterable, Any
 
-from hgraph._operators._record_replay_utils import get_fq_recordable_id, IN_MEMORY, record_replay_model_restriction
-from hgraph._operators._record_replay import replay, record, compare, replay_const
-from hgraph._runtime._traits import Traits
+from hgraph._operators._record_replay import get_fq_recordable_id, IN_MEMORY, record_replay_model_restriction, replay, \
+    record, compare, replay_const
 from hgraph._runtime._constants import MIN_ST, MIN_TD
-from hgraph._runtime._global_state import GlobalState
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationEngineApi
+from hgraph._runtime._global_state import GlobalState
 from hgraph._runtime._node import Node
-from hgraph._runtime._graph import Graph
+from hgraph._runtime._traits import Traits
 from hgraph._types import (
     AUTO_RESOLVE,
     TS,

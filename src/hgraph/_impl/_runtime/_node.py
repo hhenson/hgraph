@@ -10,7 +10,7 @@ from typing import Optional, Mapping, TYPE_CHECKING, Callable, Any, Iterator
 from sortedcontainers import SortedList
 
 from hgraph._impl._types._tss import PythonSetDelta, Removed
-from hgraph._operators._record_replay_utils import get_fq_recordable_id
+from hgraph._operators._record_replay import get_fq_recordable_id
 from hgraph._runtime._constants import MIN_DT, MAX_DT, MIN_ST
 from hgraph._runtime._constants import MIN_TD
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
