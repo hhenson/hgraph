@@ -152,6 +152,8 @@ def capture_context_stop(path: str, state: STATE):
 
 class ContextNodeClass(BaseWiringNodeClass):
 
+    CONTEXT_STUB: "Node" = None
+
     def create_node_builder_instance(
         self,
         resolved_wiring_signature: "WiringNodeSignature",
@@ -160,21 +162,25 @@ class ContextNodeClass(BaseWiringNodeClass):
     ) -> "NodeBuilder":
         node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
 
-        from hgraph._impl._builder._node_impl_builder import PythonNodeImplNodeBuilder
-
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
 
-        from hgraph._impl._runtime._context_node import PythonContextStubSourceNode
+        if ContextNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._node_impl_builder import PythonNodeImplNodeBuilder
+            ContextNodeClass.BUILDER_CLASS = PythonNodeImplNodeBuilder
 
-        return PythonNodeImplNodeBuilder(
+        if ContextNodeClass.CONTEXT_STUB is None:
+            from hgraph._impl._runtime._context_node import PythonContextStubSourceNode
+            ContextNodeClass.CONTEXT_STUB = PythonContextStubSourceNode
+
+        return ContextNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
-            node_impl=PythonContextStubSourceNode,
+            node_impl=ContextNodeClass.CONTEXT_STUB,
         )
 
 
