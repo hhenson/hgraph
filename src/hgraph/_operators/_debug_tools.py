@@ -1,4 +1,4 @@
-from hgraph._wiring import operator
+from hgraph._wiring._decorators import operator
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 
 __all__ = ("DebugContext", "debug_print")

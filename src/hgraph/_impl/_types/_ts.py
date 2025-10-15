@@ -1,14 +1,12 @@
 import typing
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Generic, Optional, Union, Any
+from typing import Generic, Optional
 
-from hgraph import MIN_DT
 from hgraph._impl._impl_configuration import HG_TYPE_CHECKING
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import DELTA_SCALAR, TimeSeries
+from hgraph._types._time_series_types import DELTA_SCALAR
 from hgraph._types._ts_type import TimeSeriesValueOutput, TimeSeriesValueInput
 
 __all__ = ("PythonTimeSeriesValueOutput", "PythonTimeSeriesValueInput")

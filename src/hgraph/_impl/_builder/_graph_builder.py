@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Iterable
 
-from hgraph import KEY_SET_PATH_ID
+from hgraph._types._tsd_type import KEY_SET_PATH_ID
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._graph import PythonGraph
 from hgraph._runtime._graph import Graph

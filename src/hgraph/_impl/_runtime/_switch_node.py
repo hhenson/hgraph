@@ -1,6 +1,6 @@
 from typing import Mapping, Any, Callable, Optional, cast
 
-from hgraph import set_parent_recordable_id, has_recordable_id_trait, get_fq_recordable_id
+from hgraph._operators._record_replay_utils import set_parent_recordable_id, has_recordable_id_trait, get_fq_recordable_id
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,

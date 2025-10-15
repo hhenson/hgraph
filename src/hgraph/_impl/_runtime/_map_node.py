@@ -1,7 +1,7 @@
 from datetime import datetime, date, time, timedelta
 from typing import Mapping, Any, Callable, cast
 
-from hgraph import get_fq_recordable_id, set_parent_recordable_id, has_recordable_id_trait
+from hgraph._operators._record_replay_utils import get_fq_recordable_id, set_parent_recordable_id, has_recordable_id_trait
 from hgraph._runtime._constants import MAX_DT
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (

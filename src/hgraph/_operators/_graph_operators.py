@@ -1,6 +1,6 @@
 import logging
 
-from hgraph._runtime import EvaluationEngineApi
+from hgraph._runtime._evaluation_engine import EvaluationEngineApi
 from hgraph._types._scalar_types import DEFAULT, LOGGER
 from hgraph._types._ts_type import TS
 from hgraph._types._tsb_type import TSB, TS_SCHEMA, TS_SCHEMA_1

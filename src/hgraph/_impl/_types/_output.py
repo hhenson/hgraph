@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from hgraph import MAX_ET
-from hgraph._runtime._constants import MIN_DT
+from hgraph._runtime._constants import MIN_DT, MAX_ET
 from hgraph._impl._runtime._common import TimeSeriesSubscriber, SUBSCRIBER
 from hgraph._types._time_series_types import TimeSeriesOutput
 
