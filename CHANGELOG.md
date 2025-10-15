@@ -1443,3 +1443,8 @@ Version 0.4.85 (15-10-2025)
 ---------------------------
 
 * Cleanups to better support the C++ build.
+
+Version 0.4.86 (15-10-2025)
+---------------------------
+
+* Add support for the C++ build.
