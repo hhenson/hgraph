@@ -1448,3 +1448,8 @@ Version 0.4.86 (15-10-2025)
 ---------------------------
 
 * Add support for the C++ build.
+
+Version 0.4.87 (16-10-2025)
+---------------------------
+
+* Expose key_tp to mesh builder to better support the C++ build.
