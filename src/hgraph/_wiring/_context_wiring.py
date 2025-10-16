@@ -140,7 +140,11 @@ def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None):
 def capture_context_start(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE):
     """Place the reference into the global state"""
     source = ts.output or ts.value.output
-    state.path = f"context-{source.owning_node.owning_graph_id}-{path}"
+    # Convert owning_graph_id to tuple in case C++ returns a list
+    og_id = source.owning_node.owning_graph_id
+    if not isinstance(og_id, tuple):
+        og_id = tuple(og_id)
+    state.path = f"context-{og_id}-{path}"
     GlobalState.instance()[state.path] = ts
 
 
