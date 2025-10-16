@@ -152,6 +152,8 @@ def capture_context_stop(path: str, state: STATE):
 
 class ContextNodeClass(BaseWiringNodeClass):
 
+    CONTEXT_STUB: "Node" = None
+
     def create_node_builder_instance(
         self,
         resolved_wiring_signature: "WiringNodeSignature",
@@ -160,58 +162,25 @@ class ContextNodeClass(BaseWiringNodeClass):
     ) -> "NodeBuilder":
         node_signature = node_signature.copy_with(time_series_output=node_signature.time_series_output.as_reference())
 
-        from hgraph._impl._builder import PythonNodeImplNodeBuilder
-
         input_builder, output_builder, error_builder = create_input_output_builders(
             node_signature, self.error_output_type
         )
 
-        from hgraph._impl._runtime._node import BaseNodeImpl
+        if ContextNodeClass.BUILDER_CLASS is None:
+            from hgraph._impl._builder._node_impl_builder import PythonNodeImplNodeBuilder
+            ContextNodeClass.BUILDER_CLASS = PythonNodeImplNodeBuilder
 
-        class _PythonContextStubSourceNode(BaseNodeImpl):
-            def do_eval(self):
-                """The service must be available by now, so we can retrieve the output reference."""
-                from hgraph._runtime._global_state import GlobalState
+        if ContextNodeClass.CONTEXT_STUB is None:
+            from hgraph._impl._runtime._context_node import PythonContextStubSourceNode
+            ContextNodeClass.CONTEXT_STUB = PythonContextStubSourceNode
 
-                path = f'context-{self.owning_graph_id[:self.scalars["depth"]]}-{self.scalars["path"]}'
-                shared = GlobalState.instance().get(path)
-
-                from hgraph import TimeSeriesOutput
-
-                if shared is None:
-                    raise RuntimeError(f"Missing shared output for path: {path}")
-                elif isinstance(shared, TimeSeriesOutput):
-                    output = shared
-                elif shared.has_peer:  # it is a reference with a peer so its value might update
-                    output = shared.output
-                else:
-                    output = None
-
-                if output:
-                    output.subscribe(self)
-                    if self.subscribed_output is not None and self.subscribed_output is not output:
-                        self.subscribed_output.unsubscribe(self)
-                    self.subscribed_output = output
-
-                # NOTE: The output needs to be a reference value output so we can set the value and continue!
-                self.output.value = shared.value  # might be none
-
-            def do_start(self):
-                """Make sure we get notified to serve the reference"""
-                self.subscribed_output = None
-                self.notify()
-
-            def do_stop(self):
-                if self.subscribed_output is not None:
-                    self.subscribed_output.unsubscribe(self)
-
-        return PythonNodeImplNodeBuilder(
+        return ContextNodeClass.BUILDER_CLASS(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
             output_builder=output_builder,
             error_builder=error_builder,
-            node_impl=_PythonContextStubSourceNode,
+            node_impl=ContextNodeClass.CONTEXT_STUB,
         )
 
 

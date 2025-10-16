@@ -28,7 +28,7 @@ def lift(
 
     """
     from inspect import signature, Parameter
-    from hgraph._wiring import compute_node, graph
+    from hgraph._wiring._decorators import compute_node, graph
 
     sig = signature(fn)
 
@@ -115,10 +115,14 @@ def lower(fn: Callable, /, date_col: str = "date", as_of_col: str = "as_of", no_
     """
     from hgraph._operators._record_replay import replay, record, set_record_replay_model
     from hgraph._operators._to_table import set_as_of, set_table_schema_date_key, set_table_schema_as_of_key
-    from hgraph._runtime import GlobalState, evaluate_graph, GraphConfiguration
-    from hgraph._wiring import WiringNodeClass, WiringNodeSignature, HgTimeSeriesTypeMetaData, extract_kwargs, graph
-    from hgraph.adaptors.data_frame import MemoryDataFrameStorage
-    from hgraph.adaptors.data_frame import DATA_FRAME_RECORD_REPLAY
+    from hgraph._runtime._global_state import GlobalState
+    from hgraph._runtime._graph_runner import evaluate_graph, GraphConfiguration
+    from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
+    from hgraph._wiring._wiring_node_signature import WiringNodeSignature
+    from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+    from hgraph._wiring._wiring_node_class._wiring_node_class import extract_kwargs
+    from hgraph._wiring._decorators import graph
+    from hgraph.adaptors.data_frame._data_frame_record_replay import MemoryDataFrameStorage, DATA_FRAME_RECORD_REPLAY
 
     fn: WiringNodeClass
     signature: WiringNodeSignature = fn.signature

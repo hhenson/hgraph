@@ -439,6 +439,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         else:
             self._ts_values[key] = value
             value.un_bind_output(unbind_refs=True)
+            self._ts_values_to_keys[id(value)] = key
 
     def _clear_key_changes(self):
         if self.owning_node is None:

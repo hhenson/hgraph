@@ -1,6 +1,6 @@
 from datetime import date
 
-from hgraph._wiring import operator
+from hgraph._wiring._decorators import operator
 from hgraph._types import TS, TSL, Size
 
 __all__ = ("day_of_month", "month_of_year", "year", "explode")
