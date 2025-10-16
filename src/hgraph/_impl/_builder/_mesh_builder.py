@@ -6,6 +6,7 @@ from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
 
 if TYPE_CHECKING:
     from hgraph._builder._graph_builder import GraphBuilder
+    from hgraph._types._scalar_types import HgScalarTypeMetaData
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class PythonMeshNodeBuilder(PythonBaseNodeBuilder):
     output_node_id: int | None = None  # The node representing the stub output in the nested graph.
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
     key_arg: str | None = None  # The key arg to use, None if no key exists
+    key_tp: Optional["HgScalarTypeMetaData"] = None
     context_path: str | None = None  # The context path to use
 
     def make_instance(self, owning_graph_id: tuple[int, ...], node_ndx: int) -> PythonMeshNodeImpl:

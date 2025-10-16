@@ -41,7 +41,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         self._count: int = 0
         self._old_output: TimeSeriesOutput | None = None
 
-        from hgraph._wiring._switch import DEFAULT
+        from hgraph._types._scalar_types import DEFAULT
 
         self._default_graph_builder: GraphBuilder = self.nested_graph_builders.get(DEFAULT)
         self._recordable_id: str | None = None
@@ -95,7 +95,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
 
     def _wire_graph(self, graph: Graph):
         """Connect inputs and outputs to the nodes inputs and outputs"""
-        from hgraph._wiring._switch import DEFAULT
+        from hgraph._types._scalar_types import DEFAULT
 
         graph_key = self._active_key if self._active_key in self.nested_graph_builders else DEFAULT
         if self._recordable_id:
@@ -125,7 +125,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
 
     def _unwire_graph(self, graph: Graph):
         if self._old_output is not None:
-            from hgraph._wiring._switch import DEFAULT
+            from hgraph._types._scalar_types import DEFAULT
 
             graph_key = self._active_key if self._active_key in self.nested_graph_builders else DEFAULT
             node: Node = graph.nodes[self.output_node_ids[graph_key]]
