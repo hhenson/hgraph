@@ -12,14 +12,21 @@ class PythonContextStubSourceNode(BaseNodeImpl):
 
         from hgraph import TimeSeriesOutput
 
+        from hgraph import TimeSeriesReferenceInput
+        from hgraph import TimeSeriesReferenceOutput
+        value = None
+        output: TimeSeriesOutput = None
         if shared is None:
             raise RuntimeError(f"Missing shared output for path: {path}")
-        elif isinstance(shared, TimeSeriesOutput):
+        elif isinstance(shared, TimeSeriesReferenceOutput):
             output = shared
-        elif shared.has_peer:  # it is a reference with a peer so its value might update
-            output = shared.output
+            value = shared.value
+        elif isinstance(shared, TimeSeriesReferenceInput):
+            if shared.has_peer:  # it is a reference with a peer so its value might update
+                output = shared.output
+            value = shared.value
         else:
-            output = None
+            raise RuntimeError(f"Unexpected shared output type: {type(shared)}")
 
         if output:
             output.subscribe(self)
@@ -28,7 +35,7 @@ class PythonContextStubSourceNode(BaseNodeImpl):
             self.subscribed_output = output
 
         # NOTE: The output needs to be a reference value output so we can set the value and continue!
-        self.output.value = shared.value  # might be none
+        self.output.value = value  # might be none
 
     def do_start(self):
         """Make sure we get notified to serve the reference"""
