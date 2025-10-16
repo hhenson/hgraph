@@ -168,6 +168,7 @@ class NodeSignature:
             active_inputs=self.active_inputs,
             valid_inputs=self.valid_inputs,
             all_valid_inputs=self.all_valid_inputs,
+            context_inputs=self.context_inputs,
             injectable_inputs=self.injectable_inputs,
             injectables=self.injectables,
             capture_exception=self.capture_exception,
