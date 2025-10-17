@@ -1466,3 +1466,8 @@ Version 0.4.89 (17-10-2025)
 
 * Add OutputKeyBuilder to better support the C++ build.
 * Cleanups to better support the C++ build.
+
+Version 0.4.90 (17-10-2025)
+---------------------------
+
+* Remove unnecessary use of internal TSD data structures.
