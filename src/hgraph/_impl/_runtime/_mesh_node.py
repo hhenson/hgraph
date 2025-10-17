@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Mapping, Any, Callable, cast
 
 from hgraph import MAX_DT, PythonTsdMapNodeImpl, GlobalState, MIN_TD, TimeSeriesReference
+from hgraph._runtime._global_keys import context_output_key
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,
@@ -81,7 +82,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             key_arg,
         )
 
-        self._full_context_path = f"context-{self.owning_graph_id}-{context_path}"
+        self._full_context_path = context_output_key(self.owning_graph_id, context_path)
         self._scheduled_ranks: dict[int, datetime] = {}
         self._scheduled_keys_by_rank: dict[int, dict[K, datetime]] = defaultdict(dict)
         self._active_graphs_rank: dict[K, int] = {}

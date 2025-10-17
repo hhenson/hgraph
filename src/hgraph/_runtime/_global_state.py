@@ -4,6 +4,7 @@ __all__ = ("GlobalState",)
 
 
 class GlobalState(object):
+    _root_instance: Optional["GlobalState"] = None
     """
     Provide a global state that can be accessed via all components of the graph and can be made to be present at the
     end of graph evaluation. This can be useful to provide debugging information as well as directory services.
@@ -20,10 +21,13 @@ class GlobalState(object):
 
         current_instance = GlobalState._instance
 
+        GlobalState._root_instance = current_instance if isinstance(current_instance, GlobalState) else None
+
         GlobalState._instance = local()  # type: ignore
-        GlobalState.instance = GlobalState.instance_mt
-        GlobalState.set_instance = GlobalState.set_instance_mt
-        GlobalState.has_instance = GlobalState.has_instance_mt
+        # Ensure methods remain static when swapped for MT variants
+        GlobalState.instance = staticmethod(GlobalState.instance_mt)  # type: ignore
+        GlobalState.set_instance = staticmethod(GlobalState.set_instance_mt)  # type: ignore
+        GlobalState.has_instance = staticmethod(GlobalState.has_instance_mt)  # type: ignore
 
         if current_instance is not None:
             GlobalState.set_instance(current_instance)
@@ -44,13 +48,17 @@ class GlobalState(object):
 
     @staticmethod
     def instance_mt() -> "GlobalState":
-        if GlobalState._instance.__dict__.get("self") is None:
+        gs = GlobalState._instance.__dict__.get("self")
+        if gs is None:
+            if GlobalState._root_instance is not None:
+                return GlobalState._root_instance
             raise RuntimeError("No global state is present")  # default constructing one is very bad for tests
-        return GlobalState._instance.self
+        return gs
 
     @staticmethod
     def set_instance_mt(self):
         GlobalState._instance.self = self
+        GlobalState._root_instance = self
 
     @staticmethod
     def has_instance_mt() -> bool:

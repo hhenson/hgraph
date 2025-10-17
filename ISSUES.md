@@ -13,3 +13,4 @@
 14. [ ] It is currently not possible to have a map_ over a graph/node which has default values in it, unless the lambda form is used
 15. [ ] convert() from date to datetime picks the wrong operator (should be convert_date_to_datetime but uses convert_ts_scalar_downcast). Also it is not timezone aware. Likewise datetime to date does not work.
 16. [ ] registering services should only include type-resolution information for inputs that are part of the interface signature and not all inputs.
+17. [x] The construction of keys to store and retrieve outputs in the GlobalContext should be extracted into a dedicated function along with a factory to fetch the function. This will help with the C++ implementation.

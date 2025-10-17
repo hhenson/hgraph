@@ -2,7 +2,8 @@ from datetime import datetime
 from string import Formatter
 from typing import Mapping, Any
 
-from hgraph import GlobalState, TimeSeriesReferenceInput, TimeSeriesReference
+from hgraph._runtime._global_state import GlobalState
+from hgraph._types import TimeSeriesReference
 from hgraph._builder._graph_builder import GraphBuilder
 from hgraph._impl._runtime._nested_evaluation_engine import (
     PythonNestedNodeImpl,
@@ -10,6 +11,7 @@ from hgraph._impl._runtime._nested_evaluation_engine import (
     NestedEngineEvaluationClock,
 )
 from hgraph._impl._runtime._node import NodeImpl
+from hgraph._runtime._global_keys import component_key
 from hgraph._runtime._graph import Graph
 from hgraph._runtime._node import NodeSignature, Node
 
@@ -42,10 +44,11 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
         id_, ready = self.recordable_id()
         if not ready:
             return
-        if (gs := GlobalState.instance()).get(k := f"component::{id_}", None) is not None:
+        key = component_key(id_)
+        if (gs := GlobalState.instance()).get(key, None) is not None:
             raise RuntimeError(f"Component[{id_}] {self.signature.signature} already exists in graph")
         else:
-            gs[k] = True  # Just write a marker for now
+            gs[key] = True  # Just write a marker for now
 
         self._active_graph = self.nested_graph_builder.make_instance(self.node_id, self, label=id_)
         self._active_graph.traits.set_traits(recordable_id=id_)
@@ -87,7 +90,7 @@ class PythonComponentNodeImpl(PythonNestedNodeImpl):
 
     def dispose(self):
         if self._active_graph:
-            GlobalState.instance().pop(f"component::{self._active_graph.label}", None)
+            GlobalState.instance().pop(component_key(self._active_graph.label), None)
             self._active_graph.dispose()
             self._active_graph = None
 

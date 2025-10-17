@@ -3,18 +3,13 @@ from collections import namedtuple
 from contextlib import AbstractContextManager
 from typing import Mapping, Any, TYPE_CHECKING, Type
 
-from frozendict import frozendict
-
+from hgraph._runtime._global_keys import context_output_key
 from hgraph._runtime._global_state import GlobalState
 from hgraph._types import (
-    TS,
-    SCALAR,
     TIME_SERIES_TYPE,
     REF,
     STATE,
-    HgREFTypeMetaData,
     clone_type_var,
-    DEFAULT,
     AUTO_RESOLVE,
     HgTimeSeriesTypeMetaData,
 )
@@ -23,7 +18,7 @@ from hgraph._wiring._wiring_node_class import BaseWiringNodeClass, create_input_
 from hgraph._wiring._wiring_port import WiringPort
 
 if TYPE_CHECKING:
-    from hgraph import WiringNodeInstance
+    pass
 
 
 __all__ = ("TimeSeriesContextTracker", "CONTEXT_TIME_SERIES_TYPE", "get_context")
@@ -140,7 +135,7 @@ def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None):
 def capture_context_start(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE):
     """Place the reference into the global state"""
     source = ts.output or ts.value.output
-    state.path = f"context-{source.owning_node.owning_graph_id}-{path}"
+    state.path = context_output_key(source.owning_node.owning_graph_id, path)
     GlobalState.instance()[state.path] = ts
 
 

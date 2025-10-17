@@ -3,7 +3,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Sequence, Any, Generic
 
-from hgraph import COMPOUND_SCALAR, Frame, GlobalState, TS, sink_node, STATE, CompoundScalar
+from hgraph import COMPOUND_SCALAR, Frame, TS, sink_node, STATE, CompoundScalar
+from hgraph._runtime._global_keys import (
+    set_recorder_api as _set_recorder_api,
+    get_recorder_api as _get_recorder_api,
+    set_recording_label as _set_recording_label,
+    get_recording_label as _get_recording_label,
+)
 
 __all__ = ("RecorderAPI", "TableAPI", "TableReaderAPI", "TableWriterAPI", "register_recorder_api")
 
@@ -19,22 +25,22 @@ def register_recorder_api(recorder: "RecorderAPI"):
         evaluate_graph(my_graph, config)
 
     """
-    GlobalState.instance().__recorder_api__ = recorder
+    _set_recorder_api(recorder)
 
 
 def get_recorder_api() -> "RecorderAPI":
     """
     Decorator that registers a recorder API as a global state.
     """
-    return GlobalState.instance().__recorder_api__
+    return _get_recorder_api()  # type: ignore
 
 
 def set_recording_label(label: str):
-    GlobalState.instance().__recorder_api__label__ = label
+    _set_recording_label(label)
 
 
 def get_recording_label() -> str:
-    return GlobalState.instance().__recorder_api__label__
+    return _get_recording_label()
 
 
 class RecorderAPI:

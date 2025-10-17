@@ -23,6 +23,7 @@ from hgraph import (
     NODE,
     generator,
 )
+from hgraph._runtime._global_keys import output_key, output_subscriber_key
 
 __all__ = (
     "capture_output_to_global_state",
@@ -39,8 +40,10 @@ __all__ = (
 def capture_output_to_global_state(path: str, ts: REF[TIME_SERIES_TYPE]):
     """This node serves to capture the output of a service node and record the output reference in the global state."""
     global_state = GlobalState.instance()
-    global_state[path] = ts.value
-    global_state[f"{path}_subscriber"].notify(ts.last_modified_time)
+    k = output_key(path)
+    sk = output_subscriber_key(path)
+    global_state[k] = ts.value
+    global_state[sk].notify(ts.last_modified_time)
 
 
 @capture_output_to_global_state.start
@@ -49,14 +52,16 @@ def capture_output_to_global_state_start(path: str, ts: REF[TIME_SERIES_TYPE]):
     from hgraph import TimeSeriesSubscriber
 
     global_state = GlobalState.instance()
-    global_state[path] = ts.value
-    global_state[f"{path}_subscriber"] = TimeSeriesSubscriber()
+    k = output_key(path)
+    sk = output_subscriber_key(path)
+    global_state[k] = ts.value
+    global_state[sk] = TimeSeriesSubscriber()
 
 
 @capture_output_to_global_state.stop
 def capture_output_to_global_state_stop(path: str):
     """Clean up references"""
-    GlobalState.instance().pop(path)
+    GlobalState.instance().pop(output_key(path))
 
 
 @sink_node(active=tuple(), valid=tuple())

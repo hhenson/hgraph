@@ -1460,3 +1460,9 @@ Version 0.4.88 (17-10-2025)
 * Some cleanups for the C++ build.
 * Changes from AB mostly related to shut down handing, reference binding/unbinding and memory management.
 * Some changes to perspective and the inspector.
+
+Version 0.4.89 (17-10-2025)
+---------------------------
+
+* Add OutputKeyBuilder to better support the C++ build.
+* Cleanups to better support the C++ build.
