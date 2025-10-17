@@ -1471,3 +1471,8 @@ Version 0.4.90 (17-10-2025)
 ---------------------------
 
 * Remove unnecessary use of internal TSD data structures.
+
+Version 0.4.91 (17-10-2025)
+---------------------------
+
+* Expose key tp to the mesh builder.
