@@ -176,7 +176,7 @@ def tsd_get_items(
         elif not v.value.is_empty or k in _state.tsd.key_set:
             out[k] = v.value
             
-        if k in _ref_ref._ts_values:
+        if k in _ref_ref:
             remove_ref_refs.append(k)
             
     for k in remove_ref_refs:
