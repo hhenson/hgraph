@@ -1,6 +1,9 @@
 from frozendict import frozendict
 
 from hgraph import (
+    Removed,
+    dedup,
+    lag,
     switch_,
     graph,
     TS,
@@ -223,3 +226,22 @@ def test_switch_bundle_from_reduce():
         6,
         30,
     ]
+
+
+def test_switch_tss():
+    @graph
+    def switch_test(key: TS[str], value1: TSS[str], value2: TSS[str]) -> TSS[str]:
+        x = switch_(key, {
+            "one": lambda v1, v2: dedup(v1), 
+            "two": lambda v1, v2: lag(v2, MIN_TD)
+            }, value1, value2)
+        
+        return map_(lambda key: key, __keys__=x).key_set
+        
+    assert eval_node(switch_test, 
+                     ["one", None, "two", None], 
+                     [{'a', 'b'}, None, {Removed('a')}],
+                     [{'c', 'd'}, None, None, {'e', 'f'}]
+                     ) == \
+        [{'a', 'b'}, None, {Removed('a'), Removed('b')}, {'c', 'd'}, {'e', 'f'}]
+    

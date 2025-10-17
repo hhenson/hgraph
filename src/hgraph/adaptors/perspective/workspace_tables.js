@@ -3,20 +3,61 @@ import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.j
 let DEBUG = false;
 let DEBUG_LOCK = false;
 
- export class DefaultMap extends Map {
-   constructor(defaultFactory, iterable) {
-     super(iterable);
-     this.defaultFactory = defaultFactory;
-   }
-   get(key) {
-     let v = super.get(key);
-     if (!v) {
-       v = this.defaultFactory(key);
-       super.set(key, v);
-     }
-     return v;
-   }
- }
+let tableFromIPC = null;
+import("/node_modules/@apache-arrow/es2015-esm/Arrow.js")
+                .then(m => tableFromIPC = m.tableFromIPC)
+                .catch(e => {});
+
+export async function arrowToColumns(arrow, worker) {
+    let data = null;
+    if (!tableFromIPC) {
+        const update_table = await worker.table(arrow);
+        const update_view = await update_table.view();
+        await update_view.schema();
+        data = await update_view.to_columns();
+        await update_view.delete();
+        await update_table.delete();
+    } else {
+        const table = tableFromIPC(arrow);
+        data = Object.fromEntries(table.schema.fields.map(f => [f.name, table.getChild(f.name).toJSON()]));
+    }
+    return data;
+}
+
+export async function arrowToJSON(arrow, worker) {
+    let data = null;
+    if (!tableFromIPC) {
+        const update_table = await worker.table(arrow);
+        const update_view = await update_table.view();
+        await update_view.schema();
+        data = await update_view.to_json();
+        await update_view.delete();
+        await update_table.delete();
+    } else {
+        const table = tableFromIPC(arrow);
+        data = table.toArray().map(r => r.toJSON());
+    }
+    return data;
+}
+
+BigInt.prototype.toJSON = function () {
+  return Number(this);
+};
+
+export class DefaultMap extends Map {
+    constructor(defaultFactory, iterable) {
+        super(iterable);
+        this.defaultFactory = defaultFactory;
+    }
+    get(key) {
+        let v = super.get(key);
+        if (!v) {
+            v = this.defaultFactory(key);
+            super.set(key, v);
+        }
+        return v;
+    }
+}
 
 function safeClone(obj) {
     try {
@@ -249,17 +290,31 @@ export function with_timeout(promise, timeout, error) {
   ]);
 }
 
+export async function wait_for_table_schema(workspace, table_name) {
+     if (!(table_name in getWorkspaceTables())){
+         throw new Error("Table not found in workspace: " + table_name);
+     }
+    while (!workspace.getTable(table_name)) {
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+        progress_callback && progress_callback(0, undefined, table_name, "waiting");
+        await delay(100);
+    }
+    return workspace.getTable(table_name);
+}
+
 export async function wait_for_table(workspace, table_name, progress_callback) {
      if (!(table_name in getWorkspaceTables())){
          throw new Error("Table not found in workspace: " + table_name);
      }
     while (!workspace.getTable(table_name)) {
         const delay = ms => new Promise(res => setTimeout(res, ms));
+        progress_callback && progress_callback(0, undefined, table_name, "waiting");
         await delay(100);
     }
     if (!getWorkspaceTables()[table_name].started) {
         if (workspace_tables[table_name].start) {
             if (!workspace_tables[table_name].starting) {
+                progress_callback && progress_callback(0, undefined, table_name, "starting");
                 workspace_tables[table_name].starting = workspace_tables[table_name].start(progress_callback);
             }
             await workspace_tables[table_name].starting;
@@ -312,7 +367,7 @@ async function buildClientOnlyTable(workspace, table_name, index, worker) {
 }
 
 
-async function connectDataView(workspace, table_name, schema, index, worker) {
+async function connectDataView(workspace, table_name, schema, index, websocket, worker) {
     const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
     let client = undefined;
     if (index)
@@ -327,10 +382,9 @@ async function connectDataView(workspace, table_name, schema, index, worker) {
     workspace_tables[table_name].start = async () => {
         workspace_tables[table_name].start = async () => {};
 
-        const data = await (await fetch(`/data_view/${table_name}.arrow`)).arrayBuffer();
-        const table = await worker.table(data);
-        const view = await table.view();
-        client.replace(await view.to_arrow());
+        const real_table_name = await (await fetch(`/data_view/${table_name}.psp`)).text();
+        const table = await websocket.open_table(real_table_name);
+        workspace.addTable(table_name, table);
     }
 }
 
@@ -347,22 +401,25 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
 
     workspace_tables[table_name].table = client;
     workspace_tables[table_name].started = false;
-    workspace_tables[table_name].start = async () => {
+    workspace_tables[table_name].start = async (callback) => {
         workspace_tables[table_name].start = async () => {};
 
+        callback && callback(0, undefined, table_name, "opening");
         const table = await websocket.open_table(table_name);
         const view = await table.view();
+        callback && callback(0.1, undefined, table_name, `loading ${await view.num_rows()} rows...`);
         client.replace(await view.to_arrow());
 
         const table_lock = new AsyncLock(table_name);
         const view_locks = {};
 
         workspace_tables[table_name].server_table = table;
-        workspace_tables[table_name].edit_port = await table.make_port();
         workspace_tables[table_name].table = client;
         workspace_tables[table_name].view = view;
         workspace_tables[table_name].lock = table_lock;
         workspace_tables[table_name].view_locks = view_locks;
+
+        callback && callback(0.9, undefined, table_name, "setting up callbacks");
 
         const update_fn = async (updated) => {
             Stats.updates_received += 1;
@@ -391,9 +448,7 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
             Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
             await table_lock.enter("remove");
             try {
-                const update_table = await worker.table(updated.delta);
-                const update_view = await update_table.view();
-                const update_data = await update_view.to_columns();
+                const update_data = await arrowToColumns(updated.delta, worker);
                 await client.remove(update_data['i']);
             } finally {
                 table_lock.exit("remove");
@@ -419,6 +474,7 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
             );
         }
 
+        callback && callback(1, undefined, table_name, "done");
         workspace_tables[table_name].started = true;
     }
 }
@@ -435,16 +491,20 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
 
     workspace_tables[table_name].table = client;
     workspace_tables[table_name].started = false;
-    workspace_tables[table_name].start = async () => {
+    workspace_tables[table_name].start = async (callback) => {
         workspace_tables[table_name].start = async () => {
         };
 
+        callback && callback(0, undefined, table_name, "opening");
         const table = await websocket.open_table(table_name);
         const view = await table.view();
+        callback && callback(0.1, undefined, table_name, "loading");
         client.replace(await view.to_arrow());
 
         const table_lock = new AsyncLock(table_name);
         const view_locks = {};
+
+        callback && callback(0.8, undefined, table_name, "making edit port");
 
         const workspace_table = workspace_tables[table_name];
         workspace_table.server_table = table;
@@ -454,6 +514,8 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
         workspace_table.view = view;
         workspace_table.lock = table_lock;
         workspace_table.view_locks = view_locks;
+
+        callback && callback(0.9, undefined, table_name, "setting up callbacks");
 
         view.on_update(
             async (updated) => {
@@ -466,9 +528,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     });
 
                     if (workspace_table.index === '_id') {
-                        const update_table = await worker.table(updated.delta);
-                        const update_view = await update_table.view();
-                        const update_data = await update_view.to_json();
+                        const update_data = await arrowToJSON(updated.delta, worker);
                         await client.update(update_data.filter((x) => x._id > 0));
                     } else {
                         await client.update(updated.delta);
@@ -499,9 +559,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
                     await table_lock.enter("remove");
                     try {
-                        const update_table = await worker.table(updated.delta);
-                        const update_view = await update_table.view();
-                        const update_data = await update_view.to_columns();
+                        const update_data = await arrowToColumns(updated.delta, worker);
                         await client.remove(update_data['i']);
                     } finally {
                         table_lock.exit("remove");
@@ -518,9 +576,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                 if (updated.port_id === 0) return;
 
                 if (workspace_table.index === '_id') {
-                    const update_table = await worker.table(updated.delta);
-                    const update_view = await update_table.view();
-                    const update_data = await update_view.to_json();
+                    const update_data = await arrowToJSON(updated.delta, worker);
                     const update_data_filtered = update_data.filter((x) => x._id !== 0 && x._id !== null && x._id !== 'undefined');
                     await table.update(update_data_filtered, {port_id: workspace_table.edit_port});
                 } else {
@@ -531,6 +587,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
         )
 
         workspace_tables[table_name].started = true;
+        callback && callback(1, undefined, table_name, "done");
     }
 }
 
@@ -559,7 +616,9 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
 
     workspace_tables[table_name].table = join_table;
     workspace_tables[table_name].started = false;
-    workspace_tables[table_name].start = async (progress_callback) => {
+    workspace_tables[table_name].start = async (callback) => {
+
+        callback && callback(0, undefined, table_name, "setting up schema");
 
         description._total = {};
         description._total.name = table_name;
@@ -600,14 +659,21 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
             }
         }
 
+        callback && callback(0.1, undefined, table_name, "processing source tables");
+
         for (const table_name in description) {
             if (table_name === '_total') continue;
 
             const table_desc = description[table_name];
-            const table = await wait_for_table(workspace, table_desc.table_name, progress_callback);
+            
+            callback && callback(0, undefined, `${description._total.name}/${table_name}`, "waiting for table schema");
+
+            const table = await wait_for_table_schema(workspace, table_desc.table_name);
             const schema = await table.schema();
 
             const native_index = await table.get_index();
+
+            callback && callback(0.2, undefined, `${description._total.name}/${table_name}`, "setting up schema");
 
             if (table_desc.view && (table_desc.view.group_by || table_desc.view.split_by)) {
                 console.assert(table_desc.index);
@@ -663,16 +729,21 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
             table_desc.columns = {...Object.fromEntries([...table_desc.select].map(x => [x, x])), ...table_desc.columns};
         }
 
-        let i = 0;
+        callback && callback(0.5, undefined, table_name, "joining source tables");
+
         const tables_loading = [];
         for (const table_name in description) {
             if (table_name === '_total') continue;
 
             const loader = async (table_name) => {
+                callback && callback(0, undefined, `${description._total.name}/${table_name}`, "waiting");
+
                 const table_description = description[table_name];
                 const source_table = await wait_for_table(workspace, table_description.table_name);
                 const view = await source_table.view(table_description.view);
                 const workspace_table = workspace_tables[table_description.table_name];
+
+                callback && callback(0.5, undefined, `${description._total.name}/${table_name}`, "joining");
 
                 await join_table_updated(join_table, removes_table, description, table_name, workspace, worker, {
                     port_id: -1,
@@ -725,16 +796,14 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
                     );
                 }
 
-                i += 1;
-                
-                if (progress_callback){
-                    progress_callback((i + 1) / Object.keys(description).length, table_name);
-                }
+                callback && callback(1, undefined, `${description._total.name}/${table_name}`, "done");
             }
 
             tables_loading.push(loader(table_name));
         }
         await Promise.all(tables_loading);
+
+        callback && callback(0.9, undefined, table_name, "setting up callbacks");
 
         const workspace_table = workspace_tables[table_name];
         workspace_table.table = join_table;
@@ -769,9 +838,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
                     if (updated.port_id === 0) return;
 
                     if (workspace_tables[edit_table_name].index === '_id') {
-                        const update_table = await worker.table(updated.delta);
-                        const update_view = await update_table.view();
-                        const update_data = await update_view.to_json();
+                        const update_data = await arrowToJSON(updated.delta, worker);
                         const total_index_name = description._total.index;
                         if (total_index_name !== '_id') {
                             const native = description._total.to_native.get(edit_table_name);
@@ -808,6 +875,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
         }
 
         workspace_tables[table_name].started = true;
+        callback && callback(1, undefined, table_name, "done");
     }
 }
 
@@ -817,12 +885,8 @@ async function join_table_removed(target, removes_table, join_tables, table_name
 
     Stats.startProcessing();
     
-    const update_table = await worker.table(updated.delta);
-    const update_view = await update_table.view();
-    const update = await update_view.to_columns();
+    const update = await arrowToColumns(updated.delta, worker);
     const removed_indices = update['i'];
-    update_view.delete();
-    update_table.delete();
 
     const table = join_tables[table_name];
     const target_removes = [];
@@ -911,15 +975,9 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         force_republish = true;
     } else if (updated.port_id === 0) {
         const parseStart = performance.now();
-        const update_table = await worker.table(updated.delta);
-        const update_view = await update_table.view();
-        await update_view.schema();
-        update_data = await update_view.to_columns();
+        update_data = await arrowToColumns(updated.delta, worker);
         const parseEnd = performance.now();
         Stats.trackParsingTime(parseEnd - parseStart);
-        
-        update_view.delete();
-        update_table.delete();
 
         if (Object.keys(update_data).length === 0) {
             DEBUG && console.log("No data to update in", join_tables._total.name, "from", table_name);
@@ -1019,7 +1077,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
     DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
 
     const join_data = [];
-    const new_row_indices = [];
+    let new_row_indices = [];
     const drop_rows_indices = new Set();
 
     for (const [i, row] of rows.entries()) {
@@ -1127,16 +1185,16 @@ async function join_table_updated(target, removes_table, join_tables, table_name
                             }
                         }
                     }
-                    mapped_indices.get(any_table_name).push(...Array.from(indices));
+                    mapped_indices.set(any_table_name, mapped_indices.get(any_table_name).concat(...Array.from(indices)));
                 }
             }
             DEBUG && console.log("Translated into", total_rows.map(x => x.total_index), "item indices");
-            new_row_indices.push(...total_rows.map(x => x.total_index));
+            new_row_indices = [].concat(new_row_indices, total_rows.map(x => x.total_index));
         }
     }
     if (join_data.length > 0) {
         DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "of", join_data.length, safeClone(join_data));
-        await target.update(join_data);
+        target.update(join_data);
     }
     if (new_row_indices.length > 0) {
         const total_index_col_name = join_tables._total.index;
@@ -1156,7 +1214,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         }
         DEBUG && console.log("Joining", join_tables._total.name, join_data.length, "rows", "while processing update to", table_name, "of", update_data.length, safeClone(join_data));
         try {
-            await target.update(Array.from(join_data.values()));
+            target.update(Array.from(join_data.values()));
         } catch (e) {
             // sometimes when the table is pivoted and split, this might fail due to columns not being setup, can be ignored
         }
@@ -1169,6 +1227,36 @@ async function join_table_updated(target, removes_table, join_tables, table_name
     Stats.endProcessing(startProcessing);
 }
 
+async function connectStatsTable(workspace, worker, websocket){
+    const stats_table = await worker.table(
+        {
+            heap_size: "float",
+            used_size: "float",
+            cpu_time: "integer",
+            cpu_time_epoch: "integer",
+            version: "integer",
+            timestamp: "datetime",
+            client_used: "float",
+            client_heap: "float",
+        }
+    );
+
+    workspace.addTable("psp_memory_stats", stats_table);
+
+    (async function checkmem() {
+        try {
+            const sys_info = await websocket.system_info()
+            sys_info.timestamp = new Date();
+            await stats_table.update([sys_info]);
+        } catch (e) {
+            DEBUG && console.log("Memory stats update failed", e);
+        }
+        setTimeout(checkmem, 1000);
+    })();
+
+    workspace_tables["psp_memory_stats"] = {table: stats_table, started: true};
+}
+
 const workspace_tables = {};
 
 export function getWorkspaceTables() {
@@ -1176,6 +1264,8 @@ export function getWorkspaceTables() {
 }
 
 export async function connectWorkspaceTables(workspace, table_config, user_roles, new_api, management_ws){
+    await customElements.whenDefined("perspective-viewer");
+
     const is_new_api = new_api === "true";
     const worker = is_new_api ? await perspective.worker(): perspective.worker();
 
@@ -1184,8 +1274,14 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
     const websocket_ro = await perspective.websocket(ws + "://" + location.host + (is_new_api ? "/websocket" : "/websocket_readonly"));
     const websocket_rw = is_new_api ? websocket_ro : perspective.websocket(ws + "://" + location.host + "/websocket_editable");
 
+    if (is_new_api)
+        await connectStatsTable(workspace, worker, websocket_ro);
+
     const index = await websocket_ro.open_table("index");
-    const table_list = await (await index.view()).to_json();
+    const index_view = await index.view();
+    const table_list = await index_view.to_json();
+    await index_view.delete();
+    
     const tables = Object.fromEntries(table_list.map(x => [x.name, {...x, ...table_config[x.name]}]));
 
     const data_views = await fetch("/data_views.json", { signal: AbortSignal.timeout(10000) })
@@ -1252,6 +1348,7 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
                 table.name,
                 table.schema,
                 table.index,
+                websocket_ro,
                 worker));
         }
     }
@@ -1283,12 +1380,7 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
 
     heartbeat_view.on_update(
         async (updated) => {
-            const update_table = await worker.table(updated.delta);
-            const update_view = await update_table.view();
-            const update_data = await update_view.to_columns();
-            update_view.delete();
-            update_table.delete();
-
+            const update_data = await arrowToColumns(updated.delta, worker);
             const names = update_data['name'];
             if (!names) return; // empty update
 
@@ -1331,7 +1423,7 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
                     if (management_ws){
                         let should_reload = true;
                         while (true) {
-                            const probe_succeeded = await fetch("/graph-probe", { signal: AbortSignal.timeout(5000) })
+                            const probe_succeeded = await fetch("/graph-probe", { signal: AbortSignal.timeout(10000) })
                                 .then(async (response) => {
                                     if (response.status == 200) {
                                         document.querySelector("#announcement").innerHTML = "Data on the page is stale, will be reloaded in 15 seconds. <button id='wait'>Wait</button> <button id='reload'>Reload now</button>";

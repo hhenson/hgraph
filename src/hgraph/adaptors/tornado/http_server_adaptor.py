@@ -1,40 +1,38 @@
 import asyncio
 import logging
-from abc import ABC
 from dataclasses import dataclass
-from logging import info, getLogger
 from typing import Callable
 
 import tornado
-from frozendict import frozendict
 import tornado.iostream
+from frozendict import frozendict
 
 from hgraph import (
-    CompoundScalar,
-    HgTypeMetaData,
-    graph,
-    push_queue,
-    TSD,
-    TS,
-    GlobalState,
-    sink_node,
+    REMOVE_IF_EXISTS,
     STATE,
-    partition,
-    map_,
-    adaptor,
-    combine,
-    adaptor_impl,
-    merge,
-    register_adaptor,
-    TSB,
-    TS_SCHEMA,
     TIME_SERIES_TYPE,
+    TS,
+    TS_SCHEMA,
+    TSB,
+    TSD,
+    CompoundScalar,
+    GlobalState,
     HgTSBTypeMetaData,
     HgTSDTypeMetaData,
-    REMOVE_IF_EXISTS,
+    HgTypeMetaData,
+    adaptor,
+    adaptor_impl,
+    combine,
     default_path,
+    graph,
+    map_,
+    merge,
+    partition,
+    push_queue,
+    register_adaptor,
+    sink_node,
 )
-from hgraph.adaptors.tornado._tornado_web import TornadoWeb
+from hgraph.adaptors.tornado._tornado_web import BaseHandler, TornadoWeb
 
 __all__ = (
     "HttpRequest",
@@ -81,8 +79,11 @@ class HttpRequest(CompoundScalar):
 class HttpResponse(CompoundScalar):
     status_code: int
     headers: frozendict[str, str] = frozendict()
-    cookies: frozendict[str, dict[str, object]] = frozendict()
+    cookies: dict[str, dict[str, object]] = frozendict()
     body: bytes = b""
+
+    async def write(self, stream):
+        stream.write(self.body)
 
     def __repr__(self):
         return (
@@ -168,7 +169,7 @@ class HttpAdaptorManager:
         del self.requests[request_id]
 
 
-class HttpHandler(tornado.web.RequestHandler):
+class HttpHandler(BaseHandler):
     def initialize(self, path, mgr):
         self.path = path
         self.mgr: HttpAdaptorManager = mgr
@@ -183,6 +184,7 @@ class HttpHandler(tornado.web.RequestHandler):
                 k: frozendict({"value": v.value, **{p: w for p, w in v.items()}})
                 for k, v in self.request.cookies.items()
             }),
+            auth=getattr(self, "current_user", None),
         )
         await self._handle_request(request_obj)
 
@@ -195,6 +197,7 @@ class HttpHandler(tornado.web.RequestHandler):
                 k: frozendict({"value": v.value, **{p: w for p, w in v.items()}})
                 for k, v in self.request.cookies.items()
             }),
+            auth=getattr(self, "current_user", None),
         )
         await self._handle_request(request_obj)
 
@@ -208,6 +211,7 @@ class HttpHandler(tornado.web.RequestHandler):
                 k: frozendict({"value": v.value, **{p: w for p, w in v.items()}})
                 for k, v in self.request.cookies.items()
             }),
+            auth=getattr(self, "current_user", None),
         )
         await self._handle_request(request_obj)
 
@@ -221,6 +225,7 @@ class HttpHandler(tornado.web.RequestHandler):
                 k: frozendict({"value": v.value, **{p: w for p, w in v.items()}})
                 for k, v in self.request.cookies.items()
             }),
+            auth=getattr(self, "current_user", None),
         )
         await self._handle_request(request_obj)
 
@@ -239,7 +244,8 @@ class HttpHandler(tornado.web.RequestHandler):
                     self.set_cookie(k, v)
                 elif isinstance(v, dict):
                     self.set_cookie(k, **v)
-            await self.finish(response.body)
+            await response.write(self)
+            await self.finish()
         except tornado.iostream.StreamClosedError:
             pass  # the client closed the connection before we could send the response
 
@@ -390,8 +396,7 @@ def http_server_adaptor_helper(path: str, port: int):
 @adaptor_impl(interfaces=())
 def http_server_adaptor_impl(path: str, port: int):
     """Don't use this directly, wire in using the http_server_adaptor_helper."""
-    from hgraph import WiringNodeClass
-    from hgraph import WiringGraphContext
+    from hgraph import WiringGraphContext, WiringNodeClass
 
     logger.info("Wiring HTTP Server Adaptor on port %d", port)
 

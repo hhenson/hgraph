@@ -21,7 +21,7 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
 
     @property
     def owning_node(self) -> "Node":
-        return self._parent_input.owning_node if self._owning_node is None else self._owning_node
+        return self._parent_input.owning_node if self._parent_input is not None else self._owning_node
 
     @property
     def owning_graph(self) -> "Graph":
@@ -36,12 +36,19 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
         return self._parent_input is not None
 
     def re_parent(self, parent: Union["Node", "TimeSeries"]):
+        was_active = self.active
+        if was_active:
+            self.make_passive()
+            
         if isinstance(parent, Node):
             self._owning_node = parent
             self._parent_input = None
         else:
             self._owning_node = None
             self._parent_input = parent
+            
+        if was_active:
+            self.make_active()
 
     @abstractmethod
     def notify(self, modified_time: datetime):
@@ -83,7 +90,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def make_active(self):
         if not self._active:
             self._active = True
-            if self.bound:
+            if self._output is not None:
                 self._output.subscribe(self if self._subscribe_input else self.owning_node)
                 if self._output.valid and self._output.modified:
                     self.notify(self._output.last_modified_time)
@@ -95,7 +102,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def make_passive(self):
         if self._active:
             self._active = False
-            if self.bound:
+            if self._output is not None:
                 self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
 
     def notify(self, modified_time: datetime):
@@ -140,17 +147,18 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
         return peer
 
-    def un_bind_output(self):
+    def un_bind_output(self, unbind_refs: bool = False):
         was_valid = self.valid
+
+        from hgraph import TimeSeriesReferenceOutput
+
+        if unbind_refs and self._reference_output is not None:
+            self._reference_output.stop_observing_reference(self)
+            self._reference_output = None
+
         if self.bound:
-            from hgraph import TimeSeriesReferenceOutput
-
-            output = self._output
-            if isinstance(output, TimeSeriesReferenceOutput):
-                output.stop_observing_reference(self)
-                self._reference_output = None
-            self.do_un_bind_output()
-
+            self.do_un_bind_output(unbind_refs)
+            
             if self.owning_node.is_started and was_valid:
                 self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
                 if self.active:
@@ -167,7 +175,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
             # subscribed to
         return True
 
-    def do_un_bind_output(self):
+    def do_un_bind_output(self, unbind_refs: bool = False):
         if self.active:
             self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
         self._output = None

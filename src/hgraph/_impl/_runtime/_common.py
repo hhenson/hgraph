@@ -1,5 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
+import sys
 import typing
 from datetime import datetime
 
@@ -29,8 +30,12 @@ class TimeSeriesSubscriber:
             self._subscribers.append(subscriber)
 
     def unsubscribe(self, subscriber: SUBSCRIBER):
+        if not sys.exc_info():  # Check if we are not in an exception context
+            assert id(subscriber) in self._subscriber_count, f"Unsubscribe called with subscriber that is not known: {subscriber}"
+            assert self._subscriber_count[id(subscriber)] > 0, f"Unsubscribe called with subscriber has already unsubscribed: {subscriber}"
+
         self._subscriber_count[id(subscriber)] -= 1
-        if self._subscriber_count[id(subscriber)] == 0:
+        if (self._subscriber_count[id(subscriber)]) == 0:
             self._subscribers.remove(subscriber)
 
     def notify(self, modified_time: datetime):

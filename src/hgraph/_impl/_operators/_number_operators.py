@@ -4,6 +4,7 @@ from hgraph import (
     add_,
     TS,
     compute_node,
+    default,
     sub_,
     div_,
     NUMBER,
@@ -79,18 +80,19 @@ def div_numbers(lhs: TS[NUMBER], rhs: TS[NUMBER_2], divide_by_zero: DivideByZero
     try:
         return lhs.value / rhs.value
     except ZeroDivisionError:
-        if divide_by_zero is DivideByZero.NAN:
-            return float("NaN")
-        elif divide_by_zero is DivideByZero.INF:
-            return float("inf")
-        elif divide_by_zero is DivideByZero.NONE:
-            return
-        elif divide_by_zero is DivideByZero.ZERO:
-            return 0.0
-        elif divide_by_zero is DivideByZero.ONE:
-            return 1.0
-        else:
-            raise
+        match divide_by_zero:
+            case DivideByZero.NAN:
+                return float("NaN")
+            case DivideByZero.INF:
+                return float("inf")
+            case DivideByZero.NONE:
+                return
+            case DivideByZero.ZERO:
+                return 0.0
+            case DivideByZero.ONE:
+                return 1.0
+            case _:
+                raise
 
 
 @compute_node(overloads=floordiv_)

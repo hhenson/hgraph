@@ -68,6 +68,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         )
         self._ts_values_to_keys: dict[int, K] = {}
         self._modified_items: list[Tuple[K, V]] = []
+        self._last_cleanup_time: datetime = MIN_DT
 
     def add_key_observer(self, observer: TSDKeyObserver):
         self._key_observers.append(observer)
@@ -105,8 +106,6 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
                 del self[k]
             else:
                 self.get_or_create(k).value = v_
-        if self._removed_items or self._added_keys:
-            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
     def __delitem__(self, k):
         if k not in self._ts_values:
@@ -128,6 +127,10 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             self._modified_items.remove((k, item))
         except:
             pass
+
+        if self._last_cleanup_time < (et := self.owning_graph.evaluation_clock.evaluation_time):
+            self._last_cleanup_time = et
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
     def mark_child_modified(self, child: "TimeSeriesOutput", modified_time: datetime):
         if self._last_modified_time < modified_time:
@@ -214,9 +217,25 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         for observer in self._key_observers:
             observer.on_key_added(key)
 
-    def _clear_key_changes(self):  # clear_on_end_of_evaluation_cycle (C++)
+        if self._last_cleanup_time < (et := self.owning_graph.evaluation_clock.evaluation_time):
+            self._last_cleanup_time = et
+            self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
+        
+
+    def _clear_key_changes(self):
+        for v in self._removed_items.values():
+            self._ts_builder.release_instance(v)
         self._removed_items = {}
         self._added_keys = set()
+
+    def _dispose(self):
+        for v in self._removed_items.values():
+            self._ts_builder.release_instance(v)
+        self._removed_items = {}
+
+        for v in self._ts_values.values():
+            self._ts_builder.release_instance(v)
+        self._ts_values = {}
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         output: PythonTimeSeriesDictOutput
@@ -301,8 +320,6 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             peer = True
             key_set.set_subscribe_method(subscribe_input=self._subscribe_input)
 
-        self._has_peer = peer
-
         key_set.bind_output(output.key_set)
 
         if self.owning_node.is_started and self.output is not None:
@@ -310,7 +327,13 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             self._prev_output = self._output
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._reset_prev)
 
-        super().do_bind_output(output)
+        # this is a copy of the base implementation, however caters for peerage changes
+        active = self.active
+        self.make_passive()  # Ensure we are unsubscribed from the old output while has_peer has the old value
+        self._output = output
+        self._has_peer = peer
+        if active:
+            self.make_active()
 
         if self._ts_values:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
@@ -324,9 +347,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         output.add_key_observer(self)
         return peer
 
-    def do_un_bind_output(self):
+    def do_un_bind_output(self, unbind_refs: bool = False):
         key_set: "TimeSeriesSetInput" = self.key_set
-        key_set.un_bind_output()
+        key_set.un_bind_output(unbind_refs=unbind_refs)
         if self._ts_values:
             self._removed_items = {k: (v, v.valid) for k, v in self._ts_values.items()}
             self._ts_values = {}
@@ -336,18 +359,26 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             for k, (v, was_valid) in self._removed_items.items():
                 if v.parent_input is not self:
                     # Check for transplanted items, these do not get removed, but can be un-bound
-                    v.un_bind_output()
+                    v.un_bind_output(unbind_refs=unbind_refs)
                     self._ts_values[k] = v
                 else:
                     to_keep[k] = (v, was_valid)
             self._removed_items = to_keep
 
         self.output.remove_key_observer(self)
-        super().do_un_bind_output()
+        if self.has_peer:
+            super().do_un_bind_output(unbind_refs=unbind_refs)
+        else:
+            self._output = None
 
     def make_active(self):
         if self.has_peer:
             super().make_active()
+            for v in self._ts_values.values():
+                # inputs that were transplanted and might have been deactivated in make_passive(), 
+                # this is an approximate solution but at this point the information about active state is lost
+                if v.parent_input is not self:  
+                    v.make_active()
         else:
             self._active = True
             self.key_set.make_active()
@@ -384,7 +415,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def on_key_added(self, key: K):
         v = self.get_or_create(key)
-        if not self.has_peer and self.active:
+        if (not self.has_peer and self.active) or v.active:  # v.active can be true if this was a transplanted input
             v.make_active()
         v.bind_output(self.output[key])
 
@@ -405,14 +436,23 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                 self._modified_items.remove((key, value))
             except:
                 pass
-            if not self.has_peer:
-                value.un_bind_output()
         else:
             self._ts_values[key] = value
+            value.un_bind_output(unbind_refs=True)
             self._ts_values_to_keys[id(value)] = key
-            value.un_bind_output()
 
     def _clear_key_changes(self):
+        if self.owning_node is None:
+            return 
+        
+        for key in self.removed_keys():
+            if (v := self._removed_items.get(key)) is not None:
+                self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(
+                    lambda b=self._ts_builder, i=v[0]: 
+                        b.release_instance(i)
+                )
+                v[0].un_bind_output(unbind_refs=True)
+
         self._removed_items = {}
 
     @property
@@ -514,4 +554,5 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         for key in self.removed_keys():
             if (v := self._removed_items.get(key)) is None:
                 v = self._ts_values.get(key), True
-            yield (key, v[0])
+            if v[0] is not None:
+                yield (key, v[0])

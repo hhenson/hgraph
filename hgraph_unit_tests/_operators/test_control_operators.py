@@ -298,24 +298,24 @@ def test_race_tsd_of_bundles_switch_bundle_types():
     assert eval_node(
         g,
         ts=[
-            {1: {"free": False}, 2: {"free": True}},
-            {1: {"a": 0, "cond": False}},
-            {1: {"a": 0, "cond": True}},
-            {2: {"a": 2, "b": 1}},
-            {1: {"a": 1, "b": 2}},
-            {1: {"free": False, "cond": False}},  # reset the switch
-            {1: {"a": 3, "b": 3, "cond": True}},  # rebuild the bundle
-            {2: REMOVE},
-            {2: {"a": 0, "b": 0}},
+            {1: {"free": False}, 2: {"free": True}}, # 1
+            {1: {"a": 0, "cond": False}}, # 2
+            {1: {"a": 0, "cond": True}}, # 3
+            {2: {"a": 2, "b": 1}}, # 4
+            {1: {"a": 1, "b": 2}}, # 5
+            {1: {"free": False, "cond": False}},  # 6, reset the switch
+            {1: {"a": 3, "b": 3, "cond": True}},  # 7, rebuild the bundle
+            {2: REMOVE}, # 8
+            {2: {"a": 0, "b": 0}}, # 9
         ],
     ) == [
-        None,
-        None,
-        {"a": 0},
-        {"b": 1},
-        {"a": 1},
-        {"a": 2},
-        None,
-        {"a": 3, "b": 3},
-        None,
+        None, # 1, cond has not ticked so no valid items anywhere
+        None, # 2
+        {"a": 0}, # 3, now there are valid a in 1
+        {"b": 1}, # 4, b is forwarded from 2
+        {"a": 1}, # 5, a in 1 ticked
+        {"a": 2}, # 6, the bundle at 1 is reset, cond is False, so it is all invalid, a is now forwarded from 2
+        None, # 7, a and b are forwarded from 2 so items in 1 lost the race
+        {"a": 3, "b": 3}, # 8, 2 is gone, so items from 1 are forwarded now
+        None, # 9, 2 comes back but the race is lost
     ]

@@ -9,6 +9,7 @@ from hgraph import (
     TSL,
     SIZE,
     map_,
+    pass_through,
     reduce,
     HgTypeMetaData,
     SCALAR,
@@ -28,6 +29,7 @@ from hgraph import (
     nothing,
     Removed,
     sum_,
+    valid,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
@@ -426,3 +428,29 @@ def test_map_preexisting_keys():
         {"a": "a", "b": "b"},
         {"c": "c"},
     ]
+
+
+def test_map_reference_cleanup():
+    @graph
+    def g(value: TSD[str, TS[int]]) -> TSD[str, TS[str]]:
+        m1 = map_(lambda key, v: format_("{}_{}_1", key, v), value)
+        m2 = map_(lambda key, v: format_("{}_2", v), m1)
+        return m2
+
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}, {"b": REMOVE}, {"a": 2}],
+    ) == [{"a": "a_1_1_2", "b": "b_2_1_2"}, {"b": REMOVE}, {"a": "a_2_1_2"}]
+    
+    
+def test_map_reference_cleanup_2():
+    @graph
+    def g(value: TSD[str, TS[int]], selection: TSS[str]) -> TSD[str, TS[bool]]:
+        m1 = map_(lambda key, v: format_("{}_1", v), value)
+        return map_(lambda key, m: valid(m[key]), pass_through(m1), __keys__=selection)
+
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}, {"b": REMOVE}, {"a": 2}],
+        [{"b"}, None, None],
+    ) == [{"b": True}, {"b": False}, None]

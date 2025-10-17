@@ -1,6 +1,8 @@
 from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta
+from sys import exc_info
+import sys
 from typing import Mapping, cast
 
 from frozendict import frozendict
@@ -24,6 +26,7 @@ from hgraph._builder._ts_builder import (
     TSWOutputBuilder,
 )
 from hgraph._runtime._node import Node
+from hgraph._types._time_series_types import TimeSeries
 from hgraph._types._tsw_meta_data import HgTSWTypeMetaData
 from hgraph._types._context_meta_data import HgCONTEXTTypeMetaData
 from hgraph._types._ref_meta_data import HgREFTypeMetaData
@@ -40,7 +43,37 @@ from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
 __all__ = ("PythonTSOutputBuilder", "PythonTSInputBuilder", "PythonTimeSeriesBuilderFactory")
 
 
-class PythonTSOutputBuilder(TSOutputBuilder):
+class PythonOutputBuilder:
+    """Mixin base class for Python output builders that provides a standard release_instance implementation."""
+    
+    def release_instance(self, item: "PythonTimeSeriesOutput"):
+        if not sys.exc_info():
+            assert len(item._subscribers._subscribers) == 0, (
+                f"Output instance still has subscribers when released, this is a bug. \n"
+                f"output belongs to node {item.owning_node}\n"
+                f"subscriber nodes are {[i.owning_node if isinstance(i, TimeSeries) else i for i in item._subscribers._subscribers]}\n\n"
+                f"subscriber inputs are {[i for i in item._subscribers._subscribers if isinstance(i, TimeSeries)]}\n\n"
+                f"{item}"
+            )
+            
+            item._owning_node = None
+            item._parent_output = None
+
+
+class PythonInputBuilder:
+    """Mixin base class for Python input builders that provides a standard release_instance implementation."""
+    
+    def release_instance(self, item):
+        if not sys.exc_info():
+            assert item._output is None, (
+                f"Input instance still has an output reference when released, this is a bug. {item}"
+            )
+            
+            item._owning_node = None
+            item._parent_input = None
+
+
+class PythonTSOutputBuilder(PythonOutputBuilder, TSOutputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
         from hgraph import PythonTimeSeriesValueOutput
@@ -50,10 +83,11 @@ class PythonTSOutputBuilder(TSOutputBuilder):
         )
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        item._value = None
 
 
-class PythonTSInputBuilder(TSInputBuilder):
+class PythonTSInputBuilder(PythonInputBuilder, TSInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesValueInput
@@ -61,11 +95,11 @@ class PythonTSInputBuilder(TSInputBuilder):
         return PythonTimeSeriesValueInput(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
 
 
 @dataclass(frozen=True)
-class PythonITSWOutputBuilder(TSWOutputBuilder):
+class PythonITSWOutputBuilder(PythonOutputBuilder, TSWOutputBuilder):
 
     _size: int
     _min_size: int
@@ -82,11 +116,12 @@ class PythonITSWOutputBuilder(TSWOutputBuilder):
         )
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        item._value = None
 
 
 @dataclass(frozen=True)
-class PythonTTSWOutputBuilder(TSWOutputBuilder):
+class PythonTTSWOutputBuilder(PythonOutputBuilder, TSWOutputBuilder):
 
     _size: timedelta
     _min_size: timedelta
@@ -103,10 +138,11 @@ class PythonTTSWOutputBuilder(TSWOutputBuilder):
         )
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        item._value = None
 
 
-class PythonTSWInputBuilder(TSWInputBuilder):
+class PythonTSWInputBuilder(PythonInputBuilder, TSWInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesWindowInput
@@ -114,10 +150,10 @@ class PythonTSWInputBuilder(TSWInputBuilder):
         return PythonTimeSeriesWindowInput(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
 
 
-class PythonSignalInputBuilder(TSSignalInputBuilder):
+class PythonSignalInputBuilder(PythonInputBuilder, TSSignalInputBuilder):
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesSignal
@@ -125,11 +161,14 @@ class PythonSignalInputBuilder(TSSignalInputBuilder):
         return PythonTimeSeriesSignal(_owning_node=owning_node, _parent_input=owning_input)
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        if item._ts_values is not None:
+            for i in item._ts_values:
+                self.release_instance(i)
 
 
 @dataclass(frozen=True)
-class PythonTSBOutputBuilder(TSBOutputBuilder):
+class PythonTSBOutputBuilder(PythonOutputBuilder, TSBOutputBuilder):
     schema_builders: Mapping[str, TSOutputBuilder] | None = None
 
     def __post_init__(self):
@@ -150,11 +189,13 @@ class PythonTSBOutputBuilder(TSBOutputBuilder):
         return tsb
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        for k, v in self.schema_builders.items():
+            v.release_instance(item._ts_values[k])
 
 
 @dataclass(frozen=True)
-class PythonTSBInputBuilder(TSBInputBuilder):
+class PythonTSBInputBuilder(PythonInputBuilder, TSBInputBuilder):
     schema_builders: Mapping[str, TSInputBuilder] | None = None
 
     def __post_init__(self):
@@ -173,11 +214,13 @@ class PythonTSBInputBuilder(TSBInputBuilder):
         return tsb
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        for k, v in self.schema_builders.items():
+            v.release_instance(item._ts_values[k])
 
 
 @dataclass(frozen=True)
-class PythonTSLOutputBuilder(TSLOutputBuilder):
+class PythonTSLOutputBuilder(PythonOutputBuilder, TSLOutputBuilder):
     value_tp: HgTimeSeriesTypeMetaData
     size_tp: HgScalarTypeMetaData
     value_builder: TSOutputBuilder | None = None
@@ -202,11 +245,13 @@ class PythonTSLOutputBuilder(TSLOutputBuilder):
         return tsl
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        for value in item._ts_values:
+            self.value_builder.release_instance(value)
 
 
 @dataclass(frozen=True)
-class PythonTSLInputBuilder(TSLInputBuilder):
+class PythonTSLInputBuilder(PythonInputBuilder, TSLInputBuilder):
     value_tp: HgTimeSeriesTypeMetaData
     size_tp: HgScalarTypeMetaData
     value_builder: TSOutputBuilder | None = None
@@ -230,11 +275,13 @@ class PythonTSLInputBuilder(TSLInputBuilder):
         return tsl
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
+        for value in item._ts_values:
+            self.value_builder.release_instance(value)
 
 
 @dataclass(frozen=True)
-class PythonTSDOutputBuilder(TSDOutputBuilder):
+class PythonTSDOutputBuilder(PythonOutputBuilder, TSDOutputBuilder):
     key_tp: "HgScalarTypeMetaData"
     value_tp: "HgTimeSeriesTypeMetaData"
     value_builder: TSOutputBuilder | None = None
@@ -262,11 +309,12 @@ class PythonTSDOutputBuilder(TSDOutputBuilder):
         return tsd
 
     def release_instance(self, item):
-        """Nothing to do"""
+        item._dispose()
+        super().release_instance(item)
 
 
 @dataclass(frozen=True)
-class PythonTSDInputBuilder(TSDInputBuilder):
+class PythonTSDInputBuilder(PythonInputBuilder, TSDInputBuilder):
     key_tp: "HgScalarTypeMetaData"
     value_tp: "HgTimeSeriesTypeMetaData"
     value_builder: TSOutputBuilder | None = None
@@ -290,11 +338,11 @@ class PythonTSDInputBuilder(TSDInputBuilder):
         return tsd
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
 
 
 @dataclass(frozen=True)
-class PythonTSSOutputBuilder(TSSOutputBuilder):
+class PythonTSSOutputBuilder(PythonOutputBuilder, TSSOutputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None) -> TimeSeriesOutput:
         from hgraph import PythonTimeSeriesSetOutput
@@ -304,11 +352,12 @@ class PythonTSSOutputBuilder(TSSOutputBuilder):
         )
 
     def release_instance(self, item: TimeSeriesOutput):
-        """Nothing to do"""
+        super().release_instance(item)
+        item._value = None
 
 
 @dataclass(frozen=True)
-class PythonTSSInputBuilder(TSSInputBuilder):
+class PythonTSSInputBuilder(PythonInputBuilder, TSSInputBuilder):
 
     def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
         from hgraph import PythonTimeSeriesSetInput
@@ -320,7 +369,7 @@ class PythonTSSInputBuilder(TSSInputBuilder):
 
 
 @dataclass(frozen=True)
-class PythonREFOutputBuilder(REFOutputBuilder):
+class PythonREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
 
     def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
@@ -332,11 +381,11 @@ class PythonREFOutputBuilder(REFOutputBuilder):
         return ref
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
 
 
 @dataclass(frozen=True)
-class PythonREFInputBuilder(REFInputBuilder):
+class PythonREFInputBuilder(PythonInputBuilder, REFInputBuilder):
     value_tp: "HgTimeSeriesTypeMetaData"
     value_builder: TSOutputBuilder | None = None
 
@@ -349,7 +398,7 @@ class PythonREFInputBuilder(REFInputBuilder):
         return ref
 
     def release_instance(self, item):
-        """Nothing to do"""
+        super().release_instance(item)
 
 
 def _throw(value_tp):

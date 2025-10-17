@@ -27,6 +27,7 @@
             import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.js";
             window.addEventListener("DOMContentLoaded", async function () {
                 setTimeout(async () => {
+                    await customElements.whenDefined("perspective-viewer");                    
                     const viewer = document.getElementById("viewer");
                     let ws = "ws"
                     if (location.protocol === 'https:'){ ws = "wss"; }

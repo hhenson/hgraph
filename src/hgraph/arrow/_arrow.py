@@ -304,7 +304,7 @@ class _EvalArrowInput:
                 # Place nothing into the buffer
                 record_to_memory(nothing[TS[int]]())
 
-        with GlobalState() if GlobalState._instance is None else nullcontext():
+        with GlobalState() if not GlobalState.has_instance() else nullcontext():
             evaluate_graph(
                 g,
                 GraphConfiguration(

@@ -5,7 +5,7 @@ __all__ = ("GlobalState",)
 
 class GlobalState(object):
     """
-    Provide a global state that can be accessed bia all components of the graph and can be made to be present at the
+    Provide a global state that can be accessed via all components of the graph and can be made to be present at the
     end of graph evaluation. This can be useful to provide debugging information as well as directory services.
     """
 

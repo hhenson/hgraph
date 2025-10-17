@@ -151,8 +151,12 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             cast(TSD_OUT[K, TS[NodeError]], self.error_output).pop(key)
         graph: Graph = self._active_graphs.pop(key)
         self._un_wire_graph(key, graph)
-        graph.stop()
-        graph.dispose()
+        try:
+            graph.stop()
+        finally:
+            self.graph.evaluation_engine_api.add_before_evaluation_notification(
+                lambda g=graph: self.nested_graph_builder.release_instance(g)
+            )
 
     def _evaluate_graph(self, key: K):
         """Evaluate the graph for this key"""
@@ -181,11 +185,12 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                 if arg in self.multiplexed_args:  # Is this a multiplexed input?
                     from hgraph import PythonTimeSeriesReferenceInput
 
-                    tsd = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg])
+                    tsd : TSD[str, TIME_SERIES_TYPE] = self.input[arg]
                     node.input.ts.re_parent(tsd)
                     node.input = node.input.copy_with(
-                        __init_args__=dict(owning_node=node), ts=PythonTimeSeriesReferenceInput()
+                        __init_args__=dict(owning_node=node), ts=(ts := PythonTimeSeriesReferenceInput())
                     )
+                    ts.re_parent(node.input)
                     if not tsd.key_set.valid or not tsd.key_set.__contains__(key):
                         tsd.on_key_removed(key)
 
@@ -206,7 +211,8 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
             else:
                 if arg in self.multiplexed_args:  # Is this a multiplexed input?
                     # This should create a phantom input if one does not exist.
-                    ts = cast(TSD[str, TIME_SERIES_TYPE], self.input[arg]).get_or_create(key)
+                    tsd_arg : TSD[str, TIME_SERIES_TYPE] = self.input[arg]
+                    ts = tsd_arg.get_or_create(key)
                     node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
                     # Now we need to re-parent the pruned ts input.
                     ts.re_parent(node.input)

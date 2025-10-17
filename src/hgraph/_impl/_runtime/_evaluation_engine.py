@@ -83,9 +83,12 @@ class PythonEvaluationEngine(EvaluationEngine):
         self._before_evaluation_notification.clear()
 
     def notify_after_evaluation(self):
-        for notification_receiver in reversed(self._after_evaluation_notification):
+        todo = self._after_evaluation_notification
+        self._after_evaluation_notification = []
+        for notification_receiver in reversed(todo):
             notification_receiver()
-        self._after_evaluation_notification.clear()
+            if self._after_evaluation_notification:  # If new notifications were added during the previous calls, we need to process them.
+                self.notify_after_evaluation()
 
     def notify_before_graph_evaluation(self, graph):
         for life_cycle_observer in self._life_cycle_observers:

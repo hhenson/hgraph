@@ -1,9 +1,10 @@
+from datetime import datetime
 import logging
 import time
 from dataclasses import dataclass
 from typing import Callable
 
-from hgraph import Graph, Node
+from hgraph import Graph, Node, record
 from hgraph.debug._inspector_util import estimate_value_size, estimate_size
 
 __all__ = ("InspectionObserver",)
@@ -61,6 +62,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         callback_progress: Callable = None,
         progress_interval: float = 0.1,
         compute_sizes: bool = False,
+        track_recent_performance: bool = False,
     ):
         self.graphs = {}
         self.graphs_by_id = {}
@@ -75,6 +77,12 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         self.graph_subscriptions = set()
         self.node_subscriptions = set()
+        
+        self.track_recent_performance = track_recent_performance
+        self.recent_performance_batch = datetime.utcnow().replace(second=0, microsecond=0)
+        self.recent_node_performance = [(self.recent_performance_batch, {})]  # list of dicts
+        self.recent_graph_performance = [(self.recent_performance_batch, {})]  # list of dicts
+        self.recent_perforamance_horizon = 15  # keep last 60 minutes
 
         if graph:
             self.walk(graph)
@@ -105,6 +113,26 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def unsubscribe_node(self, node_id: tuple[int, ...]):
         self.node_subscriptions.discard(node_id)
+
+    def get_recent_node_performance(self, node_id: tuple[int, ...], after: datetime = None):
+        result = []
+        for batch_time, batch in reversed(self.recent_node_performance[1:]):
+            if after is None or batch_time > after:
+                if v := batch.get(node_id):
+                    result.append((batch_time, v))
+            else: 
+                break
+        return result
+
+    def get_recent_graph_performance(self, graph_id: tuple[int, ...], after: datetime = None):
+        result = []
+        for batch_time, batch in reversed(self.recent_graph_performance[1:]):
+            if after is None or batch_time > after:
+                if v := batch.get(graph_id):
+                    result.append((batch_time, v))
+            else: 
+                break
+        return result
 
     def check_progress(self):
         if self.callback_progress and time.perf_counter_ns() - self.progress_last_time > self.progress_interval:
@@ -188,6 +216,15 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         if self.current_graph.id == ():
             self.current_graph.os_eval_begin_thread_time = time.thread_time()
+            batch_time = datetime.utcnow().replace(second=0, microsecond=0)
+            if self.track_recent_performance and batch_time > self.recent_performance_batch:
+                self.recent_performance_batch = batch_time
+                self.recent_node_performance.append((batch_time, {}))
+                while len(self.recent_node_performance) > self.recent_perforamance_horizon:
+                    self.recent_node_performance.pop(0)
+                self.recent_graph_performance.append((batch_time, {}))
+                while len(self.recent_graph_performance) > self.recent_perforamance_horizon:
+                    self.recent_graph_performance.pop(0)
 
         new_node_count = len(graph.nodes)
         if new_node_count != len(self.current_graph.node_eval_counts):
@@ -228,10 +265,17 @@ class InspectionObserver(EvaluationLifeCycleObserver):
     def on_after_node_evaluation(self, node: "Node"):
         observation_begin = time.perf_counter_ns()
 
-        self.current_graph.node_eval_counts[node.node_ndx] += 1
-        self.current_graph.node_eval_times[node.node_ndx] += (
+        eval_time = (
             time.perf_counter_ns() - self.current_graph.node_eval_begin_times[node.node_ndx]
         )
+
+        self.current_graph.node_eval_counts[node.node_ndx] += 1
+        self.current_graph.node_eval_times[node.node_ndx] += eval_time
+        
+        if self.track_recent_performance:
+            recent = self.recent_node_performance[-1][1].setdefault(node.node_id, dict(eval_count=0, eval_time=0))
+            recent["eval_count"] += 1
+            recent["eval_time"] += eval_time
 
         if not node.signature.is_source_node:
             self._process_node_after_eval(node)
@@ -278,6 +322,11 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.current_graph.eval_count += 1
         self.current_graph.cycle_time = time.perf_counter_ns() - self.current_graph.eval_begin_time
         self.current_graph.eval_time += self.current_graph.cycle_time
+
+        if self.track_recent_performance:
+            recent = self.recent_graph_performance[-1][1].setdefault(graph.graph_id, dict(eval_count=0, eval_time=0))
+            recent["eval_count"] += 1
+            recent["eval_time"] += self.current_graph.cycle_time
 
         if graph.graph_id != ():
             parent_graph = self.graphs_by_id[graph.parent_node.owning_graph_id]

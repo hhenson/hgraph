@@ -59,12 +59,17 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         # 1. If the key has ticked we need to create a new graph.
         # (if the value has changed or if reload_on_ticked is True)
         key: TS[SCALAR] = self._kwargs["key"]
+        graph_reset: bool = False
         if key.modified:
             if self.reload_on_ticked or key.value != self._active_key:
                 if self._active_graph:
+                    graph_reset = True
                     self._active_graph.stop()
                     self._unwire_graph(self._active_graph)
-                    self._active_graph.dispose()
+                    self.graph.evaluation_engine_api.add_before_evaluation_notification(
+                        lambda g=self._active_graph, key=self._active_key: 
+                            self.nested_graph_builders.get(key, self._default_graph_builder).release_instance(g)
+                    )
                 self._active_key = key.value
 
                 if builder := self.nested_graph_builders.get(self._active_key, self._default_graph_builder):
@@ -85,7 +90,10 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
         if self._active_graph:
             self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
             self._active_graph.evaluate_graph()
+            if graph_reset and self.output and not self.output.modified:
+                self.output.value = None
             self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
+
 
     def nested_graphs(self):
         if self._active_graph:
@@ -140,4 +148,5 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
     def dispose(self):
         if self._active_graph is not None:
             self._active_graph.dispose()
+            self.nested_graph_builders.get(self._active_key, self._default_graph_builder).release_instance(self._active_graph)
         super().dispose()

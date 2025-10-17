@@ -8,6 +8,7 @@ from collections import deque
 import pyarrow
 
 from hgraph import (
+    MIN_DT,
     Node,
     PythonNestedNodeImpl,
     TimeSeriesInput,
@@ -94,9 +95,8 @@ def inspector_expand_item(state: InspectorState, item_id: InspectorItemId):
             else:
                 graph = gi.graph
 
-        data.append(
-            dict(
-                id=i.to_str(),
+        str_id = i.to_str()
+        data.setdefault(str_id, dict(id=str_id)).update(
                 ord=i.sort_key(),
                 X="+",
                 name=i.indent(graph) + format_name(v, k),
@@ -105,16 +105,16 @@ def inspector_expand_item(state: InspectorState, item_id: InspectorItemId):
                 modified=format_modified(v),
                 scheduled=format_scheduled(v),
             )
-        )
 
         subscribe_item(state, i)
         items += 1
 
     if item_id.graph != () or item_id.node is not None:
+        str_id = item_id.to_str()
         if items:
-            data.append(dict(id=item_id.to_str(), X="-"))
+            data.setdefault(str_id, dict(id=str_id))['X'] = "-"
         else:
-            data.append(dict(id=item_id.to_str(), X="º"))
+            data.setdefault(str_id, dict(id=str_id))['X'] = "º"
 
     return "", []
 
@@ -134,8 +134,8 @@ def inspector_show_item(state: InspectorState, item_id: InspectorItemId):
 
     key = item_id.value_path[-1] if item_id.value_path else item_id.value_type.value if item_id.value_type else None
 
-    state.value_data.append(
-        dict(
+    str_id = item_id.to_str()
+    state.value_data.setdefault(str_id, dict(id=str_id)).update(
             id=item_id.to_str(),
             ord=item_id.sort_key(),
             X="+",
@@ -145,7 +145,6 @@ def inspector_show_item(state: InspectorState, item_id: InspectorItemId):
             modified=format_modified(value),
             scheduled=format_scheduled(value),
         )
-    )
 
     subscribe_item(state, item_id)
 
@@ -156,12 +155,12 @@ def inspector_collapse_item(state, item_id):
     graphs_to_unsubscribe = []
     for k, v in state.graph_subscriptions.items():
         if item_id.is_parent_of(v):
-            graphs_to_unsubscribe.append(k)
+            graphs_to_unsubscribe.append(v)
 
     nodes_to_unsubscribe = []
     for k, v in state.node_subscriptions.items():
         if item_id.is_parent_of(v):
-            nodes_to_unsubscribe.append(k)
+            nodes_to_unsubscribe.append(v)
 
     items_to_unsubscribe = []
     if item_id.node is not None:
@@ -174,23 +173,17 @@ def inspector_collapse_item(state, item_id):
                     if item_id.is_parent_of(sub_item_id):
                         items_to_unsubscribe.append(sub_item_id)
 
-    for graph_id in graphs_to_unsubscribe:
-        i = state.graph_subscriptions.pop(graph_id)
-        state.observer.unsubscribe_graph(graph_id)
-        state.value_removals.add(i.to_str())
+    for graph_i in graphs_to_unsubscribe:
+        unsubscribe_item(state, graph_i)
 
-    for node_id in nodes_to_unsubscribe:
-        i = state.node_subscriptions.pop(node_id)
-        state.observer.unsubscribe_node(node_id)
-        state.value_removals.add(i.to_str())
-        for sub_item_id in state.node_item_subscriptions.get(node_id, set()):
-            state.value_removals.add(sub_item_id.to_str())
+    for node_i in nodes_to_unsubscribe:
+        unsubscribe_item(state, node_i)
 
     for sub_item_id in items_to_unsubscribe:
         unsubscribe_item(state, sub_item_id)
-        state.value_removals.add(sub_item_id.to_str())
 
-    state.value_data.append(dict(id=item_id.to_str(), X="+"))
+    str_id = item_id.to_str()
+    state.value_data.setdefault(str_id, dict(id=str_id))['X'] = "+"
 
     return "", []
 
@@ -267,8 +260,8 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
             else:
                 graph = gi.graph
 
-        state.value_data.append(
-            dict(
+        str_id = i.to_str()
+        state.value_data.setdefault(str_id, dict(id=str_id)).update(
                 id=i.to_str(),
                 ord=i.sort_key(),
                 X="?",
@@ -278,7 +271,6 @@ def inspector_search_item(state, item_id, search_re, depth=0, limit=10):
                 modified=format_modified(v),
                 scheduled=format_scheduled(v),
             )
-        )
 
         items += 1
 
@@ -454,12 +446,12 @@ def subscribe_item(state, sub_item_id):
     if sub_item_id.node is None:
         state.graph_subscriptions[sub_item_id.graph] = sub_item_id
         state.observer.subscribe_graph(sub_item_id.graph)
-        process_graph_stats(state, sub_item_id.graph, sub_item_id)
+        process_graph_stats(state, sub_item_id.graph, sub_item_id, state.track_detailed_performance)
     elif sub_item_id.value_type is None:
         node_id = sub_item_id.graph + (sub_item_id.node,)
         state.node_subscriptions[node_id] = sub_item_id
         state.observer.subscribe_node(node_id)
-        process_node_stats(state, node_id, sub_item_id)
+        process_node_stats(state, node_id, sub_item_id, state.track_detailed_performance)
     else:
         node_id = sub_item_id.graph + (sub_item_id.node,)
         state.node_item_subscriptions[node_id].add(sub_item_id)
@@ -471,16 +463,22 @@ def subscribe_item(state, sub_item_id):
 
 def unsubscribe_item(state, sub_item_id):
     if sub_item_id.node is None:
-        state.graph_subscriptions.pop(sub_item_id.graph, None)
+        graph_id = sub_item_id.graph
+        state.graph_subscriptions.pop(graph_id, None)
         state.observer.unsubscribe_graph(sub_item_id.graph)
+        state.value_removals.add(sub_item_id.to_str())
     elif sub_item_id.value_type is None:
         node_id = sub_item_id.graph + (sub_item_id.node,)
         state.node_subscriptions.pop(node_id, None)
-        if not state.node_item_subscriptions.get(node_id):
-            state.observer.unsubscribe_node(sub_item_id.graph + (sub_item_id.node))
+        state.observer.unsubscribe_node(node_id)
+        state.value_removals.add(sub_item_id.to_str())
+        for item_id in state.node_item_subscriptions.get(node_id, set()):
+            state.value_removals.add(item_id.to_str())
+        state.node_item_subscriptions.pop(node_id, None)
     else:
         node_id = sub_item_id.graph + (sub_item_id.node,)
         subscriptions = state.node_item_subscriptions.get(node_id)
+        state.value_removals.add(sub_item_id.to_str())
         if subscriptions is not None:
             subscriptions.remove(sub_item_id)
             if not subscriptions:

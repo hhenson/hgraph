@@ -3,7 +3,7 @@
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no" />
 
-        <title>ACE: {{url}}</title>
+        <title>ACE{{ ' ' + env if (env := mgr.options.get('env')) else '' }}: {{url}}</title>
 
     	<script language='javascript'>
             const display_errors = false;
@@ -25,6 +25,15 @@
         <script type="module" src="/node_modules/@finos/perspective-viewer-d3fc/dist/cdn/perspective-viewer-d3fc.js"></script>
         <script type="module" src="/node_modules/perspective-viewer-datagrid-norollups/dist/cdn/perspective-viewer-datagrid-norollups.js"></script>
         <script type="module" src="/node_modules/perspective-viewer-summary/dist/cdn/perspective-viewer-summary.js"></script>
+
+        <script type="importmap">
+            {
+                "imports": {
+                    "flatbuffers": "/node_modules/flatbuffers/mjs/flatbuffers.js",
+                    "tslib": "/node_modules/tslib/tslib.es6.js"
+                }
+            }
+        </script>
 
         <link rel="stylesheet" crossorigin="anonymous" href="/node_modules/@finos/perspective-viewer/dist/css/themes.css" />
         <link rel="stylesheet" crossorigin="anonymous" href="/node_modules/@finos/perspective-workspace/dist/css/pro-dark.css" />
@@ -90,7 +99,7 @@
                 z-index: 9999; /* Sit on top */
                 left: 50%;
                 top: 50%;
-                transform: translate(-50%, -50%);
+                transform: translate(-50%, -100px);
                 padding: 20px;
                 background-color: rgba(0, 0, 0, 0.8); /* Black background with opacity */
                 color: white;
@@ -131,6 +140,17 @@
                 margin: 10px;
                 color: red;
                 list-style: none;
+            }
+
+            .announcement-list {
+                margin: 10px;
+                color: lightgrey;
+                list-style: none;
+            }
+
+            .announcement-list li {
+                text-align: left;
+                font-size: x-small;
             }
 
             .login-dialog {
@@ -179,6 +199,9 @@
             <div class="progress-indicator"></div>
             <div>
                 <ul class="error-list"></ul>
+            </div>
+            <div>
+                <ul class="announcement-list"></ul>
             </div>
         </div>
 
@@ -361,7 +384,7 @@
                             json = await loadLayout(json);
                         }
 
-                        await ensureTablesForConfig(json, (progress, message, error) => {
+                        await ensureTablesForConfig(json, (progress, message, error, key, status) => {
                             const progressBar = document.querySelector('.progress-indicator');
                             progressBar.style.setProperty('--progress-width', `${100 * progress}%`);
                             if (message){
@@ -371,6 +394,15 @@
                                 console.error(error);
                                 const errorList = document.querySelector('.error-list');
                                 errorList.innerHTML += `<li>${error}</li>`;
+                            }
+                            if (key) {
+                                const announcementList = document.querySelector('.announcement-list');
+                                let item = Array.from(announcementList.children).find(e => e.innerText.startsWith(`${key}:`));
+                                if (!item) {
+                                    item = document.createElement('li');
+                                    announcementList.appendChild(item);
+                                }
+                                item.innerText = `${key}: ${status}`;
                             }
                         });
 

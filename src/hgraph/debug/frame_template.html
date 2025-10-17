@@ -36,6 +36,7 @@
 
 
             window.addEventListener("DOMContentLoaded", async function () {
+                await customElements.whenDefined("perspective-viewer");                         
                 const viewer = document.getElementById("viewer");
 
                 viewer.load(frame("/inspect/value/{{table_name}}"));
