@@ -1453,3 +1453,10 @@ Version 0.4.87 (16-10-2025)
 ---------------------------
 
 * Expose key_tp to mesh builder to better support the C++ build.
+
+Version 0.4.88 (17-10-2025)
+---------------------------
+
+* Some cleanups for the C++ build.
+* Changes from AB mostly related to shut down handing, reference binding/unbinding and memory management.
+* Some changes to perspective and the inspector.
