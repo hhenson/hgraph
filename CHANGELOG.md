@@ -1476,3 +1476,8 @@ Version 0.4.91 (17-10-2025)
 ---------------------------
 
 * Expose key tp to the mesh builder.
+
+Version 0.4.92 (18-10-2025)
+---------------------------
+
+* Remove inconsistent handling of subscriptions to inputs.
