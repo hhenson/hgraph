@@ -315,10 +315,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             #  that contains REFs but there are other items that are of different but compatible non-REF types.
             #  It would be very esoteric and I cannot think of an example so will leave the check as is
             peer = False
-            key_set.set_subscribe_method(subscribe_input=True)
         else:
             peer = True
-            key_set.set_subscribe_method(subscribe_input=self._subscribe_input)
 
         key_set.bind_output(output.key_set)
 
@@ -396,7 +394,6 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def _create(self, key: K):
         item = self._ts_builder.make_instance(owning_input=self)
-        item.set_subscribe_method(subscribe_input=not self.has_peer)
         self._ts_values[key] = item
         self._ts_values_to_keys[id(item)] = key
 

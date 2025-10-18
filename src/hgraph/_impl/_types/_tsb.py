@@ -117,11 +117,6 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         TimeSeriesBundleInput.__init__(self, schema)
         PythonBoundTimeSeriesInput.__init__(self, _owning_node=owning_node, _parent_input=parent_input)
 
-    def set_subscribe_method(self, subscribe_input: bool):
-        super().set_subscribe_method(subscribe_input)
-        for ts in self.values():
-            ts.set_subscribe_method(subscribe_input)
-
     @property
     def all_valid(self) -> bool:
         return all(ts.valid for ts in self.values())

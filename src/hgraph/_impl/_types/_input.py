@@ -74,8 +74,6 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     )
     # however there is no guarantee that if there were other types of observers they would not clash with the
     # references, so probably this is required to be this way. I am just a little annoyed with the growth of the object
-
-    _subscribe_input: bool = False
     _active: bool = False
     _sample_time: datetime = MIN_DT
     _notify_time: datetime = MIN_DT
@@ -84,14 +82,11 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def active(self) -> bool:
         return self._active
 
-    def set_subscribe_method(self, subscribe_input: bool):
-        self._subscribe_input = subscribe_input
-
     def make_active(self):
         if not self._active:
             self._active = True
             if self._output is not None:
-                self._output.subscribe(self if self._subscribe_input else self.owning_node)
+                self._output.subscribe(self)
                 if self._output.valid and self._output.modified:
                     self.notify(self._output.last_modified_time)
                     return  # If the output is modified we do not need to check if sampled
@@ -103,7 +98,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
         if self._active:
             self._active = False
             if self._output is not None:
-                self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
+               self._output.unsubscribe(self)
 
     def notify(self, modified_time: datetime):
         if self._notify_time != modified_time:
@@ -177,7 +172,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
     def do_un_bind_output(self, unbind_refs: bool = False):
         if self.active:
-            self._output.unsubscribe(self if self._subscribe_input else self.owning_node)
+            self._output.unsubscribe(self)
         self._output = None
 
     @property

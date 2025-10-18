@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from hgraph._runtime._constants import MIN_DT, MAX_ET
-from hgraph._impl._runtime._common import TimeSeriesSubscriber, SUBSCRIBER
+from hgraph._impl._runtime._common import SUBSCRIBER
 from hgraph._types._time_series_types import TimeSeriesOutput
 
 if typing.TYPE_CHECKING:
@@ -21,7 +21,7 @@ __all__ = ("PythonTimeSeriesOutput",)
 class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     _owning_node: Optional["Node"] = None
     _parent_output: Optional["TimeSeriesOutput"] = None
-    _subscribers: TimeSeriesSubscriber = field(default_factory=TimeSeriesSubscriber)
+    _subscribers: list["TimeSeriesInput"] = field(default_factory=list)
     _last_modified_time: datetime = MIN_DT
 
     @property
@@ -90,10 +90,11 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
         return self.owning_node.graph
 
     def subscribe(self, subscriber: SUBSCRIBER):
-        self._subscribers.subscribe(subscriber)
+        self._subscribers.append(subscriber)
 
     def unsubscribe(self, subscriber: SUBSCRIBER):
-        self._subscribers.unsubscribe(subscriber)
+        self._subscribers.remove(subscriber)
 
     def _notify(self, modified_time):
-        self._subscribers.notify(modified_time)
+        for ts in self._subscribers:
+            ts.notify(modified_time)

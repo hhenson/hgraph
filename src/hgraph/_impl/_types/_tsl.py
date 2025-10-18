@@ -115,11 +115,6 @@ class PythonTimeSeriesListInput(
     def bound(self) -> bool:
         return super().bound or any(ts.bound for ts in self.values())
 
-    def set_subscribe_method(self, subscribe_input: bool):
-        super().set_subscribe_method(subscribe_input)
-        for ts in self.values():
-            ts.set_subscribe_method(subscribe_input)
-
     def do_bind_output(self, output: TimeSeriesOutput):
         output: PythonTimeSeriesListOutput
         peer = True
