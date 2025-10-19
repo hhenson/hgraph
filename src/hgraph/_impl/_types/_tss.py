@@ -144,7 +144,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
     def delta_value(self) -> SetDelta[SCALAR]:
         return set_delta(self._added, self._removed, self._tp)
 
-    def add(self, element: SCALAR, extensions=None):
+    def add(self, element: SCALAR):
         if element not in self._value:
             if not self._value:
                 self._is_empty_ref_output.value = False
