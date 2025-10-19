@@ -145,8 +145,6 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     def un_bind_output(self, unbind_refs: bool = False):
         was_valid = self.valid
 
-        from hgraph import TimeSeriesReferenceOutput
-
         if unbind_refs and self._reference_output is not None:
             self._reference_output.stop_observing_reference(self)
             self._reference_output = None

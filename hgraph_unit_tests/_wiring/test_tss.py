@@ -20,6 +20,17 @@ def test_tss_strait():
     ]
 
 
+def test_tss_set_frozenset():
+    @compute_node
+    def c(ts: TS[frozenset[str]]) -> TSS[str]:
+        return ts.value
+
+    assert eval_node(c, [frozenset({"a", "b"}), frozenset({"a"}), frozenset({"b"})]) == [
+        set_delta(frozenset({"a", "b"}), frozenset(), tp=str),
+        set_delta(frozenset(), frozenset({"b"}), tp=str),
+        set_delta(frozenset("b"), frozenset({"a"}), tp=str),
+    ]
+
 def test_tss_pass_through():
 
     @graph

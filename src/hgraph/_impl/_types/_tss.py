@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Generic, Iterable, Any, Set, Optional
 
+from hgraph import MIN_DT
 from hgraph._impl._types._feature_extension import FeatureOutputExtension
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
@@ -91,6 +92,7 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
 
     def invalidate(self):
         self.clear()
+        self._last_modified_time = MIN_DT
 
     @property
     def value(self) -> Set[SCALAR]:
@@ -108,6 +110,12 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
                 raise ValueError("Cannot remove and add the same element")
             self._value.update(self._added)
             self._value.difference_update(self._removed)
+        elif isinstance(v, frozenset):
+            # Lets make the value be v, will create an appropriate delta
+            old_value = self._value
+            self._value = v
+            self._added = frozenset(v - old_value)
+            self._removed = frozenset(old_value - v)
         else:
             # Assume that the result is a set, and then we are adding all the elements that are not marked Removed
             self._added = {r for r in v if type(r) is not Removed and r not in self._value}
