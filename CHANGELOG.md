@@ -1481,3 +1481,5 @@ Version 0.4.92 (18-10-2025)
 ---------------------------
 
 * Remove inconsistent handling of subscriptions to inputs.
+* Add feature to all returning a frozenset and having the TSS output conform to the set. THIS COULD BREAK EXISTING CODE.
+
