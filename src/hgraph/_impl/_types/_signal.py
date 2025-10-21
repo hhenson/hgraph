@@ -25,6 +25,8 @@ class PythonTimeSeriesSignal(PythonBoundTimeSeriesInput, TimeSeriesSignalInput):
             self._ts_values = []
         while index > len(self._ts_values) - 1:
             new_item = PythonTimeSeriesSignal(_owning_node=self._owning_node, _parent_input=self)
+            if self.active:
+                new_item.make_active()
             self._ts_values.append(new_item)
         return self._ts_values[index]
 
