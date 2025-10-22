@@ -210,6 +210,10 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
         assert isinstance(ts_input, PythonTimeSeriesReferenceInput)
         self.value = ts_input.value
 
+    def is_reference(self) -> bool:
+        return True
+
+
 
 @dataclass
 class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
@@ -374,3 +378,6 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
             times.append(self._output.last_modified_time)
         
         return max(*times, self._sample_time) if times else self._sample_time
+
+    def is_reference(self) -> bool:
+        return True

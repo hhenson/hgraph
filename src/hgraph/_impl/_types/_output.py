@@ -98,3 +98,10 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     def _notify(self, modified_time):
         for ts in self._subscribers:
             ts.notify(modified_time)
+
+    def is_reference(self) -> bool:
+        return False
+
+    def has_reference(self, other: "TimeSeries") -> bool:
+        return False
+

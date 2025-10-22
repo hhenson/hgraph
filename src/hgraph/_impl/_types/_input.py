@@ -57,6 +57,9 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
     def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
         self.notify(modified_time)
 
+    def is_reference(self) -> bool:
+        return False
+
 
 @dataclass
 class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):

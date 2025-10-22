@@ -95,7 +95,8 @@ def tsd_get_item_default(
     # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
     # and the below 'if' deals with that by subscribing to the inner reference too
     if _ref.modified:
-        if _ref.value.has_output and isinstance(_ref.value.output, TimeSeriesReferenceOutput):
+        # TODO: Is the instanceof check required or can it just be dumped.
+        if _ref.value.has_output and _ref.value.output.is_reference:
             _ref_ref.bind_output(_ref.value.output)
             _ref_ref.make_active()
         elif _ref_ref.bound:
