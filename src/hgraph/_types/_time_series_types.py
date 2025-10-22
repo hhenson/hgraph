@@ -129,6 +129,12 @@ class TimeSeries(ABC):
         For example, see use in map implementation.
         """
 
+    @abstractmethod
+    def is_reference(self) -> bool:
+        """
+        :return: True if this time-series is a reference to another time-series.
+        """
+
 
 TIME_SERIES_TYPE = TypeVar("TIME_SERIES_TYPE", bound=TimeSeries)
 TIME_SERIES_TYPE_1 = TypeVar("TIME_SERIES_TYPE_1", bound=TimeSeries)
