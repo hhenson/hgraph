@@ -372,12 +372,11 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def make_active(self):
         if self.has_peer:
             super().make_active()
-            # There is no evidence this is needed, if we are peered this should not make any difference.
-            # for v in self._ts_values.values():
-            #     # inputs that were transplanted and might have been deactivated in make_passive(),
-            #     # this is an approximate solution but at this point the information about active state is lost
-            #     if v.parent_input is not self:
-            #         v.make_active()
+            for v in self._ts_values.values():
+                # inputs that were transplanted and might have been deactivated in make_passive(),
+                # this is an approximate solution but at this point the information about active state is lost
+                if v.parent_input is not self:
+                    v.make_active()
         else:
             self._active = True
             self.key_set.make_active()

@@ -1486,8 +1486,6 @@ Version 0.4.92 (18-10-2025)
 Version 0.4.93 (22-10-2025)
 ---------------------------
 
-* Commented out a "fix" in TSD Input make_active. If this is still an issue, we should look for the source to better handle it.
-  as the current fix will make TSD's rather slow.
 * Add a fix for Non-peered TSD's where it is possible that newly created wrappers (in _create) will not be marked active
 * A fix to signal where somehow the Python code was working with signal bound to non-peered TS instances where the added 
   children were not being marked as active.
