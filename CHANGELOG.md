@@ -1493,3 +1493,4 @@ Version 0.4.93 (22-10-2025)
   children were not being marked as active.
 * Remove the make active in the on_key_added as this is too far away from where the input is actually created and there
   may be other paths that could construct a non-peered TS instance. The logic is now with _create.
+* Remove reverse mappings in TSD Input when removing a key

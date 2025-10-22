@@ -423,6 +423,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         value: TimeSeriesInput = self._ts_values.pop(key, None)
         if value is None:
             return
+        # Clean up the key mapping as well
+        self._ts_values_to_keys.pop(id(value), None)
 
         if not self._removed_items:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
