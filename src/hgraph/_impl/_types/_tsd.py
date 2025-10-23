@@ -121,7 +121,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         item.clear()
         if not was_added:
             self._removed_items[k] = item
-        self._ts_values_to_keys.pop(id(item))
+        del self._ts_values_to_keys[id(item)]
         self._ref_ts_feature.update(k)
         try:
             self._modified_items.pop(k)
@@ -156,7 +156,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         return v
 
     def key_from_value(self, value: V) -> K:
-        return self._ts_values_to_keys.get(id(value))
+        return self._ts_values_to_keys[id(value)]
 
     def clear(self):
         self.key_set.clear()
@@ -423,7 +423,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         if value is None:
             return
         # Clean up the key mapping as well
-        self._ts_values_to_keys.pop(id(value), None)
+        self._ts_values_to_keys[id(value)]
 
         if not self._removed_items:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
