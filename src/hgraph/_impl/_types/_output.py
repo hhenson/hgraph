@@ -7,9 +7,9 @@ from typing import Optional
 from hgraph._runtime._constants import MIN_DT, MAX_ET
 from hgraph._impl._runtime._common import SUBSCRIBER
 from hgraph._types._time_series_types import TimeSeriesOutput
+from hgraph._runtime._node import Node
 
 if typing.TYPE_CHECKING:
-    from hgraph._runtime._node import Node
     from hgraph._runtime._graph import Graph
     from hgraph._types._time_series_types import TimeSeries
 
@@ -19,8 +19,7 @@ __all__ = ("PythonTimeSeriesOutput",)
 
 @dataclass
 class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
-    _owning_node: Optional["Node"] = None
-    _parent_output: Optional["TimeSeriesOutput"] = None
+    _parent_or_node: typing.Union["TimeSeriesOutput", "Node"] = None
     _subscribers: list["TimeSeriesInput"] = field(default_factory=list)
     _last_modified_time: datetime = MIN_DT
 
@@ -47,8 +46,8 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
                 modified_time = clock.evaluation_time
         if self._last_modified_time < modified_time:
             self._last_modified_time = modified_time
-            if self._parent_output is not None:
-                self._parent_output.mark_child_modified(self, modified_time)
+            if self.has_parent_output:
+                self._parent_or_node.mark_child_modified(self, modified_time)
             self._notify(modified_time)
 
     def mark_child_modified(self, child: "TimeSeriesOutput", modified_time: datetime):
@@ -64,26 +63,23 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
 
     @property
     def parent_output(self) -> Optional["TimeSeriesOutput"]:
-        return self._parent_output
+        return self._parent_or_node if not isinstance(self._parent_or_node, Node) else None
 
     @property
     def has_parent_output(self) -> bool:
-        return self._parent_output is not None
+        return self._parent_or_node is not None and not isinstance(self._parent_or_node, Node)
 
     def re_parent(self, parent: typing.Union["Node", "TimeSeries"]):
-        if isinstance(parent, Node):
-            self._owning_node = parent
-            self._parent_input = None
-        else:
-            self._owning_node = None
-            self._parent_input = parent
+        self._parent_or_node = parent
 
     @property
     def owning_node(self) -> "Node":
-        if self._parent_output is not None:
-            return self._parent_output.owning_node
+        if self._parent_or_node is None:
+            return None
+        if not isinstance(self._parent_or_node, Node):
+            return self._parent_or_node.owning_node
         else:
-            return self._owning_node
+            return self._parent_or_node
 
     @property
     def owning_graph(self) -> "Graph":

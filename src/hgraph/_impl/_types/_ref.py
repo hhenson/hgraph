@@ -324,7 +324,7 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
         if self._items is None:
             self._items = []
         while item > len(self._items) - 1:
-            new_item = PythonTimeSeriesReferenceInput(_owning_node=self._owning_node, _parent_input=self)
+            new_item = PythonTimeSeriesReferenceInput(_parent_or_node=self)
             self._items.append(new_item)
         return self._items[item]
 

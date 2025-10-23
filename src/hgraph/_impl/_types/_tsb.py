@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping, Generic, TYPE_CHECKING, cast
+from typing import Any, Mapping, Generic, TYPE_CHECKING, cast, Union
 
 from hgraph._runtime._constants import MIN_DT
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
@@ -112,10 +112,10 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
     This means most all methods can be delegated to the output. This is slightly more efficient than the unbound version.
     """
 
-    def __init__(self, schema: TS_SCHEMA, owning_node: "Node" = None, parent_input: "TimeSeriesInput" = None):
+    def __init__(self, schema: TS_SCHEMA, _parent_or_node: Union["Node", "TimeSeriesInput"] = None):
         Generic.__init__(self)
         TimeSeriesBundleInput.__init__(self, schema)
-        PythonBoundTimeSeriesInput.__init__(self, _owning_node=owning_node, _parent_input=parent_input)
+        PythonBoundTimeSeriesInput.__init__(self, _parent_or_node=_parent_or_node)
 
     @property
     def all_valid(self) -> bool:

@@ -43,7 +43,7 @@ class PythonNestedGraphNodeImpl(PythonNestedNodeImpl):
                 node: NodeImpl = self._active_graph.nodes[node_ndx]
                 node.notify()
                 ts = self.input[arg]
-                node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+                node.input = node.input.copy_with(__init_args__=dict(_parent_or_node=node), ts=ts)
                 # Now we need to re-parent the pruned ts input.
                 ts.re_parent(node.input)
 

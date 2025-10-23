@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Generic, Optional, Any
+from typing import Generic, Optional, Any, Union
 
 from frozendict import frozendict
 
@@ -102,12 +102,11 @@ class PythonTimeSeriesListInput(
         self,
         __type__: TIME_SERIES_TYPE,
         __size__: SIZE,
-        _owning_node: "Node" = None,
-        _parent_input: "TimeSeriesInput" = None,
+        _parent_or_node: Union["Node", "TimeSeriesInput"] = None,
     ):
         Generic.__init__(self)
         TimeSeriesListInput.__init__(self, __type__, __size__)
-        PythonBoundTimeSeriesInput.__init__(self, _owning_node=_owning_node, _parent_input=_parent_input)
+        PythonBoundTimeSeriesInput.__init__(self, _parent_or_node=_parent_or_node)
 
     # TODO: With the introduction of REF inputs, we need to revisit the definition of has_peer.
 

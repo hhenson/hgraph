@@ -188,7 +188,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                     tsd : TSD[str, TIME_SERIES_TYPE] = self.input[arg]
                     node.input.ts.re_parent(tsd)
                     node.input = node.input.copy_with(
-                        __init_args__=dict(owning_node=node), ts=(ts := PythonTimeSeriesReferenceInput())
+                        __init_args__=dict(_parent_or_node=node), ts=(ts := PythonTimeSeriesReferenceInput())
                     )
                     ts.re_parent(node.input)
                     if not tsd.key_set.valid or not tsd.key_set.__contains__(key):
@@ -213,7 +213,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                     # This should create a phantom input if one does not exist.
                     tsd_arg : TSD[str, TIME_SERIES_TYPE] = self.input[arg]
                     ts = tsd_arg.get_or_create(key)
-                    node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+                    node.input = node.input.copy_with(__init_args__=dict(_parent_or_node=node), ts=ts)
                     # Now we need to re-parent the pruned ts input.
                     ts.re_parent(node.input)
                 else:

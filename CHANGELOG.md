@@ -1498,3 +1498,10 @@ Version 0.4.94 (23-10-2025)
 ---------------------------
 
 * Change _modified_items to dict from list to more closely match c++ implementation.
+
+Version 0.4.95 (23-10-2025)
+---------------------------
+
+* Modify the _owning_node and _parent[_input|_output] to be _parent_or_node as in teh C++ code. This reduces the overall
+  memory footprint of the graph, but will probably have a bit more cost to process in Python, but trying to keep C++
+  and Python code as similar as possible to ellimate causes for bugs as I am porting. NOTE: THIS COULD BREAK EXISTING CODE.

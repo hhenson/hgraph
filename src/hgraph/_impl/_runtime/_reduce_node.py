@@ -154,8 +154,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # The previously bound time-series can be dropped as it would have been removed and is going away.
         src_input = src_node.input[0]
         dst_input = dst_node.input[0]
-        src_node.input = src_node.input.copy_with(__init_args__=dict(owning_node=src_node), ts=dst_input)
-        dst_node.input = dst_node.input.copy_with(__init_args__=dict(owning_node=dst_node), ts=src_input)
+        src_node.input = src_node.input.copy_with(__init_args__=dict(_parent_or_node=src_node), ts=dst_input)
+        dst_node.input = dst_node.input.copy_with(__init_args__=dict(_parent_or_node=dst_node), ts=src_input)
         dst_input.re_parent(src_node.input)
         src_input.re_parent(dst_node.input)
         src_node.notify()
@@ -195,7 +195,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         node_id, side = ndx
         node: NodeImpl = self._get_node(node_id)[side]
         ts = self._tsd[key]  # The key must exist.
-        node.input = node.input.copy_with(__init_args__=dict(owning_node=node), ts=ts)
+        node.input = node.input.copy_with(__init_args__=dict(_parent_or_node=node), ts=ts)
         # Now we need to re-parent the pruned ts input.
         ts.re_parent(node.input)
         ts.make_active()  # it will be passive is the parent TSD is a peer and will not be picked up if the node is started
@@ -214,7 +214,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         if getattr(inner_input, '_bound_to_key', False):
             inner_input.re_parent(self._tsd)
             node.input = node.input.copy_with(
-                __init_args__=dict(owning_node=node), ts=(ts := PythonTimeSeriesReferenceInput())
+                __init_args__=dict(_parent_or_node=node), ts=(ts := PythonTimeSeriesReferenceInput())
             )
             ts.re_parent(node.input)
             ts.clone_binding(self._zero)

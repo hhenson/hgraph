@@ -16,12 +16,13 @@ __all__ = ("PythonTimeSeriesInput", "PythonBoundTimeSeriesInput")
 
 @dataclass
 class PythonTimeSeriesInput(TimeSeriesInput, ABC):
-    _owning_node: Optional["Node"] = None
-    _parent_input: Optional["TimeSeriesInput"] = None
+    # _owning_node: Optional["Node"] = None
+    # _parent_input: Optional["TimeSeriesInput"] = None
+    _parent_or_node: Union["TimeSeriesOutput", "Node"] = None
 
     @property
     def owning_node(self) -> "Node":
-        return self._parent_input.owning_node if self._parent_input is not None else self._owning_node
+        return self._parent_or_node.owning_node if not isinstance(self._parent_or_node, Node) else self._parent_or_node
 
     @property
     def owning_graph(self) -> "Graph":
@@ -29,23 +30,18 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
 
     @property
     def parent_input(self) -> Optional["TimeSeriesInput"]:
-        return self._parent_input
+        return self._parent_or_node if not isinstance(self._parent_or_node, Node) else None
 
     @property
     def has_parent_input(self) -> bool:
-        return self._parent_input is not None
+        return self._parent_or_node is not None and not isinstance(self._parent_or_node, Node)
 
     def re_parent(self, parent: Union["Node", "TimeSeries"]):
         was_active = self.active
         if was_active:
             self.make_passive()
             
-        if isinstance(parent, Node):
-            self._owning_node = parent
-            self._parent_input = None
-        else:
-            self._owning_node = None
-            self._parent_input = parent
+        self._parent_or_node = parent
             
         if was_active:
             self.make_active()

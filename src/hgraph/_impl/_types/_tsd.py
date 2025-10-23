@@ -50,8 +50,8 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
     ):
         Generic.__init__(self)
         __key_set__: TimeSeriesSetOutput
-        __key_set__._owning_node = kwargs["_owning_node"]
-        __key_set__._parent_output = self
+        #__key_set__._owning_node = kwargs["_owning_node"]
+        __key_set__._parent_or_node = self
         TimeSeriesDictOutput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         super().__init__(*args, **kwargs)
         self._key_observers: list[TSDKeyObserver] = []
@@ -286,8 +286,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def __init__(self, __key_set__, __key_tp__, __value_tp__, *args, **kwargs):
         Generic.__init__(self)
         __key_set__: TimeSeriesOutput
-        __key_set__._owning_node = kwargs["_owning_node"]
-        __key_set__._parent_input = self
+       # __key_set__._owning_node = kwargs["_owning_node"]
+        __key_set__._parent_or_node = self
         TimeSeriesDictInput.__init__(self, __key_set__, __key_tp__, __value_tp__)
         PythonBoundTimeSeriesInput.__init__(self, *args, **kwargs)
         from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory

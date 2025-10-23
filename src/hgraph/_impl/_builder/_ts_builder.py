@@ -56,8 +56,7 @@ class PythonOutputBuilder:
                 f"{item}"
             )
             
-            item._owning_node = None
-            item._parent_output = None
+            item._parent_or_node = None
 
 
 class PythonInputBuilder:
@@ -68,9 +67,8 @@ class PythonInputBuilder:
             assert item._output is None, (
                 f"Input instance still has an output reference when released, this is a bug. {item}"
             )
-            
-            item._owning_node = None
-            item._parent_input = None
+
+            item._parent_or_node = None
 
 
 class PythonTSOutputBuilder(PythonOutputBuilder, TSOutputBuilder):
@@ -79,7 +77,7 @@ class PythonTSOutputBuilder(PythonOutputBuilder, TSOutputBuilder):
         from hgraph import PythonTimeSeriesValueOutput
 
         return PythonTimeSeriesValueOutput(
-            _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type
+            _parent_or_node=owning_output if owning_output is not None else owning_node, _tp=self.value_tp.py_type
         )
 
     def release_instance(self, item):
@@ -92,7 +90,7 @@ class PythonTSInputBuilder(PythonInputBuilder, TSInputBuilder):
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesValueInput
 
-        return PythonTimeSeriesValueInput(_owning_node=owning_node, _parent_input=owning_input)
+        return PythonTimeSeriesValueInput(_parent_or_node=owning_input if owning_input is not None else owning_node)
 
     def release_instance(self, item):
         super().release_instance(item)
@@ -108,8 +106,7 @@ class PythonITSWOutputBuilder(PythonOutputBuilder, TSWOutputBuilder):
         from hgraph import PythonTimeSeriesFixedWindowOutput
 
         return PythonTimeSeriesFixedWindowOutput(
-            _owning_node=owning_node,
-            _parent_output=owning_output,
+            _parent_or_node=owning_output if owning_output is not None else owning_node,
             _tp=self.value_tp.py_type,
             _size=self._size,
             _min_size=self._min_size,
@@ -130,8 +127,7 @@ class PythonTTSWOutputBuilder(PythonOutputBuilder, TSWOutputBuilder):
         from hgraph import PythonTimeSeriesTimeWindowOutput
 
         return PythonTimeSeriesTimeWindowOutput(
-            _owning_node=owning_node,
-            _parent_output=owning_output,
+            _parent_or_node=owning_output if owning_output is not None else owning_node,
             _tp=self.value_tp.py_type,
             _size=self._size,
             _min_size=self._min_size,
@@ -147,7 +143,7 @@ class PythonTSWInputBuilder(PythonInputBuilder, TSWInputBuilder):
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesWindowInput
 
-        return PythonTimeSeriesWindowInput(_owning_node=owning_node, _parent_input=owning_input)
+        return PythonTimeSeriesWindowInput(_parent_or_node=owning_input if owning_input is not None else owning_node)
 
     def release_instance(self, item):
         super().release_instance(item)
@@ -158,7 +154,7 @@ class PythonSignalInputBuilder(PythonInputBuilder, TSSignalInputBuilder):
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesSignal
 
-        return PythonTimeSeriesSignal(_owning_node=owning_node, _parent_input=owning_input)
+        return PythonTimeSeriesSignal(_parent_or_node=owning_input if owning_input is not None else owning_node)
 
     def release_instance(self, item):
         super().release_instance(item)
@@ -183,7 +179,7 @@ class PythonTSBOutputBuilder(PythonOutputBuilder, TSBOutputBuilder):
         from hgraph import PythonTimeSeriesBundleOutput
 
         tsb = PythonTimeSeriesBundleOutput[self.schema](
-            self.schema, _owning_node=owning_node, _parent_output=owning_output
+            self.schema, _parent_or_node=owning_output if owning_output is not None else owning_node
         )
         tsb._ts_values = {k: v.make_instance(owning_output=tsb) for k, v in self.schema_builders.items()}
         return tsb
@@ -209,7 +205,7 @@ class PythonTSBInputBuilder(PythonInputBuilder, TSBInputBuilder):
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesBundleInput
 
-        tsb = PythonTimeSeriesBundleInput[self.schema](self.schema, owning_node=owning_node, parent_input=owning_input)
+        tsb = PythonTimeSeriesBundleInput[self.schema](self.schema, _parent_or_node=owning_input if owning_input is not None else owning_node)
         tsb._ts_values = {k: v.make_instance(owning_input=tsb) for k, v in self.schema_builders.items()}
         return tsb
 
@@ -236,8 +232,7 @@ class PythonTSLOutputBuilder(PythonOutputBuilder, TSLOutputBuilder):
         tsl = PythonTimeSeriesListOutput[self.value_tp.py_type, self.size_tp.py_type](
             __type__=self.value_tp.py_type,
             __size__=self.size_tp.py_type,
-            _owning_node=owning_node,
-            _parent_output=owning_output,
+            _parent_or_node=owning_output if owning_output is not None else owning_node,
         )
         tsl._ts_values = [
             self.value_builder.make_instance(owning_output=tsl) for _ in range(cast(Size, self.size_tp.py_type).SIZE)
@@ -266,8 +261,7 @@ class PythonTSLInputBuilder(PythonInputBuilder, TSLInputBuilder):
         tsl = PythonTimeSeriesListInput[self.value_tp.py_type, self.size_tp.py_type](
             __type__=self.value_tp.py_type,
             __size__=self.size_tp.py_type,
-            _owning_node=owning_node,
-            _parent_input=owning_input,
+            _parent_or_node=owning_input if owning_input is not None else owning_node,
         )
         tsl._ts_values = [
             self.value_builder.make_instance(owning_input=tsl) for _ in range(cast(Size, self.size_tp.py_type).SIZE)
@@ -303,8 +297,7 @@ class PythonTSDOutputBuilder(PythonOutputBuilder, TSDOutputBuilder):
             __value_tp__=self.value_tp,
             __value_output_builder__=self.value_builder,
             __value_reference_builder__=self.value_reference_builder,
-            _owning_node=owning_node,
-            _parent_output=owning_output,
+            _parent_or_node=owning_output if owning_output is not None else owning_node,
         )
         return tsd
 
@@ -332,8 +325,7 @@ class PythonTSDInputBuilder(PythonInputBuilder, TSDInputBuilder):
             __key_set__=self.key_set_builder.make_instance(),
             __key_tp__=self.key_tp,
             __value_tp__=self.value_tp,
-            _owning_node=owning_node,
-            _parent_input=owning_input,
+            _parent_or_node=owning_input if owning_input is not None else owning_node,
         )
         return tsd
 
@@ -348,7 +340,7 @@ class PythonTSSOutputBuilder(PythonOutputBuilder, TSSOutputBuilder):
         from hgraph import PythonTimeSeriesSetOutput
 
         return PythonTimeSeriesSetOutput(
-            _owning_node=owning_node, _parent_output=owning_output, _tp=self.value_tp.py_type
+            _parent_or_node=owning_output if owning_output is not None else owning_node, _tp=self.value_tp.py_type
         )
 
     def release_instance(self, item: TimeSeriesOutput):
@@ -362,7 +354,7 @@ class PythonTSSInputBuilder(PythonInputBuilder, TSSInputBuilder):
     def make_instance(self, owning_node: Node = None, owning_input: TimeSeriesInput = None) -> TimeSeriesInput:
         from hgraph import PythonTimeSeriesSetInput
 
-        return PythonTimeSeriesSetInput(_owning_node=owning_node, _parent_input=owning_input)
+        return PythonTimeSeriesSetInput(_parent_or_node=owning_input if owning_input is not None else owning_node)
 
     def release_instance(self, item: TimeSeriesInput):
         super().release_instance(item)
@@ -376,7 +368,7 @@ class PythonREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
         from hgraph._impl._types._ref import PythonTimeSeriesReferenceOutput
 
         ref = PythonTimeSeriesReferenceOutput[self.value_tp.py_type](
-            _tp=self.value_tp, _owning_node=owning_node, _parent_output=owning_output
+            _tp=self.value_tp, _parent_or_node=owning_output if owning_output is not None else owning_node
         )
         return ref
 
@@ -393,7 +385,7 @@ class PythonREFInputBuilder(PythonInputBuilder, REFInputBuilder):
         from hgraph._impl._types._ref import PythonTimeSeriesReferenceInput
 
         ref = PythonTimeSeriesReferenceInput[self.value_tp.py_type](
-            _owning_node=owning_node, _parent_input=owning_input
+            _parent_or_node=owning_input if owning_input is not None else owning_node
         )
         return ref
 
