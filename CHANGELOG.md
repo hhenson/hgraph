@@ -1505,3 +1505,8 @@ Version 0.4.95 (23-10-2025)
 * Modify the _owning_node and _parent[_input|_output] to be _parent_or_node as in teh C++ code. This reduces the overall
   memory footprint of the graph, but will probably have a bit more cost to process in Python, but trying to keep C++
   and Python code as similar as possible to ellimate causes for bugs as I am porting. NOTE: THIS COULD BREAK EXISTING CODE.
+
+Version 0.4.96 (23-10-2025)
+---------------------------
+
+* Only add a child to modified if the child's key exists in _ts_values, if not just return. NOTE: THIS COULD BREAK EXISTING CODE.
