@@ -1493,3 +1493,8 @@ Version 0.4.93 (22-10-2025)
   may be other paths that could construct a non-peered TS instance. The logic is now with _create.
 * Remove reverse mappings in TSD Input when removing a key
 * Add is_reference to avoid instanceof check.
+
+Version 0.4.94 (23-10-2025)
+---------------------------
+
+* Change _modified_items to dict from list to more closely match c++ implementation.
