@@ -138,7 +138,12 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             self._modified_items = {}
 
         if child is not self._key_set:
-            self._modified_items[self._ts_values_to_keys[id(child)]] = child
+            key = self._ts_values_to_keys.get(id(child))
+            if key not in self._ts_values:
+                # If key is not in _ts_values, then we should not add to modified items, and we are not modified.
+                # NOTE: THhis is different to the original logic. I am not sure how we can even get here if this happens
+                return
+            self._modified_items[key] = child
 
         super().mark_child_modified(child, modified_time)
 
@@ -236,6 +241,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         for v in self._ts_values.values():
             self._ts_builder.release_instance(v)
         self._ts_values = {}
+        self._ts_values_to_keys = {}
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
         output: PythonTimeSeriesDictOutput
@@ -351,6 +357,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         if self._ts_values:
             self._removed_items = {k: (v, v.valid) for k, v in self._ts_values.items()}
             self._ts_values = {}
+            self._ts_values_to_keys = {}
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
             to_keep = {}
@@ -359,6 +366,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                     # Check for transplanted items, these do not get removed, but can be un-bound
                     v.un_bind_output(unbind_refs=unbind_refs)
                     self._ts_values[k] = v
+                    self._ts_values_to_keys[id(v)] = k
                 else:
                     to_keep[k] = (v, was_valid)
             self._removed_items = to_keep
@@ -407,7 +415,10 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             self._modified_items = {}
 
         if child is not self._key_set:
-            self._modified_items[self._ts_values_to_keys[id(child)]] = child
+            key = self._ts_values_to_keys.get(id(child))
+            if key not in self._ts_values:
+                return
+            self._modified_items[key] = child
 
         super().notify_parent(self, modified_time)
 
