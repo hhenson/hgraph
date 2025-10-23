@@ -29,7 +29,7 @@ from hgraph import (
     nothing,
     Removed,
     sum_,
-    valid,
+    valid, if_, if_then_else,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
@@ -454,3 +454,25 @@ def test_map_reference_cleanup_2():
         [{"a": 1, "b": 2}, {"b": REMOVE}, {"a": 2}],
         [{"b"}, None, None],
     ) == [{"b": True}, {"b": False}, None]
+
+
+def test_map_input_rebind_to_nonpeer():
+    @graph
+    def g(ts: TS[int]) -> TSD[str, TS[int]]:
+        initial = const({'a': 1, 'b': 2}, TSD[str, TS[int]])
+        source = switch_(ts > 0, {
+            # when ts=0 just pass the const through so that output map gets a peer
+            False: lambda i, replace_refs: i,
+            # on ts=1 push const through a map to get a non-peer TSD
+            # then on ts=2 replace the references with the x+1 nodes (i.e. new refs will tick out of the map), and values will jump by 1
+            True: lambda i, replace_refs: map_(lambda x, replace_refs_: if_then_else(replace_refs_, x+1, x), i, replace_refs),
+        }, initial, ts > 1)
+
+        return map_(lambda x, y: x + y, source, ts)  # note ts is added to all values every tick
+
+    assert eval_node(g, [0, 1, 2, 3], __trace__=True) == [
+        {'a': 1, 'b': 2},
+        {'a': 2, 'b': 3},
+        {'a': 4, 'b': 5},
+        {'a': 5, 'b': 6},
+    ]
