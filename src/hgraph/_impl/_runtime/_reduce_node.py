@@ -177,11 +177,6 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
             # We can shrink the tree.
             self._shrink_tree()
 
-    def _evaluate_graph(self):
-        """Evaluate the graph for this key"""
-        self._nested_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
-        self._nested_graph.evaluate_graph()
-
     @functools.cached_property
     def _node_size(self):
         """Return the number of nodes in the tree"""
