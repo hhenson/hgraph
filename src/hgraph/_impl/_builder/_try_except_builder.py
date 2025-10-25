@@ -32,3 +32,4 @@ class PythonTryExceptNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: "PythonTryExceptNodeImpl"):
         """Nothing to be done here"""
+        super().release_instance(item)

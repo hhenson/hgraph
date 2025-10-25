@@ -36,3 +36,4 @@ class PythonMeshNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: PythonMeshNodeImpl):
         """Nothing to do"""
+        super().release_instance(item)

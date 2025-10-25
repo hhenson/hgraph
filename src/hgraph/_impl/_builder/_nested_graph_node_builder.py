@@ -32,3 +32,4 @@ class PythonNestedGraphNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: "PythonNestedGraphNodeImpl"):
         """Nothing to be done here"""
+        super().release_instance(item)

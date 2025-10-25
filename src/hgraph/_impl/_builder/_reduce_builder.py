@@ -32,6 +32,7 @@ class PythonReduceNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: PythonReduceNodeImpl):
         """Nothing to do"""
+        super().release_instance(item)
 
 
 @dataclass(frozen=True)
@@ -55,3 +56,4 @@ class PythonTsdNonAssociativeReduceNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: PythonReduceNodeImpl):
         """Nothing to do"""
+        super().release_instance(item)

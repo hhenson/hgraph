@@ -33,3 +33,4 @@ class PythonTsdMapNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: PythonTsdMapNodeImpl):
         """Nothing to do"""
+        super().release_instance(item)

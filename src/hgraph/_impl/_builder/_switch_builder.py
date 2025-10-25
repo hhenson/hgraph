@@ -33,3 +33,4 @@ class PythonSwitchNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: PythonSwitchNodeImpl):
         """Nothing to be done here"""
+        super().release_instance(item)

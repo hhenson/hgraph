@@ -68,6 +68,8 @@ class PythonNestedGraphNodeImpl(PythonNestedNodeImpl):
         self._active_graph.stop()
 
     def dispose(self):
+        if self._active_graph is None:
+            return
         self._active_graph.dispose()
         self._active_graph = None
 

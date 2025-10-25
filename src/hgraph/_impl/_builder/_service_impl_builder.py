@@ -28,3 +28,4 @@ class PythonServiceImplNodeBuilder(PythonBaseNodeBuilder):
 
     def release_instance(self, item: PythonServiceNodeImpl):
         """Nothing to be done here"""
+        super().release_instance(item)
