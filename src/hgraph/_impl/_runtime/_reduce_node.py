@@ -108,7 +108,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # not change very frequently
         o = self.output
         l = self._last_output
-        if (not o.valid and l.valid) or o.value != l.value:
+        if (not o.valid and l.valid) or (l.valid and o.value != l.value):
             o.value = l.value
 
     def nested_graphs(self):
