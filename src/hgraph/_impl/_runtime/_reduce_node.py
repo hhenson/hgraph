@@ -93,8 +93,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
 
         # Process additions and removals (do in order remove then add to reduce the possibility of growing
         # The tree just to tear it down again
-        self._remove_nodes(self._tsd.removed_keys())
-        self._add_nodes(self._tsd.added_keys())
+        self._remove_nodes(self._tsd.key_set.removed())
+        self._add_nodes(self._tsd.key_set.added())
 
         # Now we can re-balance the tree if required.
         self._re_balance_nodes()
