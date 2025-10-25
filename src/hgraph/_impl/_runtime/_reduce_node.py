@@ -69,9 +69,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         self._nested_graph.destroy()
         self._nested_graph = None
 
-    @start_guard
-    def start(self):
-        super().start()
+    def do_start(self):
+        # Do not call super as there is no python start function associated with this node.
         if self._tsd.valid:
             keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
             if len(keys) > 0:
@@ -82,10 +81,9 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
             self._grow_tree()
         self._nested_graph.start()
 
-    @stop_guard
-    def stop(self):
+    def do_stop(self):
+        # No call to super as there is no python stop function associated with this node.
         self._nested_graph.stop()
-        super().stop()
 
     def eval(self):
         self.mark_evaluated()
