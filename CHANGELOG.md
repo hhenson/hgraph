@@ -1510,3 +1510,8 @@ Version 0.4.96 (23-10-2025)
 ---------------------------
 
 * Only add a child to modified if the child's key exists in _ts_values, if not just return. NOTE: THIS COULD BREAK EXISTING CODE.
+
+Version 0.4.97 (25-10-2025)
+---------------------------
+
+* Add calls to super for the release_instance method on the node builders
