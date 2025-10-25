@@ -47,7 +47,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         output_node_id: int = None,
     ):
         super().__init__(node_ndx, owning_graph_id, signature, scalars, eval_fn, start_fn, stop_fn)
-        self._nested_graph: PythonGraph = PythonGraph(self.node_id, nodes=[], parent_node=self)
+        self._nested_graph: PythonGraph = None
 
         self.nested_graph_builder: GraphBuilder = nested_graph_builder
         self.input_node_ids: tuple[int, int] = input_node_ids  # LHS index, RHS index
@@ -57,9 +57,17 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         self._free_node_indexes: list[tuple[int, int]] = []  # This is a list of (ndx, 0(lhs)|1(rhs)) tuples.
 
     def initialise(self):
+        self._nested_graph= PythonGraph(self.node_id, nodes=[], parent_node=self)
         self._nested_graph.evaluation_engine = NestedEvaluationEngine(
             self.graph.evaluation_engine, NestedEngineEvaluationClock(self.graph.engine_evaluation_clock, self)
         )
+        self._nested_graph.initialise()
+
+    def destroy(self):
+        if self._nested_graph is None:
+            return
+        self._nested_graph.destroy()
+        self._nested_graph = None
 
     @start_guard
     def start(self):
