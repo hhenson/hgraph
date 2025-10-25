@@ -74,7 +74,8 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
     def do_start(self):
         # Do not call super as there is no python start function associated with this node.
         if self._tsd.valid:
-            keys = set(self._tsd.keys()) - set(self._tsd.added_keys())
+            key_set = self._tsd.key_set
+            keys = key_set.valid - key_set.added
             if len(keys) > 0:
                 self._add_nodes(keys)  # If there are already inputs, then add the keys.
             else:
