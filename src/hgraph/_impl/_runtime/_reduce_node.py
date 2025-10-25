@@ -106,8 +106,10 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         # Now we just need to detect the change in graph shape, so we can propagate it on.
         # The output as well as the last_output are reference time-series so this should
         # not change very frequently
-        if (o := self.output).value != (v := self._last_output.value):
-            o.value = v
+        o = self.output
+        l = self._last_output
+        if (not o.valid and l.valid) or o.value != l.value:
+            o.value = l.value
 
     def nested_graphs(self):
         return {0: self._nested_graph}
