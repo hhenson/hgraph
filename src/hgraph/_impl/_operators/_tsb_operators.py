@@ -297,7 +297,7 @@ def dereference(tsb: REF[TSB[TS_SCHEMA]], _schema: Type[TS_SCHEMA] = AUTO_RESOLV
         else:
             items = {k: tsb.value.items[_schema._schema_index_of(k)] for k in _schema.__meta_data_schema__}
             return {
-                k: item if isinstance(item, TimeSeriesReference) else TimeSeriesReference.make(item)
+                k: item if TimeSeriesReference.is_instance(item) else TimeSeriesReference.make(item)
                 for k, item in items.items()
             }
     else:
