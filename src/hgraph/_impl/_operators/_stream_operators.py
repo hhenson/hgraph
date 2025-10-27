@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 from datetime import timedelta, datetime
 from typing import Mapping, Generic
 
-from multimethod import multimethod
-
 from hgraph import (
     TSW,
     WINDOW_SIZE,
@@ -222,42 +220,7 @@ def filter_default(condition: TS[bool], ts: TIME_SERIES_TYPE, _output: TIME_SERI
 @dataclass
 class _ThrottleState(CompoundScalar):
     tick: dict = field(default_factory=dict)
-
-
-@multimethod
-def collect_tick(input, out):
-    return {
-        k_new: v_new
-        for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
-        if v_new is not None
-    }
-
-
-@collect_tick.register
-def collect_dict(input: PythonTimeSeriesDictInput, out):
-    out |= {
-        k_new: v_new
-        for k_new, v_new in ((k, collect_tick(v, out.setdefault(k, dict()))) for k, v in input.modified_items())
-        if v_new is not None
-    }
-    return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
-
-
-@collect_tick.register
-def collect_set(input: PythonTimeSeriesSetInput, out):
-    from hgraph import PythonSetDelta
-
-    if not out:
-        out = PythonSetDelta(set(), set())
-    new_added, new_removed = input.added(), input.removed()
-    added = (out.added - new_removed) | new_added
-    removed = (out.removed - new_added) | new_removed
-    return PythonSetDelta(added, removed)
-
-
-@collect_tick.register
-def collect_value(input: PythonTimeSeriesValueInput, out):
-    return input.value
+    fn: "Callable[[Any, Any], Any] | None" = None
 
 
 # TODO: This code will need to be re-written to support C++, it currently depends on instance checks of inputs
@@ -270,18 +233,14 @@ def throttle_default(
     use_wall_clock: bool = False,
     _sched: SCHEDULER = None,
     _state: STATE[_ThrottleState] = None,
+    _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
 ) -> TIME_SERIES_TYPE:
-    from multimethod import multimethod
-    from hgraph import PythonTimeSeriesValueInput
-    from hgraph import PythonTimeSeriesDictInput
-    from hgraph import PythonTimeSeriesSetInput
-    from hgraph import PythonSetDelta
-
+    # Accumulate modified deltas using prebuilt type-directed collector
     if ts.modified:
         if _sched.is_scheduled:
-            _state.tick = collect_tick(ts, _state.tick)
+            _state.tick = _state.fn(ts, _state.tick)
         elif delay_first_tick:
-            _state.tick = collect_tick(ts, _state.tick)
+            _state.tick = _state.fn(ts, _state.tick)
             _sched.schedule(period.value)
         else:
             _state.tick = {}
@@ -293,6 +252,12 @@ def throttle_default(
             _state.tick = {}
             _sched.schedule(period.value, on_wall_clock=use_wall_clock)
             return tick
+
+
+@throttle_default.start
+def throttle_default_start(_tp: type[TIME_SERIES_TYPE], _state: STATE[_ThrottleState]):
+    from hgraph._operators._throttle import collect_builder
+    _state.fn = collect_builder(_tp)
 
 
 @dataclass
