@@ -1522,3 +1522,9 @@ Version 0.4.98 (27-10-2025)
 
 * Fix dedup to not depend on runtime type information.
 
+Version 0.4.99 (27-10-2025)
+---------------------------
+
+* Fix isinstance to TimeSeriesReference.is_instance on dereference node.
+
+
