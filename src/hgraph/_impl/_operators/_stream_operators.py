@@ -52,7 +52,7 @@ from hgraph import (
     TS_SCHEMA,
     AUTO_RESOLVE,
     TSS,
-    union,
+    union, TimeSeriesSetInput, TimeSeriesDictInput,
 )
 
 from hgraph._impl._types import (
@@ -173,47 +173,26 @@ def schedule_ts(
 def resample_default(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
     return sample(schedule(period), ts)
 
-
-@multimethod
-def dedup_item(input, output):
-    return {
-        k_new: v_new
-        for k_new, v_new in ((k, dedup_item(v, output[k])) for k, v in input.modified_items())
-        if v_new is not None
-    }
-
-
-@dedup_item.register
-def dedup_dicts(input: PythonTimeSeriesDictInput, output):
-    out = {
-        k_new: v_new
-        for k_new, v_new in ((k, dedup_item(v, output.get_or_create(k))) for k, v in input.modified_items())
-        if v_new is not None
-    }
-    return out | {k: REMOVE_IF_EXISTS for k in input.removed_keys()}
-
-
-@dedup_item.register
-def dedup_value(input: PythonTimeSeriesValueInput, output):
-    if output.valid:
-        if input.value != output.value:
-            return input.delta_value
-    else:
-        return input.value
-
-
-@dedup_item.register
-def dedup_value(input: PythonTimeSeriesSetInput, output):
-    return input.delta_value
+@dataclass
+class _DedupState(CompoundScalar):
+    fn: "Callable[[Any, Any], Any] | None" = None
 
 
 @compute_node(overloads=dedup)
-def dedup_default(ts: TIME_SERIES_TYPE, _output: TIME_SERIES_TYPE = None) -> TIME_SERIES_TYPE:
+def dedup_default(
+        ts: TIME_SERIES_TYPE, 
+        _tp: type[TIME_SERIES_TYPE]=AUTO_RESOLVE, _state: STATE[_DedupState] = None, _output: TIME_SERIES_TYPE = None
+) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
     """
-    return dedup_item(ts, _output)
+    # Use prebuilt type-directed fn compiled at start
+    return _state.fn(ts, _output)
 
+@dedup_default.start
+def dedup_default_start(_tp: type[TIME_SERIES_TYPE], _state: STATE[_DedupState]):
+    from hgraph._operators._dedup import dedup_builder
+    _state.fn = dedup_builder(_tp)
 
 @compute_node(overloads=dedup)
 def dedup_float(ts: TS[float], abs_tol: TS[float] = 1e-15, _output: TS[float] = None) -> TS[float]:
