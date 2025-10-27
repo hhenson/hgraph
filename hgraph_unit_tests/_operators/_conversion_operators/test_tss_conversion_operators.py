@@ -55,7 +55,7 @@ def test_collect_tss_from_tuples():
     def g(a: TS[Tuple[int, ...]], b: TS[bool]) -> TSS[int]:
         return collect[TSS](a, reset=b)
 
-    assert eval_node(g, [(1,), (2,), (3, 4)], [None, None, True], __trace_wiring__=True) == [
+    assert eval_node(g, [(1,), (2,), (3, 4)], [None, None, True]) == [
         {1},
         {2},
         {3, 4, Removed(2), Removed(1)},
@@ -79,7 +79,7 @@ def test_collect_tss_from_sets():
             {3, 4},
         ],
         [None, None, True],
-        __trace_wiring__=True,
+        #__trace_wiring__=True,
     ) == [{1}, {2}, {3, 4, Removed(2), Removed(1)}]
 
 
@@ -100,7 +100,7 @@ def test_collect_tss_from_tss():
             {3, 4},
         ],
         [None, None, True],
-        __trace_wiring__=True,
+        #__trace_wiring__=True,
     ) == [{1}, {2}, {3, 4, Removed(2), Removed(1)}]
 
 

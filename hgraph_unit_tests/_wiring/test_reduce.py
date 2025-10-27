@@ -95,7 +95,7 @@ def test_reduce_map():
         return items.reduce(lambda x, y: map_(lambda i, j: default(i, 0) + default(j, 0), x, y))
 
     assert eval_node(
-        g, [{1: {1: 1, 2: 2}}, {2: {1: 3, 2: 4}}, {3: {2: 1, 3: 3}}], __trace__={"start": False, "stop": False}
+        g, [{1: {1: 1, 2: 2}}, {2: {1: 3, 2: 4}}, {3: {2: 1, 3: 3}}]
     ) == [{1: 1, 2: 2}, {1: 4, 2: 6}, {1: 4, 2: 7, 3: 3}]
 
 

@@ -20,7 +20,7 @@ def test_nested_graph():
     def h():
         nested_graph(g)
 
-    assert eval_node(h, __trace_wiring__=True) == None
+    assert eval_node(h) == None
     assert side_effect_value == True
 
 

@@ -470,7 +470,7 @@ def test_map_input_rebind_to_nonpeer():
 
         return map_(lambda x, y: x + y, source, ts)  # note ts is added to all values every tick
 
-    assert eval_node(g, [0, 1, 2, 3], __trace__=True) == [
+    assert eval_node(g, [0, 1, 2, 3]) == [
         {'a': 1, 'b': 2},
         {'a': 2, 'b': 3},
         {'a': 4, 'b': 5},

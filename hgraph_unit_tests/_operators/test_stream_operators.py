@@ -91,7 +91,7 @@ def test_lag_proxy_tsd():
         [fd(a=1), fd(a=2), fd(a=3), fd(a=4), fd(a=REMOVE)],
         2,
         [True, None, True, True, True, True, True],
-        __trace__=False,
+        #__trace__=False,
     )
     assert result == [
         fd(),
