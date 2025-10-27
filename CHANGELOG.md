@@ -1527,4 +1527,10 @@ Version 0.4.99 (27-10-2025)
 
 * Fix isinstance to TimeSeriesReference.is_instance on dereference node.
 
+Version 0.4.100 (27-10-2025)
+---------------------------
+
+* Use set_delta to construct a new set_delta instance.
+* Fixes to unit tests to better support the C++ build.
+
 
