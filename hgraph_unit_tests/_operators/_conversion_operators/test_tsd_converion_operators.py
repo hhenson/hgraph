@@ -70,7 +70,7 @@ def test_combine_tsd_from_tuple_and_tuple():
     def g(k: TS[tuple[str, ...]], v: TS[tuple[int, ...]]) -> TSD[str, TS[int]]:
         return combine[TSD](k, v)
 
-    result= eval_node(g, [("a", "b"), None, ("a", "c")], [(1, 2), (1, 3), None], __trace_wiring__=True)
+    result= eval_node(g, [("a", "b"), None, ("a", "c")], [(1, 2), (1, 3), None])
     assert result == [fd({"a": 1, "b": 2}), fd({"b": 3}), fd({"b": REMOVE, "c": 3})]
 
 
@@ -144,23 +144,33 @@ def test_emit_tsd():
     def g(m: TSD[str, TS[int]]) -> TSB[KeyValue[str, TS[int]]]:
         return emit(m)
 
-    assert eval_node(g, [{"a": 1, "b": 2, "c": 3}, None, {"a": 4}]) == [
+    actual = eval_node(g, [{"a": 1, "b": 2, "c": 3}, None, {"a": 4}])
+
+    # First tick emits one event per key in m; key order is not guaranteed by C++.
+    first_batch = sorted(actual[:3], key=lambda e: e["key"])  # order-agnostic within the tick
+    expected_first_batch = [
         {"key": "a", "value": 1},
         {"key": "b", "value": 2},
         {"key": "c", "value": 3},
-        {"key": "a", "value": 4},
     ]
+    assert first_batch == expected_first_batch
+    # Third input tick emits only 'a'; preserve cross-tick sequence
+    assert actual[3] == {"key": "a", "value": 4}
 
     @graph
     def h(m: TSD[str, TS[Tuple[int, int]]]) -> TSB[KeyValue[str, TSL[TS[int], Size[2]]]]:
         return emit[TSL[TS[int], Size[2]]](m)
 
-    assert eval_node(h, [{"a": (1, 1), "b": (2, 2), "c": (3, 3)}, None, {"a": (4, 4)}]) == [
+    actual2 = eval_node(h, [{"a": (1, 1), "b": (2, 2), "c": (3, 3)}, None, {"a": (4, 4)}])
+
+    first_batch2 = sorted(actual2[:3], key=lambda e: e["key"])  # order-agnostic within the tick
+    expected_first_batch2 = [
         {"key": "a", "value": {0: 1, 1: 1}},
         {"key": "b", "value": {0: 2, 1: 2}},
         {"key": "c", "value": {0: 3, 1: 3}},
-        {"key": "a", "value": {0: 4, 1: 4}},
     ]
+    assert first_batch2 == expected_first_batch2
+    assert actual2[3] == {"key": "a", "value": {0: 4, 1: 4}}
 
 
 def test_convert_tuple_to_enumerated_tsd():
