@@ -1516,3 +1516,9 @@ Version 0.4.97 (25-10-2025)
 
 * Add calls to super for the release_instance method on the node builders
 * Small improvements to reduce
+
+Version 0.4.98 (27-10-2025)
+---------------------------
+
+* Fix dedup to not depend on runtime type information.
+
