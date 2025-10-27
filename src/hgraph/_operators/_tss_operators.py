@@ -2,7 +2,7 @@
 
 __all__ = ("compute_set_delta",)
 
-from hgraph._types import SCALAR, TSS, SetDelta
+from hgraph._types import SCALAR, TSS, SetDelta, set_delta
 
 
 def compute_set_delta(value: set[SCALAR], out: TSS[SCALAR] ) -> SetDelta[SCALAR]:
@@ -11,12 +11,11 @@ def compute_set_delta(value: set[SCALAR], out: TSS[SCALAR] ) -> SetDelta[SCALAR]
     This is useful when the compute node computes the target set, then it can use this function
     to compute the appropriate delta. This requires the output of the node and the new set.
     """
-    from hgraph._impl._types._tss import PythonSetDelta
     value = value.value
     if out.valid:
         old_value = out.value
         added = value - old_value
         removed = old_value - value
-        return PythonSetDelta(added, removed)
+        return set_delta(added, removed)
     else:
-        return PythonSetDelta(value, set())
+        return set_delta(value, set())

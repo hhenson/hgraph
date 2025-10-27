@@ -62,14 +62,14 @@ def _(tp: HgTSDTypeMetaData) -> Callable[[Any, Any], Any]:
 def _(tp: HgTSSTypeMetaData) -> Callable[[Any, Any], Any]:
     # Sets: accumulate added/removed across ticks
     def _fn(input_ts, out_tick):
-        from hgraph import PythonSetDelta  # lazy import to avoid circulars
+        from hgraph import set_delta  # lazy import to avoid circulars
 
         if not out_tick:
-            out_tick = PythonSetDelta(set(), set())
+            out_tick = set_delta(set(), set())
         new_added, new_removed = input_ts.added(), input_ts.removed()
         added = (out_tick.added - new_removed) | new_added
         removed = (out_tick.removed - new_added) | new_removed
-        return PythonSetDelta(added, removed)
+        return set_delta(added, removed)
 
     return _fn
 
