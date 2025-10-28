@@ -361,11 +361,13 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         producer_key_set = output.key_set
         # Track which keys exist in the new producer
         new_keys = producer_key_set.values()
+        # Capture old keys BEFORE modifying _ts_values
+        old_keys = set(self._ts_values.keys())
+        # Add new keys
         for key in new_keys:
             self.on_key_added(key)
         # Remove keys that were in the old binding but not in the new one
         # producer_key_set.removed() only knows about the new producer's deltas, not cross-binding diffs
-        old_keys = set(self._ts_values.keys())
         for key in old_keys - new_keys:
             self.on_key_removed(key)
 
