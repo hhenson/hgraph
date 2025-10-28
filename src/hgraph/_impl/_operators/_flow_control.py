@@ -180,7 +180,7 @@ def reduce_tsd_with_race(
             return tsd[_state.winner].value
         else:  # if no winner, track timeseries where we have reference but no value
             for i, r in pending_refs.items():
-                if i not in _values._ts_values:
+                if i not in _values:
                     _values._create(i)
                 if not _values[i].active:
                     r.bind_input(_values[i])
@@ -235,7 +235,7 @@ def reduce_tsd_of_bundles_with_race(
                         _state.first_valid_times.get(n, {}).pop(k, None)
                         _state.first_valid_hashes.get(n, {}).pop(k, None)
                         pending_items[n][k] = TimeSeriesReference.make(r)
-                if k in _values._ts_values:
+                if k in _values:
                     _values[k].make_passive()
                     TimeSeriesReference.make().bind_input(_values[k])
             else:
@@ -281,7 +281,7 @@ def reduce_tsd_of_bundles_with_race(
             else:  # if no winner, track timeseries where we have reference but no value
                 new_winners[i] = None
                 for k, r in pending_items.get(n, {}).items():
-                    if k not in _values._ts_values:
+                    if k not in _values:
                         _values._create(k)
                     if not (v := _values[k][n]).active:
                         r.bind_input(v)
@@ -291,7 +291,7 @@ def reduce_tsd_of_bundles_with_race(
 
     if any(n is None for n in new_winners):
         for k, v in pending_values.items():
-            if k not in _values._ts_values:
+            if k not in _values:
                 _values._create(k)
             if not _values[k].active:
                 v.bind_input(_values[k])

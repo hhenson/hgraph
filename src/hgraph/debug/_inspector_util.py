@@ -329,7 +329,7 @@ def format_type_time_series_input(value: TimeSeriesInput):
     path = []
     while value.parent_input:
         if isinstance(value.parent_input, TimeSeriesBundle):
-            path.append(next(k for i, (k, v) in enumerate(value.parent_input._ts_values.items()) if v is value))
+            path.append(next(k for i, (k, v) in enumerate(value.parent_input.items()) if v is value))
         else:
             path.append(0)
         value = value.parent_input
@@ -352,7 +352,7 @@ def format_type_time_series_output(value: TimeSeriesOutput):
     path = []
     while value.parent_output:
         if isinstance(value.parent_output, TimeSeriesBundle):
-            path.append(next(k for i, (k, v) in enumerate(value.parent_output._ts_values.items()) if v is value))
+            path.append(next(k for i, (k, v) in enumerate(value.parent_output.items()) if v is value))
         else:
             path.append(0)
         value = value.parent_output

@@ -1533,4 +1533,7 @@ Version 0.4.100 (27-10-2025)
 * Use set_delta to construct a new set_delta instance.
 * Fixes to unit tests to better support the C++ build.
 
+Version 0.4.101 (27-10-2025)
+---------------------------
 
+* Clean up the use of internal structure in compute nodes.
