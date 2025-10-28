@@ -334,11 +334,11 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             # Locally managed key set: ensure local output exists and bind to it
             if self._managed_key_set_out is None:
                 from hgraph._impl._types._tss import PythonTimeSeriesSetOutput
-                # Parent the managed set to the owning node so mark_modified does not try to bubble to an input
-                self._managed_key_set_out = PythonTimeSeriesSetOutput(_parent_or_node=self.owning_node)
+                # Parent the managed set to the TSD input so modifications bubble up correctly
+                self._managed_key_set_out = PythonTimeSeriesSetOutput(_parent_or_node=self)
+                # Initialize as an empty set - it will be populated during pre-sync
+                self._managed_key_set_out._value = set()
             key_set.bind_output(self._managed_key_set_out)
-            # Initialize local key set from current _ts_values without triggering engine notifications pre-start
-            self._managed_key_set_out._value = set(self._ts_values.keys()) if self._ts_values else set()
 
         if self.owning_node.is_started and self.output is not None:
             self.output.remove_key_observer(self)
@@ -363,7 +363,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         new_keys = producer_key_set.values()
         # Capture old keys BEFORE modifying _ts_values
         old_keys = set(self._ts_values.keys())
-        # Add new keys
+
+        # Add new keys - this will create child inputs and bind them
+        # For unpeered inputs, this will also update the managed key set
         for key in new_keys:
             self.on_key_added(key)
         # Remove keys that were in the old binding but not in the new one
@@ -440,6 +442,12 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         # Keep locally managed key-set in sync when unpeered
         if not self.has_peer and self._managed_key_set_out is not None:
             self._managed_key_set_out.add(key)
+
+    def mark_child_modified(self, child: "TimeSeriesOutput", modified_time: datetime):
+        """Handle modifications from child outputs like the managed key set."""
+        # For the managed key set, forward the notification to trigger the TSD input
+        if child is self._managed_key_set_out:
+            self.notify(modified_time)
 
     def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
         if self._last_notified_time < modified_time:
