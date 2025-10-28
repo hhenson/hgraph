@@ -182,9 +182,8 @@ def reduce_tsd_with_race(
             for i, r in pending_refs.items():
                 if i not in _values:
                     _values._create(i)
-                if not _values[i].active:
-                    r.bind_input(_values[i])
-                    _values[i].make_active()
+                r.bind_input(_values[i])
+                _values[i].make_active()
     elif tsd[_state.winner].modified:
         # Forward the winning value
         return tsd[_state.winner].delta_value
