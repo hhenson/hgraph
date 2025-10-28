@@ -34,7 +34,7 @@ from hgraph import (
     reduce_tsd_with_race,
     reduce_tsd_of_bundles_with_race,
     TimeSeriesReference,
-    CompoundScalar,
+    CompoundScalar, DEFAULT,
 )
 from hgraph.test import eval_node
 
@@ -231,15 +231,37 @@ def test_race_tsbs():
 
 def test_race_tsd():
     @compute_node
-    def make_ref(ts: TS[int], ref: REF[TS[int]]) -> REF[TS[int]]:
-        return ref.value if ts.value != 0 else TimeSeriesReference.make()
+    def make_ref(ts: TS[int], ref: REF[TS[int]], ref2: REF[TS[int]]) -> REF[TS[int]]:
+        match ts.value:
+            case 0:
+                return TimeSeriesReference.make()
+            case -1:
+                return ref2.value
+            case _:
+                return ref.value
 
     @graph
-    def g(tsd: TSD[int, TS[int]]) -> REF[TS[int]]:
-        refs = map_(make_ref, tsd, tsd)
+    def g(tsd: TSD[int, TS[int]], ts: TS[int]) -> REF[TS[int]]:
+        refs = map_(make_ref, tsd, tsd, switch_(ts, {-1: lambda: const(-1), DEFAULT: lambda: nothing(TS[int])}))
         return reduce_tsd_with_race(tsd=refs)
 
-    assert eval_node(g, [None, {1: 0, 2: 0}, {1: 1}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}]) == [None, None, 1, None, 2, 3]
+    assert eval_node(g, [
+        {1: 0, 2: -1},
+        {2: 0},
+        {1: 1},
+        {2: 2, 3: 3},
+        None,
+        {1: REMOVE},
+        {2: 0}
+    ], [0, None, None, None, -1]) == [
+        None,
+        None,
+        1,
+        None,
+        None,
+        2,
+        3
+    ]
 
 
 def test_race_tsd_of_bundles_all_free_bundles():
