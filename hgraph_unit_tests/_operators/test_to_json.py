@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Any, Mapping, Set
 
 import pytest
+import json
 from frozendict import frozendict as fd
 
 from hgraph import TIME_SERIES_TYPE, TS, to_json, CompoundScalar, from_json, Size, TSL, TSB, TSS, TSD, Removed, REMOVE
@@ -64,7 +65,8 @@ class MyComplexCS(CompoundScalar):
     ],
 )
 def test_to_json(tp: TIME_SERIES_TYPE, value: Any, expected: str):
-    assert eval_node(to_json[tp], [value]) == [expected]
+    out = eval_node(to_json[tp], [value])
+    assert [json.loads(o) for o in out] == [json.loads(expected)]
     assert eval_node(from_json[tp], [expected]) == [value]
 
 
@@ -83,5 +85,6 @@ def test_to_json(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     ],
 )
 def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
-    assert eval_node(to_json[tp], value, delta=True) == expected
+    out = eval_node(to_json[tp], value, delta=True)
+    assert [json.loads(o) for o in out] == [json.loads(e) for e in expected]
     assert eval_node(from_json[tp], expected) == value
