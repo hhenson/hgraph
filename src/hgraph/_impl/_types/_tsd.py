@@ -310,6 +310,12 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
     def has_peer(self) -> bool:
         return self._has_peer
 
+    def __contains__(self, item):
+        # When we are non-peered, this can result in the key_set not matching the _ts_values.
+        # This is a bigger problem as it means we have a disconnect between the key_set and the _ts_values.
+        # But for now this is the quickest solution to the problem.
+        return item in self._key_set if self._has_peer else item in self._ts_values
+
     def do_bind_output(self, output: "TimeSeriesOutput"):
         output: PythonTimeSeriesDictOutput
         key_set: "TimeSeriesSetInput" = self.key_set
