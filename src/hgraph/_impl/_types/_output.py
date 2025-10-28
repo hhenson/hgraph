@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from hgraph._runtime._constants import MIN_DT, MAX_ET
-from hgraph._impl._runtime._common import SUBSCRIBER
+from hgraph._impl._runtime._common import SUBSCRIBER, TimeSeriesSubscriber
 from hgraph._types._time_series_types import TimeSeriesOutput
 from hgraph._runtime._node import Node
 
@@ -20,11 +20,13 @@ __all__ = ("PythonTimeSeriesOutput",)
 @dataclass
 class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     _parent_or_node: typing.Union["TimeSeriesOutput", "Node"] = None
-    _subscribers: list["TimeSeriesInput"] = field(default_factory=list)
+    _subscribers: TimeSeriesSubscriber = field(default_factory=TimeSeriesSubscriber)
     _last_modified_time: datetime = MIN_DT
 
     @property
     def modified(self) -> bool:
+        if self.owning_node is None:
+            return False
         context = self.owning_graph.evaluation_clock
         return context.evaluation_time == self._last_modified_time
 
@@ -35,7 +37,10 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
     def mark_invalid(self):
         if self._last_modified_time > MIN_DT:
             self._last_modified_time = MIN_DT
-            self._notify(self.owning_graph.evaluation_clock.evaluation_time)
+            if self.owning_node is None:
+                self._notify(MAX_ET)
+            else:
+                self._notify(self.owning_graph.evaluation_clock.evaluation_time)
 
     def mark_modified(self, modified_time: datetime = None):
         if modified_time is None:
@@ -83,17 +88,18 @@ class PythonTimeSeriesOutput(TimeSeriesOutput, ABC):
 
     @property
     def owning_graph(self) -> "Graph":
+        if self.owning_node is None:
+            return None
         return self.owning_node.graph
 
     def subscribe(self, subscriber: SUBSCRIBER):
-        self._subscribers.append(subscriber)
+        self._subscribers.subscribe(subscriber)
 
     def unsubscribe(self, subscriber: SUBSCRIBER):
-        self._subscribers.remove(subscriber)
+        self._subscribers.unsubscribe(subscriber)
 
     def _notify(self, modified_time):
-        for ts in self._subscribers:
-            ts.notify(modified_time)
+        self._subscribers.notify(modified_time)
 
     def is_reference(self) -> bool:
         return False
