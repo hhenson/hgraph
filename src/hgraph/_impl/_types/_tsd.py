@@ -298,6 +298,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         PythonBoundTimeSeriesInput.__init__(self, *args, **kwargs)
         from hgraph._impl._builder._ts_builder import PythonTimeSeriesBuilderFactory
         from hgraph._builder._ts_builder import TSInputBuilder
+        from hgraph._impl._types._tss import PythonTimeSeriesSetOutput
 
         self._ts_builder: TSInputBuilder = PythonTimeSeriesBuilderFactory.instance().make_input_builder(__value_tp__)
         self._removed_items: dict[K, V] = {}
@@ -305,6 +306,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._ts_values_to_keys: dict[int, K] = {}
         self._last_notified_time = MIN_DT
         self._modified_items: dict[K, V] = {}
+        # Local managed key-set for unpeered operation. Bound to self.key_set when not peered.
+        self._managed_key_set_out: PythonTimeSeriesSetOutput | None = None
 
     @property
     def has_peer(self) -> bool:
@@ -324,7 +327,18 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         else:
             peer = True
 
-        key_set.bind_output(output.key_set)
+        # Bind the key set depending on peering status
+        if peer:
+            key_set.bind_output(output.key_set)
+        else:
+            # Locally managed key set: ensure local output exists and bind to it
+            if self._managed_key_set_out is None:
+                from hgraph._impl._types._tss import PythonTimeSeriesSetOutput
+                # Parent the managed set to the owning node so mark_modified does not try to bubble to an input
+                self._managed_key_set_out = PythonTimeSeriesSetOutput(_parent_or_node=self.owning_node)
+            key_set.bind_output(self._managed_key_set_out)
+            # Initialize local key set from current _ts_values without triggering engine notifications pre-start
+            self._managed_key_set_out._value = set(self._ts_values.keys()) if self._ts_values else set()
 
         if self.owning_node.is_started and self.output is not None:
             self.output.remove_key_observer(self)
@@ -342,10 +356,12 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         if self._ts_values:
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
 
-        for key in key_set.values():
+        # Pre-sync keys once on bind so child inputs exist before first evaluation.
+        # Always use the producer's key_set here to avoid sampling the input key_set and disturbing its delta semantics.
+        producer_key_set = output.key_set
+        for key in producer_key_set.values():
             self.on_key_added(key)
-
-        for key in key_set.removed():
+        for key in producer_key_set.removed():
             self.on_key_removed(key)
 
         output.add_key_observer(self)
@@ -353,7 +369,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def do_un_bind_output(self, unbind_refs: bool = False):
         key_set: "TimeSeriesSetInput" = self.key_set
-        key_set.un_bind_output(unbind_refs=unbind_refs)
+        # Only unbind key_set from an output when we are peered; otherwise it stays bound to the local managed set
+        if self.has_peer:
+            key_set.un_bind_output(unbind_refs=unbind_refs)
         if self._ts_values:
             self._removed_items = {k: (v, v.valid) for k, v in self._ts_values.items()}
             self._ts_values = {}
@@ -371,10 +389,14 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                     to_keep[k] = (v, was_valid)
             self._removed_items = to_keep
 
-        self.output.remove_key_observer(self)
+        if self.output is not None:
+            self.output.remove_key_observer(self)
         if self.has_peer:
             super().do_un_bind_output(unbind_refs=unbind_refs)
         else:
+            # Ensure local managed key-set mirrors any transplanted values we kept
+            if self._managed_key_set_out is not None:
+                self._managed_key_set_out.value = set(self._ts_values.keys())
             self._output = None
 
     def make_active(self):
@@ -408,6 +430,9 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             item.make_active()
         self._ts_values[key] = item
         self._ts_values_to_keys[id(item)] = key
+        # Keep locally managed key-set in sync when unpeered
+        if not self.has_peer and self._managed_key_set_out is not None:
+            self._managed_key_set_out.add(key)
 
     def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
         if self._last_notified_time < modified_time:
@@ -448,10 +473,16 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
                 self._modified_items.pop(key)
             except:
                 pass
+            # Reflect true removal in the locally managed key-set when unpeered
+            if not self.has_peer and self._managed_key_set_out is not None:
+                self._managed_key_set_out.remove(key)
         else:
+            # Transplanted: keep the value and ensure the key remains present in the managed key-set when unpeered
             self._ts_values[key] = value
             value.un_bind_output(unbind_refs=True)
             self._ts_values_to_keys[id(value)] = key
+            if not self.has_peer and self._managed_key_set_out is not None:
+                self._managed_key_set_out.add(key)
 
     def _clear_key_changes(self):
         if self.owning_node is None:
