@@ -22,7 +22,9 @@ class PythonTimeSeriesInput(TimeSeriesInput, ABC):
 
     @property
     def owning_node(self) -> "Node":
-        return self._parent_or_node.owning_node if not isinstance(self._parent_or_node, Node) else self._parent_or_node
+        return self._parent_or_node.owning_node \
+            if not isinstance(self._parent_or_node, Node) and self._parent_or_node is not None \
+            else self._parent_or_node
 
     @property
     def owning_graph(self) -> "Graph":
