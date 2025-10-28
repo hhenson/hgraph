@@ -1537,3 +1537,8 @@ Version 0.4.101 (27-10-2025)
 ---------------------------
 
 * Clean up the use of internal structure in compute nodes.
+
+Version 0.4.102 (27-10-2025)
+---------------------------
+
+* Deal with non-peered TSD's view of contains method.
