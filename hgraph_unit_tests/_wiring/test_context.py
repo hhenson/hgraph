@@ -234,7 +234,10 @@ def test_context_over_switch_inside_map():
 def test_context_not_context_manager():
     @compute_node
     def use_context(ts: TS[bool], context: CONTEXT[TIME_SERIES_TYPE] = REQUIRED["context"]) -> TS[str]:
-        return f"{dict(context.value)} {ts.value}"
+        # Sort dict items to ensure consistent ordering across implementations (C++ vs Python)
+        sorted_items = sorted(dict(context.value).items())
+        sorted_dict = "{" + ", ".join(f"{k}: {v}" for k, v in sorted_items) + "}"
+        return f"{sorted_dict} {ts.value}"
 
     @graph
     def f(ts: TS[bool]) -> TS[str]:
@@ -245,9 +248,10 @@ def test_context_not_context_manager():
         with c as context:
             return f(ts)
 
+    # Expected results use sorted dictionary keys to be implementation-agnostic
     assert eval_node(g, [True, None, False], [{1: 1}, {2: 2}, None]) == [
         "{1: 1} True",
-        "{1: 1, 2: 2} True",
+        "{1: 1, 2: 2} True",  # Note: sorted order (1, 2) not insertion order
         "{1: 1, 2: 2} False",
     ]
 
