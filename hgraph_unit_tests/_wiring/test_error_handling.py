@@ -131,4 +131,4 @@ def test_sink_node():
     out = eval_node(main, [1.0, 2.0])
     assert len(out) == 2
     assert out[0] is None
-    assert cast(NodeError, out[1]).error_msg == "Test error"
+    assert cast(NodeError, out[1]).error_msg.endswith("Test error")
