@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(hgraph_cpp_engine)
 
+option(NB_USE_STABLE_ABI "Use nanobind stable ABI for the Python module" ON)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
