@@ -97,6 +97,13 @@ nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUD
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
 
+# Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
+if (HGRAPH_WITH_BACKWARD)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=0)
+endif()
+
 # Suppress benign fmt warning on GCC/Clang for this target only (avoid touching ALIAS/IMPORTED fmt targets)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wno-tautological-compare)
