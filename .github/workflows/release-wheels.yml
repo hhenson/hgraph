@@ -44,7 +44,7 @@ jobs:
           # Build CPython 3.12 wheels only
           CIBW_BUILD: cp312-*
           # macOS: build both Intel and Apple Silicon wheels
-          CIBW_ARCHS_MACOS: x86_64 arm64
+          CIBW_ARCHS_MACOS: arm64
           # Windows: build 64-bit wheels only (avoid win32 toolchain issues)
           CIBW_ARCHS_WINDOWS: AMD64
           # Enable nanobind stable ABI at CMake level
@@ -62,8 +62,6 @@ jobs:
           # Explicit arch + generator for macOS cross-builds
           CIBW_ENVIRONMENT_MACOS_ARM64: >-
             CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=15.0 CMAKE_OSX_DEPLOYMENT_TARGET=15.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
-          CIBW_ENVIRONMENT_MACOS_X86_64: >-
-            CMAKE_OSX_ARCHITECTURES=x86_64 MACOSX_DEPLOYMENT_TARGET=15.0 CMAKE_OSX_DEPLOYMENT_TARGET=15.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
         run: |
           uvx cibuildwheel --output-dir wheelhouse
 
