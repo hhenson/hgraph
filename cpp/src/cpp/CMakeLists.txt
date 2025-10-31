@@ -98,6 +98,11 @@ nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUD
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt Backward::Backward)
 #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
 
+# Windows: link required debug helper libraries for backward-cpp stack traces
+if (WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
+endif ()
+
 # Install directive for scikit-build-core
 # Allow customization of Python module name and install subdirectory
 set(HGRAPH_PYMOD_NAME "_hgraph" CACHE STRING "Python extension module name")
