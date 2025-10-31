@@ -65,6 +65,35 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Repair Linux wheel to manylinux using auditwheel (do not publish unrepaired wheels)
+      - name: Repair Linux wheel with auditwheel (Linux only)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist || true
+          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ -z "${wheel}" ]; then
+            echo "No wheel found in dist/"
+            exit 1
+          fi
+          uv pip install --upgrade pip
+          uv pip install auditwheel
+          # Show before/after info for debugging
+          uv run python -m auditwheel show "${wheel}" || true
+          mkdir -p wheelhouse
+          uv run python -m auditwheel repair -w wheelhouse "${wheel}"
+          ls -la wheelhouse || true
+
+      - name: Upload repaired Linux wheels (manylinux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-manylinux
+          path: wheelhouse/**
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Install built wheel into env (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
