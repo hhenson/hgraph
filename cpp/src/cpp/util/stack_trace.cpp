@@ -1,6 +1,8 @@
 #include <hgraph/util/stack_trace.h>
+#include <sstream>
+#include <iostream>
 
-//#define BACKWARD_HAS_BACKTRACE 1
+#if HGRAPH_WITH_BACKWARD
 #include <backward.hpp>
 
 namespace hgraph {
@@ -34,3 +36,24 @@ void install_crash_handlers() {
 }
 
 } // namespace hgraph
+
+#else
+
+namespace hgraph {
+
+std::string get_stack_trace() {
+    // backward-cpp disabled: return empty string (no-op)
+    return std::string();
+}
+
+void print_stack_trace() {
+    // backward-cpp disabled: no-op
+}
+
+void install_crash_handlers() {
+    // backward-cpp disabled: no-op
+}
+
+} // namespace hgraph
+
+#endif
