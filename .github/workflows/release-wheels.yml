@@ -61,16 +61,15 @@ jobs:
             CMAKE_GENERATOR="Visual Studio 17 2022" CMAKE_GENERATOR_PLATFORM=x64 SKBUILD_VERBOSE=1
           # Explicit arch + generator for macOS cross-builds
           CIBW_ENVIRONMENT_MACOS_ARM64: >-
-            CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=14.0 CMAKE_OSX_DEPLOYMENT_TARGET=14.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
+            CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=15.0 CMAKE_OSX_DEPLOYMENT_TARGET=15.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
           CIBW_ENVIRONMENT_MACOS_X86_64: >-
-            CMAKE_OSX_ARCHITECTURES=x86_64 MACOSX_DEPLOYMENT_TARGET=14.0 CMAKE_OSX_DEPLOYMENT_TARGET=14.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
+            CMAKE_OSX_ARCHITECTURES=x86_64 MACOSX_DEPLOYMENT_TARGET=15.0 CMAKE_OSX_DEPLOYMENT_TARGET=15.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
         run: |
           uvx cibuildwheel --output-dir wheelhouse
 
       - name: Validate wheels metadata (twine check)
         run: |
-          uv pip install twine
-          uv run twine check wheelhouse/*
+          uvx twine check wheelhouse/*
 
       - name: Test a built wheel (basic import) [Linux/macOS]
         if: runner.os != 'Windows'
