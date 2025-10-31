@@ -30,26 +30,27 @@ if (APPLE)
 endif ()
 
 # Python and nanobind
-# Accept either Python_EXECUTABLE or Python3_EXECUTABLE from the caller.
-# Prefer Python3 package if provided by the build system to avoid unused-var warnings.
+# Normalize variables from callers and ALWAYS use FindPython (not FindPython3),
+# because nanobind-config.cmake requires that 'find_package(Python ...)' has been invoked.
 if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif()
-# Try modern FindPython3 first (uses Python3_* variables), else fall back to FindPython (Python_* vars)
-find_package(Python3 3.12 COMPONENTS Interpreter Development.Module QUIET)
-if(Python3_FOUND)
-    set(_PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
-    include_directories(${Python3_INCLUDE_DIRS})
-else()
-    find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
-    set(_PYTHON_EXECUTABLE "${Python_EXECUTABLE}")
-    include_directories(${Python_INCLUDE_DIRS})
-endif()
+# Required: Python interpreter + development module
+find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+include_directories(${Python_INCLUDE_DIRS})
 
-# Resolve nanobind via the chosen interpreter
+# Resolve nanobind via the chosen interpreter and help CMake find it
 execute_process(
-        COMMAND "${_PYTHON_EXECUTABLE}" -m nanobind --cmake_dir
+        COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
         OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
+if(nanobind_ROOT)
+    set(nanobind_DIR "${nanobind_ROOT}" CACHE PATH "nanobind CMake package dir" FORCE)
+    if(DEFINED CMAKE_PREFIX_PATH)
+        list(PREPEND CMAKE_PREFIX_PATH "${nanobind_ROOT}")
+    else()
+        set(CMAKE_PREFIX_PATH "${nanobind_ROOT}")
+    endif()
+endif()
 find_package(nanobind CONFIG REQUIRED)
 include_directories(${NB_DIR}/include)
 message(STATUS "Nanobind DIR: ${NB_DIR}/include")
