@@ -21,21 +21,20 @@ elseif (MSVC)
     set(CMAKE_CXX_FLAGS "/W3 /EHsc")
 endif ()
 
-if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "arm64")
-        message(STATUS "Configuring for Apple Silicon (ARM64)")
-        include_directories(/opt/homebrew/include)
-        link_directories(/opt/homebrew/lib)
-    else ()
-        message(STATUS "Configuring for Intel (x86_64)")
-        include_directories(/usr/local/include)
-        link_directories(/usr/local/lib)
-    endif ()
+if (APPLE)
+    # Avoid forcing Homebrew include/lib paths which can break cross-arch builds under cibuildwheel.
+    # Toolchain and dependencies are discovered via CMake and FetchContent/Conan instead.
+    message(STATUS "Apple platform detected. Not forcing Homebrew include/lib paths.")
+    message(STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR} CMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
 endif ()
 
 # Python and nanobind
+# Accept either Python_EXECUTABLE or Python3_EXECUTABLE from the caller; map Python3_EXECUTABLE to Python_EXECUTABLE
+if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
+    set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
+endif()
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
-include_directories(${Python3_INCLUDE_DIRS})
+include_directories(${Python_INCLUDE_DIRS})
 
 execute_process(
         COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
