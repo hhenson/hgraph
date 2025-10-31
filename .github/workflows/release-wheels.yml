@@ -52,6 +52,11 @@ jobs:
         run: |
           uvx cibuildwheel --output-dir wheelhouse
 
+      - name: Validate wheels metadata (twine check)
+        run: |
+          uv pip install twine
+          uv run twine check wheelhouse/*
+
       - name: Test a built wheel (basic import) [Linux/macOS]
         if: runner.os != 'Windows'
         shell: bash
