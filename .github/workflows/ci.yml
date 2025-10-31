@@ -16,6 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore uv/pip caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ runner.os }}-uvpip-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uvpip-
+
       # Install uv and Python 3.12 (aligns with hg_cpp approach)
       - uses: astral-sh/setup-uv@v4
         with:
@@ -46,6 +56,14 @@ jobs:
         shell: bash
         run: |
           ls -la dist || true
+
+      - name: Upload built wheels (all OS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ runner.os }}
+          path: dist/**
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Install built wheel into env (Windows)
         if: runner.os == 'Windows'
