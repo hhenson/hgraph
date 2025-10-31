@@ -46,3 +46,4 @@ __pycache__/
 
 examples/web_ui/layouts/
 docs/build/*
+/cmake-build-debug/
