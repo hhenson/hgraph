@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(hgraph_cpp_engine)
 
 option(NB_USE_STABLE_ABI "Use nanobind stable ABI for the Python module" ON)
+option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,15 +30,25 @@ if (APPLE)
 endif ()
 
 # Python and nanobind
-# Accept either Python_EXECUTABLE or Python3_EXECUTABLE from the caller; map Python3_EXECUTABLE to Python_EXECUTABLE
+# Accept either Python_EXECUTABLE or Python3_EXECUTABLE from the caller.
+# Prefer Python3 package if provided by the build system to avoid unused-var warnings.
 if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif()
-find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
-include_directories(${Python_INCLUDE_DIRS})
+# Try modern FindPython3 first (uses Python3_* variables), else fall back to FindPython (Python_* vars)
+find_package(Python3 3.12 COMPONENTS Interpreter Development.Module QUIET)
+if(Python3_FOUND)
+    set(_PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+    include_directories(${Python3_INCLUDE_DIRS})
+else()
+    find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+    set(_PYTHON_EXECUTABLE "${Python_EXECUTABLE}")
+    include_directories(${Python_INCLUDE_DIRS})
+endif()
 
+# Resolve nanobind via the chosen interpreter
 execute_process(
-        COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+        COMMAND "${_PYTHON_EXECUTABLE}" -m nanobind --cmake_dir
         OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
 find_package(nanobind CONFIG REQUIRED)
 include_directories(${NB_DIR}/include)
@@ -57,20 +68,29 @@ else()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif()
 
-# backward-cpp via package or FetchContent
-find_package(Backward CONFIG QUIET)
-if (NOT Backward_FOUND)
-    message(STATUS "Backward not found via find_package, using FetchContent")
-    include(FetchContent)
-    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-    FetchContent_Declare(backward GIT_REPOSITORY https://github.com/bombela/backward-cpp.git GIT_TAG v1.6)
-    set(BACKWARD_ENABLE ON CACHE BOOL "Enable backward" FORCE)
-    FetchContent_MakeAvailable(backward)
-    if(TARGET backward)
-        add_library(Backward::Backward ALIAS backward)
+# backward-cpp via package or FetchContent (optional)
+if (HGRAPH_WITH_BACKWARD)
+    find_package(Backward CONFIG QUIET)
+    if (NOT Backward_FOUND)
+        message(STATUS "Backward not found via find_package, using FetchContent")
+        include(FetchContent)
+        set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+        FetchContent_Declare(backward GIT_REPOSITORY https://github.com/bombela/backward-cpp.git GIT_TAG v1.6)
+        # On manylinux and constrained envs, disable non-portable features
+        set(BACKWARD_ENABLE ON CACHE BOOL "Enable backward" FORCE)
+        set(BACKWARD_HAS_BFD OFF CACHE BOOL "Disable BFD" FORCE)
+        set(BACKWARD_HAS_DW OFF CACHE BOOL "Disable DW" FORCE)
+        set(BACKWARD_HAS_DWARF OFF CACHE BOOL "Disable DWARF" FORCE)
+        set(BACKWARD_HAS_UNWIND ON CACHE BOOL "Enable libunwind/backtrace if available" FORCE)
+        FetchContent_MakeAvailable(backward)
+        if(TARGET backward)
+            add_library(Backward::Backward ALIAS backward)
+        endif()
+    else()
+        message(STATUS "Found Backward via Conan/system: ${Backward_DIR}")
     endif()
 else()
-    message(STATUS "Found Backward via Conan/system: ${Backward_DIR}")
+    message(STATUS "HGRAPH_WITH_BACKWARD=OFF: Skipping backward-cpp integration")
 endif()
 
 # Git version info is optional here (no .git necessarily inside this repo)

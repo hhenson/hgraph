@@ -95,12 +95,18 @@ add_definitions(-Dhgraph_EXPORTS)
 
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt Backward::Backward)
+target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
+# Link Backward only if enabled and available
+if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
+    target_link_libraries(${PROJECT_NAME} PRIVATE Backward::Backward)
+endif()
 #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
 
 # Windows: link required debug helper libraries for backward-cpp stack traces
 if (WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
+    if (HGRAPH_WITH_BACKWARD)
+        target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
+    endif()
 endif ()
 
 # Install directive for scikit-build-core
