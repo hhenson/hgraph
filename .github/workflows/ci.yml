@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-14, windows-latest ]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install uv and Python 3.12 (aligns with hg_cpp approach)
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+
+      # Ensure Conan is available for builds/tools
+      - name: Install Conan via uv tool
+        run: uv tool install conan
+
+      # Build the wheel with nanobind stable ABI enabled
+      - name: Build wheel (NB stable ABI)
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+        run: uv build -v
+
+      # Create an isolated venv and install the built wheel
+      - name: Create venv and install wheel
+        shell: bash
+        run: |
+          uv venv .venv-ci
+          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          uv pip install --upgrade pip
+          uv pip install dist/*.whl
+
+      - name: Smoke import
+        shell: bash
+        run: |
+          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          python -c "import hgraph, hgraph._hgraph; print('ok')"
+
+      - name: Run tests
+        shell: bash
+        run: |
+          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          uv pip install -e .[test]
+          pytest -q
+
+  # Optional: Conan provider parity (macOS + Linux initially)
+  build-test-conan:
+    name: Build+test with Conan (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: build-test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-14 ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Conan via uv tool
+        run: uv tool install conan
+
+      - name: Build wheel (Conan provider + NB stable ABI)
+        env:
+          CMAKE_ARGS: >-
+            -DNB_USE_STABLE_ABI=ON
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider.cmake
+        run: uv build -v
+
+      - name: Create venv and install wheel
+        shell: bash
+        run: |
+          uv venv .venv-ci
+          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          uv pip install --upgrade pip
+          uv pip install dist/*.whl
+
+      - name: Smoke import
+        shell: bash
+        run: |
+          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          python -c "import hgraph, hgraph._hgraph; print('ok')"
+
+      - name: Run tests
+        shell: bash
+        run: |
+          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          uv pip install -e .[test]
+          pytest -q
