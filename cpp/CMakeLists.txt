@@ -26,7 +26,19 @@ if (APPLE)
     # Avoid forcing Homebrew include/lib paths which can break cross-arch builds under cibuildwheel.
     # Toolchain and dependencies are discovered via CMake and FetchContent/Conan instead.
     message(STATUS "Apple platform detected. Not forcing Homebrew include/lib paths.")
-    message(STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR} CMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
+
+    # Surface effective macOS configuration for diagnostics
+    message(STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
+    message(STATUS "CMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
+    message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    message(STATUS "ENV{MACOSX_DEPLOYMENT_TARGET}=$ENV{MACOSX_DEPLOYMENT_TARGET}")
+
+    # If no deployment target is provided, set a sane default that enables libc++ floating-point to_chars
+    if (NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "macOS deployment target" FORCE)
+        set(ENV{MACOSX_DEPLOYMENT_TARGET} "15.0")
+        message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET was unset. Defaulting to 15.0")
+    endif()
 endif ()
 
 # Python and nanobind
