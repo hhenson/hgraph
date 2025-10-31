@@ -99,7 +99,16 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt Backward
 #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
 
 # Install directive for scikit-build-core
-install(TARGETS ${PROJECT_NAME} LIBRARY DESTINATION .)
+# Allow customization of Python module name and install subdirectory
+set(HGRAPH_PYMOD_NAME "_hgraph" CACHE STRING "Python extension module name")
+set(HGRAPH_PYMOD_INSTALL_SUBDIR "hgraph" CACHE STRING "Install subdir under site-packages")
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${HGRAPH_PYMOD_NAME}")
+# Install into the package directory (so wheel ends up with hgraph/_hgraph.*)
+# Cover Windows by also specifying RUNTIME destination for .pyd files
+install(TARGETS ${PROJECT_NAME}
+        LIBRARY DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
+        RUNTIME DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
+)
 
 #nanobind_add_stub(
 #        "${PROJECT_NAME}_stub"

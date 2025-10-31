@@ -12,7 +12,7 @@ Last updated: 2025-10-31 15:23 local
 
 ## Stage 1 — Integrate C++ sources and build in CLion
 
-Status: In progress
+Status: Completed
 
 What’s been done:
 - Copied trees:
