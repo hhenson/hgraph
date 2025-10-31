@@ -1,0 +1,88 @@
+name: Release Wheels (cibuildwheel)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v_*.*.*'
+
+jobs:
+  build-wheels:
+    name: Build wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv (Python 3.12)
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+
+      - name: Cache uv/pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ runner.os }}-cibw-uvpip-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cibw-uvpip-
+
+      - name: Install tooling
+        run: |
+          uv tool install cibuildwheel
+          uv tool install conan
+
+      - name: Build wheels with cibuildwheel
+        env:
+          # Build CPython 3.12 wheels only
+          CIBW_BUILD: cp312-*  
+          # macOS: build both Intel and Apple Silicon wheels
+          CIBW_ARCHS_MACOS: x86_64 arm64
+          # Enable nanobind stable ABI at CMake level
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          # Be verbose during scikit-build-core builds
+          CIBW_ENVIRONMENT: >-
+            SKBUILD_VERBOSE=1
+        run: |
+          uvx cibuildwheel --output-dir wheelhouse
+
+      - name: Test a built wheel (basic import) [Linux/macOS]
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la wheelhouse || true
+          wheel=$(ls wheelhouse/*.whl | head -n1 || true)
+          if [ -z "$wheel" ]; then echo "No wheels built"; exit 1; fi
+          uv venv .venv-test
+          source .venv-test/bin/activate
+          uv pip install --upgrade pip
+          uv pip install "$wheel"
+          python -c "import hgraph, hgraph._hgraph; print('ok')"
+
+      - name: Test a built wheel (basic import) [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path wheelhouse) { Get-ChildItem wheelhouse | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "wheelhouse not found" }
+          $wheel = (Get-ChildItem wheelhouse/*.whl | Select-Object -First 1).FullName
+          if (-not $wheel) { Write-Error "No wheels built"; exit 1 }
+          uv venv .venv-test
+          . .venv-test\Scripts\Activate.ps1
+          uv pip install --upgrade pip
+          uv pip install "$wheel"
+          python -c "import hgraph, hgraph._hgraph; print('ok')"
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-wheels-${{ runner.os }}
+          path: wheelhouse/**
+          if-no-files-found: error
+          retention-days: 14
