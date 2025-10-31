@@ -69,6 +69,13 @@ else()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif()
 
+# Suppress a known benign warning in fmt::ranges on GCC/Clang that can be treated as error in some envs
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    if (TARGET fmt::fmt)
+        target_compile_options(fmt::fmt INTERFACE -Wno-tautological-compare)
+    endif()
+endif()
+
 # backward-cpp via package or FetchContent (optional)
 if (HGRAPH_WITH_BACKWARD)
     find_package(Backward CONFIG QUIET)
