@@ -39,6 +39,7 @@ jobs:
       - name: Build wheel (NB stable ABI)
         env:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: Ninja
         run: uv build -v
 
       - name: Prepare test environment (all groups and extras)
