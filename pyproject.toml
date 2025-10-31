@@ -97,6 +97,9 @@ wheel.packages = ["src/hgraph"]
 cmake.verbose = true
 # Use the invoking Python for nanobind discovery unless overridden in CI
 cmake.define.Python_EXECUTABLE = "{sys.executable}"
+# Enforce macOS deployment target and architecture to satisfy libc++ requirements for std::format
+cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET = "15.0"
+cmake.define.CMAKE_OSX_ARCHITECTURES = "arm64"
 
 
 # Configure pytest
