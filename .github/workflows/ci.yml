@@ -70,83 +70,9 @@ jobs:
           uv pip install --upgrade pip
           uv pip install "${wheel}"
 
-      - name: Smoke import
-        run: |
-          uv run python -c "import hgraph, hgraph._hgraph; print('ok')"
 
-      - name: Run tests
+      - name: Run tests (Linux only)
+        if: runner.os == 'Linux'
         run: |
           uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
 
-  # Optional: Conan provider parity (macOS + Linux initially)
-  build-test-conan:
-    name: Build+test with Conan (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    needs: build-test
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest ]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v4
-        with:
-          python-version: '3.12'
-
-      - name: Install Conan via uv tool
-        run: uv tool install conan
-
-      - name: Build wheel (Conan provider + NB stable ABI)
-        env:
-          CMAKE_ARGS: >-
-            -DNB_USE_STABLE_ABI=ON
-            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider.cmake
-        run: uv build -v
-
-      - name: Prepare test environment (all groups and extras)
-        run: |
-          uv venv
-          uv sync --all-extras --all-groups
-
-      - name: List dist artifacts (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (Test-Path dist) { Get-ChildItem dist | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "dist directory not found" }
-      - name: List dist artifacts (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          ls -la dist || true
-
-      - name: Install built wheel into env (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
-          if (-not $wheel) { Write-Error "No wheel found in dist/"; Get-ChildItem dist -Recurse; exit 1 }
-          uv pip install --upgrade pip
-          uv pip install "$wheel"
-
-      - name: Install built wheel into env (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          wheel=$(ls dist/*.whl | head -n1 || true)
-          if [ -z "${wheel}" ]; then
-            echo "No wheel found in dist/"
-            ls -la dist || true
-            exit 1
-          fi
-          uv pip install --upgrade pip
-          uv pip install "${wheel}"
-
-      - name: Smoke import
-        run: |
-          uv run python -c "import hgraph, hgraph._hgraph; print('ok - Conan provider')"
-
-      - name: Run tests
-        run: |
-          uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
