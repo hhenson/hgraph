@@ -36,9 +36,16 @@ jobs:
           uv venv
           uv sync --all-extras --all-groups
 
-      - name: List dist artifacts
+      - name: List dist artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          ls -la dist || dir dist
+          if (Test-Path dist) { Get-ChildItem dist | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "dist directory not found" }
+      - name: List dist artifacts (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ls -la dist || true
 
       - name: Install built wheel into env (Windows)
         if: runner.os == 'Windows'
@@ -102,9 +109,16 @@ jobs:
           uv venv
           uv sync --all-extras --all-groups
 
-      - name: List dist artifacts
+      - name: List dist artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          ls -la dist || dir dist
+          if (Test-Path dist) { Get-ChildItem dist | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "dist directory not found" }
+      - name: List dist artifacts (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ls -la dist || true
 
       - name: Install built wheel into env (Windows)
         if: runner.os == 'Windows'
