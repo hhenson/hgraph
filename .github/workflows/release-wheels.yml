@@ -1,9 +1,10 @@
 name: Release Wheels (cibuildwheel)
 
 on:
+  workflow_dispatch:
   push:
     tags:
-      - 'v_*'
+      - 'v_*.*.*'
 
 jobs:
   build-wheels:
