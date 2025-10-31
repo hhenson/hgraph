@@ -36,7 +36,16 @@ jobs:
         run: uv tool install conan
 
       # Build the wheel with nanobind stable ABI enabled
-      - name: Build wheel (NB stable ABI)
+      - name: Build wheel (NB stable ABI, Windows MSVC)
+        if: runner.os == 'Windows'
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: "Visual Studio 17 2022"
+          CMAKE_GENERATOR_PLATFORM: x64
+        run: uv build -v
+
+      - name: Build wheel (NB stable ABI, Unix Ninja)
+        if: runner.os != 'Windows'
         env:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
           CMAKE_GENERATOR: Ninja
