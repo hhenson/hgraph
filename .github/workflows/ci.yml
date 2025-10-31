@@ -36,10 +36,32 @@ jobs:
           uv venv
           uv sync --all-extras --all-groups
 
-      - name: Install built wheel into env
+      - name: List dist artifacts
         run: |
+          ls -la dist || dir dist
+
+      - name: Install built wheel into env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          if (-not $wheel) { Write-Error "No wheel found in dist/"; Get-ChildItem dist -Recurse; exit 1 }
           uv pip install --upgrade pip
-          uv pip install dist/*.whl
+          uv pip install "$wheel"
+
+      - name: Install built wheel into env (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ -z "${wheel}" ]; then
+            echo "No wheel found in dist/"
+            ls -la dist || true
+            exit 1
+          fi
+          uv pip install --upgrade pip
+          uv pip install "${wheel}"
 
       - name: Smoke import
         run: |
@@ -75,10 +97,37 @@ jobs:
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider.cmake
         run: uv build -v
 
-      - name: Install built wheel into env
+      - name: Prepare test environment (all groups and extras)
         run: |
+          uv venv
+          uv sync --all-extras --all-groups
+
+      - name: List dist artifacts
+        run: |
+          ls -la dist || dir dist
+
+      - name: Install built wheel into env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          if (-not $wheel) { Write-Error "No wheel found in dist/"; Get-ChildItem dist -Recurse; exit 1 }
           uv pip install --upgrade pip
-          uv pip install dist/*.whl
+          uv pip install "$wheel"
+
+      - name: Install built wheel into env (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ -z "${wheel}" ]; then
+            echo "No wheel found in dist/"
+            ls -la dist || true
+            exit 1
+          fi
+          uv pip install --upgrade pip
+          uv pip install "${wheel}"
 
       - name: Smoke import
         run: |
@@ -86,5 +135,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv sync --all-extras --all-groups
           uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
