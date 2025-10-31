@@ -110,10 +110,13 @@ install(TARGETS ${PROJECT_NAME}
         RUNTIME DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
 )
 
-#nanobind_add_stub(
-#        "${PROJECT_NAME}_stub"
-#        MODULE ${PROJECT_NAME}
-#        OUTPUT "${PROJECT_NAME}.pyi"
-#        PYTHON_PATH $<TARGET_FILE_DIR:${PROJECT_NAME}>
-#        DEPENDS ${PROJECT_NAME}
-#)
+option(HGRAPH_GENERATE_STUBS "Generate nanobind .pyi stubs for the Python module" OFF)
+if(HGRAPH_GENERATE_STUBS)
+    nanobind_add_stub(
+            "${PROJECT_NAME}_stub"
+            MODULE ${PROJECT_NAME}
+            OUTPUT "${PROJECT_NAME}.pyi"
+            PYTHON_PATH $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            DEPENDS ${PROJECT_NAME}
+    )
+endif()
