@@ -31,27 +31,23 @@ jobs:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
         run: uv build -v
 
-      # Create an isolated venv and install the built wheel
-      - name: Create venv and install wheel
-        shell: bash
+      - name: Prepare test environment (all groups and extras)
         run: |
-          uv venv .venv-ci
-          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
+          uv venv
+          uv sync --all-extras --all-groups
+
+      - name: Install built wheel into env
+        run: |
           uv pip install --upgrade pip
           uv pip install dist/*.whl
 
       - name: Smoke import
-        shell: bash
         run: |
-          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
-          python -c "import hgraph, hgraph._hgraph; print('ok')"
+          uv run python -c "import hgraph, hgraph._hgraph; print('ok')"
 
       - name: Run tests
-        shell: bash
         run: |
-          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
-          uv pip install -e .[test]
-          pytest -q
+          uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
 
   # Optional: Conan provider parity (macOS + Linux initially)
   build-test-conan:
@@ -79,23 +75,16 @@ jobs:
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider.cmake
         run: uv build -v
 
-      - name: Create venv and install wheel
-        shell: bash
+      - name: Install built wheel into env
         run: |
-          uv venv .venv-ci
-          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
           uv pip install --upgrade pip
           uv pip install dist/*.whl
 
       - name: Smoke import
-        shell: bash
         run: |
-          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
-          python -c "import hgraph, hgraph._hgraph; print('ok')"
+          uv run python -c "import hgraph, hgraph._hgraph; print('ok - Conan provider')"
 
       - name: Run tests
-        shell: bash
         run: |
-          source .venv-ci/bin/activate || .venv-ci\Scripts\activate
-          uv pip install -e .[test]
-          pytest -q
+          uv sync --all-extras --all-groups
+          uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
