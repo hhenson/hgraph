@@ -1,10 +1,9 @@
 name: Release Wheels (cibuildwheel)
 
 on:
-  workflow_dispatch:
   push:
     tags:
-      - 'v_*.*.*'
+      - 'v_*'
 
 jobs:
   build-wheels:
@@ -46,6 +45,8 @@ jobs:
           CIBW_ARCHS_MACOS: x86_64 arm64
           # Enable nanobind stable ABI at CMake level
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          # Force Ninja generator for consistent builds on all OS
+          CMAKE_GENERATOR: Ninja
           # Be verbose during scikit-build-core builds
           CIBW_ENVIRONMENT: >-
             SKBUILD_VERBOSE=1

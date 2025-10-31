@@ -86,7 +86,7 @@ requires = [
     "scikit-build-core>=0.9",
     "nanobind>=2.9",
     "cmake>=3.25",
-    "ninja; platform_system != 'Windows'",
+    "ninja",
     "setuptools>=65"
 ]
 build-backend = "scikit_build_core.build"
