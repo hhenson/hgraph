@@ -45,21 +45,25 @@ jobs:
           CIBW_BUILD: cp312-*
           # macOS: build both Intel and Apple Silicon wheels
           CIBW_ARCHS_MACOS: x86_64 arm64
+          # Windows: build 64-bit wheels only (avoid win32 toolchain issues)
+          CIBW_ARCHS_WINDOWS: AMD64
           # Enable nanobind stable ABI at CMake level
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
-          # Force Ninja generator for consistent builds on all OS
-          CMAKE_GENERATOR: Ninja
           # Global env visible during builds inside cibuildwheel
           CIBW_ENVIRONMENT: >-
             SKBUILD_VERBOSE=1
-          # Ensure MSVC toolchain is used on Windows, not MinGW
+          # Linux: disable backward-cpp to avoid execinfo.h / non-portable deps in manylinux
+          # Re-state CMAKE_ARGS to include both flags on Linux and prefer Ninja
+          CIBW_ENVIRONMENT_LINUX: >-
+            CMAKE_ARGS="-DNB_USE_STABLE_ABI=ON -DHGRAPH_WITH_BACKWARD=OFF" CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
+          # Windows: prefer Visual Studio generator to ensure cl.exe is used and on PATH
           CIBW_ENVIRONMENT_WINDOWS: >-
-            CC=cl CXX=cl
-          # Explicit arch for macOS cross-builds
+            CMAKE_GENERATOR="Visual Studio 17 2022" CMAKE_GENERATOR_PLATFORM=x64 SKBUILD_VERBOSE=1
+          # Explicit arch + generator for macOS cross-builds
           CIBW_ENVIRONMENT_MACOS_ARM64: >-
-            CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=11.0 SKBUILD_VERBOSE=1
+            CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=13.3 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
           CIBW_ENVIRONMENT_MACOS_X86_64: >-
-            CMAKE_OSX_ARCHITECTURES=x86_64 MACOSX_DEPLOYMENT_TARGET=11.0 SKBUILD_VERBOSE=1
+            CMAKE_OSX_ARCHITECTURES=x86_64 MACOSX_DEPLOYMENT_TARGET=13.3 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
         run: |
           uvx cibuildwheel --output-dir wheelhouse
 
