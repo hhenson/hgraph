@@ -127,6 +127,12 @@ jobs:
           uv pip install --upgrade pip
           uv pip install "${wheel}"
 
+      - name: Run smoke tests (macOS/Windows)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q -m smoke
 
       - name: Run tests (Linux only)
         if: runner.os == 'Linux'
