@@ -47,7 +47,7 @@ Issues = "https://github.com/hhenson/hgraph/blob/main/ISSUES.md"
 Changelog = "https://github.com/hhenson/hgraph/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hgraph"]
+packages = ["hgraph"]
 
 [project.optional-dependencies]
 web = [
@@ -96,8 +96,8 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
-# Install pure Python package from src/hgraph and place the compiled extension under hgraph/
-wheel.packages = ["src/hgraph"]
+# Install pure Python package from hgraph and place the compiled extension under hgraph/
+wheel.packages = ["hgraph"]
 cmake.verbose = true
 # Use the invoking Python for nanobind discovery unless overridden in CI
 cmake.define.Python_EXECUTABLE = "{sys.executable}"
@@ -114,7 +114,7 @@ minversion = "7.4.3"
 #addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 adapots = "--doctest-modules"
 # Ensure tests and IDE analysis can resolve the in-tree package
-pythonpath = ["src", "."]
+pythonpath = ["."]
 testpaths = [
     "hgraph_unit_tests",
     "docs"
@@ -133,12 +133,12 @@ omit = [
     "hgraph_unit_tests/*",
     "examples/*",
     "docs/*",
-    "src/hgraph/notebook/*",
-    "src/hgraph/debug/*"
+    "hgraph/notebook/*",
+    "hgraph/debug/*"
 ]
 
 [tool.coverage.paths]
-hg = ["src/hgraph", ]
+hg = ["hgraph", ]
 tests = ["hgraph_unit_tests"]
 
 [tool.coverage.report]
@@ -165,7 +165,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-files = ["src", ]
+files = [".", ]
 
 [project.scripts]
 build-docs = "sphinx.cmd.build:main"
