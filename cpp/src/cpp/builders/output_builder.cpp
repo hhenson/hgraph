@@ -36,7 +36,8 @@ namespace hgraph
                 [](OutputBuilder::ptr self, nb::object owning_node, nb::object owning_output) -> time_series_output_ptr {
                     if (!owning_node.is_none()) { return self->make_instance(nb::cast<node_ptr>(owning_node)); }
                     if (!owning_output.is_none()) { return self->make_instance(nb::cast<time_series_output_ptr>(owning_output)); }
-                    throw std::runtime_error("At least one of owning_node or owning_output must be provided");
+                    // Allow both to be None to match Python behavior
+                    return self->make_instance(node_ptr(nullptr));
                 },
                 "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
             .def("release_instance", &OutputBuilder::release_instance)
