@@ -99,6 +99,7 @@ build-backend = "scikit_build_core.build"
 # Install pure Python package from hgraph and place the compiled extension under hgraph/
 wheel.packages = ["hgraph"]
 cmake.verbose = true
+cmake.source-dir = "."
 # Use the invoking Python for nanobind discovery unless overridden in CI
 cmake.define.Python_EXECUTABLE = "{sys.executable}"
 # Enforce macOS deployment target and architecture to satisfy libc++ requirements for std::format
