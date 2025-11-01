@@ -48,3 +48,4 @@ examples/web_ui/layouts/
 docs/build/*
 /cmake-build-debug/
 /.tmp/
+/cmake-build-relwithdebinfo/

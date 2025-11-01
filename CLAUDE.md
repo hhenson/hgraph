@@ -52,3 +52,7 @@ ln -s `pwd`/cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so `pwd`/.v
 uv run pytest hgraph_unit_tests/_operators/test_const.py -v
 ```
 
+## Testing
+
+The tests are currently all in python and can be found in ``hgraph_unit_tests``.
+

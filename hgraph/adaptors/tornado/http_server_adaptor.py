@@ -118,6 +118,8 @@ class HttpAdaptorManager:
     def __init__(self):
         self.handlers = {}
         self.requests = {}
+        self._next_request_id = 1
+        self._pyid_to_id = {}
 
     @classmethod
     def instance(cls):
@@ -143,13 +145,20 @@ class HttpAdaptorManager:
         self.handlers[path] = handler
 
     def add_request(self, request_id, request):
+        # Map transient Python object id to a stable, unique request id to avoid id() reuse collisions
+        pyid = request_id
+        rid = self._pyid_to_id.get(pyid)
+        if rid is None:
+            rid = self._next_request_id
+            self._next_request_id += 1
+            self._pyid_to_id[pyid] = rid
         try:
             future = asyncio.Future()
         except Exception as e:
             logger.exception(f"Error creating future")
             raise e
-        self.requests[request_id] = future
-        self.queue({request_id: request})
+        self.requests[rid] = future
+        self.queue({rid: request})
         return future
 
     def complete_request(self, request_id, response):
