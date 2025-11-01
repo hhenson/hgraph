@@ -173,9 +173,21 @@ class HttpAdaptorManager:
             else:
                 logger.warning(f"Request {request_id} already completed or cancelled.")
 
-    def remove_request(self, request_id):
-        self.queue({request_id: REMOVE_IF_EXISTS})
-        del self.requests[request_id]
+    def remove_request(self, request_pyid):
+        # Translate transient Python object id back to the stable request id and clean up
+        rid = self._pyid_to_id.pop(request_pyid, None)
+        if rid is None:
+            logger.debug(f"remove_request called with unknown pyid={request_pyid}")
+            return
+        # Remove from the TSD and local tracking
+        try:
+            self.queue({rid: REMOVE_IF_EXISTS})
+        except Exception:
+            logger.exception("Failed to enqueue REMOVE_IF_EXISTS for rid=%s", rid)
+        future = self.requests.pop(rid, None)
+        if future is not None and not future.done():
+            # Ensure we don't leak a pending future if the client disconnected
+            future.cancel()
 
 
 class HttpHandler(BaseHandler):
