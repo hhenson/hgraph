@@ -6,8 +6,13 @@
 #include <string>
 #include <vector>
 #include <typeinfo>
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/string.h>
 
 using namespace hgraph;
+
+// Bring hgraph::to_string into scope explicitly for ADL clarity
+using hgraph::to_string;
 
 namespace {
     struct Small {
@@ -203,4 +208,54 @@ TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_
     AnyValue<> vs4;
     vs4.emplace<std::string>("hello");
     REQUIRE(vs4.hash_code() == h_expected);
+}
+
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+TEST_CASE("to_string for AnyValue<>", "[time_series][any][string]") {
+    // Empty
+    AnyValue<> v0;
+    REQUIRE(to_string(v0) == std::string("<empty>"));
+
+    // int64_t
+    AnyValue<> vi; vi.emplace<int64_t>(42);
+    REQUIRE(to_string(vi) == std::string("42"));
+
+    // double (std::to_string may include many decimals); just check prefix "3.14"
+    AnyValue<> vd; vd.emplace<double>(3.14);
+    auto ds = to_string(vd);
+    REQUIRE_THAT(ds, Catch::Matchers::StartsWith("3.14"));
+
+    // std::string
+    AnyValue<> vs; vs.emplace<std::string>("hello");
+    REQUIRE(to_string(vs) == std::string("hello"));
+}
+
+TEST_CASE("to_string for TsEventAny", "[time_series][event][string]") {
+    engine_time_t t{};
+
+    auto e_none = TsEventAny::none(t);
+    auto s_none = to_string(e_none);
+    REQUIRE(s_none.find("TsEventAny{") != std::string::npos);
+    REQUIRE(s_none.find("kind=None") != std::string::npos);
+
+    auto e_inv = TsEventAny::invalidate(t);
+    auto s_inv = to_string(e_inv);
+    REQUIRE(s_inv.find("kind=Invalidate") != std::string::npos);
+
+    auto e_mod = TsEventAny::modify(t, 3.14);
+    auto s_mod = to_string(e_mod);
+    REQUIRE(s_mod.find("kind=Modify") != std::string::npos);
+    REQUIRE(s_mod.find("value=") != std::string::npos);
+}
+
+TEST_CASE("to_string for TsValueAny", "[time_series][value][string]") {
+    auto v_none = TsValueAny::none();
+    auto s_none = to_string(v_none);
+    REQUIRE(s_none.find("TsValueAny{") != std::string::npos);
+    REQUIRE(s_none.find("none") != std::string::npos);
+
+    auto v_str = TsValueAny::of(std::string("hello"));
+    auto s_val = to_string(v_str);
+    REQUIRE(s_val.find("value=hello") != std::string::npos);
 }
