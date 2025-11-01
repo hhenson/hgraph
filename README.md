@@ -147,7 +147,4 @@ Artifacts are uploaded for inspection as part of the workflow run.
 ### Troubleshooting
 - Nanobind not found / Python ordering in CMake:
   - Pass `-DPython_EXECUTABLE=...` (or `-DPython3_EXECUTABLE=...`) and, if using Conan, use the `conan_preamble.cmake` before `conan_provider.cmake`.
-- macOS `std::format` failures about `to_chars`:
-  - Ensure `CMAKE_OSX_DEPLOYMENT_TARGET` is `>= 13.3` (this repo uses 15.0) and building for `arm64`.
-- Windows choosing MinGW:
-  - Ensure your environment is using the Visual Studio generator (VS 2022) with platform `x64`.
+
