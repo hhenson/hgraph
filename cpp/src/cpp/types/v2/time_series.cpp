@@ -2,8 +2,10 @@
 #include <sstream>
 #include <chrono>
 #include <iomanip>
+#if defined(HGRAPH_WITH_PYTHON_TOSTRING)
 #include <nanobind/stl/string.h>
 #include <Python.h>
+#endif
 
 namespace hgraph {
 
@@ -54,7 +56,8 @@ std::string to_string(const AnyValue<>& v) {
         return std::to_string(us) + "us";
     }
 
-    // nb::object: render via Python str with fallback to repr
+    // nb::object: render via Python str with fallback to repr (enabled only when HGRAPH_WITH_PYTHON_TOSTRING)
+#if defined(HGRAPH_WITH_PYTHON_TOSTRING)
     if (auto p = v.get_if<nb::object>()) {
         // If the interpreter isn't initialized, avoid calling into Python
         if (!Py_IsInitialized()) {
@@ -67,6 +70,11 @@ std::string to_string(const AnyValue<>& v) {
             return nb::cast<std::string>(nb::repr(*p));
         }
     }
+#else
+    if (v.type().info == &typeid(nb::object)) {
+        return std::string("<nb::object>");
+    }
+#endif
 
     // Fallback: type name only (do not dereference unknown types)
     const char* tn = v.type().info ? v.type().info->name() : "<unknown>";

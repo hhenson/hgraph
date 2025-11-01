@@ -96,6 +96,9 @@ add_definitions(-Dhgraph_EXPORTS)
 
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
+# Enable Python-backed nb::object to_string in the engine module (not in tests)
+target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_PYTHON_TOSTRING=1)
+
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
