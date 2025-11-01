@@ -51,6 +51,15 @@ endif()
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
 include_directories(${Python_INCLUDE_DIRS})
 
+# Get Python SOABI to avoid double .so extension in nanobind
+execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c "import sysconfig; print(sysconfig.get_config_var('SOABI'), end='')"
+        OUTPUT_VARIABLE Python_SOABI
+        RESULT_VARIABLE _result)
+if(_result EQUAL 0 AND Python_SOABI)
+    set(Python_SOABI "${Python_SOABI}" CACHE STRING "Python SOABI" FORCE)
+endif()
+
 # Resolve nanobind via the chosen interpreter and help CMake find it
 execute_process(
         COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
