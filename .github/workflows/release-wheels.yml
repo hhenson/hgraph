@@ -187,7 +187,8 @@ jobs:
       name: release
     permissions:
       id-token: write
-      contents: read
+      contents: write
+      pull-requests: write
     steps:
       - name: Download release artifacts (wheels + sdist)
         uses: actions/download-artifact@v4
@@ -222,20 +223,23 @@ jobs:
 
       - name: Commit version bump to default branch
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          V: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # Determine version from tag: support v_1.2.3 or v1.2.3
           REF="${GITHUB_REF_NAME}"
-          if [[ "${REF}" == v_* ]]; then V="${REF#v_}"; elif [[ "${REF}" == v* ]]; then V="${REF#v}"; else echo "Unexpected tag format: ${REF}"; exit 1; fi
-          echo "Committing version ${V} to pyproject.toml on default branch"
+          if [[ "${REF}" == v_* ]]; then VVER="${REF#v_}"; elif [[ "${REF}" == v* ]]; then VVER="${REF#v}"; else echo "Unexpected tag format: ${REF}"; exit 1; fi
+          echo "Committing version ${VVER} to pyproject.toml on default branch"
 
-          # Switch to default branch (ensures we don't commit on the tag ref)
-          git checkout "${GITHUB_EVENT_REPOSITORY_DEFAULT_BRANCH:-${GITHUB_REF_NAME}}" 2>/dev/null || git checkout "${{ github.event.repository.default_branch }}"
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          git checkout "$DEFAULT_BRANCH"
 
           # Update pyproject.toml
           python - <<PY
           import os, re, pathlib, sys
-          ver = os.environ.get('V')
+          ver = os.environ.get('VVER') or os.environ.get('V')
           p = pathlib.Path('pyproject.toml')
           s = p.read_text(encoding='utf-8')
           new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
@@ -248,15 +252,13 @@ jobs:
               p.write_text(new_s, encoding='utf-8')
           PY
 
-          # Commit only if changed
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          # Commit only if changed; push to default branch
+          git config --local user.name "github-actions"
+          git config --local user.email "github-actions@github.com"
           if ! git diff --quiet -- pyproject.toml; then
             git add pyproject.toml
-            git commit -m "chore(release): bump version to ${V}"
-            git push origin HEAD
+            git commit -m "Update version to ${VVER} based on tag"
+            git push origin HEAD:"$DEFAULT_BRANCH"
           else
-            echo "No changes to commit in pyproject.toml"
+            echo "No changes detected in pyproject.toml. Skipping commit and push."
           fi
-        env:
-          V: ${{ github.ref_name }}
