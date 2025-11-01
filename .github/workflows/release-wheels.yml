@@ -238,21 +238,24 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          V: ${{ github.ref_name }}
+          REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # Determine version from tag: support v_1.2.3 or v1.2.3
-          REF="${GITHUB_REF_NAME}"
-          if [[ "${REF}" == v_* ]]; then VVER="${REF#v_}"; elif [[ "${REF}" == v* ]]; then VVER="${REF#v}"; else echo "Unexpected tag format: ${REF}"; exit 1; fi
-          echo "Committing version ${VVER} to pyproject.toml on default branch"
-
+          # Determine version from tag inside Python to avoid env mismatches
           DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
           git checkout "$DEFAULT_BRANCH"
 
-          # Update pyproject.toml
           python - <<PY
           import os, re, pathlib, sys
-          ver = os.environ.get('VVER') or os.environ.get('V')
+          ref = os.environ.get('REF','')
+          if ref.startswith('v_'):
+              ver = ref[2:]
+          elif ref.startswith('v'):
+              ver = ref[1:]
+          else:
+              print(f'Unexpected tag format: {ref}', file=sys.stderr)
+              sys.exit(1)
+          print(f'Committing version {ver} to pyproject.toml on default branch')
           p = pathlib.Path('pyproject.toml')
           s = p.read_text(encoding='utf-8')
           new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
@@ -270,7 +273,10 @@ jobs:
           git config --local user.email "github-actions@github.com"
           if ! git diff --quiet -- pyproject.toml; then
             git add pyproject.toml
-            git commit -m "Update version to ${VVER} based on tag"
+            # Compute version string for the commit subject from REF (supports v_#.#.# and v#.#.#)
+            VER_COMMIT="$REF"
+            if [[ "$VER_COMMIT" == v_* ]]; then VER_COMMIT="${VER_COMMIT#v_}"; elif [[ "$VER_COMMIT" == v* ]]; then VER_COMMIT="${VER_COMMIT#v}"; fi
+            git commit -m "Update version to ${VER_COMMIT} based on tag"
             git push origin HEAD:"$DEFAULT_BRANCH"
           else
             echo "No changes detected in pyproject.toml. Skipping commit and push."
