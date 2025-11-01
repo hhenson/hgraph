@@ -4,6 +4,7 @@ project(hgraph_ts_v2_tests)
 
 add_executable(hgraph_ts_v2_tests
     test_time_series_v2.cpp
+    ../src/cpp/types/v2/time_series.cpp
 )
 
 # Inherit include dirs from parent (Python, nanobind, project includes)

@@ -138,20 +138,69 @@ TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[t
     REQUIRE(Big::delete_calls == Big::new_calls);
 }
 
-TEST_CASE("erase_event helpers convert typed events", "[time_series][event]") {
-    TsModifyEvent<int> m; m.event_time = engine_time_t{}; m.value = 7;
-    TsInvalidateEvent inv; inv.event_time = engine_time_t{};
-    TsNoneEvent none; none.event_time = engine_time_t{};
 
-    auto em = erase_event(m);
-    REQUIRE(em.kind == TsEventKind::Modify);
-    REQUIRE(*em.value.get_if<int>() == 7);
 
-    auto ei = erase_event(inv);
-    REQUIRE(ei.kind == TsEventKind::Invalidate);
-    REQUIRE_FALSE(ei.value.has_value());
+TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]") {
+    TypeId id_i1{ &typeid(int64_t) };
+    TypeId id_i2{ &typeid(int64_t) };
+    TypeId id_d{ &typeid(double) };
 
-    auto en = erase_event(none);
-    REQUIRE(en.kind == TsEventKind::None);
-    REQUIRE_FALSE(en.value.has_value());
+    REQUIRE(id_i1 == id_i2);
+    REQUIRE_FALSE(id_i1 == id_d);
+
+    std::size_t h1 = std::hash<TypeId>{}(id_i1);
+    std::size_t h2 = std::hash<TypeId>{}(id_i2);
+    REQUIRE(h1 == h2);
+}
+
+TEST_CASE("AnyValue hash_code: empty and primitives", "[time_series][any][hash]") {
+    // Empty
+    AnyValue<> empty;
+    REQUIRE_FALSE(empty.has_value());
+    REQUIRE(empty.hash_code() == 0);
+
+    // int64_t
+    AnyValue<> vi;
+    vi.emplace<int64_t>(42);
+    REQUIRE(vi.has_value());
+    REQUIRE(vi.type().info == &typeid(int64_t));
+    REQUIRE(vi.hash_code() == std::hash<int64_t>{}(42));
+
+    // Copy preserves hash
+    AnyValue<> vi_copy = vi;
+    REQUIRE(vi_copy.hash_code() == vi.hash_code());
+    REQUIRE(vi_copy.type().info == vi.type().info);
+
+    // Move preserves hash
+    AnyValue<> vi_move = std::move(vi_copy);
+    REQUIRE(vi_move.hash_code() == std::hash<int64_t>{}(42));
+    REQUIRE(vi_move.type().info == &typeid(int64_t));
+
+    // double
+    AnyValue<> vd;
+    vd.emplace<double>(3.14);
+    REQUIRE(vd.has_value());
+    REQUIRE(vd.type().info == &typeid(double));
+    REQUIRE(vd.hash_code() == std::hash<double>{}(3.14));
+}
+
+TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_series][any][hash]") {
+    AnyValue<> vs1;
+    vs1.emplace<std::string>("hello");
+    REQUIRE(vs1.has_value());
+    REQUIRE(vs1.type().info == &typeid(std::string));
+
+    const auto h_expected = std::hash<std::string>{}("hello");
+    REQUIRE(vs1.hash_code() == h_expected);
+
+    AnyValue<> vs2 = vs1;           // copy
+    AnyValue<> vs3 = std::move(vs2); // move
+
+    REQUIRE(vs3.hash_code() == h_expected);
+    REQUIRE(vs3.type().info == &typeid(std::string));
+
+    // Independent instance with same payload should hash the same
+    AnyValue<> vs4;
+    vs4.emplace<std::string>("hello");
+    REQUIRE(vs4.hash_code() == h_expected);
 }
