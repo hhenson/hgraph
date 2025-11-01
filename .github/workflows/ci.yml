@@ -157,16 +157,8 @@ jobs:
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
-          uv run python - <<'PY'
-import sys
-try:
-    import _hgraph
-    print("_hgraph:", _hgraph.__file__)
-except Exception as e:
-    print("unable to import _hgraph:", e)
-import hgraph
-print("hgraph:", hgraph.__file__)
-PY
+          uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
           uv run pytest -ra -q --cov=hgraph --cov-report=xml
 
       - name: Run tests (Linux only) [C++ runtime]
@@ -179,16 +171,8 @@ PY
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
-          uv run python - <<'PY'
-import sys
-try:
-    import _hgraph
-    print("_hgraph:", _hgraph.__file__)
-except Exception as e:
-    print("unable to import _hgraph:", e)
-import hgraph
-print("hgraph:", hgraph.__file__)
-PY
+          uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
           uv run pytest -ra -q --cov=hgraph --cov-report=xml
 
       - name: Collect crash artifacts (Linux only)
