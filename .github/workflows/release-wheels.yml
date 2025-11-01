@@ -146,7 +146,44 @@ jobs:
           source .venv-test/bin/activate
           uv pip install --upgrade pip
           uv pip install "$wheel"
-          python -c "import hgraph, hgraph._hgraph; print('ok')"
+          echo "--- Python and site-packages diagnostics ---"
+          python - <<'PY'
+          import sys, sysconfig, site
+          print('python:', sys.executable)
+          print('version:', sys.version)
+          print('purelib:', sysconfig.get_paths().get('purelib'))
+          print('platlib:', sysconfig.get_paths().get('platlib'))
+          print('site.getsitepackages():', getattr(site, 'getsitepackages', lambda: [])())
+          PY
+          echo "--- hgraph install location and native module presence ---"
+          python - <<'PY'
+          import importlib.util, pathlib
+          spec = importlib.util.find_spec('hgraph')
+          print('find_spec(hgraph):', spec)
+          if spec and spec.submodule_search_locations:
+              pkg_dir = pathlib.Path(list(spec.submodule_search_locations)[0])
+              print('hgraph dir:', pkg_dir)
+              for p in sorted(pkg_dir.glob('_hgraph*')):
+                  print('found in hgraph/:', p.name)
+          PY
+          echo "--- Wheel contents under hgraph/ ---"
+          python - <<'PY'
+          import glob, zipfile
+          wheels = glob.glob('wheelhouse/*.whl')
+          print('wheels:', wheels)
+          with zipfile.ZipFile(wheels[0]) as z:
+              for n in sorted(z.namelist()):
+                  if n.startswith('hgraph/'):
+                      print(' ', n)
+          PY
+          echo "--- Import test ---"
+          python - <<'PY'
+          import importlib.util
+          print(importlib.util.find_spec('hgraph'))
+          print(importlib.util.find_spec('hgraph._hgraph'))
+          import hgraph, hgraph._hgraph as m
+          print('ok:', bool(getattr(m, '__doc__', None)))
+          PY
 
       - name: Test a built wheel (basic import) [Windows]
         if: runner.os == 'Windows'
