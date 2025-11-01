@@ -26,8 +26,6 @@ from hgraph.test import eval_node
 
 
 import pytest
-pytestmark = pytest.mark.smoke
-
 
 @compute_node
 def my_scheduler(ts: TS[int], tag: str = None, _scheduler: SCHEDULER = None) -> TS[int]:
@@ -38,10 +36,11 @@ def my_scheduler(ts: TS[int], tag: str = None, _scheduler: SCHEDULER = None) -> 
         return -1
 
 
+@pytest.mark.smoke
 def test_scheduler():
     assert eval_node(my_scheduler, [2, 3]) == [2, 3, -1, None, -1]
 
-
+@pytest.mark.smoke
 def test_map_scheduler():
     @graph
     def map_scheduler(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -64,6 +63,7 @@ def schedule_bool(ts: TS[bool], ts1: TS[int], _scheduler: SCHEDULER = None) -> T
         return False
 
 
+@pytest.mark.smoke
 def test_tagged_scheduler():
     @graph
     def _schedule_graph(ts: TSD[str, TS[bool]]) -> TSD[str, TS[bool]]:

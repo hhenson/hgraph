@@ -117,6 +117,7 @@ testpaths = [
 ]
 markers = [
     "serial: mark test to run serially (not in parallel with xdist)",
+    "smoke: Smoke test marker used to perform a very basic checkout of built pips"
 ]
 
 # Configure coverage

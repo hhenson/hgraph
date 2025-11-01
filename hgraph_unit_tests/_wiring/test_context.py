@@ -32,7 +32,7 @@ import pytest
 pytestmark = pytest.mark.smoke
 
 
-class TestContext:
+class _TestContext:
     __instance__ = None
 
     def __init__(self, msg: str = "non-default"):
@@ -40,28 +40,28 @@ class TestContext:
 
     @classmethod
     def instance(cls):
-        if TestContext.__instance__ is None:
-            return TestContext("default")
-        return TestContext.__instance__
+        if _TestContext.__instance__ is None:
+            return _TestContext("default")
+        return _TestContext.__instance__
 
     def __enter__(self):
-        TestContext.__instance__ = self
+        _TestContext.__instance__ = self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if TestContext.__instance__ == self:
-            TestContext.__instance__ = None
+        if _TestContext.__instance__ == self:
+            _TestContext.__instance__ = None
         else:
             raise ValueError("Exiting context not entered.")
 
 
 def test_context():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TS[TestContext]] = None) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[TS[_TestContext]] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
-        with const(TestContext("Hello")):
+        with const(_TestContext("Hello")):
             return use_context(ts)
 
     assert eval_node(g, [True, None, False]) == ["Hello True", None, "Hello False"]
@@ -69,8 +69,8 @@ def test_context():
 
 def test_no_context():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TS[TestContext]] = None) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[TS[_TestContext]] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
@@ -81,8 +81,8 @@ def test_no_context():
 
 def test_no_context_but_required():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TS[TestContext]] = REQUIRED) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[TS[_TestContext]] = REQUIRED) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
@@ -96,12 +96,12 @@ def test_no_context_but_required():
 
 def test_context_scalar():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[_TestContext] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
-        with const(TestContext("Hello")) as z:
+        with const(_TestContext("Hello")) as z:
             return use_context(ts)
 
     assert eval_node(g, [True, None, False]) == ["Hello True", None, "Hello False"]
@@ -109,13 +109,13 @@ def test_context_scalar():
 
 def test_context_scalar_named():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = REQUIRED["a"]) -> TS[str]:
-        return f"{TestContext.instance().msg}"
+    def use_context(ts: TS[bool], context: CONTEXT[_TestContext] = REQUIRED["a"]) -> TS[str]:
+        return f"{_TestContext.instance().msg}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
-        with const(TestContext("Hello_A")) as a:
-            with const(TestContext("Hello_Z")) as z:
+        with const(_TestContext("Hello_A")) as a:
+            with const(_TestContext("Hello_Z")) as z:
                 return format_("{} {}", use_context(ts), use_context(ts, context="z"))
 
     assert eval_node(g, [True, None, False]) == ["Hello_A Hello_Z", None, "Hello_A Hello_Z"]
@@ -123,8 +123,8 @@ def test_context_scalar_named():
 
 def test_context_scalar_named_required():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
-        return f"{TestContext.instance().msg}"
+    def use_context(ts: TS[bool], context: CONTEXT[_TestContext] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
@@ -136,8 +136,8 @@ def test_context_scalar_named_required():
 
 def test_context_scalar_named_default():
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
-        return f"{TestContext.instance().msg}"
+    def use_context(ts: TS[bool], context: CONTEXT[_TestContext] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
@@ -148,13 +148,13 @@ def test_context_scalar_named_default():
 
 def test_context_bundle():
     @dataclass(frozen=True)
-    class ContextStruct(CompoundScalar, TestContext):
+    class ContextStruct(CompoundScalar, _TestContext):
         a: int
         msg: str = "bundle"
 
     @compute_node(valid=("ts", "context"))
-    def use_context(ts: TS[bool], context: CONTEXT[TestContext] = None) -> TS[str]:
-        return f"{TestContext.instance().msg}"
+    def use_context(ts: TS[bool], context: CONTEXT[_TestContext] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg}"
 
     @graph
     def g(ts: TS[bool]) -> TS[str]:
@@ -166,12 +166,12 @@ def test_context_bundle():
 
 def test_context_ranking():
     @compute_node
-    def create_context(msg: TS[str]) -> TS[TestContext]:
-        return TestContext(msg.value)
+    def create_context(msg: TS[str]) -> TS[_TestContext]:
+        return _TestContext(msg.value)
 
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TS[TestContext]] = None) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[TS[_TestContext]] = None) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
@@ -185,12 +185,12 @@ def test_context_ranking():
 
 def test_context_over_switch():
     @compute_node
-    def create_context(msg: TS[str]) -> TS[TestContext]:
-        return TestContext(msg.value)
+    def create_context(msg: TS[str]) -> TS[_TestContext]:
+        return _TestContext(msg.value)
 
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TS[TestContext]] = REQUIRED) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[TS[_TestContext]] = REQUIRED) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
@@ -206,12 +206,12 @@ def test_context_over_switch():
 
 def test_context_over_switch_inside_map():
     @compute_node
-    def create_context(msg: TS[str]) -> TS[TestContext]:
-        return TestContext(msg.value)
+    def create_context(msg: TS[str]) -> TS[_TestContext]:
+        return _TestContext(msg.value)
 
     @compute_node
-    def use_context(ts: TS[bool], context: CONTEXT[TS[TestContext]] = REQUIRED) -> TS[str]:
-        return f"{TestContext.instance().msg} {ts.value}"
+    def use_context(ts: TS[bool], context: CONTEXT[TS[_TestContext]] = REQUIRED) -> TS[str]:
+        return f"{_TestContext.instance().msg} {ts.value}"
 
     @graph
     def g(ts: TS[bool], s: TS[str]) -> TS[str]:
