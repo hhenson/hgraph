@@ -6,6 +6,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
 
+#include <utility>
+
 namespace hgraph
 {
 
@@ -137,7 +139,8 @@ namespace hgraph
     }
 
     Graph::ptr Graph::copy_with(std::vector<Node::ptr> nodes) {
-        return ptr{new Graph(std::move(_graph_id), std::move(nodes), _parent_node, _label, _traits->copy())};
+        //This is a copy, need to make sure we copy the graph contents
+        return ptr{new Graph(_graph_id, std::move(nodes), _parent_node, _label, _traits->copy())};
     }
 
     const Traits &Graph::traits() const { return *_traits; }
