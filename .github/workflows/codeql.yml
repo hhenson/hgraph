@@ -46,7 +46,7 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          build-mode: manual
+          build-mode: ${{ matrix.language == 'cpp' && 'manual' || 'none' }}
 
       # Build the C++ extension in manual mode so CodeQL can trace compilation
       - name: Build C++ extension (manual)
