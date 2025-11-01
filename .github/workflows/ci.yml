@@ -151,15 +151,74 @@ jobs:
         if: runner.os == 'Linux'
         env:
           HGRAPH_USE_CPP: 'false'
+          PYTHONFAULTHANDLER: '1'
         run: |
+          set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
+          ulimit -c unlimited || true
+          echo "Discovering extension paths..."
+          uv run python - <<'PY'
+import sys
+try:
+    import _hgraph
+    print("_hgraph:", _hgraph.__file__)
+except Exception as e:
+    print("unable to import _hgraph:", e)
+import hgraph
+print("hgraph:", hgraph.__file__)
+PY
           uv run pytest -ra -q --cov=hgraph --cov-report=xml
 
       - name: Run tests (Linux only) [C++ runtime]
         if: runner.os == 'Linux'
         env:
           HGRAPH_USE_CPP: 'true'
+          PYTHONFAULTHANDLER: '1'
         run: |
+          set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
+          ulimit -c unlimited || true
+          echo "Discovering extension paths..."
+          uv run python - <<'PY'
+import sys
+try:
+    import _hgraph
+    print("_hgraph:", _hgraph.__file__)
+except Exception as e:
+    print("unable to import _hgraph:", e)
+import hgraph
+print("hgraph:", hgraph.__file__)
+PY
           uv run pytest -ra -q --cov=hgraph --cov-report=xml
+
+      - name: Collect crash artifacts (Linux only)
+        if: failure() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Collecting core dumps and backtraces..."
+          sudo apt-get update >/dev/null 2>&1 || true
+          sudo apt-get install -y gdb >/dev/null 2>&1 || true
+          shopt -s nullglob || true
+          CORES=(core core.* /var/crash/*.crash /var/crash/*.core /home/runner/work/*/*/core*)
+          echo "Found ${#CORES[@]} core candidates"
+          for c in "${CORES[@]}"; do
+            echo "==> Core file: $c"
+            file "$c" || true
+            which python || true
+            gdb -q -n -batch -ex "set pagination off" -ex "thread apply all bt full" -ex "quit" "$(which python)" "$c" || true
+          done
+
+      - name: Upload core dumps (Linux only)
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-core-dumps
+          path: |
+            core*
+            /var/crash/*.crash
+            /var/crash/*.core
+            /home/runner/work/*/*/core*
+          if-no-files-found: ignore
+          retention-days: 7
 
