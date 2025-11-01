@@ -46,7 +46,7 @@ cmake --build cmake-build-debug
 rm .venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 
 # 5. Create symlink for fast iteration (recommended)
-ln -sf cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so hgraph/_hgraph.cpython-312-darwin.so
+ln -s `pwd`/cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so `pwd`/.venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 
 # 5. Verify installation
 uv run pytest hgraph_unit_tests/_operators/test_const.py -v
