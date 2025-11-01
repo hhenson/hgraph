@@ -2,6 +2,12 @@ name: Release Wheels (cibuildwheel)
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_testpypi:
+        description: "Publish built distributions to TestPyPI"
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - 'v*'
@@ -18,6 +24,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Show trigger inputs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "publish_testpypi=${{ inputs.publish_testpypi }}"
 
       - name: Setup uv (Python 3.12)
         uses: astral-sh/setup-uv@v4
@@ -73,9 +84,14 @@ jobs:
         run: |
           uvx cibuildwheel --output-dir wheelhouse
 
+      - name: Build sdist (source distribution)
+        run: |
+          uv build -v --sdist
+
       - name: Validate wheels metadata (twine check)
         run: |
           uvx twine check wheelhouse/*
+          if compgen -G "dist/*.tar.gz" > /dev/null; then uvx twine check dist/*.tar.gz; fi
 
       - name: Test a built wheel (basic import) [Linux/macOS]
         if: runner.os != 'Windows'
