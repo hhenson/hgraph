@@ -1,13 +1,6 @@
 name: Release Wheels (cibuildwheel)
 
 on:
-  workflow_dispatch:
-    inputs:
-      publish_testpypi:
-        description: "Publish built distributions to TestPyPI"
-        required: false
-        default: false
-        type: boolean
   push:
     tags:
       - 'v*'
@@ -127,3 +120,48 @@ jobs:
           path: wheelhouse/**
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload sdist (Linux only)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: ignore
+          retention-days: 14
+
+
+  publish:
+    name: Publish to PyPI
+    needs: [build-wheels]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download release artifacts (wheels + sdist)
+        uses: actions/download-artifact@v4
+        with:
+          path: dist_all
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Collect distributions into a single folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p to_upload
+          shopt -s globstar nullglob
+          # Gather .whl and .tar.gz from all artifacts (recursively)
+          for f in dist_all/**/*.whl dist_all/**/*.tar.gz; do
+            [ -e "$f" ] || continue
+            cp "$f" to_upload/
+          done
+          echo "Collected distributions:" && ls -la to_upload || true
+
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: to_upload
+          skip-existing: true
