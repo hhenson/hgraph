@@ -9,8 +9,11 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <type_traits>
+#include <functional>
 
 #include "hgraph/util/date_time.h"
+#include "hgraph/hgraph_export.h"
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
@@ -22,10 +25,11 @@ namespace hgraph {
     inline constexpr std::size_t HGRAPH_TS_ALIGN = alignof(std::max_align_t);
 
     // Type-id wrapper (can be replaced with a stable hashed id later)
-    struct TypeId {
+    struct HGRAPH_EXPORT TypeId {
         const std::type_info* info{};
-        friend bool operator==(TypeId a, TypeId b) { return a.info == b.info; }
     };
+
+    HGRAPH_EXPORT bool operator==(TypeId a, TypeId b);
 
     template <std::size_t SBO = HGRAPH_TS_VALUE_SBO, std::size_t Align = HGRAPH_TS_ALIGN>
     class AnyValue {
@@ -93,12 +97,18 @@ namespace hgraph {
             return reinterpret_cast<const T*>(get_ptr());
         }
 
+        // Hash of the contained value (type-aware). Returns 0 if empty.
+        std::size_t hash_code() const noexcept {
+            return vtable_ ? vtable_->hash(*this) : 0;
+        }
+
     private:
         struct VTable {
             TypeId type;
             void (*copy)(AnyValue&, const AnyValue&);
             void (*move)(AnyValue&, AnyValue&) noexcept;
             void (*destroy)(AnyValue&) noexcept;
+            std::size_t (*hash)(const AnyValue&) noexcept;
         };
 
         template <class T>
@@ -145,6 +155,25 @@ namespace hgraph {
                     } else {
                         reinterpret_cast<T*>(self.storage_ptr())->~T();
                     }
+                },
+                // hash
+                [](const AnyValue& self) noexcept -> std::size_t {
+                    if (!self.vtable_) return 0u;
+                    const T* p = nullptr;
+                    if (self.using_heap_) {
+                        p = *reinterpret_cast<T* const*>(self.storage_);
+                    } else {
+                        p = reinterpret_cast<const T*>(self.storage_ptr());
+                    }
+                    // Prefer std::hash<T> if available; otherwise hash the pointer and type id
+                    if constexpr (requires(const T& x) { { std::hash<T>{}(x) } -> std::convertible_to<std::size_t>; }) {
+                        return std::hash<T>{}(*p);
+                    } else {
+                        const std::size_t th = std::hash<const void*>{}(self.vtable_->type.info);
+                        const std::size_t ph = std::hash<const void*>{}(static_cast<const void*>(p));
+                        // boost::hash_combine style
+                        return th ^ (ph + 0x9e3779b97f4a7c15ull + (th << 6) + (th >> 2));
+                    }
                 }
             };
             return vt;
@@ -169,13 +198,13 @@ namespace hgraph {
 
     enum class TsEventKind : std::uint8_t { None = 0, Invalidate = 1, Modify = 2 };
 
-    struct TsEventAny {
+    struct HGRAPH_EXPORT TsEventAny {
         engine_time_t time{};
         TsEventKind kind{TsEventKind::None};
         AnyValue<> value; // engaged when kind==Modify
 
-        static TsEventAny none(engine_time_t t) { return {t, TsEventKind::None, {}}; }
-        static TsEventAny invalidate(engine_time_t t) { return {t, TsEventKind::Invalidate, {}}; }
+        static TsEventAny none(engine_time_t t);
+        static TsEventAny invalidate(engine_time_t t);
         template <class T>
         static TsEventAny modify(engine_time_t t, T&& v) {
             TsEventAny e{t, TsEventKind::Modify, {}};
@@ -184,29 +213,33 @@ namespace hgraph {
         }
     };
 
-    struct TsValueAny {
+    struct HGRAPH_EXPORT TsValueAny {
         bool has_value{false};
         AnyValue<> value;
 
-        static TsValueAny none() { return {}; }
+        static TsValueAny none();
         template <class T>
         static TsValueAny of(T&& v) {
             TsValueAny sv; sv.has_value = true; sv.value.template emplace<std::decay_t<T>>(std::forward<T>(v)); return sv;
         }
     };
 
-    // Legacy typed event helpers retained for interop
-    enum class TsState { MODIFY = 0, INVALID = 1, NONE = 2 };
-    struct TsEvent { engine_time_t event_time{}; };
-    template <class T> struct TsModifyEvent : TsEvent { T value; };
-    struct TsInvalidateEvent : TsEvent { };
-    struct TsNoneEvent : TsEvent { };
-
-    template <class T>
-    inline TsEventAny erase_event(const TsModifyEvent<T>& e) { return TsEventAny::modify(e.event_time, e.value); }
-    inline TsEventAny erase_event(const TsInvalidateEvent& e) { return TsEventAny::invalidate(e.event_time); }
-    inline TsEventAny erase_event(const TsNoneEvent& e) { return TsEventAny::none(e.event_time); }
 
 } // namespace hgraph
+
+namespace std {
+    template<>
+    struct hash<hgraph::TypeId> {
+        size_t operator()(const hgraph::TypeId& id) const noexcept {
+            return std::hash<const void*>{}(id.info);
+        }
+    };
+    template <std::size_t SBO, std::size_t Align>
+    struct hash<hgraph::AnyValue<SBO, Align>> {
+        size_t operator()(const hgraph::AnyValue<SBO, Align>& v) const noexcept {
+            return v.hash_code();
+        }
+    };
+}
 
 #endif // HGRAPH_CPP_ROOT_TIME_SERIES_H
