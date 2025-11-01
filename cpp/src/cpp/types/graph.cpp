@@ -60,8 +60,8 @@ namespace hgraph
         if (when < et) {
             auto graph_id{this->graph_id()};
             auto msg{fmt::format(
-                "Graph{} Trying to schedule node: {}[{}] for {:%Y-%m-%d %H:%M:%S} but current time is {:%Y-%m-%d %H:%M:%S}",
-                graph_id, this->nodes()[node_ndx]->signature().signature(), node_ndx, when, et)};
+                "Graph[{}] Trying to schedule node: {}[{}] for {:%Y-%m-%d %H:%M:%S} but current time is {:%Y-%m-%d %H:%M:%S}",
+                fmt::join(graph_id, ","), this->nodes()[node_ndx]->signature().signature(), node_ndx, when, et)};
             throw std::runtime_error(msg);
         }
 
