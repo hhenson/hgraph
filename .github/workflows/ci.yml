@@ -13,6 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
+        runtime: [ python, cpp ]
     steps:
       - uses: actions/checkout@v4
 
@@ -130,12 +131,18 @@ jobs:
       - name: Run smoke tests (macOS/Windows)
         if: runner.os != 'Linux'
         shell: bash
+        env:
+          HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           uv run pytest -q -m smoke
 
       - name: Run tests (Linux only)
         if: runner.os == 'Linux'
+        env:
+          HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
         run: |
+          echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
 
