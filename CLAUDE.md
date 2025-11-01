@@ -23,6 +23,7 @@ whilst the wiring, type-meta-data system and many functions are implemented in P
 of the logic. For now the logical behavior of the C++ and Python implementation need to be kept the same. When an issue
 is identified, for now the python implementation is considered authoritative.
 2. The C++ runtime is enabled via the feature flag found in hgraph_features.yaml (use_cpp), set to true to use cpp.
+   Altenatively, it is possible to set the environment variable HGRAPH_USE_CPP to true.
 
 ----
 
@@ -55,4 +56,13 @@ uv run pytest hgraph_unit_tests/_operators/test_const.py -v
 ## Testing
 
 The tests are currently all in python and can be found in ``hgraph_unit_tests``.
+
+## Project Structure
+
+The project model uses ``uv`` to manage the project. This uses the ``pyproject.toml`` file to define the project structure.
+The C++ build is managed by CMake, and the integration between uv and CMake is the scikit-build-core builder.
+We use pytest for running the python unit tests.
+
+The project is index using the Context7 mcp. Use this mcp for project-specific API and documentation, 
+it indexes most open source projects.
 
