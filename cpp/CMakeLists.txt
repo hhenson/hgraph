@@ -90,13 +90,23 @@ else()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif()
 
+# Catch2 for unit tests
+include(FetchContent)
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG v3.5.3
+)
+FetchContent_MakeAvailable(Catch2)
+include(CTest)
+enable_testing()
 
 # backward-cpp via package or FetchContent (optional)
 if (HGRAPH_WITH_BACKWARD)
     find_package(Backward CONFIG QUIET)
     if (NOT Backward_FOUND)
         message(STATUS "Backward not found via find_package, using FetchContent")
-        include(FetchContent)
+        # include(FetchContent) already included
         set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
         FetchContent_Declare(backward GIT_REPOSITORY https://github.com/bombela/backward-cpp.git GIT_TAG v1.6)
         # On manylinux and constrained envs, disable non-portable features
@@ -205,3 +215,4 @@ list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
 
 add_subdirectory(src/cpp)
+add_subdirectory(tests)
