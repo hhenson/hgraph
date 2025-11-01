@@ -176,7 +176,9 @@ jobs:
                   if n.startswith('hgraph/'):
                       print(' ', n)
           PY
-          echo "--- Import test ---"
+          echo "--- Import test (from a clean working directory to avoid repo src shadowing) ---"
+          tmp=$(mktemp -d)
+          cd "$tmp"
           python - <<'PY'
           import importlib.util
           print(importlib.util.find_spec('hgraph'))
