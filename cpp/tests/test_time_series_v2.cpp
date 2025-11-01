@@ -6,8 +6,6 @@
 #include <string>
 #include <vector>
 #include <typeinfo>
-#include <nanobind/nanobind.h>
-#include <nanobind/stl/string.h>
 
 using namespace hgraph;
 
