@@ -168,6 +168,9 @@ jobs:
           . .venv-test\Scripts\Activate.ps1
           uv pip install --upgrade pip
           uv pip install "$wheel"
+          # Import from a clean working directory to avoid repo src shadowing
+          $tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name ("hgraph-test-" + [guid]::NewGuid())
+          Set-Location $tmp.FullName
           python -c "import hgraph, hgraph._hgraph; print('ok')"
 
       - name: Upload wheels
