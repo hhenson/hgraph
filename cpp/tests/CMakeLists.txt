@@ -10,7 +10,7 @@ add_executable(hgraph_ts_v2_tests
 # Inherit include dirs from parent (Python, nanobind, project includes)
 # Link Catch2 and fmt if available via parent FetchContent
 
-target_link_libraries(hgraph_ts_v2_tests PRIVATE Catch2::Catch2WithMain fmt::fmt)
+target_link_libraries(hgraph_ts_v2_tests PRIVATE Catch2::Catch2WithMain fmt::fmt nanobind-static Python::Python)
 
 target_compile_features(hgraph_ts_v2_tests PRIVATE cxx_std_23)
 

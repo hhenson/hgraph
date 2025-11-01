@@ -224,6 +224,10 @@ namespace hgraph {
         }
     };
 
+    // String formatting helpers (exported API)
+    HGRAPH_EXPORT std::string to_string(const AnyValue<>& v);
+    HGRAPH_EXPORT std::string to_string(const TsEventAny& e);
+    HGRAPH_EXPORT std::string to_string(const TsValueAny& v);
 
 } // namespace hgraph
 
