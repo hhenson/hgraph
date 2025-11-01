@@ -81,10 +81,22 @@ jobs:
         run: |
           uv build -v --sdist
 
-      - name: Validate wheels metadata (twine check)
+      - name: Validate wheels metadata (twine check) [Unix]
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
+          set -euo pipefail
           uvx twine check wheelhouse/*
           if compgen -G "dist/*.tar.gz" > /dev/null; then uvx twine check dist/*.tar.gz; fi
+
+      - name: Validate wheels metadata (twine check) [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path "wheelhouse") {
+            $wheels = Get-ChildItem "wheelhouse/*.whl" -ErrorAction SilentlyContinue
+            if ($wheels) { uvx twine check wheelhouse/*.whl }
+          } else { Write-Host "wheelhouse not found" }
 
       - name: Test a built wheel (basic import) [Linux/macOS]
         if: runner.os != 'Windows'
