@@ -38,6 +38,41 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cibw-uvpip-
 
+      - name: Set version from tag into pyproject
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_REF_NAME}"
+          if [[ "${REF}" == v_* ]]; then
+            VERSION="${REF#v_}"
+          elif [[ "${REF}" == v* ]]; then
+            VERSION="${REF#v}"
+          else
+            echo "Tag ${REF} does not start with v or v_; skipping version update" >&2
+            exit 1
+          fi
+          echo "Setting project version to: ${VERSION}"
+          python - <<'PY'
+          import os, re, pathlib, sys
+          ver = os.environ.get('VERSION')
+          if not ver:
+            print('VERSION env not set', file=sys.stderr)
+            sys.exit(1)
+          p = pathlib.Path('pyproject.toml')
+          s = p.read_text(encoding='utf-8')
+          new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
+          if n == 0:
+            # Fallback: replace [project] version explicitly
+            new_s, n = re.subn(r'(?m)^version\s*=\s*"[^"]+"', f'version = "{ver}"', s)
+          if n == 0:
+            print('ERROR: Could not find version field in pyproject.toml', file=sys.stderr)
+            sys.exit(1)
+          p.write_text(new_s, encoding='utf-8')
+          print(f'pyproject.toml version updated to {ver}')
+          PY
+        env:
+          VERSION: ${{ github.ref_name }}
+
       - name: Install tooling
         run: |
           uv tool install cibuildwheel
@@ -179,3 +214,49 @@ jobs:
         with:
           packages-dir: to_upload
           skip-existing: true
+
+      - name: Checkout repository for version commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commit version bump to default branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Determine version from tag: support v_1.2.3 or v1.2.3
+          REF="${GITHUB_REF_NAME}"
+          if [[ "${REF}" == v_* ]]; then V="${REF#v_}"; elif [[ "${REF}" == v* ]]; then V="${REF#v}"; else echo "Unexpected tag format: ${REF}"; exit 1; fi
+          echo "Committing version ${V} to pyproject.toml on default branch"
+
+          # Switch to default branch (ensures we don't commit on the tag ref)
+          git checkout "${GITHUB_EVENT_REPOSITORY_DEFAULT_BRANCH:-${GITHUB_REF_NAME}}" 2>/dev/null || git checkout "${{ github.event.repository.default_branch }}"
+
+          # Update pyproject.toml
+          python - <<PY
+          import os, re, pathlib, sys
+          ver = os.environ.get('V')
+          p = pathlib.Path('pyproject.toml')
+          s = p.read_text(encoding='utf-8')
+          new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
+          if n == 0:
+              new_s, n = re.subn(r'(?m)^version\s*=\s*"[^"]+"', f'version = "{ver}"', s)
+          if n == 0:
+              print('ERROR: Could not find version field in pyproject.toml', file=sys.stderr)
+              sys.exit(1)
+          if new_s != s:
+              p.write_text(new_s, encoding='utf-8')
+          PY
+
+          # Commit only if changed
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          if ! git diff --quiet -- pyproject.toml; then
+            git add pyproject.toml
+            git commit -m "chore(release): bump version to ${V}"
+            git push origin HEAD
+          else
+            echo "No changes to commit in pyproject.toml"
+          fi
+        env:
+          V: ${{ github.ref_name }}
