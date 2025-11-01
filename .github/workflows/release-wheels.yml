@@ -52,6 +52,7 @@ jobs:
             exit 1
           fi
           echo "Setting project version to: ${VERSION}"
+          export VERSION="${VERSION}"
           python - <<'PY'
           import os, re, pathlib, sys
           ver = os.environ.get('VERSION')
@@ -71,7 +72,7 @@ jobs:
           print(f'pyproject.toml version updated to {ver}')
           PY
         env:
-          VERSION: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install tooling
         run: |
