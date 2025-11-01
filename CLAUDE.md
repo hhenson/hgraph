@@ -22,7 +22,7 @@ whilst the wiring, type-meta-data system and many functions are implemented in P
 1. The code is only recently being ported to C++, that has left the reference python implementation in the python portion
 of the logic. For now the logical behavior of the C++ and Python implementation need to be kept the same. When an issue
 is identified, for now the python implementation is considered authoritative.
-2. The C++ runtime is enabled via the feature flag "HGRAPH_USE_CPP=1"
+2. The C++ runtime is enabled via the feature flag found in hgraph_features.yaml (use_cpp), set to true to use cpp.
 
 ----
 
@@ -46,9 +46,9 @@ cmake --build cmake-build-debug
 rm .venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 
 # 5. Create symlink for fast iteration (recommended)
-ln -sf cmake-build-debug/src/cpp/_hgraph.cpython-312-darwin.so \
-       .venv/lib/python3.12/site-packages/_hgraph.cpython-312-darwin.so
+ln -sf cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so hgraph/_hgraph.cpython-312-darwin.so
 
 # 5. Verify installation
-pytest tests/python/unit/engine/test_ts.py::test_const -v
+uv run pytest hgraph_unit_tests/_operators/test_const.py -v
 ```
+
