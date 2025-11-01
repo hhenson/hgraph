@@ -134,6 +134,23 @@ namespace hgraph
             .def_prop_ro("uses_state", &NodeSignature::uses_state)
             .def_prop_ro("uses_output_feedback", &NodeSignature::uses_output_feedback)
             .def_prop_ro("uses_recordable_state", &NodeSignature::uses_recordable_state)
+            .def_prop_ro("test_recordable_property", [](const NodeSignature &self) -> bool {
+                return self.uses_recordable_state();
+            })
+            .def_prop_ro("recordable_state_arg", [](const NodeSignature &self) -> nb::object {
+                auto result = self.recordable_state_arg();
+                if (result.has_value()) {
+                    return nb::cast(result.value());
+                }
+                return nb::none();
+            })
+            .def_prop_ro("recordable_state", [](const NodeSignature &self) -> nb::object {
+                auto result = self.recordable_state();
+                if (result.has_value()) {
+                    return result.value();
+                }
+                return nb::none();
+            })
             .def_prop_ro("is_source_node", &NodeSignature::is_source_node)
             .def_prop_ro("is_push_source_node", &NodeSignature::is_push_source_node)
             .def_prop_ro("is_pull_source_node", &NodeSignature::is_pull_source_node)
@@ -348,7 +365,43 @@ namespace hgraph
     }
 
     std::optional<std::string> NodeSignature::recordable_state_arg() const {
-        // TODO: Implement
+        if (!uses_recordable_state() || !scalars.has_value()) {
+            return std::nullopt;
+        }
+
+        // Import HgRecordableStateType from Python
+        auto scalar_type_meta_data = nb::module_::import_("hgraph._types._scalar_type_meta_data");
+        auto HgRecordableStateType = scalar_type_meta_data.attr("HgRecordableStateType");
+
+        // Iterate through scalars to find HgRecordableStateType
+        for (auto item : scalars.value()) {
+            auto key = nb::cast<std::string>(item.first);
+            auto value = item.second;
+            if (nb::isinstance(value, HgRecordableStateType)) {
+                return key;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<nb::object> NodeSignature::recordable_state() const {
+        if (!uses_recordable_state() || !scalars.has_value()) {
+            return std::nullopt;
+        }
+
+        // Import HgRecordableStateType from Python
+        auto scalar_type_meta_data = nb::module_::import_("hgraph._types._scalar_type_meta_data");
+        auto HgRecordableStateType = scalar_type_meta_data.attr("HgRecordableStateType");
+
+        // Iterate through scalars to find HgRecordableStateType
+        for (auto item : scalars.value()) {
+            auto value = item.second;
+            if (nb::isinstance(value, HgRecordableStateType)) {
+                return nb::cast<nb::object>(value);
+            }
+        }
+
         return std::nullopt;
     }
 

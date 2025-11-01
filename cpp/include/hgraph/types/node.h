@@ -95,6 +95,8 @@ namespace hgraph
 
         [[nodiscard]] std::optional<std::string> recordable_state_arg() const;
 
+        [[nodiscard]] std::optional<nb::object> recordable_state() const;
+
         [[nodiscard]] bool uses_output_feedback() const;
 
         [[nodiscard]] bool is_source_node() const;
