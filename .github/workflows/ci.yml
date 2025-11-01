@@ -13,7 +13,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-        runtime: [ python, cpp ]
     steps:
       - uses: actions/checkout@v4
 
@@ -128,20 +127,38 @@ jobs:
           uv pip install --upgrade pip
           uv pip install "${wheel}"
 
-      - name: Run smoke tests (macOS/Windows)
+      - name: Run smoke tests (macOS/Windows) [Python runtime]
         if: runner.os != 'Linux'
         shell: bash
         env:
-          HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
+          HGRAPH_USE_CPP: 'false'
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           uv run pytest -q -m smoke
 
-      - name: Run tests (Linux only)
+      - name: Run smoke tests (macOS/Windows) [C++ runtime]
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          HGRAPH_USE_CPP: 'true'
+        run: |
+          set -euo pipefail
+          echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
+          uv run pytest -q -m smoke
+
+      - name: Run tests (Linux only) [Python runtime]
         if: runner.os == 'Linux'
         env:
-          HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
+          HGRAPH_USE_CPP: 'false'
+        run: |
+          echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
+          uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
+
+      - name: Run tests (Linux only) [C++ runtime]
+        if: runner.os == 'Linux'
+        env:
+          HGRAPH_USE_CPP: 'true'
         run: |
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
