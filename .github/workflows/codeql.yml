@@ -1,0 +1,65 @@
+name: CodeQL
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 1 * * 0'
+
+jobs:
+  analyze:
+    name: Analyze (CodeQL C/C++)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'cpp', 'python' ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv (Python 3.12)
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+
+      - name: Restore uv/pip caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ runner.os }}-codeql-uvpip-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-codeql-uvpip-
+
+      - name: Install optional tooling (Conan)
+        run: |
+          uv tool install conan
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual
+
+      # Build the C++ extension in manual mode so CodeQL can trace compilation
+      - name: Build C++ extension (manual)
+        env:
+          CMAKE_ARGS: >-
+            -DNB_USE_STABLE_ABI=ON
+            -DHGRAPH_WITH_BACKWARD=OFF
+        run: |
+          # If you prefer Conan provided deps, uncomment the next line:
+          # export CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider.cmake"
+          uv build -v
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{matrix.language}}'
