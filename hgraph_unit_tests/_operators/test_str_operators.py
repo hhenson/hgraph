@@ -19,6 +19,9 @@ from hgraph import (
 )
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 def test_mul_str():
     assert eval_node(mul_, ["abc"], [3]) == ["abcabcabc"]

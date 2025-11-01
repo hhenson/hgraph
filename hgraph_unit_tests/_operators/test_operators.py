@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from hgraph import take, cast_, graph, CompoundScalar, TS, setattr_
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 def test_cast():
     expected = [1.0, 2.0, 3.0]

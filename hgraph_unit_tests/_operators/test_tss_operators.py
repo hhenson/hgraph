@@ -27,6 +27,8 @@ from hgraph import (
 from hgraph.arrow import eval_, arrow, assert_
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
 
 def test_is_empty():
     @graph

@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore uv/pip caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/pip
+          key: ${{ runner.os }}-uvpip-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uvpip-
+
+      # Install uv and Python 3.12 (aligns with hg_cpp approach)
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+
+      # Ensure Conan is available for builds/tools
+      - name: Install Conan via uv tool
+        run: uv tool install conan
+
+      # Build the wheel with nanobind stable ABI enabled
+      - name: Build wheel (NB stable ABI, Windows MSVC)
+        if: runner.os == 'Windows'
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: "Visual Studio 17 2022"
+          CMAKE_GENERATOR_PLATFORM: x64
+        run: uv build -v
+
+      - name: Build wheel (NB stable ABI, Unix Ninja)
+        if: runner.os != 'Windows'
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: Ninja
+        run: uv build -v
+
+      - name: Prepare test environment (all groups and extras)
+        run: |
+          uv venv
+          uv sync --all-extras --all-groups
+
+      - name: List dist artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path dist) { Get-ChildItem dist | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "dist directory not found" }
+      - name: List dist artifacts (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ls -la dist || true
+
+      - name: Upload built wheels (all OS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ runner.os }}
+          path: dist/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Repair Linux wheel to manylinux using auditwheel (do not publish unrepaired wheels)
+      - name: Repair Linux wheel with auditwheel (Linux only)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist || true
+          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ -z "${wheel}" ]; then
+            echo "No wheel found in dist/"
+            exit 1
+          fi
+          uv pip install --upgrade pip
+          uv pip install auditwheel
+          # Show before/after info for debugging
+          uv run python -m auditwheel show "${wheel}" || true
+          mkdir -p wheelhouse
+          uv run python -m auditwheel repair -w wheelhouse "${wheel}"
+          ls -la wheelhouse || true
+
+      - name: Upload repaired Linux wheels (manylinux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-manylinux
+          path: wheelhouse/**
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Install built wheel into env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          if (-not $wheel) { Write-Error "No wheel found in dist/"; Get-ChildItem dist -Recurse; exit 1 }
+          uv pip install --upgrade pip
+          uv pip install "$wheel"
+
+      - name: Install built wheel into env (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ -z "${wheel}" ]; then
+            echo "No wheel found in dist/"
+            ls -la dist || true
+            exit 1
+          fi
+          uv pip install --upgrade pip
+          uv pip install "${wheel}"
+
+      - name: Run smoke tests (macOS/Windows)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q -m smoke
+
+      - name: Run tests (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          uv run pytest -n 4 -ra -q --dist=loadscope --cov=hgraph --cov-report=xml
+

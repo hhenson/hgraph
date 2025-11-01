@@ -25,6 +25,9 @@ from hgraph.arrow import eval_, if_then, c, assert_
 
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 class MyTsb(TimeSeriesSchema):
     p1: TS[int]

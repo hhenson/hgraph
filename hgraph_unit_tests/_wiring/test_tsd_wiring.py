@@ -17,6 +17,10 @@ from hgraph import (
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 @compute_node
 def make_tsd(k: TS[str], v: TS[int]) -> TSD[str, TS[int]]:
     return {k.value: v.delta_value}

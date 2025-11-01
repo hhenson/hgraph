@@ -1,6 +1,6 @@
 [project]
 name = "hgraph"
-version = "v_0.5.1"
+version = "0.5.1"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 readme = "README.md"
 license = {text = "MIT"}
@@ -18,11 +18,10 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12, <3.13"
 dependencies = [
     "frozendict>=2.3.10",
     "sortedcontainers>=2.4.0",
@@ -83,8 +82,24 @@ test = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = [
+    "scikit-build-core>=0.9",
+    "nanobind>=2.9",
+    "cmake>=3.25",
+    "ninja",
+    "setuptools>=65"
+]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+# Install pure Python package from src/hgraph and place the compiled extension under hgraph/
+wheel.packages = ["src/hgraph"]
+cmake.verbose = true
+# Use the invoking Python for nanobind discovery unless overridden in CI
+cmake.define.Python_EXECUTABLE = "{sys.executable}"
+# Enforce macOS deployment target and architecture to satisfy libc++ requirements for std::format
+cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET = "15.0"
+cmake.define.CMAKE_OSX_ARCHITECTURES = "arm64"
 
 
 # Configure pytest
@@ -94,7 +109,8 @@ minversion = "7.4.3"
 # If you want the default runs to include these arguement uncomment
 #addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 adapots = "--doctest-modules"
-pythonpath = ["."]
+# Ensure tests and IDE analysis can resolve the in-tree package
+pythonpath = ["src", "."]
 testpaths = [
     "hgraph_unit_tests",
     "docs"
