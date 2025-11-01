@@ -18,6 +18,8 @@ from hgraph import (
 from hgraph import graph, TS, TSB, NodeError, ts_schema, TSD, map_, REF, sink_node
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
 
 def test_error_not_handling(caplog):
     @graph

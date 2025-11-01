@@ -4,6 +4,9 @@ from hgraph import MIN_TD
 from hgraph.nodes._window_operators import rolling_average
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 @pytest.mark.parametrize(
     ["ts", "period", "min_period", "expected"],

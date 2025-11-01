@@ -5,6 +5,9 @@ import pytest
 from hgraph import sub_, add_, WiringError, mul_, div_, lt_, graph, TS, SCALAR
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 @pytest.mark.parametrize(
     ["op", "d1", "d2", "expected"],

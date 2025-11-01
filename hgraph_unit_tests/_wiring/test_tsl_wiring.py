@@ -3,6 +3,11 @@ from hgraph.nodes import flatten_tsl_values
 from hgraph.test import eval_node
 
 
+
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 @compute_node
 def my_tsl_maker(ts1: TS[int], ts2: TS[int]) -> TSL[TS[int], Size[2]]:
     out = {}

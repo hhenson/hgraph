@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, time
+import pytest
+pytestmark = pytest.mark.smoke
 
 from hgraph import (
     TIME_SERIES_TYPE,

@@ -6,6 +6,8 @@ from hgraph import add_, sub_, div_, exception_time_series, TS, graph, mod_, div
 from hgraph._impl._operators._number_operators import div_numbers
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
 
 @pytest.mark.parametrize(
     "lhs,rhs,expected",

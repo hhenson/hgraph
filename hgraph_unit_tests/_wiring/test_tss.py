@@ -3,6 +3,10 @@ from hgraph import pass_through_node
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 @compute_node
 def create_tss(key: TS[str], add: TS[bool]) -> TSS[str]:
     if add.value:

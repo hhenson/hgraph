@@ -147,4 +147,5 @@ Artifacts are uploaded for inspection as part of the workflow run.
 ### Troubleshooting
 - Nanobind not found / Python ordering in CMake:
   - Pass `-DPython_EXECUTABLE=...` (or `-DPython3_EXECUTABLE=...`) and, if using Conan, use the `conan_preamble.cmake` before `conan_provider.cmake`.
-
+- When running in CLion, you may need to mark the src folder as a source root. In PyCharm is is generally inferred
+  but in CLion I needed to mark it explicitly.

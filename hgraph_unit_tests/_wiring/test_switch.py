@@ -29,6 +29,9 @@ from hgraph import (
 )
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 def test_switch():
     @graph

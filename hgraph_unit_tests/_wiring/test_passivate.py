@@ -1,6 +1,9 @@
 from hgraph import graph, TS, passive
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 def test_passivate():
 

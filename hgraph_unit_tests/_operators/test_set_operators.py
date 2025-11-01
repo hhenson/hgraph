@@ -2,6 +2,9 @@ from hgraph import graph, TSS, union, difference, symmetric_difference, if_then_
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 def test_union_tss_multi():
     @graph
     def app(ts1: TSS[int], ts2: TSS[int], ts3: TSS[int]) -> TSS[int]:

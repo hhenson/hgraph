@@ -109,7 +109,8 @@ minversion = "7.4.3"
 # If you want the default runs to include these arguement uncomment
 #addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
 adapots = "--doctest-modules"
-pythonpath = ["."]
+# Ensure tests and IDE analysis can resolve the in-tree package
+pythonpath = ["src", "."]
 testpaths = [
     "hgraph_unit_tests",
     "docs"

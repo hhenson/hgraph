@@ -1,5 +1,7 @@
 import pytest
 from frozendict import frozendict
+import pytest
+pytestmark = pytest.mark.smoke
 
 from hgraph import (
     graph,
@@ -176,6 +178,7 @@ def test_guess_arguments_add_no_keys_tsl():
         assert wiring_inputs.keys() == {"lhs", "rhs"}
 
 
+@pytest.mark.smoke
 def test_tsd_map_wiring():
     @graph
     def map_test(keys: TSS[str], ts1: TSD[str, TS[int]], ts2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
@@ -230,6 +233,7 @@ def _test_tsd_map(map_test):
     assert out == [{"a": 3}, {"b": 5}]
 
 
+@pytest.mark.smoke
 def test_tsl_map_wiring():
     @graph
     def map_test(index: TSL[TS[bool], SIZE], ts1: TSL[TS[int], SIZE], ts2: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
