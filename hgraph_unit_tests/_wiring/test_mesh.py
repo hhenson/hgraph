@@ -25,6 +25,10 @@ from hgraph._operators._flow_control import merge
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 def test_mesh():
     @graph
     def get_arg(name: TS[str], vars: TSD[str, TS[float]]) -> TS[float]:

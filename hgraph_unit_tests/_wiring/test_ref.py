@@ -21,6 +21,8 @@ from hgraph import (
 from hgraph._impl._operators._tss_operators import contains_tss
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
 
 @compute_node
 def create_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:

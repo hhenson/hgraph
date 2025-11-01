@@ -2,6 +2,8 @@ import pytest
 from hgraph import graph, debug_print, const, nested_graph, sink_node, SIGNAL, TS
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
 
 @pytest.mark.skip(reason="A node with no inputs or outputs gets dropped")
 def test_nested_graph():

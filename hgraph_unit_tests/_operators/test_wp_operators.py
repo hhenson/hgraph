@@ -6,6 +6,10 @@ from hgraph import graph, TIME_SERIES_TYPE, TS, WiringError, TSL, Size
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 def test_wp_operators_wiring():
     @graph
     def g(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:

@@ -1,6 +1,9 @@
 from hgraph import compute_node, TS, graph, feedback
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 def test_feedback():
 

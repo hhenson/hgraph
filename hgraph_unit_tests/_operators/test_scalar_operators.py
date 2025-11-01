@@ -42,6 +42,9 @@ from hgraph import (
 )
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 @pytest.mark.parametrize(
     "lhs,rhs,expected",

@@ -1,6 +1,8 @@
 from hgraph import graph, TS, sum_, to_window, abs_, TSW, mean
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
 
 def test_tsw_sum():
 

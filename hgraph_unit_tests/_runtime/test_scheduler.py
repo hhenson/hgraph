@@ -25,6 +25,10 @@ from hgraph import const
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 @compute_node
 def my_scheduler(ts: TS[int], tag: str = None, _scheduler: SCHEDULER = None) -> TS[int]:
     if ts.modified:

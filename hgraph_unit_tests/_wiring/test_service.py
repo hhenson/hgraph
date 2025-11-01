@@ -41,6 +41,10 @@ from hgraph import pass_through_node
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 def test_reference_service():
 
     @reference_service

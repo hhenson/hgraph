@@ -49,6 +49,10 @@ from hgraph.stream.stream import register_status_message_pattern
 from hgraph.test import eval_node, EvaluationTrace
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
+
 def test_sample():
     @graph
     def g(signal: SIGNAL, ts: TS[int]) -> TS[int]:

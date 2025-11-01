@@ -30,6 +30,9 @@ from hgraph import (
 from hgraph.nodes import tsl_to_tsd
 from hgraph.test import eval_node
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 
 def test_tsl_lag():
     assert eval_node(

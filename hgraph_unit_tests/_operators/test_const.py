@@ -3,6 +3,9 @@ from hgraph._wiring._wiring_node_class._python_wiring_node_classes import Python
 from hgraph.test import eval_node
 
 
+import pytest
+pytestmark = pytest.mark.smoke
+
 def test_const_wiring():
 
     assert type(const) is OperatorWiringNodeClass
