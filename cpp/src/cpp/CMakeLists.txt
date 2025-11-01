@@ -129,6 +129,10 @@ set(HGRAPH_PYMOD_INSTALL_SUBDIR "hgraph" CACHE STRING "Install subdir under site
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${HGRAPH_PYMOD_NAME}")
 # Install into the package directory (so wheel ends up with hgraph/_hgraph.*)
 # Cover Windows by also specifying RUNTIME destination for .pyd files
+# Increase install verbosity so scikit-build logs where files are copied
+set(CMAKE_INSTALL_MESSAGE ALWAYS)
+# Emit a diagnostic at install time indicating destination directory
+install(CODE "message(STATUS \"Installing ${PROJECT_NAME} artifacts into: \\${CMAKE_INSTALL_PREFIX}/${HGRAPH_PYMOD_INSTALL_SUBDIR}\")")
 install(TARGETS ${PROJECT_NAME}
         LIBRARY DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
         RUNTIME DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
