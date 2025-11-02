@@ -10,6 +10,7 @@
 #include <cstring>
 #include <type_traits>
 #include <functional>
+#include <stdexcept>
 
 #include "hgraph/hgraph_export.h"
 #include <nanobind/nanobind.h>
@@ -143,6 +144,7 @@ namespace hgraph {
             void (*destroy)(AnyValue&) noexcept;
             std::size_t (*hash)(const AnyValue&) noexcept;
             bool (*equals)(const AnyValue&, const AnyValue&) noexcept;
+            bool (*less)(const AnyValue&, const AnyValue&); // may throw when < not supported
             bool is_reference; // indicates borrowed reference storage vs owned
         };
 
@@ -156,6 +158,23 @@ namespace hgraph {
             return a.vtable_->equals(a, b);
         }
         friend bool operator!=(const AnyValue& a, const AnyValue& b) noexcept { return !(a == b); }
+
+        // Optional less-than: only defined when underlying type supports operator<.
+        // Behavior:
+        // - both empty -> false
+        // - one empty -> throws std::runtime_error
+        // - different types -> throws std::runtime_error
+        // - same type -> delegate to per-type vtable less (may throw if < unsupported)
+        friend bool operator<(const AnyValue& a, const AnyValue& b) {
+            if (!a.vtable_ && !b.vtable_) return false; // empty vs empty
+            if (!a.vtable_ || !b.vtable_) {
+                throw std::runtime_error("AnyValue: operator< comparison with empty value");
+            }
+            if (a.vtable_->type.info != b.vtable_->type.info) {
+                throw std::runtime_error("AnyValue: operator< type mismatch");
+            }
+            return a.vtable_->less(a, b);
+        }
 
         template <class T>
         static const VTable& vtable_for() {
@@ -231,6 +250,24 @@ namespace hgraph {
                         return ap == bp; // fallback to pointer identity
                     }
                 },
+                // less-than (may throw if operator< is not available)
+                [](const AnyValue& a, const AnyValue& b) -> bool {
+                    if (!a.vtable_ || !b.vtable_) {
+                        if (!a.vtable_ && !b.vtable_) return false; // empty vs empty
+                        throw std::runtime_error("AnyValue: operator< comparison with empty value");
+                    }
+                    // types must match (enforced by caller, but double-check defensively)
+                    if (a.vtable_->type.info != b.vtable_->type.info) {
+                        throw std::runtime_error("AnyValue: operator< type mismatch");
+                    }
+                    const T* ap = a.using_heap_ ? *reinterpret_cast<T* const*>(a.storage_) : reinterpret_cast<const T*>(a.storage_ptr());
+                    const T* bp = b.using_heap_ ? *reinterpret_cast<T* const*>(b.storage_) : reinterpret_cast<const T*>(b.storage_ptr());
+                    if constexpr (requires(const T& x, const T& y) { { x < y } -> std::convertible_to<bool>; }) {
+                        return *ap < *bp;
+                    } else {
+                        throw std::runtime_error("AnyValue: operator< not supported for contained type");
+                    }
+                },
                 /* is_reference */ false
             };
             return vt;
@@ -271,6 +308,23 @@ namespace hgraph {
                         return *ap == *bp;
                     } else {
                         return ap == bp;
+                    }
+                },
+                // less-than => compare by value when operator< exists; else throw
+                [](const AnyValue& a, const AnyValue& b) -> bool {
+                    if (!a.vtable_ || !b.vtable_) {
+                        if (!a.vtable_ && !b.vtable_) return false;
+                        throw std::runtime_error("AnyValue: operator< comparison with empty value");
+                    }
+                    if (a.vtable_->type.info != b.vtable_->type.info) {
+                        throw std::runtime_error("AnyValue: operator< type mismatch");
+                    }
+                    const T* ap = *reinterpret_cast<T* const*>(a.storage_);
+                    const T* bp = b.using_heap_ ? *reinterpret_cast<T* const*>(b.storage_) : reinterpret_cast<const T*>(b.storage_ptr());
+                    if constexpr (requires(const T& x, const T& y) { { x < y } -> std::convertible_to<bool>; }) {
+                        return *ap < *bp;
+                    } else {
+                        throw std::runtime_error("AnyValue: operator< not supported for contained type");
                     }
                 },
                 /* is_reference */ true
