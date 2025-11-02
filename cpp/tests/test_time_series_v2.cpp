@@ -321,6 +321,62 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+// ---- AnyValue reference semantics tests ----
+TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[any][ref]") {
+    std::string s = "abc";
+    AnyValue<> v;
+    v.emplace_ref(s);
+
+    auto ps = v.get_if<std::string>();
+    REQUIRE(ps != nullptr);
+    REQUIRE(*ps == "abc");
+
+    s = "xyz";
+    REQUIRE(*v.get_if<std::string>() == "xyz");
+
+    AnyValue<> v2 = v; // copy materializes
+    REQUIRE_FALSE(v2.is_reference());
+    REQUIRE(v2.get_if<std::string>());
+    REQUIRE(*v2.get_if<std::string>() == "xyz");
+
+    s = "after";
+    REQUIRE(*v.get_if<std::string>() == "after");
+    REQUIRE(*v2.get_if<std::string>() == "xyz");
+}
+
+TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]") {
+    std::string s = "hello";
+    AnyValue<> v; v.emplace_ref(s);
+
+    AnyValue<> w = std::move(v);
+    REQUIRE_FALSE(w.is_reference());
+    REQUIRE(*w.get_if<std::string>() == "hello");
+
+    // Source remains a reference
+    REQUIRE(v.is_reference());
+    REQUIRE(*v.get_if<std::string>() == "hello");
+}
+
+TEST_CASE("AnyValue reference: hash matches value hash and is stable across materialization", "[any][ref][hash]") {
+    int64_t x = 42;
+    AnyValue<> r; r.emplace_ref(x);
+    const auto h_ref = r.hash_code();
+    REQUIRE(h_ref == std::hash<int64_t>{}(42));
+
+    AnyValue<> owned = r; // materialize via copy
+    REQUIRE(owned.hash_code() == h_ref);
+}
+
+TEST_CASE("AnyValue ensure_owned() converts a reference in place", "[any][ref]") {
+    std::string s = "snap";
+    AnyValue<> v; v.emplace_ref(s);
+    v.ensure_owned();
+    REQUIRE_FALSE(v.is_reference());
+
+    s = "different";
+    REQUIRE(*v.get_if<std::string>() == "snap");
+}
+
 TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][string]") {
     engine_time_t t{};
     auto e = TsCollectionEventAny::modify(t);
