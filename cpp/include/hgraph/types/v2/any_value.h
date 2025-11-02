@@ -142,8 +142,20 @@ namespace hgraph {
             void (*move)(AnyValue&, AnyValue&) noexcept;
             void (*destroy)(AnyValue&) noexcept;
             std::size_t (*hash)(const AnyValue&) noexcept;
+            bool (*equals)(const AnyValue&, const AnyValue&) noexcept;
             bool is_reference; // indicates borrowed reference storage vs owned
         };
+
+    public:
+        // Equality: type + value. Empty equals empty. Different types -> false.
+        friend bool operator==(const AnyValue& a, const AnyValue& b) noexcept {
+            if (!a.vtable_ && !b.vtable_) return true;            // both empty
+            if (!a.vtable_ || !b.vtable_) return false;          // one empty
+            if (a.vtable_->type.info != b.vtable_->type.info)    // different types
+                return false;
+            return a.vtable_->equals(a, b);
+        }
+        friend bool operator!=(const AnyValue& a, const AnyValue& b) noexcept { return !(a == b); }
 
         template <class T>
         static const VTable& vtable_for() {
@@ -209,6 +221,16 @@ namespace hgraph {
                         return th ^ (ph + 0x9e3779b97f4a7c15ull + (th << 6) + (th >> 2));
                     }
                 },
+                // equals
+                [](const AnyValue& a, const AnyValue& b) noexcept -> bool {
+                    const T* ap = a.using_heap_ ? *reinterpret_cast<T* const*>(a.storage_) : reinterpret_cast<const T*>(a.storage_ptr());
+                    const T* bp = b.using_heap_ ? *reinterpret_cast<T* const*>(b.storage_) : reinterpret_cast<const T*>(b.storage_ptr());
+                    if constexpr (requires(const T& x, const T& y) { { x == y } -> std::convertible_to<bool>; }) {
+                        return *ap == *bp;
+                    } else {
+                        return ap == bp; // fallback to pointer identity
+                    }
+                },
                 /* is_reference */ false
             };
             return vt;
@@ -239,6 +261,16 @@ namespace hgraph {
                         return std::hash<T>{}(*p);
                     } else {
                         return std::hash<const void*>{}(static_cast<const void*>(p));
+                    }
+                },
+                // equals => compare by value if possible; else pointer identity
+                [](const AnyValue& a, const AnyValue& b) noexcept -> bool {
+                    const T* ap = *reinterpret_cast<T* const*>(a.storage_);
+                    const T* bp = b.using_heap_ ? *reinterpret_cast<T* const*>(b.storage_) : reinterpret_cast<const T*>(b.storage_ptr());
+                    if constexpr (requires(const T& x, const T& y) { { x == y } -> std::convertible_to<bool>; }) {
+                        return *ap == *bp;
+                    } else {
+                        return ap == bp;
                     }
                 },
                 /* is_reference */ true

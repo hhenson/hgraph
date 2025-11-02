@@ -321,6 +321,42 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+// ---- AnyValue equality tests ----
+TEST_CASE("AnyValue equality: empty and basic types", "[any][eq]") {
+    AnyValue<> e1, e2;
+    REQUIRE(e1 == e2);            // both empty
+
+    AnyValue<> v1; v1.emplace<int64_t>(42);
+    AnyValue<> v2; v2.emplace<int64_t>(42);
+    AnyValue<> v3; v3.emplace<int64_t>(43);
+
+    REQUIRE(v1 == v2);
+    REQUIRE(v1 != v3);
+
+    AnyValue<> d1; d1.emplace<double>(3.14);
+    AnyValue<> d2; d2.emplace<double>(3.14);
+    AnyValue<> d3; d3.emplace<double>(2.71);
+    REQUIRE(d1 == d2);
+    REQUIRE(d1 != d3);
+
+    AnyValue<> s1; s1.emplace<std::string>("abc");
+    AnyValue<> s2; s2.emplace<std::string>("abc");
+    AnyValue<> s3; s3.emplace<std::string>("xyz");
+    REQUIRE(s1 == s2);
+    REQUIRE(s1 != s3);
+
+    // different types
+    REQUIRE(v1 != d1);
+    REQUIRE(v1 != s1);
+}
+
+TEST_CASE("AnyValue equality: engine_time_t", "[any][eq]") {
+    engine_time_t t{};
+    AnyValue<> a; a.emplace<engine_time_t>(t);
+    AnyValue<> b; b.emplace<engine_time_t>(t);
+    REQUIRE(a == b);
+}
+
 // ---- AnyValue reference semantics tests ----
 TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[any][ref]") {
     std::string s = "abc";
