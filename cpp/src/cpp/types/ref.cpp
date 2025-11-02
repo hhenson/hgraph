@@ -34,12 +34,12 @@ namespace hgraph
         return new UnBoundTimeSeriesReference(items);
     }
 
-    TimeSeriesReference::ptr TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput> > items)
+    TimeSeriesReference::ptr TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput>> items)
     {
         if (items.empty()) { return make(); }
         std::vector<TimeSeriesReference::ptr> refs;
         refs.reserve(items.size());
-        for (auto item: items)
+        for (auto item : items)
         {
             // Call value() instead of accessing _value directly, so bound items return their output's value
             refs.emplace_back(item->value());
@@ -61,35 +61,25 @@ namespace hgraph
             .def_static("make", static_cast<ptr (*)(std::vector<ptr>)>(&TimeSeriesReference::make))
             .def_static(
                 "make",
-                [](nb::object ts, nb::object items) -> ptr
-                    {
-                    if (not ts.is_none()
-                        )
-                    {
+                [](nb::object ts, nb::object items) -> ptr {
+                    if (!ts.is_none()) {
                         if (nb::isinstance<TimeSeriesOutput>(ts)) return make(nb::cast<TimeSeriesOutput::ptr>(ts));
-                        if (nb::isinstance<TimeSeriesReferenceInput>(ts))
-                            return nb::cast<TimeSeriesReferenceInput::ptr>(ts)->value();
-                        if (nb::isinstance<TimeSeriesInput>(ts))
-                            {
+                        if (nb::isinstance<TimeSeriesReferenceInput>(ts)) return nb::cast<TimeSeriesReferenceInput::ptr>(ts)->value();
+                        if (nb::isinstance<TimeSeriesInput>(ts)) {
                             auto ts_input = nb::cast<TimeSeriesInput::ptr>(ts);
                             if (ts_input->has_peer()) return make(ts_input->output());
                             // Deal with list of inputs
                             std::vector<ptr> items_list;
                             auto ts_ndx{dynamic_cast<IndexedTimeSeriesInput*>(ts_input.get())};
                             items_list.reserve(ts_ndx->size());
-                            for (auto& ts_ptr : ts_ndx->values())
-                                {
+                            for (auto& ts_ptr : ts_ndx->values()) {
                                 auto ref_input{dynamic_cast<TimeSeriesReferenceInput*>(ts_ptr.get())};
                                 items_list.emplace_back(ref_input ? ref_input->value() : nullptr);
                             }
                             return make(items_list);
                         }
-                        // We may wish to raise an exception here?}
-
-                    else
-                    if (not items.is_none()
-                    )
-                    {
+                        // We may wish to raise an exception here?
+                    } else if (!items.is_none()) {
                         auto items_list = nb::cast<std::vector<ptr>>(items);
                         return make(items_list);
                     }
