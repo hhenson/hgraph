@@ -2,7 +2,6 @@
 
 #include <memory>
 #include <concepts>
-#include "ts_value_impl.h"
 #include "any_value.h"
 #include "ts_event.h"
 #include "hgraph/hgraph_forward_declarations.h"
@@ -16,61 +15,107 @@ namespace hgraph
     concept ParentNode = std::derived_from<T, Notifiable> && std::derived_from<T, CurrentTimeProvider>;
 
     /**
+     * @brief Base implementation class for type-erased time series value storage.
+     *
+     * This is the core implementation (PIMPL) that holds the actual shared state
+     * between TSInput and TSOutput. It uses AnyValue for type-erased
+     * storage, eliminating template proliferation.
+     *
+     * TSValue is the virtual interface. Two implementations exist:
+     * - NonBoundImpl: For unbound inputs (returns defaults, tracks active as bool)
+     * - SimplePeeredImpl: For bound inputs/outputs (shared state, subscriber management)
+     *
+     * Design principles:
+     * - Single source of truth: All state lives here, shared via shared_ptr
+     * - Computed properties: valid() and last_modified_time() derived from _last_event
+     * - Swappable implementations: Virtual interface allows different state machine variants
+     */
+    struct TSValue
+    {
+        // Virtual interface for variant behavior
+        virtual void       apply_event(const TsEventAny &event) = 0;
+        virtual TsEventAny query_event(engine_time_t t) const = 0;
+        virtual void       bind_to(TSValue *other) = 0;
+        virtual void       unbind() = 0;
+
+        // Subscriber management (for active state)
+        virtual void mark_active(Notifiable *subscriber) = 0;
+        virtual void mark_passive(Notifiable *subscriber) = 0;
+        virtual bool active(Notifiable *subscriber) const = 0;
+
+        // State queries
+        virtual bool          modified(engine_time_t t) const = 0;
+        virtual bool          all_valid() const = 0;
+        virtual bool          valid() const = 0;
+        virtual engine_time_t last_modified_time() const = 0;
+
+        // Value access
+        virtual const AnyValue<> &value() const = 0;
+
+        // Type information
+        virtual const std::type_info& value_type() const = 0;
+
+        // Event generation
+        virtual void mark_invalid(engine_time_t t) = 0;
+
+        // Notification
+        virtual void notify_subscribers(engine_time_t t) = 0;
+
+        virtual ~TSValue() = default;
+    };
+
+} // namespace hgraph
+
+
+namespace hgraph
+{
+    /**
      * @brief Type-erased time series output (event generator).
      *
-     * Thin wrapper around TimeSeriesValueImpl that uses AnyValue for storage.
+     * Thin wrapper around TSValue that uses AnyValue for storage.
      * Multiple inputs can bind to the same output, sharing the impl.
+     *
+     * This is the internal implementation used by TimeSeriesValueOutput<T>.
      */
-    struct TimeSeriesValueOutput
+    struct TSOutput
     {
-        using impl_ptr = std::shared_ptr<TimeSeriesValueImpl>;
+        using impl_ptr = std::shared_ptr<TSValue>;
 
-        // Constructor with parent node and value type
-        template <ParentNode P, typename T>
-        explicit TimeSeriesValueOutput(P *parent, const std::type_info& value_type = typeid(T))
-            : _impl(std::make_shared<SimplePeeredImpl>(value_type))
-              , _parent(static_cast<Notifiable *>(parent)) { if (!_parent) { throw std::runtime_error("Parent cannot be null"); } }
+        // Non-template constructor (implementation in .cpp)
+        explicit TSOutput(Notifiable *parent, const std::type_info& value_type);
 
-        // Constructor with parent node only (for generic/dynamic typing)
-        template <ParentNode P>
-        explicit TimeSeriesValueOutput(P *parent, const std::type_info& value_type)
-            : _impl(std::make_shared<SimplePeeredImpl>(value_type))
-              , _parent(static_cast<Notifiable *>(parent)) { if (!_parent) { throw std::runtime_error("Parent cannot be null"); } }
+        // Move semantics
+        TSOutput(TSOutput&&) = default;
+        TSOutput& operator=(TSOutput&&) = default;
+
+        // Delete copy operations
+        TSOutput(const TSOutput&) = delete;
+        TSOutput& operator=(const TSOutput&) = delete;
 
         // Value access (returns AnyValue)
-        [[nodiscard]] const AnyValue<> &value() const { return _impl->value(); }
+        [[nodiscard]] const AnyValue<> &value() const;
 
         // Set value with AnyValue
-        void set_value(const AnyValue<> &v) {
-            auto event = TsEventAny::modify(current_time(), v);
-            _impl->apply_event(event);
-        }
+        void set_value(const AnyValue<> &v);
 
         // Set value with AnyValue move
-        void set_value(AnyValue<> &&v) {
-            auto event = TsEventAny::modify(current_time(), std::move(v));
-            _impl->apply_event(event);
-        }
+        void set_value(AnyValue<> &&v);
 
         // Invalidate the value
-        void invalidate() { _impl->mark_invalid(current_time()); }
+        void invalidate();
 
         // Delegate to impl
-        [[nodiscard]] bool          modified() const { return _impl->modified(current_time()); }
-        [[nodiscard]] bool          valid() const { return _impl->valid(); }
-        [[nodiscard]] engine_time_t last_modified_time() const { return _impl->last_modified_time(); }
+        [[nodiscard]] bool          modified() const;
+        [[nodiscard]] bool          valid() const;
+        [[nodiscard]] engine_time_t last_modified_time() const;
 
-        [[nodiscard]] TsEventAny delta_value() const { return _impl->query_event(current_time()); }
+        [[nodiscard]] TsEventAny delta_value() const;
 
         // Access to impl for binding
-        [[nodiscard]] impl_ptr get_impl() const { return _impl; }
+        [[nodiscard]] impl_ptr get_impl() const;
 
         // Current time accessor (delegates to parent)
-        [[nodiscard]] engine_time_t current_time() const {
-            auto *provider = dynamic_cast<CurrentTimeProvider *>(_parent);
-            if (!provider) { throw std::runtime_error("Parent does not implement CurrentTimeProvider"); }
-            return provider->current_engine_time();
-        }
+        [[nodiscard]] engine_time_t current_time() const;
 
     private:
         impl_ptr    _impl;   // Shared with bound inputs
@@ -80,90 +125,71 @@ namespace hgraph
     /**
      * @brief Type-erased time series input (event consumer).
      *
-     * Thin wrapper that binds to a TimeSeriesOutput by sharing its impl.
+     * Thin wrapper that binds to a TSOutput by sharing its impl.
      * Provides read-only access to the value. Implements Notifiable to receive
      * notifications when the bound output changes.
+     *
+     * This is the internal implementation used by TimeSeriesValueInput<T>.
      */
-    struct TimeSeriesValueInput
+    struct TSInput
     {
-        using impl_ptr = std::shared_ptr<TimeSeriesValueImpl>;
+        using impl_ptr = std::shared_ptr<TSValue>;
 
-        // Constructor with parent node and value type
-        template <ParentNode P, typename T>
-        explicit TimeSeriesValueInput(P *parent, const std::type_info& value_type = typeid(T))
-            : _impl(std::make_shared<NonBoundImpl>(value_type))
-              , _parent(static_cast<Notifiable *>(parent)) {}
+        // Non-template constructor (implementation in .cpp)
+        explicit TSInput(Notifiable *parent, const std::type_info& value_type);
 
-        // Constructor with parent node only (for generic/dynamic typing)
-        template <ParentNode P>
-        explicit TimeSeriesValueInput(P *parent, const std::type_info& value_type)
-            : _impl(std::make_shared<NonBoundImpl>(value_type))
-              , _parent(static_cast<Notifiable *>(parent)) {}
+        // Move semantics
+        TSInput(TSInput&&) = default;
+        TSInput& operator=(TSInput&&) = default;
 
-        // Bind to output (shares impl)
-        void bind_output(TimeSeriesValueOutput *output) {
-            // Type validation: ensure input and output types match
-            if (_impl->value_type() != output->get_impl()->value_type()) {
-                throw std::runtime_error(
-                    std::string("Type mismatch in bind_output: input expects ") +
-                    _impl->value_type().name() + " but output provides " +
-                    output->get_impl()->value_type().name()
-                );
-            }
+        // Delete copy operations
+        TSInput(const TSInput&) = delete;
+        TSInput& operator=(const TSInput&) = delete;
 
-            // Get active state from current impl before switching
-            bool was_active = _impl->active(reinterpret_cast<Notifiable *>(this));
-
-            // Mark passive on old impl
-            if (was_active) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
-
-            // Bind to new impl
-            _impl = output->get_impl();
-
-            // Restore active state on new impl
-            if (was_active) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
-        }
+        // Bind to output (shares impl) - implementation in .cpp
+        void bind_output(TSOutput *output);
 
         // Value access (returns AnyValue)
-        [[nodiscard]] const AnyValue<> &value() const { return _impl->value(); }
+        [[nodiscard]] const AnyValue<> &value() const;
 
         // Queries delegate to shared impl
-        [[nodiscard]] bool modified() const { return _impl ? _impl->modified(current_time()) : false; }
+        [[nodiscard]] bool modified() const;
 
-        [[nodiscard]] bool valid() const { return _impl ? _impl->valid() : false; }
+        [[nodiscard]] bool valid() const;
 
-        [[nodiscard]] engine_time_t last_modified_time() const { return _impl ? _impl->last_modified_time() : min_time(); }
+        [[nodiscard]] engine_time_t last_modified_time() const;
 
-        [[nodiscard]] TsEventAny delta_value() const {
-            return _impl ? _impl->query_event(current_time()) : TsEventAny::none(min_time());
-        }
+        [[nodiscard]] TsEventAny delta_value() const;
 
         // Active state (computed from subscription)
-        [[nodiscard]] bool active() const {
-            return _impl->active(reinterpret_cast<Notifiable *>(
-                const_cast<TimeSeriesValueInput *>(this)
-            ));
-        }
+        [[nodiscard]] bool active() const;
 
         // Mark input as active (adds to subscriber set)
-        void mark_active() { if (_impl) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); } }
+        void mark_active();
 
         // Mark input as passive (removes from subscriber set)
-        void mark_passive() { if (_impl) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); } }
+        void mark_passive();
 
         // Notifiable interface (would be implemented if this inherited from Notifiable)
-        void notify(engine_time_t t) {
-            // Notify parent to schedule owning node
-            _parent->notify(t);
-        }
+        void notify(engine_time_t t) const;
 
         // Current time accessor (delegates to parent)
-        [[nodiscard]] engine_time_t current_time() const {
-            return dynamic_cast<CurrentTimeProvider *>(_parent)->current_engine_time();
-        }
+        [[nodiscard]] engine_time_t current_time() const;
 
     private:
         impl_ptr    _impl;   // Shared impl
         Notifiable *_parent; // Owning node (provides notification and time)
     };
+
+    // Factory functions for template convenience
+    template <ParentNode P, typename T>
+    TSOutput make_ts_output(P *parent, const std::type_info& value_type = typeid(T)) {
+        return TSOutput(static_cast<Notifiable*>(parent), value_type);
+    }
+
+    template <ParentNode P, typename T>
+    TSInput make_ts_input(P *parent, const std::type_info& value_type = typeid(T)) {
+        return TSInput(static_cast<Notifiable*>(parent), value_type);
+    }
+
 } // namespace hgraph

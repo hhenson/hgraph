@@ -5,6 +5,7 @@
 #include <typeinfo>
 #include "any_value.h"
 #include "ts_event.h"
+#include "ts_value.h"
 #include "hgraph/types/time_series_type.h"
 #include "hgraph/util/date_time.h"
 #include "hgraph/types/ts_traits.h"
@@ -13,58 +14,12 @@ namespace hgraph
 {
 
     /**
-     * @brief Base implementation class for type-erased time series value storage.
-     *
-     * This is the PIMPL (Pointer to Implementation) that holds the actual shared state
-     * between TimeSeriesInput and TimeSeriesOutput. It uses AnyValue for type-erased
-     * storage, eliminating template proliferation.
-     *
-     * Design principles:
-     * - Single source of truth: All state lives here, shared via shared_ptr
-     * - Computed properties: valid() and last_modified_time() derived from _last_event
-     * - Swappable implementations: Virtual interface allows different state machine variants
-     */
-    struct TimeSeriesValueImpl
-    {
-        // Virtual interface for variant behavior
-        virtual void       apply_event(const TsEventAny &event) = 0;
-        virtual TsEventAny query_event(engine_time_t t) const = 0;
-        virtual void       bind_to(TimeSeriesValueImpl *other) = 0;
-        virtual void       unbind() = 0;
-
-        // Subscriber management (for active state)
-        virtual void mark_active(Notifiable *subscriber) = 0;
-        virtual void mark_passive(Notifiable *subscriber) = 0;
-        virtual bool active(Notifiable *subscriber) const = 0;
-
-        // State queries
-        virtual bool          modified(engine_time_t t) const = 0;
-        virtual bool          all_valid() const = 0;
-        virtual bool          valid() const = 0;
-        virtual engine_time_t last_modified_time() const = 0;
-
-        // Value access
-        virtual const AnyValue<> &value() const = 0;
-
-        // Type information
-        virtual const std::type_info& value_type() const = 0;
-
-        // Event generation
-        virtual void mark_invalid(engine_time_t t) = 0;
-
-        // Notification
-        virtual void notify_subscribers(engine_time_t t) = 0;
-
-        virtual ~TimeSeriesValueImpl() = default;
-    };
-
-    /**
      * @brief Non-bound implementation for inputs not yet bound to an output.
      *
      * Tracks the active state locally as a boolean. Ignores the Notifiable* parameter
      * since non-bound inputs don't actually notify anyone.
      */
-    struct NonBoundImpl : TimeSeriesValueImpl
+    struct NonBoundImpl : TSValue
     {
         bool       _active{false};         // Active state tracked locally
         AnyValue<> _empty_value;           // Empty value to return
@@ -80,7 +35,7 @@ namespace hgraph
 
         [[nodiscard]] TsEventAny query_event(engine_time_t t) const override { return TsEventAny::none(t); }
 
-        void bind_to(TimeSeriesValueImpl *) override {
+        void bind_to(TSValue *) override {
             // No-op - binding is handled at the Input/Output level
         }
 
@@ -137,7 +92,7 @@ namespace hgraph
      * - No reference tracking
      * - Minimal overhead
      */
-    struct SimplePeeredImpl : TimeSeriesValueImpl
+    struct SimplePeeredImpl : TSValue
     {
         // Shared state (single source of truth)
         AnyValue<>                       _value;       // Current value (type-erased)
@@ -182,7 +137,7 @@ namespace hgraph
             return TsEventAny::none(t);
         }
 
-        void bind_to(TimeSeriesValueImpl *) override {
+        void bind_to(TSValue *) override {
             // No-op for simple peered
         }
 

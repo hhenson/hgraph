@@ -85,6 +85,7 @@ set(HGRAPH_SOURCES
         types/tsl.cpp
         types/tsw.cpp
         types/v2/ts_event.cpp
+        types/v2/ts_value.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
