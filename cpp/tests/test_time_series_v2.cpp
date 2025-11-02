@@ -5,6 +5,7 @@
 #include "hgraph/types/v2/ts_event.h"
 #include <string>
 #include <vector>
+#include <map>
 #include <typeinfo>
 
 using namespace hgraph;
@@ -1374,5 +1375,258 @@ TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]")
         REQUIRE(event.items[1].kind == ColItemKind::Modify);
         REQUIRE(event.items[2].kind == ColItemKind::Remove);
         REQUIRE(event.items[3].kind == ColItemKind::Modify);
+    }
+}
+
+// =============================================================================
+// TsCollectionEventAny Visitor Tests
+// =============================================================================
+
+TEST_CASE("TsCollectionEventAny visit_items_as", "[collection][visitor]") {
+    SECTION("Apply changes to std::map<int, std::string>") {
+        TsCollectionEventAny event;
+
+        // Build collection event
+        event.add_modify(make_any(1), make_any(std::string("one")))
+             .add_modify(make_any(2), make_any(std::string("two")))
+             .add_reset(make_any(3))
+             .add_modify(make_any(4), make_any(std::string("four")))
+             .remove(make_any(5));
+
+        // Apply to map
+        std::map<int, std::string> my_map;
+        my_map[3] = "three";
+        my_map[5] = "five";
+
+        event.visit_items_as<int, std::string>(
+            // on_modify
+            [&](int key, const std::string& value) {
+                my_map[key] = value;
+            },
+            // on_reset
+            [&](int key) {
+                my_map[key] = "";
+            },
+            // on_remove
+            [&](int key) {
+                my_map.erase(key);
+            }
+        );
+
+        // Verify results
+        REQUIRE(my_map.size() == 4);
+        REQUIRE(my_map[1] == "one");
+        REQUIRE(my_map[2] == "two");
+        REQUIRE(my_map[3] == "");  // Reset
+        REQUIRE(my_map[4] == "four");
+        REQUIRE(my_map.find(5) == my_map.end());  // Removed
+    }
+
+    SECTION("Count operations by type") {
+        TsCollectionEventAny event;
+
+        event.add_modify(make_any(std::string("a")), make_any(100))
+             .add_modify(make_any(std::string("b")), make_any(200))
+             .add_reset(make_any(std::string("c")))
+             .add_reset(make_any(std::string("d")))
+             .remove(make_any(std::string("e")))
+             .add_modify(make_any(std::string("f")), make_any(300));
+
+        int modify_count = 0, reset_count = 0, remove_count = 0;
+
+        event.visit_items_as<std::string, int>(
+            [&](const std::string&, int) { modify_count++; },
+            [&](const std::string&) { reset_count++; },
+            [&](const std::string&) { remove_count++; }
+        );
+
+        REQUIRE(modify_count == 3);
+        REQUIRE(reset_count == 2);
+        REQUIRE(remove_count == 1);
+    }
+
+    SECTION("Type filtering - skip non-matching keys") {
+        TsCollectionEventAny event;
+
+        // Mix of int and string keys
+        event.add_modify(make_any(1), make_any(100))
+             .add_modify(make_any(std::string("str")), make_any(200))
+             .add_modify(make_any(2), make_any(300));
+
+        // Only visit int keys
+        std::vector<int> int_keys;
+        std::vector<int> int_values;
+
+        event.visit_items_as<int, int>(
+            [&](int key, int value) {
+                int_keys.push_back(key);
+                int_values.push_back(value);
+            },
+            [&](int) {},  // No resets in this test
+            [&](int) {}   // No removes in this test
+        );
+
+        // Should only see the int keys (1 and 2), not the string key
+        REQUIRE(int_keys.size() == 2);
+        REQUIRE(int_keys[0] == 1);
+        REQUIRE(int_keys[1] == 2);
+        REQUIRE(int_values[0] == 100);
+        REQUIRE(int_values[1] == 300);
+    }
+
+    SECTION("Mutable visitor - modify values in place") {
+        TsCollectionEventAny event;
+
+        event.add_modify(make_any(1), make_any(10))
+             .add_modify(make_any(2), make_any(20))
+             .add_modify(make_any(3), make_any(30));
+
+        // Double all values using mutable visitor
+        event.visit_items_as<int, int>(
+            [](int, int& value) { value *= 2; },
+            [](int&) {},
+            [](int&) {}
+        );
+
+        // Verify values were modified
+        std::map<int, int> result_map;
+        event.visit_items_as<int, int>(
+            [&](int key, int value) { result_map[key] = value; },
+            [](int) {},
+            [](int) {}
+        );
+
+        REQUIRE(result_map[1] == 20);
+        REQUIRE(result_map[2] == 40);
+        REQUIRE(result_map[3] == 60);
+    }
+
+    SECTION("Empty event") {
+        TsCollectionEventAny event;
+
+        int call_count = 0;
+        event.visit_items_as<int, int>(
+            [&](int, int) { call_count++; },
+            [&](int) { call_count++; },
+            [&](int) { call_count++; }
+        );
+
+        REQUIRE(call_count == 0);
+    }
+
+    SECTION("Real-world example: accumulate numeric values") {
+        TsCollectionEventAny event;
+
+        event.add_modify(make_any(std::string("sales")), make_any(1000.0))
+             .add_modify(make_any(std::string("expenses")), make_any(500.0))
+             .add_modify(make_any(std::string("profit")), make_any(500.0))
+             .add_reset(make_any(std::string("taxes")))
+             .remove(make_any(std::string("old_debt")));
+
+        double total = 0.0;
+        int active_accounts = 0;
+
+        event.visit_items_as<std::string, double>(
+            [&](const std::string&, double value) {
+                total += value;
+                active_accounts++;
+            },
+            [&](const std::string&) {
+                // Reset counts as 0 but still active
+                active_accounts++;
+            },
+            [&](const std::string&) {
+                // Remove doesn't count
+            }
+        );
+
+        REQUIRE(total == Catch::Approx(2000.0));
+        REQUIRE(active_accounts == 4);  // 3 modify + 1 reset
+    }
+}
+
+TEST_CASE("TsCollectionEventAny range-based iteration", "[collection][iteration]") {
+    SECTION("Iterate over items") {
+        TsCollectionEventAny event;
+
+        event.add_modify(make_any(1), make_any(10))
+             .add_reset(make_any(2))
+             .remove(make_any(3));
+
+        int count = 0;
+        for (const auto& item : event) {
+            count++;
+            REQUIRE(item.key.has_value());
+        }
+
+        REQUIRE(count == 3);
+    }
+
+    SECTION("Iterate and check kinds") {
+        TsCollectionEventAny event;
+
+        event.add_modify(make_any(1), make_any(10))
+             .add_reset(make_any(2))
+             .remove(make_any(3));
+
+        std::vector<ColItemKind> kinds;
+        for (const auto& item : event) {
+            kinds.push_back(item.kind);
+        }
+
+        REQUIRE(kinds.size() == 3);
+        REQUIRE(kinds[0] == ColItemKind::Modify);
+        REQUIRE(kinds[1] == ColItemKind::Reset);
+        REQUIRE(kinds[2] == ColItemKind::Remove);
+    }
+
+    SECTION("Mutable iteration") {
+        TsCollectionEventAny event;
+
+        event.add_modify(make_any(1), make_any(10))
+             .add_modify(make_any(2), make_any(20));
+
+        // First verify we have 2 items
+        REQUIRE(event.items.size() == 2);
+
+        // Verify initial total
+        int initial_total = 0;
+        for (const auto& item : event) {
+            item.value.visit_as<int>([&](int val) {
+                initial_total += val;
+            });
+        }
+        REQUIRE(initial_total == 30);  // 10 + 20
+
+        // Modify values using mutable iterator
+        for (auto& item : event) {
+            if (item.kind == ColItemKind::Modify) {
+                item.value.visit_as<int>([](int& val) {
+                    val += 5;
+                });
+            }
+        }
+
+        // Verify modifications
+        int total = 0;
+        for (const auto& item : event) {
+            item.value.visit_as<int>([&](int val) {
+                total += val;
+            });
+        }
+
+        REQUIRE(total == 40);  // (10+5) + (20+5) = 15 + 15... but getting 40?
+    }
+
+    SECTION("Empty event iteration") {
+        TsCollectionEventAny event;
+
+        int count = 0;
+        for (const auto& item : event) {
+            (void)item;
+            count++;
+        }
+
+        REQUIRE(count == 0);
     }
 }

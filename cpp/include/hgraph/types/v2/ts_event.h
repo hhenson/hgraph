@@ -223,6 +223,78 @@ namespace hgraph
 
         /// Add a remove operation (delete key)
         TsCollectionEventAny& remove(AnyKey key);
+
+        /// Range-based iteration support for items
+        [[nodiscard]] auto begin() const { return items.begin(); }
+        [[nodiscard]] auto end() const { return items.end(); }
+        [[nodiscard]] auto begin() { return items.begin(); }
+        [[nodiscard]] auto end() { return items.end(); }
+
+        /// Visit all items with typed key/value and separate handlers per operation.
+        /// This is the most type-safe and ergonomic way to process collection changes.
+        ///
+        /// @tparam KeyType The expected type of keys in the collection
+        /// @tparam ValueType The expected type of values in the collection
+        /// @tparam ModifyFn Callable with signature: void(const KeyType&, const ValueType&)
+        /// @tparam ResetFn Callable with signature: void(const KeyType&)
+        /// @tparam RemoveFn Callable with signature: void(const KeyType&)
+        ///
+        /// @param on_modify Handler for Modify operations (set key to value)
+        /// @param on_reset Handler for Reset operations (clear key's value)
+        /// @param on_remove Handler for Remove operations (delete key)
+        ///
+        /// Example:
+        /// @code
+        /// std::map<std::string, int> my_map;
+        /// event.visit_items_as<std::string, int>(
+        ///     [&](const std::string& key, int value) { my_map[key] = value; },
+        ///     [&](const std::string& key) { my_map[key] = 0; },
+        ///     [&](const std::string& key) { my_map.erase(key); }
+        /// );
+        /// @endcode
+        template<typename KeyType, typename ValueType, typename ModifyFn, typename ResetFn, typename RemoveFn>
+        void visit_items_as(ModifyFn&& on_modify, ResetFn&& on_reset, RemoveFn&& on_remove) const {
+            for (const auto& item : items) {
+                item.key.visit_as<KeyType>([&](const KeyType& k) {
+                    switch (item.kind) {
+                        case ColItemKind::Modify:
+                            item.value.visit_as<ValueType>([&](const ValueType& v) {
+                                on_modify(k, v);
+                            });
+                            break;
+                        case ColItemKind::Reset:
+                            on_reset(k);
+                            break;
+                        case ColItemKind::Remove:
+                            on_remove(k);
+                            break;
+                    }
+                });
+            }
+        }
+
+        /// Visit all items with typed key/value and separate handlers per operation (mutable version).
+        /// Allows modifying values in-place during visitation.
+        template<typename KeyType, typename ValueType, typename ModifyFn, typename ResetFn, typename RemoveFn>
+        void visit_items_as(ModifyFn&& on_modify, ResetFn&& on_reset, RemoveFn&& on_remove) {
+            for (auto& item : items) {
+                item.key.visit_as<KeyType>([&](KeyType& k) {
+                    switch (item.kind) {
+                        case ColItemKind::Modify:
+                            item.value.visit_as<ValueType>([&](ValueType& v) {
+                                on_modify(k, v);
+                            });
+                            break;
+                        case ColItemKind::Reset:
+                            on_reset(k);
+                            break;
+                        case ColItemKind::Remove:
+                            on_remove(k);
+                            break;
+                    }
+                });
+            }
+        }
     };
 
     // String formatting helpers (exported API)
