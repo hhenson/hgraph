@@ -17,8 +17,8 @@
 
 #include <hgraph/util/scope.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     template <typename K>
     MapNestedEngineEvaluationClock<K>::MapNestedEngineEvaluationClock(
         EngineEvaluationClock::ptr engine_evaluation_clock, K key,
@@ -27,7 +27,7 @@ namespace hgraph {
     {
     }
 
-    template<typename K>
+    template <typename K>
     void MapNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time)
     {
         auto& node_{*static_cast<TsdMapNode<K>*>(node().get())};
@@ -40,7 +40,7 @@ namespace hgraph {
         NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
     }
 
-    template<typename K>
+    template <typename K>
     TsdMapNode<K>::TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                               nb::dict scalars, graph_builder_ptr nested_graph_builder,
                               const std::unordered_map<std::string, int64_t>& input_node_ids, int64_t output_node_id,
@@ -51,7 +51,7 @@ namespace hgraph {
     {
     }
 
-    template<typename K>
+    template <typename K>
     std::unordered_map<K, graph_ptr>& TsdMapNode<K>::nested_graphs() { return active_graphs_; }
 
     template <typename K>
@@ -59,7 +59,7 @@ namespace hgraph {
     {
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::do_start()
     {
         // Note: In Python, super().do_start() is called here, but in C++ the base Node class
@@ -73,13 +73,13 @@ namespace hgraph {
         }
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::do_stop()
     {
         std::vector<K> keys;
         keys.reserve(active_graphs_.size());
-        for (const auto& [k, _]: active_graphs_) { keys.push_back(k); }
-        for (const auto& k: keys) { remove_graph(k); }
+        for (const auto& [k, _] : active_graphs_) { keys.push_back(k); }
+        for (const auto& k : keys) { remove_graph(k); }
         active_graphs_.clear();
         scheduled_keys_.clear();
         pending_keys_.clear();
@@ -90,7 +90,7 @@ namespace hgraph {
     {
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::eval()
     {
         mark_evaluated();
@@ -98,7 +98,7 @@ namespace hgraph {
         auto& keys = dynamic_cast<TimeSeriesSetInput_T<K>&>(*(*input())[KEYS_ARG]);
         if (keys.modified())
         {
-            for (const auto& k: keys.added())
+            for (const auto& k : keys.added())
             {
                 // There seems to be a case where a set can show a value as added even though it is not.
                 // This protects from accidentally creating duplicate graphs
@@ -108,7 +108,7 @@ namespace hgraph {
                 }
                 // If key already exists, skip it (can happen during startup before reset_prev() is called)
             }
-            for (const auto& k: keys.removed())
+            for (const auto& k : keys.removed())
             {
                 if (auto it = active_graphs_.find(k); it != active_graphs_.end())
                 {
@@ -127,7 +127,7 @@ namespace hgraph {
         std::unordered_map<K, engine_time_t> scheduled_keys;
         std::swap(scheduled_keys, scheduled_keys_);
 
-        for (const auto& [k, dt]: scheduled_keys)
+        for (const auto& [k, dt] : scheduled_keys)
         {
             if (dt < last_evaluation_time())
             {
@@ -153,13 +153,13 @@ namespace hgraph {
         }
     }
 
-    template<typename K>
+    template <typename K>
     TimeSeriesDictOutput_T<K>& TsdMapNode<K>::tsd_output()
     {
         return dynamic_cast<TimeSeriesDictOutput_T<K>&>(*output());
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::create_new_graph(const K& key)
     {
         // Extend parent's node_id with the new instance counter
@@ -189,7 +189,7 @@ namespace hgraph {
         scheduled_keys_[key] = last_evaluation_time();
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::remove_graph(const K& key)
     {
         if (signature().capture_exception)
@@ -212,11 +212,11 @@ namespace hgraph {
         stop_component(*graph);
     }
 
-    template<typename K>
+    template <typename K>
     engine_time_t TsdMapNode<K>::evaluate_graph(const K& key)
     {
         auto& graph = active_graphs_[key];
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(graph->evaluation_engine_clock().get()))
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(graph->evaluation_engine_clock().get()))
         {
             nec->reset_next_scheduled_evaluation_time();
         }
@@ -244,17 +244,17 @@ namespace hgraph {
         }
 
         auto next = graph->evaluation_engine_clock()->next_scheduled_evaluation_time();
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(graph->evaluation_engine_clock().get()))
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(graph->evaluation_engine_clock().get()))
         {
             nec->reset_next_scheduled_evaluation_time();
         }
         return next;
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::un_wire_graph(const K& key, Graph::ptr& graph)
     {
-        for (const auto& [arg, node_ndx]: input_node_ids_)
+        for (const auto& [arg, node_ndx] : input_node_ids_)
         {
             auto node = graph->nodes()[node_ndx];
             if (arg != key_arg_)
@@ -263,7 +263,7 @@ namespace hgraph {
                 {
                     auto ts{static_cast<TimeSeriesInput*>((*input())[arg].get())};
                     auto& tsd =
-                            dynamic_cast<TimeSeriesDictInput_T<K>&>(*ts);
+                        dynamic_cast<TimeSeriesDictInput_T<K>&>(*ts);
                     // Since this is a multiplexed arg it must be of type K
 
                     // Re-parent the per-key input back to the TSD to detach it from the nested graph
@@ -290,10 +290,10 @@ namespace hgraph {
         if (output_node_id_ >= 0) { tsd_output().erase(key); }
     }
 
-    template<typename K>
+    template <typename K>
     void TsdMapNode<K>::wire_graph(const K& key, Graph::ptr& graph)
     {
-        for (const auto& [arg, node_ndx]: input_node_ids_)
+        for (const auto& [arg, node_ndx] : input_node_ids_)
         {
             auto node{graph->nodes()[node_ndx]};
             node->notify();

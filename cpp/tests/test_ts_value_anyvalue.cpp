@@ -10,36 +10,27 @@ struct MockParentNode : Notifiable, CurrentTimeProvider
 {
     engine_time_t _current_time{min_start_time()};
 
-    void notify(engine_time_t et) override
-    {
-    }
+    void notify(engine_time_t et) override {}
 
-    [[nodiscard]] engine_time_t current_engine_time() const override
-    {
-        return _current_time;
-    }
+    [[nodiscard]] engine_time_t current_engine_time() const override { return _current_time; }
 
-    void advance_time()
-    {
-        _current_time = _current_time + std::chrono::microseconds(1);
-    }
+    void advance_time() { _current_time = _current_time + std::chrono::microseconds(1); }
 };
 
-TEST_CASE (
-"TSOutput with AnyValue"
-,
-"[ts_value][output][anyvalue]"
-)
- {
+TEST_CASE(
+    "TSOutput with AnyValue"
+    ,
+    "[ts_value][output][anyvalue]"
+    ) {
     SECTION("Basic construction") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
         REQUIRE_FALSE(output.valid());
     }
 
     SECTION("Set and get int value") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
 
         parent.advance_time();
         AnyValue<> val;
@@ -52,7 +43,7 @@ TEST_CASE (
 
     SECTION("Set and get string value") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(std::string));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(std::string));
 
         parent.advance_time();
         AnyValue<> val;
@@ -65,7 +56,7 @@ TEST_CASE (
 
     SECTION("Multiple set operations") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
 
         parent.advance_time();
         AnyValue<> val1;
@@ -82,7 +73,7 @@ TEST_CASE (
 
     SECTION("Invalidate") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
 
         parent.advance_time();
         AnyValue<> val;
@@ -96,15 +87,14 @@ TEST_CASE (
     }
 }
 
-TEST_CASE (
-"TSInput with AnyValue"
-,
-"[ts_value][input][anyvalue]"
-)
- {
+TEST_CASE(
+    "TSInput with AnyValue"
+    ,
+    "[ts_value][input][anyvalue]"
+    ) {
     SECTION("Non-bound input active state") {
         MockParentNode parent;
-        TSInput input(static_cast<Notifiable*>(&parent), typeid(int));
+        TSInput        input(static_cast<Notifiable *>(&parent), typeid(int));
 
         // Initially not active
         REQUIRE_FALSE(input.active());
@@ -120,8 +110,8 @@ TEST_CASE (
 
     SECTION("Bind and read value") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
-        TSInput input(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
+        TSInput        input(static_cast<Notifiable *>(&parent), typeid(int));
 
         parent.advance_time();
         AnyValue<> val;
@@ -136,9 +126,9 @@ TEST_CASE (
 
     SECTION("Multiple inputs share output") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
-        TSInput input1(static_cast<Notifiable*>(&parent), typeid(int));
-        TSInput input2(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
+        TSInput        input1(static_cast<Notifiable *>(&parent), typeid(int));
+        TSInput        input2(static_cast<Notifiable *>(&parent), typeid(int));
 
         input1.bind_output(&output);
         input2.bind_output(&output);
@@ -156,8 +146,8 @@ TEST_CASE (
 
     SECTION("Input sees output changes") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
-        TSInput input(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
+        TSInput        input(static_cast<Notifiable *>(&parent), typeid(int));
 
         input.bind_output(&output);
 
@@ -176,8 +166,8 @@ TEST_CASE (
 
     SECTION("Zero-copy sharing") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(std::string));
-        TSInput input(static_cast<Notifiable*>(&parent), typeid(std::string));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(std::string));
+        TSInput        input(static_cast<Notifiable *>(&parent), typeid(std::string));
 
         parent.advance_time();
         AnyValue<> val;
@@ -192,9 +182,9 @@ TEST_CASE (
 
     SECTION("Active state preserved across bind_output") {
         MockParentNode parent;
-        TSOutput output1(static_cast<Notifiable*>(&parent), typeid(int));
-        TSOutput output2(static_cast<Notifiable*>(&parent), typeid(int));
-        TSInput input(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output1(static_cast<Notifiable *>(&parent), typeid(int));
+        TSOutput       output2(static_cast<Notifiable *>(&parent), typeid(int));
+        TSInput        input(static_cast<Notifiable *>(&parent), typeid(int));
 
         // Initially bind to output1
         input.bind_output(&output1);
@@ -221,8 +211,8 @@ TEST_CASE (
 
     SECTION("Type mismatch on bind throws") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
-        TSInput input(static_cast<Notifiable*>(&parent), typeid(std::string));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
+        TSInput        input(static_cast<Notifiable *>(&parent), typeid(std::string));
 
         // Attempting to bind input expecting string to output providing int should throw
         REQUIRE_THROWS_AS(input.bind_output(&output), std::runtime_error);
@@ -230,7 +220,7 @@ TEST_CASE (
 
     SECTION("Type mismatch on set_value throws") {
         MockParentNode parent;
-        TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
+        TSOutput       output(static_cast<Notifiable *>(&parent), typeid(int));
 
         parent.advance_time();
         AnyValue<> val;

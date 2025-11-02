@@ -21,7 +21,8 @@ namespace hgraph
      * This node type is used for pull source nodes that cache delta values
      * and combine them when multiple values are received before evaluation.
      */
-    struct HGRAPH_EXPORT LastValuePullNode : Node {
+    struct HGRAPH_EXPORT LastValuePullNode : Node
+    {
         using Node::Node;
 
         /**

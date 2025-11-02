@@ -8,8 +8,8 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct HGRAPH_EXPORT Graph : ComponentLifeCycle
     {
         using ptr = nanobind::ref<Graph>;

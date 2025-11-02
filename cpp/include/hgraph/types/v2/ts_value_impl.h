@@ -21,11 +21,11 @@ namespace hgraph
      */
     struct NonBoundImpl : TSValue
     {
-        bool       _active{false};         // Active state tracked locally
-        AnyValue<> _empty_value;           // Empty value to return
-        TypeId _value_type;                // Expected value type
+        bool       _active{false}; // Active state tracked locally
+        AnyValue<> _empty_value;   // Empty value to return
+        TypeId     _value_type;    // Expected value type
 
-        explicit NonBoundImpl(const std::type_info& type)
+        explicit NonBoundImpl(const std::type_info &type)
             : _value_type(TypeId{&type}) {}
 
         void apply_event(const TsEventAny &event) override {
@@ -71,9 +71,7 @@ namespace hgraph
             return _empty_value; // Always empty
         }
 
-        [[nodiscard]] const std::type_info& value_type() const override {
-            return *_value_type.info;
-        }
+        [[nodiscard]] const std::type_info &value_type() const override { return *_value_type.info; }
 
         void mark_invalid(engine_time_t t) override {
             // No-op - non-bound inputs don't track invalidation
@@ -100,7 +98,7 @@ namespace hgraph
         std::unordered_set<Notifiable *> _subscribers; // Notification subscribers
         TypeId                           _value_type;  // Expected value type
 
-        explicit SimplePeeredImpl(const std::type_info& type)
+        explicit SimplePeeredImpl(const std::type_info &type)
             : _value_type(TypeId{&type}) {}
 
         void apply_event(const TsEventAny &event) override {
@@ -115,7 +113,7 @@ namespace hgraph
                     throw std::runtime_error(
                         std::string("Type mismatch in apply_event: expected ") +
                         _value_type.info->name() + " but got " + event.value.type().info->name()
-                    );
+                        );
                 }
             }
 
@@ -164,9 +162,7 @@ namespace hgraph
         // Value access
         [[nodiscard]] const AnyValue<> &value() const override { return _value; }
 
-        [[nodiscard]] const std::type_info& value_type() const override {
-            return *_value_type.info;
-        }
+        [[nodiscard]] const std::type_info &value_type() const override { return *_value_type.info; }
 
         void mark_invalid(engine_time_t t) override {
             auto event = TsEventAny::invalidate(t);

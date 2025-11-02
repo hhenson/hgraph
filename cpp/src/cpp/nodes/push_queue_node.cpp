@@ -5,8 +5,8 @@
 #include <hgraph/types/tsd.h>
 #include <hgraph/types/constants.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     void PushQueueNode::do_eval()
     {
     }
@@ -29,7 +29,7 @@ namespace hgraph {
             {
                 // For TSD outputs, iterate over message dict
                 auto msg_dict = nb::cast<nb::dict>(message);
-                for (auto [key, val]: msg_dict)
+                for (auto [key, val] : msg_dict)
                 {
                     // Handle REMOVE and REMOVE_IF_EXISTS (TODO: check if these symbols are available)
                     // For now, skip removal handling
@@ -90,26 +90,32 @@ namespace hgraph {
 
         // Non-batch mode: if output is a TSD, merge dict entries into child outputs so multiple
         // keys can be applied within the same evaluation cycle.
-        if (auto tsd_output = dynamic_cast<TimeSeriesDictOutput *>(output().get())) {
+        if (auto tsd_output = dynamic_cast<TimeSeriesDictOutput*>(output().get()))
+        {
             auto msg_dict = nb::cast<nb::dict>(message);
 
             // Detect Sentinel values (REMOVE / REMOVE_IF_EXISTS). If any sentinel is present,
             // fall back to the generic apply_result path so removal semantics are handled by the
             // underlying output implementation instead of assigning the sentinel as a value.
-            bool has_sentinel = false; {
+            bool has_sentinel = false;
+            {
                 static nb::object REMOVE = get_remove();
                 static nb::object REMOVE_IF_EXISTS = get_remove_if_exists();
-                for (auto [key, val]: msg_dict) {
-                    if (val.ptr() == REMOVE.ptr() || val.ptr() == REMOVE_IF_EXISTS.ptr()) {
+                for (auto [key, val] : msg_dict)
+                {
+                    if (val.ptr() == REMOVE.ptr() || val.ptr() == REMOVE_IF_EXISTS.ptr())
+                    {
                         has_sentinel = true;
                         break;
                     }
                 }
             }
 
-            if (has_sentinel) {
+            if (has_sentinel)
+            {
                 if (_elide || output()->can_apply_result(message))
-                {    output()->apply_result(std::move(message));
+                {
+                    output()->apply_result(std::move(message));
                     ++_messages_dequeued;
                     return true;
                 }
@@ -117,7 +123,8 @@ namespace hgraph {
             }
 
             // No sentinels detected: merge values directly into child outputs
-            for (auto [key, val]: msg_dict) {
+            for (auto [key, val] : msg_dict)
+            {
                 auto child_output = tsd_output->py_get_or_create(nb::cast<nb::object>(key));
                 child_output.attr("value") = val;
             }

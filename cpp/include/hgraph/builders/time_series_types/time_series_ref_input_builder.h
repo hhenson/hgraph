@@ -7,8 +7,10 @@
 
 #include <hgraph/builders/input_builder.h>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesRefInputBuilder : InputBuilder {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT TimeSeriesRefInputBuilder : InputBuilder
+    {
         using InputBuilder::InputBuilder;
 
         time_series_input_ptr make_instance(node_ptr owning_node) const override;

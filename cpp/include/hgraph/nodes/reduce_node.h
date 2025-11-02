@@ -6,22 +6,23 @@
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/tsd.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     void register_reduce_node_with_nanobind(nb::module_ & m);
 
-    template<typename K>
+    template <typename K>
     struct ReduceNode;
-    template<typename K>
-    using reduce_node_ptr = nb::ref<ReduceNode<K> >;
+    template <typename K>
+    using reduce_node_ptr = nb::ref<ReduceNode<K>>;
 
     /**
      * C++ implementation of PythonReduceNodeImpl.
      * This implements TSD reduction using an inverted binary tree with inputs at the leaves
      * and the result at the root. The inputs bound to the leaves can be moved as nodes come and go.
      */
-    template<typename K>
-    struct ReduceNode : NestedNode {
+    template <typename K>
+    struct ReduceNode : NestedNode
+    {
         ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                    nb::dict scalars,
                    graph_builder_ptr nested_graph_builder, const std::tuple<int64_t, int64_t>& input_node_ids,
@@ -39,9 +40,9 @@ namespace hgraph {
         const std::tuple<int64_t, int64_t>& input_node_ids() const;
         int64_t output_node_id() const;
 
-        const std::unordered_map<K, std::tuple<int64_t, int64_t> > &bound_node_indexes() const;
+        const std::unordered_map<K, std::tuple<int64_t, int64_t>>& bound_node_indexes() const;
 
-        const std::vector<std::tuple<int64_t, int64_t> > &free_node_indexes() const;
+        const std::vector<std::tuple<int64_t, int64_t>>& free_node_indexes() const;
 
     protected:
         void initialise() override;
@@ -85,8 +86,8 @@ namespace hgraph {
         graph_builder_ptr nested_graph_builder_;
         std::tuple<int64_t, int64_t> input_node_ids_; // LHS index, RHS index
         int64_t output_node_id_;
-        std::unordered_map<K, std::tuple<int64_t, int64_t> > bound_node_indexes_;
-        std::vector<std::tuple<int64_t, int64_t> > free_node_indexes_; // List of (ndx, 0(lhs)|1(rhs)) tuples
+        std::unordered_map<K, std::tuple<int64_t, int64_t>> bound_node_indexes_;
+        std::vector<std::tuple<int64_t, int64_t>> free_node_indexes_; // List of (ndx, 0(lhs)|1(rhs)) tuples
 
         // The python code uses the fact that you can randomly add properties to a python object and tracks
         // if an input is bound to a key or not using _bound_to_key.

@@ -7,26 +7,28 @@
 
 #include <chrono>
 
-namespace std {
+namespace std
+{
     // Specialization for std::chrono::time_point
-    template<class Clock, class Duration>
-    struct hash<std::chrono::time_point<Clock, Duration> > {
+    template <class Clock, class Duration>
+    struct hash<std::chrono::time_point<Clock, Duration>>
+    {
         size_t operator()(const std::chrono::time_point<Clock, Duration> &tp) const noexcept {
             return std::hash<typename Duration::rep>()(tp.time_since_epoch().count());
         }
     };
 
     // Specialization for std::chrono::duration
-    template<class Rep, class Period>
-    struct hash<std::chrono::duration<Rep, Period> > {
-        size_t operator()(const std::chrono::duration<Rep, Period> &d) const noexcept {
-            return std::hash<Rep>()(d.count());
-        }
+    template <class Rep, class Period>
+    struct hash<std::chrono::duration<Rep, Period>>
+    {
+        size_t operator()(const std::chrono::duration<Rep, Period> &d) const noexcept { return std::hash<Rep>()(d.count()); }
     };
 
 
-    template<>
-    struct hash<std::chrono::year_month_day> {
+    template <>
+    struct hash<std::chrono::year_month_day>
+    {
         size_t operator()(const std::chrono::year_month_day &ymd) const noexcept {
             size_t h1 = std::hash<int>{}(static_cast<int>(ymd.year()));
             size_t h2 = std::hash<unsigned>{}(static_cast<unsigned>(ymd.month()));
@@ -37,10 +39,11 @@ namespace std {
     };
 } // namespace std
 
-namespace hgraph {
+namespace hgraph
+{
     using engine_clock = std::chrono::system_clock;
     // Use microsecond precision to avoid overflow for dates beyond 2262
-    using engine_time_t = std::chrono::time_point<engine_clock, std::chrono::microseconds>;
+    using engine_time_t       = std::chrono::time_point<engine_clock, std::chrono::microseconds>;
     using engine_time_delta_t = std::chrono::microseconds;
 
     constexpr engine_time_t min_time() noexcept { return engine_time_t{}; }
@@ -64,8 +67,8 @@ namespace hgraph {
     }
 
     constexpr engine_time_delta_t smallest_time_increment() noexcept { return engine_time_delta_t(1); }
-    constexpr engine_time_t min_start_time() noexcept { return min_time() + smallest_time_increment(); }
-    constexpr engine_time_t max_end_time() noexcept { return max_time() - smallest_time_increment(); }
+    constexpr engine_time_t       min_start_time() noexcept { return min_time() + smallest_time_increment(); }
+    constexpr engine_time_t       max_end_time() noexcept { return max_time() - smallest_time_increment(); }
 
     inline auto static MIN_DT = min_time();
     inline auto static MAX_DT = max_time();

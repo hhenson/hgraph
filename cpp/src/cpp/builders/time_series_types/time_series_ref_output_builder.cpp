@@ -2,7 +2,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 
-namespace hgraph {
+namespace hgraph
+{
     time_series_output_ptr TimeSeriesRefOutputBuilder::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesReferenceOutput(owning_node)};

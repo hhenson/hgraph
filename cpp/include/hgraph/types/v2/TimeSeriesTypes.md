@@ -44,19 +44,22 @@ Basic Time-Series Structure
 ---------------------------
 
 TimeSeriesEvent: [This is like a c++ optional with an extra state and time]
+
 * time
 * type [no-change, reset, value]
 * value [optional, only when type is value]
 
 TimeSeriesValue: [This is equivalent to C++ optional.]
+
 * has_value
 * value [optional, only when has_value is true]
 
 TimeSeries:
+
 * value - The current state of the time-series as a consequence of apply events up to now (the engine time), this can be
-invalid or a value.
+  invalid or a value.
 * delta_value - A query requesting the event at the current engine time. If there is no event, the delta_value is the
-no-change sentinel.
+  no-change sentinel.
 * last_modified_time - The time of the last event applied to the time-series.
 
 Then there are some useful queries that can be performed on the time-series to query the state of the time-series:
@@ -68,6 +71,7 @@ The time-series set already has the concept of the SetDelta, a delta value for a
 match collection time-series representations. For all collection time-series types (list, set, map), the event is:
 
 CollectionTimeSeriesEvent:
+
 * time
 * type [no-change, reset, value]
 * added/modified items

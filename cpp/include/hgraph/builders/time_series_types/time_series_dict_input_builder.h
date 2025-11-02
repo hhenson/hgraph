@@ -7,8 +7,10 @@
 
 #include <hgraph/builders/input_builder.h>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesDictInputBuilder : InputBuilder {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT TimeSeriesDictInputBuilder : InputBuilder
+    {
         using ptr = nb::ref<TimeSeriesDictInputBuilder>;
         input_builder_ptr ts_builder;
 
@@ -17,8 +19,9 @@ namespace hgraph {
         bool has_reference() const override { return ts_builder->has_reference(); }
     };
 
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesDictInputBuilder_T : TimeSeriesDictInputBuilder {
+    template <typename T>
+    struct HGRAPH_EXPORT TimeSeriesDictInputBuilder_T : TimeSeriesDictInputBuilder
+    {
         using TimeSeriesDictInputBuilder::TimeSeriesDictInputBuilder;
 
         time_series_input_ptr make_instance(node_ptr owning_node) const override;

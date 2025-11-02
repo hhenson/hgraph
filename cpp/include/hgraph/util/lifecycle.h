@@ -11,13 +11,13 @@ namespace hgraph
 {
     struct ComponentLifeCycle;
 
-    void HGRAPH_EXPORT initialise_component(ComponentLifeCycle &component);
+    void HGRAPH_EXPORT initialise_component(ComponentLifeCycle& component);
 
-    void HGRAPH_EXPORT start_component(ComponentLifeCycle &component);
+    void HGRAPH_EXPORT start_component(ComponentLifeCycle& component);
 
-    void HGRAPH_EXPORT stop_component(ComponentLifeCycle &component);
+    void HGRAPH_EXPORT stop_component(ComponentLifeCycle& component);
 
-    void HGRAPH_EXPORT dispose_component(ComponentLifeCycle &component);
+    void HGRAPH_EXPORT dispose_component(ComponentLifeCycle& component);
 
     struct TransitionGuard;
 
@@ -28,11 +28,11 @@ namespace hgraph
      */
     struct InitialiseDisposeContext
     {
-        InitialiseDisposeContext(ComponentLifeCycle &component);
+        InitialiseDisposeContext(ComponentLifeCycle& component);
 
         ~InitialiseDisposeContext() noexcept; // Destructors must not throw; exceptions are reported earlier
     private:
-        ComponentLifeCycle &_component;
+        ComponentLifeCycle& _component;
     };
 
     /**
@@ -42,11 +42,11 @@ namespace hgraph
      */
     struct StartStopContext
     {
-        StartStopContext(ComponentLifeCycle &component);
+        StartStopContext(ComponentLifeCycle& component);
 
         ~StartStopContext() noexcept; // Never throws - call stop() explicitly if you need exception propagation
     private:
-        ComponentLifeCycle &_component;
+        ComponentLifeCycle& _component;
     };
 
 
@@ -94,7 +94,7 @@ namespace hgraph
          */
         [[nodiscard]] bool is_stopping() const;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
     protected:
         /**
@@ -139,13 +139,13 @@ namespace hgraph
 
         friend TransitionGuard;
 
-        friend void initialise_component(ComponentLifeCycle &component);
+        friend void initialise_component(ComponentLifeCycle& component);
 
-        friend void start_component(ComponentLifeCycle &component);
+        friend void start_component(ComponentLifeCycle& component);
 
-        friend void stop_component(ComponentLifeCycle &component);
+        friend void stop_component(ComponentLifeCycle& component);
 
-        friend void dispose_component(ComponentLifeCycle &component);
+        friend void dispose_component(ComponentLifeCycle& component);
     };
 }
 

@@ -11,7 +11,8 @@ namespace hgraph
 {
     // The InputBuilder class implementation
 
-    struct InputBuilder : Builder {
+    struct InputBuilder : Builder
+    {
         using ptr = nb::ref<InputBuilder>;
 
         /**

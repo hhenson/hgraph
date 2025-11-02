@@ -11,7 +11,8 @@ namespace hgraph
 {
     struct TimeSeriesSignalInputBuilder;
 
-    struct TimeSeriesSignalInput : TimeSeriesInput {
+    struct TimeSeriesSignalInput : TimeSeriesInput
+    {
         using ptr = nb::ref<TimeSeriesSignalInput>;
         using TimeSeriesInput::TimeSeriesInput;
 

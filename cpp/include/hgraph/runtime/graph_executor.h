@@ -3,7 +3,8 @@
 
 #include <hgraph/hgraph_base.h>
 
-namespace hgraph {
+namespace hgraph
+{
     enum class HGRAPH_EXPORT EvaluationMode{REAL_TIME = 0, SIMULATION = 1};
 
     struct Graph;
@@ -12,7 +13,8 @@ namespace hgraph {
     using graph_ptr = nb::ref<Graph>;
     using node_ptr = nb::ref<Node>;
 
-    struct EvaluationLifeCycleObserver : nb::intrusive_base {
+    struct EvaluationLifeCycleObserver : nb::intrusive_base
+    {
         using ptr = nb::ref<EvaluationLifeCycleObserver>;
 
         virtual void on_before_start_graph(graph_ptr)
@@ -35,10 +37,12 @@ namespace hgraph {
         {
         };
 
-        virtual void on_after_graph_evaluation(graph_ptr) {
+        virtual void on_after_graph_evaluation(graph_ptr)
+        {
         };
 
-        virtual void on_after_graph_push_nodes_evaluation(graph_ptr) {
+        virtual void on_after_graph_push_nodes_evaluation(graph_ptr)
+        {
         };
 
         virtual void on_before_node_evaluation(node_ptr)
@@ -53,15 +57,20 @@ namespace hgraph {
         {
         };
 
-        virtual void on_after_stop_node(node_ptr) {
+        virtual void on_after_stop_node(node_ptr)
+        {
         };
 
-        virtual void on_before_stop_graph(graph_ptr) {
+        virtual void on_before_stop_graph(graph_ptr)
+        {
         };
 
-        virtual void on_after_stop_graph(graph_ptr) {
+        virtual void on_after_stop_graph(graph_ptr)
+        {
         };
-    };struct HGRAPH_EXPORT GraphExecutor : nb::intrusive_base
+    };
+
+    struct HGRAPH_EXPORT GraphExecutor : nb::intrusive_base
     {
         // Abstract methods.
         virtual EvaluationMode run_mode() const = 0;
@@ -73,7 +82,8 @@ namespace hgraph {
         void static register_with_nanobind(nb::module_& m);
     };
 
-    struct HGRAPH_EXPORT GraphExecutorImpl : GraphExecutor {
+    struct HGRAPH_EXPORT GraphExecutorImpl : GraphExecutor
+    {
         GraphExecutorImpl(graph_ptr graph, EvaluationMode run_mode,
                           std::vector<EvaluationLifeCycleObserver::ptr> observers = {});
 

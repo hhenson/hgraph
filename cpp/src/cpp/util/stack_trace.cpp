@@ -8,7 +8,7 @@
 namespace hgraph
 {
     std::string get_stack_trace()
-        {
+    {
         backward::StackTrace st;
         st.load_here(32); // Capture up to 32 frames
         backward::Printer p;
@@ -22,7 +22,7 @@ namespace hgraph
     }
 
     void print_stack_trace()
-        {
+    {
         backward::StackTrace st;
         st.load_here(32);
         backward::Printer p;
@@ -34,7 +34,7 @@ namespace hgraph
     }
 
     void install_crash_handlers()
-        {
+    {
         static backward::SignalHandling sh;
     }
 } // namespace hgraph
@@ -44,18 +44,18 @@ namespace hgraph
 namespace hgraph
 {
     std::string get_stack_trace()
-        {
+    {
         // backward-cpp disabled: return empty string (no-op)
         return std::string();
     }
 
     void print_stack_trace()
-        {
+    {
         // backward-cpp disabled: no-op
     }
 
     void install_crash_handlers()
-        {
+    {
         // backward-cpp disabled: no-op
     }
 } // namespace hgraph

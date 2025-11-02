@@ -19,7 +19,7 @@ namespace hgraph
      * @param any The AnyValue to populate
      * @param value The value to store
      */
-    template<typename T>
+    template <typename T>
     inline void emplace_any(AnyValue<>& any, const T& value)
     {
         any.emplace<T>(value);
@@ -32,7 +32,7 @@ namespace hgraph
      * @param any The AnyValue to populate
      * @param value The value to store (will be moved)
      */
-    template<typename T>
+    template <typename T>
     inline void emplace_any(AnyValue<>& any, T&& value)
     {
         any.emplace<T>(std::forward<T>(value));
@@ -46,11 +46,12 @@ namespace hgraph
      * @return const T& Reference to the stored value
      * @throws std::bad_cast if T doesn't match the stored type
      */
-    template<typename T>
+    template <typename T>
     inline const T& get_from_any(const AnyValue<>& any)
     {
         const T* ptr = any.get_if<T>();
-        if (!ptr) {
+        if (!ptr)
+        {
             throw std::bad_cast();
         }
         return *ptr;
@@ -63,7 +64,7 @@ namespace hgraph
      * @param value The value to store
      * @return AnyValue<> containing the value
      */
-    template<typename T>
+    template <typename T>
     inline AnyValue<> make_any_value(const T& value)
     {
         AnyValue<> any;
@@ -78,12 +79,11 @@ namespace hgraph
      * @param value The value to store (will be moved)
      * @return AnyValue<> containing the value
      */
-    template<typename T>
+    template <typename T>
     inline AnyValue<> make_any_value(T&& value)
     {
         AnyValue<> any;
         any.emplace<T>(std::forward<T>(value));
         return any;
     }
-
 } // namespace hgraph

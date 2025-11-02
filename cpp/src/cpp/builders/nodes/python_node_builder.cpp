@@ -91,14 +91,14 @@ namespace hgraph
                                                                                    kwargs["recordable_state_builder"])
                                                                                : std::nullopt;
                                                                    nb::handle eval_fn_ = kwargs.contains("eval_fn")
-                                                                       ? nb::cast<nb::handle>(kwargs["eval_fn"])
-                                                                       : nb::handle{};
+                                                                           ? nb::cast<nb::handle>(kwargs["eval_fn"])
+                                                                           : nb::handle{};
                                                                    nb::handle start_fn_ = kwargs.contains("start_fn")
-                                                                       ? nb::cast<nb::handle>(kwargs["start_fn"])
-                                                                       : nb::handle{};
+                                                                           ? nb::cast<nb::handle>(kwargs["start_fn"])
+                                                                           : nb::handle{};
                                                                    nb::handle stop_fn_ = kwargs.contains("stop_fn")
-                                                                       ? nb::cast<nb::handle>(kwargs["stop_fn"])
-                                                                       : nb::handle{};
+                                                                           ? nb::cast<nb::handle>(kwargs["stop_fn"])
+                                                                           : nb::handle{};
 
                                                                    nb::callable eval_fn =
                                                                        eval_fn_.is_valid() && !eval_fn_.is_none()

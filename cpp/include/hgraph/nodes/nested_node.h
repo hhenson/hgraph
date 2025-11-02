@@ -6,8 +6,10 @@
 #include <memory>
 #include <vector>
 
-namespace hgraph {
-    struct NestedNode : Node {
+namespace hgraph
+{
+    struct NestedNode : Node
+    {
         using ptr = nb::ref<NestedNode>;
         using Node::Node;
 

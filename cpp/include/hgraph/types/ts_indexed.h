@@ -9,14 +9,15 @@ namespace hgraph
     struct TimeSeriesBundleInputBuilder;
     struct TimeSeriesListInputBuilder;
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires TimeSeriesT<T_TS>
-    struct IndexedTimeSeries : T_TS {
+    struct IndexedTimeSeries : T_TS
+    {
         using ts_type = T_TS;
         using index_ts_type = IndexedTimeSeries<T_TS>;
-        using ptr = nb::ref<IndexedTimeSeries<ts_type> >;
+        using ptr = nb::ref<IndexedTimeSeries<ts_type>>;
         using collection_type = std::vector<typename ts_type::ptr>;
-        using enumerated_collection_type = std::vector<std::pair<size_t, typename ts_type::ptr> >;
+        using enumerated_collection_type = std::vector<std::pair<size_t, typename ts_type::ptr>>;
         using index_collection_type = std::vector<size_t>;
         using value_iterator = typename collection_type::iterator;
         using value_const_iterator = typename collection_type::const_iterator;
@@ -45,7 +46,7 @@ namespace hgraph
             // Create a Python list from the vector to avoid dangling references
             auto valid_ = valid_values();
             nb::list py_list;
-            for (const auto &item: valid_)
+            for (const auto& item : valid_)
             {
                 py_list.append(item);
             }
@@ -64,7 +65,7 @@ namespace hgraph
             // Create a Python list from the vector to avoid dangling references
             auto modified_ = modified_values();
             nb::list py_list;
-            for (const auto &item: modified_)
+            for (const auto& item : modified_)
             {
                 py_list.append(item);
             }
@@ -114,7 +115,7 @@ namespace hgraph
         {
             collection_type result;
             result.reserve(_ts_values.size());
-            for (const auto& value: _ts_values)
+            for (const auto& value : _ts_values)
             {
                 if (constraint(*value)) { result.push_back(value); }
             }
@@ -139,7 +140,8 @@ namespace hgraph
         collection_type _ts_values;
     };
 
-    struct IndexedTimeSeriesOutput : IndexedTimeSeries<TimeSeriesOutput> {
+    struct IndexedTimeSeriesOutput : IndexedTimeSeries<TimeSeriesOutput>
+    {
         using index_ts_type::IndexedTimeSeries;
 
         void invalidate() override;
@@ -153,7 +155,8 @@ namespace hgraph
         static void register_with_nanobind(nb::module_& m);
     };
 
-    struct IndexedTimeSeriesInput : IndexedTimeSeries<TimeSeriesInput> {
+    struct IndexedTimeSeriesInput : IndexedTimeSeries<TimeSeriesInput>
+    {
         using index_ts_type::IndexedTimeSeries;
 
         [[nodiscard]] bool modified() const override;
@@ -175,7 +178,7 @@ namespace hgraph
         static void register_with_nanobind(nb::module_& m);
 
     protected:
-        bool do_bind_output(time_series_output_ptr &value) override;
+        bool do_bind_output(time_series_output_ptr& value) override;
         void do_un_bind_output(bool unbind_refs) override;
     };
 

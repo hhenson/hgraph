@@ -4,14 +4,15 @@
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/types/ts_traits.h>
 
-namespace hgraph {
-    template<typename Enum>
+namespace hgraph
+{
+    template <typename Enum>
     typename std::enable_if<std::is_enum<Enum>::value, Enum>::type operator|(Enum lhs, Enum rhs) {
         using underlying = typename std::underlying_type<Enum>::type;
         return static_cast<Enum>(static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
     }
 
-    template<typename Enum>
+    template <typename Enum>
     typename std::enable_if<std::is_enum<Enum>::value, Enum>::type operator&(Enum lhs, Enum rhs) {
         using underlying = typename std::underlying_type<Enum>::type;
         return static_cast<Enum>(static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
@@ -27,7 +28,7 @@ namespace hgraph {
         SINK_NODE = 1 << 4
     };
 
-    void node_type_enum_py_register(nb::module_ & m);
+    void node_type_enum_py_register(nb::module_ &m);
 
     enum InjectableTypesEnum : int16_t
     {
@@ -43,44 +44,45 @@ namespace hgraph {
         TRAIT = 1 << 8
     };
 
-    void injectable_type_enum(nb::module_ & m);
+    void injectable_type_enum(nb::module_ &m);
 
-    struct HGRAPH_EXPORT NodeSignature : nanobind::intrusive_base {
+    struct HGRAPH_EXPORT NodeSignature : nanobind::intrusive_base
+    {
         using ptr = nanobind::ref<NodeSignature>;
 
         NodeSignature(std::string name, NodeTypeEnum node_type, std::vector<std::string> args,
-                      std::optional<std::unordered_map<std::string, nb::object> > time_series_inputs,
+                      std::optional<std::unordered_map<std::string, nb::object>> time_series_inputs,
                       std::optional<nb::object> time_series_output, std::optional<nb::dict> scalars,
                       nb::object src_location,
-                      std::optional<std::unordered_set<std::string> > active_inputs,
-                      std::optional<std::unordered_set<std::string> > valid_inputs,
-                      std::optional<std::unordered_set<std::string> > all_valid_inputs,
-                      std::optional<std::unordered_set<std::string> > context_inputs,
-                      std::optional<std::unordered_map<std::string, InjectableTypesEnum> > injectable_inputs,
+                      std::optional<std::unordered_set<std::string>> active_inputs,
+                      std::optional<std::unordered_set<std::string>> valid_inputs,
+                      std::optional<std::unordered_set<std::string>> all_valid_inputs,
+                      std::optional<std::unordered_set<std::string>> context_inputs,
+                      std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs,
                       size_t injectables,
                       bool capture_exception, int64_t trace_back_depth, std::string wiring_path_name,
                       std::optional<std::string> label, bool capture_values,
                       std::optional<std::string> record_replay_id);
 
-        std::string name;
-        NodeTypeEnum node_type;
-        std::vector<std::string> args;
-        std::optional<std::unordered_map<std::string, nb::object> > time_series_inputs;
-        std::optional<nb::object> time_series_output;
-        std::optional<nb::dict> scalars;
-        nb::object src_location;
-        std::optional<std::unordered_set<std::string> > active_inputs;
-        std::optional<std::unordered_set<std::string> > valid_inputs;
-        std::optional<std::unordered_set<std::string> > all_valid_inputs;
-        std::optional<std::unordered_set<std::string> > context_inputs;
-        std::optional<std::unordered_map<std::string, InjectableTypesEnum> > injectable_inputs;
-        size_t injectables;
-        bool capture_exception;
-        int64_t trace_back_depth;
-        std::string wiring_path_name;
-        std::optional<std::string> label;
-        bool capture_values;
-        std::optional<std::string> record_replay_id;
+        std::string                                                         name;
+        NodeTypeEnum                                                        node_type;
+        std::vector<std::string>                                            args;
+        std::optional<std::unordered_map<std::string, nb::object>>          time_series_inputs;
+        std::optional<nb::object>                                           time_series_output;
+        std::optional<nb::dict>                                             scalars;
+        nb::object                                                          src_location;
+        std::optional<std::unordered_set<std::string>>                      active_inputs;
+        std::optional<std::unordered_set<std::string>>                      valid_inputs;
+        std::optional<std::unordered_set<std::string>>                      all_valid_inputs;
+        std::optional<std::unordered_set<std::string>>                      context_inputs;
+        std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs;
+        size_t                                                              injectables;
+        bool                                                                capture_exception;
+        int64_t                                                             trace_back_depth;
+        std::string                                                         wiring_path_name;
+        std::optional<std::string>                                          label;
+        bool                                                                capture_values;
+        std::optional<std::string>                                          record_replay_id;
 
         [[nodiscard]] nb::object get_arg_type(const std::string &arg) const;
 
@@ -121,7 +123,8 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct NodeScheduler : nanobind::intrusive_base {
+    struct NodeScheduler : nanobind::intrusive_base
+    {
         using ptr = nanobind::ref<NodeScheduler>;
 
         explicit NodeScheduler(node_ptr node);
@@ -159,11 +162,11 @@ namespace hgraph {
 
     private:
         // Use a node_ptr to ensure that we retain a reference if this escapes the expected scope.
-        node_ptr _node;
-        std::set<std::pair<engine_time_t, std::string> > _scheduled_events;
-        std::unordered_map<std::string, engine_time_t> _tags;
-        std::unordered_map<std::string, engine_time_t> _alarm_tags;
-        engine_time_t _last_scheduled_time{MIN_DT};
+        node_ptr                                        _node;
+        std::set<std::pair<engine_time_t, std::string>> _scheduled_events;
+        std::unordered_map<std::string, engine_time_t>  _tags;
+        std::unordered_map<std::string, engine_time_t>  _alarm_tags;
+        engine_time_t                                   _last_scheduled_time{MIN_DT};
     };
 
     struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable, CurrentTimeProvider
@@ -251,23 +254,23 @@ namespace hgraph {
         void _initialise_inputs();
 
     private:
-        int64_t _node_ndx;
-        std::vector<int64_t> _owning_graph_id;
-        NodeSignature::ptr _signature;
-        nb::dict _scalars;
-        graph_ptr _graph;
-        time_series_bundle_input_ptr _input;
-        time_series_output_ptr _output;
-        time_series_output_ptr _error_output;
+        int64_t                       _node_ndx;
+        std::vector<int64_t>          _owning_graph_id;
+        NodeSignature::ptr            _signature;
+        nb::dict                      _scalars;
+        graph_ptr                     _graph;
+        time_series_bundle_input_ptr  _input;
+        time_series_output_ptr        _output;
+        time_series_output_ptr        _error_output;
         time_series_bundle_output_ptr _recordable_state;
-        NodeScheduler::ptr _scheduler;
+        NodeScheduler::ptr            _scheduler;
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
-        std::vector<nb::ref<TimeSeriesReferenceInput> > _start_inputs;
+        std::vector<nb::ref<TimeSeriesReferenceInput>> _start_inputs;
 
         // Cache for these calculated values.
-        std::vector<nb::ref<TimeSeriesInput> > _check_valid_inputs;
-        std::vector<nb::ref<TimeSeriesInput> > _check_all_valid_inputs;
+        std::vector<nb::ref<TimeSeriesInput>> _check_valid_inputs;
+        std::vector<nb::ref<TimeSeriesInput>> _check_all_valid_inputs;
     };
 } // namespace hgraph
 

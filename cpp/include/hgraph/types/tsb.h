@@ -19,7 +19,8 @@ namespace hgraph
      *
      * The C++ version maintains the same inheritance hierarchy.
      */
-    struct TimeSeriesSchema : AbstractSchema {
+    struct TimeSeriesSchema : AbstractSchema
+    {
         using ptr = nb::ref<TimeSeriesSchema>;
 
         explicit TimeSeriesSchema(std::vector<std::string> keys);
@@ -41,9 +42,10 @@ namespace hgraph
         nb::object _scalar_type;
     };
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    struct TimeSeriesBundle : T_TS {
+    struct TimeSeriesBundle : T_TS
+    {
         using bundle_type = TimeSeriesBundle<T_TS>;
         using ptr = nb::ref<bundle_type>;
         using typename T_TS::index_ts_type;
@@ -56,7 +58,7 @@ namespace hgraph
         using key_iterator = key_collection_type::iterator;
         using key_const_iterator = key_collection_type::const_iterator;
 
-        using key_value_collection_type = std::vector<std::pair<c_string_ref, typename ts_type::ptr> >;
+        using key_value_collection_type = std::vector<std::pair<c_string_ref, typename ts_type::ptr>>;
 
         explicit TimeSeriesBundle(const node_ptr& parent, TimeSeriesSchema::ptr schema);
 
@@ -121,7 +123,7 @@ namespace hgraph
         using T_TS::index_with_constraint;
         using T_TS::ts_values;
 
-        template<bool is_delta>
+        template <bool is_delta>
         nb::object py_value_with_constraint(const std::function<bool(const ts_type&)>& constraint) const;
 
         // Retrieves keys that match the constraint
@@ -136,7 +138,8 @@ namespace hgraph
         TimeSeriesSchema::ptr _schema;
     };
 
-    struct TimeSeriesBundleOutput : TimeSeriesBundle<IndexedTimeSeriesOutput> {
+    struct TimeSeriesBundleOutput : TimeSeriesBundle<IndexedTimeSeriesOutput>
+    {
         using ptr = nb::ref<TimeSeriesBundleOutput>;
         using bundle_type::TimeSeriesBundle;
 
@@ -157,7 +160,8 @@ namespace hgraph
         friend TimeSeriesBundleOutputBuilder;
     };
 
-    struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput> {
+    struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput>
+    {
         using ptr = nb::ref<TimeSeriesBundleInput>;
         using bundle_type::TimeSeriesBundle;
 

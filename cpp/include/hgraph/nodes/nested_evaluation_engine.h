@@ -11,11 +11,13 @@
 #include <limits>
 #include <utility>
 
-namespace hgraph {
+namespace hgraph
+{
     struct NestedNode;
     using nested_node_ptr = nb::ref<NestedNode>;
 
-    struct NestedEngineEvaluationClock : EngineEvaluationClockDelegate {
+    struct NestedEngineEvaluationClock : EngineEvaluationClockDelegate
+    {
         NestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, nested_node_ptr nested_node);
 
         nested_node_ptr node() const;
@@ -35,7 +37,8 @@ namespace hgraph {
     };
 
 
-    struct NestedEvaluationEngine : EvaluationEngineDelegate {
+    struct NestedEvaluationEngine : EvaluationEngineDelegate
+    {
         NestedEvaluationEngine(EvaluationEngine::ptr engine, EngineEvaluationClock::ptr evaluation_clock);
 
         [[nodiscard]] engine_time_t start_time() const override;

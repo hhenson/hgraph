@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct BaseTsdMapNodeBuilder : BaseNodeBuilder
     {
         BaseTsdMapNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -32,8 +32,9 @@ namespace hgraph {
         const std::string key_arg;
     };
 
-    template<typename T>
-    struct TsdMapNodeBuilder : BaseTsdMapNodeBuilder {
+    template <typename T>
+    struct TsdMapNodeBuilder : BaseTsdMapNodeBuilder
+    {
         using BaseTsdMapNodeBuilder::BaseTsdMapNodeBuilder;
 
         node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const override;

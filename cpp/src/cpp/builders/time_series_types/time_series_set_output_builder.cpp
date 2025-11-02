@@ -2,22 +2,23 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tss.h>
 
-namespace hgraph {
-    template<typename T>
+namespace hgraph
+{
+    template <typename T>
     time_series_output_ptr TimeSeriesSetOutputBuilder_T<T>::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesSetOutput_T<T>(owning_node)};
         return v;
     }
 
-    template<typename T>
+    template <typename T>
     time_series_output_ptr TimeSeriesSetOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const
     {
         auto v{new TimeSeriesSetOutput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_output)}};
         return v;
     }
 
-    template<typename T>
+    template <typename T>
     void TimeSeriesSetOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const
     {
         TimeSeriesSetOutputBuilder::release_instance(item);
@@ -33,7 +34,7 @@ namespace hgraph {
         nb::class_<TimeSeriesSetOutputBuilder_T<int64_t>, TimeSeriesSetOutputBuilder>(m, "OutputBuilder_TSS_Int").def(
             nb::init<>());
         nb::class_<TimeSeriesSetOutputBuilder_T<double>, TimeSeriesSetOutputBuilder>(m, "OutputBuilder_TSS_Float")
-                .def(nb::init<>());
+            .def(nb::init<>());
         nb::class_<TimeSeriesSetOutputBuilder_T<engine_date_t>, TimeSeriesSetOutputBuilder>(m, "OutputBuilder_TSS_Date")
             .def(nb::init<>());
         nb::class_<TimeSeriesSetOutputBuilder_T<engine_time_t>, TimeSeriesSetOutputBuilder>(
@@ -43,7 +44,7 @@ namespace hgraph {
                 m, "OutputBuilder_TSS_TimeDelta")
             .def(nb::init<>());
         nb::class_<TimeSeriesSetOutputBuilder_T<nb::object>, TimeSeriesSetOutputBuilder>(m, "OutputBuilder_TSS_Object")
-                .def(nb::init<>());
+            .def(nb::init<>());
     }
 
     // Template instantiations

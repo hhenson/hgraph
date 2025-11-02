@@ -8,11 +8,12 @@
 #include <format>
 #include <nanobind/nanobind.h>
 
-namespace std {
-
+namespace std
+{
     template <typename Py_T, typename CharT>
         requires std::is_same_v<Py_T, nanobind::handle> || std::is_same_v<Py_T, nanobind::object>
-    struct formatter<Py_T, CharT> {
+    struct formatter<Py_T, CharT>
+    {
         bool use_repr = false;
 
         // Parse formatting options if needed

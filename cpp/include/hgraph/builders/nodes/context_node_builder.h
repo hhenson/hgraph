@@ -9,8 +9,8 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct ContextNodeBuilder : BaseNodeBuilder
     {
         using BaseNodeBuilder::BaseNodeBuilder;

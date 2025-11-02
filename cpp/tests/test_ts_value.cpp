@@ -28,6 +28,7 @@ struct MockParentNode : Notifiable, CurrentTimeProvider
 };
 
 TEST_CASE (
+
 "TimeSeriesValueOutput basic operations"
 ,
 "[ts_value][output]"
@@ -105,6 +106,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TimeSeriesValueOutput with different types"
 ,
 "[ts_value][output][types]"
@@ -153,6 +155,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TimeSeriesValueInput basic operations"
 ,
 "[ts_value][input]"
@@ -237,6 +240,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TimeSeriesValueInput with different types"
 ,
 "[ts_value][input][types]"
@@ -269,6 +273,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "Shared impl behavior"
 ,
 "[ts_value][impl][sharing]"
@@ -316,6 +321,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "Delta value queries"
 ,
 "[ts_value][delta]"
@@ -353,6 +359,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "Type erasure via AnyValue"
 ,
 "[ts_value][type_erasure]"
@@ -381,6 +388,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "Edge cases"
 ,
 "[ts_value][edge_cases]"
@@ -461,6 +469,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "Complex type storage"
 ,
 "[ts_value][complex_types]"

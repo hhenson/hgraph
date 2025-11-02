@@ -7,7 +7,8 @@
 
 #include <hgraph/types/node.h>
 
-namespace hgraph {
+namespace hgraph
+{
     /**
      * BasePythonNode - Base class for Python-based compute nodes
      *
@@ -21,7 +22,8 @@ namespace hgraph {
      * - PythonNode: Standard Python compute nodes
      * - PythonGeneratorNode: Generator-based nodes
      */
-    struct BasePythonNode : Node {
+    struct BasePythonNode : Node
+    {
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                        nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
 

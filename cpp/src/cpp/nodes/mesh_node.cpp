@@ -17,7 +17,7 @@
 namespace hgraph
 {
     // MeshNestedEngineEvaluationClock implementation
-    template<typename K>
+    template <typename K>
     MeshNestedEngineEvaluationClock<K>::MeshNestedEngineEvaluationClock(
         EngineEvaluationClock::ptr engine_evaluation_clock, K key,
         mesh_node_ptr<K> nested_node)
@@ -27,7 +27,7 @@ namespace hgraph
     {
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time)
     {
         // Cast nested_node_ptr to MeshNode<K> using dynamic_cast
@@ -63,7 +63,7 @@ namespace hgraph
         NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
     }
 
-    template<typename K>
+    template <typename K>
     MeshNode<K>::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                           nb::dict scalars,
                           graph_builder_ptr nested_graph_builder,
@@ -77,7 +77,7 @@ namespace hgraph
         full_context_path_ = keys::context_output_key(this->owning_graph_id(), context_path);
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::do_start()
     {
         TsdMapNode<K>::do_start();
@@ -103,7 +103,7 @@ namespace hgraph
         }
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::do_stop()
     {
         // Remove from GlobalState
@@ -112,7 +112,7 @@ namespace hgraph
         TsdMapNode<K>::do_stop();
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::eval()
     {
         this->mark_evaluated();
@@ -122,7 +122,7 @@ namespace hgraph
         auto& keys = dynamic_cast<TimeSeriesSetInput_T<K>&>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
         if (keys.modified())
         {
-            for (const auto& k: keys.added())
+            for (const auto& k : keys.added())
             {
                 if (this->active_graphs_.find(k) == this->active_graphs_.end())
                 {
@@ -132,14 +132,14 @@ namespace hgraph
                     if (this->pending_keys_.count(k) > 0)
                     {
                         this->pending_keys_.erase(k);
-                        for (const auto& d: active_graphs_dependencies_[k])
+                        for (const auto& d : active_graphs_dependencies_[k])
                         {
                             re_rank(d, k);
                         }
                     }
                 }
             }
-            for (const auto& k: keys.removed())
+            for (const auto& k : keys.removed())
             {
                 // Only remove if no dependencies
                 if (active_graphs_dependencies_[k].empty())
@@ -153,10 +153,10 @@ namespace hgraph
         // 2. Process pending keys (keys added due to dependencies)
         if (!this->pending_keys_.empty())
         {
-            for (const auto& k: this->pending_keys_)
+            for (const auto& k : this->pending_keys_)
             {
                 create_new_graph(k, 0);
-                for (const auto& d: active_graphs_dependencies_[k])
+                for (const auto& d : active_graphs_dependencies_[k])
                 {
                     re_rank(d, k);
                 }
@@ -167,7 +167,7 @@ namespace hgraph
         // 3. Process graphs to remove
         if (!graphs_to_remove_.empty())
         {
-            for (const auto& k: graphs_to_remove_)
+            for (const auto& k : graphs_to_remove_)
             {
                 if (active_graphs_dependencies_[k].empty() && !keys.contains(k)) { remove_graph(k); }
             }
@@ -192,7 +192,7 @@ namespace hgraph
                     auto graphs = std::move(graphs_it->second);
                     scheduled_keys_by_rank_.erase(rank);
 
-                    for (const auto& [k, dtg]: graphs)
+                    for (const auto& [k, dtg] : graphs)
                     {
                         if (dtg == dt)
                         {
@@ -227,7 +227,7 @@ namespace hgraph
         // 5. Process re-ranking requests
         if (!re_rank_requests_.empty())
         {
-            for (const auto& [k, d]: re_rank_requests_) { re_rank(k, d); }
+            for (const auto& [k, d] : re_rank_requests_) { re_rank(k, d); }
             re_rank_requests_.clear();
         }
 
@@ -235,7 +235,7 @@ namespace hgraph
         if (next_time < MAX_DT) { this->graph()->schedule_node(this->node_ndx(), next_time); }
     }
 
-    template<typename K>
+    template <typename K>
     TimeSeriesDictOutput_T<K>& MeshNode<K>::tsd_output()
     {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
@@ -243,7 +243,7 @@ namespace hgraph
         return dynamic_cast<TimeSeriesDictOutput_T<K>&>(*(*output_bundle)["out"]);
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::create_new_graph(const K& key, int rank)
     {
         // Create new graph instance - concatenate node_id with negative count
@@ -269,7 +269,7 @@ namespace hgraph
         schedule_graph(key, this->last_evaluation_time());
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::schedule_graph(const K& key, engine_time_t tm)
     {
         int rank = active_graphs_rank_[key];
@@ -296,7 +296,7 @@ namespace hgraph
         }
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::remove_graph(const K& key)
     {
         // Remove error output if using exception capture
@@ -337,7 +337,7 @@ namespace hgraph
         }
     }
 
-    template<typename K>
+    template <typename K>
     bool MeshNode<K>::add_graph_dependency(const K& key, const K& depends_on)
     {
         active_graphs_dependencies_[depends_on].insert(key);
@@ -356,7 +356,7 @@ namespace hgraph
         }
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::remove_graph_dependency(const K& key, const K& depends_on)
     {
         active_graphs_dependencies_[depends_on].erase(key);
@@ -370,7 +370,7 @@ namespace hgraph
         }
     }
 
-    template<typename K>
+    template <typename K>
     bool MeshNode<K>::request_re_rank(const K& key, const K& depends_on)
     {
         if (active_graphs_rank_[key] <= active_graphs_rank_[depends_on])
@@ -381,7 +381,7 @@ namespace hgraph
         return true;
     }
 
-    template<typename K>
+    template <typename K>
     void MeshNode<K>::re_rank(const K& key, const K& depends_on, std::vector<K> re_rank_stack)
     {
         int prev_rank = active_graphs_rank_[key];
@@ -405,7 +405,7 @@ namespace hgraph
             if (schedule != MIN_DT) { schedule_graph(key, schedule); }
 
             // Re-rank dependents
-            for (const auto& k: active_graphs_dependencies_[key])
+            for (const auto& k : active_graphs_dependencies_[key])
             {
                 // Check for cycles
                 auto it = std::find_if(re_rank_stack.begin(), re_rank_stack.end(),
@@ -424,9 +424,9 @@ namespace hgraph
                         cycle_str += to_string(v);
                     }
                     std::string node_label =
-                            this->signature().label.has_value()
-                                ? this->signature().label.value()
-                                : this->signature().name;
+                        this->signature().label.has_value()
+                            ? this->signature().label.value()
+                            : this->signature().name;
                     throw std::runtime_error(fmt::format("mesh {}.{} has a dependency cycle: {}",
                                                          this->signature().wiring_path_name, node_label, cycle_str));
                 }

@@ -4,8 +4,10 @@
 #include <hgraph/nodes/nested_node.h>
 #include <optional>
 
-namespace hgraph {
-    struct ComponentNode : NestedNode {
+namespace hgraph
+{
+    struct ComponentNode : NestedNode
+    {
         ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                       nb::dict scalars,
                       graph_builder_ptr nested_graph_builder,

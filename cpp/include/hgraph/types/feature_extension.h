@@ -5,8 +5,8 @@
 #include <hgraph/hgraph_base.h>
 #include <utility>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct FeatureOutputRequestTracker
     {
         explicit FeatureOutputRequestTracker(time_series_output_ptr output_);
@@ -15,8 +15,9 @@ namespace hgraph {
         std::unordered_set<const void*> requesters;
     };
 
-    template<typename T>
-    struct FeatureOutputExtension {
+    template <typename T>
+    struct FeatureOutputExtension
+    {
         using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const T &)>;
 
         FeatureOutputExtension(time_series_output_ptr owning_output_, output_builder_ptr output_builder_,
@@ -37,7 +38,7 @@ namespace hgraph {
 
         void release(const T& key, const void* requester);
 
-        template<typename It>
+        template <typename It>
         void update_all(It begin, It end)
         {
             if (!_outputs.empty())

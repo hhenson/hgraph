@@ -2,8 +2,8 @@
 #ifndef HGRAPH_CPP_ENGINE_SCOPE_H
 #define HGRAPH_CPP_ENGINE_SCOPE_H
 
-namespace hgraph {
-
+namespace hgraph
+{
     template <class F>
     class scope_exit
     {
@@ -33,7 +33,7 @@ namespace hgraph {
     };
 
     // helper deduction:
-    template<class F>
+    template <class F>
     scope_exit<F> make_scope_exit(F&& f) { return scope_exit<F>(std::forward<F>(f)); }
 } // namespace hgraph
 #endif  // HGRAPH_CPP_ENGINE_SCOPE_H

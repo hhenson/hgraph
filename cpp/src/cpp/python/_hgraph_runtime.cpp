@@ -4,7 +4,7 @@
 
 #include <hgraph/runtime/evaluation_engine.h>
 
-void export_runtime(nb::module_ &m)
+void export_runtime(nb::module_& m)
 {
     using namespace hgraph;
 

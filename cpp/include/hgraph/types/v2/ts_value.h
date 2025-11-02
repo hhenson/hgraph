@@ -53,7 +53,7 @@ namespace hgraph
         virtual const AnyValue<> &value() const = 0;
 
         // Type information
-        virtual const std::type_info& value_type() const = 0;
+        virtual const std::type_info &value_type() const = 0;
 
         // Event generation
         virtual void mark_invalid(engine_time_t t) = 0;
@@ -82,15 +82,15 @@ namespace hgraph
         using impl_ptr = std::shared_ptr<TSValue>;
 
         // Non-template constructor (implementation in .cpp)
-        explicit TSOutput(Notifiable *parent, const std::type_info& value_type);
+        explicit TSOutput(Notifiable *parent, const std::type_info &value_type);
 
         // Move semantics
-        TSOutput(TSOutput&&) = default;
-        TSOutput& operator=(TSOutput&&) = default;
+        TSOutput(TSOutput &&)            = default;
+        TSOutput &operator=(TSOutput &&) = default;
 
         // Delete copy operations
-        TSOutput(const TSOutput&) = delete;
-        TSOutput& operator=(const TSOutput&) = delete;
+        TSOutput(const TSOutput &)            = delete;
+        TSOutput &operator=(const TSOutput &) = delete;
 
         // Value access (returns AnyValue)
         [[nodiscard]] const AnyValue<> &value() const;
@@ -136,15 +136,15 @@ namespace hgraph
         using impl_ptr = std::shared_ptr<TSValue>;
 
         // Non-template constructor (implementation in .cpp)
-        explicit TSInput(Notifiable *parent, const std::type_info& value_type);
+        explicit TSInput(Notifiable *parent, const std::type_info &value_type);
 
         // Move semantics
-        TSInput(TSInput&&) = default;
-        TSInput& operator=(TSInput&&) = default;
+        TSInput(TSInput &&)            = default;
+        TSInput &operator=(TSInput &&) = default;
 
         // Delete copy operations
-        TSInput(const TSInput&) = delete;
-        TSInput& operator=(const TSInput&) = delete;
+        TSInput(const TSInput &)            = delete;
+        TSInput &operator=(const TSInput &) = delete;
 
         // Bind to output (shares impl) - implementation in .cpp
         void bind_output(TSOutput *output);
@@ -183,13 +183,13 @@ namespace hgraph
 
     // Factory functions for template convenience
     template <ParentNode P, typename T>
-    TSOutput make_ts_output(P *parent, const std::type_info& value_type = typeid(T)) {
-        return TSOutput(static_cast<Notifiable*>(parent), value_type);
+    TSOutput make_ts_output(P *parent, const std::type_info &value_type = typeid(T)) {
+        return TSOutput(static_cast<Notifiable *>(parent), value_type);
     }
 
     template <ParentNode P, typename T>
-    TSInput make_ts_input(P *parent, const std::type_info& value_type = typeid(T)) {
-        return TSInput(static_cast<Notifiable*>(parent), value_type);
+    TSInput make_ts_input(P *parent, const std::type_info &value_type = typeid(T)) {
+        return TSInput(static_cast<Notifiable *>(parent), value_type);
     }
 
 } // namespace hgraph

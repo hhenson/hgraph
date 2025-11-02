@@ -7,8 +7,8 @@
 
 #include <hgraph/types/time_series_type.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct HGRAPH_EXPORT TimeSeriesReference : nb::intrusive_base
     {
         using ptr = nb::ref<TimeSeriesReference>;
@@ -31,12 +31,13 @@ namespace hgraph {
 
         static ptr make(std::vector<ptr> items);
 
-        static ptr make(std::vector<nb::ref<TimeSeriesReferenceInput> > items);
+        static ptr make(std::vector<nb::ref<TimeSeriesReferenceInput>> items);
 
         static void register_with_nanobind(nb::module_& m);
     };
 
-    struct EmptyTimeSeriesReference final : TimeSeriesReference {
+    struct EmptyTimeSeriesReference final : TimeSeriesReference
+    {
         void bind_input(TimeSeriesInput& ts_input) const override;
 
         bool has_output() const override;
@@ -49,7 +50,8 @@ namespace hgraph {
         std::string to_string() const override;
     };
 
-    struct BoundTimeSeriesReference final : TimeSeriesReference {
+    struct BoundTimeSeriesReference final : TimeSeriesReference
+    {
         explicit BoundTimeSeriesReference(const time_series_output_ptr& output);
 
         const TimeSeriesOutput::ptr& output() const;
@@ -69,7 +71,8 @@ namespace hgraph {
         TimeSeriesOutput::ptr _output;
     };
 
-    struct UnBoundTimeSeriesReference final : TimeSeriesReference {
+    struct UnBoundTimeSeriesReference final : TimeSeriesReference
+    {
         explicit UnBoundTimeSeriesReference(std::vector<ptr> items);
 
         const std::vector<ptr>& items() const;
@@ -86,7 +89,8 @@ namespace hgraph {
         std::vector<ptr> _items;
     };
 
-    struct TimeSeriesReferenceOutput : TimeSeriesOutput {
+    struct TimeSeriesReferenceOutput : TimeSeriesOutput
+    {
         using TimeSeriesOutput::TimeSeriesOutput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
@@ -143,7 +147,8 @@ namespace hgraph {
         std::unordered_set<TimeSeriesInput::ptr> _reference_observers;
     };
 
-    struct TimeSeriesReferenceInput : TimeSeriesInput {
+    struct TimeSeriesReferenceInput : TimeSeriesInput
+    {
         using ptr = nb::ref<TimeSeriesReferenceInput>;
         using TimeSeriesInput::TimeSeriesInput;
 
@@ -211,7 +216,7 @@ namespace hgraph {
         friend struct TimeSeriesReferenceOutput;
         friend struct TimeSeriesReference;
         mutable TimeSeriesReference::ptr _value;
-        std::optional<std::vector<TimeSeriesReferenceInput::ptr> > _items;
+        std::optional<std::vector<TimeSeriesReferenceInput::ptr>> _items;
         static inline std::vector<TimeSeriesReferenceInput::ptr> empty_items{};
     };
 } // namespace hgraph

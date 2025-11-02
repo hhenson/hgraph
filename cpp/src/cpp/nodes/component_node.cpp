@@ -11,7 +11,8 @@
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
-namespace hgraph {
+namespace hgraph
+{
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
 
@@ -28,7 +29,7 @@ namespace hgraph {
         // In Python: TimeSeriesReference.is_instance(value)
         try
         {
-            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference> >(value);
+            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference>>(value);
             return ref->has_output() && ref->output()->valid();
         }
         catch (const nb::cast_error&)
@@ -45,7 +46,7 @@ namespace hgraph {
         // Check if it's a TimeSeriesReference
         try
         {
-            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference> >(value);
+            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference>>(value);
             // Must have output and it must be valid
             return ref->output()->py_value();
         }
@@ -112,7 +113,7 @@ namespace hgraph {
         {
             // Separate scalar and time-series dependencies
             std::vector<std::string> ts_values;
-            for (const auto& k: dependencies)
+            for (const auto& k : dependencies)
             {
                 if (scalars().contains(k))
                 {
@@ -132,7 +133,7 @@ namespace hgraph {
                 // Check all ts values are valid
                 // Use input() to get the bundle, then access individual inputs
                 auto input_bundle = input();
-                for (const auto& k: ts_values)
+                for (const auto& k : ts_values)
                 {
                     auto ts = (*input_bundle)[k];
                     if (!_get_ts_valid(ts))
@@ -145,7 +146,7 @@ namespace hgraph {
             // Build args map for formatting
             nb::dict args;
             auto input_bundle = input();
-            for (const auto& k: dependencies)
+            for (const auto& k : dependencies)
             {
                 if (scalars().contains(k))
                 {
@@ -211,7 +212,7 @@ namespace hgraph {
 
         // Wire inputs
         auto input_bundle = input();
-        for (const auto& [arg, node_ndx]: m_input_node_ids_)
+        for (const auto& [arg, node_ndx] : m_input_node_ids_)
         {
             auto node = m_active_graph_->nodes()[node_ndx];
             node->notify();
@@ -304,14 +305,14 @@ namespace hgraph {
 
         mark_evaluated();
 
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get()))
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get()))
         {
             nec->reset_next_scheduled_evaluation_time();
         }
 
         m_active_graph_->evaluate_graph();
 
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get()))
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get()))
         {
             nec->reset_next_scheduled_evaluation_time();
         }

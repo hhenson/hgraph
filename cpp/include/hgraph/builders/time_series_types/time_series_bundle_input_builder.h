@@ -8,8 +8,10 @@
 #include <hgraph/builders/input_builder.h>
 #include <vector>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesBundleInputBuilder : InputBuilder {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT TimeSeriesBundleInputBuilder : InputBuilder
+    {
         using ptr = nb::ref<TimeSeriesBundleInputBuilder>;
 
         TimeSeriesBundleInputBuilder(time_series_schema_ptr schema, std::vector<InputBuilder::ptr> input_builders);

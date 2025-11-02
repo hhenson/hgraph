@@ -7,11 +7,13 @@
 
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph {
+namespace hgraph
+{
     // TimeSeriesWindow (TSW) output builder for fixed-size windows
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesWindowOutputBuilder_T : OutputBuilder {
-        using ptr = nb::ref<TimeSeriesWindowOutputBuilder_T<T> >;
+    template <typename T>
+    struct HGRAPH_EXPORT TimeSeriesWindowOutputBuilder_T : OutputBuilder
+    {
+        using ptr = nb::ref<TimeSeriesWindowOutputBuilder_T<T>>;
         size_t size;
         size_t min_size;
 
@@ -27,9 +29,10 @@ namespace hgraph {
     };
 
     // TimeSeriesWindow (TSW) output builder for timedelta-based windows
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesTimeWindowOutputBuilder_T : OutputBuilder {
-        using ptr = nb::ref<TimeSeriesTimeWindowOutputBuilder_T<T> >;
+    template <typename T>
+    struct HGRAPH_EXPORT TimeSeriesTimeWindowOutputBuilder_T : OutputBuilder
+    {
+        using ptr = nb::ref<TimeSeriesTimeWindowOutputBuilder_T<T>>;
         engine_time_delta_t size;
         engine_time_delta_t min_size;
 

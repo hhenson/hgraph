@@ -1,16 +1,17 @@
 #include <hgraph/util/string_utils.h>
 
-namespace hgraph {
-    template<>
+namespace hgraph
+{
+    template <>
     std::string to_string(const bool& value) { return value ? "true" : "false"; }
 
-    template<>
+    template <>
     std::string to_string(const int64_t& value) { return std::to_string(value); }
 
-    template<>
+    template <>
     std::string to_string(const double& value) { return std::to_string(value); }
 
-    template<>
+    template <>
     std::string to_string(const engine_time_t& value)
     {
         auto tt = std::chrono::system_clock::to_time_t(value);
@@ -20,14 +21,14 @@ namespace hgraph {
         return {buffer};
     }
 
-    template<>
+    template <>
     std::string to_string(const engine_date_t& value)
     {
         return std::format("{:04}-{:02}-{:02}", static_cast<int>(value.year()), static_cast<unsigned>(value.month()),
                            static_cast<unsigned>(value.day()));
     }
 
-    template<>
+    template <>
     std::string to_string(const engine_time_delta_t& value)
     {
         auto hours = std::chrono::duration_cast<std::chrono::hours>(value);
@@ -36,7 +37,7 @@ namespace hgraph {
         return std::to_string(hours.count()) + ":" + std::to_string(mins.count()) + ":" + std::to_string(secs.count());
     }
 
-    template<>
+    template <>
     std::string to_string(const nb::object& value)
     {
         try

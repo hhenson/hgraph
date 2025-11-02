@@ -5,8 +5,8 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     node_ptr LastValuePullNodeBuilder::make_instance(const std::vector<int64_t>& owning_graph_id,
                                                      int64_t node_ndx) const
     {
@@ -20,7 +20,7 @@ namespace hgraph {
         nb::class_<LastValuePullNodeBuilder, BaseNodeBuilder>(m, "LastValuePullNodeBuilder")
             .def("__init__",
                  [](LastValuePullNodeBuilder* self, const nb::kwargs& kwargs)
-                     {
+                 {
                      auto signature_ = nb::cast<node_signature_ptr>(kwargs["signature"]);
                      auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 

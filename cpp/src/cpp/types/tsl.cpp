@@ -1,13 +1,14 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsl.h>
 
-namespace hgraph {
-    template<typename T_TS>
+namespace hgraph
+{
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     nb::object TimeSeriesList<T_TS>::py_value() const
     {
         nb::list result;
-        for (const auto& ts: this->ts_values())
+        for (const auto& ts : this->ts_values())
         {
             if (ts->valid())
             {
@@ -21,16 +22,16 @@ namespace hgraph {
         return nb::tuple(result);
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     nb::object TimeSeriesList<T_TS>::py_delta_value() const
     {
         nb::dict result;
-        for (auto& [ndx, ts]: modified_items()) { result[nb::cast(ndx)] = ts->py_delta_value(); }
+        for (auto& [ndx, ts] : modified_items()) { result[nb::cast(ndx)] = ts->py_delta_value(); }
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::index_collection_type TimeSeriesList<T_TS>::keys() const
     {
@@ -40,21 +41,21 @@ namespace hgraph {
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::index_collection_type TimeSeriesList<T_TS>::valid_keys() const
     {
         return index_with_constraint([](const ts_type& ts) { return ts.valid(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::index_collection_type TimeSeriesList<T_TS>::modified_keys() const
     {
         return index_with_constraint([](const ts_type& ts) { return ts.modified(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::items()
     {
@@ -64,42 +65,42 @@ namespace hgraph {
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::items() const
     {
         return const_cast<list_type*>(this)->items();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::valid_items()
     {
         return this->items_with_constraint([](const ts_type& ts) { return ts.valid(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::valid_items() const
     {
         return const_cast<list_type*>(this)->valid_items();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::modified_items()
     {
         return this->items_with_constraint([](const ts_type& ts) { return ts.modified(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::modified_items() const
     {
         return const_cast<list_type*>(this)->modified_items();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     bool TimeSeriesList<T_TS>::has_reference() const
     {
@@ -142,7 +143,7 @@ namespace hgraph {
         }
         else if (nb::isinstance<nb::dict>(value))
         {
-            for (auto [key, val]: nb::cast<nb::dict>(value))
+            for (auto [key, val] : nb::cast<nb::dict>(value))
             {
                 if (val.is_valid() && !val.is_none()) { (*this)[nb::cast<size_t>(key)]->py_set_value(nb::borrow(val)); }
             }
@@ -161,7 +162,7 @@ namespace hgraph {
             .def(
                 "__iter__",
                 [](const TimeSeriesListOutput& self)
-                    {
+                {
                     return nb::make_iterator(nb::type<collection_type>(), "iterator", self.begin(), self.end());
                 },
                 nb::keep_alive<0, 1>())
@@ -178,7 +179,7 @@ namespace hgraph {
                  static_cast<enumerated_collection_type (TimeSeriesListOutput::*)() const>(&
                      TimeSeriesListOutput::modified_items))
             .def("__str__", [](const TimeSeriesListOutput& self)
-                {
+            {
                 return fmt::format("TimeSeriesListOutput@{:p}[size={}, valid={}]",
                                    static_cast<const void*>(&self), self.size(), self.valid());
             })
@@ -209,7 +210,7 @@ namespace hgraph {
             .def(
                 "__iter__",
                 [](const TimeSeriesListInput& self)
-                    {
+                {
                     return nb::make_iterator(nb::type<collection_type>(), "iterator", self.begin(), self.end());
                 },
                 nb::keep_alive<0, 1>())
@@ -225,7 +226,7 @@ namespace hgraph {
                  static_cast<enumerated_collection_type (TimeSeriesListInput::*)() const>(&
                      TimeSeriesListInput::modified_items))
             .def("__str__", [](const TimeSeriesListInput& self)
-                {
+            {
                 return fmt::format("TimeSeriesListInput@{:p}[size={}, valid={}]",
                                    static_cast<const void*>(&self), self.size(), self.valid());
             })

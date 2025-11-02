@@ -9,8 +9,8 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct PythonGeneratorNodeBuilder : BaseNodeBuilder
     {
         PythonGeneratorNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,

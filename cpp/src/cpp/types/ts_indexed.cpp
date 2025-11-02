@@ -4,12 +4,13 @@
 #include <algorithm>
 #include <ranges>
 
-namespace hgraph {
+namespace hgraph
+{
     void IndexedTimeSeriesOutput::invalidate()
     {
         if (valid())
         {
-            for (auto& v: ts_values()) { v->invalidate(); }
+            for (auto& v : ts_values()) { v->invalidate(); }
         }
         mark_invalid();
     }
@@ -77,7 +78,7 @@ namespace hgraph {
 
     void IndexedTimeSeriesOutput::clear()
     {
-        for (auto& v: ts_values()) { v->clear(); }
+        for (auto& v : ts_values()) { v->clear(); }
     }
 
     void IndexedTimeSeriesOutput::register_with_nanobind(nb::module_& m)
@@ -94,8 +95,8 @@ namespace hgraph {
             .def_prop_ro("empty", &IndexedTimeSeries_Output::empty);
 
         nb::class_<IndexedTimeSeriesOutput, IndexedTimeSeries_Output>(m, "IndexedTimeSeriesOutput")
-                .def("copy_from_output", &IndexedTimeSeriesOutput::copy_from_output, "output"_a)
-                .def("copy_from_input", &IndexedTimeSeriesOutput::copy_from_input, "input"_a);
+            .def("copy_from_output", &IndexedTimeSeriesOutput::copy_from_output, "output"_a)
+            .def("copy_from_input", &IndexedTimeSeriesOutput::copy_from_input, "input"_a);
     }
 
     bool IndexedTimeSeriesInput::modified() const
@@ -118,9 +119,10 @@ namespace hgraph {
         if (has_peer()) { return TimeSeriesInput::last_modified_time(); }
         if (ts_values().empty()) { return MIN_DT; }
         return std::ranges::max(ts_values() |
-            std::views::transform([](const time_series_input_ptr& ts) {
-                                    return ts->last_modified_time();
-                                }));
+            std::views::transform([](const time_series_input_ptr& ts)
+            {
+                return ts->last_modified_time();
+            }));
     }
 
     bool IndexedTimeSeriesInput::bound() const
@@ -144,7 +146,7 @@ namespace hgraph {
         }
         else
         {
-            for (auto& ts: ts_values()) { ts->make_active(); }
+            for (auto& ts : ts_values()) { ts->make_active(); }
         }
     }
 
@@ -156,7 +158,7 @@ namespace hgraph {
         }
         else
         {
-            for (auto& ts: ts_values()) { ts->make_passive(); }
+            for (auto& ts : ts_values()) { ts->make_passive(); }
         }
     }
 
@@ -197,7 +199,7 @@ namespace hgraph {
 
     void IndexedTimeSeriesInput::do_un_bind_output(bool unbind_refs)
     {
-        for (auto& ts: ts_values()) { ts->un_bind_output(unbind_refs); }
+        for (auto& ts : ts_values()) { ts->un_bind_output(unbind_refs); }
         if (has_peer()) { TimeSeriesInput::do_un_bind_output(unbind_refs); }
     }
 } // namespace hgraph

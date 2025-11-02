@@ -2,15 +2,16 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tss.h>
 
-namespace hgraph {
-    template<typename T>
+namespace hgraph
+{
+    template <typename T>
     time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesSetInput_T<T>{owning_node}};
         return v;
     }
 
-    template<typename T>
+    template <typename T>
     time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const
     {
         auto v{new TimeSeriesSetInput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
@@ -36,7 +37,7 @@ namespace hgraph {
                 m, "InputBuilder_TSS_TimeDelta")
             .def(nb::init<>());
         nb::class_<TimeSeriesSetInputBuilder_T<nb::object>, TimeSeriesSetInputBuilder>(m, "InputBuilder_TSS_Object")
-                .def(nb::init<>());
+            .def(nb::init<>());
     }
 
     // Template instantiations

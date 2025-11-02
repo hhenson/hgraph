@@ -9,8 +9,8 @@
 #include <hgraph/builders/graph_builder.h>
 #include <tuple>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct BaseTsdNonAssociativeReduceNodeBuilder : BaseNodeBuilder
     {
         BaseTsdNonAssociativeReduceNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -28,7 +28,8 @@ namespace hgraph {
         int64_t output_node_id;
     };
 
-    struct TsdNonAssociativeReduceNodeBuilder : BaseTsdNonAssociativeReduceNodeBuilder {
+    struct TsdNonAssociativeReduceNodeBuilder : BaseTsdNonAssociativeReduceNodeBuilder
+    {
         using BaseTsdNonAssociativeReduceNodeBuilder::BaseTsdNonAssociativeReduceNodeBuilder;
 
         node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const override;

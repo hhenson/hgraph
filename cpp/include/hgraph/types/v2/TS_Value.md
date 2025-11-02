@@ -65,6 +65,7 @@ through visitor patterns.
 ### Memory Layout
 
 **TSOutput**:
+
 ```
 ┌────────────────────────────────────────────────────┐
 │ shared_ptr<TSValue> _impl              │
@@ -77,6 +78,7 @@ Total: 16 bytes (stack-allocated wrapper)
 ```
 
 **TSInput**:
+
 ```
 ┌────────────────────────────────────────────────────┐
 │ shared_ptr<TSValue> _impl              │
@@ -89,6 +91,7 @@ Total: 16 bytes (stack-allocated wrapper)
 ```
 
 **Shared TSValue** (SimplePeeredImpl):
+
 ```
 ┌────────────────────────────────────────────────────┐
 │ AnyValue<> _value                  (~40 bytes)     │
@@ -107,24 +110,27 @@ Total: ~120 bytes (heap-allocated, shared)
 
 The system uses two impl variants via virtual dispatch:
 
-| Implementation      | Used By        | State Tracking        | Purpose                         |
-|---------------------|----------------|------------------------|----------------------------------|
-| **NonBoundImpl**    | Unbound inputs | `bool _active`        | Default before binding           |
-| **SimplePeeredImpl**| Outputs/inputs | Subscriber set        | Shared state after binding       |
+| Implementation       | Used By        | State Tracking | Purpose                    |
+|----------------------|----------------|----------------|----------------------------|
+| **NonBoundImpl**     | Unbound inputs | `bool _active` | Default before binding     |
+| **SimplePeeredImpl** | Outputs/inputs | Subscriber set | Shared state after binding |
 
 ### File Organization
 
 The implementation is split across multiple files for separation of concerns:
 
-| File | Contents | Purpose |
-|------|----------|---------|
-| **ts_value.h** | `TSValue` (pure virtual base class)<br>`TSOutput` wrapper class<br>`TSInput` wrapper class<br>Factory functions | Public API and interface definitions |
-| **ts_value_impl.h** | `NonBoundImpl`<br>`SimplePeeredImpl` | Concrete implementations of `TSValue` |
-| **ts_value.cpp** | Constructor and method implementations | Non-inline implementation details |
+| File                | Contents                                                                                                        | Purpose                               |
+|---------------------|-----------------------------------------------------------------------------------------------------------------|---------------------------------------|
+| **ts_value.h**      | `TSValue` (pure virtual base class)<br>`TSOutput` wrapper class<br>`TSInput` wrapper class<br>Factory functions | Public API and interface definitions  |
+| **ts_value_impl.h** | `NonBoundImpl`<br>`SimplePeeredImpl`                                                                            | Concrete implementations of `TSValue` |
+| **ts_value.cpp**    | Constructor and method implementations                                                                          | Non-inline implementation details     |
 
 **Key Design Decisions**:
-- Constructors are non-template and take `Notifiable*` directly, with factory functions providing template convenience. This allows implementation to be moved to `.cpp` file, reducing compile times and header dependencies.
-- Both `TSOutput` and `TSInput` are **move-only types** (copying is deleted, moving is defaulted). This prevents accidental copies and ensures clear ownership semantics.
+
+- Constructors are non-template and take `Notifiable*` directly, with factory functions providing template convenience.
+  This allows implementation to be moved to `.cpp` file, reducing compile times and header dependencies.
+- Both `TSOutput` and `TSInput` are **move-only types** (copying is deleted, moving is defaulted). This prevents
+  accidental copies and ensures clear ownership semantics.
 
 ---
 
@@ -155,6 +161,7 @@ auto output3 = make_ts_output<MyNode, double>(&parent, typeid(double));
 ```
 
 **Requirements:**
+
 - Parent must implement both `Notifiable` and `CurrentTimeProvider` traits
 - Parent pointer cannot be null (throws `std::runtime_error`)
 - Must specify value type via `typeid(T)` for type validation
@@ -162,6 +169,7 @@ auto output3 = make_ts_output<MyNode, double>(&parent, typeid(double));
 - Factory functions handle `ParentNode` concept checking and casting
 
 **Semantics:**
+
 - `TSOutput` is a **move-only type** (cannot be copied, only moved)
 - This ensures clear ownership and prevents accidental sharing of output state
 
@@ -183,6 +191,7 @@ output.invalidate();
 ```
 
 **Behavior:**
+
 - `set_value()` creates a `TsEventKind::Modify` event
 - **Type validation**: Event value type must match output's declared type (throws if mismatch)
 - Event is applied to shared impl
@@ -227,12 +236,14 @@ auto input2 = make_ts_input<MyNode, std::string>(&parent);
 ```
 
 **Initial State:**
+
 - Not bound to any output
 - Uses `NonBoundImpl` (returns defaults)
 - Active state tracked locally as boolean
 - Type stored for validation at bind time
 
 **Semantics:**
+
 - `TSInput` is a **move-only type** (cannot be copied, only moved)
 - This ensures clear ownership and prevents accidental sharing of input state
 
@@ -251,6 +262,7 @@ input2.bind_output(&output2);
 ```
 
 **Binding Behavior:**
+
 1. **Type validation**: Input and output types must match (throws if mismatch)
 2. Captures current active state
 3. Marks passive on old impl (if active)
@@ -259,6 +271,7 @@ input2.bind_output(&output2);
 6. Now shares exact same state as output
 
 **Zero-Copy Sharing:**
+
 ```cpp
 output.set_value(some_value);
 
@@ -453,7 +466,8 @@ TSOutput output(&parent, typeid(int));
 TSInput input(&parent, typeid(int));
 ```
 
-The type information is stored internally as `TypeId` (a wrapper around `std::type_info*`) and is used for validation at two critical points.
+The type information is stored internally as `TypeId` (a wrapper around `std::type_info*`) and is used for validation at
+two critical points.
 
 ### Validation Point 1: Binding
 
@@ -473,6 +487,7 @@ try {
 ```
 
 **Validation Logic:**
+
 ```cpp
 if (input_type != output_type) {
     throw std::runtime_error(
@@ -502,6 +517,7 @@ try {
 ```
 
 **Validation Logic** (in `SimplePeeredImpl::apply_event()`):
+
 ```cpp
 if (event.kind == Modify || event.kind == Recover) {
     if (event.value.type() != expected_type) {
@@ -712,75 +728,75 @@ if (input.modified()) {
 
 #### Construction
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| Constructor | `TSOutput(Notifiable* parent, const std::type_info& value_type)` | Create output with parent and value type (implementation in .cpp) |
-| Factory | `template<ParentNode P, typename T>`<br>`make_ts_output(P* parent, const std::type_info& = typeid(T))` | Template convenience factory (handles cast and concept check) |
+| Method      | Signature                                                                                              | Description                                                       |
+|-------------|--------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| Constructor | `TSOutput(Notifiable* parent, const std::type_info& value_type)`                                       | Create output with parent and value type (implementation in .cpp) |
+| Factory     | `template<ParentNode P, typename T>`<br>`make_ts_output(P* parent, const std::type_info& = typeid(T))` | Template convenience factory (handles cast and concept check)     |
 
 #### Value Modification
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `set_value` | `void set_value(const AnyValue<>& v)` | Set value (copy), validate type, and notify subscribers |
-| `set_value` | `void set_value(AnyValue<>&& v)` | Set value (move), validate type, and notify subscribers |
-| `invalidate` | `void invalidate()` | Mark value as invalid and notify subscribers |
+| Method       | Signature                             | Description                                             |
+|--------------|---------------------------------------|---------------------------------------------------------|
+| `set_value`  | `void set_value(const AnyValue<>& v)` | Set value (copy), validate type, and notify subscribers |
+| `set_value`  | `void set_value(AnyValue<>&& v)`      | Set value (move), validate type, and notify subscribers |
+| `invalidate` | `void invalidate()`                   | Mark value as invalid and notify subscribers            |
 
 #### Value Access
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `value` | `const AnyValue<>& value() const` | Get current value (type-erased) |
-| `valid` | `bool valid() const` | Check if value is valid |
-| `modified` | `bool modified() const` | Check if modified at current time |
+| Method               | Signature                                  | Description                        |
+|----------------------|--------------------------------------------|------------------------------------|
+| `value`              | `const AnyValue<>& value() const`          | Get current value (type-erased)    |
+| `valid`              | `bool valid() const`                       | Check if value is valid            |
+| `modified`           | `bool modified() const`                    | Check if modified at current time  |
 | `last_modified_time` | `engine_time_t last_modified_time() const` | Get timestamp of last modification |
-| `delta_value` | `TsEventAny delta_value() const` | Get event at current time |
+| `delta_value`        | `TsEventAny delta_value() const`           | Get event at current time          |
 
 #### Internal
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `get_impl` | `shared_ptr<TSValue> get_impl() const` | Get shared impl (for binding) |
-| `current_time` | `engine_time_t current_time() const` | Get current time from parent |
+| Method         | Signature                              | Description                   |
+|----------------|----------------------------------------|-------------------------------|
+| `get_impl`     | `shared_ptr<TSValue> get_impl() const` | Get shared impl (for binding) |
+| `current_time` | `engine_time_t current_time() const`   | Get current time from parent  |
 
 ### TSInput
 
 #### Construction
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| Constructor | `TSInput(Notifiable* parent, const std::type_info& value_type)` | Create input with parent and value type (implementation in .cpp) |
-| Factory | `template<ParentNode P, typename T>`<br>`make_ts_input(P* parent, const std::type_info& = typeid(T))` | Template convenience factory (handles cast and concept check) |
+| Method      | Signature                                                                                             | Description                                                      |
+|-------------|-------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
+| Constructor | `TSInput(Notifiable* parent, const std::type_info& value_type)`                                       | Create input with parent and value type (implementation in .cpp) |
+| Factory     | `template<ParentNode P, typename T>`<br>`make_ts_input(P* parent, const std::type_info& = typeid(T))` | Template convenience factory (handles cast and concept check)    |
 
 #### Binding
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
+| Method        | Signature                            | Description                                                                                 |
+|---------------|--------------------------------------|---------------------------------------------------------------------------------------------|
 | `bind_output` | `void bind_output(TSOutput* output)` | Bind to output (validate types, share impl, preserve active state - implementation in .cpp) |
 
 #### Active State
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `active` | `bool active() const` | Check if input is active (subscribed) |
-| `mark_active` | `void mark_active()` | Subscribe to receive notifications |
-| `mark_passive` | `void mark_passive()` | Unsubscribe from notifications |
+| Method         | Signature             | Description                           |
+|----------------|-----------------------|---------------------------------------|
+| `active`       | `bool active() const` | Check if input is active (subscribed) |
+| `mark_active`  | `void mark_active()`  | Subscribe to receive notifications    |
+| `mark_passive` | `void mark_passive()` | Unsubscribe from notifications        |
 
 #### Value Access
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `value` | `const AnyValue<>& value() const` | Get current value (type-erased) |
-| `valid` | `bool valid() const` | Check if value is valid |
-| `modified` | `bool modified() const` | Check if modified at current time |
+| Method               | Signature                                  | Description                        |
+|----------------------|--------------------------------------------|------------------------------------|
+| `value`              | `const AnyValue<>& value() const`          | Get current value (type-erased)    |
+| `valid`              | `bool valid() const`                       | Check if value is valid            |
+| `modified`           | `bool modified() const`                    | Check if modified at current time  |
 | `last_modified_time` | `engine_time_t last_modified_time() const` | Get timestamp of last modification |
-| `delta_value` | `TsEventAny delta_value() const` | Get event at current time |
+| `delta_value`        | `TsEventAny delta_value() const`           | Get event at current time          |
 
 #### Internal
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `notify` | `void notify(engine_time_t t)` | Called by impl when value changes (delegates to parent) |
-| `current_time` | `engine_time_t current_time() const` | Get current time from parent |
+| Method         | Signature                            | Description                                             |
+|----------------|--------------------------------------|---------------------------------------------------------|
+| `notify`       | `void notify(engine_time_t t)`       | Called by impl when value changes (delegates to parent) |
+| `current_time` | `engine_time_t current_time() const` | Get current time from parent                            |
 
 ### ParentNode Concept
 
@@ -793,10 +809,10 @@ concept ParentNode =
 
 Parent nodes must implement:
 
-| Trait | Method | Description |
-|-------|--------|-------------|
-| `Notifiable` | `void notify(engine_time_t et)` | Receive notification to schedule |
-| `CurrentTimeProvider` | `engine_time_t current_engine_time() const` | Provide current graph time |
+| Trait                 | Method                                      | Description                      |
+|-----------------------|---------------------------------------------|----------------------------------|
+| `Notifiable`          | `void notify(engine_time_t et)`             | Receive notification to schedule |
+| `CurrentTimeProvider` | `engine_time_t current_engine_time() const` | Provide current graph time       |
 
 ---
 

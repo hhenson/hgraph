@@ -12,8 +12,10 @@
 #include <ostream>
 #include <stdexcept>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT BacktraceSignature : CompoundScalar {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT BacktraceSignature : CompoundScalar
+    {
         std::string name;
         std::vector<std::string> args;
         std::string wiring_path_name;
@@ -42,7 +44,8 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_& m);
     };
 
-    struct HGRAPH_EXPORT BackTrace {
+    struct HGRAPH_EXPORT BackTrace
+    {
         std::optional<BacktraceSignature> signature;
         std::unordered_map<std::string, BackTrace> active_inputs;
         std::unordered_map<std::string, std::string> input_short_values;
@@ -81,7 +84,8 @@ namespace hgraph {
                                   const std::string& input_name, bool capture_values, int64_t depth);
     };
 
-    struct HGRAPH_EXPORT NodeError : CompoundScalar {
+    struct HGRAPH_EXPORT NodeError : CompoundScalar
+    {
         std::string signature_name;
         std::string label;
         std::string wiring_path;
@@ -114,8 +118,9 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_& m);
     };
 
-    struct HGRAPH_EXPORT NodeException : NodeError, std::runtime_error {
-        explicit NodeException(const NodeError &error);
+    struct HGRAPH_EXPORT NodeException : NodeError, std::runtime_error
+    {
+        explicit NodeException(const NodeError& error);
 
         static NodeException capture_error(const std::exception& e, const Node& node, const std::string& msg = "");
 

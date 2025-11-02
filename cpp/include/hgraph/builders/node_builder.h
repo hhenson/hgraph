@@ -7,8 +7,8 @@
 
 #include <hgraph/builders/builder.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct NodeBuilder : Builder
     {
         NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -18,14 +18,14 @@ namespace hgraph {
                     std::optional<output_builder_ptr> recordable_state_builder_ = std::nullopt);
 
         // Explicitly define move operations to avoid leaving Python-visible instances in a moved-from (null) state.
-        NodeBuilder(NodeBuilder &&other) noexcept;
+        NodeBuilder(NodeBuilder&& other) noexcept;
 
-        NodeBuilder&operator=(NodeBuilder &&other) noexcept;
+        NodeBuilder& operator=(NodeBuilder&& other) noexcept;
 
         // Default copy is fine (nb::ref increases refcount)
-        NodeBuilder(const NodeBuilder &) = default;
+        NodeBuilder(const NodeBuilder&) = default;
 
-        NodeBuilder &operator=(const NodeBuilder &) = default;
+        NodeBuilder& operator=(const NodeBuilder&) = default;
 
         virtual node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const = 0;
 
@@ -41,7 +41,8 @@ namespace hgraph {
         std::optional<output_builder_ptr> recordable_state_builder;
     };
 
-    struct BaseNodeBuilder : NodeBuilder {
+    struct BaseNodeBuilder : NodeBuilder
+    {
         using NodeBuilder::NodeBuilder;
 
     protected:

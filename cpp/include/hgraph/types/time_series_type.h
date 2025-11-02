@@ -5,7 +5,8 @@
 #include <hgraph/types/ts_traits.h>
 #include <variant>
 
-namespace hgraph {
+namespace hgraph
+{
 
     struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, CurrentTimeProvider, Notifiable
     {
@@ -122,7 +123,8 @@ namespace hgraph {
     struct TimeSeriesInput;
     struct OutputBuilder;
 
-    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType {
+    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType
+    {
         using ptr = nb::ref<TimeSeriesOutput>;
         using TimeSeriesType::TimeSeriesType;
 
@@ -180,7 +182,7 @@ namespace hgraph {
         friend OutputBuilder;
         // I think we can change this to not reference count if we track the inputs, this should be one-to-one
         std::unordered_set<Notifiable *> _subscribers{};
-        engine_time_t _last_modified_time{MIN_DT};
+        engine_time_t                    _last_modified_time{MIN_DT};
     };
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType
@@ -268,11 +270,11 @@ namespace hgraph {
         void set_active(bool active);
 
     private:
-        time_series_output_ptr _output;
+        time_series_output_ptr           _output;
         time_series_reference_output_ptr _reference_output;
-        bool _active{false};
-        engine_time_t _sample_time{MIN_DT};
-        engine_time_t _notify_time{MIN_DT};
+        bool                             _active{false};
+        engine_time_t                    _sample_time{MIN_DT};
+        engine_time_t                    _notify_time{MIN_DT};
     };
 } // namespace hgraph
 

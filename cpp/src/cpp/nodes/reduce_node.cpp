@@ -16,16 +16,17 @@
 #include <deque>
 #include <utility>
 
-namespace hgraph {
+namespace hgraph
+{
     // Helper function for key comparison
-    template<typename K>
+    template <typename K>
     inline bool keys_equal(const K& a, const K& b) { return a == b; }
 
     // Specialization for nb::object
-    template<>
+    template <>
     inline bool keys_equal<nb::object>(const nb::object& a, const nb::object& b) { return a.equal(b); }
 
-    template<typename K>
+    template <typename K>
     ReduceNode<K>::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                               nb::dict scalars, graph_builder_ptr nested_graph_builder,
                               const std::tuple<int64_t, int64_t>& input_node_ids, int64_t output_node_id)
@@ -35,7 +36,7 @@ namespace hgraph {
     {
     }
 
-    template<typename K>
+    template <typename K>
     std::unordered_map<int, graph_ptr>& ReduceNode<K>::nested_graphs()
     {
         static std::unordered_map<int, graph_ptr> graphs;
@@ -43,19 +44,19 @@ namespace hgraph {
         return graphs;
     }
 
-    template<typename K>
+    template <typename K>
     typename TimeSeriesDictInput_T<K>::ptr ReduceNode<K>::ts()
     {
         return dynamic_cast<TimeSeriesDictInput_T<K>*>((*input())[0].get());
     }
 
-    template<typename K>
+    template <typename K>
     time_series_reference_input_ptr ReduceNode<K>::zero()
     {
         return dynamic_cast<TimeSeriesReferenceInput*>((*input())[1].get());
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::initialise()
     {
         nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
@@ -64,7 +65,7 @@ namespace hgraph {
         initialise_component(*nested_graph_);
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::do_start()
     {
         auto tsd{ts()};
@@ -95,10 +96,10 @@ namespace hgraph {
         start_component(*nested_graph_);
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::do_stop() { stop_component(*nested_graph_); }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::dispose()
     {
         if (nested_graph_ == nullptr) { return; }
@@ -106,7 +107,7 @@ namespace hgraph {
         nested_graph_ = nullptr;
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::eval()
     {
         mark_evaluated();
@@ -146,7 +147,7 @@ namespace hgraph {
         if ((l->valid() && !o->valid()) || (l->valid() && !values_equal)) { o->set_value(l->value()); }
     }
 
-    template<typename K>
+    template <typename K>
     TimeSeriesOutput::ptr ReduceNode<K>::last_output()
     {
         auto root_ndx = node_count() - 1;
@@ -155,7 +156,7 @@ namespace hgraph {
         return out_node->output();
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::add_nodes(const std::unordered_set<K>& keys)
     {
         // Grow the tree upfront if needed, to avoid growing while binding
@@ -164,7 +165,7 @@ namespace hgraph {
 
         // Note: free_node_indexes_ is sorted in descending order, so .back() gives the LOWEST position
         // This maintains the left-based invariant: keys are always added to leftmost available positions
-        for (const auto& key: keys)
+        for (const auto& key : keys)
         {
             auto ndx = free_node_indexes_.back();
             free_node_indexes_.pop_back();
@@ -172,10 +173,10 @@ namespace hgraph {
         }
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::remove_nodes(const std::unordered_set<K>& keys)
     {
-        for (const auto& key: keys)
+        for (const auto& key : keys)
         {
             if (auto it = bound_node_indexes_.find(key); it != bound_node_indexes_.end())
             {
@@ -208,7 +209,7 @@ namespace hgraph {
         }
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::swap_node(const std::tuple<int64_t, int64_t>& src_ndx,
                                   const std::tuple<int64_t, int64_t>& dst_ndx)
     {
@@ -238,13 +239,13 @@ namespace hgraph {
         dst_node->notify();
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::re_balance_nodes()
     {
         if (node_count() > 8 && (free_node_indexes_.size() * 0.75) > bound_node_indexes_.size()) { shrink_tree(); }
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::grow_tree()
     {
         int64_t count = node_count();
@@ -279,7 +280,7 @@ namespace hgraph {
         }
 
         // Wire the nodes that need wiring
-        for (auto i: wiring_info)
+        for (auto i : wiring_info)
         {
             TimeSeriesOutput::ptr left_parent;
             TimeSeriesOutput::ptr right_parent;
@@ -330,7 +331,7 @@ namespace hgraph {
                   [](const auto& a, const auto& b) { return a > b; });
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::shrink_tree()
     {
         int64_t capacity = bound_node_indexes_.size() + free_node_indexes_.size();
@@ -358,7 +359,7 @@ namespace hgraph {
                   [](const auto& a, const auto& b) { return a > b; });
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::bind_key_to_node(const K& key, const std::tuple<int64_t, int64_t>& ndx)
     {
         bound_node_indexes_[key] = ndx;
@@ -395,7 +396,7 @@ namespace hgraph {
         node->notify();
     }
 
-    template<typename K>
+    template <typename K>
     void ReduceNode<K>::zero_node(const std::tuple<int64_t, int64_t>& ndx)
     {
         auto [node_id, side] = ndx;
@@ -432,13 +433,13 @@ namespace hgraph {
         node->notify();
     }
 
-    template<typename K>
+    template <typename K>
     int64_t ReduceNode<K>::node_size() const { return nested_graph_builder_->node_builders.size(); }
 
-    template<typename K>
+    template <typename K>
     int64_t ReduceNode<K>::node_count() const { return nested_graph_->nodes().size() / node_size(); }
 
-    template<typename K>
+    template <typename K>
     std::vector<node_ptr> ReduceNode<K>::get_node(int64_t ndx)
     {
         // This should be cleaned up to return a view over the existing nodes.
@@ -464,8 +465,8 @@ namespace hgraph {
         return bound_node_indexes_;
     }
 
-    template<typename K>
-    const std::vector<std::tuple<int64_t, int64_t> >& ReduceNode<K>::free_node_indexes() const
+    template <typename K>
+    const std::vector<std::tuple<int64_t, int64_t>>& ReduceNode<K>::free_node_indexes() const
     {
         return free_node_indexes_;
     }
@@ -480,7 +481,7 @@ namespace hgraph {
     template struct ReduceNode<nb::object>;
 
     // Template function to register ReduceNode<K> with nanobind
-    template<typename K>
+    template <typename K>
     void register_reduce_node_type(nb::module_& m, const char* class_name)
     {
         nb::class_<ReduceNode<K>, NestedNode>(m, class_name)

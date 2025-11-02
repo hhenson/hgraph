@@ -15,7 +15,8 @@
 namespace nb = nanobind;
 using namespace nb::literals;
 
-namespace hgraph {
+namespace hgraph
+{
     /**
      * AbstractSchema - Abstract base class for schema-based types
      *
@@ -29,7 +30,8 @@ namespace hgraph {
      * - CompoundScalar (and its subclasses like PythonCompoundScalar)
      * - TimeSeriesSchema
      */
-    struct AbstractSchema : nb::intrusive_base {
+    struct AbstractSchema : nb::intrusive_base
+    {
         using ptr = nb::ref<AbstractSchema>;
 
         AbstractSchema() = default;

@@ -7,8 +7,10 @@
 
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesRefOutputBuilder : OutputBuilder {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT TimeSeriesRefOutputBuilder : OutputBuilder
+    {
         using OutputBuilder::OutputBuilder;
 
         time_series_output_ptr make_instance(node_ptr owning_node) const override;

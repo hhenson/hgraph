@@ -28,7 +28,7 @@ namespace hgraph
         return obj.is(default_class) || nb::isinstance(obj, default_class);
     }
 
-    template<typename T>
+    template <typename T>
     auto create_switch_node_builder(T* self, const nb::args& args)
     {
         // Expected Python signature (positional):
@@ -44,28 +44,28 @@ namespace hgraph
         auto signature_ = nb::cast<node_signature_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
         std::optional<input_builder_ptr> input_builder_ =
-                args[2].is_none()
-                    ? std::nullopt
-                    : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
+            args[2].is_none()
+                ? std::nullopt
+                : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
         std::optional<output_builder_ptr> output_builder_ =
-                args[3].is_none()
-                    ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
+            args[3].is_none()
+                ? std::nullopt
+                : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
         std::optional<output_builder_ptr> error_builder_ =
-                args[4].is_none()
-                    ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
+            args[4].is_none()
+                ? std::nullopt
+                : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
         std::optional<output_builder_ptr> recordable_state_builder_ =
-                args[5].is_none()
-                    ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
+            args[5].is_none()
+                ? std::nullopt
+                : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
 
         // Convert Python dicts to typed C++ maps
         // For typed switches (K != nb::object), extract DEFAULT builder separately and skip DEFAULT marker keys in maps
         auto py_nested_graph_builders = nb::cast<nb::dict>(args[6]);
         graph_builder_ptr default_graph_builder = nullptr;
         std::unordered_map<K, graph_builder_ptr> nested_graph_builders;
-        for (auto item: py_nested_graph_builders)
+        for (auto item : py_nested_graph_builders)
         {
             // Extract DEFAULT marker for typed switches
             if constexpr (!std::is_same_v<K, nb::object>)
@@ -80,25 +80,25 @@ namespace hgraph
         }
 
         auto py_input_node_ids = nb::cast<nb::dict>(args[7]);
-        std::unordered_map<K, std::unordered_map<std::string, int> > input_node_ids;
+        std::unordered_map<K, std::unordered_map<std::string, int>> input_node_ids;
         std::unordered_map<std::string, int> default_input_node_ids;
-        for (auto item: py_input_node_ids)
+        for (auto item : py_input_node_ids)
         {
             if constexpr (!std::is_same_v<K, nb::object>)
             {
                 if (is_default_marker(item.first))
                 {
-                    default_input_node_ids = nb::cast<std::unordered_map<std::string, int> >(item.second);
+                    default_input_node_ids = nb::cast<std::unordered_map<std::string, int>>(item.second);
                     continue;
                 }
             }
-            input_node_ids[nb::cast<K>(item.first)] = nb::cast<std::unordered_map<std::string, int> >(item.second);
+            input_node_ids[nb::cast<K>(item.first)] = nb::cast<std::unordered_map<std::string, int>>(item.second);
         }
 
         auto py_output_node_ids = nb::cast<nb::dict>(args[8]);
         std::unordered_map<K, int> output_node_ids;
         int default_output_node_id = -1;
-        for (auto item: py_output_node_ids)
+        for (auto item : py_output_node_ids)
         {
             if constexpr (!std::is_same_v<K, nb::object>)
             {
@@ -128,7 +128,7 @@ namespace hgraph
         std::optional<output_builder_ptr> output_builder_, std::optional<output_builder_ptr> error_builder_,
         std::optional<output_builder_ptr> recordable_state_builder_,
         const std::unordered_map<K, graph_builder_ptr>& nested_graph_builders,
-        const std::unordered_map<K, std::unordered_map<std::string, int> >& input_node_ids,
+        const std::unordered_map<K, std::unordered_map<std::string, int>>& input_node_ids,
         const std::unordered_map<K, int>& output_node_ids, bool reload_on_ticked,
         graph_builder_ptr default_graph_builder,
         const std::unordered_map<std::string, int>& default_input_node_ids,

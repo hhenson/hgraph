@@ -7,17 +7,18 @@
 #include <optional>
 #include <unordered_map>
 
-namespace hgraph {
+namespace hgraph
+{
     void register_switch_node_with_nanobind(nb::module_ & m);
 
-    template<typename K>
+    template <typename K>
     struct SwitchNode;
-    template<typename K>
-    using switch_node_ptr = nb::ref<SwitchNode<K> >;
+    template <typename K>
+    using switch_node_ptr = nb::ref<SwitchNode<K>>;
 
     template <typename K>
-    struct SwitchNode : NestedNode{
-
+    struct SwitchNode : NestedNode
+    {
         SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                    nb::dict scalars,
                    const std::unordered_map<K, graph_builder_ptr>& nested_graph_builders,
@@ -39,12 +40,13 @@ namespace hgraph {
         std::unordered_map<int, graph_ptr> nested_graphs() const;
 
     protected:
-        void do_eval() override {
+        void do_eval() override
+        {
         }
 
-        void wire_graph(graph_ptr &graph);
+        void wire_graph(graph_ptr& graph);
 
-        void unwire_graph(graph_ptr &graph);
+        void unwire_graph(graph_ptr& graph);
 
         std::unordered_map<K, graph_builder_ptr> nested_graph_builders_;
         std::unordered_map<K, std::unordered_map<std::string, int>> input_node_ids_;

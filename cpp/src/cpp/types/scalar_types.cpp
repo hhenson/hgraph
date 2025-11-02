@@ -1,6 +1,7 @@
 #include <hgraph/types/scalar_types.h>
 
-namespace hgraph {
+namespace hgraph
+{
     // ============================================================================
     // CompoundScalar (abstract base class)
     // ============================================================================
@@ -11,7 +12,7 @@ namespace hgraph {
         nb::dict d = to_dict();
         std::string result = "CompoundScalar(";
         bool first = true;
-        for (const auto& key: keys())
+        for (const auto& key : keys())
         {
             if (!first) result += ", ";
             first = false;
@@ -41,7 +42,7 @@ namespace hgraph {
         nb::dict this_dict = to_dict();
         nb::dict other_dict = other.to_dict();
 
-        for (const auto& key: keys())
+        for (const auto& key : keys())
         {
             if (this_dict.contains(key.c_str()) != other_dict.contains(key.c_str()))
             {
@@ -66,7 +67,7 @@ namespace hgraph {
         size_t h = 0;
         nb::dict d = to_dict();
 
-        for (const auto& key: keys())
+        for (const auto& key : keys())
         {
             h ^= std::hash<std::string>{}(key) + 0x9e3779b9 + (h << 6) + (h >> 2);
             if (d.contains(key.c_str()))
@@ -88,11 +89,11 @@ namespace hgraph {
     void CompoundScalar::register_with_nanobind(nb::module_& m)
     {
         nb::class_<CompoundScalar, AbstractSchema>(m, "CompoundScalar")
-                .def("to_dict", &CompoundScalar::to_dict)
-                .def("__str__", &CompoundScalar::to_string)
-                .def("__repr__", &CompoundScalar::to_string)
-                .def("__eq__", &CompoundScalar::operator==)
-                .def("__hash__", &CompoundScalar::hash);
+            .def("to_dict", &CompoundScalar::to_dict)
+            .def("__str__", &CompoundScalar::to_string)
+            .def("__repr__", &CompoundScalar::to_string)
+            .def("__eq__", &CompoundScalar::operator==)
+            .def("__hash__", &CompoundScalar::hash);
     }
 
     // ============================================================================
@@ -126,7 +127,7 @@ namespace hgraph {
         }
 
         // Otherwise, try to extract attributes by key name
-        for (const auto& key: _keys)
+        for (const auto& key : _keys)
         {
             try
             {
@@ -187,7 +188,7 @@ namespace hgraph {
 
         result += "(";
         bool first = true;
-        for (const auto& key: _keys)
+        for (const auto& key : _keys)
         {
             if (!first) result += ", ";
             first = false;
@@ -232,7 +233,7 @@ namespace hgraph {
         }
 
         // Compare values for each key
-        for (const auto& key: keys())
+        for (const auto& key : keys())
         {
             try
             {
@@ -264,13 +265,13 @@ namespace hgraph {
         size_t h = 0;
 
         // Hash the keys
-        for (const auto& key: _keys)
+        for (const auto& key : _keys)
         {
             h ^= std::hash<std::string>{}(key) + 0x9e3779b9 + (h << 6) + (h >> 2);
         }
 
         // Hash the values
-        for (const auto& key: _keys)
+        for (const auto& key : _keys)
         {
             try
             {

@@ -12,12 +12,14 @@
 #include <hgraph/types/tss.h>
 #include <ranges>
 
-namespace hgraph {
+namespace hgraph
+{
     // TSDKeyObserver: Used to track additions and removals of parent keys.
     // Since the TSD is dynamic, the inputs associated with an output need to be updated when a key is added or removed
     // to correctly manage its internal state.
-    template<typename K>
-    struct TSDKeyObserver {
+    template <typename K>
+    struct TSDKeyObserver
+    {
         // Called when a key is added
         virtual void on_key_added(const K& key) = 0;
 
@@ -27,9 +29,10 @@ namespace hgraph {
         virtual ~TSDKeyObserver() = default;
     };
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires TimeSeriesT<T_TS>
-    struct TimeSeriesDict : T_TS {
+    struct TimeSeriesDict : T_TS
+    {
         using ts_type = T_TS;
         using ts_type_ptr = nb::ref<T_TS>;
         using T_TS::T_TS;
@@ -93,7 +96,8 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object& key) const = 0;
     };
 
-    struct TimeSeriesDictOutput : TimeSeriesDict<TimeSeriesOutput> {
+    struct TimeSeriesDictOutput : TimeSeriesDict<TimeSeriesOutput>
+    {
         using ptr = nb::ref<TimeSeriesDictOutput>;
         using TimeSeriesDict::TimeSeriesDict;
 
@@ -108,16 +112,18 @@ namespace hgraph {
         virtual void py_release_ref(const nb::object& key, const nb::object& requester) = 0;
     };
 
-    struct TimeSeriesDictInput : TimeSeriesDict<TimeSeriesInput> {
+    struct TimeSeriesDictInput : TimeSeriesDict<TimeSeriesInput>
+    {
         using ptr = nb::ref<TimeSeriesDictInput>;
         using TimeSeriesDict<TimeSeriesInput>::TimeSeriesDict;
     };
 
-    template<typename T_Key>
+    template <typename T_Key>
     using TSDOutBuilder = struct TimeSeriesDictOutputBuilder_T<T_Key>;
 
-    template<typename T_Key>
-    struct TimeSeriesDictOutput_T : TimeSeriesDictOutput {
+    template <typename T_Key>
+    struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
+    {
         using ptr = nb::ref<TimeSeriesDictOutput_T>;
         using key_type = T_Key;
         using value_type = time_series_output_ptr;
@@ -306,16 +312,17 @@ namespace hgraph {
         static inline map_type _empty;
     };
 
-    template<typename T_Key>
+    template <typename T_Key>
     using TSD_Builder = struct TimeSeriesDictInputBuilder_T<T_Key>;
 
-    template<typename T_Key>
-    struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key> {
+    template <typename T_Key>
+    struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key>
+    {
         using ptr = nb::ref<TimeSeriesDictInput_T>;
         using key_type = T_Key;
         using value_type = time_series_input_ptr;
         using map_type = std::unordered_map<key_type, value_type>;
-        using removed_map_type = std::unordered_map<key_type, std::pair<value_type, bool> >;
+        using removed_map_type = std::unordered_map<key_type, std::pair<value_type, bool>>;
         using added_map_type = std::unordered_map<key_type, value_type>;
         using modified_map_type = std::unordered_map<key_type, value_type>;
         using item_iterator = typename map_type::iterator;

@@ -10,7 +10,7 @@ namespace nb = nanobind;
 namespace hgraph
 {
     namespace keys
-        {
+    {
         // Key helpers for internal C++ use
         inline std::string output_key(const std::string& path) { return path; }
         inline std::string output_subscriber_key(const std::string& path) { return path + "_subscriber"; }

@@ -6,8 +6,8 @@
 #include <ranges>
 #include <utility>
 
-namespace hgraph {
-
+namespace hgraph
+{
     TimeSeriesSchema::TimeSeriesSchema(std::vector<std::string> keys) : TimeSeriesSchema(std::move(keys), nb::none())
     {
     }
@@ -47,47 +47,49 @@ namespace hgraph {
                                                         });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    TimeSeriesBundle<T_TS>::TimeSeriesBundle(const node_ptr &parent, TimeSeriesSchema::ptr schema)
-        : T_TS(parent), _schema{std::move(schema)} {
+    TimeSeriesBundle<T_TS>::TimeSeriesBundle(const node_ptr& parent, TimeSeriesSchema::ptr schema)
+        : T_TS(parent), _schema{std::move(schema)}
+    {
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    TimeSeriesBundle<T_TS>::TimeSeriesBundle(const TimeSeriesType::ptr &parent, TimeSeriesSchema::ptr schema)
-        : T_TS(parent), _schema{std::move(schema)} {
+    TimeSeriesBundle<T_TS>::TimeSeriesBundle(const TimeSeriesType::ptr& parent, TimeSeriesSchema::ptr schema)
+        : T_TS(parent), _schema{std::move(schema)}
+    {
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     nb::object TimeSeriesBundle<T_TS>::py_value() const
     {
         return py_value_with_constraint < false > ([](const ts_type& ts) { return ts.valid(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     nb::object TimeSeriesBundle<T_TS>::py_delta_value() const
     {
         return py_value_with_constraint < true > ([](const ts_type& ts) { return ts.modified(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::raw_key_const_iterator TimeSeriesBundle<T_TS>::begin() const
     {
         return _schema->keys().begin();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::raw_key_const_iterator TimeSeriesBundle<T_TS>::end() const
     {
         return _schema->keys().end();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::ts_type::ptr& TimeSeriesBundle<T_TS>::operator[](const std::string& key)
     {
@@ -101,7 +103,7 @@ namespace hgraph {
         throw std::out_of_range("Key not found in TimeSeriesSchema");
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     const typename TimeSeriesBundle<T_TS>::ts_type::ptr& TimeSeriesBundle<T_TS>::operator[](
         const std::string& key) const
@@ -109,49 +111,49 @@ namespace hgraph {
         return const_cast<bundle_type*>(this)->operator[](key);
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     bool TimeSeriesBundle<T_TS>::contains(const std::string& key) const
     {
         return std::ranges::find(_schema->keys(), key) != _schema->keys().end();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     const TimeSeriesSchema& TimeSeriesBundle<T_TS>::schema() const
     {
         return *_schema;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     TimeSeriesSchema& TimeSeriesBundle<T_TS>::schema()
     {
         return *_schema;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_collection_type TimeSeriesBundle<T_TS>::keys() const
     {
         return {_schema->keys().begin(), _schema->keys().end()};
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_collection_type TimeSeriesBundle<T_TS>::valid_keys() const
     {
         return keys_with_constraint([](const ts_type& ts) -> bool { return ts.valid(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_collection_type TimeSeriesBundle<T_TS>::modified_keys() const
     {
         return keys_with_constraint([](const ts_type& ts) -> bool { return ts.modified(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type TimeSeriesBundle<T_TS>::items()
     {
@@ -161,50 +163,50 @@ namespace hgraph {
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type TimeSeriesBundle<T_TS>::items() const
     {
         return const_cast<bundle_type*>(this)->items();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type TimeSeriesBundle<T_TS>::valid_items()
     {
         auto index_result{this->items_with_constraint([](const ts_type& ts) -> bool { return ts.valid(); })};
         key_value_collection_type result;
         result.reserve(index_result.size());
-        for (auto& [ndx, ts]: index_result) { result.emplace_back(schema().keys()[ndx], ts); }
+        for (auto& [ndx, ts] : index_result) { result.emplace_back(schema().keys()[ndx], ts); }
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type TimeSeriesBundle<T_TS>::valid_items() const
     {
         return const_cast<bundle_type*>(this)->valid_items();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type TimeSeriesBundle<T_TS>::modified_items()
     {
         auto index_result{this->items_with_constraint([](const ts_type& ts) -> bool { return ts.modified(); })};
         key_value_collection_type result;
         result.reserve(index_result.size());
-        for (auto& [ndx, ts]: index_result) { result.emplace_back(schema().keys()[ndx], ts); }
+        for (auto& [ndx, ts] : index_result) { result.emplace_back(schema().keys()[ndx], ts); }
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type TimeSeriesBundle<T_TS>::modified_items() const
     {
         return const_cast<bundle_type*>(this)->modified_items();
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     bool TimeSeriesBundle<T_TS>::has_reference() const
     {
@@ -212,11 +214,13 @@ namespace hgraph {
                            [](const ts_type::ptr& ts) { return ts->has_reference(); });
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    template<bool is_delta>
+    template <bool is_delta>
     nb::object TimeSeriesBundle<T_TS>::py_value_with_constraint(
-const std::function < bool(const ts_type &) > &constraint)
+
+    const std::function<bool(const ts_type &)>& constraint
+    )
     const
  {
         nb::dict out;
@@ -254,7 +258,7 @@ const std::function < bool(const ts_type &) > &constraint)
         return out;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_collection_type
     TimeSeriesBundle<T_TS>::keys_with_constraint(const std::function < bool(const ts_type &) > &constraint)
@@ -267,7 +271,7 @@ const std::function < bool(const ts_type &) > &constraint)
         return result;
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesBundle<T_TS>::key_value_collection_type
     TimeSeriesBundle<T_TS>::key_value_with_constraint(const std::function < bool(const ts_type &) > &constraint)
@@ -295,7 +299,7 @@ const std::function < bool(const ts_type &) > &constraint)
             if (!schema().scalar_type().is_none() && nb::isinstance(v, schema().scalar_type()))
             {
                 // Scalar type: iterate schema keys and get attributes
-                for (const auto& key: schema().keys())
+                for (const auto& key : schema().keys())
                 {
                     auto attr = nb::getattr(v, key.c_str(), nb::none());
                     if (!attr.is_none()) { (*this)[key]->py_set_value(attr); }
@@ -313,7 +317,7 @@ const std::function < bool(const ts_type &) > &constraint)
                 {
                     items = v;
                 }
-                for (auto pair: nb::iter(items))
+                for (auto pair : nb::iter(items))
                 {
                     auto key = pair[0];
                     auto val = pair[1];
@@ -327,7 +331,7 @@ const std::function < bool(const ts_type &) > &constraint)
     {
         // Always invalidate children to ensure no stale fields remain (match Python semantics)
         TimeSeriesOutput::mark_invalid(); // Call parent FIRST
-        for (auto& v: ts_values()) { v->mark_invalid(); }
+        for (auto& v : ts_values()) { v->mark_invalid(); }
     }
 
     bool TimeSeriesBundleOutput::can_apply_result(nb::object result)
@@ -346,7 +350,7 @@ const std::function < bool(const ts_type &) > &constraint)
         else
         {
             // For dict-like results, check each child
-            for (auto [key, val]: nb::cast<nb::dict>(result))
+            for (auto [key, val] : nb::cast<nb::dict>(result))
             {
                 if (!val.is_none())
                 {
@@ -383,17 +387,17 @@ const std::function < bool(const ts_type &) > &constraint)
         nb::class_<TimeSeriesBundle_Output, IndexedTimeSeriesOutput>(m, "TimeSeriesBundle_Output")
             .def("__getitem__",
                  [](TimeSeriesBundle_Output& self, const std::string& key) -> TimeSeriesOutput::ptr
-                     {
+                 {
                      return self[key]; // Use operator[] overload with string
                  })
             .def("__getitem__",
                  [](TimeSeriesBundle_Output& self, size_t index) -> TimeSeriesOutput::ptr
-                     {
+                 {
                      return self[index]; // Use operator[] overload with int
                  })
             .def("__iter__",
                  [](TimeSeriesBundle_Output& self)
-                     {
+                 {
                      // Create a Python list of values to iterate over
                      nb::list values;
                      for (size_t i = 0; i < self.size(); ++i) { values.append(self[i]); }
@@ -430,7 +434,7 @@ const std::function < bool(const ts_type &) > &constraint)
                  [](TimeSeriesBundleOutput& self, size_t index) -> TimeSeriesOutput::ptr { return self[index]; })
             .def("__iter__",
                  [](TimeSeriesBundleOutput& self)
-                     {
+                 {
                      nb::list values;
                      for (size_t i = 0; i < self.size(); ++i) { values.append(self[i]); }
                      return values.attr("__iter__")();
@@ -449,7 +453,7 @@ const std::function < bool(const ts_type &) > &constraint)
                              &TimeSeriesBundleOutput::schema))
             .def("__str__",
                  [](const TimeSeriesBundleOutput& self)
-                     {
+                 {
                      return fmt::format("TimeSeriesBundleOutput@{:p}[keys={}, valid={}]",
                                         static_cast<const void*>(&self),
                                         self.keys().size(), self.valid());
@@ -479,7 +483,7 @@ const std::function < bool(const ts_type &) > &constraint)
         nb::class_<TimeSeriesBundle_Input, IndexedTimeSeriesInput>(m, "TimeSeriesBundle_Input")
             .def("__getitem__",
                  [](TimeSeriesBundle_Input& self, const std::string& key)
-                     {
+                 {
                      return self[key]; // Use operator[] overload with string
                  })
             .def("__getitem__",
@@ -523,7 +527,7 @@ const std::function < bool(const ts_type &) > &constraint)
             .def(nb::init<const TimeSeriesType::ptr&, TimeSeriesSchema::ptr>(), "parent_input"_a, "schema"_a)
             .def("__str__",
                  [](const TimeSeriesBundleInput& self)
-                     {
+                 {
                      return fmt::format("TimeSeriesBundleInput@{:p}[keys={}, valid={}]",
                                         static_cast<const void*>(&self),
                                         self.keys().size(), self.valid());

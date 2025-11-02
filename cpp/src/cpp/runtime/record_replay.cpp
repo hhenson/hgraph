@@ -1,8 +1,8 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     bool has_recordable_id_trait(const Traits& traits)
     {
         return !traits.get_trait_or(RECORDABLE_ID_TRAIT, nb::none()).is_none();

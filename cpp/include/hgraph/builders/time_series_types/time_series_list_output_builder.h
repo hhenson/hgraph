@@ -7,8 +7,10 @@
 
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesListOutputBuilder : OutputBuilder {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT TimeSeriesListOutputBuilder : OutputBuilder
+    {
         using ptr = nb::ref<TimeSeriesListOutputBuilder>;
 
         TimeSeriesListOutputBuilder(OutputBuilder::ptr output_builder, size_t size);

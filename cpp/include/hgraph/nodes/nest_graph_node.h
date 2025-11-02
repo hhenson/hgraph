@@ -3,9 +3,10 @@
 
 #include <hgraph/nodes/nested_node.h>
 
-namespace hgraph {
-    struct NestedGraphNode : NestedNode {
-
+namespace hgraph
+{
+    struct NestedGraphNode : NestedNode
+    {
         NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                         nb::dict scalars,
                         graph_builder_ptr nested_graph_builder,

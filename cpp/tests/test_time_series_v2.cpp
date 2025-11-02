@@ -73,6 +73,7 @@ namespace
 }
 
 TEST_CASE (
+
 "SBO size matches nb::object"
 ,
 "[time_series][any]"
@@ -83,6 +84,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsEventAny: none and invalidate have no payload"
 ,
 "[time_series][event]"
@@ -99,6 +101,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsEventAny: modify with double and string"
 ,
 "[time_series][event]"
@@ -120,6 +123,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsValueAny: none and of"
 ,
 "[time_series][value]"
@@ -136,6 +140,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue copy/move semantics"
 ,
 "[time_series][any]"
@@ -160,6 +165,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage path: inline vs heap via operator new counters"
 ,
 "[time_series][any]"
@@ -192,6 +198,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: empty container"
 ,
 "[time_series][any][storage]"
@@ -205,6 +212,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: inline (SBO) types"
 ,
 "[time_series][any][storage]"
@@ -232,6 +240,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: heap-allocated types"
 ,
 "[time_series][any][storage]"
@@ -260,6 +269,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: references"
 ,
 "[time_series][any][storage][ref]"
@@ -277,6 +287,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: after copy and move"
 ,
 "[time_series][any][storage]"
@@ -310,6 +321,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: after reset"
 ,
 "[time_series][any][storage]"
@@ -327,6 +339,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue storage_size: reference materialization"
 ,
 "[time_series][any][storage][ref]"
@@ -361,6 +374,7 @@ TEST_CASE (
 
 
 TEST_CASE (
+
 "TypeId equality and hashing"
 ,
 "[time_series][typeid][hash]"
@@ -379,6 +393,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue hash_code: empty and primitives"
 ,
 "[time_series][any][hash]"
@@ -415,6 +430,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue hash_code: std::string and stability across copies"
 ,
 "[time_series][any][hash]"
@@ -443,6 +459,7 @@ TEST_CASE (
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 TEST_CASE (
+
 "to_string for AnyValue<>"
 ,
 "[time_series][any][string]"
@@ -470,6 +487,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "to_string for TsEventAny"
 ,
 "[time_series][event][string]"
@@ -493,6 +511,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "to_string for TsValueAny"
 ,
 "[time_series][value][string]"
@@ -511,6 +530,7 @@ TEST_CASE (
 
 // ---------------- Collection event tests ----------------
 TEST_CASE (
+
 "TsCollectionEventAny: none/invalidate/modify structure"
 ,
 "[time_series][collection][event]"
@@ -582,6 +602,7 @@ TEST_CASE (
 
 // ---- AnyValue equality tests ----
 TEST_CASE (
+
 "AnyValue equality: empty and basic types"
 ,
 "[any][eq]"
@@ -624,6 +645,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue equality: engine_time_t"
 ,
 "[any][eq]"
@@ -639,6 +661,7 @@ TEST_CASE (
 
 // ---- AnyValue reference semantics tests ----
 TEST_CASE (
+
 "AnyValue reference: get_if returns referent, copy materializes"
 ,
 "[any][ref]"
@@ -666,6 +689,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue reference: move also materializes destination"
 ,
 "[any][ref]"
@@ -685,6 +709,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue reference: hash stable across materialization"
 ,
 "[any][ref][hash]"
@@ -701,6 +726,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue ensure_owned() converts a reference in place"
 ,
 "[any][ref]"
@@ -717,6 +743,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "to_string for TsCollectionEventAny"
 ,
 "[time_series][collection][string]"
@@ -752,6 +779,7 @@ TEST_CASE (
 
 // ---- Recover event tests ----
 TEST_CASE (
+
 "TsEventAny: recover without payload"
 ,
 "[time_series][event][recover]"
@@ -767,6 +795,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsEventAny: recover with payload"
 ,
 "[time_series][event][recover]"
@@ -784,6 +813,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsCollectionEventAny: recover header only"
 ,
 "[time_series][collection][recover]"
@@ -802,6 +832,7 @@ TEST_CASE (
 
 // ---- AnyValue optional less-than tests ----
 TEST_CASE (
+
 "AnyValue < : comparable primitives"
 ,
 "[any][lt]"
@@ -834,6 +865,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue < : reference vs owned"
 ,
 "[any][lt][ref]"
@@ -855,6 +887,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue < : type mismatch throws"
 ,
 "[any][lt][throws]"
@@ -869,6 +902,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue < : unsupported type throws"
 ,
 "[any][lt][throws]"
@@ -886,6 +920,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue < : empty comparisons"
 ,
 "[any][lt][empty]"
@@ -902,6 +937,7 @@ TEST_CASE (
 
 // ---- AnyValue visitor pattern tests ----
 TEST_CASE (
+
 "AnyValue visit_as: type-safe visitation"
 ,
 "[any][visitor]"
@@ -936,6 +972,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visit_as: mutable visitation"
 ,
 "[any][visitor]"
@@ -954,6 +991,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visit_as: with std::string"
 ,
 "[any][visitor]"
@@ -980,6 +1018,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visit_as: with references"
 ,
 "[any][visitor][ref]"
@@ -1009,6 +1048,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visit_untyped: introspection"
 ,
 "[any][visitor]"
@@ -1036,6 +1076,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visit_untyped: with std::string"
 ,
 "[any][visitor]"
@@ -1056,6 +1097,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visit_untyped: empty does nothing"
 ,
 "[any][visitor]"
@@ -1072,6 +1114,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "AnyValue visitor: combined pattern"
 ,
 "[any][visitor]"
@@ -1130,6 +1173,7 @@ static AnyValue<> make_any(T&& value)
 }
 
 TEST_CASE (
+
 "TsEventAny validation"
 ,
 "[ts_event][validation]"
@@ -1173,6 +1217,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsEventAny equality operators"
 ,
 "[ts_event][equality]"
@@ -1259,6 +1304,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsEventAny visitor helpers"
 ,
 "[ts_event][visitor]"
@@ -1398,6 +1444,7 @@ TEST_CASE (
 // =============================================================================
 
 TEST_CASE (
+
 "CollectionItem visitor helpers"
 ,
 "[collection][visitor]"
@@ -1504,6 +1551,7 @@ TEST_CASE (
 // =============================================================================
 
 TEST_CASE (
+
 "TsCollectionEventAny fluent builder"
 ,
 "[collection][builder]"
@@ -1575,6 +1623,7 @@ TEST_CASE (
 // =============================================================================
 
 TEST_CASE (
+
 "TsCollectionEventAny visit_items_as"
 ,
 "[collection][visitor]"
@@ -1743,6 +1792,7 @@ TEST_CASE (
 }
 
 TEST_CASE (
+
 "TsCollectionEventAny range-based iteration"
 ,
 "[collection][iteration]"

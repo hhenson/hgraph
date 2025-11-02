@@ -26,7 +26,7 @@
 
 // Casts a std::chrono type (either a duration or a time_point) to/from
 // Python timedelta objects, or from a Python float representing seconds.
-template<typename type>
+template <typename type>
 class duration_caster
 {
 public:
@@ -34,14 +34,14 @@ public:
     using period = typename type::period;
     using duration_t = std::chrono::duration<rep, period>;
 
-    bool from_python(handle src, uint8_t /*flags*/, cleanup_list *) noexcept
+    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept
     {
         namespace ch = std::chrono;
 
         if (!src) return false;
 
         // support for signed 25 bits is required by the standard
-        using days = ch::duration<int_least32_t, std::ratio<86400> >;
+        using days = ch::duration<int_least32_t, std::ratio<86400>>;
 
         // If invoked with datetime.delta object, unpack it
         int dd, ss, uu;
@@ -54,7 +54,7 @@ public:
                 return true;
             }
         }
-        catch (python_error &e)
+        catch (python_error& e)
         {
             e.discard_as_unraisable(src.ptr());
             return false;
@@ -77,20 +77,20 @@ public:
     }
 
     // If this is a duration just return it back
-    static const duration_t &get_duration(const duration_t &src)
+    static const duration_t& get_duration(const duration_t& src)
     {
         return src;
     }
 
     // If this is a time_point get the time_since_epoch
-    template<typename Clock>
+    template <typename Clock>
     static duration_t get_duration(
-        const std::chrono::time_point<Clock, duration_t> &src)
+        const std::chrono::time_point<Clock, duration_t>& src)
     {
         return src.time_since_epoch();
     }
 
-    static handle from_cpp(const type &src, rv_policy, cleanup_list *) noexcept
+    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept
     {
         namespace ch = std::chrono;
 
@@ -99,8 +99,8 @@ public:
         auto d = get_duration(src);
 
         // Declare these special duration types so the conversions happen with the correct primitive types (int)
-        using dd_t = ch::duration<int, std::ratio<86400> >;
-        using ss_t = ch::duration<int, std::ratio<1> >;
+        using dd_t = ch::duration<int, std::ratio<86400>>;
+        using ss_t = ch::duration<int, std::ratio<1>>;
         using us_t = ch::duration<int, std::micro>;
 
         auto dd = ch::duration_cast<dd_t>(d);
@@ -123,13 +123,13 @@ public:
 
 // Cast between times on the system clock and datetime.datetime instances
 // (also supports datetime.date and datetime.time for Python->C++ conversions)
-template<typename Duration>
-class type_caster<std::chrono::time_point<std::chrono::system_clock, Duration> >
+template <typename Duration>
+class type_caster<std::chrono::time_point<std::chrono::system_clock, Duration>>
 {
 public:
     using type = std::chrono::time_point<std::chrono::system_clock, Duration>;
 
-    bool from_python(handle src, uint8_t /*flags*/, cleanup_list *) noexcept
+    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept
     {
         namespace ch = std::chrono;
 
@@ -145,7 +145,7 @@ public:
                 return false;
             }
         }
-        catch (python_error &e)
+        catch (python_error& e)
         {
             e.discard_as_unraisable(src.ptr());
             return false;
@@ -182,7 +182,7 @@ public:
         return true;
     }
 
-    static handle from_cpp(const type &src, rv_policy, cleanup_list *) noexcept
+    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept
     {
         namespace ch = std::chrono;
 
@@ -244,7 +244,7 @@ class type_caster<std::chrono::year_month_day>
 public:
     using type = std::chrono::year_month_day;
 
-    bool from_python(handle src, uint8_t /*flags*/, cleanup_list *) noexcept
+    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept
     {
         namespace ch = std::chrono;
 
@@ -260,7 +260,7 @@ public:
                 return false;
             }
         }
-        catch (python_error &e)
+        catch (python_error& e)
         {
             e.discard_as_unraisable(src.ptr());
             return false;
@@ -274,7 +274,7 @@ public:
         return true;
     }
 
-    static handle from_cpp(const type &src, rv_policy, cleanup_list *) noexcept
+    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept
     {
         namespace ch = std::chrono;
 
@@ -292,16 +292,16 @@ public:
                 return nanobind::none().release();
             }
         }
-        PyObject *result = PyDate_FromDate(year, month, day);
+        PyObject* result = PyDate_FromDate(year, month, day);
 #else
         // Use Python object creation for limited API
-        PyObject *result = nullptr;
+        PyObject* result = nullptr;
         try
         {
             datetime_types.ensure_ready();
             result = datetime_types.date(year, month, day).release().ptr();
         }
-        catch (python_error &e)
+        catch (python_error& e)
         {
             e.restore();
             return nanobind::none().release();

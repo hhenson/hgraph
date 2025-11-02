@@ -43,7 +43,7 @@ namespace hgraph
         if (!_ts_values.empty())
         {
             engine_time_t max_time = MIN_DT;
-            for (const auto& item: _ts_values) { max_time = std::max(max_time, item->last_modified_time()); }
+            for (const auto& item : _ts_values) { max_time = std::max(max_time, item->last_modified_time()); }
             return max_time;
         }
         return TimeSeriesInput::last_modified_time();
@@ -55,7 +55,7 @@ namespace hgraph
         TimeSeriesInput::make_active();
         if (!_ts_values.empty())
         {
-            for (auto& item: _ts_values) { item->make_active(); }
+            for (auto& item : _ts_values) { item->make_active(); }
         }
     }
 
@@ -65,7 +65,7 @@ namespace hgraph
         TimeSeriesInput::make_passive();
         if (!_ts_values.empty())
         {
-            for (auto& item: _ts_values) { item->make_passive(); }
+            for (auto& item : _ts_values) { item->make_passive(); }
         }
     }
 
@@ -73,13 +73,13 @@ namespace hgraph
     {
         if (!_ts_values.empty())
         {
-            for (auto& item: _ts_values) { item->un_bind_output(unbind_refs); }
+            for (auto& item : _ts_values) { item->un_bind_output(unbind_refs); }
         }
     }
 
     void TimeSeriesSignalInput::register_with_nanobind(nb::module_& m)
     {
         nb::class_<TimeSeriesSignalInput, TimeSeriesInput>(m, "TS_Signal")
-                .def("__getitem__", [](TimeSeriesSignalInput& self, size_t index) { return self.get_input(index); });
+            .def("__getitem__", [](TimeSeriesSignalInput& self, size_t index) { return self.get_input(index); });
     }
 } // namespace hgraph

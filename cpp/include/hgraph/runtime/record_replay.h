@@ -5,7 +5,8 @@
 #include <string>
 #include <hgraph/types/traits.h>
 
-namespace hgraph {
+namespace hgraph
+{
     static const std::string RECORDABLE_ID_TRAIT = "recordable_id";
 
     /**

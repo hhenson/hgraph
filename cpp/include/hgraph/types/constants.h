@@ -7,7 +7,8 @@
 
 #include <hgraph/hgraph_base.h>
 
-namespace hgraph {
+namespace hgraph
+{
     /**
      * For Dictionary operations, REMOVE forces a remove with error if no value is present
      */

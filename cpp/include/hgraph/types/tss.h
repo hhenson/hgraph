@@ -10,8 +10,8 @@
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/ts.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct SetDelta : nb::intrusive_base
     {
         using ptr = nb::ref<SetDelta>;
@@ -40,17 +40,18 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_& m);
     };
 
-    template<typename T>
-    struct SetDelta_T : SetDelta {
-        using ptr = nb::ref<SetDelta_T<T> >;
+    template <typename T>
+    struct SetDelta_T : SetDelta
+    {
+        using ptr = nb::ref<SetDelta_T<T>>;
         using scalar_type = T;
         using collection_type = std::unordered_set<T>;
 
-        template<typename U = T>
+        template <typename U = T>
             requires(!std::is_same_v<U, nb::object>)
         SetDelta_T(collection_type added, collection_type removed);
 
-        template<typename U = T>
+        template <typename U = T>
             requires(std::is_same_v<U, nb::object>)
         SetDelta_T(collection_type added, collection_type removed, nb::object tp);
 
@@ -68,7 +69,7 @@ namespace hgraph {
 
         [[nodiscard]] size_t hash() const override;
 
-        [[nodiscard]] nb::ref<SetDelta_T<T> > operator+(const SetDelta_T<T>& other) const;
+        [[nodiscard]] nb::ref<SetDelta_T<T>> operator+(const SetDelta_T<T>& other) const;
 
         [[nodiscard]] nb::object py_type() const override;
 
@@ -78,14 +79,14 @@ namespace hgraph {
         std::conditional_t<std::is_same_v<T, nb::object>, nb::object, std::monostate> _tp;
     };
 
-    template<typename T>
+    template <typename T>
     SetDelta_T<T>::ptr make_set_delta(std::unordered_set<T> added, std::unordered_set<T> removed)
     {
         auto v{new SetDelta_T<T>(std::move(added), std::move(removed))};
         return typename SetDelta_T<T>::ptr(v);
     }
 
-    template<>
+    template <>
     inline SetDelta_T<nb::object>::ptr make_set_delta(std::unordered_set<nb::object> added,
                                                       std::unordered_set<nb::object> removed)
     {
@@ -105,9 +106,10 @@ namespace hgraph {
         return new SetDelta_T<nb::object>(added, removed, tp);
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires TimeSeriesT<T_TS>
-    struct TimeSeriesSet : T_TS {
+    struct TimeSeriesSet : T_TS
+    {
         using T_TS::T_TS;
 
         [[nodiscard]] virtual bool py_contains(const nb::object& item) const = 0;
@@ -127,7 +129,8 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object& item) const = 0;
     };
 
-    struct TimeSeriesSetOutput : TimeSeriesSet<TimeSeriesOutput> {
+    struct TimeSeriesSetOutput : TimeSeriesSet<TimeSeriesOutput>
+    {
         using ptr = nb::ref<TimeSeriesSetOutput>;
 
         explicit TimeSeriesSetOutput(const node_ptr& parent);
@@ -148,10 +151,11 @@ namespace hgraph {
         void invalidate() override;
 
     private:
-        nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
+        nb::ref<TimeSeriesValueOutput<bool>> _is_empty_ref_output;
     };
 
-    struct TimeSeriesSetInput : TimeSeriesSet<TimeSeriesInput> {
+    struct TimeSeriesSetInput : TimeSeriesSet<TimeSeriesInput>
+    {
         using TimeSeriesSet<TimeSeriesInput>::TimeSeriesSet;
 
         TimeSeriesSetOutput& set_output() const;
@@ -183,8 +187,9 @@ namespace hgraph {
     struct TimeSeriesDictOutput;
 
 
-    template<typename T_Key>
-    struct TimeSeriesSetOutput_T : TimeSeriesSetOutput {
+    template <typename T_Key>
+    struct TimeSeriesSetOutput_T : TimeSeriesSetOutput
+    {
         using element_type = T_Key;
         using collection_type = std::unordered_set<T_Key>;
         using set_delta = SetDelta_T<T_Key>;
@@ -294,8 +299,9 @@ namespace hgraph {
         mutable nb::frozenset _py_removed{};
     };
 
-    template<typename T>
-    struct TimeSeriesSetInput_T : TimeSeriesSetInput {
+    template <typename T>
+    struct TimeSeriesSetInput_T : TimeSeriesSetInput
+    {
         using TimeSeriesSetInput::TimeSeriesSetInput;
         using element_type = typename TimeSeriesSetOutput_T<T>::element_type;
         using collection_type = typename TimeSeriesSetOutput_T<T>::collection_type;
