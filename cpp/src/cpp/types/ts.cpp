@@ -3,8 +3,24 @@
 
 namespace hgraph
 {
+    // TimeSeriesValueOutput<T> implementation with delegation to TSOutput
+
     template <typename T>
-    nb::object TimeSeriesValueOutput<T>::py_value() const { return valid() ? nb::cast(_value) : nb::none(); }
+    TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const node_ptr &parent)
+        : TimeSeriesOutput(parent)
+        , _ts_output(static_cast<Notifiable*>(this), typeid(T))
+    {}
+
+    template <typename T>
+    TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const TimeSeriesType::ptr &parent)
+        : TimeSeriesOutput(parent)
+        , _ts_output(static_cast<Notifiable*>(this), typeid(T))
+    {}
+
+    template <typename T>
+    nb::object TimeSeriesValueOutput<T>::py_value() const {
+        return valid() ? nb::cast(value()) : nb::none();
+    }
 
     template <typename T>
     nb::object TimeSeriesValueOutput<T>::py_delta_value() const { return py_value(); }
@@ -37,23 +53,29 @@ namespace hgraph
     }
 
     template <typename T>
+    const T& TimeSeriesValueOutput<T>::value() const
+    {
+        return get_from_any<T>(_ts_output.value());
+    }
+
+    template <typename T>
     void TimeSeriesValueOutput<T>::set_value(const T& value)
     {
-        _value = value;
+        _ts_output.set_value(make_any_value(value));
         mark_modified();
     }
 
     template <typename T>
     void TimeSeriesValueOutput<T>::set_value(T&& value)
     {
-        _value = std::move(value);
+        _ts_output.set_value(make_any_value(std::forward<T>(value)));
         mark_modified();
     }
 
     template <typename T>
     void TimeSeriesValueOutput<T>::mark_invalid()
     {
-        _value = {}; // Set to the equivalent of none
+        _ts_output.invalidate();
         TimeSeriesOutput::mark_invalid();
     }
 
@@ -61,7 +83,7 @@ namespace hgraph
     void TimeSeriesValueOutput<T>::copy_from_output(const TimeSeriesOutput& output)
     {
         auto& output_t = dynamic_cast<const TimeSeriesValueOutput<T>&>(output);
-        set_value(output_t._value);
+        set_value(output_t.value());
     }
 
     template <typename T>
@@ -80,8 +102,22 @@ namespace hgraph
     template <typename T>
     void TimeSeriesValueOutput<T>::reset_value()
     {
-        _value = {};
+        _ts_output.invalidate();
     }
+
+    // TimeSeriesValueInput<T> implementation with delegation to TSInput
+
+    template <typename T>
+    TimeSeriesValueInput<T>::TimeSeriesValueInput(const node_ptr &parent)
+        : TimeSeriesInput(parent)
+        , _ts_input(static_cast<Notifiable*>(this), typeid(T))
+    {}
+
+    template <typename T>
+    TimeSeriesValueInput<T>::TimeSeriesValueInput(const TimeSeriesType::ptr &parent)
+        : TimeSeriesInput(parent)
+        , _ts_input(static_cast<Notifiable*>(this), typeid(T))
+    {}
 
     template <typename T>
     TimeSeriesValueOutput<T>& TimeSeriesValueInput<T>::value_output()
@@ -96,7 +132,9 @@ namespace hgraph
     }
 
     template <typename T>
-    const T& TimeSeriesValueInput<T>::value() const { return value_output().value(); }
+    const T& TimeSeriesValueInput<T>::value() const {
+        return get_from_any<T>(_ts_input.value());
+    }
 
     template <typename T>
     bool TimeSeriesValueInput<T>::is_same_type(const TimeSeriesType* other) const

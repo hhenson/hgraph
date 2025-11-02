@@ -146,6 +146,10 @@ namespace hgraph
             });
     }
 
+    void TimeSeriesOutput::notify(engine_time_t et) {
+        mark_modified(et);
+    }
+
     node_ptr TimeSeriesType::_owning_node() const
     {
         if (_parent_ts_or_node.has_value())
@@ -181,6 +185,12 @@ namespace hgraph
 
     TimeSeriesType::TimeSeriesType(const ptr& parent) : _parent_ts_or_node{parent}
     {
+    }
+
+    engine_time_t TimeSeriesType::current_engine_time() const {
+        auto owning_graph_{owning_graph()};
+        if (owning_graph_ != nullptr) { return owning_graph_->evaluation_clock()->evaluation_time(); }
+        return MIN_DT;
     }
 
     node_ptr TimeSeriesType::owning_node() { return _owning_node(); }
@@ -549,7 +559,7 @@ namespace hgraph
 
     void TimeSeriesOutput::mark_child_modified(TimeSeriesOutput& child, engine_time_t modified_time)
     {
-        mark_modified(modified_time);
+        notify(modified_time);
     } // NOLINT(*-no-recursion)
 
     void TimeSeriesOutput::subscribe(Notifiable* notifiable) { _subscribers.insert(notifiable); }
