@@ -33,13 +33,13 @@ TEST_CASE (
  {
     SECTION("Basic construction") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
         REQUIRE_FALSE(output.valid());
     }
 
     SECTION("Set and get int value") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
 
         parent.advance_time();
         AnyValue<> val;
@@ -52,7 +52,7 @@ TEST_CASE (
 
     SECTION("Set and get string value") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(std::string));
 
         parent.advance_time();
         AnyValue<> val;
@@ -65,7 +65,7 @@ TEST_CASE (
 
     SECTION("Multiple set operations") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
 
         parent.advance_time();
         AnyValue<> val1;
@@ -82,7 +82,7 @@ TEST_CASE (
 
     SECTION("Invalidate") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
 
         parent.advance_time();
         AnyValue<> val;
@@ -104,7 +104,7 @@ TEST_CASE (
  {
     SECTION("Non-bound input active state") {
         MockParentNode parent;
-        TimeSeriesValueInput input(&parent);
+        TimeSeriesValueInput input(&parent, typeid(int));
 
         // Initially not active
         REQUIRE_FALSE(input.active());
@@ -120,8 +120,8 @@ TEST_CASE (
 
     SECTION("Bind and read value") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
-        TimeSeriesValueInput input(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
+        TimeSeriesValueInput input(&parent, typeid(int));
 
         parent.advance_time();
         AnyValue<> val;
@@ -136,9 +136,9 @@ TEST_CASE (
 
     SECTION("Multiple inputs share output") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
-        TimeSeriesValueInput input1(&parent);
-        TimeSeriesValueInput input2(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
+        TimeSeriesValueInput input1(&parent, typeid(int));
+        TimeSeriesValueInput input2(&parent, typeid(int));
 
         input1.bind_output(&output);
         input2.bind_output(&output);
@@ -156,8 +156,8 @@ TEST_CASE (
 
     SECTION("Input sees output changes") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
-        TimeSeriesValueInput input(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(int));
+        TimeSeriesValueInput input(&parent, typeid(int));
 
         input.bind_output(&output);
 
@@ -176,8 +176,8 @@ TEST_CASE (
 
     SECTION("Zero-copy sharing") {
         MockParentNode parent;
-        TimeSeriesValueOutput output(&parent);
-        TimeSeriesValueInput input(&parent);
+        TimeSeriesValueOutput output(&parent, typeid(std::string));
+        TimeSeriesValueInput input(&parent, typeid(std::string));
 
         parent.advance_time();
         AnyValue<> val;
@@ -192,9 +192,9 @@ TEST_CASE (
 
     SECTION("Active state preserved across bind_output") {
         MockParentNode parent;
-        TimeSeriesValueOutput output1(&parent);
-        TimeSeriesValueOutput output2(&parent);
-        TimeSeriesValueInput input(&parent);
+        TimeSeriesValueOutput output1(&parent, typeid(int));
+        TimeSeriesValueOutput output2(&parent, typeid(int));
+        TimeSeriesValueInput input(&parent, typeid(int));
 
         // Initially bind to output1
         input.bind_output(&output1);
@@ -217,5 +217,26 @@ TEST_CASE (
         // Mark passive on new binding
         input.mark_passive();
         REQUIRE_FALSE(input.active());
+    }
+
+    SECTION("Type mismatch on bind throws") {
+        MockParentNode parent;
+        TimeSeriesValueOutput output(&parent, typeid(int));
+        TimeSeriesValueInput input(&parent, typeid(std::string));
+
+        // Attempting to bind input expecting string to output providing int should throw
+        REQUIRE_THROWS_AS(input.bind_output(&output), std::runtime_error);
+    }
+
+    SECTION("Type mismatch on set_value throws") {
+        MockParentNode parent;
+        TimeSeriesValueOutput output(&parent, typeid(int));
+
+        parent.advance_time();
+        AnyValue<> val;
+        val.emplace<std::string>("wrong type");
+
+        // Attempting to set wrong type should throw
+        REQUIRE_THROWS_AS(output.set_value(val), std::runtime_error);
     }
 }

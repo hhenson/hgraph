@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <unordered_set>
+#include <typeinfo>
 #include "any_value.h"
 #include "ts_event.h"
 #include "hgraph/types/time_series_type.h"
@@ -45,6 +46,9 @@ namespace hgraph
         // Value access
         virtual const AnyValue<> &value() const = 0;
 
+        // Type information
+        virtual const std::type_info& value_type() const = 0;
+
         // Event generation
         virtual void mark_invalid(engine_time_t t) = 0;
 
@@ -62,8 +66,12 @@ namespace hgraph
      */
     struct NonBoundImpl : TimeSeriesValueImpl
     {
-        bool       _active{false}; // Active state tracked locally
-        AnyValue<> _empty_value;   // Empty value to return
+        bool       _active{false};         // Active state tracked locally
+        AnyValue<> _empty_value;           // Empty value to return
+        TypeId _value_type;                // Expected value type
+
+        explicit NonBoundImpl(const std::type_info& type)
+            : _value_type(TypeId{&type}) {}
 
         void apply_event(const TsEventAny &event) override {
             // Non-bound inputs don't receive events
@@ -108,6 +116,10 @@ namespace hgraph
             return _empty_value; // Always empty
         }
 
+        [[nodiscard]] const std::type_info& value_type() const override {
+            return *_value_type.info;
+        }
+
         void mark_invalid(engine_time_t t) override {
             // No-op - non-bound inputs don't track invalidation
         }
@@ -131,11 +143,25 @@ namespace hgraph
         AnyValue<>                       _value;       // Current value (type-erased)
         TsEventAny                       _last_event;  // Most recent event (holds timestamp + kind + value)
         std::unordered_set<Notifiable *> _subscribers; // Notification subscribers
+        TypeId                           _value_type;  // Expected value type
+
+        explicit SimplePeeredImpl(const std::type_info& type)
+            : _value_type(TypeId{&type}) {}
 
         void apply_event(const TsEventAny &event) override {
             // Guard: Only one event can be applied at a particular time
             if (_last_event.kind != TsEventKind::None && _last_event.time == event.time) {
                 throw std::runtime_error("Cannot apply multiple events at the same time");
+            }
+
+            // Type validation: ensure event value matches expected type
+            if ((event.kind == TsEventKind::Modify || event.kind == TsEventKind::Recover) && event.value.has_value()) {
+                if (!(event.value.type() == _value_type)) {
+                    throw std::runtime_error(
+                        std::string("Type mismatch in apply_event: expected ") +
+                        _value_type.info->name() + " but got " + event.value.type().info->name()
+                    );
+                }
             }
 
             // Efficient: mutate value in place when possible
@@ -182,6 +208,10 @@ namespace hgraph
 
         // Value access
         [[nodiscard]] const AnyValue<> &value() const override { return _value; }
+
+        [[nodiscard]] const std::type_info& value_type() const override {
+            return *_value_type.info;
+        }
 
         void mark_invalid(engine_time_t t) override {
             auto event = TsEventAny::invalidate(t);

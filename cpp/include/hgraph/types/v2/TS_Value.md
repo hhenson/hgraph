@@ -15,8 +15,9 @@ between outputs (producers) and inputs (consumers), enabling efficient event pro
 4. [TimeSeriesValueInput - Event Consumer](#timeseriesvalueinput---event-consumer)
 5. [Binding and Subscription](#binding-and-subscription)
 6. [Active State Management](#active-state-management)
-7. [Use Cases](#use-cases)
-8. [API Reference](#api-reference)
+7. [Type Validation](#type-validation)
+8. [Use Cases](#use-cases)
+9. [API Reference](#api-reference)
 
 ---
 
@@ -35,8 +36,9 @@ through visitor patterns.
 1. **Zero-copy sharing**: Inputs and outputs share the same `TimeSeriesValueImpl` via `shared_ptr`
 2. **Single source of truth**: All state lives in the shared impl, not in wrappers
 3. **Type erasure**: `AnyValue<>` eliminates per-type template instantiation
-4. **Subscriber pattern**: Inputs subscribe to outputs to receive change notifications
-5. **Active state tracking**: Inputs track whether they're actively consuming values
+4. **Type safety**: Runtime validation ensures type consistency at bind and event application time
+5. **Subscriber pattern**: Inputs subscribe to outputs to receive change notifications
+6. **Active state tracking**: Inputs track whether they're actively consuming values
 
 ### State Management
 
@@ -128,12 +130,18 @@ struct MyNode : Notifiable, CurrentTimeProvider {
 };
 
 MyNode parent;
-TimeSeriesValueOutput output(&parent);
+
+// With explicit type (recommended)
+TimeSeriesValueOutput output(&parent, typeid(int));
+
+// Or with template type deduction
+TimeSeriesValueOutput output2(&parent, typeid(std::string));
 ```
 
 **Requirements:**
 - Parent must implement both `Notifiable` and `CurrentTimeProvider` traits
 - Parent pointer cannot be null (throws `std::runtime_error`)
+- Must specify value type via `typeid(T)` for type validation
 - Automatically creates a `SimplePeeredImpl` for sharing
 
 ### Setting Values
@@ -155,6 +163,7 @@ output.invalidate();
 
 **Behavior:**
 - `set_value()` creates a `TsEventKind::Modify` event
+- **Type validation**: Event value type must match output's declared type (throws if mismatch)
 - Event is applied to shared impl
 - All bound inputs are notified via `notify_subscribers()`
 - Timestamp comes from `parent->current_engine_time()`
@@ -188,27 +197,32 @@ Represents an input to a graph node that consumes time series values from an out
 
 ```cpp
 MyNode parent;
-TimeSeriesValueInput input(&parent);
+
+// With explicit type (must match output type)
+TimeSeriesValueInput input(&parent, typeid(int));
 ```
 
 **Initial State:**
 - Not bound to any output
 - Uses `NonBoundImpl` (returns defaults)
 - Active state tracked locally as boolean
+- Type stored for validation at bind time
 
 ### Binding to Output
 
 ```cpp
-TimeSeriesValueOutput output(&parent);
+TimeSeriesValueOutput output(&parent, typeid(int));
+TimeSeriesValueInput input(&parent, typeid(int));
 input.bind_output(&output);
 ```
 
 **Binding Behavior:**
-1. Captures current active state
-2. Marks passive on old impl (if active)
-3. Switches to output's impl (zero-copy sharing)
-4. Restores active state on new impl (if was active)
-5. Now shares exact same state as output
+1. **Type validation**: Input and output types must match (throws if mismatch)
+2. Captures current active state
+3. Marks passive on old impl (if active)
+4. Switches to output's impl (zero-copy sharing)
+5. Restores active state on new impl (if was active)
+6. Now shares exact same state as output
 
 **Zero-Copy Sharing:**
 ```cpp
@@ -223,9 +237,9 @@ assert(&output.value() == &input.value());
 Inputs can be rebound to different outputs:
 
 ```cpp
-TimeSeriesValueOutput output1(&parent);
-TimeSeriesValueOutput output2(&parent);
-TimeSeriesValueInput input(&parent);
+TimeSeriesValueOutput output1(&parent, typeid(int));
+TimeSeriesValueOutput output2(&parent, typeid(int));
+TimeSeriesValueInput input(&parent, typeid(int));
 
 input.bind_output(&output1);  // Bind to output1
 input.mark_active();           // Subscribe to output1
@@ -233,6 +247,7 @@ input.mark_active();           // Subscribe to output1
 input.bind_output(&output2);  // Rebind to output2
 // Active state preserved: now subscribed to output2
 // No longer subscribed to output1
+// Type validation ensures output2 is also int
 ```
 
 ### Querying State
@@ -385,6 +400,120 @@ impl->mark_passive(input_ptr);
 bool is_active = impl->active(input_ptr);
 // → return subscribers.contains(input_ptr)
 ```
+
+---
+
+## Type Validation
+
+The time series value system provides runtime type validation to ensure type safety despite using type erasure.
+
+### Type Declaration
+
+Every input and output must declare its value type at construction:
+
+```cpp
+// Output declares it produces int values
+TimeSeriesValueOutput output(&parent, typeid(int));
+
+// Input declares it consumes int values
+TimeSeriesValueInput input(&parent, typeid(int));
+```
+
+The type information is stored internally as `TypeId` (a wrapper around `std::type_info*`) and is used for validation at two critical points.
+
+### Validation Point 1: Binding
+
+When an input binds to an output, their types must match:
+
+```cpp
+TimeSeriesValueOutput int_output(&parent, typeid(int));
+TimeSeriesValueInput string_input(&parent, typeid(std::string));
+
+// This will throw std::runtime_error with descriptive message
+try {
+    string_input.bind_output(&int_output);
+} catch (const std::runtime_error& e) {
+    // Error message: "Type mismatch in bind_output: input expects
+    //                 std::string but output provides int"
+}
+```
+
+**Validation Logic:**
+```cpp
+if (input_type != output_type) {
+    throw std::runtime_error(
+        "Type mismatch in bind_output: input expects " +
+        input_type.name() + " but output provides " + output_type.name()
+    );
+}
+```
+
+### Validation Point 2: Event Application
+
+When an event is applied to an output, the event's value type must match:
+
+```cpp
+TimeSeriesValueOutput int_output(&parent, typeid(int));
+
+AnyValue<> val;
+val.emplace<std::string>("wrong type");
+
+// This will throw std::runtime_error
+try {
+    int_output.set_value(val);
+} catch (const std::runtime_error& e) {
+    // Error message: "Type mismatch in apply_event: expected
+    //                 int but got std::string"
+}
+```
+
+**Validation Logic** (in `SimplePeeredImpl::apply_event()`):
+```cpp
+if (event.kind == Modify || event.kind == Recover) {
+    if (event.value.type() != expected_type) {
+        throw std::runtime_error(
+            "Type mismatch in apply_event: expected " +
+            expected_type.name() + " but got " + event.value.type().name()
+        );
+    }
+}
+```
+
+### Type Safety Guarantees
+
+1. **Compile-time**: Type erasure via `AnyValue<>` eliminates template proliferation
+2. **Runtime**: Type validation catches mismatches at bind and set operations
+3. **Clear errors**: Exception messages show expected vs actual types using RTTI names
+4. **No silent failures**: Invalid operations always throw, never silently corrupt data
+
+### Example: Type-Safe Pipeline
+
+```cpp
+struct Pipeline {
+    MockParentNode parent;
+
+    // Type-checked chain: int → string → double
+    TimeSeriesValueOutput sensor{&parent, typeid(int)};
+    TimeSeriesValueInput formatter_in{&parent, typeid(int)};
+    TimeSeriesValueOutput formatter_out{&parent, typeid(std::string)};
+    TimeSeriesValueInput logger_in{&parent, typeid(std::string)};
+
+    void wire() {
+        formatter_in.bind_output(&sensor);      // ✓ int → int
+        logger_in.bind_output(&formatter_out);  // ✓ string → string
+
+        // This would fail at runtime:
+        // logger_in.bind_output(&sensor);      // ✗ int → string mismatch
+    }
+};
+```
+
+### Performance Considerations
+
+- **Type storage**: Single `TypeId` per impl (~8 bytes)
+- **Validation overhead**: One type comparison at bind and per event application
+- **Comparison cost**: Pointer comparison via `std::type_info::operator==`
+- **No impact on value access**: Type validation happens only at modification points
 
 ---
 
@@ -551,14 +680,15 @@ if (input.modified()) {
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| Constructor | `explicit TimeSeriesValueOutput(ParentNode* parent)` | Create output with parent node (throws if null) |
+| Constructor | `template<ParentNode P, typename T>`<br>`TimeSeriesValueOutput(P* parent, const std::type_info& = typeid(T))` | Create output with parent and value type (template version) |
+| Constructor | `template<ParentNode P>`<br>`TimeSeriesValueOutput(P* parent, const std::type_info& value_type)` | Create output with parent and value type (runtime version) |
 
 #### Value Modification
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `set_value` | `void set_value(const AnyValue<>& v)` | Set value (copy) and notify subscribers |
-| `set_value` | `void set_value(AnyValue<>&& v)` | Set value (move) and notify subscribers |
+| `set_value` | `void set_value(const AnyValue<>& v)` | Set value (copy), validate type, and notify subscribers |
+| `set_value` | `void set_value(AnyValue<>&& v)` | Set value (move), validate type, and notify subscribers |
 | `invalidate` | `void invalidate()` | Mark value as invalid and notify subscribers |
 
 #### Value Access
@@ -584,13 +714,14 @@ if (input.modified()) {
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| Constructor | `explicit TimeSeriesValueInput(ParentNode* parent)` | Create input with parent node |
+| Constructor | `template<ParentNode P, typename T>`<br>`TimeSeriesValueInput(P* parent, const std::type_info& = typeid(T))` | Create input with parent and value type (template version) |
+| Constructor | `template<ParentNode P>`<br>`TimeSeriesValueInput(P* parent, const std::type_info& value_type)` | Create input with parent and value type (runtime version) |
 
 #### Binding
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `bind_output` | `void bind_output(TimeSeriesValueOutput* output)` | Bind to output (share impl, preserve active state) |
+| `bind_output` | `void bind_output(TimeSeriesValueOutput* output)` | Bind to output (validate types, share impl, preserve active state) |
 
 #### Active State
 
@@ -637,25 +768,31 @@ Parent nodes must implement:
 
 ## Best Practices
 
-1. **Always bind before marking active** - Inputs should be bound to an output before subscribing:
+1. **Always specify value types** - Declare types at construction for runtime validation:
    ```cpp
-   input.bind_output(&output);  // Bind first
+   TimeSeriesValueOutput output(&parent, typeid(int));
+   TimeSeriesValueInput input(&parent, typeid(int));
+   ```
+
+2. **Always bind before marking active** - Inputs should be bound to an output before subscribing:
+   ```cpp
+   input.bind_output(&output);  // Bind first (validates types)
    input.mark_active();         // Then subscribe
    ```
 
-2. **Use mark_passive when done** - Unsubscribe to prevent unnecessary notifications:
+3. **Use mark_passive when done** - Unsubscribe to prevent unnecessary notifications:
    ```cpp
    input.mark_passive();  // Stop receiving notifications
    ```
 
-3. **Check valid() before accessing value** - Avoid reading invalid values:
+4. **Check valid() before accessing value** - Avoid reading invalid values:
    ```cpp
    if (input.valid()) {
        auto value = input.value();
    }
    ```
 
-4. **Use visitors for type safety** - Prefer visitors over direct pointer access:
+5. **Use visitors for type safety** - Prefer visitors over direct pointer access:
    ```cpp
    // Good
    input.value().visit_as<int>([](int v) { process(v); });
@@ -665,11 +802,13 @@ Parent nodes must implement:
    if (ptr) process(*ptr);
    ```
 
-5. **Preserve active state on rebind** - Binding automatically preserves subscription state (handled internally)
+6. **Match types across pipeline** - Ensure connected inputs/outputs have matching types to avoid runtime errors
 
-6. **One output, many inputs** - Outputs can have multiple bound inputs (fan-out pattern)
+7. **Preserve active state on rebind** - Binding automatically preserves subscription state (handled internally)
 
-7. **Parent nodes must be valid** - Ensure parent pointers remain valid for the lifetime of the time series value
+8. **One output, many inputs** - Outputs can have multiple bound inputs (fan-out pattern)
+
+9. **Parent nodes must be valid** - Ensure parent pointers remain valid for the lifetime of the time series value
 
 ---
 
