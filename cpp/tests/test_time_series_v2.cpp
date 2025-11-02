@@ -12,52 +12,73 @@ using namespace hgraph;
 // Bring hgraph::to_string into scope explicitly for ADL clarity
 using hgraph::to_string;
 
-namespace {
-    struct Small {
+namespace
+{
+    struct Small
+    {
         int a{0};
         static inline int new_calls = 0;
         static inline int delete_calls = 0;
         static void reset_counts() { new_calls = delete_calls = 0; }
-        static void* operator new(std::size_t sz) {
+
+        static void* operator new(std::size_t sz)
+        {
             ++new_calls;
             return ::operator new(sz);
         }
-        static void operator delete(void* p) noexcept {
+
+        static void operator delete(void* p) noexcept
+        {
             ++delete_calls;
             ::operator delete(p);
         }
+
         // Provide placement new/delete overloads so class-specific operator new doesn't hide global placement new
         static void* operator new(std::size_t, void* p) noexcept { return p; }
-        static void operator delete(void*, void*) noexcept {}
+
+        static void operator delete(void*, void*) noexcept
+        {
+        }
     };
 
-    struct Big {
+    struct Big
+    {
         // Make it bigger than SBO to force heap allocation
         char buf[static_cast<std::size_t>(HGRAPH_TS_VALUE_SBO) + 32];
         int x{0};
         static inline int new_calls = 0;
         static inline int delete_calls = 0;
         static void reset_counts() { new_calls = delete_calls = 0; }
-        static void* operator new(std::size_t sz) {
+
+        static void* operator new(std::size_t sz)
+        {
             ++new_calls;
             return ::operator new(sz);
         }
-        static void operator delete(void* p) noexcept {
+
+        static void operator delete(void* p) noexcept
+        {
             ++delete_calls;
             ::operator delete(p);
         }
+
         // Provide placement new/delete as well to avoid hiding global placement new
         static void* operator new(std::size_t, void* p) noexcept { return p; }
-        static void operator delete(void*, void*) noexcept {}
+
+        static void operator delete(void*, void*) noexcept
+        {
+        }
     };
 }
 
-TEST_CASE("SBO size matches nb::object", "[time_series][any]") {
+TEST_CASE("SBO size matches nb::object", "[time_series][any]")
+{
     // Ensures we compiled with the requested SBO policy
     STATIC_REQUIRE(HGRAPH_TS_VALUE_SBO == sizeof(nanobind::object));
 }
 
-TEST_CASE("TsEventAny: none and invalidate have no payload", "[time_series][event]") {
+TEST_CASE("TsEventAny: none and invalidate have no payload", "[time_series][event]")
+{
     engine_time_t t{};
     auto e1 = TsEventAny::none(t);
     REQUIRE(e1.kind == TsEventKind::None);
@@ -68,7 +89,8 @@ TEST_CASE("TsEventAny: none and invalidate have no payload", "[time_series][even
     REQUIRE_FALSE(e2.value.has_value());
 }
 
-TEST_CASE("TsEventAny: modify with double and string", "[time_series][event]") {
+TEST_CASE("TsEventAny: modify with double and string", "[time_series][event]")
+{
     engine_time_t t{};
 
     auto e1 = TsEventAny::modify(t, 3.14);
@@ -84,7 +106,8 @@ TEST_CASE("TsEventAny: modify with double and string", "[time_series][event]") {
     REQUIRE(*ps == "hello");
 }
 
-TEST_CASE("TsValueAny: none and of", "[time_series][value]") {
+TEST_CASE("TsValueAny: none and of", "[time_series][value]")
+{
     auto v0 = TsValueAny::none();
     REQUIRE_FALSE(v0.has_value);
 
@@ -95,7 +118,8 @@ TEST_CASE("TsValueAny: none and of", "[time_series][value]") {
     REQUIRE(*pi == 42);
 }
 
-TEST_CASE("AnyValue copy/move semantics", "[time_series][any]") {
+TEST_CASE("AnyValue copy/move semantics", "[time_series][any]")
+{
     AnyValue<> a;
     a.emplace<std::string>("abc");
     REQUIRE(a.has_value());
@@ -114,7 +138,8 @@ TEST_CASE("AnyValue copy/move semantics", "[time_series][any]") {
     REQUIRE(*c.get_if<std::string>() == "abc");
 }
 
-TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[time_series][any]") {
+TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[time_series][any]")
+{
     // Small should use inline storage (placement-new), not calling class operator new
     Small::reset_counts();
     {
@@ -135,13 +160,14 @@ TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[t
         REQUIRE(v.get_if<Big>() != nullptr);
         // Force a copy to allocate another instance
         AnyValue<> w = v;
-        (void) w;
+        (void)w;
     }
     REQUIRE(Big::new_calls >= 1);
     REQUIRE(Big::delete_calls == Big::new_calls);
 }
 
-TEST_CASE("AnyValue storage_size: empty container", "[time_series][any][storage]") {
+TEST_CASE("AnyValue storage_size: empty container", "[time_series][any][storage]")
+{
     AnyValue<> empty;
     REQUIRE_FALSE(empty.has_value());
     REQUIRE(empty.storage_size() == 0);
@@ -149,7 +175,8 @@ TEST_CASE("AnyValue storage_size: empty container", "[time_series][any][storage]
     REQUIRE_FALSE(empty.is_heap_allocated());
 }
 
-TEST_CASE("AnyValue storage_size: inline (SBO) types", "[time_series][any][storage]") {
+TEST_CASE("AnyValue storage_size: inline (SBO) types", "[time_series][any][storage]")
+{
     // Small primitives should use inline storage
     AnyValue<> v_int;
     v_int.emplace<int>(42);
@@ -171,7 +198,8 @@ TEST_CASE("AnyValue storage_size: inline (SBO) types", "[time_series][any][stora
     REQUIRE(v_small.storage_size() == HGRAPH_TS_VALUE_SBO);
 }
 
-TEST_CASE("AnyValue storage_size: heap-allocated types", "[time_series][any][storage]") {
+TEST_CASE("AnyValue storage_size: heap-allocated types", "[time_series][any][storage]")
+{
     // Big struct exceeds SBO and must be heap-allocated
     AnyValue<> v_big;
     v_big.emplace<Big>();
@@ -184,14 +212,18 @@ TEST_CASE("AnyValue storage_size: heap-allocated types", "[time_series][any][sto
     v_string.emplace<std::string>("This is a reasonably long string that might exceed SBO");
     // Note: std::string itself may fit in SBO (it's just 24-32 bytes typically)
     // but we test that storage_size returns correct value based on using_heap_ flag
-    if (v_string.is_heap_allocated()) {
+    if (v_string.is_heap_allocated())
+    {
         REQUIRE(v_string.storage_size() == sizeof(void*));
-    } else {
+    }
+    else
+    {
         REQUIRE(v_string.storage_size() == HGRAPH_TS_VALUE_SBO);
     }
 }
 
-TEST_CASE("AnyValue storage_size: references", "[time_series][any][storage][ref]") {
+TEST_CASE("AnyValue storage_size: references", "[time_series][any][storage][ref]")
+{
     int x = 42;
     AnyValue<> v_ref;
     v_ref.emplace_ref(x);
@@ -203,17 +235,18 @@ TEST_CASE("AnyValue storage_size: references", "[time_series][any][storage][ref]
     REQUIRE(v_ref.storage_size() == sizeof(void*));
 }
 
-TEST_CASE("AnyValue storage_size: after copy and move", "[time_series][any][storage]") {
+TEST_CASE("AnyValue storage_size: after copy and move", "[time_series][any][storage]")
+{
     // Inline value
     AnyValue<> v1;
     v1.emplace<int>(42);
     REQUIRE(v1.is_inline());
 
-    AnyValue<> v2 = v1;  // Copy
+    AnyValue<> v2 = v1; // Copy
     REQUIRE(v2.is_inline());
     REQUIRE(v2.storage_size() == v1.storage_size());
 
-    AnyValue<> v3 = std::move(v1);  // Move
+    AnyValue<> v3 = std::move(v1); // Move
     REQUIRE(v3.is_inline());
     REQUIRE(v3.storage_size() == HGRAPH_TS_VALUE_SBO);
 
@@ -222,16 +255,17 @@ TEST_CASE("AnyValue storage_size: after copy and move", "[time_series][any][stor
     v4.emplace<Big>();
     REQUIRE(v4.is_heap_allocated());
 
-    AnyValue<> v5 = v4;  // Copy (allocates new heap object)
+    AnyValue<> v5 = v4; // Copy (allocates new heap object)
     REQUIRE(v5.is_heap_allocated());
     REQUIRE(v5.storage_size() == sizeof(void*));
 
-    AnyValue<> v6 = std::move(v4);  // Move (transfers heap pointer)
+    AnyValue<> v6 = std::move(v4); // Move (transfers heap pointer)
     REQUIRE(v6.is_heap_allocated());
     REQUIRE(v6.storage_size() == sizeof(void*));
 }
 
-TEST_CASE("AnyValue storage_size: after reset", "[time_series][any][storage]") {
+TEST_CASE("AnyValue storage_size: after reset", "[time_series][any][storage]")
+{
     AnyValue<> v;
     v.emplace<int>(42);
     REQUIRE(v.storage_size() == HGRAPH_TS_VALUE_SBO);
@@ -243,7 +277,8 @@ TEST_CASE("AnyValue storage_size: after reset", "[time_series][any][storage]") {
     REQUIRE_FALSE(v.is_heap_allocated());
 }
 
-TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any][storage][ref]") {
+TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any][storage][ref]")
+{
     std::string s = "hello";
     AnyValue<> v_ref;
     v_ref.emplace_ref(s);
@@ -255,9 +290,12 @@ TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any
     AnyValue<> v_owned = v_ref;
     REQUIRE_FALSE(v_owned.is_reference());
     // String is small enough for SBO typically
-    if (v_owned.is_inline()) {
+    if (v_owned.is_inline())
+    {
         REQUIRE(v_owned.storage_size() == HGRAPH_TS_VALUE_SBO);
-    } else {
+    }
+    else
+    {
         REQUIRE(v_owned.storage_size() == sizeof(void*));
     }
 
@@ -269,11 +307,11 @@ TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any
 }
 
 
-
-TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]") {
-    TypeId id_i1{ &typeid(int64_t) };
-    TypeId id_i2{ &typeid(int64_t) };
-    TypeId id_d{ &typeid(double) };
+TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]")
+{
+    TypeId id_i1{&typeid(int64_t)};
+    TypeId id_i2{&typeid(int64_t)};
+    TypeId id_d{&typeid(double)};
 
     REQUIRE(id_i1 == id_i2);
     REQUIRE_FALSE(id_i1 == id_d);
@@ -283,7 +321,8 @@ TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]") {
     REQUIRE(h1 == h2);
 }
 
-TEST_CASE("AnyValue hash_code: empty and primitives", "[time_series][any][hash]") {
+TEST_CASE("AnyValue hash_code: empty and primitives", "[time_series][any][hash]")
+{
     // Empty
     AnyValue<> empty;
     REQUIRE_FALSE(empty.has_value());
@@ -314,7 +353,8 @@ TEST_CASE("AnyValue hash_code: empty and primitives", "[time_series][any][hash]"
     REQUIRE(vd.hash_code() == std::hash<double>{}(3.14));
 }
 
-TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_series][any][hash]") {
+TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_series][any][hash]")
+{
     AnyValue<> vs1;
     vs1.emplace<std::string>("hello");
     REQUIRE(vs1.has_value());
@@ -323,7 +363,7 @@ TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_
     const auto h_expected = std::hash<std::string>{}("hello");
     REQUIRE(vs1.hash_code() == h_expected);
 
-    AnyValue<> vs2 = vs1;           // copy
+    AnyValue<> vs2 = vs1; // copy
     AnyValue<> vs3 = std::move(vs2); // move
 
     REQUIRE(vs3.hash_code() == h_expected);
@@ -337,26 +377,31 @@ TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 
-TEST_CASE("to_string for AnyValue<>", "[time_series][any][string]") {
+TEST_CASE("to_string for AnyValue<>", "[time_series][any][string]")
+{
     // Empty
     AnyValue<> v0;
     REQUIRE(to_string(v0) == std::string("<empty>"));
 
     // int64_t
-    AnyValue<> vi; vi.emplace<int64_t>(42);
+    AnyValue<> vi;
+    vi.emplace<int64_t>(42);
     REQUIRE(to_string(vi) == std::string("42"));
 
     // double (std::to_string may include many decimals); just check prefix "3.14"
-    AnyValue<> vd; vd.emplace<double>(3.14);
+    AnyValue<> vd;
+    vd.emplace<double>(3.14);
     auto ds = to_string(vd);
     REQUIRE_THAT(ds, Catch::Matchers::StartsWith("3.14"));
 
     // std::string
-    AnyValue<> vs; vs.emplace<std::string>("hello");
+    AnyValue<> vs;
+    vs.emplace<std::string>("hello");
     REQUIRE(to_string(vs) == std::string("hello"));
 }
 
-TEST_CASE("to_string for TsEventAny", "[time_series][event][string]") {
+TEST_CASE("to_string for TsEventAny", "[time_series][event][string]")
+{
     engine_time_t t{};
 
     auto e_none = TsEventAny::none(t);
@@ -374,7 +419,8 @@ TEST_CASE("to_string for TsEventAny", "[time_series][event][string]") {
     REQUIRE(s_mod.find("value=") != std::string::npos);
 }
 
-TEST_CASE("to_string for TsValueAny", "[time_series][value][string]") {
+TEST_CASE("to_string for TsValueAny", "[time_series][value][string]")
+{
     auto v_none = TsValueAny::none();
     auto s_none = to_string(v_none);
     REQUIRE(s_none.find("TsValueAny{") != std::string::npos);
@@ -387,7 +433,8 @@ TEST_CASE("to_string for TsValueAny", "[time_series][value][string]") {
 
 
 // ---------------- Collection event tests ----------------
-TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_series][collection][event]") {
+TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_series][collection][event]")
+{
     engine_time_t t{};
 
     // None
@@ -406,22 +453,26 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
     REQUIRE(e_mod.items.empty());
 
     // add modify: key=int64_t(1), value=double(3.5)
-    AnyKey k1; k1.emplace<int64_t>(1);
-    AnyValue<> v1; v1.emplace<double>(3.5);
+    AnyKey k1;
+    k1.emplace<int64_t>(1);
+    AnyValue<> v1;
+    v1.emplace<double>(3.5);
     e_mod.add_modify(std::move(k1), std::move(v1));
 
     // add reset: key=int64_t(2)
-    AnyKey k2; k2.emplace<int64_t>(2);
+    AnyKey k2;
+    k2.emplace<int64_t>(2);
     e_mod.add_reset(std::move(k2));
 
     // remove: key=std::string("gone")
-    AnyKey r1; r1.emplace<std::string>("gone");
+    AnyKey r1;
+    r1.emplace<std::string>("gone");
     e_mod.remove(std::move(r1));
 
     REQUIRE(e_mod.items.size() == 3);
 
     // Inspect first add/modify
-    const auto &it0 = e_mod.items[0];
+    const auto& it0 = e_mod.items[0];
     REQUIRE(it0.kind == ColItemKind::Modify);
     auto pkey0 = it0.key.get_if<int64_t>();
     REQUIRE(pkey0 != nullptr);
@@ -431,7 +482,7 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
     REQUIRE(*pval0 == Catch::Approx(3.5));
 
     // Inspect second (reset)
-    const auto &it1 = e_mod.items[1];
+    const auto& it1 = e_mod.items[1];
     REQUIRE(it1.kind == ColItemKind::Reset);
     auto pkey1 = it1.key.get_if<int64_t>();
     REQUIRE(pkey1 != nullptr);
@@ -439,7 +490,7 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
     REQUIRE_FALSE(it1.value.has_value());
 
     // Inspect third (remove)
-    const auto &it2 = e_mod.items[2];
+    const auto& it2 = e_mod.items[2];
     REQUIRE(it2.kind == ColItemKind::Remove);
     auto prk = it2.key.get_if<std::string>();
     REQUIRE(prk != nullptr);
@@ -449,26 +500,36 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 // ---- AnyValue equality tests ----
-TEST_CASE("AnyValue equality: empty and basic types", "[any][eq]") {
+TEST_CASE("AnyValue equality: empty and basic types", "[any][eq]")
+{
     AnyValue<> e1, e2;
-    REQUIRE(e1 == e2);            // both empty
+    REQUIRE(e1 == e2); // both empty
 
-    AnyValue<> v1; v1.emplace<int64_t>(42);
-    AnyValue<> v2; v2.emplace<int64_t>(42);
-    AnyValue<> v3; v3.emplace<int64_t>(43);
+    AnyValue<> v1;
+    v1.emplace<int64_t>(42);
+    AnyValue<> v2;
+    v2.emplace<int64_t>(42);
+    AnyValue<> v3;
+    v3.emplace<int64_t>(43);
 
     REQUIRE(v1 == v2);
     REQUIRE(v1 != v3);
 
-    AnyValue<> d1; d1.emplace<double>(3.14);
-    AnyValue<> d2; d2.emplace<double>(3.14);
-    AnyValue<> d3; d3.emplace<double>(2.71);
+    AnyValue<> d1;
+    d1.emplace<double>(3.14);
+    AnyValue<> d2;
+    d2.emplace<double>(3.14);
+    AnyValue<> d3;
+    d3.emplace<double>(2.71);
     REQUIRE(d1 == d2);
     REQUIRE(d1 != d3);
 
-    AnyValue<> s1; s1.emplace<std::string>("abc");
-    AnyValue<> s2; s2.emplace<std::string>("abc");
-    AnyValue<> s3; s3.emplace<std::string>("xyz");
+    AnyValue<> s1;
+    s1.emplace<std::string>("abc");
+    AnyValue<> s2;
+    s2.emplace<std::string>("abc");
+    AnyValue<> s3;
+    s3.emplace<std::string>("xyz");
     REQUIRE(s1 == s2);
     REQUIRE(s1 != s3);
 
@@ -477,15 +538,19 @@ TEST_CASE("AnyValue equality: empty and basic types", "[any][eq]") {
     REQUIRE(v1 != s1);
 }
 
-TEST_CASE("AnyValue equality: engine_time_t", "[any][eq]") {
+TEST_CASE("AnyValue equality: engine_time_t", "[any][eq]")
+{
     engine_time_t t{};
-    AnyValue<> a; a.emplace<engine_time_t>(t);
-    AnyValue<> b; b.emplace<engine_time_t>(t);
+    AnyValue<> a;
+    a.emplace<engine_time_t>(t);
+    AnyValue<> b;
+    b.emplace<engine_time_t>(t);
     REQUIRE(a == b);
 }
 
 // ---- AnyValue reference semantics tests ----
-TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[any][ref]") {
+TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[any][ref]")
+{
     std::string s = "abc";
     AnyValue<> v;
     v.emplace_ref(s);
@@ -507,9 +572,11 @@ TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[an
     REQUIRE(*v2.get_if<std::string>() == "xyz");
 }
 
-TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]") {
+TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]")
+{
     std::string s = "hello";
-    AnyValue<> v; v.emplace_ref(s);
+    AnyValue<> v;
+    v.emplace_ref(s);
 
     AnyValue<> w = std::move(v);
     REQUIRE_FALSE(w.is_reference());
@@ -520,9 +587,11 @@ TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]"
     REQUIRE(*v.get_if<std::string>() == "hello");
 }
 
-TEST_CASE("AnyValue reference: hash stable across materialization", "[any][ref][hash]") {
+TEST_CASE("AnyValue reference: hash stable across materialization", "[any][ref][hash]")
+{
     int64_t x = 42;
-    AnyValue<> r; r.emplace_ref(x);
+    AnyValue<> r;
+    r.emplace_ref(x);
     const auto h_ref = r.hash_code();
     REQUIRE(h_ref == std::hash<int64_t>{}(42));
 
@@ -530,9 +599,11 @@ TEST_CASE("AnyValue reference: hash stable across materialization", "[any][ref][
     REQUIRE(owned.hash_code() == h_ref);
 }
 
-TEST_CASE("AnyValue ensure_owned() converts a reference in place", "[any][ref]") {
+TEST_CASE("AnyValue ensure_owned() converts a reference in place", "[any][ref]")
+{
     std::string s = "snap";
-    AnyValue<> v; v.emplace_ref(s);
+    AnyValue<> v;
+    v.emplace_ref(s);
     v.ensure_owned();
     REQUIRE_FALSE(v.is_reference());
 
@@ -540,18 +611,23 @@ TEST_CASE("AnyValue ensure_owned() converts a reference in place", "[any][ref]")
     REQUIRE(*v.get_if<std::string>() == "snap");
 }
 
-TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][string]") {
+TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][string]")
+{
     engine_time_t t{};
     auto e = TsCollectionEventAny::modify(t);
 
-    AnyKey k1; k1.emplace<int64_t>(7);
-    AnyValue<> v1; v1.emplace<std::string>("hello");
+    AnyKey k1;
+    k1.emplace<int64_t>(7);
+    AnyValue<> v1;
+    v1.emplace<std::string>("hello");
     e.add_modify(std::move(k1), std::move(v1));
 
-    AnyKey k2; k2.emplace<int64_t>(8);
+    AnyKey k2;
+    k2.emplace<int64_t>(8);
     e.add_reset(std::move(k2));
 
-    AnyKey r; r.emplace<int64_t>(9);
+    AnyKey r;
+    r.emplace<int64_t>(9);
     e.remove(std::move(r));
 
     auto s = to_string(e);
@@ -566,7 +642,8 @@ TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][strin
 
 
 // ---- Recover event tests ----
-TEST_CASE("TsEventAny: recover without payload", "[time_series][event][recover]") {
+TEST_CASE("TsEventAny: recover without payload", "[time_series][event][recover]")
+{
     engine_time_t t{};
     auto e = TsEventAny::recover(t);
     REQUIRE(e.kind == TsEventKind::Recover);
@@ -576,7 +653,8 @@ TEST_CASE("TsEventAny: recover without payload", "[time_series][event][recover]"
     REQUIRE(s.find("value=") == std::string::npos);
 }
 
-TEST_CASE("TsEventAny: recover with payload", "[time_series][event][recover]") {
+TEST_CASE("TsEventAny: recover with payload", "[time_series][event][recover]")
+{
     engine_time_t t{};
     auto e = TsEventAny::recover(t, static_cast<int64_t>(42));
     REQUIRE(e.kind == TsEventKind::Recover);
@@ -588,7 +666,8 @@ TEST_CASE("TsEventAny: recover with payload", "[time_series][event][recover]") {
     REQUIRE(s.find("value=42") != std::string::npos);
 }
 
-TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection][recover]") {
+TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection][recover]")
+{
     engine_time_t t{};
     auto e = TsCollectionEventAny::recover(t);
     REQUIRE(e.kind == TsEventKind::Recover);
@@ -601,129 +680,162 @@ TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection
 
 
 // ---- AnyValue optional less-than tests ----
-TEST_CASE("AnyValue < : comparable primitives", "[any][lt]") {
-    AnyValue<> a; a.emplace<int64_t>(1);
-    AnyValue<> b; b.emplace<int64_t>(2);
-    AnyValue<> c; c.emplace<int64_t>(2);
+TEST_CASE("AnyValue < : comparable primitives", "[any][lt]")
+{
+    AnyValue<> a;
+    a.emplace<int64_t>(1);
+    AnyValue<> b;
+    b.emplace<int64_t>(2);
+    AnyValue<> c;
+    c.emplace<int64_t>(2);
 
     REQUIRE(a < b);
     REQUIRE_FALSE(b < a);
     REQUIRE_FALSE(b < c);
 
-    AnyValue<> d; d.emplace<double>(3.14);
-    AnyValue<> e; e.emplace<double>(6.28);
+    AnyValue<> d;
+    d.emplace<double>(3.14);
+    AnyValue<> e;
+    e.emplace<double>(6.28);
     REQUIRE(d < e);
     REQUIRE_FALSE(e < d);
 
-    AnyValue<> s1; s1.emplace<std::string>("abc");
-    AnyValue<> s2; s2.emplace<std::string>("abd");
+    AnyValue<> s1;
+    s1.emplace<std::string>("abc");
+    AnyValue<> s2;
+    s2.emplace<std::string>("abd");
     REQUIRE(s1 < s2);
     REQUIRE_FALSE(s2 < s1);
 }
 
-TEST_CASE("AnyValue < : reference vs owned", "[any][lt][ref]") {
+TEST_CASE("AnyValue < : reference vs owned", "[any][lt][ref]")
+{
     std::string referent = "b";
-    AnyValue<> r; r.emplace_ref(referent);
+    AnyValue<> r;
+    r.emplace_ref(referent);
 
-    AnyValue<> o; o.emplace<std::string>("c");
+    AnyValue<> o;
+    o.emplace<std::string>("c");
     REQUIRE(r < o);
     REQUIRE_FALSE(o < r);
 
     // mutate referent; comparison should reflect new value through reference
     referent = "d";
     REQUIRE_FALSE(r < o); // "d" < "c" is false
-    REQUIRE(o < r);       // "c" < "d" is true
+    REQUIRE(o < r); // "c" < "d" is true
 }
 
-TEST_CASE("AnyValue < : type mismatch throws", "[any][lt][throws]") {
-    AnyValue<> i; i.emplace<int64_t>(1);
-    AnyValue<> d; d.emplace<double>(2.0);
+TEST_CASE("AnyValue < : type mismatch throws", "[any][lt][throws]")
+{
+    AnyValue<> i;
+    i.emplace<int64_t>(1);
+    AnyValue<> d;
+    d.emplace<double>(2.0);
     REQUIRE_THROWS_AS((void)(i < d), std::runtime_error);
     REQUIRE_THROWS_AS((void)(d < i), std::runtime_error);
 }
 
-TEST_CASE("AnyValue < : unsupported type throws", "[any][lt][throws]") {
-    struct NoLess { int x; };
-    AnyValue<> a; a.emplace<NoLess>(NoLess{1});
-    AnyValue<> b; b.emplace<NoLess>(NoLess{2});
+TEST_CASE("AnyValue < : unsupported type throws", "[any][lt][throws]")
+{
+    struct NoLess
+    {
+        int x;
+    };
+    AnyValue<> a;
+    a.emplace<NoLess>(NoLess{1});
+    AnyValue<> b;
+    b.emplace<NoLess>(NoLess{2});
     REQUIRE_THROWS_AS((void)(a < b), std::runtime_error);
 }
 
-TEST_CASE("AnyValue < : empty comparisons", "[any][lt][empty]") {
+TEST_CASE("AnyValue < : empty comparisons", "[any][lt][empty]")
+{
     AnyValue<> e1, e2;
     REQUIRE_FALSE(e1 < e2); // both empty => false
 
-    AnyValue<> v; v.emplace<int64_t>(1);
+    AnyValue<> v;
+    v.emplace<int64_t>(1);
     REQUIRE_THROWS_AS((void)(e1 < v), std::runtime_error);
     REQUIRE_THROWS_AS((void)(v < e1), std::runtime_error);
 }
 
 // ---- AnyValue visitor pattern tests ----
-TEST_CASE("AnyValue visit_as: type-safe visitation", "[any][visitor]") {
+TEST_CASE("AnyValue visit_as: type-safe visitation", "[any][visitor]")
+{
     AnyValue<> v;
     v.emplace<int64_t>(42);
 
     // Visit with matching type
     int64_t result = 0;
-    bool visited = v.visit_as<int64_t>([&result](int64_t val) {
+    bool visited = v.visit_as<int64_t>([&result](int64_t val)
+    {
         result = val * 2;
     });
     REQUIRE(visited);
     REQUIRE(result == 84);
 
     // Visit with non-matching type
-    visited = v.visit_as<double>([](double) {
+    visited = v.visit_as<double>([](double)
+    {
         REQUIRE(false); // Should not be called
     });
     REQUIRE_FALSE(visited);
 
     // Empty AnyValue
     AnyValue<> empty;
-    visited = empty.visit_as<int64_t>([](int64_t) {
+    visited = empty.visit_as<int64_t>([](int64_t)
+    {
         REQUIRE(false); // Should not be called
     });
     REQUIRE_FALSE(visited);
 }
 
-TEST_CASE("AnyValue visit_as: mutable visitation", "[any][visitor]") {
+TEST_CASE("AnyValue visit_as: mutable visitation", "[any][visitor]")
+{
     AnyValue<> v;
     v.emplace<int64_t>(42);
 
     // Modify value through visitor
-    bool visited = v.visit_as<int64_t>([](int64_t& val) {
+    bool visited = v.visit_as<int64_t>([](int64_t& val)
+    {
         val = 100;
     });
     REQUIRE(visited);
     REQUIRE(*v.get_if<int64_t>() == 100);
 }
 
-TEST_CASE("AnyValue visit_as: with std::string", "[any][visitor]") {
+TEST_CASE("AnyValue visit_as: with std::string", "[any][visitor]")
+{
     AnyValue<> v;
     v.emplace<std::string>("hello");
 
     std::string result;
-    bool visited = v.visit_as<std::string>([&result](const std::string& s) {
+    bool visited = v.visit_as<std::string>([&result](const std::string& s)
+    {
         result = s + " world";
     });
     REQUIRE(visited);
     REQUIRE(result == "hello world");
 
     // Modify the string
-    visited = v.visit_as<std::string>([](std::string& s) {
+    visited = v.visit_as<std::string>([](std::string& s)
+    {
         s = "goodbye";
     });
     REQUIRE(visited);
     REQUIRE(*v.get_if<std::string>() == "goodbye");
 }
 
-TEST_CASE("AnyValue visit_as: with references", "[any][visitor][ref]") {
+TEST_CASE("AnyValue visit_as: with references", "[any][visitor][ref]")
+{
     int x = 42;
     AnyValue<> v;
     v.emplace_ref(x);
 
     // Visit reference (const)
     int result = 0;
-    bool visited = v.visit_as<int>([&result](int val) {
+    bool visited = v.visit_as<int>([&result](int val)
+    {
         result = val;
     });
     REQUIRE(visited);
@@ -731,14 +843,16 @@ TEST_CASE("AnyValue visit_as: with references", "[any][visitor][ref]") {
 
     // Modify through reference - this modifies the referent
     x = 100;
-    visited = v.visit_as<int>([&result](int val) {
+    visited = v.visit_as<int>([&result](int val)
+    {
         result = val;
     });
     REQUIRE(visited);
     REQUIRE(result == 100);
 }
 
-TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]") {
+TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]")
+{
     AnyValue<> v_int;
     v_int.emplace<int64_t>(42);
 
@@ -747,7 +861,8 @@ TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]") {
     const void* ptr = nullptr;
     const std::type_info* tinfo = nullptr;
 
-    v_int.visit_untyped([&](const void* p, const std::type_info& ti) {
+    v_int.visit_untyped([&](const void* p, const std::type_info& ti)
+    {
         visited = true;
         ptr = p;
         tinfo = &ti;
@@ -759,12 +874,14 @@ TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]") {
     REQUIRE(*static_cast<const int64_t*>(ptr) == 42);
 }
 
-TEST_CASE("AnyValue visit_untyped: with std::string", "[any][visitor]") {
+TEST_CASE("AnyValue visit_untyped: with std::string", "[any][visitor]")
+{
     AnyValue<> v;
     v.emplace<std::string>("test");
 
     bool visited = false;
-    v.visit_untyped([&visited](const void* p, const std::type_info& ti) {
+    v.visit_untyped([&visited](const void* p, const std::type_info& ti)
+    {
         visited = true;
         REQUIRE(ti == typeid(std::string));
         const auto* s = static_cast<const std::string*>(p);
@@ -773,44 +890,54 @@ TEST_CASE("AnyValue visit_untyped: with std::string", "[any][visitor]") {
     REQUIRE(visited);
 }
 
-TEST_CASE("AnyValue visit_untyped: empty does nothing", "[any][visitor]") {
+TEST_CASE("AnyValue visit_untyped: empty does nothing", "[any][visitor]")
+{
     AnyValue<> empty;
 
     bool visited = false;
-    empty.visit_untyped([&visited](const void*, const std::type_info&) {
+    empty.visit_untyped([&visited](const void*, const std::type_info&)
+    {
         visited = true;
     });
     REQUIRE_FALSE(visited);
 }
 
-TEST_CASE("AnyValue visitor: combined pattern", "[any][visitor]") {
+TEST_CASE("AnyValue visitor: combined pattern", "[any][visitor]")
+{
     // Demonstrates using both visit types together
     AnyValue<> v;
     v.emplace<double>(3.14);
 
     // Try multiple types with visit_as
     bool found = false;
-    found = v.visit_as<int64_t>([](int64_t) {
+    found = v.visit_as<int64_t>([](int64_t)
+    {
         REQUIRE(false); // Not this type
     });
     REQUIRE_FALSE(found);
 
-    found = v.visit_as<std::string>([](const std::string&) {
+    found = v.visit_as<std::string>([](const std::string&)
+    {
         REQUIRE(false); // Not this type
     });
     REQUIRE_FALSE(found);
 
-    found = v.visit_as<double>([](double val) {
+    found = v.visit_as<double>([](double val)
+    {
         REQUIRE(val == Catch::Approx(3.14));
     });
     REQUIRE(found);
 
     // Or use visit_untyped for dynamic dispatch
-    v.visit_untyped([](const void* p, const std::type_info& ti) {
-        if (ti == typeid(double)) {
+    v.visit_untyped([](const void* p, const std::type_info& ti)
+    {
+        if (ti == typeid(double))
+        {
             double val = *static_cast<const double*>(p);
             REQUIRE(val == Catch::Approx(3.14));
-        } else if (ti == typeid(int64_t)) {
+        }
+        else if (ti == typeid(int64_t))
+        {
             REQUIRE(false); // Not this type
         }
     });
@@ -821,18 +948,21 @@ TEST_CASE("AnyValue visitor: combined pattern", "[any][visitor]") {
 // =============================================================================
 
 // Helper to create AnyValue/AnyKey
-template<typename T>
-static AnyValue<> make_any(T&& value) {
+template <typename T>
+static AnyValue<> make_any(T&& value)
+{
     AnyValue<> av;
     av.emplace<std::decay_t<T>>(std::forward<T>(value));
     return av;
 }
 
-TEST_CASE("TsEventAny validation", "[ts_event][validation]") {
+TEST_CASE("TsEventAny validation", "[ts_event][validation]")
+{
     using namespace std::chrono;
     auto t = engine_time_t{microseconds{1000}};
 
-    SECTION("Valid events") {
+    SECTION("Valid events")
+    {
         auto none_event = TsEventAny::none(t);
         REQUIRE(none_event.is_valid());
 
@@ -849,7 +979,8 @@ TEST_CASE("TsEventAny validation", "[ts_event][validation]") {
         REQUIRE(recover_with_value.is_valid());
     }
 
-    SECTION("Invalid events - manually constructed with wrong value presence") {
+    SECTION("Invalid events - manually constructed with wrong value presence")
+    {
         // None should have no value
         TsEventAny invalid_none{t, TsEventKind::None, make_any(42)};
         REQUIRE_FALSE(invalid_none.is_valid());
@@ -864,12 +995,14 @@ TEST_CASE("TsEventAny validation", "[ts_event][validation]") {
     }
 }
 
-TEST_CASE("TsEventAny equality operators", "[ts_event][equality]") {
+TEST_CASE("TsEventAny equality operators", "[ts_event][equality]")
+{
     using namespace std::chrono;
     auto t1 = engine_time_t{microseconds{1000}};
     auto t2 = engine_time_t{microseconds{2000}};
 
-    SECTION("Equal modify events") {
+    SECTION("Equal modify events")
+    {
         auto e1 = TsEventAny::modify(t1, 42);
         auto e2 = TsEventAny::modify(t1, 42);
 
@@ -877,7 +1010,8 @@ TEST_CASE("TsEventAny equality operators", "[ts_event][equality]") {
         REQUIRE_FALSE(e1 != e2);
     }
 
-    SECTION("Modify events with different values") {
+    SECTION("Modify events with different values")
+    {
         auto e1 = TsEventAny::modify(t1, 42);
         auto e2 = TsEventAny::modify(t1, 43);
 
@@ -885,15 +1019,17 @@ TEST_CASE("TsEventAny equality operators", "[ts_event][equality]") {
         REQUIRE(e1 != e2);
     }
 
-    SECTION("Modify events with different times") {
+    SECTION("Modify events with different times")
+    {
         auto e1 = TsEventAny::modify(t1, 42);
         auto e2 = TsEventAny::modify(t2, 42);
 
-        REQUIRE_FALSE(e1 == e2);  // Different times
+        REQUIRE_FALSE(e1 == e2); // Different times
         REQUIRE(e1 != e2);
     }
 
-    SECTION("Different event kinds are not equal") {
+    SECTION("Different event kinds are not equal")
+    {
         auto none_event = TsEventAny::none(t1);
         auto invalidate_event = TsEventAny::invalidate(t1);
         auto modify_event = TsEventAny::modify(t1, 42);
@@ -903,33 +1039,37 @@ TEST_CASE("TsEventAny equality operators", "[ts_event][equality]") {
         REQUIRE_FALSE(invalidate_event == modify_event);
     }
 
-    SECTION("Equal none events") {
+    SECTION("Equal none events")
+    {
         auto e1 = TsEventAny::none(t1);
         auto e2 = TsEventAny::none(t1);
 
         REQUIRE(e1 == e2);
     }
 
-    SECTION("Equal invalidate events") {
+    SECTION("Equal invalidate events")
+    {
         auto e1 = TsEventAny::invalidate(t1);
         auto e2 = TsEventAny::invalidate(t1);
 
         REQUIRE(e1 == e2);
     }
 
-    SECTION("Recover events with and without values") {
+    SECTION("Recover events with and without values")
+    {
         auto r1 = TsEventAny::recover(t1);
         auto r2 = TsEventAny::recover(t1);
         auto r3 = TsEventAny::recover(t1, 42);
         auto r4 = TsEventAny::recover(t1, 42);
 
-        REQUIRE(r1 == r2);  // Both without value
-        REQUIRE(r3 == r4);  // Both with same value
+        REQUIRE(r1 == r2); // Both without value
+        REQUIRE(r3 == r4); // Both with same value
         // Note: The equality operator treats recover without value as equal to
         // recover with any value, which may be a design choice for optional recovery
     }
 
-    SECTION("Recover events with same value") {
+    SECTION("Recover events with same value")
+    {
         auto r1 = TsEventAny::recover(t1, 3.14);
         auto r2 = TsEventAny::recover(t1, 3.14);
 
@@ -937,15 +1077,18 @@ TEST_CASE("TsEventAny equality operators", "[ts_event][equality]") {
     }
 }
 
-TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
+TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]")
+{
     using namespace std::chrono;
     auto t = engine_time_t{microseconds{1000}};
 
-    SECTION("visit_value_as with modify event") {
+    SECTION("visit_value_as with modify event")
+    {
         auto event = TsEventAny::modify(t, 42);
 
         bool found = false;
-        bool result = event.visit_value_as<int>([&found](int val) {
+        bool result = event.visit_value_as<int>([&found](int val)
+        {
             found = true;
             REQUIRE(val == 42);
         });
@@ -953,17 +1096,20 @@ TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
         REQUIRE(found);
 
         // Wrong type should return false
-        result = event.visit_value_as<double>([](double) {
+        result = event.visit_value_as<double>([](double)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
     }
 
-    SECTION("visit_value_as with string modify event") {
+    SECTION("visit_value_as with string modify event")
+    {
         auto event = TsEventAny::modify(t, std::string("hello"));
 
         bool found = false;
-        bool result = event.visit_value_as<std::string>([&found](const std::string& val) {
+        bool result = event.visit_value_as<std::string>([&found](const std::string& val)
+        {
             found = true;
             REQUIRE(val == "hello");
         });
@@ -971,11 +1117,13 @@ TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
         REQUIRE(found);
     }
 
-    SECTION("visit_value_as with recover event (with value)") {
+    SECTION("visit_value_as with recover event (with value)")
+    {
         auto event = TsEventAny::recover(t, 3.14);
 
         bool found = false;
-        bool result = event.visit_value_as<double>([&found](double val) {
+        bool result = event.visit_value_as<double>([&found](double val)
+        {
             found = true;
             REQUIRE(val == Catch::Approx(3.14));
         });
@@ -983,49 +1131,59 @@ TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
         REQUIRE(found);
     }
 
-    SECTION("visit_value_as with recover event (no value)") {
+    SECTION("visit_value_as with recover event (no value)")
+    {
         auto event = TsEventAny::recover(t);
 
-        bool result = event.visit_value_as<int>([](int) {
+        bool result = event.visit_value_as<int>([](int)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
     }
 
-    SECTION("visit_value_as mutable version") {
+    SECTION("visit_value_as mutable version")
+    {
         auto event = TsEventAny::modify(t, 42);
 
         // Mutable visitor
-        bool result = event.visit_value_as<int>([](int& val) {
+        bool result = event.visit_value_as<int>([](int& val)
+        {
             val = 99; // Modify the value
         });
         REQUIRE(result);
 
         // Verify the modification (through visitor)
-        event.visit_value_as<int>([](int val) {
+        event.visit_value_as<int>([](int val)
+        {
             REQUIRE(val == 99);
         });
     }
 
-    SECTION("visit_value_as with none event") {
+    SECTION("visit_value_as with none event")
+    {
         auto event = TsEventAny::none(t);
 
-        bool result = event.visit_value_as<int>([](int) {
+        bool result = event.visit_value_as<int>([](int)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
     }
 
-    SECTION("visit_value_as with invalidate event") {
+    SECTION("visit_value_as with invalidate event")
+    {
         auto event = TsEventAny::invalidate(t);
 
-        bool result = event.visit_value_as<int>([](int) {
+        bool result = event.visit_value_as<int>([](int)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
     }
 
-    SECTION("visit_value_as with multiple types") {
+    SECTION("visit_value_as with multiple types")
+    {
         std::vector<TsEventAny> events = {
             TsEventAny::modify(t, 42),
             TsEventAny::modify(t, 3.14),
@@ -1035,7 +1193,8 @@ TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
 
         int int_count = 0, double_count = 0, string_count = 0, bool_count = 0;
 
-        for (const auto& event : events) {
+        for (const auto& event : events)
+        {
             if (event.visit_value_as<int>([&int_count](int) { int_count++; })) continue;
             if (event.visit_value_as<double>([&double_count](double) { double_count++; })) continue;
             if (event.visit_value_as<std::string>([&string_count](const std::string&) { string_count++; })) continue;
@@ -1053,8 +1212,10 @@ TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
 // CollectionItem Tests
 // =============================================================================
 
-TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
-    SECTION("visit_key_as and visit_value_as") {
+TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]")
+{
+    SECTION("visit_key_as and visit_value_as")
+    {
         auto item = CollectionItem{
             .kind = ColItemKind::Modify,
             .key = make_any(std::string("key1")),
@@ -1062,7 +1223,8 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
         };
 
         bool key_found = false;
-        bool result = item.visit_key_as<std::string>([&key_found](const std::string& key) {
+        bool result = item.visit_key_as<std::string>([&key_found](const std::string& key)
+        {
             key_found = true;
             REQUIRE(key == "key1");
         });
@@ -1070,7 +1232,8 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
         REQUIRE(key_found);
 
         bool value_found = false;
-        result = item.visit_value_as<int>([&value_found](int val) {
+        result = item.visit_value_as<int>([&value_found](int val)
+        {
             value_found = true;
             REQUIRE(val == 42);
         });
@@ -1078,33 +1241,38 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
         REQUIRE(value_found);
     }
 
-    SECTION("visit with wrong types") {
+    SECTION("visit with wrong types")
+    {
         auto item = CollectionItem{
             .kind = ColItemKind::Modify,
             .key = make_any(123),
             .value = make_any(3.14)
         };
 
-        bool result = item.visit_key_as<std::string>([](const std::string&) {
+        bool result = item.visit_key_as<std::string>([](const std::string&)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
 
-        result = item.visit_value_as<int>([](int) {
+        result = item.visit_value_as<int>([](int)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
     }
 
-    SECTION("visit with Remove item (no value)") {
+    SECTION("visit with Remove item (no value)")
+    {
         auto item = CollectionItem{
             .kind = ColItemKind::Remove,
             .key = make_any(std::string("key2")),
-            .value = {}  // Empty AnyValue
+            .value = {} // Empty AnyValue
         };
 
         bool key_found = false;
-        bool result = item.visit_key_as<std::string>([&key_found](const std::string& key) {
+        bool result = item.visit_key_as<std::string>([&key_found](const std::string& key)
+        {
             key_found = true;
             REQUIRE(key == "key2");
         });
@@ -1112,13 +1280,15 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
         REQUIRE(key_found);
 
         // Value visitor should return false for Remove items
-        result = item.visit_value_as<int>([](int) {
+        result = item.visit_value_as<int>([](int)
+        {
             REQUIRE(false); // Should not be called
         });
         REQUIRE_FALSE(result);
     }
 
-    SECTION("visit_value_as mutable version") {
+    SECTION("visit_value_as mutable version")
+    {
         auto item = CollectionItem{
             .kind = ColItemKind::Modify,
             .key = make_any(1),
@@ -1126,13 +1296,15 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
         };
 
         bool result = const_cast<CollectionItem&>(item)
-            .visit_value_as<int>([](int& val) {
+            .visit_value_as<int>([](int& val)
+            {
                 val = 100;
             });
         REQUIRE(result);
 
         // Verify modification
-        item.visit_value_as<int>([](int val) {
+        item.visit_value_as<int>([](int val)
+        {
             REQUIRE(val == 100);
         });
     }
@@ -1142,13 +1314,15 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
 // TsCollectionEventAny Fluent Builder Tests
 // =============================================================================
 
-TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]") {
-    SECTION("Fluent add_modify chain") {
+TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]")
+{
+    SECTION("Fluent add_modify chain")
+    {
         TsCollectionEventAny event;
 
         auto& result = event.add_modify(make_any(1), make_any(10))
-                           .add_modify(make_any(2), make_any(20))
-                           .add_modify(make_any(3), make_any(30));
+                            .add_modify(make_any(2), make_any(20))
+                            .add_modify(make_any(3), make_any(30));
 
         REQUIRE(&result == &event); // Should return reference to same object
         REQUIRE(event.items.size() == 3);
@@ -1157,11 +1331,12 @@ TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]") {
         REQUIRE(event.items[2].kind == ColItemKind::Modify);
     }
 
-    SECTION("Fluent add_reset chain") {
+    SECTION("Fluent add_reset chain")
+    {
         TsCollectionEventAny event;
 
         auto& result = event.add_reset(make_any(1))
-                           .add_reset(make_any(2));
+                            .add_reset(make_any(2));
 
         REQUIRE(&result == &event);
         REQUIRE(event.items.size() == 2);
@@ -1169,12 +1344,13 @@ TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]") {
         REQUIRE(event.items[1].kind == ColItemKind::Reset);
     }
 
-    SECTION("Fluent remove chain") {
+    SECTION("Fluent remove chain")
+    {
         TsCollectionEventAny event;
 
         auto& result = event.remove(make_any(1))
-                           .remove(make_any(2))
-                           .remove(make_any(3));
+                            .remove(make_any(2))
+                            .remove(make_any(3));
 
         REQUIRE(&result == &event);
         REQUIRE(event.items.size() == 3);
@@ -1183,13 +1359,14 @@ TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]") {
         REQUIRE(event.items[2].kind == ColItemKind::Remove);
     }
 
-    SECTION("Mixed fluent operations") {
+    SECTION("Mixed fluent operations")
+    {
         TsCollectionEventAny event;
 
         auto& result = event.add_reset(make_any(1))
-                           .add_modify(make_any(2), make_any(20))
-                           .remove(make_any(3))
-                           .add_modify(make_any(1), make_any(15));
+                            .add_modify(make_any(2), make_any(20))
+                            .remove(make_any(3))
+                            .add_modify(make_any(1), make_any(15));
 
         REQUIRE(&result == &event);
         REQUIRE(event.items.size() == 4);
