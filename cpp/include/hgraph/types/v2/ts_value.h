@@ -25,10 +25,16 @@ namespace hgraph
     {
         using impl_ptr = std::shared_ptr<TimeSeriesValueImpl>;
 
-        // Constructor with parent node that provides time
+        // Constructor with parent node and value type
+        template <ParentNode P, typename T>
+        explicit TimeSeriesValueOutput(P *parent, const std::type_info& value_type = typeid(T))
+            : _impl(std::make_shared<SimplePeeredImpl>(value_type))
+              , _parent(static_cast<Notifiable *>(parent)) { if (!_parent) { throw std::runtime_error("Parent cannot be null"); } }
+
+        // Constructor with parent node only (for generic/dynamic typing)
         template <ParentNode P>
-        explicit TimeSeriesValueOutput(P *parent)
-            : _impl(std::make_shared<SimplePeeredImpl>())
+        explicit TimeSeriesValueOutput(P *parent, const std::type_info& value_type)
+            : _impl(std::make_shared<SimplePeeredImpl>(value_type))
               , _parent(static_cast<Notifiable *>(parent)) { if (!_parent) { throw std::runtime_error("Parent cannot be null"); } }
 
         // Value access (returns AnyValue)
@@ -82,14 +88,29 @@ namespace hgraph
     {
         using impl_ptr = std::shared_ptr<TimeSeriesValueImpl>;
 
-        // Constructor with parent node that provides time and notification
+        // Constructor with parent node and value type
+        template <ParentNode P, typename T>
+        explicit TimeSeriesValueInput(P *parent, const std::type_info& value_type = typeid(T))
+            : _impl(std::make_shared<NonBoundImpl>(value_type))
+              , _parent(static_cast<Notifiable *>(parent)) {}
+
+        // Constructor with parent node only (for generic/dynamic typing)
         template <ParentNode P>
-        explicit TimeSeriesValueInput(P *parent)
-            : _impl(std::make_shared<NonBoundImpl>())
+        explicit TimeSeriesValueInput(P *parent, const std::type_info& value_type)
+            : _impl(std::make_shared<NonBoundImpl>(value_type))
               , _parent(static_cast<Notifiable *>(parent)) {}
 
         // Bind to output (shares impl)
         void bind_output(TimeSeriesValueOutput *output) {
+            // Type validation: ensure input and output types match
+            if (_impl->value_type() != output->get_impl()->value_type()) {
+                throw std::runtime_error(
+                    std::string("Type mismatch in bind_output: input expects ") +
+                    _impl->value_type().name() + " but output provides " +
+                    output->get_impl()->value_type().name()
+                );
+            }
+
             // Get active state from current impl before switching
             bool was_active = _impl->active(reinterpret_cast<Notifiable *>(this));
 
