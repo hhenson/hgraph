@@ -71,12 +71,15 @@ namespace hgraph {
             reset();
             constexpr std::size_t t_align = alignof(T);
             constexpr std::size_t t_size = sizeof(T);
+            // SBO strategy: inline if size fits AND alignment requirement is satisfied
+            // Note: storage_ is aligned to Align (typically alignof(std::max_align_t))
+            // If t_align < Align, storage may be over-aligned, but this is safe and preferred for simplicity
             if (t_size <= SBO && t_align <= Align) {
-                // Inline
+                // Inline storage (Small Buffer Optimization)
                 new (storage_ptr()) T(std::forward<Args>(args)...);
                 using_heap_ = false;
             } else {
-                // Heap
+                // Heap allocation (type too large or requires stricter alignment)
                 T* p = new T(std::forward<Args>(args)...);
                 std::memcpy(storage_, &p, sizeof(T*));
                 using_heap_ = true;
@@ -105,7 +108,8 @@ namespace hgraph {
             using U = std::remove_reference_t<T>;
             U* p = std::addressof(ref);
             std::memcpy(storage_, &p, sizeof(U*));
-            using_heap_ = true; // ensures get_ptr() returns the pointer stored in storage_
+            // Mark as heap-allocated so get_ptr() dereferences the stored pointer rather than returning storage_ address
+            using_heap_ = true;
             vtable_ = &ref_vtable_for<U>();
             return ref;
         }
@@ -134,6 +138,25 @@ namespace hgraph {
         // Hash of the contained value (type-aware). Returns 0 if empty.
         [[nodiscard]] std::size_t hash_code() const noexcept {
             return vtable_ ? vtable_->hash(*this) : 0;
+        }
+
+        /// Returns the actual storage size used by the contained value.
+        /// For heap-allocated values, returns sizeof(void*) (the pointer size).
+        /// For inline values, returns the SBO buffer size.
+        /// Returns 0 if empty.
+        [[nodiscard]] std::size_t storage_size() const noexcept {
+            if (!vtable_) return 0;
+            return using_heap_ ? sizeof(void*) : SBO;
+        }
+
+        /// Returns true if the value is stored inline (using SBO), false if heap-allocated or empty.
+        [[nodiscard]] bool is_inline() const noexcept {
+            return vtable_ && !using_heap_;
+        }
+
+        /// Returns true if the value is heap-allocated, false if inline or empty.
+        [[nodiscard]] bool is_heap_allocated() const noexcept {
+            return using_heap_;
         }
 
     private:
@@ -236,7 +259,7 @@ namespace hgraph {
                     } else {
                         const std::size_t th = std::hash<const void*>{}(self.vtable_->type.info);
                         const std::size_t ph = std::hash<const void*>{}(static_cast<const void*>(p));
-                        // boost::hash_combine style
+                        // boost::hash_combine style using golden ratio constant (2^64 / phi)
                         return th ^ (ph + 0x9e3779b97f4a7c15ull + (th << 6) + (th >> 2));
                     }
                 },
@@ -283,10 +306,10 @@ namespace hgraph {
                     const T* p = *reinterpret_cast<T* const*>(src.storage_);
                     dst.template emplace<T>(*p);
                 },
-                // move => same as copy (destination gets owned, source remains a ref)
+                // move => materialize owned copy in destination; source ref remains valid (refs are non-owning)
                 [](AnyValue& dst, AnyValue& src) noexcept {
                     const T* p = *reinterpret_cast<T* const*>(src.storage_);
-                    (void) src;
+                    // Note: src is intentionally not modified - references remain valid after "move"
                     dst.template emplace<T>(*p);
                 },
                 // destroy => no-op for borrowed references
