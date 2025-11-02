@@ -494,7 +494,8 @@ namespace hgraph
     bool TimeSeriesOutput::modified() const
     {
         auto g = owning_graph();
-        if (!g) { return false; }
+        if (!g) {
+        return false; }
         return g->evaluation_clock()->evaluation_time() == _last_modified_time;
     }
 

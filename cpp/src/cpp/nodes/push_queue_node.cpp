@@ -109,8 +109,8 @@ namespace hgraph
             }
 
             if (has_sentinel) {
-                if (_elide || output()->can_apply_result(message)) {
-                    output()->apply_result(std::move(message));
+                if (_elide || output()->can_apply_result(message))
+                {    output()->apply_result(std::move(message));
                     ++_messages_dequeued;
                     return true;
                 }
