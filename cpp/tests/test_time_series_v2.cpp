@@ -393,7 +393,7 @@ TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]"
     REQUIRE(*v.get_if<std::string>() == "hello");
 }
 
-TEST_CASE("AnyValue reference: hash matches value hash and is stable across materialization", "[any][ref][hash]") {
+TEST_CASE("AnyValue reference: hash stable across materialization", "[any][ref][hash]") {
     int64_t x = 42;
     AnyValue<> r; r.emplace_ref(x);
     const auto h_ref = r.hash_code();
