@@ -1,4 +1,5 @@
 #include <hgraph/types/ts.h>
+#include <hgraph/types/node.h>
 #include <hgraph/util/string_utils.h>
 
 namespace hgraph
@@ -8,13 +9,13 @@ namespace hgraph
     template <typename T>
     TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const node_ptr &parent)
         : TimeSeriesOutput(parent)
-        , _ts_output(static_cast<Notifiable*>(this), typeid(T))
+        , _ts_output(static_cast<Notifiable*>(const_cast<Node*>(parent.get())), typeid(T))
     {}
 
     template <typename T>
     TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const TimeSeriesType::ptr &parent)
         : TimeSeriesOutput(parent)
-        , _ts_output(static_cast<Notifiable*>(this), typeid(T))
+        , _ts_output(static_cast<Notifiable*>(const_cast<TimeSeriesType*>(parent.get())), typeid(T))
     {}
 
     template <typename T>
@@ -110,13 +111,13 @@ namespace hgraph
     template <typename T>
     TimeSeriesValueInput<T>::TimeSeriesValueInput(const node_ptr &parent)
         : TimeSeriesInput(parent)
-        , _ts_input(static_cast<Notifiable*>(this), typeid(T))
+        , _ts_input(static_cast<Notifiable*>(const_cast<Node*>(parent.get())), typeid(T))
     {}
 
     template <typename T>
     TimeSeriesValueInput<T>::TimeSeriesValueInput(const TimeSeriesType::ptr &parent)
         : TimeSeriesInput(parent)
-        , _ts_input(static_cast<Notifiable*>(this), typeid(T))
+        , _ts_input(static_cast<Notifiable*>(const_cast<TimeSeriesType*>(parent.get())), typeid(T))
     {}
 
     template <typename T>

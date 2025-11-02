@@ -9,6 +9,9 @@ add_executable(hgraph_ts_v2_tests
         ../src/cpp/types/v2/ts_value.cpp
 )
 
+# Note: ts_value.cpp is compiled here because tests use TSOutput/TSInput directly
+# This doesn't require nanobind symbols since we're not using the template wrappers
+
 # Inherit include dirs from parent (Python, nanobind, project includes)
 # Link Catch2 and fmt if available via parent FetchContent
 
@@ -20,6 +23,9 @@ target_compile_features(hgraph_ts_v2_tests PRIVATE cxx_std_23)
 
 # Note: HGRAPH_WITH_PYTHON_TOSTRING is NOT enabled for tests
 # Tests are standalone executables and don't have Python runtime available
+
+# Define NB_STATIC to ensure nanobind provides intrusive_counter implementations
+target_compile_definitions(hgraph_ts_v2_tests PRIVATE NB_STATIC=1)
 
 include(CTest)
 # Register the test executable explicitly with CTest
