@@ -344,9 +344,9 @@ namespace hgraph {
             return storage_ptr();
         }
 
-        alignas(Align) unsigned char storage_[SBO];
         const VTable* vtable_;
         bool using_heap_;
+        alignas(Align) unsigned char storage_[SBO];
     };
 
     // String formatting helper for AnyValue (implemented in ts_event.cpp)
