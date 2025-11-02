@@ -1406,8 +1406,8 @@ TEST_CASE (
     SECTION("visit_key_as and visit_value_as")
     {
         auto item = CollectionItem{
-            .kind = ColItemKind::Modify,
             .key = make_any(std::string("key1")),
+            .kind = ColItemKind::Modify,
             .value = make_any(42)
         };
 
@@ -1433,8 +1433,8 @@ TEST_CASE (
     SECTION("visit with wrong types")
     {
         auto item = CollectionItem{
-            .kind = ColItemKind::Modify,
             .key = make_any(123),
+            .kind = ColItemKind::Modify,
             .value = make_any(3.14)
         };
 
@@ -1454,8 +1454,8 @@ TEST_CASE (
     SECTION("visit with Remove item (no value)")
     {
         auto item = CollectionItem{
-            .kind = ColItemKind::Remove,
             .key = make_any(std::string("key2")),
+            .kind = ColItemKind::Remove,
             .value = {} // Empty AnyValue
         };
 
@@ -1479,8 +1479,8 @@ TEST_CASE (
     SECTION("visit_value_as mutable version")
     {
         auto item = CollectionItem{
-            .kind = ColItemKind::Modify,
             .key = make_any(1),
+            .kind = ColItemKind::Modify,
             .value = make_any(42)
         };
 
