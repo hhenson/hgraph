@@ -63,8 +63,8 @@ namespace hgraph {
             using_heap_ = false;
         }
 
-        bool has_value() const noexcept { return vtable_ != nullptr; }
-        TypeId type() const noexcept { return has_value() ? vtable_->type : TypeId{}; }
+        [[nodiscard]] bool has_value() const noexcept { return vtable_ != nullptr; }
+        [[nodiscard]] TypeId type() const noexcept { return has_value() ? vtable_->type : TypeId{}; }
 
         template <class T, class... Args>
         T& emplace(Args&&... args) {
@@ -111,7 +111,7 @@ namespace hgraph {
         }
 
         // Is the currently held object a borrowed reference?
-        bool is_reference() const noexcept { return vtable_ && vtable_->is_reference; }
+        [[nodiscard]] bool is_reference() const noexcept { return vtable_ && vtable_->is_reference; }
 
         // Convert a borrowed reference into an owned value in-place.
         void ensure_owned() {
@@ -132,7 +132,7 @@ namespace hgraph {
         }
 
         // Hash of the contained value (type-aware). Returns 0 if empty.
-        std::size_t hash_code() const noexcept {
+        [[nodiscard]] std::size_t hash_code() const noexcept {
             return vtable_ ? vtable_->hash(*this) : 0;
         }
 
@@ -333,13 +333,13 @@ namespace hgraph {
         }
 
         void* storage_ptr() noexcept { return static_cast<void*>(storage_); }
-        const void* storage_ptr() const noexcept { return static_cast<const void*>(storage_); }
+        [[nodiscard]] const void* storage_ptr() const noexcept { return static_cast<const void*>(storage_); }
 
         void* get_ptr() noexcept {
             if (using_heap_) return static_cast<void*>(*reinterpret_cast<void**>(storage_));
             return storage_ptr();
         }
-        const void* get_ptr() const noexcept {
+        [[nodiscard]] const void* get_ptr() const noexcept {
             if (using_heap_) return static_cast<const void*>(*reinterpret_cast<void* const*>(storage_));
             return storage_ptr();
         }
