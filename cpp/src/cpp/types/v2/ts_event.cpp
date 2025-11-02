@@ -1,4 +1,4 @@
-#include <hgraph/types/v2/time_series.h>
+#include <hgraph/types/v2/ts_event.h>
 #include <sstream>
 #include <chrono>
 #include <iomanip>

@@ -1,5 +1,5 @@
-#ifndef HGRAPH_CPP_ROOT_TIME_SERIES_H
-#define HGRAPH_CPP_ROOT_TIME_SERIES_H
+#ifndef HGRAPH_CPP_ROOT_TS_EVENT_H
+#define HGRAPH_CPP_ROOT_TS_EVENT_H
 
 #include <cstddef>
 #include <cstdint>
@@ -273,4 +273,4 @@ namespace std {
     };
 }
 
-#endif // HGRAPH_CPP_ROOT_TIME_SERIES_H
+#endif // HGRAPH_CPP_ROOT_TS_EVENT_H

@@ -2,7 +2,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
-#include "hgraph/types/v2/time_series.h"
+#include "hgraph/types/v2/ts_event.h"
 #include <string>
 #include <vector>
 #include <typeinfo>
@@ -256,4 +256,91 @@ TEST_CASE("to_string for TsValueAny", "[time_series][value][string]") {
     auto v_str = TsValueAny::of(std::string("hello"));
     auto s_val = to_string(v_str);
     REQUIRE(s_val.find("value=hello") != std::string::npos);
+}
+
+
+// ---------------- Collection event tests ----------------
+TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_series][collection][event]") {
+    engine_time_t t{};
+
+    // None
+    auto e_none = TsCollectionEventAny::none(t);
+    REQUIRE(e_none.kind == TsEventKind::None);
+    REQUIRE(e_none.items.empty());
+
+    // Invalidate
+    auto e_inv = TsCollectionEventAny::invalidate(t);
+    REQUIRE(e_inv.kind == TsEventKind::Invalidate);
+    REQUIRE(e_inv.items.empty());
+
+    // Modify and add items
+    auto e_mod = TsCollectionEventAny::modify(t);
+    REQUIRE(e_mod.kind == TsEventKind::Modify);
+    REQUIRE(e_mod.items.empty());
+
+    // add modify: key=int64_t(1), value=double(3.5)
+    AnyKey k1; k1.emplace<int64_t>(1);
+    AnyValue<> v1; v1.emplace<double>(3.5);
+    e_mod.add_modify(std::move(k1), std::move(v1));
+
+    // add reset: key=int64_t(2)
+    AnyKey k2; k2.emplace<int64_t>(2);
+    e_mod.add_reset(std::move(k2));
+
+    // remove: key=std::string("gone")
+    AnyKey r1; r1.emplace<std::string>("gone");
+    e_mod.remove(std::move(r1));
+
+    REQUIRE(e_mod.items.size() == 3);
+
+    // Inspect first add/modify
+    const auto &it0 = e_mod.items[0];
+    REQUIRE(it0.kind == ColItemKind::Modify);
+    auto pkey0 = it0.key.get_if<int64_t>();
+    REQUIRE(pkey0 != nullptr);
+    REQUIRE(*pkey0 == 1);
+    auto pval0 = it0.value.get_if<double>();
+    REQUIRE(pval0 != nullptr);
+    REQUIRE(*pval0 == Catch::Approx(3.5));
+
+    // Inspect second (reset)
+    const auto &it1 = e_mod.items[1];
+    REQUIRE(it1.kind == ColItemKind::Reset);
+    auto pkey1 = it1.key.get_if<int64_t>();
+    REQUIRE(pkey1 != nullptr);
+    REQUIRE(*pkey1 == 2);
+    REQUIRE_FALSE(it1.value.has_value());
+
+    // Inspect third (remove)
+    const auto &it2 = e_mod.items[2];
+    REQUIRE(it2.kind == ColItemKind::Remove);
+    auto prk = it2.key.get_if<std::string>();
+    REQUIRE(prk != nullptr);
+    REQUIRE(*prk == std::string("gone"));
+}
+
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][string]") {
+    engine_time_t t{};
+    auto e = TsCollectionEventAny::modify(t);
+
+    AnyKey k1; k1.emplace<int64_t>(7);
+    AnyValue<> v1; v1.emplace<std::string>("hello");
+    e.add_modify(std::move(k1), std::move(v1));
+
+    AnyKey k2; k2.emplace<int64_t>(8);
+    e.add_reset(std::move(k2));
+
+    AnyKey r; r.emplace<int64_t>(9);
+    e.remove(std::move(r));
+
+    auto s = to_string(e);
+    REQUIRE(s.find("TsCollectionEventAny{") != std::string::npos);
+    REQUIRE(s.find("kind=Modify") != std::string::npos);
+    REQUIRE(s.find("items=") != std::string::npos);
+    REQUIRE(s.find("key=7") != std::string::npos);
+    REQUIRE(s.find("value=hello") != std::string::npos);
+    REQUIRE(s.find("Reset") != std::string::npos);
+    REQUIRE(s.find("Remove") != std::string::npos);
 }
