@@ -471,3 +471,62 @@ TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection
     // items list printed only when kind==Modify
     REQUIRE(s.find("items=") == std::string::npos);
 }
+
+
+// ---- AnyValue optional less-than tests ----
+TEST_CASE("AnyValue < : comparable primitives", "[any][lt]") {
+    AnyValue<> a; a.emplace<int64_t>(1);
+    AnyValue<> b; b.emplace<int64_t>(2);
+    AnyValue<> c; c.emplace<int64_t>(2);
+
+    REQUIRE(a < b);
+    REQUIRE_FALSE(b < a);
+    REQUIRE_FALSE(b < c);
+
+    AnyValue<> d; d.emplace<double>(3.14);
+    AnyValue<> e; e.emplace<double>(6.28);
+    REQUIRE(d < e);
+    REQUIRE_FALSE(e < d);
+
+    AnyValue<> s1; s1.emplace<std::string>("abc");
+    AnyValue<> s2; s2.emplace<std::string>("abd");
+    REQUIRE(s1 < s2);
+    REQUIRE_FALSE(s2 < s1);
+}
+
+TEST_CASE("AnyValue < : reference vs owned", "[any][lt][ref]") {
+    std::string referent = "b";
+    AnyValue<> r; r.emplace_ref(referent);
+
+    AnyValue<> o; o.emplace<std::string>("c");
+    REQUIRE(r < o);
+    REQUIRE_FALSE(o < r);
+
+    // mutate referent; comparison should reflect new value through reference
+    referent = "d";
+    REQUIRE_FALSE(r < o); // "d" < "c" is false
+    REQUIRE(o < r);       // "c" < "d" is true
+}
+
+TEST_CASE("AnyValue < : type mismatch throws", "[any][lt][throws]") {
+    AnyValue<> i; i.emplace<int64_t>(1);
+    AnyValue<> d; d.emplace<double>(2.0);
+    REQUIRE_THROWS_AS((void)(i < d), std::runtime_error);
+    REQUIRE_THROWS_AS((void)(d < i), std::runtime_error);
+}
+
+TEST_CASE("AnyValue < : unsupported type throws", "[any][lt][throws]") {
+    struct NoLess { int x; };
+    AnyValue<> a; a.emplace<NoLess>(NoLess{1});
+    AnyValue<> b; b.emplace<NoLess>(NoLess{2});
+    REQUIRE_THROWS_AS((void)(a < b), std::runtime_error);
+}
+
+TEST_CASE("AnyValue < : empty comparisons", "[any][lt][empty]") {
+    AnyValue<> e1, e2;
+    REQUIRE_FALSE(e1 < e2); // both empty => false
+
+    AnyValue<> v; v.emplace<int64_t>(1);
+    REQUIRE_THROWS_AS((void)(e1 < v), std::runtime_error);
+    REQUIRE_THROWS_AS((void)(v < e1), std::runtime_error);
+}
