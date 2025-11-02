@@ -15,186 +15,12 @@
 #include "hgraph/util/date_time.h"
 #include "hgraph/hgraph_export.h"
 #include <nanobind/nanobind.h>
+#include "hgraph/types/v2/any_value.h"
 
 namespace hgraph {
 
     namespace nb = nanobind;
 
-    // Small buffer size defaults: match nb::object size to satisfy current largest payload requirement
-    inline constexpr std::size_t HGRAPH_TS_VALUE_SBO = sizeof(nb::object);
-    inline constexpr std::size_t HGRAPH_TS_ALIGN = alignof(std::max_align_t);
-
-    // Type-id wrapper (can be replaced with a stable hashed id later)
-    struct HGRAPH_EXPORT TypeId {
-        const std::type_info* info{};
-    };
-
-    HGRAPH_EXPORT bool operator==(TypeId a, TypeId b);
-
-    template <std::size_t SBO = HGRAPH_TS_VALUE_SBO, std::size_t Align = HGRAPH_TS_ALIGN>
-    class AnyValue {
-    public:
-        AnyValue() noexcept : vtable_(nullptr), using_heap_(false) {}
-
-        AnyValue(const AnyValue& other) : vtable_(nullptr), using_heap_(false) {
-            if (other.vtable_) other.vtable_->copy(*this, other);
-        }
-        AnyValue(AnyValue&& other) noexcept : vtable_(nullptr), using_heap_(false) {
-            if (other.vtable_) other.vtable_->move(*this, other);
-        }
-        AnyValue& operator=(const AnyValue& other) {
-            if (this != &other) {
-                reset();
-                if (other.vtable_) other.vtable_->copy(*this, other);
-            }
-            return *this;
-        }
-        AnyValue& operator=(AnyValue&& other) noexcept {
-            if (this != &other) {
-                reset();
-                if (other.vtable_) other.vtable_->move(*this, other);
-            }
-            return *this;
-        }
-        ~AnyValue() { reset(); }
-
-        void reset() noexcept {
-            if (vtable_) vtable_->destroy(*this);
-            vtable_ = nullptr;
-            using_heap_ = false;
-        }
-
-        bool has_value() const noexcept { return vtable_ != nullptr; }
-        TypeId type() const noexcept { return has_value() ? vtable_->type : TypeId{}; }
-
-        template <class T, class... Args>
-        T& emplace(Args&&... args) {
-            reset();
-            constexpr std::size_t t_align = alignof(T);
-            constexpr std::size_t t_size = sizeof(T);
-            if (t_size <= SBO && t_align <= Align) {
-                // Inline
-                new (storage_ptr()) T(std::forward<Args>(args)...);
-                using_heap_ = false;
-            } else {
-                // Heap
-                T* p = new T(std::forward<Args>(args)...);
-                std::memcpy(storage_, &p, sizeof(T*));
-                using_heap_ = true;
-            }
-            vtable_ = &vtable_for<T>();
-            return *reinterpret_cast<T*>(get_ptr());
-        }
-
-        template <class T>
-        T* get_if() noexcept {
-            if (!vtable_ || vtable_->type.info != &typeid(T)) return nullptr;
-            return reinterpret_cast<T*>(get_ptr());
-        }
-        template <class T>
-        const T* get_if() const noexcept {
-            if (!vtable_ || vtable_->type.info != &typeid(T)) return nullptr;
-            return reinterpret_cast<const T*>(get_ptr());
-        }
-
-        // Hash of the contained value (type-aware). Returns 0 if empty.
-        std::size_t hash_code() const noexcept {
-            return vtable_ ? vtable_->hash(*this) : 0;
-        }
-
-    private:
-        struct VTable {
-            TypeId type;
-            void (*copy)(AnyValue&, const AnyValue&);
-            void (*move)(AnyValue&, AnyValue&) noexcept;
-            void (*destroy)(AnyValue&) noexcept;
-            std::size_t (*hash)(const AnyValue&) noexcept;
-        };
-
-        template <class T>
-        static const VTable& vtable_for() {
-            static const VTable vt{
-                TypeId{&typeid(T)},
-                // copy
-                [](AnyValue& dst, const AnyValue& src) {
-                    if (src.using_heap_) {
-                        auto* sp = *reinterpret_cast<T* const*>(src.storage_);
-                        T* np = new T(*sp);
-                        std::memcpy(dst.storage_, &np, sizeof(T*));
-                        dst.using_heap_ = true;
-                    } else {
-                        new (dst.storage_ptr()) T(*reinterpret_cast<const T*>(src.storage_ptr()));
-                        dst.using_heap_ = false;
-                    }
-                    dst.vtable_ = &vtable_for<T>();
-                },
-                // move
-                [](AnyValue& dst, AnyValue& src) noexcept {
-                    if (src.using_heap_) {
-                        auto* sp = *reinterpret_cast<T**>(src.storage_);
-                        std::memcpy(dst.storage_, &sp, sizeof(T*));
-                        dst.using_heap_ = true;
-                        // release src
-                        *reinterpret_cast<T**>(src.storage_) = nullptr;
-                    } else {
-                        new (dst.storage_ptr()) T(std::move(*reinterpret_cast<T*>(src.storage_ptr())));
-                        dst.using_heap_ = false;
-                        reinterpret_cast<T*>(src.storage_ptr())->~T();
-                    }
-                    dst.vtable_ = &vtable_for<T>();
-                    src.vtable_ = nullptr;
-                    src.using_heap_ = false;
-                },
-                // destroy
-                [](AnyValue& self) noexcept {
-                    if (!self.vtable_) return;
-                    if (self.using_heap_) {
-                        auto* p = *reinterpret_cast<T**>(self.storage_);
-                        delete p;
-                        *reinterpret_cast<T**>(self.storage_) = nullptr;
-                    } else {
-                        reinterpret_cast<T*>(self.storage_ptr())->~T();
-                    }
-                },
-                // hash
-                [](const AnyValue& self) noexcept -> std::size_t {
-                    if (!self.vtable_) return 0u;
-                    const T* p = nullptr;
-                    if (self.using_heap_) {
-                        p = *reinterpret_cast<T* const*>(self.storage_);
-                    } else {
-                        p = reinterpret_cast<const T*>(self.storage_ptr());
-                    }
-                    // Prefer std::hash<T> if available; otherwise hash the pointer and type id
-                    if constexpr (requires(const T& x) { { std::hash<T>{}(x) } -> std::convertible_to<std::size_t>; }) {
-                        return std::hash<T>{}(*p);
-                    } else {
-                        const std::size_t th = std::hash<const void*>{}(self.vtable_->type.info);
-                        const std::size_t ph = std::hash<const void*>{}(static_cast<const void*>(p));
-                        // boost::hash_combine style
-                        return th ^ (ph + 0x9e3779b97f4a7c15ull + (th << 6) + (th >> 2));
-                    }
-                }
-            };
-            return vt;
-        }
-
-        void* storage_ptr() noexcept { return static_cast<void*>(storage_); }
-        const void* storage_ptr() const noexcept { return static_cast<const void*>(storage_); }
-
-        void* get_ptr() noexcept {
-            if (using_heap_) return static_cast<void*>(*reinterpret_cast<void**>(storage_));
-            return storage_ptr();
-        }
-        const void* get_ptr() const noexcept {
-            if (using_heap_) return static_cast<const void*>(*reinterpret_cast<void* const*>(storage_));
-            return storage_ptr();
-        }
-
-        alignas(Align) unsigned char storage_[SBO];
-        const VTable* vtable_;
-        bool using_heap_;
-    };
 
     enum class TsEventKind : std::uint8_t { None = 0, Recover = 1, Invalidate = 2, Modify = 3 };
 
@@ -259,26 +85,10 @@ namespace hgraph {
     };
 
     // String formatting helpers (exported API)
-    HGRAPH_EXPORT std::string to_string(const AnyValue<>& v);
     HGRAPH_EXPORT std::string to_string(const TsEventAny& e);
     HGRAPH_EXPORT std::string to_string(const TsValueAny& v);
     HGRAPH_EXPORT std::string to_string(const TsCollectionEventAny& e);
 
 } // namespace hgraph
-
-namespace std {
-    template<>
-    struct hash<hgraph::TypeId> {
-        size_t operator()(const hgraph::TypeId& id) const noexcept {
-            return std::hash<const void*>{}(id.info);
-        }
-    };
-    template <std::size_t SBO, std::size_t Align>
-    struct hash<hgraph::AnyValue<SBO, Align>> {
-        size_t operator()(const hgraph::AnyValue<SBO, Align>& v) const noexcept {
-            return v.hash_code();
-        }
-    };
-}
 
 #endif // HGRAPH_CPP_ROOT_TS_EVENT_H

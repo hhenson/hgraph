@@ -44,3 +44,5 @@ This represents an event of a collection time-series value, there are four colle
 * **TSB** - The time-series bundle, a named heterogeneous list of time-series values.
 * **TSD** - The time-series dictionary, a name homogeneous list of time-series values of variable size.
 
+The collection event is an event, that implies it has a time and a kind.
+But instead of having a single value it supports a collection of keyed events.
