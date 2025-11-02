@@ -30,59 +30,78 @@ static const char* kind_to_cstr(TsEventKind k) {
 std::string to_string(const AnyValue<>& v) {
     if (!v.has_value()) return std::string("<empty>");
 
-    if (auto p = v.get_if<bool>()) return *p ? "true" : "false";
-    if (auto p = v.get_if<int64_t>()) return std::to_string(*p);
-    if (auto p = v.get_if<double>()) return std::to_string(*p);
-    if (auto p = v.get_if<std::string>()) return *p;
+    // Use visitor pattern for type-safe dispatch
+    std::string result;
+
+    // Try each supported type using visit_as
+    if (v.visit_as<bool>([&result](bool val) {
+        result = val ? "true" : "false";
+    })) return result;
+
+    if (v.visit_as<int64_t>([&result](int64_t val) {
+        result = std::to_string(val);
+    })) return result;
+
+    if (v.visit_as<double>([&result](double val) {
+        result = std::to_string(val);
+    })) return result;
+
+    if (v.visit_as<std::string>([&result](const std::string& val) {
+        result = val;
+    })) return result;
 
     // engine_date_t (YYYY-MM-DD)
-    if (auto p = v.get_if<engine_date_t>()) {
+    if (v.visit_as<engine_date_t>([&result](const engine_date_t& val) {
         std::ostringstream oss;
-        oss << std::setw(4) << std::setfill('0') << static_cast<int>(p->year())
-            << '-' << std::setw(2) << std::setfill('0') << static_cast<unsigned>(p->month())
-            << '-' << std::setw(2) << std::setfill('0') << static_cast<unsigned>(p->day());
-        return oss.str();
-    }
+        oss << std::setw(4) << std::setfill('0') << static_cast<int>(val.year())
+            << '-' << std::setw(2) << std::setfill('0') << static_cast<unsigned>(val.month())
+            << '-' << std::setw(2) << std::setfill('0') << static_cast<unsigned>(val.day());
+        result = oss.str();
+    })) return result;
 
     // engine_time_t (microseconds since epoch)
-    if (auto p = v.get_if<engine_time_t>()) {
+    if (v.visit_as<engine_time_t>([&result](const engine_time_t& val) {
         using namespace std::chrono;
-        auto us = duration_cast<microseconds>(p->time_since_epoch()).count();
-        return std::to_string(us) + "us_since_epoch";
-        }
+        auto us = duration_cast<microseconds>(val.time_since_epoch()).count();
+        result = std::to_string(us) + "us_since_epoch";
+    })) return result;
 
     // engine_time_delta_t (microseconds)
-    if (auto p = v.get_if<engine_time_delta_t>()) {
+    if (v.visit_as<engine_time_delta_t>([&result](const engine_time_delta_t& val) {
         using namespace std::chrono;
-        auto us = duration_cast<microseconds>(*p).count();
-        return std::to_string(us) + "us";
-    }
+        auto us = duration_cast<microseconds>(val).count();
+        result = std::to_string(us) + "us";
+    })) return result;
 
     // nb::object: render via Python str with fallback to repr (enabled only when HGRAPH_WITH_PYTHON_TOSTRING)
 #if defined(HGRAPH_WITH_PYTHON_TOSTRING)
-    if (auto p = v.get_if<nb::object>()) {
+    if (v.visit_as<nb::object>([&result](const nb::object& val) {
         // If the interpreter isn't initialized, avoid calling into Python
         if (!Py_IsInitialized()) {
-            return std::string("<nb::object (Python not initialized)>");
+            result = "<nb::object (Python not initialized)>";
+            return;
         }
         nb::gil_scoped_acquire guard;
         try {
-            return nb::cast<std::string>(nb::str(*p));
+            result = nb::cast<std::string>(nb::str(val));
         } catch (...) {
-            return nb::cast<std::string>(nb::repr(*p));
+            result = nb::cast<std::string>(nb::repr(val));
         }
-    }
+    })) return result;
 #else
     if (v.type().info == &typeid(nb::object)) {
         return std::string("<nb::object>");
     }
 #endif
 
-    // Fallback: type name only (do not dereference unknown types)
-    const char* tn = v.type().info ? v.type().info->name() : "<unknown>";
-    std::ostringstream oss;
-    oss << "<value type=" << tn << ">";
-    return oss.str();
+    // Fallback: use visit_untyped to get type name safely
+    v.visit_untyped([&result](const void*, const std::type_info& ti) {
+        std::ostringstream oss;
+        oss << "<value type=" << ti.name() << ">";
+        result = oss.str();
+    });
+
+    return result;
 }
 
 std::string to_string(const TsEventAny& e) {
