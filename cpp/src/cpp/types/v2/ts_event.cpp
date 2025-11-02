@@ -13,12 +13,14 @@ bool operator==(TypeId a, TypeId b) { return a.info == b.info; }
 
 TsEventAny TsEventAny::none(engine_time_t t) { return {t, TsEventKind::None, {}}; }
 TsEventAny TsEventAny::invalidate(engine_time_t t) { return {t, TsEventKind::Invalidate, {}}; }
+TsEventAny TsEventAny::recover(engine_time_t t) { return {t, TsEventKind::Recover, {}}; }
 
 TsValueAny TsValueAny::none() { return {}; }
 
 static const char* kind_to_cstr(TsEventKind k) {
     switch (k) {
         case TsEventKind::None: return "None";
+        case TsEventKind::Recover: return "Recover";
         case TsEventKind::Invalidate: return "Invalidate";
         case TsEventKind::Modify: return "Modify";
         default: return "?";
@@ -91,7 +93,7 @@ std::string to_string(const TsEventAny& e) {
     auto us = duration_cast<microseconds>(e.time.time_since_epoch()).count();
     oss << "time=" << us << "us_since_epoch";
     oss << ", kind=" << kind_to_cstr(e.kind);
-    if (e.kind == TsEventKind::Modify) {
+    if (e.kind == TsEventKind::Modify || (e.kind == TsEventKind::Recover && e.value.has_value())) {
         oss << ", value=" << to_string(e.value);
     }
     oss << "}";
@@ -113,6 +115,7 @@ std::string to_string(const TsValueAny& v) {
 TsCollectionEventAny TsCollectionEventAny::none(engine_time_t t) { return {t, TsEventKind::None, {}}; }
 TsCollectionEventAny TsCollectionEventAny::invalidate(engine_time_t t) { return {t, TsEventKind::Invalidate, {}}; }
 TsCollectionEventAny TsCollectionEventAny::modify(engine_time_t t) { return {t, TsEventKind::Modify, {}}; }
+TsCollectionEventAny TsCollectionEventAny::recover(engine_time_t t) { return {t, TsEventKind::Recover, {}}; }
 
 void TsCollectionEventAny::add_modify(AnyKey key, AnyValue<> value) {
     if (kind != TsEventKind::Modify) kind = TsEventKind::Modify;

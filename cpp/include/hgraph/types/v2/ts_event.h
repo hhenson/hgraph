@@ -196,18 +196,25 @@ namespace hgraph {
         bool using_heap_;
     };
 
-    enum class TsEventKind : std::uint8_t { None = 0, Invalidate = 1, Modify = 2 };
+    enum class TsEventKind : std::uint8_t { None = 0, Recover = 1, Invalidate = 2, Modify = 3 };
 
     struct HGRAPH_EXPORT TsEventAny {
         engine_time_t time{};
         TsEventKind kind{TsEventKind::None};
-        AnyValue<> value; // engaged when kind==Modify
+        AnyValue<> value; // engaged when kind==Modify or when kind==Recover and valid
 
         static TsEventAny none(engine_time_t t);
         static TsEventAny invalidate(engine_time_t t);
+        static TsEventAny recover(engine_time_t t);
         template <class T>
         static TsEventAny modify(engine_time_t t, T&& v) {
             TsEventAny e{t, TsEventKind::Modify, {}};
+            e.value.template emplace<std::decay_t<T>>(std::forward<T>(v));
+            return e;
+        }
+        template <class T>
+        static TsEventAny recover(engine_time_t t, T&& v) {
+            TsEventAny e{t, TsEventKind::Recover, {}};
             e.value.template emplace<std::decay_t<T>>(std::forward<T>(v));
             return e;
         }
@@ -243,6 +250,7 @@ namespace hgraph {
         static TsCollectionEventAny none(engine_time_t t);
         static TsCollectionEventAny invalidate(engine_time_t t);
         static TsCollectionEventAny modify(engine_time_t t);
+        static TsCollectionEventAny recover(engine_time_t t);
 
         // Builders (valid only when kind==Modify)
         void add_modify(AnyKey key, AnyValue<> value);
