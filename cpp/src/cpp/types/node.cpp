@@ -1087,6 +1087,12 @@ namespace hgraph
         return fmt::format("{}.{}", signature().wiring_path_name, signature().name);
     }
 
+    engine_time_t Node::current_engine_time() const {
+        auto owning_graph_{graph()};
+        if (owning_graph_ != nullptr) { return owning_graph_->evaluation_clock()->evaluation_time(); }
+        return MIN_DT;
+    }
+
     void Node::start()
     {
         do_start();

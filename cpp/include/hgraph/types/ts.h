@@ -6,6 +6,8 @@
 #define TS_H
 
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/v2/ts_value.h>
+#include <hgraph/types/v2/ts_value_helpers.h>
 
 namespace hgraph
 {
@@ -15,7 +17,9 @@ namespace hgraph
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueOutput<T>>;
 
-        using TimeSeriesOutput::TimeSeriesOutput;
+        // Constructor - delegates to base and creates TSOutput
+        explicit TimeSeriesValueOutput(const node_ptr &parent);
+        explicit TimeSeriesValueOutput(const TimeSeriesType::ptr &parent);
 
         [[nodiscard]] nb::object py_value() const override;
 
@@ -25,7 +29,7 @@ namespace hgraph
 
         void apply_result(nb::object value) override;
 
-        const T& value() const { return _value; }
+        const T& value() const;
 
         void set_value(const T& value);
 
@@ -42,7 +46,7 @@ namespace hgraph
         void reset_value();
 
     private:
-        T _value{};
+        TSOutput _ts_output;
     };
 
     template <typename T>
@@ -51,7 +55,9 @@ namespace hgraph
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueInput<T>>;
 
-        using TimeSeriesInput::TimeSeriesInput;
+        // Constructor - delegates to base and creates TSInput
+        explicit TimeSeriesValueInput(const node_ptr &parent);
+        explicit TimeSeriesValueInput(const TimeSeriesType::ptr &parent);
 
         [[nodiscard]] TimeSeriesValueOutput<T>& value_output();
         [[nodiscard]] const TimeSeriesValueOutput<T>& value_output() const;
@@ -59,6 +65,9 @@ namespace hgraph
         [[nodiscard]] const T& value() const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
+
+    private:
+        TSInput _ts_input;
     };
 
     void register_ts_with_nanobind(nb::module_ & m);
