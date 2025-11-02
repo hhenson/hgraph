@@ -409,7 +409,7 @@ namespace hgraph
     void TimeSeriesOutput::mark_modified() {
         if (has_parent_or_node()) {
             auto g = owning_graph();
-            if (g) {
+            if (g != nullptr) {
                 mark_modified(g->evaluation_clock()->evaluation_time());
             } else {
                 // Graph not yet attached; mark with a maximal time to preserve monotonicity without dereferencing
