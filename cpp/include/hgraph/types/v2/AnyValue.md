@@ -22,5 +22,7 @@ std::hash\<AnyValue\> - To support stl containers.
 
 to_string\<AnyValue\> - To support logging.
 
-== - Equality operator, implemented as friend operator with equal VTABLE entry.
+== - Equality operator, implemented as a friend operator with equal VTABLE entry.
+
+<  - Less than operator, optionally, if the underlying type does not support it, it will throw an exception.
 
