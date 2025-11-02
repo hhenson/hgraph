@@ -815,3 +815,387 @@ TEST_CASE("AnyValue visitor: combined pattern", "[any][visitor]") {
         }
     });
 }
+
+// =============================================================================
+// TsEventAny Tests
+// =============================================================================
+
+// Helper to create AnyValue/AnyKey
+template<typename T>
+static AnyValue<> make_any(T&& value) {
+    AnyValue<> av;
+    av.emplace<std::decay_t<T>>(std::forward<T>(value));
+    return av;
+}
+
+TEST_CASE("TsEventAny validation", "[ts_event][validation]") {
+    using namespace std::chrono;
+    auto t = engine_time_t{microseconds{1000}};
+
+    SECTION("Valid events") {
+        auto none_event = TsEventAny::none(t);
+        REQUIRE(none_event.is_valid());
+
+        auto invalidate_event = TsEventAny::invalidate(t);
+        REQUIRE(invalidate_event.is_valid());
+
+        auto modify_event = TsEventAny::modify(t, 42);
+        REQUIRE(modify_event.is_valid());
+
+        auto recover_no_value = TsEventAny::recover(t);
+        REQUIRE(recover_no_value.is_valid());
+
+        auto recover_with_value = TsEventAny::recover(t, 3.14);
+        REQUIRE(recover_with_value.is_valid());
+    }
+
+    SECTION("Invalid events - manually constructed with wrong value presence") {
+        // None should have no value
+        TsEventAny invalid_none{t, TsEventKind::None, make_any(42)};
+        REQUIRE_FALSE(invalid_none.is_valid());
+
+        // Invalidate should have no value
+        TsEventAny invalid_invalidate{t, TsEventKind::Invalidate, make_any(42)};
+        REQUIRE_FALSE(invalid_invalidate.is_valid());
+
+        // Modify must have value
+        TsEventAny invalid_modify{t, TsEventKind::Modify, {}};
+        REQUIRE_FALSE(invalid_modify.is_valid());
+    }
+}
+
+TEST_CASE("TsEventAny equality operators", "[ts_event][equality]") {
+    using namespace std::chrono;
+    auto t1 = engine_time_t{microseconds{1000}};
+    auto t2 = engine_time_t{microseconds{2000}};
+
+    SECTION("Equal modify events") {
+        auto e1 = TsEventAny::modify(t1, 42);
+        auto e2 = TsEventAny::modify(t1, 42);
+
+        REQUIRE(e1 == e2);
+        REQUIRE_FALSE(e1 != e2);
+    }
+
+    SECTION("Modify events with different values") {
+        auto e1 = TsEventAny::modify(t1, 42);
+        auto e2 = TsEventAny::modify(t1, 43);
+
+        REQUIRE_FALSE(e1 == e2);
+        REQUIRE(e1 != e2);
+    }
+
+    SECTION("Modify events with different times") {
+        auto e1 = TsEventAny::modify(t1, 42);
+        auto e2 = TsEventAny::modify(t2, 42);
+
+        REQUIRE_FALSE(e1 == e2);  // Different times
+        REQUIRE(e1 != e2);
+    }
+
+    SECTION("Different event kinds are not equal") {
+        auto none_event = TsEventAny::none(t1);
+        auto invalidate_event = TsEventAny::invalidate(t1);
+        auto modify_event = TsEventAny::modify(t1, 42);
+
+        REQUIRE_FALSE(none_event == invalidate_event);
+        REQUIRE_FALSE(none_event == modify_event);
+        REQUIRE_FALSE(invalidate_event == modify_event);
+    }
+
+    SECTION("Equal none events") {
+        auto e1 = TsEventAny::none(t1);
+        auto e2 = TsEventAny::none(t1);
+
+        REQUIRE(e1 == e2);
+    }
+
+    SECTION("Equal invalidate events") {
+        auto e1 = TsEventAny::invalidate(t1);
+        auto e2 = TsEventAny::invalidate(t1);
+
+        REQUIRE(e1 == e2);
+    }
+
+    SECTION("Recover events with and without values") {
+        auto r1 = TsEventAny::recover(t1);
+        auto r2 = TsEventAny::recover(t1);
+        auto r3 = TsEventAny::recover(t1, 42);
+        auto r4 = TsEventAny::recover(t1, 42);
+
+        REQUIRE(r1 == r2);  // Both without value
+        REQUIRE(r3 == r4);  // Both with same value
+        // Note: The equality operator treats recover without value as equal to
+        // recover with any value, which may be a design choice for optional recovery
+    }
+
+    SECTION("Recover events with same value") {
+        auto r1 = TsEventAny::recover(t1, 3.14);
+        auto r2 = TsEventAny::recover(t1, 3.14);
+
+        REQUIRE(r1 == r2);
+    }
+}
+
+TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]") {
+    using namespace std::chrono;
+    auto t = engine_time_t{microseconds{1000}};
+
+    SECTION("visit_value_as with modify event") {
+        auto event = TsEventAny::modify(t, 42);
+
+        bool found = false;
+        bool result = event.visit_value_as<int>([&found](int val) {
+            found = true;
+            REQUIRE(val == 42);
+        });
+        REQUIRE(result);
+        REQUIRE(found);
+
+        // Wrong type should return false
+        result = event.visit_value_as<double>([](double) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("visit_value_as with string modify event") {
+        auto event = TsEventAny::modify(t, std::string("hello"));
+
+        bool found = false;
+        bool result = event.visit_value_as<std::string>([&found](const std::string& val) {
+            found = true;
+            REQUIRE(val == "hello");
+        });
+        REQUIRE(result);
+        REQUIRE(found);
+    }
+
+    SECTION("visit_value_as with recover event (with value)") {
+        auto event = TsEventAny::recover(t, 3.14);
+
+        bool found = false;
+        bool result = event.visit_value_as<double>([&found](double val) {
+            found = true;
+            REQUIRE(val == Catch::Approx(3.14));
+        });
+        REQUIRE(result);
+        REQUIRE(found);
+    }
+
+    SECTION("visit_value_as with recover event (no value)") {
+        auto event = TsEventAny::recover(t);
+
+        bool result = event.visit_value_as<int>([](int) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("visit_value_as mutable version") {
+        auto event = TsEventAny::modify(t, 42);
+
+        // Mutable visitor
+        bool result = event.visit_value_as<int>([](int& val) {
+            val = 99; // Modify the value
+        });
+        REQUIRE(result);
+
+        // Verify the modification (through visitor)
+        event.visit_value_as<int>([](int val) {
+            REQUIRE(val == 99);
+        });
+    }
+
+    SECTION("visit_value_as with none event") {
+        auto event = TsEventAny::none(t);
+
+        bool result = event.visit_value_as<int>([](int) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("visit_value_as with invalidate event") {
+        auto event = TsEventAny::invalidate(t);
+
+        bool result = event.visit_value_as<int>([](int) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("visit_value_as with multiple types") {
+        std::vector<TsEventAny> events = {
+            TsEventAny::modify(t, 42),
+            TsEventAny::modify(t, 3.14),
+            TsEventAny::modify(t, std::string("test")),
+            TsEventAny::modify(t, true)
+        };
+
+        int int_count = 0, double_count = 0, string_count = 0, bool_count = 0;
+
+        for (const auto& event : events) {
+            if (event.visit_value_as<int>([&int_count](int) { int_count++; })) continue;
+            if (event.visit_value_as<double>([&double_count](double) { double_count++; })) continue;
+            if (event.visit_value_as<std::string>([&string_count](const std::string&) { string_count++; })) continue;
+            if (event.visit_value_as<bool>([&bool_count](bool) { bool_count++; })) continue;
+        }
+
+        REQUIRE(int_count == 1);
+        REQUIRE(double_count == 1);
+        REQUIRE(string_count == 1);
+        REQUIRE(bool_count == 1);
+    }
+}
+
+// =============================================================================
+// CollectionItem Tests
+// =============================================================================
+
+TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]") {
+    SECTION("visit_key_as and visit_value_as") {
+        auto item = CollectionItem{
+            .kind = ColItemKind::Modify,
+            .key = make_any(std::string("key1")),
+            .value = make_any(42)
+        };
+
+        bool key_found = false;
+        bool result = item.visit_key_as<std::string>([&key_found](const std::string& key) {
+            key_found = true;
+            REQUIRE(key == "key1");
+        });
+        REQUIRE(result);
+        REQUIRE(key_found);
+
+        bool value_found = false;
+        result = item.visit_value_as<int>([&value_found](int val) {
+            value_found = true;
+            REQUIRE(val == 42);
+        });
+        REQUIRE(result);
+        REQUIRE(value_found);
+    }
+
+    SECTION("visit with wrong types") {
+        auto item = CollectionItem{
+            .kind = ColItemKind::Modify,
+            .key = make_any(123),
+            .value = make_any(3.14)
+        };
+
+        bool result = item.visit_key_as<std::string>([](const std::string&) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+
+        result = item.visit_value_as<int>([](int) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("visit with Remove item (no value)") {
+        auto item = CollectionItem{
+            .kind = ColItemKind::Remove,
+            .key = make_any(std::string("key2")),
+            .value = {}  // Empty AnyValue
+        };
+
+        bool key_found = false;
+        bool result = item.visit_key_as<std::string>([&key_found](const std::string& key) {
+            key_found = true;
+            REQUIRE(key == "key2");
+        });
+        REQUIRE(result);
+        REQUIRE(key_found);
+
+        // Value visitor should return false for Remove items
+        result = item.visit_value_as<int>([](int) {
+            REQUIRE(false); // Should not be called
+        });
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("visit_value_as mutable version") {
+        auto item = CollectionItem{
+            .kind = ColItemKind::Modify,
+            .key = make_any(1),
+            .value = make_any(42)
+        };
+
+        bool result = const_cast<CollectionItem&>(item)
+            .visit_value_as<int>([](int& val) {
+                val = 100;
+            });
+        REQUIRE(result);
+
+        // Verify modification
+        item.visit_value_as<int>([](int val) {
+            REQUIRE(val == 100);
+        });
+    }
+}
+
+// =============================================================================
+// TsCollectionEventAny Fluent Builder Tests
+// =============================================================================
+
+TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]") {
+    SECTION("Fluent add_modify chain") {
+        TsCollectionEventAny event;
+
+        auto& result = event.add_modify(make_any(1), make_any(10))
+                           .add_modify(make_any(2), make_any(20))
+                           .add_modify(make_any(3), make_any(30));
+
+        REQUIRE(&result == &event); // Should return reference to same object
+        REQUIRE(event.items.size() == 3);
+        REQUIRE(event.items[0].kind == ColItemKind::Modify);
+        REQUIRE(event.items[1].kind == ColItemKind::Modify);
+        REQUIRE(event.items[2].kind == ColItemKind::Modify);
+    }
+
+    SECTION("Fluent add_reset chain") {
+        TsCollectionEventAny event;
+
+        auto& result = event.add_reset(make_any(1))
+                           .add_reset(make_any(2));
+
+        REQUIRE(&result == &event);
+        REQUIRE(event.items.size() == 2);
+        REQUIRE(event.items[0].kind == ColItemKind::Reset);
+        REQUIRE(event.items[1].kind == ColItemKind::Reset);
+    }
+
+    SECTION("Fluent remove chain") {
+        TsCollectionEventAny event;
+
+        auto& result = event.remove(make_any(1))
+                           .remove(make_any(2))
+                           .remove(make_any(3));
+
+        REQUIRE(&result == &event);
+        REQUIRE(event.items.size() == 3);
+        REQUIRE(event.items[0].kind == ColItemKind::Remove);
+        REQUIRE(event.items[1].kind == ColItemKind::Remove);
+        REQUIRE(event.items[2].kind == ColItemKind::Remove);
+    }
+
+    SECTION("Mixed fluent operations") {
+        TsCollectionEventAny event;
+
+        auto& result = event.add_reset(make_any(1))
+                           .add_modify(make_any(2), make_any(20))
+                           .remove(make_any(3))
+                           .add_modify(make_any(1), make_any(15));
+
+        REQUIRE(&result == &event);
+        REQUIRE(event.items.size() == 4);
+        REQUIRE(event.items[0].kind == ColItemKind::Reset);
+        REQUIRE(event.items[1].kind == ColItemKind::Modify);
+        REQUIRE(event.items[2].kind == ColItemKind::Remove);
+        REQUIRE(event.items[3].kind == ColItemKind::Modify);
+    }
+}
