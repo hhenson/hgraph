@@ -120,6 +120,11 @@ class HttpAdaptorManager:
         self.requests = {}
         self._next_request_id = 1
         self._pyid_to_id = {}
+        self._pending: list[tuple[int, HttpRequest]] = []
+        self._registered_paths_by_port: dict[int, set[str]] = {}
+        self.queue = None
+        self._coalesce: dict[int, HttpRequest] = {}
+        self._flush_scheduled: bool = False
 
     @classmethod
     def instance(cls):
@@ -129,14 +134,47 @@ class HttpAdaptorManager:
 
     def set_queue(self, queue):
         self.queue = queue
+        # Flush any buffered requests that arrived before the queue was available
+        if self.queue is not None and getattr(self, "_pending", None):
+            for rid, req in self._pending:
+                logger.debug(f"Flushing buffered request rid={rid} path={getattr(req, 'url', '?')}")
+                self.queue({rid: req})
+            self._pending.clear()
 
     def start(self, port):
         self.tornado_web = TornadoWeb.instance(port)
 
+        logger.info("HttpAdaptorManager.start: registering %d handler(s) on port %s", len(self.handlers), port)
+        reg = self._registered_paths_by_port.setdefault(port, set())
         for path in self.handlers.keys():
-            self.tornado_web.add_handler(path, HttpHandler, {"path": path, "mgr": self})
+            if path not in reg:
+                logger.info("HttpAdaptorManager.start: add_handler path=%s", path)
+                self.tornado_web.add_handler(path, HttpHandler, {"path": path, "mgr": self})
+                reg.add(path)
 
         self.tornado_web.start()
+
+    def _schedule_flush(self):
+        # Schedule a single flush of coalesced requests onto the engine queue via Tornado IOLoop
+        if self._flush_scheduled or self.queue is None or not self._coalesce:
+            return
+        self._flush_scheduled = True
+        try:
+            TornadoWeb.get_loop().add_callback(self._flush)
+        except Exception:
+            # If no loop yet, fallback to immediate flush
+            self._flush()
+
+    def _flush(self):
+        try:
+            if self.queue is None:
+                return
+            batch = dict(self._coalesce)
+            if batch:
+                self.queue(batch)
+        finally:
+            self._coalesce.clear()
+            self._flush_scheduled = False
 
     def stop(self):
         self.tornado_web.stop()
@@ -153,12 +191,19 @@ class HttpAdaptorManager:
             self._next_request_id += 1
             self._pyid_to_id[pyid] = rid
         try:
+            # Create a Future bound to the current running asyncio loop (Tornado 6 uses asyncio)
+            future = asyncio.get_running_loop().create_future()
+        except Exception:
+            logger.debug("Falling back to asyncio.Future(); no running loop found", exc_info=True)
             future = asyncio.Future()
-        except Exception as e:
-            logger.exception(f"Error creating future")
-            raise e
         self.requests[rid] = future
-        self.queue({rid: request})
+        # If the queue isn't ready yet, buffer the request and flush later in set_queue()
+        if self.queue is None:
+            logger.debug(f"Buffering request rid={rid} for path={getattr(request, 'url', '?')} (queue not ready)")
+            self._pending.append((rid, request))
+        else:
+            logger.debug(f"Enqueue request rid={rid} for path={getattr(request, 'url', '?')}")
+            self.queue({rid: request})
         return future
 
     def complete_request(self, request_id, response):
@@ -173,9 +218,42 @@ class HttpAdaptorManager:
             else:
                 logger.warning(f"Request {request_id} already completed or cancelled.")
 
-    def remove_request(self, request_id):
-        self.queue({request_id: REMOVE_IF_EXISTS})
-        del self.requests[request_id]
+    def remove_request(self, request_pyid):
+        # Translate transient Python object id back to the stable request id and clean up
+        rid = self._pyid_to_id.pop(request_pyid, None)
+        if rid is None:
+            logger.debug(f"remove_request called with unknown pyid={request_pyid}")
+            return
+        # Do NOT push REMOVE into the request TSD; it can cause Sentinels to appear mid-cycle
+        # and break partitioning/field access. Just clean local tracking.
+        future = self.requests.pop(rid, None)
+        if future is not None and not future.done():
+            # Ensure we don't leak a pending future if the client disconnected
+            future.cancel()
+
+    def shutdown(self, path: str | None = None):
+        """Cancel outstanding futures, clear internal state, and drop queue/global references."""
+        # Cancel any outstanding futures
+        for fut in list(self.requests.values()):
+            try:
+                if fut is not None and not fut.done():
+                    fut.cancel()
+            except Exception:
+                logger.debug("Ignoring exception while cancelling pending future", exc_info=True)
+        self.requests.clear()
+        self._pyid_to_id.clear()
+        # Clear any buffered requests
+        try:
+            self._pending.clear()
+        except Exception:
+            pass
+        # Drop queue reference and GlobalState key if provided
+        if path is not None:
+            try:
+                del GlobalState.instance()[f"http_server_adaptor://{path}/queue"]
+            except Exception:
+                pass
+        self.queue = None
 
 
 class HttpHandler(BaseHandler):
@@ -411,7 +489,13 @@ def http_server_adaptor_impl(path: str, port: int):
 
     @push_queue(TSD[int, TS[HttpRequest]])
     def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpRequest]]:
+        # Store the queue sender in GlobalState for discovery and also set it directly on the manager
         GlobalState.instance()[f"http_server_adaptor://{path}/queue"] = sender
+        try:
+            HttpAdaptorManager.instance().set_queue(queue=sender)
+        except Exception:
+            # If the manager isn't ready yet, it will set the queue in to_web_start
+            pass
         return None
 
     @sink_node
@@ -431,8 +515,12 @@ def http_server_adaptor_impl(path: str, port: int):
         _state.mgr.start(port)
 
     @to_web.stop
-    def to_web_stop(_state: STATE):
-        _state.mgr.tornado_web.stop()
+    def to_web_stop(path: str, _state: STATE):
+        try:
+            _state.mgr.shutdown(path)
+        finally:
+            # Stop the server instance; TornadoWeb handles ref counts per port
+            _state.mgr.tornado_web.stop()
 
     requests = from_web()
     requests_by_url = partition(requests, requests.url)

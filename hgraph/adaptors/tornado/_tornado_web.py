@@ -1,5 +1,6 @@
 import time
 from threading import Thread
+import asyncio
 
 import tornado
 from tornado.web import Application
@@ -39,7 +40,7 @@ class TornadoWeb:
             thread.start()
 
             while not cls._started:
-                time.sleep(0.1)
+                time.sleep(0.01)
 
     def start(self):
         if self._started:
