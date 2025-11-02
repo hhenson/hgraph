@@ -141,6 +141,133 @@ TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[t
     REQUIRE(Big::delete_calls == Big::new_calls);
 }
 
+TEST_CASE("AnyValue storage_size: empty container", "[time_series][any][storage]") {
+    AnyValue<> empty;
+    REQUIRE_FALSE(empty.has_value());
+    REQUIRE(empty.storage_size() == 0);
+    REQUIRE_FALSE(empty.is_inline());
+    REQUIRE_FALSE(empty.is_heap_allocated());
+}
+
+TEST_CASE("AnyValue storage_size: inline (SBO) types", "[time_series][any][storage]") {
+    // Small primitives should use inline storage
+    AnyValue<> v_int;
+    v_int.emplace<int>(42);
+    REQUIRE(v_int.is_inline());
+    REQUIRE_FALSE(v_int.is_heap_allocated());
+    REQUIRE(v_int.storage_size() == HGRAPH_TS_VALUE_SBO);
+
+    AnyValue<> v_double;
+    v_double.emplace<double>(3.14);
+    REQUIRE(v_double.is_inline());
+    REQUIRE_FALSE(v_double.is_heap_allocated());
+    REQUIRE(v_double.storage_size() == HGRAPH_TS_VALUE_SBO);
+
+    // Small struct should use inline storage
+    AnyValue<> v_small;
+    v_small.emplace<Small>();
+    REQUIRE(v_small.is_inline());
+    REQUIRE_FALSE(v_small.is_heap_allocated());
+    REQUIRE(v_small.storage_size() == HGRAPH_TS_VALUE_SBO);
+}
+
+TEST_CASE("AnyValue storage_size: heap-allocated types", "[time_series][any][storage]") {
+    // Big struct exceeds SBO and must be heap-allocated
+    AnyValue<> v_big;
+    v_big.emplace<Big>();
+    REQUIRE_FALSE(v_big.is_inline());
+    REQUIRE(v_big.is_heap_allocated());
+    REQUIRE(v_big.storage_size() == sizeof(void*));
+
+    // Long string should be heap-allocated (if it exceeds SBO)
+    AnyValue<> v_string;
+    v_string.emplace<std::string>("This is a reasonably long string that might exceed SBO");
+    // Note: std::string itself may fit in SBO (it's just 24-32 bytes typically)
+    // but we test that storage_size returns correct value based on using_heap_ flag
+    if (v_string.is_heap_allocated()) {
+        REQUIRE(v_string.storage_size() == sizeof(void*));
+    } else {
+        REQUIRE(v_string.storage_size() == HGRAPH_TS_VALUE_SBO);
+    }
+}
+
+TEST_CASE("AnyValue storage_size: references", "[time_series][any][storage][ref]") {
+    int x = 42;
+    AnyValue<> v_ref;
+    v_ref.emplace_ref(x);
+
+    // References use heap flag (even though they're just storing a pointer)
+    REQUIRE(v_ref.is_reference());
+    REQUIRE(v_ref.is_heap_allocated());
+    REQUIRE_FALSE(v_ref.is_inline());
+    REQUIRE(v_ref.storage_size() == sizeof(void*));
+}
+
+TEST_CASE("AnyValue storage_size: after copy and move", "[time_series][any][storage]") {
+    // Inline value
+    AnyValue<> v1;
+    v1.emplace<int>(42);
+    REQUIRE(v1.is_inline());
+
+    AnyValue<> v2 = v1;  // Copy
+    REQUIRE(v2.is_inline());
+    REQUIRE(v2.storage_size() == v1.storage_size());
+
+    AnyValue<> v3 = std::move(v1);  // Move
+    REQUIRE(v3.is_inline());
+    REQUIRE(v3.storage_size() == HGRAPH_TS_VALUE_SBO);
+
+    // Heap-allocated value
+    AnyValue<> v4;
+    v4.emplace<Big>();
+    REQUIRE(v4.is_heap_allocated());
+
+    AnyValue<> v5 = v4;  // Copy (allocates new heap object)
+    REQUIRE(v5.is_heap_allocated());
+    REQUIRE(v5.storage_size() == sizeof(void*));
+
+    AnyValue<> v6 = std::move(v4);  // Move (transfers heap pointer)
+    REQUIRE(v6.is_heap_allocated());
+    REQUIRE(v6.storage_size() == sizeof(void*));
+}
+
+TEST_CASE("AnyValue storage_size: after reset", "[time_series][any][storage]") {
+    AnyValue<> v;
+    v.emplace<int>(42);
+    REQUIRE(v.storage_size() == HGRAPH_TS_VALUE_SBO);
+
+    v.reset();
+    REQUIRE_FALSE(v.has_value());
+    REQUIRE(v.storage_size() == 0);
+    REQUIRE_FALSE(v.is_inline());
+    REQUIRE_FALSE(v.is_heap_allocated());
+}
+
+TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any][storage][ref]") {
+    std::string s = "hello";
+    AnyValue<> v_ref;
+    v_ref.emplace_ref(s);
+    REQUIRE(v_ref.is_reference());
+    REQUIRE(v_ref.is_heap_allocated());
+    REQUIRE(v_ref.storage_size() == sizeof(void*));
+
+    // Copy materializes the reference into an owned value
+    AnyValue<> v_owned = v_ref;
+    REQUIRE_FALSE(v_owned.is_reference());
+    // String is small enough for SBO typically
+    if (v_owned.is_inline()) {
+        REQUIRE(v_owned.storage_size() == HGRAPH_TS_VALUE_SBO);
+    } else {
+        REQUIRE(v_owned.storage_size() == sizeof(void*));
+    }
+
+    // ensure_owned converts in place
+    AnyValue<> v_ref2;
+    v_ref2.emplace_ref(s);
+    v_ref2.ensure_owned();
+    REQUIRE_FALSE(v_ref2.is_reference());
+}
+
 
 
 TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]") {
