@@ -159,6 +159,39 @@ namespace hgraph {
             return using_heap_;
         }
 
+        /// Visit the contained value with a type-erased callback.
+        /// The callback receives the value as const void* and its type_info.
+        /// Does nothing if the container is empty.
+        /// Useful for introspection, debugging, and generic serialization.
+        void visit_untyped(const std::function<void(const void*, const std::type_info&)>& visitor) const {
+            if (!vtable_) return;
+            visitor(get_ptr(), *vtable_->type.info);
+        }
+
+        /// Visit the value if it contains type T, otherwise do nothing.
+        /// Returns true if the visitor was invoked, false if empty or type mismatch.
+        /// This is the type-safe way to handle values when the type is known at the call site.
+        template<typename T, typename Visitor>
+        bool visit_as(Visitor&& visitor) const {
+            if (const T* p = get_if<T>()) {
+                std::forward<Visitor>(visitor)(*p);
+                return true;
+            }
+            return false;
+        }
+
+        /// Visit the value if it contains type T, otherwise do nothing (mutable version).
+        /// Returns true if the visitor was invoked, false if empty or type mismatch.
+        /// Allows modification of the contained value.
+        template<typename T, typename Visitor>
+        bool visit_as(Visitor&& visitor) {
+            if (T* p = get_if<T>()) {
+                std::forward<Visitor>(visitor)(*p);
+                return true;
+            }
+            return false;
+        }
+
     private:
         struct VTable {
             TypeId type;
