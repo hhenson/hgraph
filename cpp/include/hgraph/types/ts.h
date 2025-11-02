@@ -7,12 +7,11 @@
 
 #include <hgraph/types/time_series_type.h>
 
-namespace hgraph
-{
-    template <typename T> struct TimeSeriesValueOutput : TimeSeriesOutput
-    {
+namespace hgraph {
+    template<typename T>
+    struct TimeSeriesValueOutput : TimeSeriesOutput {
         using value_type = T;
-        using ptr        = nb::ref<TimeSeriesValueOutput<T>>;
+        using ptr = nb::ref<TimeSeriesValueOutput<T> >;
 
         using TimeSeriesOutput::TimeSeriesOutput;
 
@@ -39,18 +38,20 @@ namespace hgraph
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
         void reset_value();
-      private:
+
+    private:
         T _value{};
     };
 
-    template <typename T> struct TimeSeriesValueInput : TimeSeriesInput
-    {
+    template<typename T>
+    struct TimeSeriesValueInput : TimeSeriesInput {
         using value_type = T;
-        using ptr        = nb::ref<TimeSeriesValueInput<T>>;
+        using ptr = nb::ref<TimeSeriesValueInput<T> >;
 
         using TimeSeriesInput::TimeSeriesInput;
 
-        [[nodiscard]] TimeSeriesValueOutput<T>       &value_output();
+        [[nodiscard]] TimeSeriesValueOutput<T> &value_output();
+
         [[nodiscard]] const TimeSeriesValueOutput<T> &value_output() const;
 
         [[nodiscard]] const T &value() const;
@@ -58,7 +59,7 @@ namespace hgraph
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
     };
 
-    void register_ts_with_nanobind(nb::module_ &m);
-}  // namespace hgraph
+    void register_ts_with_nanobind(nb::module_ & m);
+} // namespace hgraph
 
 #endif  // TS_H

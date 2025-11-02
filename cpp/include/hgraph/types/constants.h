@@ -7,8 +7,7 @@
 
 #include <hgraph/hgraph_base.h>
 
-namespace hgraph
-{
+namespace hgraph {
     /**
      * For Dictionary operations, REMOVE forces a remove with error if no value is present
      */
@@ -36,10 +35,14 @@ namespace hgraph
      * Record/Replay Context and related functions
      */
     nb::object get_record_replay_context();
+
     nb::object get_record_replay_enum();
+
     nb::object get_replay_const_fn();
+
     nb::object get_as_of_fn();
+
     nb::object get_fq_recordable_id_fn();
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // CONSTANTS_H

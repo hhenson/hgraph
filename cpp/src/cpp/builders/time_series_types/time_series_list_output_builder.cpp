@@ -4,10 +4,10 @@
 
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
     TimeSeriesListOutputBuilder::TimeSeriesListOutputBuilder(OutputBuilder::ptr output_builder, size_t size)
-        : output_builder{std::move(output_builder)}, size{size} {}
+        : output_builder{std::move(output_builder)}, size{size} {
+    }
 
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
         auto v{new TimeSeriesListOutput(owning_node)};
@@ -30,7 +30,7 @@ namespace hgraph
         OutputBuilder::release_instance(item);
         auto list = dynamic_cast<TimeSeriesListOutput *>(item.get());
         if (list) {
-            for (auto &value : list->ts_values()) { output_builder->release_instance(value); }
+            for (auto &value: list->ts_values()) { output_builder->release_instance(value); }
         }
     }
 
@@ -43,8 +43,7 @@ namespace hgraph
     }
 
     void TimeSeriesListOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesListOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSL")
-            .def(nb::init<OutputBuilder::ptr, size_t>(), "output_builder"_a, "size"_a);
+        nb::class_ < TimeSeriesListOutputBuilder, OutputBuilder > (m, "OutputBuilder_TSL")
+                .def(nb::init<OutputBuilder::ptr, size_t>(), "output_builder"_a, "size"_a);
     }
-
-}  // namespace hgraph
+} // namespace hgraph

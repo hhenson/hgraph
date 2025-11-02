@@ -1,15 +1,11 @@
-
 #ifndef OUTPUT_BUILDER_H
 #define OUTPUT_BUILDER_H
 
 #include <hgraph/builders/builder.h>
 #include <ranges>
 
-namespace hgraph
-{
-
-    struct HGRAPH_EXPORT OutputBuilder : Builder
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT OutputBuilder : Builder {
         using ptr = nb::ref<OutputBuilder>;
         using Builder::Builder;
 
@@ -23,6 +19,6 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
     };
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // OUTPUT_BUILDER_H

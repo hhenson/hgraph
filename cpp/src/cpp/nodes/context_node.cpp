@@ -6,9 +6,7 @@
 #include <hgraph/python/global_keys.h>
 #include <nanobind/nanobind.h>
 
-namespace hgraph
-{
-
+namespace hgraph {
     void ContextStubSourceNode::do_start() {
         _subscribed_output = nullptr;
         notify();
@@ -28,7 +26,7 @@ namespace hgraph
         } catch (...) { throw std::runtime_error("ContextStubSourceNode: missing 'path' scalar"); }
 
         // Slice owning_graph_id by depth and build a Python tuple string to exactly match Python formatting
-        const auto &og  = owning_graph_id();
+        const auto &og = owning_graph_id();
         // Python semantics: owning_graph_id[:depth]
         // - If depth is None: use full length
         // - If depth >= 0: use min(depth, len)
@@ -63,14 +61,16 @@ namespace hgraph
         if (!shared.is_valid() || shared.is_none()) {
             std::string diag;
             try {
-                nb::object gs       = GlobalState::instance();
+                nb::object gs = GlobalState::instance();
                 nb::object keys_obj = gs.attr("keys")();
                 std::vector<std::string> ctx_keys;
-                for (auto item : nb::iter(keys_obj)) {
+                for (auto item: nb::iter(keys_obj)) {
                     std::string s = nb::cast<std::string>(nb::str(item));
                     if (s.rfind("context-", 0) == 0) { ctx_keys.push_back(s); }
                 }
-                if (!ctx_keys.empty()) { diag = fmt::format(" Available context keys: [{}]", fmt::join(ctx_keys, ", ")); }
+                if (!ctx_keys.empty()) {
+                    diag = fmt::format(" Available context keys: [{}]", fmt::join(ctx_keys, ", "));
+                }
             } catch (...) {
                 // ignore diagnostics failures
             }
@@ -78,7 +78,7 @@ namespace hgraph
         }
 
         // We will capture the reference value and subscribe to the producing output when available
-        TimeSeriesReference::ptr        value_ref = nullptr;
+        TimeSeriesReference::ptr value_ref = nullptr;
         time_series_reference_output_ptr output_ts = nullptr;
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
@@ -99,7 +99,8 @@ namespace hgraph
             value_ref = ref->value();
         } else {
             throw std::runtime_error(
-                fmt::format("Context found an unknown output type bound to {}: {}", key, nb::str(shared.type()).c_str()));
+                fmt::format("Context found an unknown output type bound to {}: {}", key,
+                            nb::str(shared.type()).c_str()));
         }
 
         // Manage subscription if we have a producing output
@@ -118,11 +119,9 @@ namespace hgraph
             throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
         }
         my_output->set_value(value_ref);
-
     }
 
     void register_context_node_with_nanobind(nb::module_ &m) {
         nb::class_<ContextStubSourceNode, Node>(m, "ContextStubSourceNode");
     }
-
-}  // namespace hgraph
+} // namespace hgraph

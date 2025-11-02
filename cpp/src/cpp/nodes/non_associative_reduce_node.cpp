@@ -11,14 +11,14 @@
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
-
     TsdNonAssociativeReduceNode::TsdNonAssociativeReduceNode(
         int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
         nb::dict scalars, graph_builder_ptr nested_graph_builder,
         const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           nested_graph_builder_(std::move(nested_graph_builder)),
-          input_node_ids_(input_node_ids), output_node_id_(output_node_id) {}
+          input_node_ids_(input_node_ids), output_node_id_(output_node_id) {
+    }
 
     void TsdNonAssociativeReduceNode::initialise() {
         // Create nested graph and set up evaluation engine (matches Python lines 319, 329-331)
@@ -64,13 +64,13 @@ namespace hgraph {
         }
 
         // Evaluate nested graph (matches Python lines 352-354)
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(nested_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(nested_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
 
         nested_graph_->evaluate_graph();
 
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(nested_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(nested_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
 
@@ -82,7 +82,7 @@ namespace hgraph {
         // Check if size changed (matches Python lines 362-370)
         int64_t sz = node_count();
         auto tsd = (*input())["ts"];
-        auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(tsd.get());
+        auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t> *>(tsd.get());
         int64_t new_size = tsd_input->size();
 
         if (sz == new_size) {
@@ -98,9 +98,9 @@ namespace hgraph {
         // Add nodes to the chain (matches Python lines 389-409)
         int64_t curr_size = node_count();
         auto zero = (*input())["zero"];
-        auto zero_ref = dynamic_cast<TimeSeriesReferenceInput*>(zero.get());
+        auto zero_ref = dynamic_cast<TimeSeriesReferenceInput *>(zero.get());
         auto tsd = (*input())["ts"];
-        auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(tsd.get());
+        auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t> *>(tsd.get());
 
         for (int64_t ndx = curr_size; ndx < sz; ndx++) {
             // Extend the nested graph
@@ -109,8 +109,8 @@ namespace hgraph {
             auto new_graph = get_node(ndx);
 
             // Bind LHS input
-            auto lhs_node = new_graph[std::get<0>(input_node_ids_)];
-            auto lhs_input = dynamic_cast<TimeSeriesReferenceInput*>((*lhs_node->input())[0].get());
+            auto lhs_node = new_graph[std::get < 0 > (input_node_ids_)];
+            auto lhs_input = dynamic_cast<TimeSeriesReferenceInput *>((*lhs_node->input())[0].get());
             if (ndx == 0) {
                 // First node: LHS = zero
                 lhs_input->clone_binding(zero_ref);
@@ -122,10 +122,10 @@ namespace hgraph {
             }
 
             // Bind RHS input to TSD[ndx]
-            auto rhs_node = new_graph[std::get<1>(input_node_ids_)];
+            auto rhs_node = new_graph[std::get < 1 > (input_node_ids_)];
             auto rhs = (*tsd_input)[ndx];
-            auto rhs_ref = dynamic_cast<TimeSeriesReferenceInput*>(rhs.get());
-            auto rhs_input = dynamic_cast<TimeSeriesReferenceInput*>((*rhs_node->input())[0].get());
+            auto rhs_ref = dynamic_cast<TimeSeriesReferenceInput *>(rhs.get());
+            auto rhs_input = dynamic_cast<TimeSeriesReferenceInput *>((*rhs_node->input())[0].get());
             rhs_input->clone_binding(rhs_ref);
 
             // Notify the nodes
@@ -189,8 +189,8 @@ namespace hgraph {
     int64_t TsdNonAssociativeReduceNode::node_size() const {
         // Cache the node size
         if (cached_node_size_ < 0) {
-            const_cast<TsdNonAssociativeReduceNode*>(this)->cached_node_size_ =
-                nested_graph_builder_->node_builders.size();
+            const_cast<TsdNonAssociativeReduceNode *>(this)->cached_node_size_ =
+                    nested_graph_builder_->node_builders.size();
         }
         return cached_node_size_;
     }
@@ -214,7 +214,6 @@ namespace hgraph {
     }
 
     void register_non_associative_reduce_node_with_nanobind(nb::module_ &m) {
-        nb::class_<TsdNonAssociativeReduceNode, NestedNode>(m, "TsdNonAssociativeReduceNode");
+        nb::class_ < TsdNonAssociativeReduceNode, NestedNode > (m, "TsdNonAssociativeReduceNode");
     }
-
-}  // namespace hgraph
+} // namespace hgraph

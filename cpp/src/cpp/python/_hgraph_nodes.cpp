@@ -1,4 +1,3 @@
-
 #include <hgraph/nodes/nest_graph_node.h>
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>

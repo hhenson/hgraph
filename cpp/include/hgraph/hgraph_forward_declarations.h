@@ -11,9 +11,7 @@
 #include <nanobind/nanobind.h>
 #include <string>
 
-namespace hgraph
-{
-
+namespace hgraph {
     struct NodeSignature;
     using node_signature_ptr = nanobind::ref<NodeSignature>;
 
@@ -87,14 +85,14 @@ namespace hgraph
 
     using c_string_ref = std::reference_wrapper<const std::string>;
 
-    template <typename T_TS>
+    template<typename T_TS>
     concept TimeSeriesT = std::is_same_v<T_TS, TimeSeriesInput> || std::is_same_v<T_TS, TimeSeriesOutput>;
 
     struct OutputBuilder;
     struct InputBuilder;
 
     using output_builder_ptr = nanobind::ref<OutputBuilder>;
-    using input_builder_ptr  = nanobind::ref<InputBuilder>;
-}  // namespace hgraph
+    using input_builder_ptr = nanobind::ref<InputBuilder>;
+} // namespace hgraph
 
 #endif  // HGRAPH_FORWARD_DECLARATIONS_H

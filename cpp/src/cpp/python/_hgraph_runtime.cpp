@@ -4,7 +4,7 @@
 
 #include <hgraph/runtime/evaluation_engine.h>
 
-void export_runtime(nb::module_& m) {
+void export_runtime(nb::module_ &m) {
     using namespace hgraph;
 
     GraphExecutor::register_with_nanobind(m);
@@ -22,5 +22,4 @@ void export_runtime(nb::module_& m) {
     EvaluationEngine::register_with_nanobind(m);
     EvaluationEngineImpl::register_with_nanobind(m);
     EvaluationEngineDelegate::register_with_nanobind(m);
-
 }

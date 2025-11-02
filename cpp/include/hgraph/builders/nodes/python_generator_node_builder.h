@@ -9,13 +9,10 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph
-{
-
-    struct PythonGeneratorNodeBuilder : BaseNodeBuilder
-    {
+namespace hgraph {
+    struct PythonGeneratorNodeBuilder : BaseNodeBuilder {
         PythonGeneratorNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                                   std::optional<input_builder_ptr>  input_builder_,
+                                   std::optional<input_builder_ptr> input_builder_,
                                    std::optional<output_builder_ptr> output_builder_,
                                    std::optional<output_builder_ptr> error_builder_, nb::callable eval_fn);
 
@@ -24,8 +21,7 @@ namespace hgraph
         nb::callable eval_fn;
     };
 
-    void python_generator_node_builder_register_with_nanobind(nb::module_ &m);
-
-}  // namespace hgraph
+    void python_generator_node_builder_register_with_nanobind(nb::module_ & m);
+} // namespace hgraph
 
 #endif  // PYTHON_GENERATOR_NODE_BUILDER_H

@@ -1,4 +1,3 @@
-
 #ifndef RECORD_REPLAY_H
 #define RECORD_REPLAY_H
 
@@ -6,8 +5,7 @@
 #include <string>
 #include <hgraph/types/traits.h>
 
-namespace hgraph
-{
+namespace hgraph {
     static const std::string RECORDABLE_ID_TRAIT = "recordable_id";
 
     /**
@@ -25,6 +23,6 @@ namespace hgraph
      * Set the parent recordable ID trait on a graph
      */
     void set_parent_recordable_id(Graph &graph, const std::string &recordable_id);
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif //RECORD_REPLAY_H

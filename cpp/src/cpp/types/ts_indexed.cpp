@@ -4,11 +4,10 @@
 #include <algorithm>
 #include <ranges>
 
-namespace hgraph
-{
+namespace hgraph {
     void IndexedTimeSeriesOutput::invalidate() {
         if (valid()) {
-            for (auto &v : ts_values()) { v->invalidate(); }
+            for (auto &v: ts_values()) { v->invalidate(); }
         }
         mark_invalid();
     }
@@ -16,13 +15,16 @@ namespace hgraph
     void IndexedTimeSeriesOutput::copy_from_output(const TimeSeriesOutput &output) {
         if (auto *ndx_output = dynamic_cast<const IndexedTimeSeriesOutput *>(&output); ndx_output != nullptr) {
             if (ndx_output->size() == size()) {
-                for (size_t i = 0; i < ts_values().size(); ++i) { ts_values()[i]->copy_from_output(*ndx_output->ts_values()[i]); }
+                for (size_t i = 0; i < ts_values().size(); ++i) {
+                    ts_values()[i]->copy_from_output(*ndx_output->ts_values()[i]);
+                }
             } else {
                 // We could do a full check, but that would be too much to do each time, and in theory the wiring should ensure
                 //  we don't do that, but there should be a quick sanity check.
                 //  Simple validation at this level to ensure they are at least size compatible
-                throw std::runtime_error(std::format("Incorrect shape provided to copy_from_output, expected {} items got {}",
-                                                     size(), ndx_output->size()));
+                throw std::runtime_error(std::format(
+                    "Incorrect shape provided to copy_from_output, expected {} items got {}",
+                    size(), ndx_output->size()));
             }
         } else {
             throw std::invalid_argument(std::format("Expected IndexedTimeSeriesOutput, got {}", typeid(output).name()));
@@ -34,7 +36,7 @@ namespace hgraph
             if (ndx_inputs->size() == size()) {
                 for (size_t i = 0; i < ts_values().size(); ++i) {
                     auto &child{ndx_inputs->operator[](i)};
-                    auto  v{ts_values()[i]};
+                    auto v{ts_values()[i]};
                     if (child->valid()) {
                         v->copy_from_input(*child);
                     } else {
@@ -43,8 +45,9 @@ namespace hgraph
                 }
             } else {
                 // Simple validation at this level to ensure they are at least size compatible
-                throw std::runtime_error(std::format("Incorrect shape provided to copy_from_input, expected {} items got {}",
-                                                     size(), ndx_inputs->size()));
+                throw std::runtime_error(std::format(
+                    "Incorrect shape provided to copy_from_input, expected {} items got {}",
+                    size(), ndx_inputs->size()));
             }
         } else {
             throw std::invalid_argument(std::format("Expected TimeSeriesBundleOutput, got {}", typeid(input).name()));
@@ -52,23 +55,26 @@ namespace hgraph
     }
 
     void IndexedTimeSeriesOutput::clear() {
-        for (auto &v : ts_values()) { v->clear(); }
+        for (auto &v: ts_values()) { v->clear(); }
     }
 
     void IndexedTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
         using IndexedTimeSeries_Output = IndexedTimeSeries<TimeSeriesOutput>;
         nb::class_<IndexedTimeSeries_Output, TimeSeriesOutput>(m, "IndexedTimeSeries_Output")
-            .def(
-                "__getitem__", [](const IndexedTimeSeries_Output &self, size_t idx) { return self[idx]; }, "index"_a)
-            .def("values", static_cast<collection_type (IndexedTimeSeries_Output::*)() const>(&IndexedTimeSeries_Output::values))
-            .def("valid_values", &IndexedTimeSeries_Output::py_valid_values)
-            .def("modified_values", &IndexedTimeSeries_Output::py_modified_values)
-            .def("__len__", &IndexedTimeSeries_Output::size)
-            .def_prop_ro("empty", &IndexedTimeSeries_Output::empty);
+                .def(
+                    "__getitem__", [](const IndexedTimeSeries_Output &self, size_t idx) { return self[idx]; },
+                    "index"_a)
+                .def("values",
+                     static_cast<collection_type (IndexedTimeSeries_Output::*)() const>(&
+                         IndexedTimeSeries_Output::values))
+                .def("valid_values", &IndexedTimeSeries_Output::py_valid_values)
+                .def("modified_values", &IndexedTimeSeries_Output::py_modified_values)
+                .def("__len__", &IndexedTimeSeries_Output::size)
+                .def_prop_ro("empty", &IndexedTimeSeries_Output::empty);
 
         nb::class_<IndexedTimeSeriesOutput, IndexedTimeSeries_Output>(m, "IndexedTimeSeriesOutput")
-            .def("copy_from_output", &IndexedTimeSeriesOutput::copy_from_output, "output"_a)
-            .def("copy_from_input", &IndexedTimeSeriesOutput::copy_from_input, "input"_a);
+                .def("copy_from_output", &IndexedTimeSeriesOutput::copy_from_output, "output"_a)
+                .def("copy_from_input", &IndexedTimeSeriesOutput::copy_from_input, "input"_a);
     }
 
     bool IndexedTimeSeriesInput::modified() const {
@@ -88,7 +94,9 @@ namespace hgraph
         if (has_peer()) { return TimeSeriesInput::last_modified_time(); }
         if (ts_values().empty()) { return MIN_DT; }
         return std::ranges::max(ts_values() |
-                                std::views::transform([](const time_series_input_ptr &ts) { return ts->last_modified_time(); }));
+                                std::views::transform([](const time_series_input_ptr &ts) {
+                                    return ts->last_modified_time();
+                                }));
     }
 
     bool IndexedTimeSeriesInput::bound() const {
@@ -106,7 +114,7 @@ namespace hgraph
         if (has_peer()) {
             TimeSeriesInput::make_active();
         } else {
-            for (auto &ts : ts_values()) { ts->make_active(); }
+            for (auto &ts: ts_values()) { ts->make_active(); }
         }
     }
 
@@ -114,7 +122,7 @@ namespace hgraph
         if (has_peer()) {
             TimeSeriesInput::make_passive();
         } else {
-            for (auto &ts : ts_values()) { ts->make_passive(); }
+            for (auto &ts: ts_values()) { ts->make_passive(); }
         }
     }
 
@@ -124,13 +132,16 @@ namespace hgraph
         using IndexedTimeSeries_Input = IndexedTimeSeries<TimeSeriesInput>;
 
         nb::class_<IndexedTimeSeries_Input, TimeSeriesInput>(m, "IndexedTimeSeries_Input")
-            .def(
-                "__getitem__", [](const IndexedTimeSeries_Input &self, size_t index) { return self[index]; }, "index"_a)
-            .def("values", static_cast<collection_type (IndexedTimeSeries_Input::*)() const>(&IndexedTimeSeries_Input::values))
-            .def("valid_values", &IndexedTimeSeries_Input::py_valid_values)
-            .def("modified_values", &IndexedTimeSeries_Input::py_modified_values)
-            .def("__len__", &IndexedTimeSeries_Input::size)
-            .def_prop_ro("empty", &IndexedTimeSeries_Input::empty);
+                .def(
+                    "__getitem__", [](const IndexedTimeSeries_Input &self, size_t index) { return self[index]; },
+                    "index"_a)
+                .def("values",
+                     static_cast<collection_type (IndexedTimeSeries_Input::*)() const>(&
+                         IndexedTimeSeries_Input::values))
+                .def("valid_values", &IndexedTimeSeries_Input::py_valid_values)
+                .def("modified_values", &IndexedTimeSeries_Input::py_modified_values)
+                .def("__len__", &IndexedTimeSeries_Input::size)
+                .def_prop_ro("empty", &IndexedTimeSeries_Input::empty);
 
         nb::class_<IndexedTimeSeriesInput, IndexedTimeSeries_Input>(m, "IndexedTimeSeriesInput");
     }
@@ -150,7 +161,7 @@ namespace hgraph
     }
 
     void IndexedTimeSeriesInput::do_un_bind_output(bool unbind_refs) {
-        for (auto &ts : ts_values()) { ts->un_bind_output(unbind_refs); }
+        for (auto &ts: ts_values()) { ts->un_bind_output(unbind_refs); }
         if (has_peer()) { TimeSeriesInput::do_un_bind_output(unbind_refs); }
     }
-}  // namespace hgraph
+} // namespace hgraph

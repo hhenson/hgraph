@@ -7,10 +7,8 @@
 
 #include <hgraph/hgraph_base.h>
 
-namespace hgraph
-{
-    struct Traits : nb::intrusive_base
-    {
+namespace hgraph {
+    struct Traits : nb::intrusive_base {
         using ptr = nb::ref<Traits>;
 
         Traits() = default;
@@ -29,10 +27,10 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
 
-      private:
+    private:
         std::optional<ptr> _parent_traits;
-        nb::dict           _traits;
+        nb::dict _traits;
     };
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TRAITS_H

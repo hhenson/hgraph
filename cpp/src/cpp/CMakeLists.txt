@@ -89,7 +89,7 @@ set(HGRAPH_SOURCES
         util/sender_receiver_state.cpp
         util/stack_trace.cpp
         util/string_util.cpp
-        )
+)
 
 add_definitions(-Dhgraph_EXPORTS)
 
@@ -100,26 +100,26 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)
     target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=1)
-else()
+else ()
     target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=0)
-endif()
+endif ()
 
 # Suppress benign fmt warning on GCC/Clang for this target only (avoid touching ALIAS/IMPORTED fmt targets)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wno-tautological-compare)
-endif()
+endif ()
 
 # Link Backward only if enabled and available
 if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
     target_link_libraries(${PROJECT_NAME} PRIVATE Backward::Backward)
-endif()
+endif ()
 #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
 
 # Windows: link required debug helper libraries for backward-cpp stack traces
 if (WIN32)
     if (HGRAPH_WITH_BACKWARD)
         target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
-    endif()
+    endif ()
 endif ()
 
 # Install directive for scikit-build-core
@@ -136,7 +136,7 @@ install(TARGETS ${PROJECT_NAME}
 )
 
 option(HGRAPH_GENERATE_STUBS "Generate nanobind .pyi stubs for the Python module" OFF)
-if(HGRAPH_GENERATE_STUBS)
+if (HGRAPH_GENERATE_STUBS)
     nanobind_add_stub(
             "${PROJECT_NAME}_stub"
             MODULE ${PROJECT_NAME}
@@ -144,4 +144,4 @@ if(HGRAPH_GENERATE_STUBS)
             PYTHON_PATH $<TARGET_FILE_DIR:${PROJECT_NAME}>
             DEPENDS ${PROJECT_NAME}
     )
-endif()
+endif ()

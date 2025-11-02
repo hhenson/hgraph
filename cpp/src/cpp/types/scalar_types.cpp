@@ -1,7 +1,6 @@
 #include <hgraph/types/scalar_types.h>
 
-namespace hgraph
-{
+namespace hgraph {
     // ============================================================================
     // CompoundScalar (abstract base class)
     // ============================================================================
@@ -11,7 +10,7 @@ namespace hgraph
         nb::dict d = to_dict();
         std::string result = "CompoundScalar(";
         bool first = true;
-        for (const auto &key : keys()) {
+        for (const auto &key: keys()) {
             if (!first) result += ", ";
             first = false;
             result += key + "=";
@@ -35,7 +34,7 @@ namespace hgraph
         nb::dict this_dict = to_dict();
         nb::dict other_dict = other.to_dict();
 
-        for (const auto &key : keys()) {
+        for (const auto &key: keys()) {
             if (this_dict.contains(key.c_str()) != other_dict.contains(key.c_str())) {
                 return false;
             }
@@ -55,7 +54,7 @@ namespace hgraph
         size_t h = 0;
         nb::dict d = to_dict();
 
-        for (const auto &key : keys()) {
+        for (const auto &key: keys()) {
             h ^= std::hash<std::string>{}(key) + 0x9e3779b9 + (h << 6) + (h >> 2);
             if (d.contains(key.c_str())) {
                 try {
@@ -71,11 +70,11 @@ namespace hgraph
 
     void CompoundScalar::register_with_nanobind(nb::module_ &m) {
         nb::class_<CompoundScalar, AbstractSchema>(m, "CompoundScalar")
-            .def("to_dict", &CompoundScalar::to_dict)
-            .def("__str__", &CompoundScalar::to_string)
-            .def("__repr__", &CompoundScalar::to_string)
-            .def("__eq__", &CompoundScalar::operator==)
-            .def("__hash__", &CompoundScalar::hash);
+                .def("to_dict", &CompoundScalar::to_dict)
+                .def("__str__", &CompoundScalar::to_string)
+                .def("__repr__", &CompoundScalar::to_string)
+                .def("__eq__", &CompoundScalar::operator==)
+                .def("__hash__", &CompoundScalar::hash);
     }
 
     // ============================================================================
@@ -83,7 +82,8 @@ namespace hgraph
     // ============================================================================
 
     PythonCompoundScalar::PythonCompoundScalar(std::vector<std::string> keys, nb::object values)
-        : _keys{std::move(keys)}, _values{std::move(values)} {}
+        : _keys{std::move(keys)}, _values{std::move(values)} {
+    }
 
     const std::vector<std::string> &PythonCompoundScalar::keys() const { return _keys; }
 
@@ -103,13 +103,13 @@ namespace hgraph
         }
 
         // Otherwise, try to extract attributes by key name
-        for (const auto &key : _keys) {
+        for (const auto &key: _keys) {
             try {
                 if (nb::hasattr(_values, key.c_str())) {
                     nb::object value = nb::getattr(_values, key.c_str());
 
                     // If the value is itself a PythonCompoundScalar, recursively convert
-                    if (nb::isinstance<PythonCompoundScalar>(value)) {
+                    if (nb::isinstance < PythonCompoundScalar > (value)) {
                         auto compound = nb::cast<PythonCompoundScalar *>(value);
                         result[key.c_str()] = compound->to_dict();
                     } else if (!value.is_none()) {
@@ -151,7 +151,7 @@ namespace hgraph
 
         result += "(";
         bool first = true;
-        for (const auto &key : _keys) {
+        for (const auto &key: _keys) {
             if (!first) result += ", ";
             first = false;
 
@@ -186,14 +186,14 @@ namespace hgraph
         }
 
         // Compare values for each key
-        for (const auto &key : keys()) {
+        for (const auto &key: keys()) {
             try {
                 nb::object this_val = nb::hasattr(_values, key.c_str())
-                    ? nb::getattr(_values, key.c_str())
-                    : nb::none();
+                                          ? nb::getattr(_values, key.c_str())
+                                          : nb::none();
                 nb::object other_val = nb::hasattr(other_python->_values, key.c_str())
-                    ? nb::getattr(other_python->_values, key.c_str())
-                    : nb::none();
+                                           ? nb::getattr(other_python->_values, key.c_str())
+                                           : nb::none();
 
                 // Use Python's equality operator
                 if (!this_val.equal(other_val)) {
@@ -212,12 +212,12 @@ namespace hgraph
         size_t h = 0;
 
         // Hash the keys
-        for (const auto &key : _keys) {
+        for (const auto &key: _keys) {
             h ^= std::hash<std::string>{}(key) + 0x9e3779b9 + (h << 6) + (h >> 2);
         }
 
         // Hash the values
-        for (const auto &key : _keys) {
+        for (const auto &key: _keys) {
             try {
                 if (nb::hasattr(_values, key.c_str())) {
                     nb::object value = nb::getattr(_values, key.c_str());
@@ -234,13 +234,12 @@ namespace hgraph
     }
 
     void PythonCompoundScalar::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PythonCompoundScalar, CompoundScalar>(m, "PythonCompoundScalar")
-            .def(nb::init<std::vector<std::string>, nb::object>(), "keys"_a, "values"_a)
-            .def("get_value", &PythonCompoundScalar::get_value, "key"_a)
-            .def_static("from_dict", &PythonCompoundScalar::from_dict, "keys"_a, "d"_a)
-            .def("__getattr__", [](const PythonCompoundScalar &self, const std::string &key) {
-                return nb::getattr(self._values, key.c_str());
-            });
+        nb::class_ < PythonCompoundScalar, CompoundScalar > (m, "PythonCompoundScalar")
+                .def(nb::init<std::vector<std::string>, nb::object>(), "keys"_a, "values"_a)
+                .def("get_value", &PythonCompoundScalar::get_value, "key"_a)
+                .def_static("from_dict", &PythonCompoundScalar::from_dict, "keys"_a, "d"_a)
+                .def("__getattr__", [](const PythonCompoundScalar &self, const std::string &key) {
+                    return nb::getattr(self._values, key.c_str());
+                });
     }
-
-}  // namespace hgraph
+} // namespace hgraph

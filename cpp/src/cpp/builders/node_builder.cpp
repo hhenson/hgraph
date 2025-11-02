@@ -1,4 +1,3 @@
-
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
@@ -25,29 +24,31 @@
 
 #include <utility>
 
-namespace hgraph
-{
-
-    NodeBuilder::NodeBuilder(node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_ptr> input_builder_,
-                             std::optional<output_builder_ptr> output_builder_, std::optional<output_builder_ptr> error_builder_,
+namespace hgraph {
+    NodeBuilder::NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
+                             std::optional<input_builder_ptr> input_builder_,
+                             std::optional<output_builder_ptr> output_builder_,
+                             std::optional<output_builder_ptr> error_builder_,
                              std::optional<output_builder_ptr> recordable_state_builder_)
         : signature(std::move(signature_)), scalars(std::move(scalars_)), input_builder(std::move(input_builder_)),
           output_builder(std::move(output_builder_)), error_builder(std::move(error_builder_)),
-          recordable_state_builder(std::move(recordable_state_builder_)) {}
+          recordable_state_builder(std::move(recordable_state_builder_)) {
+    }
 
     NodeBuilder::NodeBuilder(NodeBuilder &&other) noexcept
         : signature(other.signature), scalars(std::move(other.scalars)), input_builder(other.input_builder),
           output_builder(other.output_builder), error_builder(other.error_builder),
-          recordable_state_builder(other.recordable_state_builder) {}
+          recordable_state_builder(other.recordable_state_builder) {
+    }
 
     NodeBuilder &NodeBuilder::operator=(NodeBuilder &&other) noexcept {
         if (this != &other) {
             // Copy nanobind::ref members (inc_ref) instead of moving them, so both sides stay valid
-            signature                = other.signature;
-            scalars                  = std::move(other.scalars);
-            input_builder            = other.input_builder;
-            output_builder           = other.output_builder;
-            error_builder            = other.error_builder;
+            signature = other.signature;
+            scalars = std::move(other.scalars);
+            input_builder = other.input_builder;
+            output_builder = other.output_builder;
+            error_builder = other.error_builder;
             recordable_state_builder = other.recordable_state_builder;
         }
         return *this;
@@ -62,23 +63,23 @@ namespace hgraph
     }
 
     void NodeBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<NodeBuilder, Builder>(m, "NodeBuilder")
-            .def("make_instance", &NodeBuilder::make_instance, "owning_graph_id"_a, "node_ndx"_a)
-            .def("release_instance", &NodeBuilder::release_instance, "node"_a)
-            .def_ro("signature", &NodeBuilder::signature)
-            .def_ro("scalars", &NodeBuilder::scalars)
-            .def_ro("input_builder", &NodeBuilder::input_builder)
-            .def_ro("output_builder", &NodeBuilder::output_builder)
-            .def_ro("error_builder", &NodeBuilder::error_builder)
-            .def_ro("recordable_state_builder", &NodeBuilder::recordable_state_builder)
-            .def("__str__", [](const NodeBuilder &self) {
-                return fmt::format("NodeBuilder@{:p}[sig={}]",
-                    static_cast<const void *>(&self), self.signature->name);
-            })
-            .def("__repr__", [](const NodeBuilder &self) {
-                return fmt::format("NodeBuilder@{:p}[sig={}]",
-                    static_cast<const void *>(&self), self.signature->name);
-            });
+        nb::class_ < NodeBuilder, Builder > (m, "NodeBuilder")
+                .def("make_instance", &NodeBuilder::make_instance, "owning_graph_id"_a, "node_ndx"_a)
+                .def("release_instance", &NodeBuilder::release_instance, "node"_a)
+                .def_ro("signature", &NodeBuilder::signature)
+                .def_ro("scalars", &NodeBuilder::scalars)
+                .def_ro("input_builder", &NodeBuilder::input_builder)
+                .def_ro("output_builder", &NodeBuilder::output_builder)
+                .def_ro("error_builder", &NodeBuilder::error_builder)
+                .def_ro("recordable_state_builder", &NodeBuilder::recordable_state_builder)
+                .def("__str__", [](const NodeBuilder &self) {
+                    return fmt::format("NodeBuilder@{:p}[sig={}]",
+                                       static_cast<const void *>(&self), self.signature->name);
+                })
+                .def("__repr__", [](const NodeBuilder &self) {
+                    return fmt::format("NodeBuilder@{:p}[sig={}]",
+                                       static_cast<const void *>(&self), self.signature->name);
+                });
 
         nb::class_<BaseNodeBuilder, NodeBuilder>(m, "BaseNodeBuilder");
 
@@ -119,5 +120,4 @@ namespace hgraph
             node->set_recordable_state(dynamic_cast_ref<TimeSeriesBundleOutput>(ts_recordable_state));
         }
     }
-
-}  // namespace hgraph
+} // namespace hgraph

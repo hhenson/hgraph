@@ -10,15 +10,15 @@
 #include <hgraph/types/ref.h>
 #include <utility>
 
-namespace hgraph
-{
-
-    NestedGraphNode::NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+namespace hgraph {
+    NestedGraphNode::NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
+                                     NodeSignature::ptr signature,
                                      nb::dict scalars, graph_builder_ptr nested_graph_builder,
                                      const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
-          m_output_node_id_(output_node_id), m_active_graph_(nullptr) {}
+          m_output_node_id_(output_node_id), m_active_graph_(nullptr) {
+    }
 
     void NestedGraphNode::wire_graph() {
         write_inputs();
@@ -30,7 +30,7 @@ namespace hgraph
         // For each mapped inner node, notify it, set its input via copy_with(owning_node=node, ts=outer_ts),
         // then re-parent the outer ts to the inner node's input bundle.
         if (!m_input_node_ids_.empty()) {
-            for (const auto &[arg, node_ndx] : m_input_node_ids_) {
+            for (const auto &[arg, node_ndx]: m_input_node_ids_) {
                 auto node = m_active_graph_->nodes()[node_ndx];
                 node->notify();
 
@@ -67,7 +67,7 @@ namespace hgraph
     void NestedGraphNode::do_stop() { stop_component(*m_active_graph_); }
 
     void NestedGraphNode::dispose() {
-        if (m_active_graph_ == nullptr) {return;}
+        if (m_active_graph_ == nullptr) { return; }
         // Release the graph back to the builder pool (which will call the dispose life-cycle)
         m_nested_graph_builder_->release_instance(m_active_graph_);
         m_active_graph_ = nullptr;
@@ -75,22 +75,24 @@ namespace hgraph
 
     void NestedGraphNode::do_eval() {
         mark_evaluated();
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
         m_active_graph_->evaluate_graph();
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
     }
 
     std::unordered_map<int, graph_ptr> NestedGraphNode::nested_graphs() const {
-        return m_active_graph_ ? std::unordered_map<int, graph_ptr>{{0, m_active_graph_}} : std::unordered_map<int, graph_ptr>();
+        return m_active_graph_
+                   ? std::unordered_map<int, graph_ptr>{{0, m_active_graph_}}
+                   : std::unordered_map<int, graph_ptr>();
     }
 
     void NestedGraphNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<NestedGraphNode, NestedNode>(m, "NestedGraphNode")
-            .def_prop_ro("active_graph", [](NestedGraphNode &self) { return self.m_active_graph_; })
-            .def_prop_ro("nested_graphs", &NestedGraphNode::nested_graphs);
+        nb::class_ < NestedGraphNode, NestedNode > (m, "NestedGraphNode")
+                .def_prop_ro("active_graph", [](NestedGraphNode &self) { return self.m_active_graph_; })
+                .def_prop_ro("nested_graphs", &NestedGraphNode::nested_graphs);
     }
-}  // namespace hgraph
+} // namespace hgraph

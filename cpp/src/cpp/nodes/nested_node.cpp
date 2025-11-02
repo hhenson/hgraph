@@ -1,10 +1,7 @@
-
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/graph.h>
 
-namespace hgraph
-{
-
+namespace hgraph {
     void NestedNode::start() {
         // NestedNode needs to initialize inputs like BasePythonNode does
         // This ensures inputs are made active based on the node signature
@@ -19,7 +16,6 @@ namespace hgraph
 
     void NestedNode::register_with_nanobind(nb::module_ &m) {
         nb::class_<NestedNode, Node>(m, "NestedNode")
-        .def_prop_ro("last_evaluation_time", &NestedNode::last_evaluation_time);
+                .def_prop_ro("last_evaluation_time", &NestedNode::last_evaluation_time);
     }
-
-}  // namespace hgraph
+} // namespace hgraph

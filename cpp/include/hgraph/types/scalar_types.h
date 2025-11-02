@@ -7,8 +7,7 @@
 
 #include <hgraph/types/schema_type.h>
 
-namespace hgraph
-{
+namespace hgraph {
     /**
      * CompoundScalar - Abstract base class for scalar values with complex structure
      *
@@ -23,8 +22,7 @@ namespace hgraph
      * - Recordable state schemas
      * - Complex scalar types passed between nodes
      */
-    struct CompoundScalar : AbstractSchema
-    {
+    struct CompoundScalar : AbstractSchema {
         using ptr = nb::ref<CompoundScalar>;
 
         CompoundScalar() = default;
@@ -57,8 +55,7 @@ namespace hgraph
      * 2. C++ receives them and wraps in PythonCompoundScalar
      * 3. C++ can extract values via to_dict() or get_value()
      */
-    struct PythonCompoundScalar : CompoundScalar
-    {
+    struct PythonCompoundScalar : CompoundScalar {
         using ptr = nb::ref<PythonCompoundScalar>;
 
         // Construct from keys and a Python object representing the values
@@ -66,6 +63,7 @@ namespace hgraph
 
         // Override from AbstractSchema
         [[nodiscard]] const std::vector<std::string> &keys() const override;
+
         [[nodiscard]] nb::object get_value(const std::string &key) const override;
 
         // Override from CompoundScalar
@@ -85,11 +83,10 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
 
-      protected:
-        std::vector<std::string> _keys;  // Property names
-        nb::object _values;              // Python object holding the actual values
+    protected:
+        std::vector<std::string> _keys; // Property names
+        nb::object _values; // Python object holding the actual values
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // HGRAPH_CPP_ENGINE_SCALAR_TYPES_H

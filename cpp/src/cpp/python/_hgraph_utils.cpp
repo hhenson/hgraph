@@ -1,4 +1,3 @@
-
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/python/global_keys.h>

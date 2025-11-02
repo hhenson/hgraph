@@ -48,10 +48,10 @@
 namespace nb = nanobind;
 using namespace nb::literals;
 
-namespace hgraph
-{
+namespace hgraph {
     // ONLY use then when you need to return a casted ptr reference, otherwise unpack and use as a raw pointer or reference.
-    template <typename T, typename T_> nb::ref<T> dynamic_cast_ref(nb::ref<T_> ptr) {
+    template<typename T, typename T_>
+    nb::ref<T> dynamic_cast_ref(nb::ref<T_> ptr) {
         auto v = dynamic_cast<T *>(ptr.get());
         if (v != nullptr) {
             return nb::ref<T>(v);
@@ -59,6 +59,6 @@ namespace hgraph
             return nb::ref<T>();
         }
     }
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif //HGRAPH_BASE_H

@@ -1,16 +1,16 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>
 
-namespace hgraph
-{
-
+namespace hgraph {
     void SenderReceiverState::set_evaluation_clock(engine_evalaution_clock_ptr clock) { evaluation_clock = clock; }
 
-    void SenderReceiverState::operator()(value_type value) {  // Replace `int` with the appropriate type.
+    void SenderReceiverState::operator()(value_type value) {
+        // Replace `int` with the appropriate type.
         enqueue(std::move(value));
     }
 
-    void SenderReceiverState::enqueue(value_type value) {  // Replace `int` with the appropriate type.
+    void SenderReceiverState::enqueue(value_type value) {
+        // Replace `int` with the appropriate type.
         LockGuard guard(lock);
         if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
         queue.push_back(std::move(value));
@@ -23,7 +23,8 @@ namespace hgraph
         queue.push_front(std::move(value));
     }
 
-    std::optional<SenderReceiverState::value_type> SenderReceiverState::dequeue() {  // Replace `int` with the appropriate type.
+    std::optional<SenderReceiverState::value_type> SenderReceiverState::dequeue() {
+        // Replace `int` with the appropriate type.
         LockGuard guard(lock);
         if (!queue.empty()) {
             auto value = queue.front();
@@ -43,5 +44,4 @@ namespace hgraph
     void SenderReceiverState::mark_stopped() { _stopped = true; }
 
     auto SenderReceiverState::guard() const -> LockGuard { return LockGuard(lock); }
-
-}  // namespace hgraph
+} // namespace hgraph

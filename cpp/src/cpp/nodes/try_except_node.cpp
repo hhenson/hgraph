@@ -8,15 +8,14 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/util/lifecycle.h>
 
-namespace hgraph
-{
+namespace hgraph {
     void TryExceptNode::wire_outputs() {
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
             // Python parity: set the outer REF 'out' to reference the inner node's existing output.
             // Do NOT replace the inner node's output pointer.
             if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
-                auto out_ts = (*bundle)["out"];  // TimeSeriesOutput::ptr (expected TimeSeriesReferenceOutput)
+                auto out_ts = (*bundle)["out"]; // TimeSeriesOutput::ptr (expected TimeSeriesReferenceOutput)
                 if (auto out_ref = dynamic_cast<TimeSeriesReferenceOutput *>(out_ts.get())) {
                     out_ref->set_value(TimeSeriesReference::make(node->output()));
                 }
@@ -30,11 +29,13 @@ namespace hgraph
         mark_evaluated();
 
         try {
-            if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get())) {
+            if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().
+                get())) {
                 nec->reset_next_scheduled_evaluation_time();
             }
             m_active_graph_->evaluate_graph();
-            if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get())) {
+            if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().
+                get())) {
                 nec->reset_next_scheduled_evaluation_time();
             }
         } catch (const std::exception &e) {
@@ -64,4 +65,4 @@ namespace hgraph
     void TryExceptNode::register_with_nanobind(nb::module_ &m) {
         nb::class_<TryExceptNode, NestedGraphNode>(m, "TryExceptNode");
     }
-}  // namespace hgraph
+} // namespace hgraph

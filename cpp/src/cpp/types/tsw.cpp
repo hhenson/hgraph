@@ -2,11 +2,10 @@
 #include <hgraph/types/graph.h>
 #include <type_traits>
 
-namespace hgraph
-{
-
+namespace hgraph {
     // Template method definitions
-    template <typename T> nb::object TimeSeriesFixedWindowOutput<T>::py_value() const {
+    template<typename T>
+    nb::object TimeSeriesFixedWindowOutput<T>::py_value() const {
         if (!valid() || _length < _min_size) return nb::none();
 
         // Build a materialized Python sequence in correct chronological order.
@@ -24,7 +23,8 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T> nb::object TimeSeriesFixedWindowOutput<T>::py_delta_value() const {
+    template<typename T>
+    nb::object TimeSeriesFixedWindowOutput<T>::py_delta_value() const {
         if (_length == 0) return nb::none();
         size_t pos = (_length < _size) ? (_length - 1) : ((_start + _length - 1) % _size);
         if (_times[pos] == owning_graph()->evaluation_clock()->evaluation_time()) {
@@ -39,43 +39,52 @@ namespace hgraph
         }
     }
 
-    template <typename T> void TimeSeriesFixedWindowOutput<T>::py_set_value(nb::object value) {
-        if (value.is_none()) { invalidate(); return; }
+    template<typename T>
+    void TimeSeriesFixedWindowOutput<T>::py_set_value(nb::object value) {
+        if (value.is_none()) {
+            invalidate();
+            return;
+        }
         try {
             T v = nb::cast<T>(value);
             size_t capacity = _size;
-            size_t start    = _start;
-            size_t length   = _length + 1;
+            size_t start = _start;
+            size_t length = _length + 1;
             if (length > capacity) {
                 _removed_value.reset();
                 _removed_value = _buffer[start];
-                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _removed_value.reset(); });
-                start  = (start + 1) % capacity;
+                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() {
+                    _removed_value.reset();
+                });
+                start = (start + 1) % capacity;
                 _start = start;
                 length = capacity;
             }
-            _length       = length;
-            size_t pos    = (start + length - 1) % capacity;
-            _buffer[pos]  = v;
-            _times[pos]   = owning_graph()->evaluation_clock()->evaluation_time();
+            _length = length;
+            size_t pos = (start + length - 1) % capacity;
+            _buffer[pos] = v;
+            _times[pos] = owning_graph()->evaluation_clock()->evaluation_time();
             mark_modified();
         } catch (const std::exception &e) {
             throw std::runtime_error(std::string("Cannot apply node output: ") + e.what());
         }
     }
 
-    template <typename T> void TimeSeriesFixedWindowOutput<T>::apply_result(nb::object value) {
+    template<typename T>
+    void TimeSeriesFixedWindowOutput<T>::apply_result(nb::object value) {
         if (!value.is_valid() || value.is_none()) return;
         py_set_value(value);
     }
 
-    template <typename T> void TimeSeriesFixedWindowOutput<T>::mark_invalid() {
+    template<typename T>
+    void TimeSeriesFixedWindowOutput<T>::mark_invalid() {
         _start = 0;
         _length = 0;
         TimeSeriesOutput::mark_invalid();
     }
 
-    template <typename T> nb::object TimeSeriesFixedWindowOutput<T>::py_value_times() const {
+    template<typename T>
+    nb::object TimeSeriesFixedWindowOutput<T>::py_value_times() const {
         if (!valid() || _length < _min_size) return nb::none();
 
         // Mirror value() semantics: if contiguous from start, return the active portion.
@@ -97,53 +106,60 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T> engine_time_t TimeSeriesFixedWindowOutput<T>::first_modified_time() const {
+    template<typename T>
+    engine_time_t TimeSeriesFixedWindowOutput<T>::first_modified_time() const {
         return _times.empty() ? engine_time_t{} : _times[_start];
     }
 
-    template <typename T> static void bind_tsw_for_type(nb::module_ &m, const char *suffix) {
+    template<typename T>
+    static void bind_tsw_for_type(nb::module_ &m, const char *suffix) {
         using Out = TimeSeriesFixedWindowOutput<T>;
-        using In  = TimeSeriesWindowInput<T>;
+        using In = TimeSeriesWindowInput<T>;
 
-        auto out_cls = nb::class_<Out, TimeSeriesOutput>(m, (std::string("TimeSeriesFixedWindowOutput_") + suffix).c_str())
-                           .def_prop_ro("value_times", &Out::py_value_times)
-                           .def_prop_ro("first_modified_time", &Out::first_modified_time)
-                           .def_prop_ro("size", &Out::size)
-                           .def_prop_ro("min_size", &Out::min_size)
-                           .def_prop_ro("has_removed_value", &Out::has_removed_value)
-                           .def_prop_ro("removed_value", [](const Out &o) { return o.has_removed_value() ? nb::cast(o.removed_value()) : nb::none(); })
-                           .def("__len__", &Out::len);
+        auto out_cls = nb::class_<Out, TimeSeriesOutput>(
+                    m, (std::string("TimeSeriesFixedWindowOutput_") + suffix).c_str())
+                .def_prop_ro("value_times", &Out::py_value_times)
+                .def_prop_ro("first_modified_time", &Out::first_modified_time)
+                .def_prop_ro("size", &Out::size)
+                .def_prop_ro("min_size", &Out::min_size)
+                .def_prop_ro("has_removed_value", &Out::has_removed_value)
+                .def_prop_ro("removed_value", [](const Out &o) {
+                    return o.has_removed_value() ? nb::cast(o.removed_value()) : nb::none();
+                })
+                .def("__len__", &Out::len);
 
         auto in_cls = nb::class_<In, TimeSeriesInput>(m, (std::string("TimeSeriesWindowInput_") + suffix).c_str())
-                          .def_prop_ro("value_times", &In::py_value_times)
-                          .def_prop_ro("first_modified_time", &In::first_modified_time)
-                          .def_prop_ro("has_removed_value", &In::has_removed_value)
-                          .def_prop_ro("removed_value", &In::removed_value)
-                          .def("__len__", [](const In &self) {
-                              if (auto* f = self.as_fixed_output()) return f->len();
-                              if (auto* t = self.as_time_output()) return t->len();
-                              throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
-                          });
+                .def_prop_ro("value_times", &In::py_value_times)
+                .def_prop_ro("first_modified_time", &In::first_modified_time)
+                .def_prop_ro("has_removed_value", &In::has_removed_value)
+                .def_prop_ro("removed_value", &In::removed_value)
+                .def("__len__", [](const In &self) {
+                    if (auto *f = self.as_fixed_output()) return f->len();
+                    if (auto *t = self.as_time_output()) return t->len();
+                    throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
+                });
 
-        (void)out_cls;
-        (void)in_cls;
+        (void) out_cls;
+        (void) in_cls;
     }
 
     // Unified TimeSeriesWindowInput implementation
-    template <typename T> bool TimeSeriesWindowInput<T>::all_valid() const {
+    template<typename T>
+    bool TimeSeriesWindowInput<T>::all_valid() const {
         if (!valid()) return false;
-        if (auto* f = as_fixed_output()) return f->len() >= f->min_size();
-        if (auto* t = as_time_output()) {
+        if (auto *f = as_fixed_output()) return f->len() >= f->min_size();
+        if (auto *t = as_time_output()) {
             // For time windows, check if enough time has passed
             auto elapsed = owning_graph()->evaluation_clock()->evaluation_time() -
-                          owning_graph()->evaluation_engine_api()->start_time();
+                           owning_graph()->evaluation_engine_api()->start_time();
             return elapsed >= t->min_size();
         }
         return false;
     }
 
     // TimeSeriesTimeWindowOutput implementation
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::_roll() const {
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::_roll() const {
         auto tm = owning_graph()->evaluation_clock()->evaluation_time() - _size;
         if (!_times.empty() && _times.front() < tm) {
             std::vector<T> removed;
@@ -159,32 +175,37 @@ namespace hgraph
         }
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::_reset_removed_values() {
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::_reset_removed_values() {
         _removed_values.clear();
     }
 
-    template <typename T> bool TimeSeriesTimeWindowOutput<T>::has_removed_value() const {
+    template<typename T>
+    bool TimeSeriesTimeWindowOutput<T>::has_removed_value() const {
         _roll();
         return !_removed_values.empty();
     }
 
-    template <typename T> nb::object TimeSeriesTimeWindowOutput<T>::removed_value() const {
+    template<typename T>
+    nb::object TimeSeriesTimeWindowOutput<T>::removed_value() const {
         _roll();
         if (_removed_values.empty()) return nb::none();
         // Return the removed values as a tuple/list
         return nb::cast(_removed_values);
     }
 
-    template <typename T> size_t TimeSeriesTimeWindowOutput<T>::len() const {
+    template<typename T>
+    size_t TimeSeriesTimeWindowOutput<T>::len() const {
         _roll();
         return _buffer.size();
     }
 
-    template <typename T> nb::object TimeSeriesTimeWindowOutput<T>::py_value() const {
+    template<typename T>
+    nb::object TimeSeriesTimeWindowOutput<T>::py_value() const {
         if (!_ready) {
             // Check if enough time has passed
             auto elapsed = owning_graph()->evaluation_clock()->evaluation_time() -
-                          owning_graph()->evaluation_engine_api()->start_time();
+                           owning_graph()->evaluation_engine_api()->start_time();
             if (elapsed >= _min_size) {
                 _ready = true;
             } else {
@@ -200,11 +221,12 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T> nb::object TimeSeriesTimeWindowOutput<T>::py_delta_value() const {
+    template<typename T>
+    nb::object TimeSeriesTimeWindowOutput<T>::py_delta_value() const {
         // Check if enough time has passed to make the window ready
         if (!_ready) {
             auto elapsed = owning_graph()->evaluation_clock()->evaluation_time() -
-                          owning_graph()->evaluation_engine_api()->start_time();
+                           owning_graph()->evaluation_engine_api()->start_time();
             if (elapsed >= _min_size) {
                 _ready = true;
             }
@@ -224,13 +246,18 @@ namespace hgraph
         return nb::none();
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::py_set_value(nb::object value) {
-        if (value.is_none()) { invalidate(); return; }
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::py_set_value(nb::object value) {
+        if (value.is_none()) {
+            invalidate();
+            return;
+        }
         // This should not be called for time windows - they only append
         throw std::runtime_error("py_set_value should not be called on TimeSeriesTimeWindowOutput");
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::apply_result(nb::object value) {
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::apply_result(nb::object value) {
         if (!value.is_valid() || value.is_none()) return;
         try {
             T v = nb::cast<T>(value);
@@ -242,33 +269,37 @@ namespace hgraph
         }
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::mark_invalid() {
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::mark_invalid() {
         _buffer.clear();
         _times.clear();
         _ready = false;
         TimeSeriesOutput::mark_invalid();
     }
 
-    template <typename T> nb::object TimeSeriesTimeWindowOutput<T>::py_value_times() const {
+    template<typename T>
+    nb::object TimeSeriesTimeWindowOutput<T>::py_value_times() const {
         _roll();
         if (_times.empty()) return nb::none();
         std::vector<engine_time_t> out(_times.begin(), _times.end());
         return nb::cast(out);
     }
 
-    template <typename T> engine_time_t TimeSeriesTimeWindowOutput<T>::first_modified_time() const {
+    template<typename T>
+    engine_time_t TimeSeriesTimeWindowOutput<T>::first_modified_time() const {
         _roll();
         return _times.empty() ? engine_time_t{} : _times.front();
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::copy_from_input(const TimeSeriesInput &input) {
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::copy_from_input(const TimeSeriesInput &input) {
         auto &i = dynamic_cast<const TimeSeriesWindowInput<T> &>(input);
-        if (auto* src = i.as_time_output()) {
-            _buffer   = src->_buffer;
-            _times    = src->_times;
-            _size     = src->_size;
+        if (auto *src = i.as_time_output()) {
+            _buffer = src->_buffer;
+            _times = src->_times;
+            _size = src->_size;
             _min_size = src->_min_size;
-            _ready    = src->_ready;
+            _ready = src->_ready;
             mark_modified();
         } else {
             throw std::runtime_error("TimeSeriesTimeWindowOutput::copy_from_input: input output is not time window");
@@ -276,19 +307,21 @@ namespace hgraph
     }
 
     // Binding functions for time-based windows
-    template <typename T> static void bind_time_tsw_for_type(nb::module_ &m, const char *suffix) {
+    template<typename T>
+    static void bind_time_tsw_for_type(nb::module_ &m, const char *suffix) {
         using Out = TimeSeriesTimeWindowOutput<T>;
 
-        auto out_cls = nb::class_<Out, TimeSeriesOutput>(m, (std::string("TimeSeriesTimeWindowOutput_") + suffix).c_str())
-                           .def_prop_ro("value_times", &Out::py_value_times)
-                           .def_prop_ro("first_modified_time", &Out::first_modified_time)
-                           .def_prop_ro("size", &Out::size)
-                           .def_prop_ro("min_size", &Out::min_size)
-                           .def_prop_ro("has_removed_value", &Out::has_removed_value)
-                           .def_prop_ro("removed_value", &Out::removed_value)
-                           .def("__len__", &Out::len);
+        auto out_cls = nb::class_<Out, TimeSeriesOutput>(
+                    m, (std::string("TimeSeriesTimeWindowOutput_") + suffix).c_str())
+                .def_prop_ro("value_times", &Out::py_value_times)
+                .def_prop_ro("first_modified_time", &Out::first_modified_time)
+                .def_prop_ro("size", &Out::size)
+                .def_prop_ro("min_size", &Out::min_size)
+                .def_prop_ro("has_removed_value", &Out::has_removed_value)
+                .def_prop_ro("removed_value", &Out::removed_value)
+                .def("__len__", &Out::len);
 
-        (void)out_cls;
+        (void) out_cls;
     }
 
     void tsw_register_with_nanobind(nb::module_ &m) {
@@ -319,5 +352,4 @@ namespace hgraph
     template struct TimeSeriesWindowInput<engine_time_t>;
     template struct TimeSeriesWindowInput<engine_time_delta_t>;
     template struct TimeSeriesWindowInput<nb::object>;
-
-}  // namespace hgraph
+} // namespace hgraph

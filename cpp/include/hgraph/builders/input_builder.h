@@ -7,13 +7,10 @@
 
 #include <hgraph/builders/builder.h>
 
-namespace hgraph
-{
-
+namespace hgraph {
     // The InputBuilder class implementation
 
-    struct InputBuilder : Builder
-    {
+    struct InputBuilder : Builder {
         using ptr = nb::ref<InputBuilder>;
 
         /**
@@ -36,7 +33,6 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // INPUT_BUILDER_H

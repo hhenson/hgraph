@@ -5,11 +5,11 @@
 #include <ranges>
 #include <utility>
 
-namespace hgraph
-{
-    TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(TimeSeriesSchema::ptr           schema,
+namespace hgraph {
+    TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(TimeSeriesSchema::ptr schema,
                                                                  std::vector<OutputBuilder::ptr> output_builders)
-        : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {}
+        : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {
+    }
 
     time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node) const {
         auto v{new TimeSeriesBundleOutput{owning_node, schema}};
@@ -47,17 +47,19 @@ namespace hgraph
 
     time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(TimeSeriesBundleOutput *output) const {
         std::vector<time_series_output_ptr> outputs;
-        time_series_output_ptr              output_{output};
+        time_series_output_ptr output_{output};
         outputs.reserve(output_builders.size());
-        std::ranges::copy(output_builders | std::views::transform([&](auto &builder) { return builder->make_instance(output_); }),
+        std::ranges::copy(output_builders | std::views::transform([&](auto &builder) {
+                              return builder->make_instance(output_);
+                          }),
                           std::back_inserter(outputs));
         output->set_ts_values(outputs);
         return output_;
     }
 
     void TimeSeriesBundleOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesBundleOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSB")
-            .def(nb::init<TimeSeriesSchema::ptr, std::vector<OutputBuilder::ptr>>(), "schema"_a, "output_builders"_a);
+        nb::class_ < TimeSeriesBundleOutputBuilder, OutputBuilder > (m, "OutputBuilder_TSB")
+                .def(nb::init<TimeSeriesSchema::ptr, std::vector<OutputBuilder::ptr> >(), "schema"_a,
+                     "output_builders"_a);
     }
-
-}  // namespace hgraph
+} // namespace hgraph

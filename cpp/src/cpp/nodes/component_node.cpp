@@ -11,8 +11,7 @@
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
-namespace hgraph
-{
+namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
 
@@ -26,7 +25,7 @@ namespace hgraph
         // Check if it's a TimeSeriesReference using nanobind's isinstance
         // In Python: TimeSeriesReference.is_instance(value)
         try {
-            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference>>(value);
+            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference> >(value);
             return ref->has_output() && ref->output()->valid();
         } catch (const nb::cast_error &) {
             // Not a BoundTimeSeriesReference, that's fine
@@ -39,7 +38,7 @@ namespace hgraph
 
         // Check if it's a TimeSeriesReference
         try {
-            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference>>(value);
+            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference> >(value);
             // Must have output and it must be valid
             return ref->output()->py_value();
         } catch (const nb::cast_error &) {
@@ -53,7 +52,8 @@ namespace hgraph
                                  const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
-          m_output_node_id_(output_node_id), m_active_graph_(nullptr), m_last_evaluation_time_(std::nullopt) {}
+          m_output_node_id_(output_node_id), m_active_graph_(nullptr), m_last_evaluation_time_(std::nullopt) {
+    }
 
     std::pair<std::string, bool> ComponentNode::recordable_id() {
         // Get outer recordable_id from graph traits
@@ -93,9 +93,9 @@ namespace hgraph
         if (!dependencies.empty()) {
             // Separate scalar and time-series dependencies
             std::vector<std::string> ts_values;
-            for (const auto &k : dependencies) {
+            for (const auto &k: dependencies) {
                 if (scalars().contains(k)) {
-                    continue;  // Scalar value
+                    continue; // Scalar value
                 }
                 ts_values.push_back(k);
             }
@@ -103,16 +103,16 @@ namespace hgraph
             // Check if time-series values are ready
             if (!ts_values.empty()) {
                 if (!is_started() && !is_starting()) {
-                    return {id_, false};  // Not started yet, can't read ts values
+                    return {id_, false}; // Not started yet, can't read ts values
                 }
 
                 // Check all ts values are valid
                 // Use input() to get the bundle, then access individual inputs
                 auto input_bundle = input();
-                for (const auto &k : ts_values) {
+                for (const auto &k: ts_values) {
                     auto ts = (*input_bundle)[k];
                     if (!_get_ts_valid(ts)) {
-                        return {id_, false};  // Not all inputs valid yet
+                        return {id_, false}; // Not all inputs valid yet
                     }
                 }
             }
@@ -120,7 +120,7 @@ namespace hgraph
             // Build args map for formatting
             nb::dict args;
             auto input_bundle = input();
-            for (const auto &k : dependencies) {
+            for (const auto &k: dependencies) {
                 if (scalars().contains(k)) {
                     args[k.c_str()] = scalars()[k.c_str()];
                 } else {
@@ -151,7 +151,7 @@ namespace hgraph
         // Check if recordable_id is ready
         auto [id_, ready] = recordable_id();
         if (!ready) {
-            return;  // Not ready yet, will try again later
+            return; // Not ready yet, will try again later
         }
 
         // Check for duplicate component in GlobalState
@@ -160,7 +160,7 @@ namespace hgraph
             throw std::runtime_error(
                 std::string("Component[") + id_ + "] " + signature().signature() + " already exists in graph");
         }
-        GlobalState::set(key, nb::bool_(true));  // Write marker
+        GlobalState::set(key, nb::bool_(true)); // Write marker
 
         // Create the nested graph instance
         m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, id_);
@@ -173,7 +173,7 @@ namespace hgraph
 
         // Wire inputs
         auto input_bundle = input();
-        for (const auto &[arg, node_ndx] : m_input_node_ids_) {
+        for (const auto &[arg, node_ndx]: m_input_node_ids_) {
             auto node = m_active_graph_->nodes()[node_ndx];
             node->notify();
 
@@ -248,13 +248,13 @@ namespace hgraph
 
         mark_evaluated();
 
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
 
         m_active_graph_->evaluate_graph();
 
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
     }
@@ -268,9 +268,8 @@ namespace hgraph
     }
 
     void ComponentNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<ComponentNode, NestedNode>(m, "ComponentNode")
-            .def_prop_ro("active_graph", [](ComponentNode &self) { return self.m_active_graph_; })
-            .def_prop_ro("nested_graphs", &ComponentNode::nested_graphs);
+        nb::class_ < ComponentNode, NestedNode > (m, "ComponentNode")
+                .def_prop_ro("active_graph", [](ComponentNode &self) { return self.m_active_graph_; })
+                .def_prop_ro("nested_graphs", &ComponentNode::nested_graphs);
     }
-
-}  // namespace hgraph
+} // namespace hgraph

@@ -7,13 +7,10 @@
 
 #include <hgraph/types/time_series_type.h>
 
-namespace hgraph
-{
-
+namespace hgraph {
     struct TimeSeriesSignalInputBuilder;
 
-    struct TimeSeriesSignalInput : TimeSeriesInput
-    {
+    struct TimeSeriesSignalInput : TimeSeriesInput {
         using ptr = nb::ref<TimeSeriesSignalInput>;
         using TimeSeriesInput::TimeSeriesInput;
 
@@ -27,21 +24,24 @@ namespace hgraph
 
         // Override to aggregate from children like Python implementation
         [[nodiscard]] bool valid() const override;
+
         [[nodiscard]] bool modified() const override;
+
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
         // Override to propagate to children
         void make_active() override;
+
         void make_passive() override;
+
         void do_un_bind_output(bool unbind_refs) override;
 
         static void register_with_nanobind(nb::module_ &m);
 
     private:
         friend TimeSeriesSignalInputBuilder;
-        mutable std::vector<ptr> _ts_values;  // Lazily created child signals
+        mutable std::vector<ptr> _ts_values; // Lazily created child signals
     };
-
 }
 
 #endif //TS_SIGNAL_H

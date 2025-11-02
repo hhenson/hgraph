@@ -8,18 +8,15 @@
 #include <format>
 #include <nanobind/nanobind.h>
 
-namespace std
-{
-
-    template <typename Py_T, typename CharT>
+namespace std {
+    template<typename Py_T, typename CharT>
         requires std::is_same_v<Py_T, nanobind::handle> || std::is_same_v<Py_T, nanobind::object>
-    struct formatter<Py_T, CharT>
-    {
+    struct formatter<Py_T, CharT> {
         bool use_repr = false;
 
         // Parse formatting options if needed
         constexpr auto parse(std::format_parse_context &ctx) {
-            auto it  = ctx.begin();
+            auto it = ctx.begin();
             auto end = ctx.end();
 
             // If we reached the end of the format string, return
@@ -48,6 +45,6 @@ namespace std
 
     using handle_formatter = formatter<nanobind::handle>;
     using object_formatter = formatter<nanobind::object>;
-}  // namespace std
+} // namespace std
 
 #endif  // FORMAT_H

@@ -1,9 +1,8 @@
 #include <hgraph/types/traits.h>
 
-namespace hgraph
-{
-
-    Traits::Traits(Traits::ptr parent_traits) : _parent_traits{std::move(parent_traits)} {}
+namespace hgraph {
+    Traits::Traits(Traits::ptr parent_traits) : _parent_traits{std::move(parent_traits)} {
+    }
 
     void Traits::set_traits(nb::kwargs traits) { _traits.update(traits); }
 
@@ -24,11 +23,10 @@ namespace hgraph
     }
 
     void Traits::register_with_nanobind(nb::module_ &m) {
-        nb::class_<Traits, nb::intrusive_base>(m, "Traits")
-            .def("get_trait", &Traits::get_trait, "trait_name"_a)
-            .def("set_traits", &Traits::set_traits)
-            .def("get_trait_or", &Traits::get_trait_or, "trait_name"_a, "def_value"_a = nb::none())
-            .def("copy", &Traits::copy);
+        nb::class_ < Traits, nb::intrusive_base > (m, "Traits")
+                .def("get_trait", &Traits::get_trait, "trait_name"_a)
+                .def("set_traits", &Traits::set_traits)
+                .def("get_trait_or", &Traits::get_trait_or, "trait_name"_a, "def_value"_a = nb::none())
+                .def("copy", &Traits::copy);
     }
-
-}  // namespace hgraph
+} // namespace hgraph

@@ -27,9 +27,10 @@ namespace hgraph {
      */
     struct InitialiseDisposeContext {
         InitialiseDisposeContext(ComponentLifeCycle &component);
-        ~InitialiseDisposeContext() noexcept;  // Destructors must not throw; exceptions are reported earlier
+
+        ~InitialiseDisposeContext() noexcept; // Destructors must not throw; exceptions are reported earlier
     private:
-        ComponentLifeCycle& _component;
+        ComponentLifeCycle &_component;
     };
 
     /**
@@ -39,9 +40,10 @@ namespace hgraph {
      */
     struct StartStopContext {
         StartStopContext(ComponentLifeCycle &component);
-        ~StartStopContext() noexcept;  // Never throws - call stop() explicitly if you need exception propagation
+
+        ~StartStopContext() noexcept; // Never throws - call stop() explicitly if you need exception propagation
     private:
-        ComponentLifeCycle& _component;
+        ComponentLifeCycle &_component;
     };
 
 
@@ -69,8 +71,7 @@ namespace hgraph {
      * Since any life-cycle controlled component is likely to reasonably heavy weight, it seems reasonable to make them
      * ref-counting as well. *** May change my mind about this, but for now seems reasonable ***
      */
-    struct HGRAPH_EXPORT ComponentLifeCycle : nb::intrusive_base   {
-
+    struct HGRAPH_EXPORT ComponentLifeCycle : nb::intrusive_base {
         virtual ~ComponentLifeCycle() = default;
 
         /**

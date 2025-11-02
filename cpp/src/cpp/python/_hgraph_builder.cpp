@@ -1,4 +1,3 @@
-
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
