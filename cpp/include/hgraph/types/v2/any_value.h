@@ -95,6 +95,41 @@ namespace hgraph {
             return reinterpret_cast<const T*>(get_ptr());
         }
 
+        // Place a borrowed reference to an external object.
+        // Copying/moving this AnyValue materializes an owned copy in the destination.
+        template <class T>
+            requires(std::is_copy_constructible_v<std::remove_reference_t<T>>)
+        T& emplace_ref(T& ref) {
+            reset();
+            using U = std::remove_reference_t<T>;
+            U* p = std::addressof(ref);
+            std::memcpy(storage_, &p, sizeof(U*));
+            using_heap_ = true; // ensures get_ptr() returns the pointer stored in storage_
+            vtable_ = &ref_vtable_for<U>();
+            return ref;
+        }
+
+        // Is the currently held object a borrowed reference?
+        bool is_reference() const noexcept { return vtable_ && vtable_->is_reference; }
+
+        // Convert a borrowed reference into an owned value in-place.
+        void ensure_owned() {
+            if (!is_reference()) return;
+            AnyValue tmp;
+            vtable_->copy(tmp, *this); // ref copy => materialize owned into tmp
+            swap(tmp);
+        }
+
+        // Swap helper (safe byte-wise swap of the inline buffer and metadata)
+        void swap(AnyValue& other) noexcept {
+            unsigned char tmp[SBO];
+            std::memcpy(tmp, storage_, SBO);
+            std::memcpy(storage_, other.storage_, SBO);
+            std::memcpy(other.storage_, tmp, SBO);
+            std::swap(vtable_, other.vtable_);
+            std::swap(using_heap_, other.using_heap_);
+        }
+
         // Hash of the contained value (type-aware). Returns 0 if empty.
         std::size_t hash_code() const noexcept {
             return vtable_ ? vtable_->hash(*this) : 0;
@@ -107,6 +142,7 @@ namespace hgraph {
             void (*move)(AnyValue&, AnyValue&) noexcept;
             void (*destroy)(AnyValue&) noexcept;
             std::size_t (*hash)(const AnyValue&) noexcept;
+            bool is_reference; // indicates borrowed reference storage vs owned
         };
 
         template <class T>
@@ -172,7 +208,40 @@ namespace hgraph {
                         // boost::hash_combine style
                         return th ^ (ph + 0x9e3779b97f4a7c15ull + (th << 6) + (th >> 2));
                     }
-                }
+                },
+                /* is_reference */ false
+            };
+            return vt;
+        }
+
+        // VTable for a borrowed reference to T
+        template <class T>
+        static const VTable& ref_vtable_for() {
+            static const VTable vt{
+                TypeId{&typeid(T)},
+                // copy => materialize an owned copy in the destination
+                [](AnyValue& dst, const AnyValue& src) {
+                    const T* p = *reinterpret_cast<T* const*>(src.storage_);
+                    dst.template emplace<T>(*p);
+                },
+                // move => same as copy (destination gets owned, source remains a ref)
+                [](AnyValue& dst, AnyValue& src) noexcept {
+                    const T* p = *reinterpret_cast<T* const*>(src.storage_);
+                    (void) src;
+                    dst.template emplace<T>(*p);
+                },
+                // destroy => no-op for borrowed references
+                [](AnyValue&) noexcept {},
+                // hash => hash of the referenced value when available, else pointer hash
+                [](const AnyValue& self) noexcept -> std::size_t {
+                    const T* p = *reinterpret_cast<T* const*>(self.storage_);
+                    if constexpr (requires(const T& x) { { std::hash<T>{}(x) } -> std::convertible_to<std::size_t>; }) {
+                        return std::hash<T>{}(*p);
+                    } else {
+                        return std::hash<const void*>{}(static_cast<const void*>(p));
+                    }
+                },
+                /* is_reference */ true
             };
             return vt;
         }
