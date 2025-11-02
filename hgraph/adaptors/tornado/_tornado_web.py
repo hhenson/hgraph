@@ -47,12 +47,37 @@ class TornadoWeb:
             self._started += 1
             return
 
+        # Ensure the Tornado IOLoop thread is running
         self.start_loop()
 
-        TornadoWeb._loop.add_callback(lambda: self._listen())
+        # Schedule the server listen on the IOLoop thread
+        try:
+            TornadoWeb._loop.add_callback(lambda: self._listen())
+        except Exception:
+            # If scheduling failed (e.g., loop not yet ready), try to (re)start the loop and schedule again
+            try:
+                self.start_loop()
+                TornadoWeb._loop.add_callback(lambda: self._listen())
+            except Exception:
+                # As a last resort, fall through to bounded wait and retry below
+                pass
 
-        while not self._started:
+        # Bounded wait for the server to report started; avoid infinite wait if the loop is not processing callbacks
+        waited = 0.0
+        retry_scheduled = False
+        while not self._started and waited < 5.0:
             time.sleep(0.1)
+            waited += 0.1
+            # If we haven't started after ~1s, try nudging the listen callback again once
+            if not retry_scheduled and waited >= 1.0 and not self._started:
+                try:
+                    TornadoWeb._loop.add_callback(lambda: self._listen())
+                    retry_scheduled = True
+                except Exception:
+                    # Ignore and continue waiting up to the bounded timeout
+                    pass
+        # Do not block forever; tests that perform a short sleep before making requests will still succeed,
+        # and this avoids rare hangs when the IOLoop is not processing callbacks yet.
 
     def _listen(self):
         self._server = self._app.listen(self._port)

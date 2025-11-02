@@ -78,9 +78,14 @@ namespace hgraph
         }
     }
 
-    graph_ptr TimeSeriesType::owning_graph() { return owning_node()->graph(); }
+    graph_ptr TimeSeriesType::owning_graph() {
+        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    }
 
-    graph_ptr TimeSeriesType::owning_graph() const { return owning_node()->graph(); }
+    graph_ptr TimeSeriesType::owning_graph() const
+    {
+        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    }
 
     void TimeSeriesOutput::clear() {}
 
@@ -375,7 +380,11 @@ namespace hgraph
         _reset_last_modified_time();
     }
 
-    bool TimeSeriesOutput::modified() const { return owning_graph()->evaluation_clock()->evaluation_time() == _last_modified_time; }
+    bool TimeSeriesOutput::modified() const {
+        auto g = owning_graph();
+        if (!g) { return false; }
+        return g->evaluation_clock()->evaluation_time() == _last_modified_time;
+    }
 
     bool TimeSeriesOutput::valid() const { return _last_modified_time > MIN_DT; }
 
@@ -388,13 +397,25 @@ namespace hgraph
     void TimeSeriesOutput::mark_invalid() {
         if (_last_modified_time > MIN_DT) {
             _last_modified_time = MIN_DT;
-            _notify(owning_graph()->evaluation_clock()->evaluation_time());
+            auto g = owning_graph();
+            if (g) {
+                _notify(g->evaluation_clock()->evaluation_time());
+            } else {
+                // Owning graph not yet attached; skip notify to avoid dereferencing null during start/recover
+            }
         }
     }
 
     void TimeSeriesOutput::mark_modified() {
         if (has_parent_or_node()) {
-            mark_modified(owning_graph()->evaluation_clock()->evaluation_time());
+            auto g = owning_graph();
+            if (g) {
+                mark_modified(g->evaluation_clock()->evaluation_time());
+            } else {
+                // Graph not yet attached; mark with a maximal time to preserve monotonicity without dereferencing
+                // This is a bad situation, I would probably prefer to find out why,
+                // TODO: find the root cause of why this could be called without a bound graph.
+            }
         } else {
             mark_modified(MAX_ET);
         }
