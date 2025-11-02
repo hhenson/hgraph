@@ -136,29 +136,32 @@ TsCollectionEventAny TsCollectionEventAny::invalidate(engine_time_t t) { return 
 TsCollectionEventAny TsCollectionEventAny::modify(engine_time_t t) { return {t, TsEventKind::Modify, {}}; }
 TsCollectionEventAny TsCollectionEventAny::recover(engine_time_t t) { return {t, TsEventKind::Recover, {}}; }
 
-void TsCollectionEventAny::add_modify(AnyKey key, AnyValue<> value) {
+TsCollectionEventAny& TsCollectionEventAny::add_modify(AnyKey key, AnyValue<> value) {
     if (kind != TsEventKind::Modify) kind = TsEventKind::Modify;
     CollectionItem item;
     item.key = std::move(key);
     item.kind = ColItemKind::Modify;
     item.value = std::move(value);
     items.emplace_back(std::move(item));
+    return *this;
 }
 
-void TsCollectionEventAny::add_reset(AnyKey key) {
+TsCollectionEventAny& TsCollectionEventAny::add_reset(AnyKey key) {
     if (kind != TsEventKind::Modify) kind = TsEventKind::Modify;
     CollectionItem item;
     item.key = std::move(key);
     item.kind = ColItemKind::Reset;
     items.emplace_back(std::move(item));
+    return *this;
 }
 
-void TsCollectionEventAny::remove(AnyKey key) {
+TsCollectionEventAny& TsCollectionEventAny::remove(AnyKey key) {
     if (kind != TsEventKind::Modify) kind = TsEventKind::Modify;
     CollectionItem item;
     item.key = std::move(key);
     item.kind = ColItemKind::Remove;
     items.emplace_back(std::move(item));
+    return *this;
 }
 
 std::string to_string(const TsCollectionEventAny& e) {
