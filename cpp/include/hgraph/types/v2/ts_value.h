@@ -119,7 +119,7 @@ namespace hgraph
 
     private:
         impl_ptr    _impl;   // Shared with bound inputs
-        Notifiable *_parent; // Owning node (implements both traits)
+        Notifiable *_parent; // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     /**
@@ -178,7 +178,7 @@ namespace hgraph
 
     private:
         impl_ptr    _impl;   // Shared impl
-        Notifiable *_parent; // Owning node (provides notification and time)
+        Notifiable *_parent; // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     // Factory functions for template convenience
