@@ -11,8 +11,8 @@ between outputs (producers) and inputs (consumers), enabling efficient event pro
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [TimeSeriesValueOutput - Event Producer](#timeseriesvalueoutput---event-producer)
-4. [TimeSeriesValueInput - Event Consumer](#timeseriesvalueinput---event-consumer)
+3. [TSOutput - Event Producer](#tsoutput---event-producer)
+4. [TSInput - Event Consumer](#tsinput---event-consumer)
 5. [Binding and Subscription](#binding-and-subscription)
 6. [Active State Management](#active-state-management)
 7. [Type Validation](#type-validation)
@@ -25,15 +25,15 @@ between outputs (producers) and inputs (consumers), enabling efficient event pro
 
 HGraph uses two primary types to represent time series values in the C++ runtime:
 
-- **`TimeSeriesValueOutput`**: Produces events and holds the authoritative state (one per node output)
-- **`TimeSeriesValueInput`**: Consumes events from a bound output via zero-copy sharing (many per output)
+- **`TSOutput`**: Produces events and holds the authoritative state (one per node output)
+- **`TSInput`**: Consumes events from a bound output via zero-copy sharing (many per output)
 
 Both types use **type erasure** via `AnyValue<>` to eliminate template proliferation while maintaining type safety
 through visitor patterns.
 
 ### Key Design Principles
 
-1. **Zero-copy sharing**: Inputs and outputs share the same `TimeSeriesValueImpl` via `shared_ptr`
+1. **Zero-copy sharing**: Inputs and outputs share the same `TSValue` via `shared_ptr`
 2. **Single source of truth**: All state lives in the shared impl, not in wrappers
 3. **Type erasure**: `AnyValue<>` eliminates per-type template instantiation
 4. **Type safety**: Runtime validation ensures type consistency at bind and event application time
@@ -44,16 +44,15 @@ through visitor patterns.
 
 ```
 ┌─────────────────────┐
-│ TimeSeriesValue     │
-│      Output         │
+│     TSOutput        │
 │  (Event Producer)   │
 └──────────┬──────────┘
            │ shares
            ▼
   ┌────────────────────┐         ┌─────────────────────┐
-  │ TimeSeriesValueImpl│◄────────┤ TimeSeriesValue     │
-  │                    │ shares  │      Input          │
-  │  • AnyValue value  │         │  (Event Consumer)   │
+  │      TSValue       │◄────────┤      TSInput        │
+  │                    │ shares  │  (Event Consumer)   │
+  │  • AnyValue value  │         │                     │
   │  • TsEventAny evt  │◄────────┤                     │
   │  • subscribers     │ shares  └─────────────────────┘
   └────────────────────┘
@@ -65,10 +64,10 @@ through visitor patterns.
 
 ### Memory Layout
 
-**TimeSeriesValueOutput**:
+**TSOutput**:
 ```
 ┌────────────────────────────────────────────────────┐
-│ shared_ptr<TimeSeriesValueImpl> _impl              │
+│ shared_ptr<TSValue> _impl              │
 │   • Points to shared impl (8 bytes)                │
 ├────────────────────────────────────────────────────┤
 │ Notifiable* _parent                                │
@@ -77,10 +76,10 @@ through visitor patterns.
 Total: 16 bytes (stack-allocated wrapper)
 ```
 
-**TimeSeriesValueInput**:
+**TSInput**:
 ```
 ┌────────────────────────────────────────────────────┐
-│ shared_ptr<TimeSeriesValueImpl> _impl              │
+│ shared_ptr<TSValue> _impl              │
 │   • Points to shared impl (8 bytes)                │
 ├────────────────────────────────────────────────────┤
 │ Notifiable* _parent                                │
@@ -89,7 +88,7 @@ Total: 16 bytes (stack-allocated wrapper)
 Total: 16 bytes (stack-allocated wrapper)
 ```
 
-**Shared TimeSeriesValueImpl** (SimplePeeredImpl):
+**Shared TSValue** (SimplePeeredImpl):
 ```
 ┌────────────────────────────────────────────────────┐
 │ AnyValue<> _value                  (~40 bytes)     │
@@ -113,9 +112,23 @@ The system uses two impl variants via virtual dispatch:
 | **NonBoundImpl**    | Unbound inputs | `bool _active`        | Default before binding           |
 | **SimplePeeredImpl**| Outputs/inputs | Subscriber set        | Shared state after binding       |
 
+### File Organization
+
+The implementation is split across multiple files for separation of concerns:
+
+| File | Contents | Purpose |
+|------|----------|---------|
+| **ts_value.h** | `TSValue` (pure virtual base class)<br>`TSOutput` wrapper class<br>`TSInput` wrapper class<br>Factory functions | Public API and interface definitions |
+| **ts_value_impl.h** | `NonBoundImpl`<br>`SimplePeeredImpl` | Concrete implementations of `TSValue` |
+| **ts_value.cpp** | Constructor and method implementations | Non-inline implementation details |
+
+**Key Design Decisions**:
+- Constructors are non-template and take `Notifiable*` directly, with factory functions providing template convenience. This allows implementation to be moved to `.cpp` file, reducing compile times and header dependencies.
+- Both `TSOutput` and `TSInput` are **move-only types** (copying is deleted, moving is defaulted). This prevents accidental copies and ensures clear ownership semantics.
+
 ---
 
-## TimeSeriesValueOutput - Event Producer
+## TSOutput - Event Producer
 
 Represents the output of a graph node that produces time series values.
 
@@ -131,11 +144,14 @@ struct MyNode : Notifiable, CurrentTimeProvider {
 
 MyNode parent;
 
-// With explicit type (recommended)
-TimeSeriesValueOutput output(&parent, typeid(int));
+// Direct constructor (requires cast and explicit typeid)
+TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
 
-// Or with template type deduction
-TimeSeriesValueOutput output2(&parent, typeid(std::string));
+// Factory function (template convenience - recommended)
+auto output2 = make_ts_output<MyNode, std::string>(&parent);
+
+// Factory with explicit typeid
+auto output3 = make_ts_output<MyNode, double>(&parent, typeid(double));
 ```
 
 **Requirements:**
@@ -143,6 +159,11 @@ TimeSeriesValueOutput output2(&parent, typeid(std::string));
 - Parent pointer cannot be null (throws `std::runtime_error`)
 - Must specify value type via `typeid(T)` for type validation
 - Automatically creates a `SimplePeeredImpl` for sharing
+- Factory functions handle `ParentNode` concept checking and casting
+
+**Semantics:**
+- `TSOutput` is a **move-only type** (cannot be copied, only moved)
+- This ensures clear ownership and prevents accidental sharing of output state
 
 ### Setting Values
 
@@ -189,7 +210,7 @@ TsEventAny event = output.delta_value();
 
 ---
 
-## TimeSeriesValueInput - Event Consumer
+## TSInput - Event Consumer
 
 Represents an input to a graph node that consumes time series values from an output.
 
@@ -198,8 +219,11 @@ Represents an input to a graph node that consumes time series values from an out
 ```cpp
 MyNode parent;
 
-// With explicit type (must match output type)
-TimeSeriesValueInput input(&parent, typeid(int));
+// Direct constructor (requires cast and explicit typeid)
+TSInput input(static_cast<Notifiable*>(&parent), typeid(int));
+
+// Factory function (template convenience - recommended)
+auto input2 = make_ts_input<MyNode, std::string>(&parent);
 ```
 
 **Initial State:**
@@ -208,12 +232,22 @@ TimeSeriesValueInput input(&parent, typeid(int));
 - Active state tracked locally as boolean
 - Type stored for validation at bind time
 
+**Semantics:**
+- `TSInput` is a **move-only type** (cannot be copied, only moved)
+- This ensures clear ownership and prevents accidental sharing of input state
+
 ### Binding to Output
 
 ```cpp
-TimeSeriesValueOutput output(&parent, typeid(int));
-TimeSeriesValueInput input(&parent, typeid(int));
+// Using direct constructors
+TSOutput output(static_cast<Notifiable*>(&parent), typeid(int));
+TSInput input(static_cast<Notifiable*>(&parent), typeid(int));
 input.bind_output(&output);
+
+// Using factory functions (recommended)
+auto output2 = make_ts_output<MyNode, int>(&parent);
+auto input2 = make_ts_input<MyNode, int>(&parent);
+input2.bind_output(&output2);
 ```
 
 **Binding Behavior:**
@@ -237,9 +271,9 @@ assert(&output.value() == &input.value());
 Inputs can be rebound to different outputs:
 
 ```cpp
-TimeSeriesValueOutput output1(&parent, typeid(int));
-TimeSeriesValueOutput output2(&parent, typeid(int));
-TimeSeriesValueInput input(&parent, typeid(int));
+TSOutput output1(&parent, typeid(int));
+TSOutput output2(&parent, typeid(int));
+TSInput input(&parent, typeid(int));
 
 input.bind_output(&output1);  // Bind to output1
 input.mark_active();           // Subscribe to output1
@@ -270,7 +304,7 @@ bool is_active = input.active();
 When bound output changes:
 
 ```
-Output.set_value()
+TSOutput.set_value()
     ↓
 SimplePeeredImpl.apply_event()
     ↓
@@ -278,7 +312,7 @@ SimplePeeredImpl.notify_subscribers()
     ↓
 [for each subscriber]
     ↓
-Input.notify(time)
+TSInput.notify(time)
     ↓
 ParentNode.notify(time)  ← Schedules parent node
 ```
@@ -291,11 +325,11 @@ ParentNode.notify(time)  ← Schedules parent node
 
 ```cpp
 // 1. Create unbound input
-TimeSeriesValueInput input(&parent);
+TSInput input(&parent, typeid(int));
 assert(!input.valid());  // NonBoundImpl returns false
 
 // 2. Bind to output
-TimeSeriesValueOutput output(&parent);
+TSOutput output(&parent, typeid(int));
 input.bind_output(&output);
 // Now shares SimplePeeredImpl with output
 
@@ -312,10 +346,10 @@ assert(*input.value().get_if<int>() == 100);
 ### Multiple Inputs, One Output
 
 ```cpp
-TimeSeriesValueOutput output(&parent);
-TimeSeriesValueInput input1(&parent);
-TimeSeriesValueInput input2(&parent);
-TimeSeriesValueInput input3(&parent);
+TSOutput output(&parent, typeid(int));
+TSInput input1(&parent, typeid(int));
+TSInput input2(&parent, typeid(int));
+TSInput input3(&parent, typeid(int));
 
 // All bind to same output
 input1.bind_output(&output);
@@ -342,7 +376,7 @@ Inputs track whether they're **active** (subscribed to receive notifications).
 ### Active State API
 
 ```cpp
-TimeSeriesValueInput input(&parent);
+TSInput input(&parent, typeid(int));
 input.bind_output(&output);
 
 // Initially not active
@@ -413,10 +447,10 @@ Every input and output must declare its value type at construction:
 
 ```cpp
 // Output declares it produces int values
-TimeSeriesValueOutput output(&parent, typeid(int));
+TSOutput output(&parent, typeid(int));
 
 // Input declares it consumes int values
-TimeSeriesValueInput input(&parent, typeid(int));
+TSInput input(&parent, typeid(int));
 ```
 
 The type information is stored internally as `TypeId` (a wrapper around `std::type_info*`) and is used for validation at two critical points.
@@ -426,8 +460,8 @@ The type information is stored internally as `TypeId` (a wrapper around `std::ty
 When an input binds to an output, their types must match:
 
 ```cpp
-TimeSeriesValueOutput int_output(&parent, typeid(int));
-TimeSeriesValueInput string_input(&parent, typeid(std::string));
+TSOutput int_output(&parent, typeid(int));
+TSInput string_input(&parent, typeid(std::string));
 
 // This will throw std::runtime_error with descriptive message
 try {
@@ -453,7 +487,7 @@ if (input_type != output_type) {
 When an event is applied to an output, the event's value type must match:
 
 ```cpp
-TimeSeriesValueOutput int_output(&parent, typeid(int));
+TSOutput int_output(&parent, typeid(int));
 
 AnyValue<> val;
 val.emplace<std::string>("wrong type");
@@ -493,10 +527,10 @@ struct Pipeline {
     MockParentNode parent;
 
     // Type-checked chain: int → string → double
-    TimeSeriesValueOutput sensor{&parent, typeid(int)};
-    TimeSeriesValueInput formatter_in{&parent, typeid(int)};
-    TimeSeriesValueOutput formatter_out{&parent, typeid(std::string)};
-    TimeSeriesValueInput logger_in{&parent, typeid(std::string)};
+    TSOutput sensor{&parent, typeid(int)};
+    TSInput formatter_in{&parent, typeid(int)};
+    TSOutput formatter_out{&parent, typeid(std::string)};
+    TSInput logger_in{&parent, typeid(std::string)};
 
     void wire() {
         formatter_in.bind_output(&sensor);      // ✓ int → int
@@ -523,7 +557,7 @@ struct Pipeline {
 
 ```cpp
 struct ProducerNode : Notifiable, CurrentTimeProvider {
-    TimeSeriesValueOutput output{this};
+    TSOutput output{static_cast<Notifiable*>(this), typeid(int)};
     engine_time_t _time{min_start_time()};
 
     void produce_value(int v) {
@@ -538,7 +572,7 @@ struct ProducerNode : Notifiable, CurrentTimeProvider {
 };
 
 struct ConsumerNode : Notifiable, CurrentTimeProvider {
-    TimeSeriesValueInput input{this};
+    TSInput input{static_cast<Notifiable*>(this), typeid(int)};
     engine_time_t _time{min_start_time()};
 
     void process() {
@@ -566,10 +600,10 @@ producer.produce_value(100);  // Consumer notified
 ### 2. Fan-Out (One Producer, Many Consumers)
 
 ```cpp
-TimeSeriesValueOutput sensor(&parent);
-TimeSeriesValueInput display(&display_node);
-TimeSeriesValueInput logger(&logger_node);
-TimeSeriesValueInput analyzer(&analyzer_node);
+auto sensor = make_ts_output<ParentNode, double>(&parent);
+auto display = make_ts_input<ParentNode, double>(&display_node);
+auto logger = make_ts_input<ParentNode, double>(&logger_node);
+auto analyzer = make_ts_input<ParentNode, double>(&analyzer_node);
 
 // All consume same sensor output
 display.bind_output(&sensor);
@@ -591,9 +625,9 @@ sensor.set_value(make_any(98.6));
 ### 3. Dynamic Rebinding (Switch Input Source)
 
 ```cpp
-TimeSeriesValueOutput primary_source(&parent);
-TimeSeriesValueOutput backup_source(&parent);
-TimeSeriesValueInput input(&consumer);
+auto primary_source = make_ts_output<ParentNode, int>(&parent);
+auto backup_source = make_ts_output<ParentNode, int>(&parent);
+auto input = make_ts_input<ParentNode, int>(&consumer);
 
 // Initially bind to primary
 input.bind_output(&primary_source);
@@ -609,7 +643,7 @@ if (primary_failed) {
 ### 4. Conditional Subscription
 
 ```cpp
-TimeSeriesValueInput input(&parent);
+auto input = make_ts_input<ParentNode, int>(&parent);
 input.bind_output(&output);
 
 // Subscribe only when interested
@@ -628,10 +662,10 @@ if (!user_is_watching) {
 ### 5. Type-Safe Value Access
 
 ```cpp
-TimeSeriesValueOutput output(&parent);
+TSOutput output(&parent, typeid(std::string));
 output.set_value(make_any<std::string>("hello"));
 
-TimeSeriesValueInput input(&parent);
+TSInput input(&parent, typeid(std::string));
 input.bind_output(&output);
 
 // Type-safe access via visitor
@@ -648,7 +682,7 @@ if (auto* ptr = input.value().get_if<std::string>()) {
 ### 6. Event Inspection
 
 ```cpp
-TimeSeriesValueInput input(&parent);
+TSInput input(&parent, typeid(int));
 input.bind_output(&output);
 input.mark_active();
 
@@ -674,14 +708,14 @@ if (input.modified()) {
 
 ## API Reference
 
-### TimeSeriesValueOutput
+### TSOutput
 
 #### Construction
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| Constructor | `template<ParentNode P, typename T>`<br>`TimeSeriesValueOutput(P* parent, const std::type_info& = typeid(T))` | Create output with parent and value type (template version) |
-| Constructor | `template<ParentNode P>`<br>`TimeSeriesValueOutput(P* parent, const std::type_info& value_type)` | Create output with parent and value type (runtime version) |
+| Constructor | `TSOutput(Notifiable* parent, const std::type_info& value_type)` | Create output with parent and value type (implementation in .cpp) |
+| Factory | `template<ParentNode P, typename T>`<br>`make_ts_output(P* parent, const std::type_info& = typeid(T))` | Template convenience factory (handles cast and concept check) |
 
 #### Value Modification
 
@@ -705,23 +739,23 @@ if (input.modified()) {
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `get_impl` | `shared_ptr<TimeSeriesValueImpl> get_impl() const` | Get shared impl (for binding) |
+| `get_impl` | `shared_ptr<TSValue> get_impl() const` | Get shared impl (for binding) |
 | `current_time` | `engine_time_t current_time() const` | Get current time from parent |
 
-### TimeSeriesValueInput
+### TSInput
 
 #### Construction
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| Constructor | `template<ParentNode P, typename T>`<br>`TimeSeriesValueInput(P* parent, const std::type_info& = typeid(T))` | Create input with parent and value type (template version) |
-| Constructor | `template<ParentNode P>`<br>`TimeSeriesValueInput(P* parent, const std::type_info& value_type)` | Create input with parent and value type (runtime version) |
+| Constructor | `TSInput(Notifiable* parent, const std::type_info& value_type)` | Create input with parent and value type (implementation in .cpp) |
+| Factory | `template<ParentNode P, typename T>`<br>`make_ts_input(P* parent, const std::type_info& = typeid(T))` | Template convenience factory (handles cast and concept check) |
 
 #### Binding
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `bind_output` | `void bind_output(TimeSeriesValueOutput* output)` | Bind to output (validate types, share impl, preserve active state) |
+| `bind_output` | `void bind_output(TSOutput* output)` | Bind to output (validate types, share impl, preserve active state - implementation in .cpp) |
 
 #### Active State
 
@@ -770,8 +804,8 @@ Parent nodes must implement:
 
 1. **Always specify value types** - Declare types at construction for runtime validation:
    ```cpp
-   TimeSeriesValueOutput output(&parent, typeid(int));
-   TimeSeriesValueInput input(&parent, typeid(int));
+   TSOutput output(&parent, typeid(int));
+   TSInput input(&parent, typeid(int));
    ```
 
 2. **Always bind before marking active** - Inputs should be bound to an output before subscribing:
