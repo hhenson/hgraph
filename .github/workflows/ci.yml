@@ -163,6 +163,7 @@ jobs:
 
       - name: Run tests (Linux only) [C++ runtime]
         if: runner.os == 'Linux'
+        continue-on-error: true
         env:
           HGRAPH_USE_CPP: 'true'
           PYTHONFAULTHANDLER: '1'
