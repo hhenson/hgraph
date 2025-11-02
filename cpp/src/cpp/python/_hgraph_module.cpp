@@ -13,31 +13,39 @@
 
 #include <nanobind/intrusive/counter.inl>
 
-void export_runtime(nb::module_ &);
-void export_builders(nb::module_ &);
-void export_types(nb::module_ &);
-void export_utils(nb::module_ &);
-void export_nodes(nb::module_ &);
+void export_runtime(nb::module_&);
+void export_builders(nb::module_&);
+void export_types(nb::module_&);
+void export_utils(nb::module_&);
+void export_nodes(nb::module_&);
 
-NB_MODULE(_hgraph, m) {
+NB_MODULE(_hgraph, m)
+{
     nb::set_leak_warnings(false);
     m.doc() = "The HGraph C++ runtime engine";
     nb::intrusive_init(
-        [](PyObject *o) noexcept {
+        [](PyObject* o) noexcept
+        {
             nb::gil_scoped_acquire guard;
             Py_INCREF(o);
         },
-        [](PyObject *o) noexcept {
+        [](PyObject* o) noexcept
+        {
             nb::gil_scoped_acquire guard;
             Py_DECREF(o);
         });
 
     // Translate hgraph::NodeException into the Python hgraph.NodeException to match Python error shape
-    nb::register_exception_translator([](const std::exception_ptr &p, void *) {
-        try {
+    nb::register_exception_translator([](const std::exception_ptr& p, void*)
+    {
+        try
+        {
             if (p) std::rethrow_exception(p);
-        } catch (const hgraph::NodeException &e) {
-            try {
+        }
+        catch (const hgraph::NodeException& e)
+        {
+            try
+            {
                 // Import Python hgraph.NodeException class
                 nb::object hgraph_mod = nb::module_::import_("hgraph");
                 nb::object py_node_exc_cls = hgraph_mod.attr("NodeException");
@@ -52,7 +60,9 @@ NB_MODULE(_hgraph, m) {
                     nb::cast(e.additional_context)
                 );
                 PyErr_SetObject(py_node_exc_cls.ptr(), args.ptr());
-            } catch (...) {
+            }
+            catch (...)
+            {
                 // Fallback to RuntimeError if anything goes wrong to avoid swallowing the error
                 PyErr_SetString(PyExc_RuntimeError, e.what());
             }
@@ -63,7 +73,7 @@ NB_MODULE(_hgraph, m) {
     nb::class_<nb::intrusive_base>(
         m, "intrusive_base",
         nb::intrusive_ptr<nb::intrusive_base>(
-            [](nb::intrusive_base *o, PyObject *po) noexcept { o->set_self_py(po); }));
+            [](nb::intrusive_base* o, PyObject* po) noexcept { o->set_self_py(po); }));
 
     // Install crash handlers for automatic stack traces on crashes
     hgraph::install_crash_handlers();

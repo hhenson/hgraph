@@ -1,4 +1,3 @@
-
 #ifndef TRY_EXCEPT_NODE_H
 #define TRY_EXCEPT_NODE_H
 
@@ -16,11 +15,11 @@ namespace hgraph
 
         void do_eval() override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      protected:
+    protected:
         void wire_outputs() override;
     };
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TRY_EXCEPT_NODE_H

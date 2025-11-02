@@ -38,15 +38,15 @@ if (APPLE)
         set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "macOS deployment target" FORCE)
         set(ENV{MACOSX_DEPLOYMENT_TARGET} "15.0")
         message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET was unset. Defaulting to 15.0")
-    endif()
+    endif ()
 endif ()
 
 # Python and nanobind
 # Normalize variables from callers and ALWAYS use FindPython (not FindPython3),
 # because nanobind-config.cmake requires that 'find_package(Python ...)' has been invoked.
-if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
+if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
-endif()
+endif ()
 # Required: Python interpreter + development module
 find_package(Python 3.12 COMPONENTS Interpreter Development Development.Module REQUIRED)
 include_directories(${Python_INCLUDE_DIRS})
@@ -56,22 +56,22 @@ execute_process(
         COMMAND "${Python_EXECUTABLE}" -c "import sysconfig; print(sysconfig.get_config_var('SOABI'), end='')"
         OUTPUT_VARIABLE Python_SOABI
         RESULT_VARIABLE _result)
-if(_result EQUAL 0 AND Python_SOABI)
+if (_result EQUAL 0 AND Python_SOABI)
     set(Python_SOABI "${Python_SOABI}" CACHE STRING "Python SOABI" FORCE)
-endif()
+endif ()
 
 # Resolve nanobind via the chosen interpreter and help CMake find it
 execute_process(
         COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
         OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
-if(nanobind_ROOT)
+if (nanobind_ROOT)
     set(nanobind_DIR "${nanobind_ROOT}" CACHE PATH "nanobind CMake package dir" FORCE)
-    if(DEFINED CMAKE_PREFIX_PATH)
+    if (DEFINED CMAKE_PREFIX_PATH)
         list(PREPEND CMAKE_PREFIX_PATH "${nanobind_ROOT}")
-    else()
+    else ()
         set(CMAKE_PREFIX_PATH "${nanobind_ROOT}")
-    endif()
-endif()
+    endif ()
+endif ()
 find_package(nanobind CONFIG REQUIRED)
 include_directories(${NB_DIR}/include)
 message(STATUS "Nanobind DIR: ${NB_DIR}/include")
@@ -86,16 +86,16 @@ if (NOT fmt_FOUND)
     include(FetchContent)
     FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 10.1.0)
     FetchContent_MakeAvailable(fmt)
-else()
+else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
-endif()
+endif ()
 
 # Catch2 for unit tests
 include(FetchContent)
 FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.5.3
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.5.3
 )
 FetchContent_MakeAvailable(Catch2)
 include(CTest)
@@ -116,15 +116,15 @@ if (HGRAPH_WITH_BACKWARD)
         set(BACKWARD_HAS_DWARF OFF CACHE BOOL "Disable DWARF" FORCE)
         set(BACKWARD_HAS_UNWIND ON CACHE BOOL "Enable libunwind/backtrace if available" FORCE)
         FetchContent_MakeAvailable(backward)
-        if(TARGET backward)
+        if (TARGET backward)
             add_library(Backward::Backward ALIAS backward)
-        endif()
-    else()
+        endif ()
+    else ()
         message(STATUS "Found Backward via Conan/system: ${Backward_DIR}")
-    endif()
-else()
+    endif ()
+else ()
     message(STATUS "HGRAPH_WITH_BACKWARD=OFF: Skipping backward-cpp integration")
-endif()
+endif ()
 
 # Git version info is optional here (no .git necessarily inside this repo)
 set(GIT_BRANCH "")
@@ -137,7 +137,7 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
             OUTPUT_VARIABLE GIT_COMMIT_HASH OUTPUT_STRIP_TRAILING_WHITESPACE)
     execute_process(COMMAND git log -1 --format=%cD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             OUTPUT_VARIABLE GIT_COMMIT_DATE OUTPUT_STRIP_TRAILING_WHITESPACE)
-endif()
+endif ()
 
 message(STATUS "Git current branch: ${GIT_BRANCH}")
 message(STATUS "Git commit hash: ${GIT_COMMIT_HASH}")
@@ -152,12 +152,13 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
-        include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
         include/hgraph/builders/input_builder.h
         include/hgraph/builders/node_builder.h
         include/hgraph/builders/output_builder.h
+        include/hgraph/hgraph_export.h
+        include/hgraph/hgraph_forward_declarations.h
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/component_node.h
         include/hgraph/nodes/last_value_pull_node.h
@@ -165,14 +166,21 @@ set(HGRAPH_INCLUDES
         include/hgraph/nodes/nest_graph_node.h
         include/hgraph/nodes/nested_evaluation_engine.h
         include/hgraph/nodes/nested_node.h
-        include/hgraph/nodes/python_node.h
         include/hgraph/nodes/non_associative_reduce_node.h
-        include/hgraph/nodes/python_generator_node.h
         include/hgraph/nodes/push_queue_node.h
+        include/hgraph/nodes/python_generator_node.h
+        include/hgraph/nodes/python_node.h
         include/hgraph/nodes/reduce_node.h
         include/hgraph/nodes/switch_node.h
         include/hgraph/nodes/try_except_node.h
         include/hgraph/nodes/tsd_map_node.h
+        include/hgraph/python/chrono.h
+        include/hgraph/python/format.h
+        include/hgraph/python/global_keys.h
+        include/hgraph/python/global_state.h
+        include/hgraph/python/hashable.h
+        include/hgraph/python/nb_types_ext.h
+        include/hgraph/python/reference_wrapper.h
         include/hgraph/runtime/evaluation_context.h
         include/hgraph/runtime/evaluation_engine.h
         include/hgraph/runtime/graph_executor.h
@@ -188,26 +196,18 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
         include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
         include/hgraph/types/ts_indexed.h
+        include/hgraph/types/ts_signal.h
+        include/hgraph/types/ts_traits.h
         include/hgraph/types/tsb.h
+        include/hgraph/types/tsd.h
         include/hgraph/types/tsl.h
-        include/hgraph/python/chrono.h
-        include/hgraph/python/format.h
-        include/hgraph/python/global_state.h
-        include/hgraph/python/global_keys.h
-        include/hgraph/python/hashable.h
-        include/hgraph/python/nb_types_ext.h
-        include/hgraph/python/reference_wrapper.h
+        include/hgraph/types/tss.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
-        include/hgraph/util/reference_count_subscriber.h
         include/hgraph/util/sender_receiver_state.h
         include/hgraph/util/stack_trace.h
         include/hgraph/util/string_utils.h
-        include/hgraph/hgraph_export.h
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 

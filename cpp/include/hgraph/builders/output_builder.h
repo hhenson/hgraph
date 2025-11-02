@@ -1,4 +1,3 @@
-
 #ifndef OUTPUT_BUILDER_H
 #define OUTPUT_BUILDER_H
 
@@ -7,7 +6,6 @@
 
 namespace hgraph
 {
-
     struct HGRAPH_EXPORT OutputBuilder : Builder
     {
         using ptr = nb::ref<OutputBuilder>;
@@ -21,8 +19,8 @@ namespace hgraph
 
         virtual bool has_reference() const { return false; }
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
     };
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // OUTPUT_BUILDER_H

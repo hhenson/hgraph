@@ -11,7 +11,6 @@
 
 namespace hgraph
 {
-
     /**
      * The Builder class is responsible for constructing and initializing
      * the item type it is responsible for. It is also responsible for
@@ -42,9 +41,9 @@ namespace hgraph
          * Compare this builder with another to determine if they build the same nested structure/type.
          * Default implementation compares concrete builder types.
          */
-        [[nodiscard]] virtual bool is_same_type(const Builder &other) const { return typeid(*this) == typeid(other); }
+        [[nodiscard]] virtual bool is_same_type(const Builder& other) const { return typeid(*this) == typeid(other); }
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
     };
 }
 #endif //BUILDER_H

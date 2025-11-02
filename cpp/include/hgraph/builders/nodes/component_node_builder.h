@@ -9,16 +9,14 @@
 
 namespace hgraph
 {
-
     struct ComponentNodeBuilder : BaseNestedGraphNodeBuilder
     {
         using BaseNestedGraphNodeBuilder::BaseNestedGraphNodeBuilder;
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
+        node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const override;
     };
 
-    void component_node_builder_register_with_nanobind(nb::module_ &m);
-
-}  // namespace hgraph
+    void component_node_builder_register_with_nanobind(nb::module_ & m);
+} // namespace hgraph
 
 #endif  // COMPONENT_NODE_BUILDER_H

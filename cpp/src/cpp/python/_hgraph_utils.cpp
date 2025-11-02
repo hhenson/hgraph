@@ -1,9 +1,9 @@
-
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/python/global_keys.h>
 
-void export_utils(nb::module_ &m) {
+void export_utils(nb::module_& m)
+{
     using namespace hgraph;
 
     ComponentLifeCycle::register_with_nanobind(m);

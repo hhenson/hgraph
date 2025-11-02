@@ -2,9 +2,11 @@
 
 ## Overview
 
-`AnyValue` is a type-erased container that can hold any copyable type with Small Buffer Optimization (SBO). It provides a type-safe interface for storing and accessing heterogeneous values without dynamic polymorphism.
+`AnyValue` is a type-erased container that can hold any copyable type with Small Buffer Optimization (SBO). It provides
+a type-safe interface for storing and accessing heterogeneous values without dynamic polymorphism.
 
 **Key Features:**
+
 - **Small Buffer Optimization**: Small types stored inline, avoiding heap allocation
 - **Type Safety**: Runtime type checking with `std::type_info`
 - **Reference Semantics**: Support for borrowed references with automatic materialization
@@ -50,6 +52,7 @@ Values are stored either **inline** (SBO) or on the **heap**:
 ```
 
 **Decision Logic:**
+
 ```cpp
 if (sizeof(T) <= SBO && alignof(T) <= Align) {
     // Inline: construct directly in storage_
@@ -119,7 +122,8 @@ assert(v3.has_value());
 
 ## Reference Semantics
 
-`AnyValue` supports **borrowed references** to external objects. References are non-owning and remain valid when copied or moved.
+`AnyValue` supports **borrowed references** to external objects. References are non-owning and remain valid when copied
+or moved.
 
 ### Creating References
 
@@ -203,6 +207,7 @@ assert(v.is_reference());
 ```
 
 **Use Cases:**
+
 - **Debugging**: Verify expected storage optimization
 - **Profiling**: Track inline vs heap allocation rates
 - **Tuning**: Guide SBO buffer size decisions
@@ -387,7 +392,8 @@ double sum_numeric(const std::vector<AnyValue<>>& values) {
 
 ### Equality
 
-Values are equal if they have the same type and equal values. Equality is implemented as a friend operator with vtable dispatch.
+Values are equal if they have the same type and equal values. Equality is implemented as a friend operator with vtable
+dispatch.
 
 ```cpp
 AnyValue<> v1, v2;
@@ -423,6 +429,7 @@ assert(v1 < v2);
 ```
 
 **Constraints:**
+
 - Both values must have the same type (throws `std::runtime_error` otherwise)
 - Both values must be non-empty (throws `std::runtime_error` otherwise)
 - Type must support `operator<` (throws `std::runtime_error` otherwise)
@@ -443,7 +450,8 @@ try {
 
 ## Hashing
 
-`AnyValue` is hashable when the contained type is hashable. A std::hash specialization is provided for use in STL containers.
+`AnyValue` is hashable when the contained type is hashable. A std::hash specialization is provided for use in STL
+containers.
 
 ```cpp
 AnyValue<> v;
@@ -462,6 +470,7 @@ std::hash<AnyValue<>>{}(v);
 ```
 
 **Hash Behavior:**
+
 - Empty values hash to 0
 - Uses `std::hash<T>` if available for type `T`
 - Falls back to combined type-id and pointer hash using golden ratio constant (2^64 / phi)
@@ -555,6 +564,7 @@ int main() {
 ```
 
 **Output:**
+
 ```
 Value: int64_t(42) [inline, 16 bytes]
 Value: double(3.14) [inline, 16 bytes]
@@ -569,45 +579,45 @@ Sum of numeric values: 145.14
 
 ### Core Methods
 
-| Method | Description |
-|--------|-------------|
-| `has_value()` | Check if container holds a value |
-| `type()` | Get TypeId of contained value |
-| `reset()` | Clear the contained value |
-| `emplace<T>(args...)` | Construct value of type T in-place |
-| `emplace_ref<T>(ref)` | Store borrowed reference to external object |
-| `get_if<T>()` | Get pointer to value if type matches, else nullptr |
-| `ensure_owned()` | Convert reference to owned value in-place |
+| Method                | Description                                        |
+|-----------------------|----------------------------------------------------|
+| `has_value()`         | Check if container holds a value                   |
+| `type()`              | Get TypeId of contained value                      |
+| `reset()`             | Clear the contained value                          |
+| `emplace<T>(args...)` | Construct value of type T in-place                 |
+| `emplace_ref<T>(ref)` | Store borrowed reference to external object        |
+| `get_if<T>()`         | Get pointer to value if type matches, else nullptr |
+| `ensure_owned()`      | Convert reference to owned value in-place          |
 
 ### Storage Introspection
 
-| Method | Description |
-|--------|-------------|
-| `storage_size()` | Returns bytes used (0, pointer size, or SBO size) |
-| `is_inline()` | True if using Small Buffer Optimization |
-| `is_heap_allocated()` | True if heap-allocated |
-| `is_reference()` | True if holds borrowed reference |
+| Method                | Description                                       |
+|-----------------------|---------------------------------------------------|
+| `storage_size()`      | Returns bytes used (0, pointer size, or SBO size) |
+| `is_inline()`         | True if using Small Buffer Optimization           |
+| `is_heap_allocated()` | True if heap-allocated                            |
+| `is_reference()`      | True if holds borrowed reference                  |
 
 ### Visitor Pattern
 
-| Method | Description |
-|--------|-------------|
-| `visit_as<T>(visitor)` | Type-safe visitation, returns true if type matches |
-| `visit_untyped(visitor)` | Generic visitation with type_info |
+| Method                   | Description                                        |
+|--------------------------|----------------------------------------------------|
+| `visit_as<T>(visitor)`   | Type-safe visitation, returns true if type matches |
+| `visit_untyped(visitor)` | Generic visitation with type_info                  |
 
 ### Comparison and Hashing
 
-| Method/Operator | Description |
-|-----------------|-------------|
-| `operator==` / `operator!=` | Equality comparison (type + value) |
-| `operator<` | Less-than ordering (throws if type mismatch or not supported) |
-| `hash_code()` | Get hash value of contained value |
-| `std::hash<AnyValue<>>` | STL hash specialization |
+| Method/Operator             | Description                                                   |
+|-----------------------------|---------------------------------------------------------------|
+| `operator==` / `operator!=` | Equality comparison (type + value)                            |
+| `operator<`                 | Less-than ordering (throws if type mismatch or not supported) |
+| `hash_code()`               | Get hash value of contained value                             |
+| `std::hash<AnyValue<>>`     | STL hash specialization                                       |
 
 ### Utility
 
-| Function | Description |
-|----------|-------------|
+| Function                | Description                       |
+|-------------------------|-----------------------------------|
 | `to_string(AnyValue<>)` | String representation for logging |
 
 ---

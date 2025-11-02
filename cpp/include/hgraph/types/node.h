@@ -3,7 +3,7 @@
 #define NODE_H
 
 #include <hgraph/util/lifecycle.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/ts_traits.h>
 
 namespace hgraph
 {
@@ -18,28 +18,30 @@ namespace hgraph
         return static_cast<Enum>(static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
     }
 
-    enum class NodeTypeEnum : char8_t {
-        NONE             = 0,
-        SOURCE_NODE      = 1,
+    enum class NodeTypeEnum : char8_t
+    {
+        NONE = 0,
+        SOURCE_NODE = 1,
         PUSH_SOURCE_NODE = SOURCE_NODE | (1 << 1),
         PULL_SOURCE_NODE = SOURCE_NODE | (1 << 2),
-        COMPUTE_NODE     = 1 << 3,
-        SINK_NODE        = 1 << 4
+        COMPUTE_NODE = 1 << 3,
+        SINK_NODE = 1 << 4
     };
 
     void node_type_enum_py_register(nb::module_ &m);
 
-    enum InjectableTypesEnum : int16_t {
-        NONE             = 0,
-        STATE            = 1,
+    enum InjectableTypesEnum : int16_t
+    {
+        NONE = 0,
+        STATE = 1,
         RECORDABLE_STATE = 1 << 1,
-        SCHEDULER        = 1 << 2,
-        OUTPUT           = 1 << 3,
-        CLOCK            = 1 << 4,
-        ENGINE_API       = 1 << 5,
-        LOGGER           = 1 << 6,
-        NODE             = 1 << 7,
-        TRAIT            = 1 << 8
+        SCHEDULER = 1 << 2,
+        OUTPUT = 1 << 3,
+        CLOCK = 1 << 4,
+        ENGINE_API = 1 << 5,
+        LOGGER = 1 << 6,
+        NODE = 1 << 7,
+        TRAIT = 1 << 8
     };
 
     void injectable_type_enum(nb::module_ &m);
@@ -51,10 +53,10 @@ namespace hgraph
         NodeSignature(std::string name, NodeTypeEnum node_type, std::vector<std::string> args,
                       std::optional<std::unordered_map<std::string, nb::object>> time_series_inputs,
                       std::optional<nb::object> time_series_output, std::optional<nb::dict> scalars, nb::object src_location,
-                      std::optional<std::unordered_set<std::string>>                      active_inputs,
-                      std::optional<std::unordered_set<std::string>>                      valid_inputs,
-                      std::optional<std::unordered_set<std::string>>                      all_valid_inputs,
-                      std::optional<std::unordered_set<std::string>>                      context_inputs,
+                      std::optional<std::unordered_set<std::string>> active_inputs,
+                      std::optional<std::unordered_set<std::string>> valid_inputs,
+                      std::optional<std::unordered_set<std::string>> all_valid_inputs,
+                      std::optional<std::unordered_set<std::string>> context_inputs,
                       std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs, size_t injectables,
                       bool capture_exception, int64_t trace_back_depth, std::string wiring_path_name,
                       std::optional<std::string> label, bool capture_values, std::optional<std::string> record_replay_id);
@@ -139,10 +141,10 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
 
-      protected:
+    protected:
         void _on_alarm(engine_time_t when, std::string tag);
 
-      private:
+    private:
         // Use a node_ptr to ensure that we retain a reference if this escapes the expected scope.
         node_ptr                                        _node;
         std::set<std::pair<engine_time_t, std::string>> _scheduled_events;
@@ -183,7 +185,7 @@ namespace hgraph
         time_series_bundle_input_ptr input();
         time_series_bundle_input_ptr input() const;
 
-        void set_input(time_series_bundle_input_ptr value);
+        void         set_input(time_series_bundle_input_ptr value);
         virtual void reset_input(time_series_bundle_input_ptr value);
 
         time_series_output_ptr output();
@@ -197,8 +199,8 @@ namespace hgraph
         bool has_recordable_state() const;
 
         NodeScheduler::ptr scheduler();
-        bool           has_scheduler() const;
-        void           unset_scheduler();
+        bool               has_scheduler() const;
+        void               unset_scheduler();
 
         time_series_output_ptr error_output();
 
@@ -217,18 +219,18 @@ namespace hgraph
 
         std::string str() const;
 
-      protected:
+    protected:
         void start() override;
         void stop() override;
 
         virtual void do_start() = 0;
-        virtual void do_stop()  = 0;
+        virtual void do_stop() = 0;
 
         virtual void do_eval() = 0;
 
         void _initialise_inputs();
 
-      private:
+    private:
         int64_t                       _node_ndx;
         std::vector<int64_t>          _owning_graph_id;
         NodeSignature::ptr            _signature;
@@ -248,6 +250,6 @@ namespace hgraph
         std::vector<nb::ref<TimeSeriesInput>> _check_all_valid_inputs;
     };
 
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // NODE_H

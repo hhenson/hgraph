@@ -19,18 +19,17 @@ namespace hgraph
 
         bool has_reference() const override;
 
-        [[nodiscard]] bool is_same_type(const Builder &other) const override;
+        [[nodiscard]] bool is_same_type(const Builder& other) const override;
 
         void release_instance(time_series_output_ptr item) const override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      private:
-        time_series_output_ptr          make_and_set_outputs(TimeSeriesBundleOutput *output) const;
-        time_series_schema_ptr          schema;
+    private:
+        time_series_output_ptr make_and_set_outputs(TimeSeriesBundleOutput* output) const;
+        time_series_schema_ptr schema;
         std::vector<OutputBuilder::ptr> output_builders;
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TIME_SERIES_BUNDLE_OUTPUT_BUILDER_H

@@ -40,6 +40,6 @@ namespace hgraph
     nb::object get_replay_const_fn();
     nb::object get_as_of_fn();
     nb::object get_fq_recordable_id_fn();
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // CONSTANTS_H

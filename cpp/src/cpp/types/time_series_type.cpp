@@ -82,6 +82,7 @@ namespace hgraph
     bool TimeSeriesType::has_owning_node() const
     {
         if (_parent_ts_or_node.has_value())
+
         {
             if (std::holds_alternative<Node::ptr>(*_parent_ts_or_node))
             {
@@ -465,7 +466,11 @@ namespace hgraph
 
     bool TimeSeriesOutput::has_parent_output() const { return _has_parent_time_series(); }
 
-    bool TimeSeriesOutput::can_apply_result(nb::object value) { return not modified(); }
+    bool TimeSeriesOutput::can_apply_result(nb::object value)
+    {
+        return not
+        modified();
+    }
 
     // Minimal-teardown helper: avoid consulting owning_node/graph
     void TimeSeriesOutput::builder_release_cleanup()
@@ -512,14 +517,15 @@ namespace hgraph
     void TimeSeriesOutput::mark_modified()
     {
         if (has_parent_or_node())
+
         {
             auto g = owning_graph();
             if (g != nullptr)
             {
                 mark_modified(g->evaluation_clock()->evaluation_time());
-            }
+        }
             else
-            {
+       {
                 // Graph not yet attached; mark with a maximal time to preserve monotonicity without dereferencing
                 // This is a bad situation, I would probably prefer to find out why,
                 // TODO: find the root cause of why this could be called without a bound graph.

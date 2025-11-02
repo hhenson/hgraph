@@ -7,7 +7,8 @@
 
 #include<hgraph/hgraph_base.h>
 
-namespace hgraph {
+namespace hgraph
+{
     struct ComponentLifeCycle;
 
     void HGRAPH_EXPORT initialise_component(ComponentLifeCycle &component);
@@ -25,11 +26,12 @@ namespace hgraph {
      * This is the closest equivalent to the Python Context Manager.
      * The destructor allows exceptions to propagate, matching Python's finally block behavior.
      */
-    struct InitialiseDisposeContext {
+    struct InitialiseDisposeContext
+    {
         InitialiseDisposeContext(ComponentLifeCycle &component);
-        ~InitialiseDisposeContext() noexcept;  // Destructors must not throw; exceptions are reported earlier
+        ~InitialiseDisposeContext() noexcept; // Destructors must not throw; exceptions are reported earlier
     private:
-        ComponentLifeCycle& _component;
+        ComponentLifeCycle &_component;
     };
 
     /**
@@ -37,11 +39,12 @@ namespace hgraph {
      * This is the closest equivalent to the Python Context Manager.
      * The destructor allows exceptions to propagate, matching Python's finally block behavior.
      */
-    struct StartStopContext {
+    struct StartStopContext
+    {
         StartStopContext(ComponentLifeCycle &component);
-        ~StartStopContext() noexcept;  // Never throws - call stop() explicitly if you need exception propagation
+        ~StartStopContext() noexcept; // Never throws - call stop() explicitly if you need exception propagation
     private:
-        ComponentLifeCycle& _component;
+        ComponentLifeCycle &_component;
     };
 
 
@@ -69,7 +72,8 @@ namespace hgraph {
      * Since any life-cycle controlled component is likely to reasonably heavy weight, it seems reasonable to make them
      * ref-counting as well. *** May change my mind about this, but for now seems reasonable ***
      */
-    struct HGRAPH_EXPORT ComponentLifeCycle : nb::intrusive_base   {
+    struct HGRAPH_EXPORT ComponentLifeCycle : nb::intrusive_base
+    {
 
         virtual ~ComponentLifeCycle() = default;
 

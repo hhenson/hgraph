@@ -36,12 +36,12 @@ namespace std
         }
     };
 
-}  // namespace std
+} // namespace std
 
 namespace hgraph
 {
 
-    using engine_clock        = std::chrono::system_clock;
+    using engine_clock = std::chrono::system_clock;
     // Use microsecond precision to avoid overflow for dates beyond 2262
     using engine_time_t       = std::chrono::time_point<engine_clock, std::chrono::microseconds>;
     using engine_time_delta_t = std::chrono::microseconds;
@@ -65,6 +65,7 @@ namespace hgraph
         // Convert back to the engine_time_t representation at midnight of the chosen day
         return engine_time_t{chosen_day.time_since_epoch()};
     }
+
     constexpr engine_time_delta_t smallest_time_increment() noexcept { return engine_time_delta_t(1); }
     constexpr engine_time_t       min_start_time() noexcept { return min_time() + smallest_time_increment(); }
     constexpr engine_time_t       max_end_time() noexcept { return max_time() - smallest_time_increment(); }
@@ -78,5 +79,5 @@ namespace hgraph
 
     using engine_date_t = std::chrono::year_month_day;
 
-}  // namespace hgraph
+} // namespace hgraph
 #endif  // HGRAPH_DATE_TIME_H

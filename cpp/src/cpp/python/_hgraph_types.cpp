@@ -15,7 +15,8 @@
 #include <hgraph/types/tsd.h>
 #include <hgraph/types/tsw.h>
 
-void export_types(nb::module_ &m) {
+void export_types(nb::module_& m)
+{
     using namespace hgraph;
 
     // Schema and scalar types (must come before time series types that use them)

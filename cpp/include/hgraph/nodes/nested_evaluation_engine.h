@@ -28,12 +28,12 @@ namespace hgraph
 
         void update_next_scheduled_evaluation_time(engine_time_t next_time) override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      protected:
+    protected:
         // Protected to allow derived classes (e.g., MeshNestedEngineEvaluationClock) to access
         nested_node_ptr _nested_node;
-        engine_time_t   _nested_next_scheduled_evaluation_time{MAX_DT};
+        engine_time_t _nested_next_scheduled_evaluation_time{MAX_DT};
     };
 
 
@@ -47,13 +47,12 @@ namespace hgraph
 
         [[nodiscard]] EngineEvaluationClock::ptr engine_evaluation_clock() override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      private:
-        NestedEngineEvaluationClock::ptr      _engine_evaluation_clock;
-        engine_time_t                         _nested_start_time;
+    private:
+        NestedEngineEvaluationClock::ptr _engine_evaluation_clock;
+        engine_time_t _nested_start_time;
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // NESTED_EVALUATION_ENGINE_H
