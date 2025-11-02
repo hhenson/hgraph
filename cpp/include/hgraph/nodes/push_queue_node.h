@@ -37,22 +37,30 @@ namespace hgraph
 
         void set_receiver(sender_receiver_state_ptr value);
 
-      protected:
+    protected:
         void do_eval() override;
         void do_start() override;
-        void do_stop() override {}
-        void initialise() override {}
-        void dispose() override {}
 
-      private:
+        void do_stop() override
+        {
+        }
+
+        void initialise() override
+        {
+        }
+
+        void dispose() override
+        {
+        }
+
+    private:
         sender_receiver_state_ptr _receiver;
-        int64_t                   _messages_queued{0};
-        int64_t                   _messages_dequeued{0};
-        bool                      _elide{false};
-        bool                      _batch{false};
-        nb::callable              _eval_fn;
+        int64_t _messages_queued{0};
+        int64_t _messages_dequeued{0};
+        bool _elide{false};
+        bool _batch{false};
+        nb::callable _eval_fn;
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // HGRAPH_CPP_ENGINE_PUSH_QUEUE_NODE_H

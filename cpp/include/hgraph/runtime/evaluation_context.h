@@ -8,8 +8,8 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/graph.h>
 
-namespace hgraph {
-
+namespace hgraph
+{
     struct Graph;
     struct Node;
 
@@ -27,14 +27,15 @@ namespace hgraph {
         [[nodiscard]] EvaluationClock& evaluation_clock() const;
         [[nodiscard]] Graph& graph() const;
         [[nodiscard]] node_ptr node() const;
+
     protected:
-        void set_node(Node *node);
+        void set_node(Node* node);
+
     private:
         EvaluationClock* _evaluation_clock;
-        Graph *_graph;
-        Node *_node;
+        Graph* _graph;
+        Node* _node;
     };
-
 }
 
 #endif //EVALUATION_CONTEXT_H

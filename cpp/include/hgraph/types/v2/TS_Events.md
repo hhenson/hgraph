@@ -2,11 +2,13 @@
 
 **Type-erased event structures for HGraph time series values**
 
-Time series events represent timestamped changes in HGraph's reactive graph system. They capture state transitions as values flow through time, enabling event-driven computation and recovery/replay functionality.
+Time series events represent timestamped changes in HGraph's reactive graph system. They capture state transitions as
+values flow through time, enabling event-driven computation and recovery/replay functionality.
 
 ---
 
 ## Table of Contents
+
 1. [Overview](#overview)
 2. [Architecture](#architecture)
 3. [TsEventAny - Scalar Events](#tseventany---scalar-events)
@@ -24,11 +26,13 @@ HGraph uses two primary event types to represent changes in time series values:
 - **`TsEventAny`**: Represents a change to a scalar time series value (e.g., `TS[int]`, `TS[str]`)
 - **`TsCollectionEventAny`**: Represents batch changes to collection time series (e.g., `TSD[str, int]`, `TSS[int]`)
 
-Both types use **type erasure** via `AnyValue<>` to allow generic handling of values while maintaining type safety through visitor patterns.
+Both types use **type erasure** via `AnyValue<>` to allow generic handling of values while maintaining type safety
+through visitor patterns.
 
 ### Event Semantics
 
-Events represent **deltas** (changes), not complete state. The time series value maintains the current state, while events describe what changed:
+Events represent **deltas** (changes), not complete state. The time series value maintains the current state, while
+events describe what changed:
 
 ```
 Time:   t0      t1        t2         t3
@@ -44,6 +48,7 @@ Event:  None    Modify    None       Modify
 ### Memory Layout
 
 **TsEventAny**:
+
 ```
 ┌────────────────────────────────────────────────────┐
 │ engine_time_t time       (8 bytes)                 │
@@ -58,6 +63,7 @@ Total: ~56 bytes (stack-allocated)
 ```
 
 **TsCollectionEventAny**:
+
 ```
 ┌────────────────────────────────────────────────────┐
 │ engine_time_t time       (8 bytes)                 │
@@ -89,12 +95,12 @@ enum class TsEventKind {
 };
 ```
 
-| Kind | Has Value? | Propagates? | Semantics |
-|------|-----------|-------------|-----------|
-| **None** | No | No | Query returned no event at this time |
-| **Recover** | Optional | No | Initialize or replay time series value (recovery/query result) |
-| **Invalidate** | No | Yes | Value is now invalid/unavailable |
-| **Modify** | Yes | Yes | Value changed to new value |
+| Kind           | Has Value? | Propagates? | Semantics                                                      |
+|----------------|------------|-------------|----------------------------------------------------------------|
+| **None**       | No         | No          | Query returned no event at this time                           |
+| **Recover**    | Optional   | No          | Initialize or replay time series value (recovery/query result) |
+| **Invalidate** | No         | Yes         | Value is now invalid/unavailable                               |
+| **Modify**     | Yes        | Yes         | Value changed to new value                                     |
 
 ### Structure
 
@@ -268,6 +274,7 @@ event.visit_items_as<std::string, int>(
 ```
 
 **Benefits:**
+
 - **Type-safe**: Values only accessed for Modify operations
 - **Ergonomic**: Handlers match natural operation semantics
 - **Efficient**: No unnecessary checks or default construction
@@ -403,43 +410,43 @@ TsCollectionEventAny build_update(const std::vector<int>& ids) {
 
 ### TsEventAny
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `none` | `static TsEventAny none(engine_time_t t)` | Create None event |
-| `invalidate` | `static TsEventAny invalidate(engine_time_t t)` | Create Invalidate event |
-| `modify` | `template<T> static TsEventAny modify(t, T&& v)` | Create Modify event with value |
-| `recover` | `static TsEventAny recover(engine_time_t t)` | Create Recover event without value |
-| `recover` | `template<T> static TsEventAny recover(t, T&& v)` | Create Recover event with value |
-| `is_valid` | `bool is_valid() const` | Check value presence matches event kind |
-| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor) const` | Visit value with type (const) |
-| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor)` | Visit value with type (mutable) |
-| `operator==` | `friend bool operator==(a, b)` | Equality comparison |
-| `operator!=` | `friend bool operator!=(a, b)` | Inequality comparison |
+| Method           | Signature                                               | Description                             |
+|------------------|---------------------------------------------------------|-----------------------------------------|
+| `none`           | `static TsEventAny none(engine_time_t t)`               | Create None event                       |
+| `invalidate`     | `static TsEventAny invalidate(engine_time_t t)`         | Create Invalidate event                 |
+| `modify`         | `template<T> static TsEventAny modify(t, T&& v)`        | Create Modify event with value          |
+| `recover`        | `static TsEventAny recover(engine_time_t t)`            | Create Recover event without value      |
+| `recover`        | `template<T> static TsEventAny recover(t, T&& v)`       | Create Recover event with value         |
+| `is_valid`       | `bool is_valid() const`                                 | Check value presence matches event kind |
+| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor) const` | Visit value with type (const)           |
+| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor)`       | Visit value with type (mutable)         |
+| `operator==`     | `friend bool operator==(a, b)`                          | Equality comparison                     |
+| `operator!=`     | `friend bool operator!=(a, b)`                          | Inequality comparison                   |
 
 ### CollectionItem
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `visit_key_as` | `template<T, V> bool visit_key_as(V&& visitor) const` | Visit key with type (const) |
-| `visit_key_as` | `template<T, V> bool visit_key_as(V&& visitor)` | Visit key with type (mutable) |
-| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor) const` | Visit value with type (const, Modify only) |
-| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor)` | Visit value with type (mutable, Modify only) |
+| Method           | Signature                                               | Description                                  |
+|------------------|---------------------------------------------------------|----------------------------------------------|
+| `visit_key_as`   | `template<T, V> bool visit_key_as(V&& visitor) const`   | Visit key with type (const)                  |
+| `visit_key_as`   | `template<T, V> bool visit_key_as(V&& visitor)`         | Visit key with type (mutable)                |
+| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor) const` | Visit value with type (const, Modify only)   |
+| `visit_value_as` | `template<T, V> bool visit_value_as(V&& visitor)`       | Visit value with type (mutable, Modify only) |
 
 ### TsCollectionEventAny
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `none` | `static TsCollectionEventAny none(engine_time_t t)` | Create None event |
-| `invalidate` | `static TsCollectionEventAny invalidate(engine_time_t t)` | Create Invalidate event |
-| `modify` | `static TsCollectionEventAny modify(engine_time_t t)` | Create empty Modify event |
-| `recover` | `static TsCollectionEventAny recover(engine_time_t t)` | Create Recover event |
-| `add_modify` | `TsCollectionEventAny& add_modify(AnyKey, AnyValue<>)` | Add Modify operation (fluent) |
-| `add_reset` | `TsCollectionEventAny& add_reset(AnyKey)` | Add Reset operation (fluent) |
-| `remove` | `TsCollectionEventAny& remove(AnyKey)` | Add Remove operation (fluent) |
-| `begin/end` | `auto begin() const / auto end() const` | Range-based iteration (const) |
-| `begin/end` | `auto begin() / auto end()` | Range-based iteration (mutable) |
-| `visit_items_as` | `template<K,V,M,R,D> void visit_items_as(M, R, D) const` | Visit all items with handlers (const) |
-| `visit_items_as` | `template<K,V,M,R,D> void visit_items_as(M, R, D)` | Visit all items with handlers (mutable) |
+| Method           | Signature                                                 | Description                             |
+|------------------|-----------------------------------------------------------|-----------------------------------------|
+| `none`           | `static TsCollectionEventAny none(engine_time_t t)`       | Create None event                       |
+| `invalidate`     | `static TsCollectionEventAny invalidate(engine_time_t t)` | Create Invalidate event                 |
+| `modify`         | `static TsCollectionEventAny modify(engine_time_t t)`     | Create empty Modify event               |
+| `recover`        | `static TsCollectionEventAny recover(engine_time_t t)`    | Create Recover event                    |
+| `add_modify`     | `TsCollectionEventAny& add_modify(AnyKey, AnyValue<>)`    | Add Modify operation (fluent)           |
+| `add_reset`      | `TsCollectionEventAny& add_reset(AnyKey)`                 | Add Reset operation (fluent)            |
+| `remove`         | `TsCollectionEventAny& remove(AnyKey)`                    | Add Remove operation (fluent)           |
+| `begin/end`      | `auto begin() const / auto end() const`                   | Range-based iteration (const)           |
+| `begin/end`      | `auto begin() / auto end()`                               | Range-based iteration (mutable)         |
+| `visit_items_as` | `template<K,V,M,R,D> void visit_items_as(M, R, D) const`  | Visit all items with handlers (const)   |
+| `visit_items_as` | `template<K,V,M,R,D> void visit_items_as(M, R, D)`        | Visit all items with handlers (mutable) |
 
 ---
 

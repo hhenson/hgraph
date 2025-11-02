@@ -9,7 +9,8 @@
 
 namespace hgraph
 {
-    template <typename T> struct HGRAPH_EXPORT TimeSeriesValueInputBuilder : InputBuilder
+    template <typename T>
+    struct HGRAPH_EXPORT TimeSeriesValueInputBuilder : InputBuilder
     {
         using ptr = nb::ref<TimeSeriesValueInputBuilder<T>>;
         using InputBuilder::InputBuilder;
@@ -18,8 +19,7 @@ namespace hgraph
         time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
     };
 
-    void time_series_value_input_builder_register_with_nanobind(nb::module_ &m);
-
-}  // namespace hgraph
+    void time_series_value_input_builder_register_with_nanobind(nb::module_ & m);
+} // namespace hgraph
 
 #endif  // TIME_SERIES_VALUE_INPUT_BUILDER_H

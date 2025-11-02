@@ -2,6 +2,5 @@
 
 namespace hgraph
 {
-    const nb::callable &PythonNode::eval_fn() { return _eval_fn; }
-
-}  // namespace hgraph
+    const nb::callable& PythonNode::eval_fn() { return _eval_fn; }
+} // namespace hgraph

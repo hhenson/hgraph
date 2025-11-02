@@ -7,8 +7,8 @@
 
 namespace nb = nanobind;
 
-namespace hgraph {
-
+namespace hgraph
+{
     /**
      * Lightweight C++ wrapper around Python's GlobalState singleton.
      * This class provides access to the Python GlobalState by calling into Python.
@@ -16,7 +16,8 @@ namespace hgraph {
      * Python GlobalState is a dict-like object that provides global state accessible
      * across all graph components, useful for debugging and directory services.
      */
-    class GlobalState {
+    class GlobalState
+    {
     public:
         /**
          * Get the GlobalState instance by calling Python's GlobalState.instance()
@@ -74,7 +75,6 @@ namespace hgraph {
         // Get the Python GlobalState class
         static nb::object get_global_state_class();
     };
-
 } // namespace hgraph
 
 #endif // HGRAPH_GLOBAL_STATE_H

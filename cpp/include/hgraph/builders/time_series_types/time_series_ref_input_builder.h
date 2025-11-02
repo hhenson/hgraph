@@ -18,9 +18,8 @@ namespace hgraph
 
         bool has_reference() const override { return true; }
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TIME_SERIES_REF_INPUT_BUILDER_H

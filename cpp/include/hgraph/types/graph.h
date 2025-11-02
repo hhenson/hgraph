@@ -10,18 +10,16 @@
 
 namespace hgraph
 {
-
     struct HGRAPH_EXPORT Graph : ComponentLifeCycle
     {
-
         using ptr = nanobind::ref<Graph>;
 
         Graph(std::vector<int64_t> graph_id_, std::vector<node_ptr> nodes_, std::optional<node_ptr> parent_node_,
               std::string label_, traits_ptr traits_);
 
-        [[nodiscard]] const std::vector<int64_t> &graph_id() const;
+        [[nodiscard]] const std::vector<int64_t>& graph_id() const;
 
-        [[nodiscard]] const std::vector<node_ptr> &nodes() const;
+        [[nodiscard]] const std::vector<node_ptr>& nodes() const;
 
         [[nodiscard]] node_ptr parent_node() const;
 
@@ -45,46 +43,45 @@ namespace hgraph
 
         void schedule_node(int64_t node_ndx, engine_time_t when, bool force_set);
 
-        std::vector<engine_time_t> &schedule();
+        std::vector<engine_time_t>& schedule();
 
         void evaluate_graph();
 
         Graph::ptr copy_with(std::vector<node_ptr> nodes);
 
-        const Traits &traits() const;
+        const Traits& traits() const;
 
-        [[nodiscard]] SenderReceiverState &receiver();
+        [[nodiscard]] SenderReceiverState& receiver();
 
-        void extend_graph(const GraphBuilder &graph_builder, bool delay_start = false);
+        void extend_graph(const GraphBuilder& graph_builder, bool delay_start = false);
 
         void reduce_graph(int64_t start_node);
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
         void initialise_subgraph(int64_t start, int64_t end);
         void start_subgraph(int64_t start, int64_t end);
         void stop_subgraph(int64_t start, int64_t end);
         void dispose_subgraph(int64_t start, int64_t end);
 
-      protected:
+    protected:
         void initialise() override;
         void start() override;
         void stop() override;
         void dispose() override;
 
-      private:
-        EvaluationEngine::ptr      _evaluation_engine;
-        std::vector<int64_t>       _graph_id;
-        std::vector<node_ptr>      _nodes;
+    private:
+        EvaluationEngine::ptr _evaluation_engine;
+        std::vector<int64_t> _graph_id;
+        std::vector<node_ptr> _nodes;
         std::vector<engine_time_t> _schedule;
-        node_ptr                   _parent_node;
-        std::string                _label;
-        traits_ptr                 _traits;
-        SenderReceiverState        _receiver;
-        engine_time_t              _last_evaluation_time{MIN_DT};
-        int64_t                    _push_source_nodes_end{-1};
+        node_ptr _parent_node;
+        std::string _label;
+        traits_ptr _traits;
+        SenderReceiverState _receiver;
+        engine_time_t _last_evaluation_time{MIN_DT};
+        int64_t _push_source_nodes_end{-1};
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // GRAPH_H

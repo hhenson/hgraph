@@ -72,13 +72,21 @@ namespace
     };
 }
 
-TEST_CASE("SBO size matches nb::object", "[time_series][any]")
+TEST_CASE (
+"SBO size matches nb::object"
+,
+"[time_series][any]"
+)
 {
     // Ensures we compiled with the requested SBO policy
     STATIC_REQUIRE(HGRAPH_TS_VALUE_SBO == sizeof(nanobind::object));
 }
 
-TEST_CASE("TsEventAny: none and invalidate have no payload", "[time_series][event]")
+TEST_CASE (
+"TsEventAny: none and invalidate have no payload"
+,
+"[time_series][event]"
+)
 {
     engine_time_t t{};
     auto e1 = TsEventAny::none(t);
@@ -90,7 +98,11 @@ TEST_CASE("TsEventAny: none and invalidate have no payload", "[time_series][even
     REQUIRE_FALSE(e2.value.has_value());
 }
 
-TEST_CASE("TsEventAny: modify with double and string", "[time_series][event]")
+TEST_CASE (
+"TsEventAny: modify with double and string"
+,
+"[time_series][event]"
+)
 {
     engine_time_t t{};
 
@@ -107,7 +119,11 @@ TEST_CASE("TsEventAny: modify with double and string", "[time_series][event]")
     REQUIRE(*ps == "hello");
 }
 
-TEST_CASE("TsValueAny: none and of", "[time_series][value]")
+TEST_CASE (
+"TsValueAny: none and of"
+,
+"[time_series][value]"
+)
 {
     auto v0 = TsValueAny::none();
     REQUIRE_FALSE(v0.has_value);
@@ -119,7 +135,11 @@ TEST_CASE("TsValueAny: none and of", "[time_series][value]")
     REQUIRE(*pi == 42);
 }
 
-TEST_CASE("AnyValue copy/move semantics", "[time_series][any]")
+TEST_CASE (
+"AnyValue copy/move semantics"
+,
+"[time_series][any]"
+)
 {
     AnyValue<> a;
     a.emplace<std::string>("abc");
@@ -139,7 +159,11 @@ TEST_CASE("AnyValue copy/move semantics", "[time_series][any]")
     REQUIRE(*c.get_if<std::string>() == "abc");
 }
 
-TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[time_series][any]")
+TEST_CASE (
+"AnyValue storage path: inline vs heap via operator new counters"
+,
+"[time_series][any]"
+)
 {
     // Small should use inline storage (placement-new), not calling class operator new
     Small::reset_counts();
@@ -167,7 +191,11 @@ TEST_CASE("AnyValue storage path: inline vs heap via operator new counters", "[t
     REQUIRE(Big::delete_calls == Big::new_calls);
 }
 
-TEST_CASE("AnyValue storage_size: empty container", "[time_series][any][storage]")
+TEST_CASE (
+"AnyValue storage_size: empty container"
+,
+"[time_series][any][storage]"
+)
 {
     AnyValue<> empty;
     REQUIRE_FALSE(empty.has_value());
@@ -176,7 +204,11 @@ TEST_CASE("AnyValue storage_size: empty container", "[time_series][any][storage]
     REQUIRE_FALSE(empty.is_heap_allocated());
 }
 
-TEST_CASE("AnyValue storage_size: inline (SBO) types", "[time_series][any][storage]")
+TEST_CASE (
+"AnyValue storage_size: inline (SBO) types"
+,
+"[time_series][any][storage]"
+)
 {
     // Small primitives should use inline storage
     AnyValue<> v_int;
@@ -199,7 +231,11 @@ TEST_CASE("AnyValue storage_size: inline (SBO) types", "[time_series][any][stora
     REQUIRE(v_small.storage_size() == HGRAPH_TS_VALUE_SBO);
 }
 
-TEST_CASE("AnyValue storage_size: heap-allocated types", "[time_series][any][storage]")
+TEST_CASE (
+"AnyValue storage_size: heap-allocated types"
+,
+"[time_series][any][storage]"
+)
 {
     // Big struct exceeds SBO and must be heap-allocated
     AnyValue<> v_big;
@@ -223,7 +259,11 @@ TEST_CASE("AnyValue storage_size: heap-allocated types", "[time_series][any][sto
     }
 }
 
-TEST_CASE("AnyValue storage_size: references", "[time_series][any][storage][ref]")
+TEST_CASE (
+"AnyValue storage_size: references"
+,
+"[time_series][any][storage][ref]"
+)
 {
     int x = 42;
     AnyValue<> v_ref;
@@ -236,7 +276,11 @@ TEST_CASE("AnyValue storage_size: references", "[time_series][any][storage][ref]
     REQUIRE(v_ref.storage_size() == sizeof(void*));
 }
 
-TEST_CASE("AnyValue storage_size: after copy and move", "[time_series][any][storage]")
+TEST_CASE (
+"AnyValue storage_size: after copy and move"
+,
+"[time_series][any][storage]"
+)
 {
     // Inline value
     AnyValue<> v1;
@@ -265,7 +309,11 @@ TEST_CASE("AnyValue storage_size: after copy and move", "[time_series][any][stor
     REQUIRE(v6.storage_size() == sizeof(void*));
 }
 
-TEST_CASE("AnyValue storage_size: after reset", "[time_series][any][storage]")
+TEST_CASE (
+"AnyValue storage_size: after reset"
+,
+"[time_series][any][storage]"
+)
 {
     AnyValue<> v;
     v.emplace<int>(42);
@@ -278,7 +326,11 @@ TEST_CASE("AnyValue storage_size: after reset", "[time_series][any][storage]")
     REQUIRE_FALSE(v.is_heap_allocated());
 }
 
-TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any][storage][ref]")
+TEST_CASE (
+"AnyValue storage_size: reference materialization"
+,
+"[time_series][any][storage][ref]"
+)
 {
     std::string s = "hello";
     AnyValue<> v_ref;
@@ -308,7 +360,11 @@ TEST_CASE("AnyValue storage_size: reference materialization", "[time_series][any
 }
 
 
-TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]")
+TEST_CASE (
+"TypeId equality and hashing"
+,
+"[time_series][typeid][hash]"
+)
 {
     TypeId id_i1{&typeid(int64_t)};
     TypeId id_i2{&typeid(int64_t)};
@@ -322,7 +378,11 @@ TEST_CASE("TypeId equality and hashing", "[time_series][typeid][hash]")
     REQUIRE(h1 == h2);
 }
 
-TEST_CASE("AnyValue hash_code: empty and primitives", "[time_series][any][hash]")
+TEST_CASE (
+"AnyValue hash_code: empty and primitives"
+,
+"[time_series][any][hash]"
+)
 {
     // Empty
     AnyValue<> empty;
@@ -354,7 +414,11 @@ TEST_CASE("AnyValue hash_code: empty and primitives", "[time_series][any][hash]"
     REQUIRE(vd.hash_code() == std::hash<double>{}(3.14));
 }
 
-TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_series][any][hash]")
+TEST_CASE (
+"AnyValue hash_code: std::string and stability across copies"
+,
+"[time_series][any][hash]"
+)
 {
     AnyValue<> vs1;
     vs1.emplace<std::string>("hello");
@@ -378,7 +442,11 @@ TEST_CASE("AnyValue hash_code: std::string and stability across copies", "[time_
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 
-TEST_CASE("to_string for AnyValue<>", "[time_series][any][string]")
+TEST_CASE (
+"to_string for AnyValue<>"
+,
+"[time_series][any][string]"
+)
 {
     // Empty
     AnyValue<> v0;
@@ -401,7 +469,11 @@ TEST_CASE("to_string for AnyValue<>", "[time_series][any][string]")
     REQUIRE(to_string(vs) == std::string("hello"));
 }
 
-TEST_CASE("to_string for TsEventAny", "[time_series][event][string]")
+TEST_CASE (
+"to_string for TsEventAny"
+,
+"[time_series][event][string]"
+)
 {
     engine_time_t t{};
 
@@ -420,7 +492,11 @@ TEST_CASE("to_string for TsEventAny", "[time_series][event][string]")
     REQUIRE(s_mod.find("value=") != std::string::npos);
 }
 
-TEST_CASE("to_string for TsValueAny", "[time_series][value][string]")
+TEST_CASE (
+"to_string for TsValueAny"
+,
+"[time_series][value][string]"
+)
 {
     auto v_none = TsValueAny::none();
     auto s_none = to_string(v_none);
@@ -434,7 +510,11 @@ TEST_CASE("to_string for TsValueAny", "[time_series][value][string]")
 
 
 // ---------------- Collection event tests ----------------
-TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_series][collection][event]")
+TEST_CASE (
+"TsCollectionEventAny: none/invalidate/modify structure"
+,
+"[time_series][collection][event]"
+)
 {
     engine_time_t t{};
 
@@ -501,7 +581,11 @@ TEST_CASE("TsCollectionEventAny: none/invalidate/modify structure", "[time_serie
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 // ---- AnyValue equality tests ----
-TEST_CASE("AnyValue equality: empty and basic types", "[any][eq]")
+TEST_CASE (
+"AnyValue equality: empty and basic types"
+,
+"[any][eq]"
+)
 {
     AnyValue<> e1, e2;
     REQUIRE(e1 == e2); // both empty
@@ -539,7 +623,11 @@ TEST_CASE("AnyValue equality: empty and basic types", "[any][eq]")
     REQUIRE(v1 != s1);
 }
 
-TEST_CASE("AnyValue equality: engine_time_t", "[any][eq]")
+TEST_CASE (
+"AnyValue equality: engine_time_t"
+,
+"[any][eq]"
+)
 {
     engine_time_t t{};
     AnyValue<> a;
@@ -550,7 +638,11 @@ TEST_CASE("AnyValue equality: engine_time_t", "[any][eq]")
 }
 
 // ---- AnyValue reference semantics tests ----
-TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[any][ref]")
+TEST_CASE (
+"AnyValue reference: get_if returns referent, copy materializes"
+,
+"[any][ref]"
+)
 {
     std::string s = "abc";
     AnyValue<> v;
@@ -573,7 +665,11 @@ TEST_CASE("AnyValue reference: get_if returns referent, copy materializes", "[an
     REQUIRE(*v2.get_if<std::string>() == "xyz");
 }
 
-TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]")
+TEST_CASE (
+"AnyValue reference: move also materializes destination"
+,
+"[any][ref]"
+)
 {
     std::string s = "hello";
     AnyValue<> v;
@@ -588,7 +684,11 @@ TEST_CASE("AnyValue reference: move also materializes destination", "[any][ref]"
     REQUIRE(*v.get_if<std::string>() == "hello");
 }
 
-TEST_CASE("AnyValue reference: hash stable across materialization", "[any][ref][hash]")
+TEST_CASE (
+"AnyValue reference: hash stable across materialization"
+,
+"[any][ref][hash]"
+)
 {
     int64_t x = 42;
     AnyValue<> r;
@@ -600,7 +700,11 @@ TEST_CASE("AnyValue reference: hash stable across materialization", "[any][ref][
     REQUIRE(owned.hash_code() == h_ref);
 }
 
-TEST_CASE("AnyValue ensure_owned() converts a reference in place", "[any][ref]")
+TEST_CASE (
+"AnyValue ensure_owned() converts a reference in place"
+,
+"[any][ref]"
+)
 {
     std::string s = "snap";
     AnyValue<> v;
@@ -612,7 +716,11 @@ TEST_CASE("AnyValue ensure_owned() converts a reference in place", "[any][ref]")
     REQUIRE(*v.get_if<std::string>() == "snap");
 }
 
-TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][string]")
+TEST_CASE (
+"to_string for TsCollectionEventAny"
+,
+"[time_series][collection][string]"
+)
 {
     engine_time_t t{};
     auto e = TsCollectionEventAny::modify(t);
@@ -643,7 +751,11 @@ TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][strin
 
 
 // ---- Recover event tests ----
-TEST_CASE("TsEventAny: recover without payload", "[time_series][event][recover]")
+TEST_CASE (
+"TsEventAny: recover without payload"
+,
+"[time_series][event][recover]"
+)
 {
     engine_time_t t{};
     auto e = TsEventAny::recover(t);
@@ -654,7 +766,11 @@ TEST_CASE("TsEventAny: recover without payload", "[time_series][event][recover]"
     REQUIRE(s.find("value=") == std::string::npos);
 }
 
-TEST_CASE("TsEventAny: recover with payload", "[time_series][event][recover]")
+TEST_CASE (
+"TsEventAny: recover with payload"
+,
+"[time_series][event][recover]"
+)
 {
     engine_time_t t{};
     auto e = TsEventAny::recover(t, static_cast<int64_t>(42));
@@ -667,7 +783,11 @@ TEST_CASE("TsEventAny: recover with payload", "[time_series][event][recover]")
     REQUIRE(s.find("value=42") != std::string::npos);
 }
 
-TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection][recover]")
+TEST_CASE (
+"TsCollectionEventAny: recover header only"
+,
+"[time_series][collection][recover]"
+)
 {
     engine_time_t t{};
     auto e = TsCollectionEventAny::recover(t);
@@ -681,7 +801,11 @@ TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection
 
 
 // ---- AnyValue optional less-than tests ----
-TEST_CASE("AnyValue < : comparable primitives", "[any][lt]")
+TEST_CASE (
+"AnyValue < : comparable primitives"
+,
+"[any][lt]"
+)
 {
     AnyValue<> a;
     a.emplace<int64_t>(1);
@@ -709,7 +833,11 @@ TEST_CASE("AnyValue < : comparable primitives", "[any][lt]")
     REQUIRE_FALSE(s2 < s1);
 }
 
-TEST_CASE("AnyValue < : reference vs owned", "[any][lt][ref]")
+TEST_CASE (
+"AnyValue < : reference vs owned"
+,
+"[any][lt][ref]"
+)
 {
     std::string referent = "b";
     AnyValue<> r;
@@ -726,7 +854,11 @@ TEST_CASE("AnyValue < : reference vs owned", "[any][lt][ref]")
     REQUIRE(o < r); // "c" < "d" is true
 }
 
-TEST_CASE("AnyValue < : type mismatch throws", "[any][lt][throws]")
+TEST_CASE (
+"AnyValue < : type mismatch throws"
+,
+"[any][lt][throws]"
+)
 {
     AnyValue<> i;
     i.emplace<int64_t>(1);
@@ -736,7 +868,11 @@ TEST_CASE("AnyValue < : type mismatch throws", "[any][lt][throws]")
     REQUIRE_THROWS_AS((void)(d < i), std::runtime_error);
 }
 
-TEST_CASE("AnyValue < : unsupported type throws", "[any][lt][throws]")
+TEST_CASE (
+"AnyValue < : unsupported type throws"
+,
+"[any][lt][throws]"
+)
 {
     struct NoLess
     {
@@ -749,7 +885,11 @@ TEST_CASE("AnyValue < : unsupported type throws", "[any][lt][throws]")
     REQUIRE_THROWS_AS((void)(a < b), std::runtime_error);
 }
 
-TEST_CASE("AnyValue < : empty comparisons", "[any][lt][empty]")
+TEST_CASE (
+"AnyValue < : empty comparisons"
+,
+"[any][lt][empty]"
+)
 {
     AnyValue<> e1, e2;
     REQUIRE_FALSE(e1 < e2); // both empty => false
@@ -761,7 +901,11 @@ TEST_CASE("AnyValue < : empty comparisons", "[any][lt][empty]")
 }
 
 // ---- AnyValue visitor pattern tests ----
-TEST_CASE("AnyValue visit_as: type-safe visitation", "[any][visitor]")
+TEST_CASE (
+"AnyValue visit_as: type-safe visitation"
+,
+"[any][visitor]"
+)
 {
     AnyValue<> v;
     v.emplace<int64_t>(42);
@@ -791,7 +935,11 @@ TEST_CASE("AnyValue visit_as: type-safe visitation", "[any][visitor]")
     REQUIRE_FALSE(visited);
 }
 
-TEST_CASE("AnyValue visit_as: mutable visitation", "[any][visitor]")
+TEST_CASE (
+"AnyValue visit_as: mutable visitation"
+,
+"[any][visitor]"
+)
 {
     AnyValue<> v;
     v.emplace<int64_t>(42);
@@ -805,7 +953,11 @@ TEST_CASE("AnyValue visit_as: mutable visitation", "[any][visitor]")
     REQUIRE(*v.get_if<int64_t>() == 100);
 }
 
-TEST_CASE("AnyValue visit_as: with std::string", "[any][visitor]")
+TEST_CASE (
+"AnyValue visit_as: with std::string"
+,
+"[any][visitor]"
+)
 {
     AnyValue<> v;
     v.emplace<std::string>("hello");
@@ -827,7 +979,11 @@ TEST_CASE("AnyValue visit_as: with std::string", "[any][visitor]")
     REQUIRE(*v.get_if<std::string>() == "goodbye");
 }
 
-TEST_CASE("AnyValue visit_as: with references", "[any][visitor][ref]")
+TEST_CASE (
+"AnyValue visit_as: with references"
+,
+"[any][visitor][ref]"
+)
 {
     int x = 42;
     AnyValue<> v;
@@ -852,7 +1008,11 @@ TEST_CASE("AnyValue visit_as: with references", "[any][visitor][ref]")
     REQUIRE(result == 100);
 }
 
-TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]")
+TEST_CASE (
+"AnyValue visit_untyped: introspection"
+,
+"[any][visitor]"
+)
 {
     AnyValue<> v_int;
     v_int.emplace<int64_t>(42);
@@ -875,7 +1035,11 @@ TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]")
     REQUIRE(*static_cast<const int64_t*>(ptr) == 42);
 }
 
-TEST_CASE("AnyValue visit_untyped: with std::string", "[any][visitor]")
+TEST_CASE (
+"AnyValue visit_untyped: with std::string"
+,
+"[any][visitor]"
+)
 {
     AnyValue<> v;
     v.emplace<std::string>("test");
@@ -891,7 +1055,11 @@ TEST_CASE("AnyValue visit_untyped: with std::string", "[any][visitor]")
     REQUIRE(visited);
 }
 
-TEST_CASE("AnyValue visit_untyped: empty does nothing", "[any][visitor]")
+TEST_CASE (
+"AnyValue visit_untyped: empty does nothing"
+,
+"[any][visitor]"
+)
 {
     AnyValue<> empty;
 
@@ -903,7 +1071,11 @@ TEST_CASE("AnyValue visit_untyped: empty does nothing", "[any][visitor]")
     REQUIRE_FALSE(visited);
 }
 
-TEST_CASE("AnyValue visitor: combined pattern", "[any][visitor]")
+TEST_CASE (
+"AnyValue visitor: combined pattern"
+,
+"[any][visitor]"
+)
 {
     // Demonstrates using both visit types together
     AnyValue<> v;
@@ -957,7 +1129,11 @@ static AnyValue<> make_any(T&& value)
     return av;
 }
 
-TEST_CASE("TsEventAny validation", "[ts_event][validation]")
+TEST_CASE (
+"TsEventAny validation"
+,
+"[ts_event][validation]"
+)
 {
     using namespace std::chrono;
     auto t = engine_time_t{microseconds{1000}};
@@ -996,7 +1172,11 @@ TEST_CASE("TsEventAny validation", "[ts_event][validation]")
     }
 }
 
-TEST_CASE("TsEventAny equality operators", "[ts_event][equality]")
+TEST_CASE (
+"TsEventAny equality operators"
+,
+"[ts_event][equality]"
+)
 {
     using namespace std::chrono;
     auto t1 = engine_time_t{microseconds{1000}};
@@ -1078,7 +1258,11 @@ TEST_CASE("TsEventAny equality operators", "[ts_event][equality]")
     }
 }
 
-TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]")
+TEST_CASE (
+"TsEventAny visitor helpers"
+,
+"[ts_event][visitor]"
+)
 {
     using namespace std::chrono;
     auto t = engine_time_t{microseconds{1000}};
@@ -1213,7 +1397,11 @@ TEST_CASE("TsEventAny visitor helpers", "[ts_event][visitor]")
 // CollectionItem Tests
 // =============================================================================
 
-TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]")
+TEST_CASE (
+"CollectionItem visitor helpers"
+,
+"[collection][visitor]"
+)
 {
     SECTION("visit_key_as and visit_value_as")
     {
@@ -1315,7 +1503,11 @@ TEST_CASE("CollectionItem visitor helpers", "[collection][visitor]")
 // TsCollectionEventAny Fluent Builder Tests
 // =============================================================================
 
-TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]")
+TEST_CASE (
+"TsCollectionEventAny fluent builder"
+,
+"[collection][builder]"
+)
 {
     SECTION("Fluent add_modify chain")
     {
@@ -1382,7 +1574,12 @@ TEST_CASE("TsCollectionEventAny fluent builder", "[collection][builder]")
 // TsCollectionEventAny Visitor Tests
 // =============================================================================
 
-TEST_CASE("TsCollectionEventAny visit_items_as", "[collection][visitor]") {
+TEST_CASE (
+"TsCollectionEventAny visit_items_as"
+,
+"[collection][visitor]"
+)
+ {
     SECTION("Apply changes to std::map<int, std::string>") {
         TsCollectionEventAny event;
 
@@ -1545,7 +1742,12 @@ TEST_CASE("TsCollectionEventAny visit_items_as", "[collection][visitor]") {
     }
 }
 
-TEST_CASE("TsCollectionEventAny range-based iteration", "[collection][iteration]") {
+TEST_CASE (
+"TsCollectionEventAny range-based iteration"
+,
+"[collection][iteration]"
+)
+ {
     SECTION("Iterate over items") {
         TsCollectionEventAny event;
 

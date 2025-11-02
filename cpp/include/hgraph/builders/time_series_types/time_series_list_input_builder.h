@@ -21,19 +21,18 @@ namespace hgraph
 
         bool has_reference() const override;
 
-        [[nodiscard]] bool is_same_type(const Builder &other) const override;
+        [[nodiscard]] bool is_same_type(const Builder& other) const override;
 
         void release_instance(time_series_input_ptr item) const override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      private:
-        time_series_input_ptr make_and_set_inputs(TimeSeriesListInput *input) const;
+    private:
+        time_series_input_ptr make_and_set_inputs(TimeSeriesListInput* input) const;
 
         InputBuilder::ptr input_builder;
-        size_t            size;
+        size_t size;
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TIME_SERIES_LIST_INPUT_BUILDER_H

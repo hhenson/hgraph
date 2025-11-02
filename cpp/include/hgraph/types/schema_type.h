@@ -37,16 +37,15 @@ namespace hgraph
         AbstractSchema() = default;
 
         // Get the keys (property names) of this schema (pure virtual)
-        [[nodiscard]] virtual const std::vector<std::string> &keys() const = 0;
+        [[nodiscard]] virtual const std::vector<std::string>& keys() const = 0;
 
         // Get the value for a specific key (pure virtual - must be implemented)
-        [[nodiscard]] virtual nb::object get_value(const std::string &key) const = 0;
+        [[nodiscard]] virtual nb::object get_value(const std::string& key) const = 0;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
         virtual ~AbstractSchema() = default;
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // HGRAPH_CPP_ENGINE_SCHEMA_TYPE_H

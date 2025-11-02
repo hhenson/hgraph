@@ -36,12 +36,12 @@ namespace hgraph
         [[nodiscard]] virtual std::string to_string() const;
 
         // Equality comparison (like dataclass __eq__)
-        virtual bool operator==(const CompoundScalar &other) const;
+        virtual bool operator==(const CompoundScalar& other) const;
 
         // Hash function (like dataclass __hash__)
         [[nodiscard]] virtual size_t hash() const;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
         virtual ~CompoundScalar() = default;
     };
@@ -65,8 +65,8 @@ namespace hgraph
         explicit PythonCompoundScalar(std::vector<std::string> keys, nb::object values);
 
         // Override from AbstractSchema
-        [[nodiscard]] const std::vector<std::string> &keys() const override;
-        [[nodiscard]] nb::object get_value(const std::string &key) const override;
+        [[nodiscard]] const std::vector<std::string>& keys() const override;
+        [[nodiscard]] nb::object get_value(const std::string& key) const override;
 
         // Override from CompoundScalar
         [[nodiscard]] nb::dict to_dict() const override;
@@ -75,21 +75,20 @@ namespace hgraph
         [[nodiscard]] std::string to_string() const override;
 
         // Override equality comparison
-        bool operator==(const CompoundScalar &other) const override;
+        bool operator==(const CompoundScalar& other) const override;
 
         // Override hash function
         [[nodiscard]] size_t hash() const override;
 
         // Create from dictionary
-        static ptr from_dict(const std::vector<std::string> &keys, const nb::dict &d);
+        static ptr from_dict(const std::vector<std::string>& keys, const nb::dict& d);
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      protected:
-        std::vector<std::string> _keys;  // Property names
-        nb::object _values;              // Python object holding the actual values
+    protected:
+        std::vector<std::string> _keys; // Property names
+        nb::object _values; // Python object holding the actual values
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // HGRAPH_CPP_ENGINE_SCALAR_TYPES_H

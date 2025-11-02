@@ -13,7 +13,6 @@
 
 namespace hgraph
 {
-
     struct NodeSignature;
     using node_signature_ptr = nanobind::ref<NodeSignature>;
 
@@ -27,7 +26,7 @@ namespace hgraph
     using graph_ptr = nanobind::ref<Graph>;
 
     struct SenderReceiverState;
-    using sender_receiver_state_ptr = SenderReceiverState *;
+    using sender_receiver_state_ptr = SenderReceiverState*;
 
     struct GraphBuilder;
     using graph_builder_ptr = nanobind::ref<GraphBuilder>;
@@ -94,7 +93,7 @@ namespace hgraph
     struct InputBuilder;
 
     using output_builder_ptr = nanobind::ref<OutputBuilder>;
-    using input_builder_ptr  = nanobind::ref<InputBuilder>;
-}  // namespace hgraph
+    using input_builder_ptr = nanobind::ref<InputBuilder>;
+} // namespace hgraph
 
 #endif  // HGRAPH_FORWARD_DECLARATIONS_H

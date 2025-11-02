@@ -3,14 +3,17 @@ cmake_minimum_required(VERSION 3.25)
 project(hgraph_ts_v2_tests)
 
 add_executable(hgraph_ts_v2_tests
-    test_time_series_v2.cpp
-    ../src/cpp/types/v2/ts_event.cpp
+        test_time_series_v2.cpp
+        test_ts_value_anyvalue.cpp
+        ../src/cpp/types/v2/ts_event.cpp
 )
 
 # Inherit include dirs from parent (Python, nanobind, project includes)
 # Link Catch2 and fmt if available via parent FetchContent
 
-target_link_libraries(hgraph_ts_v2_tests PRIVATE Catch2::Catch2WithMain fmt::fmt)
+find_package(Python 3.8 COMPONENTS Interpreter Development.Module REQUIRED)
+
+target_link_libraries(hgraph_ts_v2_tests PRIVATE Catch2::Catch2WithMain fmt::fmt nanobind-static Python::Module)
 
 target_compile_features(hgraph_ts_v2_tests PRIVATE cxx_std_23)
 

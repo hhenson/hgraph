@@ -13,9 +13,9 @@ namespace hgraph
 {
     struct SenderReceiverState
     {
-        using ptr = SenderReceiverState *;
-        using LockType   = std::recursive_mutex;
-        using LockGuard  = std::lock_guard<LockType>;
+        using ptr = SenderReceiverState*;
+        using LockType = std::recursive_mutex;
+        using LockGuard = std::lock_guard<LockType>;
         using value_type = std::pair<int64_t, nb::object>;
 
         SenderReceiverState() = default;
@@ -33,7 +33,7 @@ namespace hgraph
         explicit operator bool() const;
 
         [[nodiscard]] bool stopped() const;
-        void               mark_stopped();
+        void mark_stopped();
 
         /**
          * This can replace with ``with ...`` clause just graph the guard and in an appropriate
@@ -41,13 +41,12 @@ namespace hgraph
          */
         [[nodiscard]] auto guard() const -> LockGuard;
 
-      private:
-        mutable LockType            lock;
-        std::deque<value_type>      queue;
+    private:
+        mutable LockType lock;
+        std::deque<value_type> queue;
         engine_evalaution_clock_ptr evaluation_clock{};
-        bool                        _stopped{false};
+        bool _stopped{false};
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // SENDER_RECEIVER_STATE_H

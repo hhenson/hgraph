@@ -14,7 +14,8 @@ namespace hgraph
         using OutputBuilder::OutputBuilder;
     };
 
-    template <typename T> struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder_T : TimeSeriesSetOutputBuilder
+    template <typename T>
+    struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder_T : TimeSeriesSetOutputBuilder
     {
         using TimeSeriesSetOutputBuilder::TimeSeriesSetOutputBuilder;
 
@@ -24,8 +25,7 @@ namespace hgraph
         void release_instance(time_series_output_ptr item) const override;
     };
 
-    void time_series_set_output_builder_register_with_nanobind(nb::module_ &m);
-
-}  // namespace hgraph
+    void time_series_set_output_builder_register_with_nanobind(nb::module_ & m);
+} // namespace hgraph
 
 #endif  // TIME_SERIES_SET_OUTPUT_BUILDER_H

@@ -1,4 +1,3 @@
-
 #ifndef TS_INDEXED_H
 #define TS_INDEXED_H
 
@@ -7,7 +6,6 @@
 
 namespace hgraph
 {
-
     struct TimeSeriesBundleInputBuilder;
     struct TimeSeriesListInputBuilder;
 
@@ -15,107 +13,128 @@ namespace hgraph
         requires TimeSeriesT<T_TS>
     struct IndexedTimeSeries : T_TS
     {
-        using ts_type                    = T_TS;
-        using index_ts_type              = IndexedTimeSeries<T_TS>;
-        using ptr                        = nb::ref<IndexedTimeSeries<ts_type>>;
-        using collection_type            = std::vector<typename ts_type::ptr>;
+        using ts_type = T_TS;
+        using index_ts_type = IndexedTimeSeries<T_TS>;
+        using ptr = nb::ref<IndexedTimeSeries<ts_type>>;
+        using collection_type = std::vector<typename ts_type::ptr>;
         using enumerated_collection_type = std::vector<std::pair<size_t, typename ts_type::ptr>>;
-        using index_collection_type      = std::vector<size_t>;
-        using value_iterator             = typename collection_type::iterator;
-        using value_const_iterator       = typename collection_type::const_iterator;
+        using index_collection_type = std::vector<size_t>;
+        using value_iterator = typename collection_type::iterator;
+        using value_const_iterator = typename collection_type::const_iterator;
 
         using ts_type::ts_type;
         using ts_type::valid;
 
-        [[nodiscard]] bool all_valid() const override {
+        [[nodiscard]] bool all_valid() const override
+        {
             if (empty()) { return true; }
-            return valid() && std::ranges::all_of(_ts_values, [](const auto &ts) { return ts->valid(); });
+            return valid() && std::ranges::all_of(_ts_values, [](const auto& ts) { return ts->valid(); });
         }
 
-        [[nodiscard]] typename ts_type::ptr       &operator[](size_t ndx) { return _ts_values.at(ndx); }
-        [[nodiscard]] const typename ts_type::ptr &operator[](size_t ndx) const {
-            return const_cast<index_ts_type *>(this)->operator[](ndx);
+        [[nodiscard]] typename ts_type::ptr& operator[](size_t ndx) { return _ts_values.at(ndx); }
+
+        [[nodiscard]] const typename ts_type::ptr& operator[](size_t ndx) const
+        {
+            return const_cast<index_ts_type*>(this)->operator[](ndx);
         }
 
         [[nodiscard]] collection_type values() { return _ts_values; }
-        [[nodiscard]] collection_type values() const { return const_cast<index_ts_type *>(this)->values(); }
+        [[nodiscard]] collection_type values() const { return const_cast<index_ts_type*>(this)->values(); }
 
-        [[nodiscard]] nb::iterator py_valid_values() const {
+        [[nodiscard]] nb::iterator py_valid_values() const
+        {
             // Create a Python list from the vector to avoid dangling references
             auto valid_ = valid_values();
             nb::list py_list;
-            for (const auto& item : valid_) {
+            for (const auto& item : valid_)
+            {
                 py_list.append(item);
             }
             return nb::iter(py_list);
         }
 
-        [[nodiscard]] collection_type valid_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.valid(); });
+        [[nodiscard]] collection_type valid_values()
+        {
+            return values_with_constraint([](const T_TS& ts) { return ts.valid(); });
         }
 
-        [[nodiscard]] collection_type valid_values() const { return const_cast<index_ts_type *>(this)->valid_values(); }
+        [[nodiscard]] collection_type valid_values() const { return const_cast<index_ts_type*>(this)->valid_values(); }
 
-        [[nodiscard]] nb::iterator py_modified_values() const {
+        [[nodiscard]] nb::iterator py_modified_values() const
+        {
             // Create a Python list from the vector to avoid dangling references
             auto modified_ = modified_values();
             nb::list py_list;
-            for (const auto& item : modified_) {
+            for (const auto& item : modified_)
+            {
                 py_list.append(item);
             }
             return nb::iter(py_list);
         }
 
-        [[nodiscard]] collection_type modified_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.modified(); });
+        [[nodiscard]] collection_type modified_values()
+        {
+            return values_with_constraint([](const T_TS& ts) { return ts.modified(); });
         }
 
-        [[nodiscard]] collection_type modified_values() const { return const_cast<index_ts_type *>(this)->modified_values(); }
+        [[nodiscard]] collection_type modified_values() const
+        {
+            return const_cast<index_ts_type*>(this)->modified_values();
+        }
 
         [[nodiscard]] size_t size() const { return _ts_values.size(); }
 
-        [[nodiscard]] bool   empty() const { return _ts_values.empty(); }
+        [[nodiscard]] bool empty() const { return _ts_values.empty(); }
 
-        [[nodiscard]] bool has_reference() const override {
-            return std::ranges::any_of(_ts_values, [](const auto &ts) { return ts->has_reference(); });
+        [[nodiscard]] bool has_reference() const override
+        {
+            return std::ranges::any_of(_ts_values, [](const auto& ts) { return ts->has_reference(); });
         }
 
-      protected:
-        [[nodiscard]] collection_type       &ts_values() { return _ts_values; }
+    protected:
+        [[nodiscard]] collection_type& ts_values() { return _ts_values; }
 
-        [[nodiscard]] const collection_type &ts_values() const { return _ts_values; }
+        [[nodiscard]] const collection_type& ts_values() const { return _ts_values; }
 
         void set_ts_values(collection_type ts_values) { _ts_values = std::move(ts_values); }
 
-        [[nodiscard]] index_collection_type index_with_constraint(const std::function<bool(const ts_type &)> &constraint) const {
+        [[nodiscard]] index_collection_type index_with_constraint(
+            const std::function<bool(const ts_type&)>& constraint) const
+        {
             index_collection_type result;
             result.reserve(_ts_values.size());
-            for (size_t i = 0; i < _ts_values.size(); ++i) {
+            for (size_t i = 0; i < _ts_values.size(); ++i)
+            {
                 if (constraint(*_ts_values[i])) { result.push_back(i); }
             }
             return result;
         }
 
-        [[nodiscard]] collection_type values_with_constraint(const std::function<bool(const ts_type &)> &constraint) const {
+        [[nodiscard]] collection_type values_with_constraint(
+            const std::function<bool(const ts_type&)>& constraint) const
+        {
             collection_type result;
             result.reserve(_ts_values.size());
-            for (const auto &value : _ts_values) {
+            for (const auto& value : _ts_values)
+            {
                 if (constraint(*value)) { result.push_back(value); }
             }
             return result;
         }
 
         [[nodiscard]] enumerated_collection_type
-        items_with_constraint(const std::function<bool(const ts_type &)> &constraint) const {
+        items_with_constraint(const std::function<bool(const ts_type&)>& constraint) const
+        {
             enumerated_collection_type result;
             result.reserve(_ts_values.size());
-            for (size_t i = 0; i < _ts_values.size(); ++i) {
+            for (size_t i = 0; i < _ts_values.size(); ++i)
+            {
                 if (constraint(*_ts_values[i])) { result.emplace_back(i, _ts_values[i]); }
             }
             return result;
         }
 
-      private:
+    private:
         friend TimeSeriesBundleInputBuilder;
         friend TimeSeriesListInputBuilder;
         collection_type _ts_values;
@@ -127,13 +146,13 @@ namespace hgraph
 
         void invalidate() override;
 
-        void copy_from_output(const TimeSeriesOutput &output) override;
+        void copy_from_output(const TimeSeriesOutput& output) override;
 
-        void copy_from_input(const TimeSeriesInput &input) override;
+        void copy_from_input(const TimeSeriesInput& input) override;
 
         void clear() override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
     };
 
     struct IndexedTimeSeriesInput : IndexedTimeSeries<TimeSeriesInput>
@@ -148,21 +167,21 @@ namespace hgraph
         [[nodiscard]] bool bound() const override;
 
         [[nodiscard]] bool active() const override;
-        void               make_active() override;
-        void               make_passive() override;
+        void make_active() override;
+        void make_passive() override;
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput* get_input(size_t index) override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
 
-      protected:
+    protected:
         bool do_bind_output(time_series_output_ptr& value) override;
         void do_un_bind_output(bool unbind_refs) override;
     };
 
     template <typename T_TS>
-    concept IndexedTimeSeriesT = std::is_same_v<T_TS, IndexedTimeSeriesInput> || std::is_same_v<T_TS, IndexedTimeSeriesOutput>;
-
-}  // namespace hgraph
+    concept IndexedTimeSeriesT = std::is_same_v<T_TS, IndexedTimeSeriesInput> || std::is_same_v<
+        T_TS, IndexedTimeSeriesOutput>;
+} // namespace hgraph
 
 #endif  // TS_INDEXED_H

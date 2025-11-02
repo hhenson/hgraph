@@ -10,7 +10,6 @@
 
 namespace std
 {
-
     template <typename Py_T, typename CharT>
         requires std::is_same_v<Py_T, nanobind::handle> || std::is_same_v<Py_T, nanobind::object>
     struct formatter<Py_T, CharT>
@@ -18,17 +17,20 @@ namespace std
         bool use_repr = false;
 
         // Parse formatting options if needed
-        constexpr auto parse(std::format_parse_context &ctx) {
-            auto it  = ctx.begin();
+        constexpr auto parse(std::format_parse_context& ctx)
+        {
+            auto it = ctx.begin();
             auto end = ctx.end();
 
             // If we reached the end of the format string, return
             if (it == end || *it == '}') { return it; }
 
             // Check for format specifiers
-            if (*it == ':') {
+            if (*it == ':')
+            {
                 ++it;
-                if (it != end && *it == 'r') {
+                if (it != end && *it == 'r')
+                {
                     use_repr = true;
                     ++it;
                 }
@@ -40,7 +42,8 @@ namespace std
         }
 
         // Format the value and output it to the context
-        auto format(const Py_T &value, std::format_context &ctx) const {
+        auto format(const Py_T& value, std::format_context& ctx) const
+        {
             if (use_repr) { return format_to(ctx.out(), "{}", nanobind::repr(value).c_str()); }
             return format_to(ctx.out(), "{}", nanobind::str(value).c_str());
         }
@@ -48,6 +51,6 @@ namespace std
 
     using handle_formatter = formatter<nanobind::handle>;
     using object_formatter = formatter<nanobind::object>;
-}  // namespace std
+} // namespace std
 
 #endif  // FORMAT_H

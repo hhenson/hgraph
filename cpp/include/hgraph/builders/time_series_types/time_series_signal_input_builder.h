@@ -22,9 +22,8 @@ namespace hgraph
         void release_instance(time_series_input_ptr item) const override;
         void release_instance(TimeSeriesSignalInput* item) const;
 
-        static void register_with_nanobind(nb::module_ &m);
+        static void register_with_nanobind(nb::module_& m);
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TIME_SERIES_SIGNAL_INPUT_BUILDER_H

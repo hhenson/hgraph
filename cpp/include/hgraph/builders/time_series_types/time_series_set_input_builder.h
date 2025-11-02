@@ -15,7 +15,8 @@ namespace hgraph
         using InputBuilder::InputBuilder;
     };
 
-    template <typename T> struct HGRAPH_EXPORT TimeSeriesSetInputBuilder_T : TimeSeriesSetInputBuilder
+    template <typename T>
+    struct HGRAPH_EXPORT TimeSeriesSetInputBuilder_T : TimeSeriesSetInputBuilder
     {
         using TimeSeriesSetInputBuilder::TimeSeriesSetInputBuilder;
 
@@ -23,8 +24,7 @@ namespace hgraph
         time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
     };
 
-    void time_series_set_input_builder_register_with_nanobind(nb::module_ &m);
-
-}  // namespace hgraph
+    void time_series_set_input_builder_register_with_nanobind(nb::module_ & m);
+} // namespace hgraph
 
 #endif  // TIME_SERIES_SET_INPUT_BUILDER_H

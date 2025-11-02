@@ -1,14 +1,12 @@
-
 #ifndef TIME_SERIES_TYPE_H
 #define TIME_SERIES_TYPE_H
 
 #include <hgraph/hgraph_base.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/ts_traits.h>
 #include <variant>
 
 namespace hgraph
 {
-
     struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base
     {
         using ptr = nb::ref<TimeSeriesType>;
@@ -86,7 +84,8 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
         static inline time_series_type_ptr null_ptr{};
-      protected:
+
+    protected:
         /*
          * Used to manage access to the parent/node variant.
          */
@@ -97,7 +96,7 @@ namespace hgraph
         bool has_parent_or_node() const;
         bool has_owning_node() const;
 
-      private:
+    private:
         using TsOrNode = std::variant<ptr, node_ptr>;
         std::optional<TsOrNode> _parent_ts_or_node{};
 
@@ -110,6 +109,7 @@ namespace hgraph
 
     struct TimeSeriesInput;
     struct OutputBuilder;
+
     struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType
     {
         using ptr = nb::ref<TimeSeriesOutput>;
@@ -129,24 +129,24 @@ namespace hgraph
         void                        un_subscribe(Notifiable *node);
 
         // Minimal-teardown helper used by builders during release; must not access owning_node/graph
-        void                        builder_release_cleanup();
+        void builder_release_cleanup();
 
         virtual void py_set_value(nb::object value) = 0;
         virtual bool can_apply_result(nb::object value);
-        virtual void apply_result(nb::object value)                   = 0;
+        virtual void apply_result(nb::object value) = 0;
         virtual void copy_from_output(const TimeSeriesOutput &output) = 0;
-        virtual void copy_from_input(const TimeSeriesInput &input)    = 0;
+        virtual void copy_from_input(const TimeSeriesInput &input) = 0;
         virtual void clear();
         virtual void invalidate();
         virtual void mark_modified(engine_time_t modified_time);
 
         static void register_with_nanobind(nb::module_ &m);
 
-      protected:
+    protected:
         void _notify(engine_time_t modified_time);
         void _reset_last_modified_time();
 
-      private:
+    private:
         friend OutputBuilder;
         // I think we can change this to not reference count if we track the inputs, this should be one-to-one
         std::unordered_set<Notifiable *> _subscribers{};
@@ -186,7 +186,7 @@ namespace hgraph
         [[nodiscard]] virtual bool has_output() const;
 
         // Minimal-teardown helper used by builders during release; must not access owning_node/graph
-        void                        builder_release_cleanup();
+        void builder_release_cleanup();
 
         [[nodiscard]] nb::object    py_value() const override;
         [[nodiscard]] nb::object    py_delta_value() const override;
@@ -197,12 +197,12 @@ namespace hgraph
 
         [[nodiscard]] time_series_reference_output_ptr reference_output() const;
 
-        [[nodiscard]] const TimeSeriesInput   *get_input(size_t index) const;
+        [[nodiscard]] const TimeSeriesInput *  get_input(size_t index) const;
         [[nodiscard]] virtual TimeSeriesInput *get_input(size_t index);
 
         static void register_with_nanobind(nb::module_ &m);
 
-      protected:
+    protected:
         // Derived classes override this to implement specific behaviours
         virtual bool do_bind_output(time_series_output_ptr &output_);
 
@@ -223,14 +223,13 @@ namespace hgraph
         void set_output(time_series_output_ptr output);
         void set_active(bool active);
 
-      private:
+    private:
         time_series_output_ptr           _output;
         time_series_reference_output_ptr _reference_output;
         bool                             _active{false};
         engine_time_t                    _sample_time{MIN_DT};
         engine_time_t                    _notify_time{MIN_DT};
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TIME_SERIES_TYPE_H

@@ -26,13 +26,16 @@
 
 // Casts a std::chrono type (either a duration or a time_point) to/from
 // Python timedelta objects, or from a Python float representing seconds.
-template <typename type> class duration_caster {
+template <typename type>
+class duration_caster
+{
 public:
     using rep = typename type::rep;
     using period = typename type::period;
     using duration_t = std::chrono::duration<rep, period>;
 
-    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept {
+    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept
+    {
         namespace ch = std::chrono;
 
         if (!src) return false;
@@ -42,13 +45,17 @@ public:
 
         // If invoked with datetime.delta object, unpack it
         int dd, ss, uu;
-        try {
-            if (unpack_timedelta(src.ptr(), &dd, &ss, &uu)) {
+        try
+        {
+            if (unpack_timedelta(src.ptr(), &dd, &ss, &uu))
+            {
                 value = type(ch::duration_cast<duration_t>(
-                                 days(dd) + ch::seconds(ss) + ch::microseconds(uu)));
+                    days(dd) + ch::seconds(ss) + ch::microseconds(uu)));
                 return true;
             }
-        } catch (python_error& e) {
+        }
+        catch (python_error& e)
+        {
             e.discard_as_unraisable(src.ptr());
             return false;
         }
@@ -60,27 +67,31 @@ public:
 #else
         is_float = PyFloat_Check(src.ptr());
 #endif
-        if (is_float) {
+        if (is_float)
+        {
             value = type(ch::duration_cast<duration_t>(
-                             ch::duration<double>(PyFloat_AsDouble(src.ptr()))));
+                ch::duration<double>(PyFloat_AsDouble(src.ptr()))));
             return true;
         }
         return false;
     }
 
     // If this is a duration just return it back
-    static const duration_t& get_duration(const duration_t& src) {
+    static const duration_t& get_duration(const duration_t& src)
+    {
         return src;
     }
 
     // If this is a time_point get the time_since_epoch
     template <typename Clock>
     static duration_t get_duration(
-            const std::chrono::time_point<Clock, duration_t>& src) {
+        const std::chrono::time_point<Clock, duration_t>& src)
+    {
         return src.time_since_epoch();
     }
 
-    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept {
+    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept
+    {
         namespace ch = std::chrono;
 
         // Use overloaded function to get our duration from our source
@@ -99,41 +110,53 @@ public:
         return pack_timedelta(dd.count(), ss.count(), us.count());
     }
 
-    #if PY_VERSION_HEX < 0x03090000
-        NB_TYPE_CASTER(type, io_name("typing.Union[datetime.timedelta, float]",
+#if PY_VERSION_HEX < 0x03090000
+    NB_TYPE_CASTER(type, io_name ("typing.Union[datetime.timedelta, float]",
+                                     "datetime.timedelta")
+    )
+#else
+    NB_TYPE_CASTER(type, io_name ("datetime.timedelta | float",
                                      "datetime.timedelta"))
-    #else
-        NB_TYPE_CASTER(type, io_name("datetime.timedelta | float",
-                                     "datetime.timedelta"))
-    #endif
+#endif
 };
 
 // Cast between times on the system clock and datetime.datetime instances
 // (also supports datetime.date and datetime.time for Python->C++ conversions)
 template <typename Duration>
-class type_caster<std::chrono::time_point<std::chrono::system_clock, Duration>> {
+class type_caster<std::chrono::time_point<std::chrono::system_clock, Duration>>
+{
 public:
     using type = std::chrono::time_point<std::chrono::system_clock, Duration>;
-    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept {
+
+    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept
+    {
         namespace ch = std::chrono;
 
         if (!src)
             return false;
 
         int yy, mon, dd, hh, min, ss, uu;
-        try {
+        try
+        {
             if (!unpack_datetime(src.ptr(), &yy, &mon, &dd,
-                                 &hh, &min, &ss, &uu)) {
+                                 &hh, &min, &ss, &uu))
+            {
                 return false;
             }
-        } catch (python_error& e) {
+        }
+        catch (python_error& e)
+        {
             e.discard_as_unraisable(src.ptr());
             return false;
         }
-        std::chrono::year_month_day ymd{std::chrono::year{yy}, std::chrono::month{static_cast<unsigned>(mon)}, std::chrono::day{static_cast<unsigned>(dd)}};
+        std::chrono::year_month_day ymd{
+            std::chrono::year{yy}, std::chrono::month{static_cast<unsigned>(mon)},
+            std::chrono::day{static_cast<unsigned>(dd)}
+        };
         std::chrono::sys_days date_part = ymd;
 
-        auto tod = std::chrono::hours{hh} + std::chrono::minutes{min} + std::chrono::seconds{ss} + std::chrono::microseconds{uu};
+        auto tod = std::chrono::hours{hh} + std::chrono::minutes{min} + std::chrono::seconds{ss} +
+            std::chrono::microseconds{uu};
 
         // date_part is a sys_days time_point (days resolution). Convert its
         // time_since_epoch to the target Duration and add the time-of-day also
@@ -158,7 +181,8 @@ public:
         return true;
     }
 
-    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept {
+    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept
+    {
         namespace ch = std::chrono;
 
         auto current_day = std::chrono::floor<std::chrono::days>(src);
@@ -185,13 +209,14 @@ public:
                              second,
                              microseconds);
     }
-    #if PY_VERSION_HEX < 0x03090000
-        NB_TYPE_CASTER(type, io_name("typing.Union[datetime.datetime, datetime.date, datetime.time]",
+#if PY_VERSION_HEX < 0x03090000
+    NB_TYPE_CASTER(type, io_name ("typing.Union[datetime.datetime, datetime.date, datetime.time]",
+                                     "datetime.datetime")
+    )
+#else
+    NB_TYPE_CASTER(type, io_name ("datetime.datetime | datetime.date | datetime.time",
                                      "datetime.datetime"))
-    #else
-        NB_TYPE_CASTER(type, io_name("datetime.datetime | datetime.date | datetime.time",
-                                     "datetime.datetime"))
-    #endif
+#endif
 };
 
 // Other clocks that are not the system clock are not measured as
@@ -200,39 +225,55 @@ public:
 // passed us a time as a float, we convert that.
 template <typename Clock, typename Duration>
 class type_caster<std::chrono::time_point<Clock, Duration>>
-  : public duration_caster<std::chrono::time_point<Clock, Duration>> {};
+    : public duration_caster<std::chrono::time_point<Clock, Duration>>
+{
+};
 
 template <typename Rep, typename Period>
 class type_caster<std::chrono::duration<Rep, Period>>
-  : public duration_caster<std::chrono::duration<Rep, Period>> {};
+    : public duration_caster<std::chrono::duration<Rep, Period>>
+{
+};
 
 // Support for date
-template<> class type_caster<std::chrono::year_month_day> {
+template <>
+class type_caster<std::chrono::year_month_day>
+{
 public:
     using type = std::chrono::year_month_day;
-    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept {
+
+    bool from_python(handle src, uint8_t /*flags*/, cleanup_list*) noexcept
+    {
         namespace ch = std::chrono;
 
         if (!src)
             return false;
 
         int yy, mon, dd, hh, min, ss, uu;
-        try {
+        try
+        {
             if (!unpack_datetime(src.ptr(), &yy, &mon, &dd,
-                                 &hh, &min, &ss, &uu)) {
+                                 &hh, &min, &ss, &uu))
+            {
                 return false;
             }
-        } catch (python_error& e) {
+        }
+        catch (python_error& e)
+        {
             e.discard_as_unraisable(src.ptr());
             return false;
         }
-        std::chrono::year_month_day ymd{std::chrono::year{yy}, std::chrono::month{static_cast<unsigned>(mon)}, std::chrono::day{static_cast<unsigned>(dd)}};
+        std::chrono::year_month_day ymd{
+            std::chrono::year{yy}, std::chrono::month{static_cast<unsigned>(mon)},
+            std::chrono::day{static_cast<unsigned>(dd)}
+        };
 
         value = ymd;
         return true;
     }
 
-    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept {
+    static handle from_cpp(const type& src, rv_policy, cleanup_list*) noexcept
+    {
         namespace ch = std::chrono;
 
         int year = static_cast<int>(src.year());
@@ -241,9 +282,11 @@ public:
 
 #if !defined(Py_LIMITED_API) && !defined(PYPY_VERSION)
         // Initialize PyDateTimeAPI if needed (required before using PyDate_FromDate)
-        if (!PyDateTimeAPI) {
+        if (!PyDateTimeAPI)
+        {
             PyDateTime_IMPORT;
-            if (!PyDateTimeAPI) {
+            if (!PyDateTimeAPI)
+            {
                 return nanobind::none().release();
             }
         }
@@ -251,28 +294,33 @@ public:
 #else
         // Use Python object creation for limited API
         PyObject* result = nullptr;
-        try {
+        try
+        {
             datetime_types.ensure_ready();
             result = datetime_types.date(year, month, day).release().ptr();
-        } catch (python_error& e) {
+        }
+        catch (python_error& e)
+        {
             e.restore();
             return nanobind::none().release();
         }
 #endif
-        if (!result) {
+        if (!result)
+        {
             PyErr_Clear();
             return nanobind::none().release();
         }
         return result;
     }
-    #if PY_VERSION_HEX < 0x03090000
-        NB_TYPE_CASTER(type, io_name("typing.Union[datetime.datetime, datetime.date, datetime.time]",
+#if PY_VERSION_HEX < 0x03090000
+    NB_TYPE_CASTER(type, io_name ("typing.Union[datetime.datetime, datetime.date, datetime.time]",
+                                     "datetime.datetime")
+    )
+#else
+    NB_TYPE_CASTER(type, io_name ("datetime.datetime | datetime.date | datetime.time",
                                      "datetime.datetime"))
-    #else
-        NB_TYPE_CASTER(type, io_name("datetime.datetime | datetime.date | datetime.time",
-                                     "datetime.datetime"))
-    #endif
+#endif
 };
 
-NAMESPACE_END(detail)
-NAMESPACE_END(NB_NAMESPACE)
+NAMESPACE_END (detail)
+NAMESPACE_END (NB_NAMESPACE)

@@ -1,4 +1,3 @@
-
 #include <hgraph/nodes/nest_graph_node.h>
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
@@ -13,7 +12,8 @@
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
 
-void export_nodes(nb::module_ &m) {
+void export_nodes(nb::module_& m)
+{
     using namespace hgraph;
 
     NestedNode::register_with_nanobind(m);

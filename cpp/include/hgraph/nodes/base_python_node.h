@@ -32,7 +32,7 @@ namespace hgraph
         void _initialise_state();
         void reset_input(time_series_bundle_input_ptr value) override;
 
-      protected:
+    protected:
         void do_eval() override;
         void do_start() override;
         void do_stop() override;
@@ -46,7 +46,6 @@ namespace hgraph
 
         nb::kwargs _kwargs;
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // HGRAPH_CPP_ENGINE_BASE_PYTHON_NODE_H

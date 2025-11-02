@@ -1,11 +1,12 @@
 C++ Redesign of TimeSeries Types
 --------------------------------
 
-Time Series types represent the state of a value that changes over time, values change through the application of 
+Time Series types represent the state of a value that changes over time, values change through the application of
 events. We typically do not record the history of the events but rather keep the current state (the concesquence
 of all events to date) and the knowledge of the most recent event received.
 
 Thus, a time-series has two key values associated to it, namely:
+
 1. The current state of the time-series
 2. The most recent event received
 
@@ -31,7 +32,7 @@ In the current HGraph implementation there is a property on the time-series type
 a query to the time-series type requesting the event for a given time, in this case the current engine time. In
 this case the use of the no-change event is necessary to indicate that no event has occurred at the current engine time.
 
-The value is the accumulation of all prior events, in the case of TS, the most simplistic of the time-series types, 
+The value is the accumulation of all prior events, in the case of TS, the most simplistic of the time-series types,
 this will be either: invalid or the value of the last event.
 
 To build a value state, the event should be able to be applied to the current value.
@@ -43,44 +44,48 @@ Basic Time-Series Structure
 ---------------------------
 
 TimeSeriesEvent: [This is like a c++ optional with an extra state and time]
-    * time
-    * type [no-change, reset, value]
-    * value [optional, only when type is value]
+* time
+* type [no-change, reset, value]
+* value [optional, only when type is value]
 
 TimeSeriesValue: [This is equivalent to C++ optional.]
-    * has_value
-    * value [optional, only when has_value is true]
+* has_value
+* value [optional, only when has_value is true]
 
 TimeSeries:
-    * value - The current state of the time-series as a consequence of apply events up to now (the engine time), this can be invalid or a value.
-    * delta_value - A query requesting the event at the current engine time. If there is no event, the delta_value is the no-change sentinel.
-    * last_modified_time - The time of the last event applied to the time-series.
-    
+* value - The current state of the time-series as a consequence of apply events up to now (the engine time), this can be
+invalid or a value.
+* delta_value - A query requesting the event at the current engine time. If there is no event, the delta_value is the
+no-change sentinel.
+* last_modified_time - The time of the last event applied to the time-series.
+
 Then there are some useful queries that can be performed on the time-series to query the state of the time-series:
-   * valid - Is the value valid.
-   * modified - Was the value modified (had an event applied to it) in this engine cycle (at the current engine time)
+
+* valid - Is the value valid.
+* modified - Was the value modified (had an event applied to it) in this engine cycle (at the current engine time)
 
 The time-series set already has the concept of the SetDelta, a delta value for a set. This can be modified to better
 match collection time-series representations. For all collection time-series types (list, set, map), the event is:
 
 CollectionTimeSeriesEvent:
-    * time
-    * type [no-change, reset, value]
-    * added/modified items
-        * key
-        * type [reset, value] [optional when there is only a key, i.e. in the case of set]
-        * value [optional, only when type is value]
-    * removed items
-        * key
+* time
+* type [no-change, reset, value]
+* added/modified items
+* key
+* type [reset, value] [optional when there is only a key, i.e. in the case of set]
+* value [optional, only when type is value]
+* removed items
+* key
 
 Within the class of collection time-series, there are two key classes, those that collect other time-series elements
 together (such as TSL, TSB and TSD) and those that just represent a collection of scalar values (TSS).
 
-TSS is more akin to a simple time-series, except that it has an event structure similar to that of the collection time-series.
+TSS is more akin to a simple time-series, except that it has an event structure similar to that of the collection
+time-series.
 
 The encoding of the key can be optimised based on the nature of the collection type, for example, both TSL and TSB
 can have their keys encoded as an integer. The size of the integer could also be determined at wiring time, thus
-the builder could be primed with an event builder/decoder function that could have the ability to encode/decode 
+the builder could be primed with an event builder/decoder function that could have the ability to encode/decode
 different sized keys (i.e. 8/16/32/64 bit keys depending on need) this would allow for improved size representations
 of delta. This is good for serialisation of events.
 
@@ -95,7 +100,7 @@ are event consumers, but when inputs and outputs are in the same process, it mak
 of the output time-series by the input. However, with the introduction of reference types and non-peered collection
 types, this becomes a lot more complicated.
 
-So the suggestion is to follow a type-erased / PIMPL style design, where the user-exposed interface is flat, but 
+So the suggestion is to follow a type-erased / PIMPL style design, where the user-exposed interface is flat, but
 depending on the connection type, the implementation can be swapped in and out.
 
 For example:
@@ -113,12 +118,12 @@ Observability / Notifiable
 --------------------------
 
 Ultimately, an event-based computational engine is observer-based, that is an event occurs, and we respond to it.
-The inputs subscribe to the events they are interested to respond to. The outputs (or event generators) are 
+The inputs subscribe to the events they are interested to respond to. The outputs (or event generators) are
 the targets of the event subscription.
 
 To reduce overhead, if we keep a list of all edges (input to output, reverse of data flow) on the output. The we can
 keep a pivot point which indicates the balance between subscribed and passive; then all we need to see if we are active
-is to check if we are in the left of the pivot point. If we keep the list in some form of sorted order, we could 
+is to check if we are in the left of the pivot point. If we keep the list in some form of sorted order, we could
 ensure active checks are not too expensive. This may be a way to reduce the overhead we need to carry and since it is
 not often the case where we need to query the active state, it may not be too expensive an operation to track. [Option]
 
@@ -149,12 +154,13 @@ This may be improved if we standardise the notify method to be graph/node_id/tim
 Complexity and TSS/TSD
 ----------------------
 
-The TSS and TSD interactions, especially with "Transplanted inputs" and Reference bindings of the non-peered variety, 
+The TSS and TSD interactions, especially with "Transplanted inputs" and Reference bindings of the non-peered variety,
 are super complex and have many outstanding bugs from what I saw during the initial port. We need to clean this up
 to make sure at least basic invariants such as the keys in the _ts_values match the keys in the key_set. This is
-not always true especially in the transplanted inputs case. This is where the selectable state machines approach 
+not always true especially in the transplanted inputs case. This is where the selectable state machines approach
 will probably help at least keep a better handle on the issues and should help with debugging if we can determine
-which state we are in when debugging an issue (i.e. simple peer / reference / non-peered / non-peered reference / transplanted)
+which state we are in when debugging an issue (i.e. simple peer / reference / non-peered / non-peered reference /
+transplanted)
 
 Value Support
 -------------
@@ -165,7 +171,7 @@ and decompose, then the scalar values are the only ones that need special attent
 partitioned the set of scalars into primitive types that can be represented in size_t size and python objects.
 
 This will do for the short term, but over time we will need to look to provide a more robust data representation.
-We should at least extend the python object representation to track the type of the object stored from improved 
+We should at least extend the python object representation to track the type of the object stored from improved
 debugging and type safety.
 
 Ultimately, we want to be able to have binary representations of most or all of the data types, this to support
@@ -180,7 +186,8 @@ C++ Library Nodes
 -----------------
 
 Up to now, the nodes have been written to support complex custom behaviour. But it would be nice to have a lightweight
-mechanism to construct nodes from more simplistic functions (i.e. lift and compute_node wrapper). We had this previously,
+mechanism to construct nodes from more simplistic functions (i.e. lift and compute_node wrapper). We had this
+previously,
 needs to be simple and dynamic. That is for now, would like to avoid complex template metaprogramming if possible.
 This needs to be a wrapper that can support eval, stop, start and direct binding to the inputs types, etc.
 

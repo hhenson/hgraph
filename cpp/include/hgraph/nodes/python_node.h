@@ -19,9 +19,8 @@ namespace hgraph
     {
         using BasePythonNode::BasePythonNode;
 
-        const nb::callable &eval_fn();
+        const nb::callable& eval_fn();
     };
-
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // HGRAPH_CPP_ENGINE_PYTHON_NODE_H
