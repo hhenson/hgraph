@@ -5,10 +5,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/util/lifecycle.h>
 
-namespace hgraph
-{
-    struct PyEvaluationLifeCycleObserver : EvaluationLifeCycleObserver
-    {
+namespace hgraph {
+    struct PyEvaluationLifeCycleObserver : EvaluationLifeCycleObserver {
         NB_TRAMPOLINE(EvaluationLifeCycleObserver, 12);
 
         void on_before_start_graph(graph_ptr graph) override { NB_OVERRIDE(on_before_start_graph, graph); }
@@ -44,7 +42,7 @@ namespace hgraph
             .def("run", &GraphExecutor::run)
             .def("__str__",
                  [](const GraphExecutor& self)
-                 {
+                     {
                      return fmt::format("GraphExecutor@{:p}[mode={}]", static_cast<const void*>(&self),
                                         static_cast<int>(self.run_mode()));
                  })
@@ -55,9 +53,9 @@ namespace hgraph
             });
 
         nb::enum_<EvaluationMode>(m, "EvaluationMode")
-            .value("REAL_TIME", EvaluationMode::REAL_TIME)
-            .value("SIMULATION", EvaluationMode::SIMULATION)
-            .export_values();
+                .value("REAL_TIME", EvaluationMode::REAL_TIME)
+                .value("SIMULATION", EvaluationMode::SIMULATION)
+                .export_values();
 
         nb::class_<EvaluationLifeCycleObserver, PyEvaluationLifeCycleObserver, nb::intrusive_base>(
                 m, "EvaluationLifeCycleObserver")
@@ -117,7 +115,7 @@ namespace hgraph
         nb::ref<EvaluationEngine> evaluationEngine = new EvaluationEngineImpl(clock, start_time, end_time, _run_mode);
         _graph->set_evaluation_engine(evaluationEngine);
 
-        for (const auto& observer : _observers) { evaluationEngine->add_life_cycle_observer(observer); }
+        for (const auto& observer: _observers) { evaluationEngine->add_life_cycle_observer(observer); }
 
         try
         {

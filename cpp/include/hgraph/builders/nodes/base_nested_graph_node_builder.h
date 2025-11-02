@@ -11,8 +11,8 @@
 #include <hgraph/builders/output_builder.h>
 #include <unordered_map>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct BaseNestedGraphNodeBuilder : BaseNodeBuilder
     {
         BaseNestedGraphNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -32,7 +32,7 @@ namespace hgraph
     void base_nested_graph_node_builder_register_with_nanobind(nb::module_ & m);
 
     // Helper template function for creating nested graph node builders
-    template <typename T>
+    template<typename T>
     auto create_nested_graph_node_builder(T* self, const nb::args& args)
     {
         // Expected Python signature (positional):
@@ -48,15 +48,23 @@ namespace hgraph
         auto signature_ = nb::cast<node_signature_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
         std::optional<input_builder_ptr> input_builder_ =
-            args[2].is_none() ? std::nullopt : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
+                args[2].is_none()
+                    ? std::nullopt
+                    : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
         std::optional<output_builder_ptr> output_builder_ =
-            args[3].is_none() ? std::nullopt : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
+                args[3].is_none()
+                    ? std::nullopt
+                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
         std::optional<output_builder_ptr> error_builder_ =
-            args[4].is_none() ? std::nullopt : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
+                args[4].is_none()
+                    ? std::nullopt
+                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
         std::optional<output_builder_ptr> recordable_state_builder_ =
-            args[5].is_none() ? std::nullopt : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
+                args[5].is_none()
+                    ? std::nullopt
+                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
         auto nested_graph_builder = nb::cast<graph_builder_ptr>(args[6]);
-        auto input_node_ids = nb::cast<std::unordered_map<std::string, int>>(args[7]);
+        auto input_node_ids = nb::cast<std::unordered_map<std::string, int> >(args[7]);
         auto output_node_id = nb::cast<int>(args[8]);
 
         return new(self) T(std::move(signature_), std::move(scalars_), std::move(input_builder_),

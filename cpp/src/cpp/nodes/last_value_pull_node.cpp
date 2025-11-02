@@ -1,8 +1,8 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/types/time_series_type.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void LastValuePullNode::do_start()
     {
         _setup_combine_function();
@@ -167,7 +167,7 @@ namespace hgraph
             // It's a plain set - convert it to SetDelta
             nb::set added;
             nb::set removed;
-            for (auto item : nb::cast<nb::set>(delta))
+            for (auto item: nb::cast<nb::set>(delta))
             {
                 if (nb::isinstance(item, py_removed_class))
                 {
@@ -198,7 +198,7 @@ namespace hgraph
         // Combine with explicit set operations to avoid implicit nb::object -> nb::set conversions
         nb::set combined_added = nb::steal<nb::set>(PySet_New(nullptr));
         // Start with old_added minus new_removed
-        for (auto item : old_added)
+        for (auto item: old_added)
         {
             if (!new_removed.contains(item))
             {
@@ -206,7 +206,7 @@ namespace hgraph
             }
         }
         // Union with (new_added - old_removed)
-        for (auto item : new_added)
+        for (auto item: new_added)
         {
             if (!old_removed.contains(item))
             {
@@ -217,7 +217,7 @@ namespace hgraph
         // Only remove elements that haven't been recently added and don't remove old removes that have been re-added
         nb::set combined_removed = nb::steal<nb::set>(PySet_New(nullptr));
         // (old_removed - new_added)
-        for (auto item : old_removed)
+        for (auto item: old_removed)
         {
             if (!new_added.contains(item))
             {
@@ -225,7 +225,7 @@ namespace hgraph
             }
         }
         // | (new_removed - old_added)
-        for (auto item : new_removed)
+        for (auto item: new_removed)
         {
             if (!old_added.contains(item))
             {
@@ -245,11 +245,11 @@ namespace hgraph
 
         // Python dict union: new_dict values override old_dict values
         nb::dict result;
-        for (auto [key, value] : old_dict)
+        for (auto [key, value]: old_dict)
         {
             result[key] = value;
         }
-        for (auto [key, value] : new_dict)
+        for (auto [key, value]: new_dict)
         {
             result[key] = value;
         }
@@ -264,11 +264,11 @@ namespace hgraph
         nb::dict new_dict = nb::cast<nb::dict>(new_delta);
 
         nb::dict result;
-        for (auto [key, value] : old_dict)
+        for (auto [key, value]: old_dict)
         {
             result[key] = value;
         }
-        for (auto [key, value] : new_dict)
+        for (auto [key, value]: new_dict)
         {
             result[key] = value;
         }
@@ -283,11 +283,11 @@ namespace hgraph
         nb::dict new_dict = nb::cast<nb::dict>(new_delta);
 
         nb::dict result;
-        for (auto [key, value] : old_dict)
+        for (auto [key, value]: old_dict)
         {
             result[key] = value;
         }
-        for (auto [key, value] : new_dict)
+        for (auto [key, value]: new_dict)
         {
             result[key] = value;
         }
@@ -298,8 +298,8 @@ namespace hgraph
     void LastValuePullNode::register_with_nanobind(nb::module_& m)
     {
         nb::class_<LastValuePullNode, Node>(m, "LastValuePullNode")
-            .def("copy_from_input", &LastValuePullNode::copy_from_input, "input"_a)
-            .def("copy_from_output", &LastValuePullNode::copy_from_input, "output"_a)
-            .def("apply_value", &LastValuePullNode::apply_value, "new_value"_a);
+                .def("copy_from_input", &LastValuePullNode::copy_from_input, "input"_a)
+                .def("copy_from_output", &LastValuePullNode::copy_from_input, "output"_a)
+                .def("apply_value", &LastValuePullNode::apply_value, "new_value"_a);
     }
 } // namespace hgraph

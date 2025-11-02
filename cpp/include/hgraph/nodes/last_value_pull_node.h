@@ -21,8 +21,7 @@ namespace hgraph
      * This node type is used for pull source nodes that cache delta values
      * and combine them when multiple values are received before evaluation.
      */
-    struct HGRAPH_EXPORT LastValuePullNode : Node
-    {
+    struct HGRAPH_EXPORT LastValuePullNode : Node {
         using Node::Node;
 
         /**
@@ -30,6 +29,7 @@ namespace hgraph
          * This is called when the node needs to pull a value from another output
          */
         void copy_from_input(const TimeSeriesInput& input);
+
         void copy_from_output(const TimeSeriesOutput& output);
 
         /**
@@ -46,7 +46,9 @@ namespace hgraph
 
     protected:
         void do_eval() override;
+
         void do_start() override;
+
         void do_stop() override;
 
         /**
@@ -61,8 +63,11 @@ namespace hgraph
 
         // Type-specific combine functions
         static nb::object _combine_tss_delta(const nb::object& old_delta, const nb::object& new_delta);
+
         static nb::object _combine_tsd_delta(const nb::object& old_delta, const nb::object& new_delta);
+
         static nb::object _combine_tsb_delta(const nb::object& old_delta, const nb::object& new_delta);
+
         static nb::object _combine_tsl_delta_value(const nb::object& old_delta, const nb::object& new_delta);
 
         void _setup_combine_function();

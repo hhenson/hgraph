@@ -197,7 +197,7 @@ namespace hgraph
         auto capacity{first_node_index + sz};
         _nodes.reserve(capacity);
         _schedule.reserve(capacity);
-        for (auto node : nodes)
+        for (auto node: nodes)
         {
             _nodes.emplace_back(node);
             _schedule.emplace_back(MIN_DT);
@@ -340,15 +340,15 @@ namespace hgraph
     {
         // Need to ensure that the graph is set prior to initialising the nodes
         // In case of interaction between nodes.
-        for (auto& node : _nodes) { node->set_graph(this); }
-        for (auto& node : _nodes) { node->initialise(); }
+        for (auto& node: _nodes) { node->set_graph(this); }
+        for (auto& node: _nodes) { node->initialise(); }
     }
 
     void Graph::start()
     {
         auto& engine = *_evaluation_engine;
         engine.notify_before_start_graph(graph_ptr{this});
-        for (auto& node : _nodes)
+        for (auto& node: _nodes)
         {
             engine.notify_before_start_node(node);
             start_component(*node);
@@ -362,7 +362,7 @@ namespace hgraph
         auto& engine = *_evaluation_engine;
         engine.notify_before_stop_graph(graph_ptr{this});
         std::exception_ptr first_exc;
-        for (auto& node : _nodes)
+        for (auto& node: _nodes)
         {
             try
             {
@@ -403,6 +403,6 @@ namespace hgraph
     void Graph::dispose()
     {
         // Since we initialise nodes from within the graph, we need to dispose them here.
-        for (auto& node : _nodes) { node->dispose(); }
+        for (auto& node: _nodes) { node->dispose(); }
     }
 } // namespace hgraph

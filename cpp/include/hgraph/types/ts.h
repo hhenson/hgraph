@@ -9,13 +9,11 @@
 #include <hgraph/types/v2/ts_value.h>
 #include <hgraph/types/v2/ts_value_helpers.h>
 
-namespace hgraph
-{
-    template <typename T>
-    struct TimeSeriesValueOutput : TimeSeriesOutput
-    {
+namespace hgraph {
+    template<typename T>
+    struct TimeSeriesValueOutput : TimeSeriesOutput {
         using value_type = T;
-        using ptr = nb::ref<TimeSeriesValueOutput<T>>;
+        using ptr = nb::ref<TimeSeriesValueOutput<T> >;
 
         // Constructor - delegates to base and creates TSOutput
         explicit TimeSeriesValueOutput(const node_ptr &parent);
@@ -49,11 +47,10 @@ namespace hgraph
         TSOutput _ts_output;
     };
 
-    template <typename T>
-    struct TimeSeriesValueInput : TimeSeriesInput
-    {
+    template<typename T>
+    struct TimeSeriesValueInput : TimeSeriesInput {
         using value_type = T;
-        using ptr = nb::ref<TimeSeriesValueInput<T>>;
+        using ptr = nb::ref<TimeSeriesValueInput<T> >;
 
         // Constructor - delegates to base and creates TSInput
         explicit TimeSeriesValueInput(const node_ptr &parent);

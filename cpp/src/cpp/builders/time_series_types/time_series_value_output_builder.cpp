@@ -2,23 +2,22 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts.h>
 
-namespace hgraph
-{
-    template <typename T>
+namespace hgraph {
+    template<typename T>
     time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesValueOutput<T>(owning_node)};
         return time_series_output_ptr{static_cast<TimeSeriesOutput*>(v)};
     }
 
-    template <typename T>
+    template<typename T>
     time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(time_series_output_ptr owning_output) const
     {
         auto v{new TimeSeriesValueOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput*>(v)};
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesValueOutputBuilder<T>::release_instance(time_series_output_ptr item) const
     {
         OutputBuilder::release_instance(item);

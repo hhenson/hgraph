@@ -10,8 +10,8 @@
 #include <hgraph/types/ref.h>
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
+
     NestedGraphNode::NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
                                      NodeSignature::ptr signature,
                                      nb::dict scalars, graph_builder_ptr nested_graph_builder,
@@ -35,7 +35,7 @@ namespace hgraph
         // then re-parent the outer ts to the inner node's input bundle.
         if (!m_input_node_ids_.empty())
         {
-            for (const auto& [arg, node_ndx] : m_input_node_ids_)
+            for (const auto& [arg, node_ndx]: m_input_node_ids_)
             {
                 auto node = m_active_graph_->nodes()[node_ndx];
                 node->notify();
@@ -86,12 +86,12 @@ namespace hgraph
     void NestedGraphNode::do_eval()
     {
         mark_evaluated();
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get()))
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get()))
         {
             nec->reset_next_scheduled_evaluation_time();
         }
         m_active_graph_->evaluate_graph();
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get()))
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().get()))
         {
             nec->reset_next_scheduled_evaluation_time();
         }

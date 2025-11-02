@@ -4,10 +4,8 @@
 #include <hgraph/nodes/nested_node.h>
 #include <optional>
 
-namespace hgraph
-{
-    struct ComponentNode : NestedNode
-    {
+namespace hgraph {
+    struct ComponentNode : NestedNode {
         ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                       nb::dict scalars,
                       graph_builder_ptr nested_graph_builder,
@@ -15,9 +13,13 @@ namespace hgraph
                       int output_node_id);
 
         void initialise() override;
+
         void do_start() override;
+
         void do_stop() override;
+
         void dispose() override;
+
         void do_eval() override;
         std::unordered_map<int, graph_ptr> nested_graphs() const;
 
@@ -25,8 +27,11 @@ namespace hgraph
 
     protected:
         void wire_graph();
+
         void write_inputs();
+
         virtual void wire_outputs();
+
         std::pair<std::string, bool> recordable_id();
 
         graph_builder_ptr m_nested_graph_builder_;

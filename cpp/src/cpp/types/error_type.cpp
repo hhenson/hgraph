@@ -7,8 +7,8 @@
 #include <sstream>
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
+
     BacktraceSignature::BacktraceSignature(std::string name_, std::vector<std::string> args_,
                                            std::string wiring_path_name_,
                                            std::string runtime_path_name_, std::string node_id_)
@@ -93,7 +93,7 @@ namespace hgraph
         if (!signature.has_value()) { return ""; }
         std::string indent(2 * level, ' ');
         std::vector<std::string> filtered_args;
-        for (const auto& arg : signature->args)
+        for (const auto& arg: signature->args)
         {
             if (!arg.starts_with("_")) { filtered_args.push_back(arg_str(arg)); }
         }
@@ -105,7 +105,7 @@ namespace hgraph
         std::vector<std::string> arg_strs;
         if (!input_values.empty())
         {
-            for (const auto& [arg, value] : input_values)
+            for (const auto& [arg, value]: input_values)
             {
                 std::string arg_str = fmt::format("{}{}{}", indent, active_inputs.contains(arg) ? "*" + arg + "*" : arg,
                                                   ":");
@@ -132,7 +132,7 @@ namespace hgraph
         }
         else
         {
-            for (const auto& [arg, value] : active_inputs)
+            for (const auto& [arg, value]: active_inputs)
             {
                 arg_strs.push_back(fmt::format("{}{}:\n{}", indent, arg, value.level_str(level + 1)));
             }
@@ -147,7 +147,7 @@ namespace hgraph
     {
         std::string result;
         bool in_brackets = false;
-        for (char c : path)
+        for (char c: path)
         {
             if (c == '[') in_brackets = true;
             else if (c == ']')
@@ -226,7 +226,7 @@ namespace hgraph
 
             if (node->has_input())
             {
-                for (const auto& [input_name, input] : node->input()->items())
+                for (const auto& [input_name, input]: node->input()->items())
                 {
                     capture_input(active_inputs, *input, input_name, capture_values, depth);
 
@@ -238,7 +238,8 @@ namespace hgraph
                         size_t newline_pos = value_str.find('\n');
                         if (newline_pos != std::string::npos) { value_str = value_str.substr(0, newline_pos); }
 
-                        input_short_values[input_name] = value_str.substr(0, 32) + (
+                        input_short_values[input_name] =
+                                value_str.substr(0, 32) + (
                             value_str.length() > 32 ? "..." : "");
                         std::string delta_str = nb::cast<std::string>(nb::str(input->py_delta_value()));
                         input_delta_values[input_name] = delta_str;
@@ -274,7 +275,7 @@ namespace hgraph
                     auto iterable_inputs{dynamic_cast<const TimeSeriesBundleInput*>(&input)};
                     if (iterable_inputs)
                     {
-                        for (const auto& [n, i] : iterable_inputs->items())
+                        for (const auto& [n, i]: iterable_inputs->items())
                         {
                             BackTrace::capture_input(active_inputs, *i, fmt::format("{}[{}]", input_name, n.get()),
                                                      capture_values,
@@ -288,7 +289,8 @@ namespace hgraph
                 // Traverse the referenced target without relying on py_value-casting to a TimeSeriesInput
                 if (auto ref_out = ts_ref->reference_output(); ref_out.get() != nullptr)
                 {
-                    if (auto ref_ts = dynamic_cast<const TimeSeriesReferenceOutput*>(ref_out.get()); ref_ts != nullptr)
+                    if (auto ref_ts = dynamic_cast<const TimeSeriesReferenceOutput*>(ref_out.get());
+                        ref_ts != nullptr)
                     {
                         if (ref_ts->valid())
                         {

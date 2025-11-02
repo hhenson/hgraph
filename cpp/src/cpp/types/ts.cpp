@@ -37,7 +37,7 @@ namespace hgraph
         set_value(nb::cast<T>(value));
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesValueOutput<T>::apply_result(nb::object value)
     {
         if (!value.is_valid() || value.is_none()) { return; }
@@ -66,7 +66,7 @@ namespace hgraph
         mark_modified();
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesValueOutput<T>::set_value(T&& value)
     {
         _ts_output.set_value(make_any_value(std::forward<T>(value)));
@@ -80,27 +80,27 @@ namespace hgraph
         TimeSeriesOutput::mark_invalid();
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesValueOutput<T>::copy_from_output(const TimeSeriesOutput& output)
     {
         auto& output_t = dynamic_cast<const TimeSeriesValueOutput<T>&>(output);
         set_value(output_t.value());
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesValueOutput<T>::copy_from_input(const TimeSeriesInput& input)
     {
         const auto& input_t = dynamic_cast<const TimeSeriesValueInput<T>&>(input);
         set_value(input_t.value());
     }
 
-    template <typename T>
+    template<typename T>
     bool TimeSeriesValueOutput<T>::is_same_type(const TimeSeriesType* other) const
     {
         return dynamic_cast<const TimeSeriesValueOutput<T>*>(other) != nullptr;
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesValueOutput<T>::reset_value()
     {
         _ts_output.invalidate();
@@ -120,24 +120,24 @@ namespace hgraph
         , _ts_input(static_cast<Notifiable*>(const_cast<TimeSeriesType*>(parent.get())), typeid(T))
     {}
 
-    template <typename T>
+    template<typename T>
     TimeSeriesValueOutput<T>& TimeSeriesValueInput<T>::value_output()
     {
         return dynamic_cast<TimeSeriesValueOutput<T>&>(*output());
     }
 
-    template <typename T>
+    template<typename T>
     const TimeSeriesValueOutput<T>& TimeSeriesValueInput<T>::value_output() const
     {
         return dynamic_cast<TimeSeriesValueOutput<T>&>(*output());
     }
 
-    template <typename T>
+    template<typename T>
     const T& TimeSeriesValueInput<T>::value() const {
         return get_from_any<T>(_ts_input.value());
     }
 
-    template <typename T>
+    template<typename T>
     bool TimeSeriesValueInput<T>::is_same_type(const TimeSeriesType* other) const
     {
         return dynamic_cast<const TimeSeriesValueInput<T>*>(other) != nullptr;

@@ -8,8 +8,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/util/lifecycle.h>
 
-namespace hgraph
-{
+namespace hgraph {
     void TryExceptNode::wire_outputs()
     {
         if (m_output_node_id_ >= 0)
@@ -38,12 +37,14 @@ namespace hgraph
 
         try
         {
-            if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get()))
+            if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().
+                get()))
             {
                 nec->reset_next_scheduled_evaluation_time();
             }
             m_active_graph_->evaluate_graph();
-            if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(m_active_graph_->evaluation_engine_clock().get()))
+            if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().
+                get()))
             {
                 nec->reset_next_scheduled_evaluation_time();
             }

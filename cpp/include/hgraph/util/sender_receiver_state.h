@@ -9,10 +9,8 @@
 #include <deque>
 #include <mutex>
 
-namespace hgraph
-{
-    struct SenderReceiverState
-    {
+namespace hgraph {
+    struct SenderReceiverState {
         using ptr = SenderReceiverState*;
         using LockType = std::recursive_mutex;
         using LockGuard = std::lock_guard<LockType>;
@@ -33,6 +31,7 @@ namespace hgraph
         explicit operator bool() const;
 
         [[nodiscard]] bool stopped() const;
+
         void mark_stopped();
 
         /**

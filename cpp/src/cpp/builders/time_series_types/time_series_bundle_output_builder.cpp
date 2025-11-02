@@ -5,8 +5,7 @@
 #include <ranges>
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
     TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(TimeSeriesSchema::ptr schema,
                                                                  std::vector<OutputBuilder::ptr> output_builders)
         : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)}
@@ -72,6 +71,7 @@ namespace hgraph
     void TimeSeriesBundleOutputBuilder::register_with_nanobind(nb::module_& m)
     {
         nb::class_ < TimeSeriesBundleOutputBuilder, OutputBuilder > (m, "OutputBuilder_TSB")
-            .def(nb::init<TimeSeriesSchema::ptr, std::vector<OutputBuilder::ptr>>(), "schema"_a, "output_builders"_a);
+                .def(nb::init<TimeSeriesSchema::ptr, std::vector<OutputBuilder::ptr> >(), "schema"_a,
+                     "output_builders"_a);
     }
 } // namespace hgraph

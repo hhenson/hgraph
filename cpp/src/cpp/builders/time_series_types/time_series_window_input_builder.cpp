@@ -2,18 +2,17 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsw.h>
 
-namespace hgraph
-{
+namespace hgraph {
     // Unified window input builder implementations
     // Creates unified input that dynamically works with both fixed-size and timedelta outputs
-    template <typename T>
+    template<typename T>
     time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesWindowInput<T>(owning_node)};
         return time_series_input_ptr{static_cast<TimeSeriesInput*>(v)};
     }
 
-    template <typename T>
+    template<typename T>
     time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const
     {
         auto v{new TimeSeriesWindowInput<T>(dynamic_cast_ref<TimeSeriesType>(owning_input))};
@@ -32,19 +31,19 @@ namespace hgraph
         using InputBuilder_TSW_Object = TimeSeriesWindowInputBuilder_T<nb::object>;
 
         nb::class_<InputBuilder_TSW_Bool, InputBuilder>(m, "InputBuilder_TSW_Bool")
-            .def(nb::init<>());
+                .def(nb::init<>());
         nb::class_<InputBuilder_TSW_Int, InputBuilder>(m, "InputBuilder_TSW_Int")
-            .def(nb::init<>());
+                .def(nb::init<>());
         nb::class_<InputBuilder_TSW_Float, InputBuilder>(m, "InputBuilder_TSW_Float")
-            .def(nb::init<>());
+                .def(nb::init<>());
         nb::class_<InputBuilder_TSW_Date, InputBuilder>(m, "InputBuilder_TSW_Date")
-            .def(nb::init<>());
+                .def(nb::init<>());
         nb::class_<InputBuilder_TSW_DateTime, InputBuilder>(m, "InputBuilder_TSW_DateTime")
-            .def(nb::init<>());
+                .def(nb::init<>());
         nb::class_<InputBuilder_TSW_TimeDelta, InputBuilder>(m, "InputBuilder_TSW_TimeDelta")
-            .def(nb::init<>());
+                .def(nb::init<>());
         nb::class_<InputBuilder_TSW_Object, InputBuilder>(m, "InputBuilder_TSW_Object")
-            .def(nb::init<>());
+                .def(nb::init<>());
     }
 
     // Template instantiations for unified window builders

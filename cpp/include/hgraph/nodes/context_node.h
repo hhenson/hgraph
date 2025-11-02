@@ -7,7 +7,7 @@
 namespace hgraph
 {
     struct ContextStubSourceNode : Node
-    {
+        {
         using Node::Node;
         ~ContextStubSourceNode() override = default;
 

@@ -1,8 +1,8 @@
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/graph.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void NestedNode::start()
     {
         // NestedNode needs to initialize inputs like BasePythonNode does

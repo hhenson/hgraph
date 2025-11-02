@@ -7,15 +7,14 @@
 
 #include <hgraph/builders/input_builder.h>
 
-namespace hgraph
-{
+namespace hgraph {
     // Unified window input builder - creates unified input that works with both window types
-    template <typename T>
-    struct HGRAPH_EXPORT TimeSeriesWindowInputBuilder_T : InputBuilder
-    {
-        using ptr = nb::ref<TimeSeriesWindowInputBuilder_T<T>>;
+    template<typename T>
+    struct HGRAPH_EXPORT TimeSeriesWindowInputBuilder_T : InputBuilder {
+        using ptr = nb::ref<TimeSeriesWindowInputBuilder_T<T> >;
 
         time_series_input_ptr make_instance(node_ptr owning_node) const override;
+
         time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         [[nodiscard]] bool is_same_type(const Builder& other) const override

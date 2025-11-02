@@ -7,16 +7,14 @@
 
 #include <hgraph/nodes/base_python_node.h>
 
-namespace hgraph
-{
+namespace hgraph {
     /**
      * PythonNode - Standard Python compute node
      *
      * Simple wrapper around BasePythonNode that provides access to the eval function.
      * Most functionality is inherited from BasePythonNode.
      */
-    struct PythonNode : BasePythonNode
-    {
+    struct PythonNode : BasePythonNode {
         using BasePythonNode::BasePythonNode;
 
         const nb::callable& eval_fn();

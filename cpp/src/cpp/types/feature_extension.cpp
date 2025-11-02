@@ -3,13 +3,13 @@
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/feature_extension.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     FeatureOutputRequestTracker::FeatureOutputRequestTracker(TimeSeriesOutput::ptr output_) : output(std::move(output_))
     {
     }
 
-    template <typename T>
+    template<typename T>
     FeatureOutputExtension<T>::FeatureOutputExtension(TimeSeriesOutput::ptr owning_output_,
                                                       output_builder_ptr output_builder_,
                                                       feature_fn value_getter_,
@@ -19,7 +19,7 @@ namespace hgraph
     {
     }
 
-    template <typename T>
+    template<typename T>
     TimeSeriesOutput::ptr FeatureOutputExtension<T>::create_or_increment(const T& key, const void* requester)
     {
         auto it = _outputs.find(key);
@@ -38,7 +38,7 @@ namespace hgraph
         return it->second.output;
     }
 
-    template <typename T>
+    template<typename T>
     void FeatureOutputExtension<T>::release(const T& key, const void* requester)
     {
         if (auto it{_outputs.find(key)}; it != _outputs.end())

@@ -2,8 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 
-namespace hgraph
-{
+namespace hgraph {
     time_series_input_ptr TimeSeriesRefInputBuilder::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesReferenceInput(owning_node)};

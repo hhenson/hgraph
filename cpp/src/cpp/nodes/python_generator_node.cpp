@@ -2,8 +2,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void PythonGeneratorNode::register_with_nanobind(nb::module_& m)
     {
         nb::class_<PythonGeneratorNode, BasePythonNode>(m, "PythonGeneratorNode");

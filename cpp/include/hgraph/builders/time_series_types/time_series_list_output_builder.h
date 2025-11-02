@@ -7,15 +7,14 @@
 
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph
-{
-    struct HGRAPH_EXPORT TimeSeriesListOutputBuilder : OutputBuilder
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT TimeSeriesListOutputBuilder : OutputBuilder {
         using ptr = nb::ref<TimeSeriesListOutputBuilder>;
 
         TimeSeriesListOutputBuilder(OutputBuilder::ptr output_builder, size_t size);
 
         time_series_output_ptr make_instance(node_ptr owning_node) const override;
+
         time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
 
         bool has_reference() const override { return output_builder->has_reference(); }
@@ -28,6 +27,7 @@ namespace hgraph
 
     private:
         time_series_output_ptr make_and_set_outputs(TimeSeriesListOutput* output) const;
+
         OutputBuilder::ptr output_builder;
         size_t size;
     };

@@ -29,6 +29,7 @@ namespace hgraph
     struct InitialiseDisposeContext
     {
         InitialiseDisposeContext(ComponentLifeCycle &component);
+
         ~InitialiseDisposeContext() noexcept; // Destructors must not throw; exceptions are reported earlier
     private:
         ComponentLifeCycle &_component;
@@ -42,6 +43,7 @@ namespace hgraph
     struct StartStopContext
     {
         StartStopContext(ComponentLifeCycle &component);
+
         ~StartStopContext() noexcept; // Never throws - call stop() explicitly if you need exception propagation
     private:
         ComponentLifeCycle &_component;
@@ -74,7 +76,6 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT ComponentLifeCycle : nb::intrusive_base
     {
-
         virtual ~ComponentLifeCycle() = default;
 
         /**

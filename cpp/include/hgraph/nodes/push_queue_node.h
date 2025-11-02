@@ -7,8 +7,7 @@
 
 #include <hgraph/types/node.h>
 
-namespace hgraph
-{
+namespace hgraph {
     /**
      * PushQueueNode - Node that receives messages from external sources
      *
@@ -23,8 +22,7 @@ namespace hgraph
      * - Message queuing: tracks queued vs dequeued messages
      * - Custom eval function: optional callable that receives a sender
      */
-    struct PushQueueNode : Node
-    {
+    struct PushQueueNode : Node {
         using Node::Node;
 
         void set_eval_fn(nb::callable fn) { _eval_fn = std::move(fn); }
@@ -39,18 +37,16 @@ namespace hgraph
 
     protected:
         void do_eval() override;
+
         void do_start() override;
 
-        void do_stop() override
-        {
+        void do_stop() override {
         }
 
-        void initialise() override
-        {
+        void initialise() override {
         }
 
-        void dispose() override
-        {
+        void dispose() override {
         }
 
     private:

@@ -14,8 +14,8 @@
 #include <hgraph/builders/time_series_types/time_series_window_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void InputBuilder::release_instance(time_series_input_ptr item) const
     {
         // Perform minimal teardown to avoid notifications and dangling refs
@@ -34,7 +34,7 @@ namespace hgraph
             .def(
                 "make_instance",
                 [](InputBuilder::ptr self, nb::object owning_node, nb::object owning_output) -> time_series_input_ptr
-                {
+                    {
                     if (!owning_node.is_none()) { return self->make_instance(nb::cast<node_ptr>(owning_node)); }
                     if (!owning_output.is_none())
                     {
@@ -45,7 +45,7 @@ namespace hgraph
                 "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
             .def("release_instance", &InputBuilder::release_instance)
             .def("__str__", [](const InputBuilder& self)
-            {
+                {
                 return fmt::format("InputBuilder@{:p}", static_cast<const void*>(&self));
             })
             .def("__repr__", [](const InputBuilder& self)

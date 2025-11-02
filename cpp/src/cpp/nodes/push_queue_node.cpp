@@ -5,8 +5,8 @@
 #include <hgraph/types/tsd.h>
 #include <hgraph/types/constants.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void PushQueueNode::do_eval()
     {
     }
@@ -29,7 +29,7 @@ namespace hgraph
             {
                 // For TSD outputs, iterate over message dict
                 auto msg_dict = nb::cast<nb::dict>(message);
-                for (auto [key, val] : msg_dict)
+                for (auto [key, val]: msg_dict)
                 {
                     // Handle REMOVE and REMOVE_IF_EXISTS (TODO: check if these symbols are available)
                     // For now, skip removal handling
@@ -96,11 +96,10 @@ namespace hgraph
             // Detect Sentinel values (REMOVE / REMOVE_IF_EXISTS). If any sentinel is present,
             // fall back to the generic apply_result path so removal semantics are handled by the
             // underlying output implementation instead of assigning the sentinel as a value.
-            bool has_sentinel = false;
-            {
+            bool has_sentinel = false; {
                 static nb::object REMOVE = get_remove();
                 static nb::object REMOVE_IF_EXISTS = get_remove_if_exists();
-                for (auto [key, val] : msg_dict) {
+                for (auto [key, val]: msg_dict) {
                     if (val.ptr() == REMOVE.ptr() || val.ptr() == REMOVE_IF_EXISTS.ptr()) {
                         has_sentinel = true;
                         break;
@@ -118,7 +117,7 @@ namespace hgraph
             }
 
             // No sentinels detected: merge values directly into child outputs
-            for (auto [key, val] : msg_dict) {
+            for (auto [key, val]: msg_dict) {
                 auto child_output = tsd_output->py_get_or_create(nb::cast<nb::object>(key));
                 child_output.attr("value") = val;
             }

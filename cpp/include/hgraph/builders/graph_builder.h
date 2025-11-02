@@ -7,8 +7,8 @@
 
 #include <hgraph/builders/builder.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct Edge
     {
         int64_t src_node;
@@ -24,11 +24,9 @@ namespace hgraph
     };
 } // namespace hgraph
 
-namespace std
-{
-    template <>
-    struct hash<hgraph::Edge>
-    {
+namespace std {
+    template<>
+    struct hash<hgraph::Edge> {
         size_t operator()(const hgraph::Edge& edge) const noexcept;
     };
 } // namespace std
@@ -37,8 +35,7 @@ namespace hgraph
 {
     struct Graph;
 
-    struct GraphBuilder : Builder
-    {
+    struct GraphBuilder : Builder {
         std::vector<node_builder_ptr> node_builders;
         std::vector<Edge> edges;
 

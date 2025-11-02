@@ -7,20 +7,18 @@
 
 #include <hgraph/builders/input_builder.h>
 
-namespace hgraph
-{
-    struct HGRAPH_EXPORT TimeSeriesSetInputBuilder : InputBuilder
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT TimeSeriesSetInputBuilder : InputBuilder {
         using ptr = nb::ref<TimeSeriesSetInputBuilder>;
         using InputBuilder::InputBuilder;
     };
 
-    template <typename T>
-    struct HGRAPH_EXPORT TimeSeriesSetInputBuilder_T : TimeSeriesSetInputBuilder
-    {
+    template<typename T>
+    struct HGRAPH_EXPORT TimeSeriesSetInputBuilder_T : TimeSeriesSetInputBuilder {
         using TimeSeriesSetInputBuilder::TimeSeriesSetInputBuilder;
 
         time_series_input_ptr make_instance(node_ptr owning_node) const override;
+
         time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
     };
 

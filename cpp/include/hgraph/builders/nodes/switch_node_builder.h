@@ -9,16 +9,15 @@
 #include <hgraph/builders/graph_builder.h>
 #include <unordered_map>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct BaseSwitchNodeBuilder : BaseNodeBuilder
     {
         using BaseNodeBuilder::BaseNodeBuilder;
     };
 
     template <typename K>
-    struct SwitchNodeBuilder : BaseSwitchNodeBuilder
-    {
+    struct SwitchNodeBuilder : BaseSwitchNodeBuilder {
         using key_type = K;
 
         SwitchNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -37,7 +36,7 @@ namespace hgraph
         node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const override;
 
         const std::unordered_map<K, graph_builder_ptr> nested_graph_builders;
-        const std::unordered_map<K, std::unordered_map<std::string, int>> input_node_ids;
+        const std::unordered_map<K, std::unordered_map<std::string, int> > input_node_ids;
         const std::unordered_map<K, int> output_node_ids;
         bool reload_on_ticked;
         graph_builder_ptr default_graph_builder;

@@ -24,8 +24,8 @@
 
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
+
     NodeBuilder::NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
                              std::optional<input_builder_ptr> input_builder_,
                              std::optional<output_builder_ptr> output_builder_,

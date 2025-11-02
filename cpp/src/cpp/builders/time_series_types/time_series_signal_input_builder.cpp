@@ -2,8 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts_signal.h>
 
-namespace hgraph
-{
+namespace hgraph {
     time_series_input_ptr TimeSeriesSignalInputBuilder::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesSignalInput(owning_node)};
@@ -26,7 +25,7 @@ namespace hgraph
         if (signal_input == nullptr) { return; }
         InputBuilder::release_instance(signal_input);
         if (signal_input->_ts_values.empty()) { return; }
-        for (auto& ts_value : signal_input->_ts_values) { release_instance(ts_value.get()); }
+        for (auto& ts_value: signal_input->_ts_values) { release_instance(ts_value.get()); }
     }
 
     void TimeSeriesSignalInputBuilder::register_with_nanobind(nb::module_& m)

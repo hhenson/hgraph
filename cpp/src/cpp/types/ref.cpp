@@ -34,12 +34,12 @@ namespace hgraph
         return new UnBoundTimeSeriesReference(items);
     }
 
-    TimeSeriesReference::ptr TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput>> items)
+    TimeSeriesReference::ptr TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput> > items)
     {
         if (items.empty()) { return make(); }
         std::vector<TimeSeriesReference::ptr> refs;
         refs.reserve(items.size());
-        for (auto item : items)
+        for (auto item: items)
         {
             // Call value() instead of accessing _value directly, so bound items return their output's value
             refs.emplace_back(item->value());
@@ -62,15 +62,15 @@ namespace hgraph
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> ptr
-                {
+                    {
                     if (not ts.is_none()
-                    )
+                        )
                     {
                         if (nb::isinstance<TimeSeriesOutput>(ts)) return make(nb::cast<TimeSeriesOutput::ptr>(ts));
                         if (nb::isinstance<TimeSeriesReferenceInput>(ts))
                             return nb::cast<TimeSeriesReferenceInput::ptr>(ts)->value();
                         if (nb::isinstance<TimeSeriesInput>(ts))
-                        {
+                            {
                             auto ts_input = nb::cast<TimeSeriesInput::ptr>(ts);
                             if (ts_input->has_peer()) return make(ts_input->output());
                             // Deal with list of inputs
@@ -78,14 +78,14 @@ namespace hgraph
                             auto ts_ndx{dynamic_cast<IndexedTimeSeriesInput*>(ts_input.get())};
                             items_list.reserve(ts_ndx->size());
                             for (auto& ts_ptr : ts_ndx->values())
-                            {
+                                {
                                 auto ref_input{dynamic_cast<TimeSeriesReferenceInput*>(ts_ptr.get())};
                                 items_list.emplace_back(ref_input ? ref_input->value() : nullptr);
                             }
                             return make(items_list);
                         }
-                        // We may wish to raise an exception here?
-                    }
+                        // We may wish to raise an exception here?}
+
                     else
                     if (not items.is_none()
                     )
@@ -100,12 +100,12 @@ namespace hgraph
         nb::class_<EmptyTimeSeriesReference, TimeSeriesReference>(m, "EmptyTimeSeriesReference");
 
         nb::class_<BoundTimeSeriesReference, TimeSeriesReference>(m, "BoundTimeSeriesReference")
-            .def_prop_ro("output", &BoundTimeSeriesReference::output);
+                .def_prop_ro("output", &BoundTimeSeriesReference::output);
 
         nb::class_<UnBoundTimeSeriesReference, TimeSeriesReference>(m, "UnBoundTimeSeriesReference")
             .def_prop_ro("items", &UnBoundTimeSeriesReference::items)
             .def("__getitem__", [](UnBoundTimeSeriesReference& self, size_t index) -> TimeSeriesReference::ptr
-            {
+                {
                 const auto& items = self.items();
                 if (index >= items.size()) { throw std::out_of_range("Index out of range"); }
                 return items[index];
@@ -236,7 +236,7 @@ namespace hgraph
     {
         std::vector<std::string> string_items;
         string_items.reserve(_items.size());
-        for (const auto& item : _items) { string_items.push_back(item->to_string()); }
+        for (const auto& item: _items) { string_items.push_back(item->to_string()); }
         return fmt::format("REF[{}]", fmt::join(string_items, ", "));
     }
 
@@ -264,7 +264,7 @@ namespace hgraph
     {
         _value = value;
         mark_modified();
-        for (auto input : _reference_observers) { _value->bind_input(*input); }
+        for (auto input: _reference_observers) { _value->bind_input(*input); }
     }
 
     void TimeSeriesReferenceOutput::apply_result(nb::object value)
@@ -338,11 +338,11 @@ namespace hgraph
                 "reference_observers_count", [](const TimeSeriesReferenceOutput& self)
                 {
                     return self._reference_observers.size();
-                },
+                    },
                 "Number of inputs observing this reference value")
             .def("clear", &TimeSeriesReferenceOutput::clear)
             .def("__str__", [](const TimeSeriesReferenceOutput& self)
-            {
+                {
                 return fmt::format("TimeSeriesReferenceOutput@{:p}[{}]",
                                    static_cast<const void*>(&self),
                                    self.has_value() ? self._value->to_string() : "None");
@@ -420,7 +420,7 @@ namespace hgraph
 
         if (_items.has_value())
         {
-            for (const auto& item : *_items) { times.push_back(item->last_modified_time()); }
+            for (const auto& item: *_items) { times.push_back(item->last_modified_time()); }
         }
 
         if (has_output()) { times.push_back(output()->last_modified_time()); }
@@ -495,7 +495,7 @@ namespace hgraph
 
         if (_items.has_value())
         {
-            for (auto& item : *_items) { item->make_active(); }
+            for (auto& item: *_items) { item->make_active(); }
         }
 
         if (valid())
@@ -518,7 +518,7 @@ namespace hgraph
 
         if (_items.has_value())
         {
-            for (auto& item : *_items) { item->make_passive(); }
+            for (auto& item: *_items) { item->make_passive(); }
         }
     }
 
@@ -574,7 +574,7 @@ namespace hgraph
         }
         if (_items.has_value())
         {
-            for (auto& item : *_items) { item->un_bind_output(unbind_refs); }
+            for (auto& item: *_items) { item->un_bind_output(unbind_refs); }
             _items.reset();
         }
     }
@@ -603,7 +603,7 @@ namespace hgraph
             .def("un_bind_output", &TimeSeriesReferenceInput::un_bind_output, "unbind_refs"_a = false,
                  "Unbind this reference input; optionally unbind nested references")
             .def("__getitem__", [](TimeSeriesReferenceInput& self, size_t index) -> TimeSeriesInput::ptr
-            {
+                {
                 return TimeSeriesInput::ptr{self.get_input(index)};
             })
             .def("__str__", [](const TimeSeriesReferenceInput& self)
@@ -614,24 +614,24 @@ namespace hgraph
                     value_str = self._value->to_string();
                 }
                 else if (self.has_output())
-                {
+                    {
                     value_str = "bound";
                 }
                 else if (self._items.has_value())
-                {
+                    {
                     value_str = fmt::format("{} items", self._items->size());
                 }
                 return fmt::format("TimeSeriesReferenceInput@{:p}[{}]",
                                    static_cast<const void*>(&self), value_str);
             })
             .def("__repr__", [](const TimeSeriesReferenceInput& self)
-            {
+                {
                 std::string value_str = "None";
                 if (self.has_value())
-                {
+                    {
                     value_str = self._value->to_string();
                 }
-                else if (self.has_output())
+                    else if (self.has_output())
                 {
                     value_str = "bound";
                 }

@@ -21,7 +21,7 @@ namespace hgraph
 
     // Nanobind registration
     void OutputKeyBuilder::register_with_nanobind(nb::module_& m)
-    {
+        {
         nb::class_<OutputKeyBuilder>(m, "OutputKeyBuilder")
             .def(nb::init<>())
             .def("output_key", &OutputKeyBuilder::output_key)
@@ -31,20 +31,20 @@ namespace hgraph
     }
 
     std::string OutputKeyBuilder::context_output_key(const nb::tuple& owning_graph_id, const std::string& path) const
-    {
+        {
         // owning_graph_id already a Python tuple; convert to string consistent with Python formatting
         std::string og_tuple = nb::cast<std::string>(nb::str(owning_graph_id));
         return fmt::format("context-{}-{}", og_tuple, path);
     }
 
     std::string OutputKeyBuilder::component_key(const nb::object& id_or_label) const
-    {
-        if (nb::isinstance<nb::str>(id_or_label))
         {
+        if (nb::isinstance<nb::str>(id_or_label))
+            {
             return keys::component_key(nb::cast<std::string>(id_or_label));
         }
         else if (nb::isinstance<nb::int_>(id_or_label))
-        {
+            {
             return keys::component_key(nb::cast<int64_t>(id_or_label));
         }
         // Fallback: use Python str() conversion

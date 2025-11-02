@@ -8,30 +8,29 @@
 #include <hgraph/hgraph_base.h>
 
 
-namespace hgraph
-{
-    template <typename T>
+namespace hgraph {
+    template<typename T>
     std::string to_string(const T& value);
 
-    template <>
+    template<>
     std::string to_string(const bool& value);
 
-    template <>
+    template<>
     std::string to_string(const int64_t& value);
 
-    template <>
+    template<>
     std::string to_string(const double& value);
 
-    template <>
+    template<>
     std::string to_string(const engine_time_t& value);
 
-    template <>
+    template<>
     std::string to_string(const engine_date_t& value);
 
-    template <>
+    template<>
     std::string to_string(const engine_time_delta_t& value);
 
-    template <>
+    template<>
     std::string to_string(const nb::object& value);
 } // namespace hgraph
 

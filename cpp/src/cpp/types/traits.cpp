@@ -1,7 +1,7 @@
 #include <hgraph/types/traits.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     Traits::Traits(Traits::ptr parent_traits) : _parent_traits{std::move(parent_traits)}
     {
     }

@@ -5,8 +5,7 @@
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/types/tsd.h>
 
-namespace hgraph
-{
+namespace hgraph {
     void register_non_associative_reduce_node_with_nanobind(nb::module_ & m);
 
     /**
@@ -17,8 +16,7 @@ namespace hgraph
      * as the input into the first node lhs and the 0th element as the rhs element. From that point on the
      * chain is lhs = prev_node output with rhs being the nth element of the tsd input.
      */
-    struct TsdNonAssociativeReduceNode : NestedNode
-    {
+    struct TsdNonAssociativeReduceNode : NestedNode {
         TsdNonAssociativeReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
                                     NodeSignature::ptr signature,
                                     nb::dict scalars, graph_builder_ptr nested_graph_builder,
@@ -28,9 +26,13 @@ namespace hgraph
 
     protected:
         void initialise() override;
+
         void do_start() override;
+
         void do_stop() override;
+
         void dispose() override;
+
         void eval() override;
 
         void do_eval() override
@@ -38,12 +40,17 @@ namespace hgraph
         };
 
         void update_changes();
+
         void extend_nodes_to(int64_t sz);
+
         void erase_nodes_from(int64_t ndx);
+
         void bind_output();
 
         nb::object last_output_value();
+
         int64_t node_size() const;
+
         int64_t node_count() const;
         std::vector<node_ptr> get_node(int64_t ndx);
 

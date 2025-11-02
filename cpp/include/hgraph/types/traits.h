@@ -7,10 +7,8 @@
 
 #include <hgraph/hgraph_base.h>
 
-namespace hgraph
-{
-    struct Traits : nb::intrusive_base
-    {
+namespace hgraph {
+    struct Traits : nb::intrusive_base {
         using ptr = nb::ref<Traits>;
 
         Traits() = default;

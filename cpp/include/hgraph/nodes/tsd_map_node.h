@@ -5,18 +5,17 @@
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/types/tsd.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void register_tsd_map_with_nanobind(nb::module_ & m);
 
     template <typename K>
     struct TsdMapNode;
     template <typename K>
-    using tsd_map_node_ptr = nb::ref<TsdMapNode<K>>;
+    using tsd_map_node_ptr = nb::ref<TsdMapNode<K> >;
 
-    template <typename K>
-    struct MapNestedEngineEvaluationClock : NestedEngineEvaluationClock
-    {
+    template<typename K>
+    struct MapNestedEngineEvaluationClock : NestedEngineEvaluationClock {
         MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key,
                                        tsd_map_node_ptr<K> nested_node);
 
@@ -26,9 +25,8 @@ namespace hgraph
         K _key;
     };
 
-    template <typename K>
-    struct TsdMapNode : NestedNode
-    {
+    template<typename K>
+    struct TsdMapNode : NestedNode {
         static inline std::string KEYS_ARG = "__keys__";
         static inline std::string _KEY_ARG = "__key_arg__";
 
@@ -43,9 +41,13 @@ namespace hgraph
 
     protected:
         void initialise() override;
+
         void do_start() override;
+
         void do_stop() override;
+
         void dispose() override;
+
         void eval() override;
 
         void do_eval() override
@@ -55,9 +57,13 @@ namespace hgraph
         virtual TimeSeriesDictOutput_T<K>& tsd_output();
 
         void create_new_graph(const K& key);
+
         void remove_graph(const K& key);
+
         engine_time_t evaluate_graph(const K& key);
+
         void un_wire_graph(const K& key, graph_ptr& graph);
+
         void wire_graph(const K& key, graph_ptr& graph);
 
         // Protected members accessible by derived classes (e.g., MeshNode)

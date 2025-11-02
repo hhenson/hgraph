@@ -3,8 +3,8 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/node.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     EvaluationContext::EvaluationContext(EvaluationClock* evaluation_clock, Graph* graph)
         : _evaluation_clock{evaluation_clock}, _graph{graph}, _node{nullptr}
     {

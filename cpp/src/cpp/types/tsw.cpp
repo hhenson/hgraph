@@ -5,7 +5,7 @@
 namespace hgraph
 {
     // Template method definitions
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesFixedWindowOutput<T>::py_value() const
     {
         if (!valid() || _length < _min_size) return nb::none();
@@ -28,7 +28,7 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesFixedWindowOutput<T>::py_delta_value() const
     {
         if (_length == 0) return nb::none();
@@ -89,14 +89,14 @@ namespace hgraph
         }
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesFixedWindowOutput<T>::apply_result(nb::object value)
     {
         if (!value.is_valid() || value.is_none()) return;
         py_set_value(value);
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesFixedWindowOutput<T>::mark_invalid()
     {
         _start = 0;
@@ -104,7 +104,7 @@ namespace hgraph
         TimeSeriesOutput::mark_invalid();
     }
 
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesFixedWindowOutput<T>::py_value_times() const
     {
         if (!valid() || _length < _min_size) return nb::none();
@@ -132,13 +132,13 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T>
+    template<typename T>
     engine_time_t TimeSeriesFixedWindowOutput<T>::first_modified_time() const
     {
         return _times.empty() ? engine_time_t{} : _times[_start];
     }
 
-    template <typename T>
+    template<typename T>
     static void bind_tsw_for_type(nb::module_& m, const char* suffix)
     {
         using Out = TimeSeriesFixedWindowOutput<T>;
@@ -169,17 +169,17 @@ namespace hgraph
                           throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
                       });
 
-        (void)out_cls;
-        (void)in_cls;
+        (void) out_cls;
+        (void) in_cls;
     }
 
     // Unified TimeSeriesWindowInput implementation
-    template <typename T>
+    template<typename T>
     bool TimeSeriesWindowInput<T>::all_valid() const
     {
         if (!valid()) return false;
-        if (auto* f = as_fixed_output()) return f->len() >= f->min_size();
-        if (auto* t = as_time_output())
+        if (auto *f = as_fixed_output()) return f->len() >= f->min_size();
+        if (auto *t = as_time_output())
         {
             // For time windows, check if enough time has passed
             auto elapsed = owning_graph()->evaluation_clock()->evaluation_time() -
@@ -190,7 +190,7 @@ namespace hgraph
     }
 
     // TimeSeriesTimeWindowOutput implementation
-    template <typename T>
+    template<typename T>
     void TimeSeriesTimeWindowOutput<T>::_roll() const
     {
         auto tm = owning_graph()->evaluation_clock()->evaluation_time() - _size;
@@ -210,20 +210,20 @@ namespace hgraph
         }
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesTimeWindowOutput<T>::_reset_removed_values()
     {
         _removed_values.clear();
     }
 
-    template <typename T>
+    template<typename T>
     bool TimeSeriesTimeWindowOutput<T>::has_removed_value() const
     {
         _roll();
         return !_removed_values.empty();
     }
 
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesTimeWindowOutput<T>::removed_value() const
     {
         _roll();
@@ -232,14 +232,14 @@ namespace hgraph
         return nb::cast(_removed_values);
     }
 
-    template <typename T>
+    template<typename T>
     size_t TimeSeriesTimeWindowOutput<T>::len() const
     {
         _roll();
         return _buffer.size();
     }
 
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesTimeWindowOutput<T>::py_value() const
     {
         if (!_ready)
@@ -265,7 +265,7 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesTimeWindowOutput<T>::py_delta_value() const
     {
         // Check if enough time has passed to make the window ready
@@ -310,7 +310,7 @@ namespace hgraph
         throw std::runtime_error("py_set_value should not be called on TimeSeriesTimeWindowOutput");
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesTimeWindowOutput<T>::apply_result(nb::object value)
     {
         if (!value.is_valid() || value.is_none()) return;
@@ -327,7 +327,7 @@ namespace hgraph
         }
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesTimeWindowOutput<T>::mark_invalid()
     {
         _buffer.clear();
@@ -336,7 +336,7 @@ namespace hgraph
         TimeSeriesOutput::mark_invalid();
     }
 
-    template <typename T>
+    template<typename T>
     nb::object TimeSeriesTimeWindowOutput<T>::py_value_times() const
     {
         _roll();
@@ -345,18 +345,18 @@ namespace hgraph
         return nb::cast(out);
     }
 
-    template <typename T>
+    template<typename T>
     engine_time_t TimeSeriesTimeWindowOutput<T>::first_modified_time() const
     {
         _roll();
         return _times.empty() ? engine_time_t{} : _times.front();
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesTimeWindowOutput<T>::copy_from_input(const TimeSeriesInput& input)
     {
         auto& i = dynamic_cast<const TimeSeriesWindowInput<T>&>(input);
-        if (auto* src = i.as_time_output())
+        if (auto *src = i.as_time_output())
         {
             _buffer = src->_buffer;
             _times = src->_times;
@@ -372,7 +372,7 @@ namespace hgraph
     }
 
     // Binding functions for time-based windows
-    template <typename T>
+    template<typename T>
     static void bind_time_tsw_for_type(nb::module_& m, const char* suffix)
     {
         using Out = TimeSeriesTimeWindowOutput<T>;
@@ -387,7 +387,7 @@ namespace hgraph
                        .def_prop_ro("removed_value", &Out::removed_value)
                        .def("__len__", &Out::len);
 
-        (void)out_cls;
+        (void) out_cls;
     }
 
     void tsw_register_with_nanobind(nb::module_& m)

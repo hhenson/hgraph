@@ -20,10 +20,11 @@ namespace hgraph
      * This provides a guide to prepare the different builders, the actual implementations
      * will vary in terms of the make_instance parameters at least.
      */
-    struct Builder : nb::intrusive_base
-    {
+    struct Builder : nb::intrusive_base {
         Builder() = default;
+
         ~Builder() override = default;
+
         /**
          * Create a new instance of the item.
          * Any additional attributes required for construction are passed in as arguments.

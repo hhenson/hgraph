@@ -4,8 +4,8 @@
 #include <hgraph/builders/builder.h>
 #include <ranges>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct HGRAPH_EXPORT OutputBuilder : Builder
     {
         using ptr = nb::ref<OutputBuilder>;

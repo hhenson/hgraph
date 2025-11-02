@@ -37,7 +37,7 @@ namespace hgraph
          * @param key The key to set
          * @param value The value to store (can be any Python object)
          */
-        static void set(const std::string& key, nb::object value);
+        static void set(const std::string &key, nb::object value);
 
         /**
          * Get a value from the GlobalState
@@ -45,7 +45,7 @@ namespace hgraph
          * @return The value associated with the key
          * @throws nb::python_error if key doesn't exist
          */
-        static nb::object get(const std::string& key);
+        static nb::object get(const std::string &key);
 
         /**
          * Get a value from the GlobalState with a default
@@ -53,20 +53,20 @@ namespace hgraph
          * @param default_value The default value to return if key doesn't exist
          * @return The value associated with the key, or default_value if not found
          */
-        static nb::object get(const std::string& key, nb::object default_value);
+        static nb::object get(const std::string &key, nb::object default_value);
 
         /**
          * Remove a key from the GlobalState
          * @param key The key to remove
          */
-        static void remove(const std::string& key);
+        static void remove(const std::string &key);
 
         /**
          * Check if a key exists in the GlobalState
          * @param key The key to check
          * @return true if the key exists
          */
-        static bool contains(const std::string& key);
+        static bool contains(const std::string &key);
 
     private:
         // Private constructor - this is a utility class with only static methods

@@ -8,8 +8,8 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct HGRAPH_EXPORT Graph : ComponentLifeCycle
     {
         using ptr = nanobind::ref<Graph>;
@@ -60,14 +60,20 @@ namespace hgraph
         static void register_with_nanobind(nb::module_& m);
 
         void initialise_subgraph(int64_t start, int64_t end);
+
         void start_subgraph(int64_t start, int64_t end);
+
         void stop_subgraph(int64_t start, int64_t end);
+
         void dispose_subgraph(int64_t start, int64_t end);
 
     protected:
         void initialise() override;
+
         void start() override;
+
         void stop() override;
+
         void dispose() override;
 
     private:

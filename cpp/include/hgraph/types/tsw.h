@@ -9,15 +9,13 @@
 #include <hgraph/types/time_series_type.h>
 #include <deque>
 
-namespace hgraph
-{
+namespace hgraph {
     // Forward declarations
-    template <typename T>
+    template<typename T>
     struct TimeSeriesTimeWindowOutput;
 
-    template <typename T>
-    struct TimeSeriesFixedWindowOutput : TimeSeriesOutput
-    {
+    template<typename T>
+    struct TimeSeriesFixedWindowOutput : TimeSeriesOutput {
         using value_type = T;
 
         using TimeSeriesOutput::TimeSeriesOutput;
@@ -52,6 +50,7 @@ namespace hgraph
         void mark_invalid() override;
 
         [[nodiscard]] nb::object py_value_times() const;
+
         [[nodiscard]] engine_time_t first_modified_time() const;
 
         void copy_from_output(const TimeSeriesOutput& output) override
@@ -101,67 +100,67 @@ namespace hgraph
     };
 
     // Unified window input that works with both fixed-size and timedelta outputs
-    template <typename T>
-    struct TimeSeriesWindowInput : TimeSeriesInput
-    {
+    template<typename T>
+    struct TimeSeriesWindowInput : TimeSeriesInput {
         using TimeSeriesInput::TimeSeriesInput;
 
         // Helpers to dynamically get the output as the correct type
-        [[nodiscard]] TimeSeriesFixedWindowOutput<T>* as_fixed_output() const
+        [[nodiscard]] TimeSeriesFixedWindowOutput<T> *as_fixed_output() const
         {
-            return dynamic_cast<TimeSeriesFixedWindowOutput<T>*>(output().get());
+            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output().get());
         }
 
-        [[nodiscard]] TimeSeriesTimeWindowOutput<T>* as_time_output() const
+        [[nodiscard]] TimeSeriesTimeWindowOutput<T> *as_time_output() const
         {
-            return dynamic_cast<TimeSeriesTimeWindowOutput<T>*>(output().get());
+            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output().get());
         }
 
         [[nodiscard]] nb::object py_value() const override
         {
-            if (auto* f = as_fixed_output()) return f->py_value();
-            if (auto* t = as_time_output()) return t->py_value();
+            if (auto *f = as_fixed_output()) return f->py_value();
+            if (auto *t = as_time_output()) return t->py_value();
             throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] nb::object py_delta_value() const override
         {
-            if (auto* f = as_fixed_output()) return f->py_delta_value();
-            if (auto* t = as_time_output()) return t->py_delta_value();
+            if (auto *f = as_fixed_output()) return f->py_delta_value();
+            if (auto *t = as_time_output()) return t->py_delta_value();
             throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] bool modified() const override { return output()->modified(); }
         [[nodiscard]] bool valid() const override { return output()->valid(); }
+
         [[nodiscard]] bool all_valid() const override;
 
         [[nodiscard]] engine_time_t last_modified_time() const override { return output()->last_modified_time(); }
 
         [[nodiscard]] nb::object py_value_times() const
         {
-            if (auto* f = as_fixed_output()) return f->py_value_times();
-            if (auto* t = as_time_output()) return t->py_value_times();
+            if (auto *f = as_fixed_output()) return f->py_value_times();
+            if (auto *t = as_time_output()) return t->py_value_times();
             throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] engine_time_t first_modified_time() const
         {
-            if (auto* f = as_fixed_output()) return f->first_modified_time();
-            if (auto* t = as_time_output()) return t->first_modified_time();
+            if (auto *f = as_fixed_output()) return f->first_modified_time();
+            if (auto *t = as_time_output()) return t->first_modified_time();
             throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] bool has_removed_value() const
         {
-            if (auto* f = as_fixed_output()) return f->has_removed_value();
-            if (auto* t = as_time_output()) return t->has_removed_value();
+            if (auto *f = as_fixed_output()) return f->has_removed_value();
+            if (auto *t = as_time_output()) return t->has_removed_value();
             return false;
         }
 
         [[nodiscard]] nb::object removed_value() const
         {
-            if (auto* f = as_fixed_output()) return f->has_removed_value() ? nb::cast(f->removed_value()) : nb::none();
-            if (auto* t = as_time_output()) return t->removed_value();
+            if (auto *f = as_fixed_output()) return f->has_removed_value() ? nb::cast(f->removed_value()) : nb::none();
+            if (auto *t = as_time_output()) return t->removed_value();
             return nb::none();
         }
 
@@ -171,11 +170,11 @@ namespace hgraph
         }
     };
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesFixedWindowOutput<T>::copy_from_input(const TimeSeriesInput& input)
     {
         auto& i = dynamic_cast<const TimeSeriesWindowInput<T>&>(input);
-        if (auto* src = i.as_fixed_output())
+        if (auto *src = i.as_fixed_output())
         {
             _buffer = src->_buffer;
             _times = src->_times;
@@ -192,9 +191,8 @@ namespace hgraph
     }
 
     // TimeSeriesTimeWindowOutput - timedelta-based window
-    template <typename T>
-    struct TimeSeriesTimeWindowOutput : TimeSeriesOutput
-    {
+    template<typename T>
+    struct TimeSeriesTimeWindowOutput : TimeSeriesOutput {
         using value_type = T;
 
         using TimeSeriesOutput::TimeSeriesOutput;
@@ -212,14 +210,21 @@ namespace hgraph
         }
 
         [[nodiscard]] nb::object py_value() const override;
+
         [[nodiscard]] nb::object py_delta_value() const override;
+
         void py_set_value(nb::object value) override;
+
         bool can_apply_result(nb::object) override { return !modified(); }
+
         void apply_result(nb::object value) override;
+
         void invalidate() override { mark_invalid(); }
+
         void mark_invalid() override;
 
         [[nodiscard]] nb::object py_value_times() const;
+
         [[nodiscard]] engine_time_t first_modified_time() const;
 
         void copy_from_output(const TimeSeriesOutput& output) override
@@ -243,8 +248,11 @@ namespace hgraph
         // Extra API to mirror Python TSW
         [[nodiscard]] engine_time_delta_t size() const { return _size; }
         [[nodiscard]] engine_time_delta_t min_size() const { return _min_size; }
+
         [[nodiscard]] bool has_removed_value() const;
+
         [[nodiscard]] nb::object removed_value() const;
+
         [[nodiscard]] size_t len() const;
 
     private:

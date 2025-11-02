@@ -6,8 +6,8 @@
 #include <hgraph/python/global_keys.h>
 #include <nanobind/nanobind.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     void ContextStubSourceNode::do_start()
     {
         _subscribed_output = nullptr;
@@ -82,7 +82,7 @@ namespace hgraph
                 nb::object gs = GlobalState::instance();
                 nb::object keys_obj = gs.attr("keys")();
                 std::vector<std::string> ctx_keys;
-                for (auto item : nb::iter(keys_obj))
+                for (auto item: nb::iter(keys_obj))
                 {
                     std::string s = nb::cast<std::string>(nb::str(item));
                     if (s.rfind("context-", 0) == 0) { ctx_keys.push_back(s); }

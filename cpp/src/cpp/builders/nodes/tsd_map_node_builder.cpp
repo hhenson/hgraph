@@ -6,8 +6,8 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/tsd_map_node.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     template <typename T>
     auto create_tsd_map_node_builder(T* self, const nb::args& args)
     {
@@ -25,21 +25,29 @@ namespace hgraph
         auto signature_ = nb::cast<node_signature_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
         std::optional<input_builder_ptr> input_builder_ =
-            args[2].is_none() ? std::nullopt : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
+                args[2].is_none()
+                    ? std::nullopt
+                    : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
         std::optional<output_builder_ptr> output_builder_ =
-            args[3].is_none() ? std::nullopt : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
+                args[3].is_none()
+                    ? std::nullopt
+                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
         std::optional<output_builder_ptr> error_builder_ =
-            args[4].is_none() ? std::nullopt : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
+                args[4].is_none()
+                    ? std::nullopt
+                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
         std::optional<output_builder_ptr> recordable_state_builder_ =
-            args[5].is_none() ? std::nullopt : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
+                args[5].is_none()
+                    ? std::nullopt
+                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
         if (args[6].is_none())
         {
             throw nb::type_error("TsdMapNodeBuilder requires a nested_graph (arg[6]) and it must not be None");
         }
         graph_builder_ptr nested_graph_builder = nb::cast<graph_builder_ptr>(args[6]);
-        auto input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[7]);
+        auto input_node_ids = nb::cast<std::unordered_map<std::string, int64_t> >(args[7]);
         auto output_node_id = nb::cast<int64_t>(args[8]);
-        auto multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[9]);
+        auto multiplexed_args = nb::cast<std::unordered_set<std::string> >(args[9]);
         auto key_arg = nb::cast<std::string>(args[10]);
 
         return new(self) T(std::move(signature_), std::move(scalars_), std::move(input_builder_),
@@ -65,7 +73,7 @@ namespace hgraph
     {
     }
 
-    template <typename T>
+    template<typename T>
     node_ptr TsdMapNodeBuilder<T>::make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const
     {
         nb::ref<Node> node{

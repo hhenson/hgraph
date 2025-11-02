@@ -13,26 +13,29 @@ namespace hgraph
     struct Graph;
     struct Node;
 
-    struct EvaluationContext
-    {
-        EvaluationContext(EvaluationClock* evaluation_clock, Graph* graph);
-        EvaluationContext(const EvaluationContext& other) = default;
-        EvaluationContext(EvaluationContext&& other) noexcept = default;
+    struct EvaluationContext {
+        EvaluationContext(EvaluationClock *evaluation_clock, Graph *graph);
+
+        EvaluationContext(const EvaluationContext &other) = default;
+
+        EvaluationContext(EvaluationContext &&other) noexcept = default;
 
         // Copy assignment operator
-        EvaluationContext& operator=(const EvaluationContext& other) = default;
-        // Move assignment operator
-        EvaluationContext& operator=(EvaluationContext&& other) noexcept = default;
+        EvaluationContext &operator=(const EvaluationContext &other) = default;
 
-        [[nodiscard]] EvaluationClock& evaluation_clock() const;
-        [[nodiscard]] Graph& graph() const;
+        // Move assignment operator
+        EvaluationContext &operator=(EvaluationContext &&other) noexcept = default;
+
+        [[nodiscard]] EvaluationClock &evaluation_clock() const;
+
+        [[nodiscard]] Graph &graph() const;
+
         [[nodiscard]] node_ptr node() const;
 
     protected:
         void set_node(Node* node);
-
     private:
-        EvaluationClock* _evaluation_clock;
+        EvaluationClock *_evaluation_clock;
         Graph* _graph;
         Node* _node;
     };

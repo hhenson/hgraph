@@ -4,8 +4,7 @@
 
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
     TimeSeriesListInputBuilder::TimeSeriesListInputBuilder(InputBuilder::ptr input_builder, size_t size)
         : input_builder{std::move(input_builder)}, size{size}
     {
@@ -40,7 +39,7 @@ namespace hgraph
         InputBuilder::release_instance(item);
         auto list = dynamic_cast<TimeSeriesListInput*>(item.get());
         if (list == nullptr) { return; }
-        for (auto& value : list->_ts_values) { input_builder->release_instance(value); }
+        for (auto& value: list->_ts_values) { input_builder->release_instance(value); }
     }
 
     time_series_input_ptr TimeSeriesListInputBuilder::make_and_set_inputs(TimeSeriesListInput* input) const
@@ -55,6 +54,6 @@ namespace hgraph
     void TimeSeriesListInputBuilder::register_with_nanobind(nb::module_& m)
     {
         nb::class_ < TimeSeriesListInputBuilder, InputBuilder > (m, "InputBuilder_TSL")
-            .def(nb::init<InputBuilder::ptr, size_t>(), "input_builder"_a, "size"_a);
+                .def(nb::init<InputBuilder::ptr, size_t>(), "input_builder"_a, "size"_a);
     }
 } // namespace hgraph

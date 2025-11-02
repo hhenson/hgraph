@@ -9,8 +9,8 @@
 #include <hgraph/builders/graph_builder.h>
 #include <tuple>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct BaseReduceNodeBuilder : BaseNodeBuilder
     {
         BaseReduceNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -26,9 +26,8 @@ namespace hgraph
         int64_t output_node_id;
     };
 
-    template <typename T>
-    struct ReduceNodeBuilder : BaseReduceNodeBuilder
-    {
+    template<typename T>
+    struct ReduceNodeBuilder : BaseReduceNodeBuilder {
         using BaseReduceNodeBuilder::BaseReduceNodeBuilder;
 
         node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const override;

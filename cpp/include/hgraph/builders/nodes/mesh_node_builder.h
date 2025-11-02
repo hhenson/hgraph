@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct BaseMeshNodeBuilder : BaseNodeBuilder
     {
         BaseMeshNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -34,9 +34,8 @@ namespace hgraph
         const std::string context_path;
     };
 
-    template <typename T>
-    struct MeshNodeBuilder : BaseMeshNodeBuilder
-    {
+    template<typename T>
+    struct MeshNodeBuilder : BaseMeshNodeBuilder {
         using BaseMeshNodeBuilder::BaseMeshNodeBuilder;
 
         node_ptr make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const override;

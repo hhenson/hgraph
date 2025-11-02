@@ -12,14 +12,12 @@
 #include <hgraph/types/tss.h>
 #include <ranges>
 
-namespace hgraph
-{
+namespace hgraph {
     // TSDKeyObserver: Used to track additions and removals of parent keys.
     // Since the TSD is dynamic, the inputs associated with an output need to be updated when a key is added or removed
     // to correctly manage its internal state.
-    template <typename K>
-    struct TSDKeyObserver
-    {
+    template<typename K>
+    struct TSDKeyObserver {
         // Called when a key is added
         virtual void on_key_added(const K& key) = 0;
 
@@ -29,10 +27,9 @@ namespace hgraph
         virtual ~TSDKeyObserver() = default;
     };
 
-    template <typename T_TS>
+    template<typename T_TS>
         requires TimeSeriesT<T_TS>
-    struct TimeSeriesDict : T_TS
-    {
+    struct TimeSeriesDict : T_TS {
         using ts_type = T_TS;
         using ts_type_ptr = nb::ref<T_TS>;
         using T_TS::T_TS;
@@ -42,10 +39,15 @@ namespace hgraph
         // Create a set of Python-based API, for non-object-based instances there will
         // be typed analogues.
         [[nodiscard]] virtual nb::object py_get_item(const nb::object& item) const = 0;
+
         [[nodiscard]] virtual nb::object py_get(const nb::object& item, const nb::object& default_value) const = 0;
+
         [[nodiscard]] virtual nb::object py_get_or_create(const nb::object& key) = 0;
+
         virtual void py_create(const nb::object& item) = 0;
+
         [[nodiscard]] virtual nb::iterator py_iter() = 0;
+
         [[nodiscard]] virtual bool py_contains(const nb::object& item) const = 0;
 
         [[nodiscard]] virtual nb::object py_key_set() const = 0;
@@ -54,54 +56,68 @@ namespace hgraph
 
         [[nodiscard]] virtual nb::iterator py_keys() const = 0;
         [[nodiscard]] virtual nb::iterator py_values() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_items() const = 0;
 
         [[nodiscard]] virtual nb::iterator py_modified_keys() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_modified_values() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_modified_items() const = 0;
+
         [[nodiscard]] virtual bool py_was_modified(const nb::object& key) const = 0;
 
         [[nodiscard]] virtual nb::iterator py_valid_keys() const = 0;
         [[nodiscard]] virtual nb::iterator py_valid_values() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_valid_items() const = 0;
 
         [[nodiscard]] virtual nb::iterator py_added_keys() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_added_values() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_added_items() const = 0;
+
         [[nodiscard]] virtual bool has_added() const = 0;
+
         [[nodiscard]] virtual bool py_was_added(const nb::object& key) const = 0;
 
         [[nodiscard]] virtual nb::iterator py_removed_keys() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_removed_values() const = 0;
+
         [[nodiscard]] virtual nb::iterator py_removed_items() const = 0;
+
         [[nodiscard]] virtual bool has_removed() const = 0;
+
         [[nodiscard]] virtual bool py_was_removed(const nb::object& key) const = 0;
     };
 
-    struct TimeSeriesDictOutput : TimeSeriesDict<TimeSeriesOutput>
-    {
+    struct TimeSeriesDictOutput : TimeSeriesDict<TimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesDictOutput>;
         using TimeSeriesDict::TimeSeriesDict;
 
         virtual void py_set_item(const nb::object& key, const nb::object& value) = 0;
+
         virtual void py_del_item(const nb::object& key) = 0;
+
         virtual nb::object py_pop(const nb::object& key, const nb::object& default_value) = 0;
+
         virtual nb::object py_get_ref(const nb::object& key, const nb::object& requester) = 0;
+
         virtual void py_release_ref(const nb::object& key, const nb::object& requester) = 0;
     };
 
-    struct TimeSeriesDictInput : TimeSeriesDict<TimeSeriesInput>
-    {
+    struct TimeSeriesDictInput : TimeSeriesDict<TimeSeriesInput> {
         using ptr = nb::ref<TimeSeriesDictInput>;
         using TimeSeriesDict<TimeSeriesInput>::TimeSeriesDict;
     };
 
-    template <typename T_Key>
+    template<typename T_Key>
     using TSDOutBuilder = struct TimeSeriesDictOutputBuilder_T<T_Key>;
 
-    template <typename T_Key>
-    struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
-    {
+    template<typename T_Key>
+    struct TimeSeriesDictOutput_T : TimeSeriesDictOutput {
         using ptr = nb::ref<TimeSeriesDictOutput_T>;
         using key_type = T_Key;
         using value_type = time_series_output_ptr;
@@ -119,77 +135,109 @@ namespace hgraph
 
         explicit TimeSeriesDictOutput_T(const node_ptr& parent, output_builder_ptr ts_builder,
                                         output_builder_ptr ts_ref_builder);
+
         explicit TimeSeriesDictOutput_T(const time_series_type_ptr& parent, output_builder_ptr ts_builder,
                                         output_builder_ptr ts_ref_builder);
 
         void py_set_value(nb::object value) override;
+
         void apply_result(nb::object value) override;
+
         bool can_apply_result(nb::object result) override;
 
         [[nodiscard]] nb::object py_get(const nb::object& item, const nb::object& default_value) const override;
+
         void py_create(const nb::object& item) override;
         [[nodiscard]] nb::iterator py_iter() override;
 
         void mark_child_modified(TimeSeriesOutput& child, engine_time_t modified_time) override;
 
         [[nodiscard]] const map_type& value() const;
+
         [[nodiscard]] nb::object py_value() const override;
+
         [[nodiscard]] nb::object py_delta_value() const override;
 
         void clear() override;
+
         void invalidate() override;
+
         void copy_from_output(const TimeSeriesOutput& output) override;
+
         void copy_from_input(const TimeSeriesInput& input) override;
         [[nodiscard]] bool has_added() const override;
+
         [[nodiscard]] bool has_removed() const override;
 
         [[nodiscard]] auto size() const -> size_t override;
 
         [[nodiscard]] bool py_contains(const nb::object& item) const override;
+
         [[nodiscard]] bool contains(const key_type& item) const;
 
         [[nodiscard]] nb::object py_get_item(const nb::object& item) const override;
+
         [[nodiscard]] nb::object py_get_or_create(const nb::object& key) override;
+
         [[nodiscard]] ts_type_ptr operator[](const key_type& item);
+
         [[nodiscard]] ts_type_ptr operator[](const key_type& item) const;
 
         [[nodiscard]] const_item_iterator begin() const;
+
         [[nodiscard]] item_iterator begin();
         [[nodiscard]] const_item_iterator end() const;
+
         [[nodiscard]] item_iterator end();
 
         [[nodiscard]] nb::iterator py_keys() const override;
+
         [[nodiscard]] nb::iterator py_values() const override;
+
         [[nodiscard]] nb::iterator py_items() const override;
 
         [[nodiscard]] const map_type& modified_items() const;
 
         [[nodiscard]] nb::iterator py_modified_keys() const override;
+
         [[nodiscard]] nb::iterator py_modified_values() const override;
+
         [[nodiscard]] nb::iterator py_modified_items() const override;
+
         [[nodiscard]] bool py_was_modified(const nb::object& key) const override;
+
         [[nodiscard]] bool was_modified(const key_type& key) const;
 
         [[nodiscard]] auto valid_items() const;
 
         [[nodiscard]] nb::iterator py_valid_keys() const override;
+
         [[nodiscard]] nb::iterator py_valid_values() const override;
+
         [[nodiscard]] nb::iterator py_valid_items() const override;
 
         [[nodiscard]] const k_set_type& added_keys() const;
 
         [[nodiscard]] nb::iterator py_added_keys() const override;
+
         [[nodiscard]] nb::iterator py_added_values() const override;
+
         [[nodiscard]] nb::iterator py_added_items() const override;
+
         [[nodiscard]] bool py_was_added(const nb::object& key) const override;
+
         [[nodiscard]] bool was_added(const key_type& key) const;
 
         [[nodiscard]] const map_type& removed_items() const;
 
         [[nodiscard]] nb::iterator py_removed_keys() const override;
+
         [[nodiscard]] nb::iterator py_removed_values() const override;
+
         [[nodiscard]] nb::iterator py_removed_items() const override;
+
         [[nodiscard]] bool py_was_removed(const nb::object& key) const override;
+
         [[nodiscard]] bool was_removed(const key_type& key) const;
 
         [[nodiscard]] nb::object py_key_set() const override;
@@ -201,16 +249,21 @@ namespace hgraph
         void py_set_item(const nb::object& key, const nb::object& value) override;
 
         void py_del_item(const nb::object& key) override;
+
         void erase(const key_type& key);
 
         nb::object py_pop(const nb::object& key, const nb::object& default_value) override;
 
         nb::object py_get_ref(const nb::object& key, const nb::object& requester) override;
+
         void py_release_ref(const nb::object& key, const nb::object& requester) override;
+
         time_series_output_ptr get_ref(const key_type& key, const void* requester);
+
         void release_ref(const key_type& key, const void* requester);
 
         void add_key_observer(TSDKeyObserver<key_type>* observer);
+
         void remove_key_observer(TSDKeyObserver<key_type>* observer);
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
@@ -225,8 +278,11 @@ namespace hgraph
         friend TSDOutBuilder<T_Key>;
 
         void _dispose();
+
         void _clear_key_changes();
+
         void _create(const key_type& key);
+
         const key_type& key_from_value(TimeSeriesOutput* value) const;
 
         void remove_value(const key_type& key, bool raise_if_not_found);
@@ -250,17 +306,16 @@ namespace hgraph
         static inline map_type _empty;
     };
 
-    template <typename T_Key>
+    template<typename T_Key>
     using TSD_Builder = struct TimeSeriesDictInputBuilder_T<T_Key>;
 
-    template <typename T_Key>
-    struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key>
-    {
+    template<typename T_Key>
+    struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key> {
         using ptr = nb::ref<TimeSeriesDictInput_T>;
         using key_type = T_Key;
         using value_type = time_series_input_ptr;
         using map_type = std::unordered_map<key_type, value_type>;
-        using removed_map_type = std::unordered_map<key_type, std::pair<value_type, bool>>;
+        using removed_map_type = std::unordered_map<key_type, std::pair<value_type, bool> >;
         using added_map_type = std::unordered_map<key_type, value_type>;
         using modified_map_type = std::unordered_map<key_type, value_type>;
         using item_iterator = typename map_type::iterator;
@@ -271,69 +326,96 @@ namespace hgraph
         using reverse_map = std::unordered_map<TimeSeriesInput*, key_type>;
 
         explicit TimeSeriesDictInput_T(const node_ptr& parent, input_builder_ptr ts_builder);
+
         explicit TimeSeriesDictInput_T(const time_series_type_ptr& parent, input_builder_ptr ts_builder);
 
         [[nodiscard]] bool has_peer() const override;
 
         const_item_iterator begin() const;
+
         item_iterator begin();
 
         const_item_iterator end() const;
+
         item_iterator end();
 
         [[nodiscard]] size_t size() const override;
 
         [[nodiscard]] const map_type& value() const;
+
         [[nodiscard]] nb::object py_value() const override;
+
         [[nodiscard]] nb::object py_delta_value() const override;
 
         [[nodiscard]] bool py_contains(const nb::object& item) const override;
+
         [[nodiscard]] bool contains(const key_type& item) const;
 
         [[nodiscard]] nb::object py_get(const nb::object& item, const nb::object& default_value) const override;
+
         void py_create(const nb::object& item) override;
         [[nodiscard]] nb::iterator py_iter() override;
 
         [[nodiscard]] nb::object py_get_item(const nb::object& item) const override;
+
         [[nodiscard]] nb::object py_get_or_create(const nb::object& key) override;
+
         [[nodiscard]] value_type operator[](const key_type& item) const;
+
         [[nodiscard]] value_type operator[](const key_type& item);
 
         [[nodiscard]] nb::iterator py_keys() const override;
+
         [[nodiscard]] nb::iterator py_values() const override;
+
         [[nodiscard]] nb::iterator py_items() const override;
 
         [[nodiscard]] const map_type& modified_items() const;
 
         [[nodiscard]] nb::iterator py_modified_keys() const override;
+
         [[nodiscard]] nb::iterator py_modified_values() const override;
+
         [[nodiscard]] nb::iterator py_modified_items() const override;
+
         [[nodiscard]] bool py_was_modified(const nb::object& key) const override;
+
         [[nodiscard]] bool was_modified(const key_type& key) const;
 
         [[nodiscard]] const map_type& valid_items() const;
 
         [[nodiscard]] nb::iterator py_valid_keys() const override;
+
         [[nodiscard]] nb::iterator py_valid_values() const override;
+
         [[nodiscard]] nb::iterator py_valid_items() const override;
 
         [[nodiscard]] const map_type& added_items() const;
 
         [[nodiscard]] nb::iterator py_added_keys() const override;
+
         [[nodiscard]] nb::iterator py_added_values() const override;
+
         [[nodiscard]] nb::iterator py_added_items() const override;
+
         [[nodiscard]] bool py_was_added(const nb::object& key) const override;
+
         [[nodiscard]] bool was_added(const key_type& key) const;
 
         [[nodiscard]] const map_type& removed_items() const;
 
         [[nodiscard]] nb::iterator py_removed_keys() const override;
+
         [[nodiscard]] nb::iterator py_removed_values() const override;
+
         [[nodiscard]] nb::iterator py_removed_items() const override;
+
         [[nodiscard]] bool py_was_removed(const nb::object& key) const override;
+
         [[nodiscard]] bool was_removed(const key_type& key) const;
 
         [[nodiscard]] nb::object py_key_set() const override;
+
         [[nodiscard]] TimeSeriesSet<TimeSeriesInput>& key_set() override;
 
         [[nodiscard]] bool has_added() const override;
@@ -370,17 +452,22 @@ namespace hgraph
 
     protected:
         void notify_parent(TimeSeriesInput* child, engine_time_t modified_time) override;
+
         bool do_bind_output(time_series_output_ptr& value) override;
         void do_un_bind_output(bool unbind_refs) override;
 
         [[nodiscard]] const key_type& key_from_value(TimeSeriesInput* value) const;
+
         [[nodiscard]] const key_type& key_from_value(value_type value) const;
 
         [[nodiscard]] bool was_removed_valid(const key_type& key) const;
 
         void reset_prev();
+
         void clear_key_changes();
+
         void register_clear_key_changes() const;
+
         void register_clear_key_changes();
 
     private:

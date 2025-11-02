@@ -4,22 +4,22 @@
 
 #include <utility>
 
-namespace hgraph
-{
+namespace hgraph {
+
     TimeSeriesDictOutputBuilder::TimeSeriesDictOutputBuilder(output_builder_ptr ts_builder,
                                                              output_builder_ptr ts_ref_builder)
         : OutputBuilder(), ts_builder{std::move(ts_builder)}, ts_ref_builder{std::move(ts_ref_builder)}
     {
     }
 
-    template <typename T>
+    template<typename T>
     time_series_output_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(node_ptr owning_node) const
     {
         auto v{new TimeSeriesDictOutput_T<T>(owning_node, ts_builder, ts_ref_builder)};
         return v;
     }
 
-    template <typename T>
+    template<typename T>
     time_series_output_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const
     {
         auto parent_ts = dynamic_cast_ref<TimeSeriesType>(owning_output);
@@ -27,7 +27,7 @@ namespace hgraph
         return v;
     }
 
-    template <typename T>
+    template<typename T>
     bool TimeSeriesDictOutputBuilder_T<T>::is_same_type(const Builder& other) const
     {
         if (auto other_b = dynamic_cast<const TimeSeriesDictOutputBuilder_T<T>*>(&other))
@@ -37,7 +37,7 @@ namespace hgraph
         return false;
     }
 
-    template <typename T>
+    template<typename T>
     void TimeSeriesDictOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const
     {
         if (auto dict = dynamic_cast<TimeSeriesDictOutput_T<T>*>(item.get())) { dict->_dispose(); }
@@ -49,9 +49,9 @@ namespace hgraph
         nb::class_ < TimeSeriesDictOutputBuilder, OutputBuilder > (m, "OutputBuilder_TSD");
 
         nb::class_<TimeSeriesDictOutputBuilder_T<bool>, TimeSeriesDictOutputBuilder>(m, "OutputBuilder_TSD_Bool")
-            .def(nb::init<output_builder_ptr, output_builder_ptr>(), "ts_builder"_a, "ts_ref_builder"_a);
+                .def(nb::init<output_builder_ptr, output_builder_ptr>(), "ts_builder"_a, "ts_ref_builder"_a);
         nb::class_<TimeSeriesDictOutputBuilder_T<int64_t>, TimeSeriesDictOutputBuilder>(m, "OutputBuilder_TSD_Int")
-            .def(nb::init<output_builder_ptr, output_builder_ptr>(), "ts_builder"_a, "ts_ref_builder"_a);
+                .def(nb::init<output_builder_ptr, output_builder_ptr>(), "ts_builder"_a, "ts_ref_builder"_a);
         nb::class_<TimeSeriesDictOutputBuilder_T<double>, TimeSeriesDictOutputBuilder>(m, "OutputBuilder_TSD_Float")
             .def(nb::init<output_builder_ptr, output_builder_ptr>(), "ts_builder"_a, "ts_ref_builder"_a);
         nb::class_<TimeSeriesDictOutputBuilder_T<engine_date_t>, TimeSeriesDictOutputBuilder>(

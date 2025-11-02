@@ -8,15 +8,14 @@
 #include <hgraph/builders/input_builder.h>
 #include <vector>
 
-namespace hgraph
-{
-    struct HGRAPH_EXPORT TimeSeriesListInputBuilder : InputBuilder
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT TimeSeriesListInputBuilder : InputBuilder {
         using ptr = nb::ref<TimeSeriesListInputBuilder>;
 
         TimeSeriesListInputBuilder(InputBuilder::ptr input_builder, size_t size);
 
         time_series_input_ptr make_instance(node_ptr owning_node) const override;
+
         time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         bool has_reference() const override;

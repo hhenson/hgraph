@@ -19,15 +19,16 @@ namespace hgraph
      *
      * The C++ version maintains the same inheritance hierarchy.
      */
-    struct TimeSeriesSchema : AbstractSchema
-    {
+    struct TimeSeriesSchema : AbstractSchema {
         using ptr = nb::ref<TimeSeriesSchema>;
 
         explicit TimeSeriesSchema(std::vector<std::string> keys);
+
         explicit TimeSeriesSchema(std::vector<std::string> keys, nb::object type);
 
         // Override from AbstractSchema
         [[nodiscard]] const std::vector<std::string>& keys() const override;
+
         [[nodiscard]] nb::object get_value(const std::string& key) const override;
 
         // TimeSeriesSchema-specific method
@@ -40,10 +41,9 @@ namespace hgraph
         nb::object _scalar_type;
     };
 
-    template <typename T_TS>
+    template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    struct TimeSeriesBundle : T_TS
-    {
+    struct TimeSeriesBundle : T_TS {
         using bundle_type = TimeSeriesBundle<T_TS>;
         using ptr = nb::ref<bundle_type>;
         using typename T_TS::index_ts_type;
@@ -56,14 +56,20 @@ namespace hgraph
         using key_iterator = key_collection_type::iterator;
         using key_const_iterator = key_collection_type::const_iterator;
 
-        using key_value_collection_type = std::vector<std::pair<c_string_ref, typename ts_type::ptr>>;
+        using key_value_collection_type = std::vector<std::pair<c_string_ref, typename ts_type::ptr> >;
 
         explicit TimeSeriesBundle(const node_ptr& parent, TimeSeriesSchema::ptr schema);
+
         explicit TimeSeriesBundle(const TimeSeriesType::ptr& parent, TimeSeriesSchema::ptr schema);
+
         TimeSeriesBundle(const TimeSeriesBundle&) = default;
+
         TimeSeriesBundle(TimeSeriesBundle&&) = default;
+
         TimeSeriesBundle& operator=(const TimeSeriesBundle&) = default;
+
         TimeSeriesBundle& operator=(TimeSeriesBundle&&) = default;
+
         ~TimeSeriesBundle() override = default;
 
         [[nodiscard]] nb::object py_value() const override;
@@ -95,6 +101,7 @@ namespace hgraph
         [[nodiscard]] key_collection_type modified_keys() const;
 
         using index_ts_type::size;
+
         // Retrieves valid items
         [[nodiscard]] key_value_collection_type items();
 
@@ -105,6 +112,7 @@ namespace hgraph
         [[nodiscard]] key_value_collection_type valid_items() const;
 
         [[nodiscard]] key_value_collection_type modified_items();
+
         [[nodiscard]] key_value_collection_type modified_items() const;
 
         [[nodiscard]] bool has_reference() const override;
@@ -113,7 +121,7 @@ namespace hgraph
         using T_TS::index_with_constraint;
         using T_TS::ts_values;
 
-        template <bool is_delta>
+        template<bool is_delta>
         nb::object py_value_with_constraint(const std::function<bool(const ts_type&)>& constraint) const;
 
         // Retrieves keys that match the constraint
@@ -128,14 +136,16 @@ namespace hgraph
         TimeSeriesSchema::ptr _schema;
     };
 
-    struct TimeSeriesBundleOutput : TimeSeriesBundle<IndexedTimeSeriesOutput>
-    {
+    struct TimeSeriesBundleOutput : TimeSeriesBundle<IndexedTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesBundleOutput>;
         using bundle_type::TimeSeriesBundle;
 
         void py_set_value(nb::object value) override;
+
         void mark_invalid() override;
+
         void apply_result(nb::object value) override;
+
         [[nodiscard]] bool can_apply_result(nb::object value) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
@@ -147,8 +157,7 @@ namespace hgraph
         friend TimeSeriesBundleOutputBuilder;
     };
 
-    struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput>
-    {
+    struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput> {
         using ptr = nb::ref<TimeSeriesBundleInput>;
         using bundle_type::TimeSeriesBundle;
 

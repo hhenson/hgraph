@@ -7,13 +7,12 @@
 
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph
-{
-    struct HGRAPH_EXPORT TimeSeriesRefOutputBuilder : OutputBuilder
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT TimeSeriesRefOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
 
         time_series_output_ptr make_instance(node_ptr owning_node) const override;
+
         time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
 
         bool has_reference() const override { return true; }

@@ -7,19 +7,17 @@
 
 #include <hgraph/builders/output_builder.h>
 
-namespace hgraph
-{
-    struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder : OutputBuilder
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
     };
 
-    template <typename T>
-    struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder_T : TimeSeriesSetOutputBuilder
-    {
+    template<typename T>
+    struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder_T : TimeSeriesSetOutputBuilder {
         using TimeSeriesSetOutputBuilder::TimeSeriesSetOutputBuilder;
 
         time_series_output_ptr make_instance(node_ptr owning_node) const override;
+
         time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
 
         void release_instance(time_series_output_ptr item) const override;

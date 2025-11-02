@@ -9,8 +9,7 @@
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
 
-namespace hgraph
-{
+namespace hgraph {
     constexpr int64_t ERROR_PATH = -1; // The path in the wiring edges representing the error output of the node
     constexpr int64_t STATE_PATH = -2;
     // The path in the wiring edges representing the recordable state output of the node
@@ -21,7 +20,7 @@ namespace hgraph
         if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
 
         TimeSeriesOutput* output = node->output();
-        for (auto index : path)
+        for (auto index: path)
         {
             if (index == KEY_SET)
             {
@@ -45,7 +44,7 @@ namespace hgraph
 
         auto input = dynamic_cast<TimeSeriesInput*>(node->input().get());
 
-        for (const auto& ndx : path) { input = input->get_input(ndx); }
+        for (const auto& ndx: path) { input = input->get_input(ndx); }
         return input;
     }
 
@@ -73,7 +72,7 @@ namespace hgraph
             nodes.push_back(node_builders[i]->make_instance(graph_id, i + first_node_ndx));
         }
 
-        for (const auto& edge : edges)
+        for (const auto& edge: edges)
         {
             auto src_node = nodes[edge.src_node];
             auto dst_node = nodes[edge.dst_node];
@@ -150,7 +149,7 @@ namespace hgraph
             .def("__eq__", &Edge::operator==)
             .def("__lt__", &Edge::operator<)
             .def("__hash__", [](const Edge& self)
-            {
+                {
                 return std::hash<Edge>{}(self);
             })
             .def("__str__",
@@ -161,7 +160,7 @@ namespace hgraph
                                         fmt::join(self.input_path, ","));
                  })
             .def("__repr__", [](const Edge& self)
-            {
+                {
                 return fmt::format("Edge[{}->{} to {}->[{}]]", self.src_node, fmt::join(self.output_path, ","),
                                    self.dst_node,
                                    fmt::join(self.input_path, ","));
@@ -169,12 +168,10 @@ namespace hgraph
     }
 
     Edge::Edge(int64_t src, std::vector<int64_t> out_path, int64_t dst, std::vector<int64_t> in_path)
-        : src_node(src), output_path(std::move(out_path)), dst_node(dst), input_path(std::move(in_path))
-    {
+        : src_node(src), output_path(std::move(out_path)), dst_node(dst), input_path(std::move(in_path)) {
     }
 
-    bool Edge::operator==(const Edge& other) const
-    {
+    bool Edge::operator==(const Edge &other) const {
         return src_node == other.src_node && output_path == other.output_path && dst_node == other.dst_node &&
             input_path == other.input_path;
     }
@@ -193,8 +190,8 @@ size_t std::hash<hgraph::Edge>::operator()(const hgraph::Edge& edge) const noexc
     size_t h1 = std::hash<int64_t>{}(edge.src_node);
     size_t h2 = std::hash<int64_t>{}(edge.dst_node);
     size_t h3 = 0;
-    for (const auto& v : edge.output_path) { h3 ^= std::hash<int64_t>{}(v) + 0x9e3779b9 + (h3 << 6) + (h3 >> 2); }
+    for (const auto& v: edge.output_path) { h3 ^= std::hash<int64_t>{}(v) + 0x9e3779b9 + (h3 << 6) + (h3 >> 2); }
     size_t h4 = 0;
-    for (const auto& v : edge.input_path) { h4 ^= std::hash<int64_t>{}(v) + 0x9e3779b9 + (h4 << 6) + (h4 >> 2); }
+    for (const auto& v: edge.input_path) { h4 ^= std::hash<int64_t>{}(v) + 0x9e3779b9 + (h4 << 6) + (h4 >> 2); }
     return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
 }

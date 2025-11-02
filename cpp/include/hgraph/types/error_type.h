@@ -12,10 +12,8 @@
 #include <ostream>
 #include <stdexcept>
 
-namespace hgraph
-{
-    struct HGRAPH_EXPORT BacktraceSignature : CompoundScalar
-    {
+namespace hgraph {
+    struct HGRAPH_EXPORT BacktraceSignature : CompoundScalar {
         std::string name;
         std::vector<std::string> args;
         std::string wiring_path_name;
@@ -26,12 +24,16 @@ namespace hgraph
                            std::string runtime_path_name_, std::string node_id_);
 
         BacktraceSignature(const BacktraceSignature&) = default;
+
         BacktraceSignature& operator=(const BacktraceSignature&) = default;
+
         BacktraceSignature(BacktraceSignature&&) = default;
+
         BacktraceSignature& operator=(BacktraceSignature&&) = default;
 
         // Override from AbstractSchema
         [[nodiscard]] const std::vector<std::string>& keys() const override;
+
         [[nodiscard]] nb::object get_value(const std::string& key) const override;
 
         // Override from CompoundScalar
@@ -40,8 +42,7 @@ namespace hgraph
         static void register_with_nanobind(nb::module_& m);
     };
 
-    struct HGRAPH_EXPORT BackTrace
-    {
+    struct HGRAPH_EXPORT BackTrace {
         std::optional<BacktraceSignature> signature;
         std::unordered_map<std::string, BackTrace> active_inputs;
         std::unordered_map<std::string, std::string> input_short_values;
@@ -59,23 +60,28 @@ namespace hgraph
         );
 
         BackTrace(const BackTrace&) = default;
+
         BackTrace& operator=(const BackTrace&) = default;
+
         BackTrace(BackTrace&&) = default;
+
         BackTrace& operator=(BackTrace&&) = default;
 
         [[nodiscard]] std::string arg_str(const std::string& arg_name) const;
         [[nodiscard]] std::string level_str(int64_t level = 0) const;
+
         [[nodiscard]] std::string to_string() const;
 
         static std::string runtime_path_name(const Node& node, bool use_label = true);
+
         static BackTrace capture_back_trace(const Node* node, bool capture_values = false, int64_t depth = 4);
+
         static void capture_input(std::unordered_map<std::string, BackTrace>& active_inputs,
                                   const TimeSeriesInput& input,
                                   const std::string& input_name, bool capture_values, int64_t depth);
     };
 
-    struct HGRAPH_EXPORT NodeError : CompoundScalar
-    {
+    struct HGRAPH_EXPORT NodeError : CompoundScalar {
         std::string signature_name;
         std::string label;
         std::string wiring_path;
@@ -91,25 +97,28 @@ namespace hgraph
 
         // Override from AbstractSchema
         [[nodiscard]] const std::vector<std::string>& keys() const override;
+
         [[nodiscard]] nb::object get_value(const std::string& key) const override;
 
         // Override from CompoundScalar
         [[nodiscard]] nb::dict to_dict() const override;
+
         [[nodiscard]] std::string to_string() const override;
 
         friend std::ostream& operator<<(std::ostream& os, const NodeError& error);
 
         static NodeError capture_error(const std::exception& e, const Node& node, const std::string& msg = "");
+
         static NodeError capture_error(std::exception_ptr e, const Node& node, const std::string& msg = "");
 
         static void register_with_nanobind(nb::module_& m);
     };
 
-    struct HGRAPH_EXPORT NodeException : NodeError, std::runtime_error
-    {
-        explicit NodeException(const NodeError& error);
+    struct HGRAPH_EXPORT NodeException : NodeError, std::runtime_error {
+        explicit NodeException(const NodeError &error);
 
         static NodeException capture_error(const std::exception& e, const Node& node, const std::string& msg = "");
+
         static NodeException capture_error(std::exception_ptr e, const Node& node, const std::string& msg = "");
     };
 } // namespace hgraph

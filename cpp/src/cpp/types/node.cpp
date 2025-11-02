@@ -11,44 +11,43 @@
 #include <ranges>
 #include <sstream>
 
-namespace hgraph
-{
+namespace hgraph {
     void node_type_enum_py_register(nb::module_& m)
     {
         nb::enum_<NodeTypeEnum>(m, "NodeTypeEnum")
-            .value("NONE", NodeTypeEnum::NONE)
-            .value("SOURCE_NODE", NodeTypeEnum::SOURCE_NODE)
-            .value("PUSH_SOURCE_NODE", NodeTypeEnum::PUSH_SOURCE_NODE)
-            .value("PULL_SOURCE_NODE", NodeTypeEnum::PULL_SOURCE_NODE)
-            .value("COMPUTE_NODE", NodeTypeEnum::COMPUTE_NODE)
-            .value("SINK_NODE", NodeTypeEnum::SINK_NODE)
-            .export_values();
+                .value("NONE", NodeTypeEnum::NONE)
+                .value("SOURCE_NODE", NodeTypeEnum::SOURCE_NODE)
+                .value("PUSH_SOURCE_NODE", NodeTypeEnum::PUSH_SOURCE_NODE)
+                .value("PULL_SOURCE_NODE", NodeTypeEnum::PULL_SOURCE_NODE)
+                .value("COMPUTE_NODE", NodeTypeEnum::COMPUTE_NODE)
+                .value("SINK_NODE", NodeTypeEnum::SINK_NODE)
+                .export_values();
     }
 
     void injectable_type_enum(nb::module_& m)
     {
         nb::enum_<InjectableTypesEnum>(m, "InjectableTypesEnum")
-            .value("NONE", InjectableTypesEnum::NONE)
-            .value("STATE", InjectableTypesEnum::STATE)
-            .value("RECORDABLE_STATE", InjectableTypesEnum::RECORDABLE_STATE)
-            .value("SCHEDULER", InjectableTypesEnum::SCHEDULER)
-            .value("OUTPUT", InjectableTypesEnum::OUTPUT)
-            .value("CLOCK", InjectableTypesEnum::CLOCK)
-            .value("ENGINE_API", InjectableTypesEnum::ENGINE_API)
-            .value("LOGGER", InjectableTypesEnum::LOGGER)
-            .value("NODE", InjectableTypesEnum::NODE)
-            .value("TRAIT", InjectableTypesEnum::TRAIT)
-            .export_values();
+                .value("NONE", InjectableTypesEnum::NONE)
+                .value("STATE", InjectableTypesEnum::STATE)
+                .value("RECORDABLE_STATE", InjectableTypesEnum::RECORDABLE_STATE)
+                .value("SCHEDULER", InjectableTypesEnum::SCHEDULER)
+                .value("OUTPUT", InjectableTypesEnum::OUTPUT)
+                .value("CLOCK", InjectableTypesEnum::CLOCK)
+                .value("ENGINE_API", InjectableTypesEnum::ENGINE_API)
+                .value("LOGGER", InjectableTypesEnum::LOGGER)
+                .value("NODE", InjectableTypesEnum::NODE)
+                .value("TRAIT", InjectableTypesEnum::TRAIT)
+                .export_values();
     }
 
     NodeSignature::NodeSignature(std::string name, NodeTypeEnum node_type, std::vector<std::string> args,
-                                 std::optional<std::unordered_map<std::string, nb::object>> time_series_inputs,
+                                 std::optional<std::unordered_map<std::string, nb::object> > time_series_inputs,
                                  std::optional<nb::object> time_series_output, std::optional<nb::dict> scalars,
-                                 nb::object src_location, std::optional<std::unordered_set<std::string>> active_inputs,
-                                 std::optional<std::unordered_set<std::string>> valid_inputs,
-                                 std::optional<std::unordered_set<std::string>> all_valid_inputs,
-                                 std::optional<std::unordered_set<std::string>> context_inputs,
-                                 std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs,
+                                 nb::object src_location, std::optional<std::unordered_set<std::string> > active_inputs,
+                                 std::optional<std::unordered_set<std::string> > valid_inputs,
+                                 std::optional<std::unordered_set<std::string> > all_valid_inputs,
+                                 std::optional<std::unordered_set<std::string> > context_inputs,
+                                 std::optional<std::unordered_map<std::string, InjectableTypesEnum> > injectable_inputs,
                                  size_t injectables, bool capture_exception, int64_t trace_back_depth,
                                  std::string wiring_path_name,
                                  std::optional<std::string> label, bool capture_values,
@@ -419,7 +418,7 @@ namespace hgraph
 
         oss << name << "(";
 
-        for (const auto& arg : args)
+        for (const auto& arg: args)
         {
             if (!first) { oss << ", "; }
             oss << arg << ": " << obj_to_str(get_arg_type(arg));
@@ -479,7 +478,7 @@ namespace hgraph
         auto HgRecordableStateType = scalar_type_meta_data.attr("HgRecordableStateType");
 
         // Iterate through scalars to find HgRecordableStateType
-        for (auto item : scalars.value())
+        for (auto item: scalars.value())
         {
             auto key = nb::cast<std::string>(item.first);
             auto value = item.second;
@@ -504,7 +503,7 @@ namespace hgraph
         auto HgRecordableStateType = scalar_type_meta_data.attr("HgRecordableStateType");
 
         // Iterate through scalars to find HgRecordableStateType
-        for (auto item : scalars.value())
+        for (auto item: scalars.value())
         {
             auto value = item.second;
             if (nb::isinstance(value, HgRecordableStateType))
@@ -541,7 +540,7 @@ namespace hgraph
         return (node_type & NodeTypeEnum::SINK_NODE) == NodeTypeEnum::SINK_NODE;
     }
 
-    [[nodiscard]] bool NodeSignature::is_recordable() const { return (bool)record_replay_id; }
+    [[nodiscard]] bool NodeSignature::is_recordable() const { return (bool) record_replay_id; }
 
     nb::dict NodeSignature::to_dict() const
     {
@@ -576,7 +575,7 @@ namespace hgraph
                                          ? nb::cast<NodeTypeEnum>(kwargs["node_type"])
                                          : this->node_type;
         std::vector<std::string> args_val =
-            kwargs.contains("args") ? nb::cast<std::vector<std::string>>(kwargs["args"]) : this->args;
+                kwargs.contains("args") ? nb::cast<std::vector<std::string> >(kwargs["args"]) : this->args;
         std::string wiring_path_name_val =
             kwargs.contains("wiring_path_name")
                 ? nb::cast<std::string>(kwargs["wiring_path_name"])
@@ -585,27 +584,27 @@ namespace hgraph
         auto* raw = new NodeSignature(
             name_val, node_type_val, args_val,
             kwargs.contains("time_series_inputs")
-                ? nb::cast<std::optional<std::unordered_map<std::string, nb::object>>>(kwargs["time_series_inputs"])
+                ? nb::cast<std::optional<std::unordered_map<std::string, nb::object> > >(kwargs["time_series_inputs"])
                 : this->time_series_inputs,
             kwargs.contains("time_series_output")
-                ? nb::cast<std::optional<nb::object>>(kwargs["time_series_output"])
+                ? nb::cast<std::optional<nb::object> >(kwargs["time_series_output"])
                 : this->time_series_output,
-            kwargs.contains("scalars") ? nb::cast<std::optional<nb::dict>>(kwargs["scalars"]) : this->scalars,
+            kwargs.contains("scalars") ? nb::cast<std::optional<nb::dict> >(kwargs["scalars"]) : this->scalars,
             kwargs.contains("src_location") ? kwargs["src_location"] : this->src_location,
             kwargs.contains("active_inputs")
-                ? nb::cast<std::optional<std::unordered_set<std::string>>>(kwargs["active_inputs"])
+                ? nb::cast<std::optional<std::unordered_set<std::string> > >(kwargs["active_inputs"])
                 : this->active_inputs,
             kwargs.contains("valid_inputs")
-                ? nb::cast<std::optional<std::unordered_set<std::string>>>(kwargs["valid_inputs"])
+                ? nb::cast<std::optional<std::unordered_set<std::string> > >(kwargs["valid_inputs"])
                 : this->valid_inputs,
             kwargs.contains("all_valid_inputs")
-                ? nb::cast<std::optional<std::unordered_set<std::string>>>(kwargs["all_valid_inputs"])
+                ? nb::cast<std::optional<std::unordered_set<std::string> > >(kwargs["all_valid_inputs"])
                 : this->all_valid_inputs,
             kwargs.contains("context_inputs")
-                ? nb::cast<std::optional<std::unordered_set<std::string>>>(kwargs["context_inputs"])
+                ? nb::cast<std::optional<std::unordered_set<std::string> > >(kwargs["context_inputs"])
                 : this->context_inputs,
             kwargs.contains("injectable_inputs")
-                ? nb::cast<std::optional<std::unordered_map<std::string, InjectableTypesEnum>>>(
+                ? nb::cast<std::optional<std::unordered_map<std::string, InjectableTypesEnum> > >(
                     kwargs["injectable_inputs"])
                 : this->injectable_inputs,
             kwargs.contains("injectables") ? nb::cast<size_t>(kwargs["injectables"]) : this->injectables,
@@ -616,11 +615,11 @@ namespace hgraph
                 ? nb::cast<int64_t>(kwargs["trace_back_depth"])
                 : this->trace_back_depth,
             wiring_path_name_val, kwargs.contains("label")
-                                      ? nb::cast<std::optional<std::string>>(kwargs["label"])
+                                      ? nb::cast<std::optional<std::string> >(kwargs["label"])
                                       : this->label,
             kwargs.contains("capture_values") ? nb::cast<bool>(kwargs["capture_values"]) : this->capture_values,
             kwargs.contains("record_replay_id")
-                ? nb::cast<std::optional<std::string>>(kwargs["record_replay_id"])
+                ? nb::cast<std::optional<std::string> >(kwargs["record_replay_id"])
                 : this->record_replay_id);
         // Wrap into a nanobind intrusive ref explicitly to ensure correct refcount semantics
         return nb::ref < NodeSignature > (raw);
@@ -732,7 +731,7 @@ namespace hgraph
         auto real_time_clock = dynamic_cast<RealTimeEvaluationClock*>(_node->graph()->evaluation_clock().get());
         if (real_time_clock)
         {
-            for (const auto& alarm : _alarm_tags) { real_time_clock->cancel_alarm(alarm.first); }
+            for (const auto& alarm: _alarm_tags) { real_time_clock->cancel_alarm(alarm.first); }
             _alarm_tags.clear();
         }
     }
@@ -916,7 +915,7 @@ namespace hgraph
         if (signature().all_valid_inputs.has_value())
         {
             _check_all_valid_inputs.reserve(signature().all_valid_inputs->size());
-            for (const auto& key : *signature().all_valid_inputs)
+            for (const auto& key: *signature().all_valid_inputs)
             {
                 _check_all_valid_inputs.push_back((*input())[key]);
             }
@@ -1045,7 +1044,7 @@ namespace hgraph
 
         // Build arguments portion
         std::vector<std::string> arg_strs;
-        for (const auto& arg : signature().args)
+        for (const auto& arg: signature().args)
         {
             std::string arg_str = fmt::format("{}: {}", arg, obj_to_type(signature().get_arg_type(arg)));
 
@@ -1114,9 +1113,9 @@ namespace hgraph
     void Node::stop()
     {
         // RAII guard to ensure cleanup happens even if do_stop() throws
-        struct Cleanup
-        {
+        struct Cleanup {
             Node* node;
+
 
             ~Cleanup()
             {
@@ -1132,11 +1131,11 @@ namespace hgraph
     {
         if (signature().time_series_inputs.has_value())
         {
-            for (auto& start_input : _start_inputs)
+            for (auto& start_input: _start_inputs)
             {
                 start_input->start(); // Assuming start_input is some time series type with a start method
             }
-            const std::unordered_set<std::string>* active_inputs = signature().active_inputs.has_value()
+            const std::unordered_set<std::string> *active_inputs = signature().active_inputs.has_value()
                                                                        ? &signature().active_inputs.value()
                                                                        : nullptr;
             for (size_t i = 0; i < signature().time_series_inputs->size(); ++i)
@@ -1174,7 +1173,9 @@ namespace hgraph
             {
                 should_eval = !signature().time_series_inputs.has_value() ||
                     std::ranges::any_of(input()->values(),
-                                        [](const auto& input_) { return input_->modified() && input_->active(); });
+                                        [](const auto& input_) {
+                                                      return input_->modified() && input_->active();
+                                                  });
             }
         }
 

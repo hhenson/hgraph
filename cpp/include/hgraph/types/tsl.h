@@ -8,12 +8,11 @@
 
 #include <hgraph/types/ts_indexed.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    struct TimeSeriesList : T_TS
-    {
+    struct TimeSeriesList : T_TS {
         using list_type = TimeSeriesList<T_TS>;
         using ptr = nb::ref<list_type>;
         using typename T_TS::index_ts_type;
@@ -29,6 +28,7 @@ namespace hgraph
         using T_TS::T_TS;
 
         [[nodiscard]] nb::object py_value() const override;
+
         [[nodiscard]] nb::object py_delta_value() const override;
 
         value_iterator begin() { return ts_values().begin(); }
@@ -38,17 +38,22 @@ namespace hgraph
 
         // Retrieves valid keys
         [[nodiscard]] index_collection_type keys() const;
+
         [[nodiscard]] index_collection_type valid_keys() const;
+
         [[nodiscard]] index_collection_type modified_keys() const;
 
         // Retrieves valid items
         [[nodiscard]] enumerated_collection_type items();
+
         [[nodiscard]] enumerated_collection_type items() const;
 
         [[nodiscard]] enumerated_collection_type valid_items();
+
         [[nodiscard]] enumerated_collection_type valid_items() const;
 
         [[nodiscard]] enumerated_collection_type modified_items();
+
         [[nodiscard]] enumerated_collection_type modified_items() const;
 
         [[nodiscard]] bool has_reference() const override;
@@ -60,8 +65,7 @@ namespace hgraph
 
     struct TimeSeriesListOutputBuilder;
 
-    struct TimeSeriesListOutput : TimeSeriesList<IndexedTimeSeriesOutput>
-    {
+    struct TimeSeriesListOutput : TimeSeriesList<IndexedTimeSeriesOutput> {
         using list_type::TimeSeriesList;
 
         void apply_result(nb::object value) override;
@@ -71,21 +75,18 @@ namespace hgraph
         void py_set_value(nb::object value) override;
 
         static void register_with_nanobind(nb::module_& m);
-
     protected:
         friend TimeSeriesListOutputBuilder;
     };
 
     struct TimeSeriesListInputBuilder;
 
-    struct TimeSeriesListInput : TimeSeriesList<IndexedTimeSeriesInput>
-    {
+    struct TimeSeriesListInput : TimeSeriesList<IndexedTimeSeriesInput> {
         using list_type::TimeSeriesList;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
 
         static void register_with_nanobind(nb::module_& m);
-
     protected:
         friend TimeSeriesListInputBuilder;
     };

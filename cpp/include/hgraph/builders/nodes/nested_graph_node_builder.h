@@ -7,8 +7,8 @@
 
 #include <hgraph/builders/nodes/base_nested_graph_node_builder.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     struct NestedGraphNodeBuilder : BaseNestedGraphNodeBuilder
     {
         using BaseNestedGraphNodeBuilder::BaseNestedGraphNodeBuilder;

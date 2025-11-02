@@ -11,26 +11,23 @@
 
 namespace nanobind
 {
-    inline bool operator==(const object& a, const object& b) noexcept
+    inline bool operator==(const object &a, const object &b) noexcept
     {
         return a.equal(b);
     }
 }
 
-namespace std
-{
-    template <>
-    struct equal_to<nanobind::object>
-    {
+namespace std {
+    template<>
+    struct equal_to<nanobind::object> {
         bool operator()(const nanobind::object& a, const nanobind::object& b) const noexcept
         {
             return a.equal(b); // nanobind::object::equal handles Python equality
         }
     };
 
-    template <>
-    struct hash<nanobind::object>
-    {
+    template<>
+    struct hash<nanobind::object> {
         size_t operator()(const nanobind::object& obj) const noexcept
         {
             // nb::object has .hash() method that returns Py_hash_t
@@ -38,9 +35,8 @@ namespace std
         }
     };
 
-    template <typename T, typename U>
-    struct hash<std::tuple<T*, U*>>
-    {
+    template<typename T, typename U>
+    struct hash<std::tuple<T*, U*> > {
         size_t operator()(const std::tuple<T*, U*>& t) const noexcept
         {
             return std::hash<T*>()(std::get < 0 > (t)) ^ (std::hash<U*>()(std::get < 1 > (t)) << 1);
@@ -56,9 +52,8 @@ namespace std
         }
     };
 
-    template <typename T>
-    struct hash<nanobind::ref<T>>
-    {
+    template<typename T>
+    struct hash<nanobind::ref<T> > {
         size_t operator()(const nanobind::ref<T>& t) const noexcept
         {
             return std::hash<const void*>()(reinterpret_cast<const void*>(t.get()));

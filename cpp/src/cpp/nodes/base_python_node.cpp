@@ -6,8 +6,7 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
 
-namespace hgraph
-{
+namespace hgraph {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                                    nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
         : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
@@ -22,7 +21,7 @@ namespace hgraph
         _kwargs = {};
 
         bool has_injectables{signature().injectables != 0};
-        for (const auto& [key_, value] : scalars())
+        for (const auto& [key_, value]: scalars())
         {
             std::string key{nb::cast<std::string>(key_)};
             try
@@ -139,15 +138,15 @@ namespace hgraph
         _initialise_kwarg_inputs();
     }
 
-    class ContextManager
-    {
+    class ContextManager {
+
     public:
         explicit ContextManager(BasePythonNode& node)
         {
             if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty())
             {
                 contexts_.reserve(node.signature().context_inputs->size());
-                for (const auto& context_key : *node.signature().context_inputs)
+                for (const auto& context_key: *node.signature().context_inputs)
                 {
                     if ((*node.input())[context_key]->valid())
                     {
@@ -209,7 +208,7 @@ namespace hgraph
 
             // Filter kwargs to only include parameters in start_fn signature
             nb::dict filtered_kwargs;
-            for (auto k : params)
+            for (auto k: params)
             {
                 if (_kwargs.contains(k)) { filtered_kwargs[k] = _kwargs[k]; }
             }
@@ -233,7 +232,7 @@ namespace hgraph
 
             // Filter kwargs to only include parameters in stop_fn signature
             nb::dict filtered_kwargs;
-            for (auto k : params)
+            for (auto k: params)
             {
                 if (_kwargs.contains(k)) { filtered_kwargs[k] = _kwargs[k]; }
             }

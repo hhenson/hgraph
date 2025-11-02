@@ -3,8 +3,8 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/nest_graph_node.h>
 
-namespace hgraph
-{
+namespace hgraph {
+
     node_ptr NestedGraphNodeBuilder::make_instance(const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) const
     {
         nb::ref<Node> node{

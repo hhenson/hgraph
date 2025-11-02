@@ -37,25 +37,24 @@ class frozenset : public set
     frozenset() : object(PyFrozenSet_New(nullptr), detail::steal_t())
     {
     }
-
     explicit frozenset(handle h)
-        : object(detail::frozenset_from_obj(h.ptr()), detail::steal_t{})
-    {
+        : object(detail::frozenset_from_obj(h.ptr()), detail::steal_t{}) {
     }
 
-    size_t size() const { return (size_t)NB_SET_GET_SIZE(m_ptr); }
-    template <typename T>
-    bool contains(T&& key) const;
-    template <typename T>
-    void add(T&& value);
+    size_t size() const { return (size_t) NB_SET_GET_SIZE(m_ptr); }
 
-    void clear()
-    {
+    template<typename T>
+    bool contains(T &&key) const;
+
+    template<typename T>
+    void add(T &&value);
+
+    void clear() {
         if (PySet_Clear(m_ptr))
             raise_python_error();
     }
 
-    template <typename T>
+    template<typename T>
     bool discard(T&& value);
 };
 

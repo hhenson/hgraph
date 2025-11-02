@@ -7,10 +7,8 @@
 
 #include <hgraph/nodes/base_python_node.h>
 
-namespace hgraph
-{
-    struct PythonGeneratorNode : BasePythonNode
-    {
+namespace hgraph {
+    struct PythonGeneratorNode : BasePythonNode {
         using BasePythonNode::BasePythonNode;
         nb::iterator generator{};
         nb::object next_value{};
@@ -19,6 +17,7 @@ namespace hgraph
 
     protected:
         void do_eval() override;
+
         void start() override;
     };
 } // namespace hgraph

@@ -16,10 +16,10 @@
 namespace hgraph
 {
     // Helper to compare keys (special handling for nb::object)
-    template <typename K>
+    template<typename K>
     inline bool keys_equal(const K& a, const K& b) { return a == b; }
 
-    template <>
+    template<>
     inline bool keys_equal<nb::object>(const nb::object& a, const nb::object& b) { return a.equal(b); }
 
     // Helper to get DEFAULT object from Python
@@ -43,10 +43,10 @@ namespace hgraph
         return default_obj;
     }
 
-    template <typename K>
+    template<typename K>
     SwitchNode<K>::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                               nb::dict scalars, const std::unordered_map<K, graph_builder_ptr>& nested_graph_builders,
-                              const std::unordered_map<K, std::unordered_map<std::string, int>>& input_node_ids,
+                              const std::unordered_map<K, std::unordered_map<std::string, int> >& input_node_ids,
                               const std::unordered_map<K, int>& output_node_ids, bool reload_on_ticked,
                               graph_builder_ptr default_graph_builder,
                               const std::unordered_map<std::string, int>& default_input_node_ids,
@@ -73,14 +73,14 @@ namespace hgraph
         // For typed keys (bool, int, etc.), the default_graph_builder is now passed as a parameter
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::initialise()
     {
         // Switch node doesn't create graphs upfront
         // Graphs are created dynamically in do_eval when key changes
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::do_start()
     {
         auto ts{(*input())["key"].get()};
@@ -106,13 +106,13 @@ namespace hgraph
         _initialise_inputs();
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::do_stop()
     {
         if (active_graph_ != nullptr) { stop_component(*active_graph_); }
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::dispose()
     {
         if (active_graph_ != nullptr)
@@ -123,7 +123,7 @@ namespace hgraph
         }
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::eval()
     {
         mark_evaluated();
@@ -199,7 +199,8 @@ namespace hgraph
         // Evaluate the active graph if it exists
         if (active_graph_ != nullptr)
         {
-            if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(active_graph_->evaluation_engine_clock().get()))
+            if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(active_graph_->evaluation_engine_clock().
+                get()))
             {
                 nec->reset_next_scheduled_evaluation_time();
             }
@@ -212,14 +213,15 @@ namespace hgraph
             {
                 output()->invalidate();
             }
-            if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(active_graph_->evaluation_engine_clock().get()))
+            if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(active_graph_->evaluation_engine_clock().
+                get()))
             {
                 nec->reset_next_scheduled_evaluation_time();
             }
         }
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::wire_graph(graph_ptr& graph)
     {
         // Determine the effective graph key as Python does: if no specific mapping, use DEFAULT
@@ -269,7 +271,7 @@ namespace hgraph
         // Wire inputs (exactly as Python: notify each node; set key; clone REF binding for others)
         if (input_ids_to_use)
         {
-            for (const auto& [arg, node_ndx] : *input_ids_to_use)
+            for (const auto& [arg, node_ndx]: *input_ids_to_use)
             {
                 auto node = graph->nodes()[node_ndx];
                 node->notify();
@@ -317,7 +319,7 @@ namespace hgraph
         }
     }
 
-    template <typename K>
+    template<typename K>
     void SwitchNode<K>::unwire_graph(graph_ptr& graph)
     {
         if (old_output_ != nullptr)
@@ -354,7 +356,7 @@ namespace hgraph
         }
     }
 
-    template <typename K>
+    template<typename K>
     std::unordered_map<int, graph_ptr> SwitchNode<K>::nested_graphs() const
     {
         if (active_graph_ != nullptr) { return {{static_cast<int>(count_), active_graph_}}; }
@@ -373,24 +375,24 @@ namespace hgraph
     void register_switch_node_with_nanobind(nb::module_& m)
     {
         nb::class_<SwitchNode<bool>, NestedNode>(m, "SwitchNode_bool")
-            .def_prop_ro("nested_graphs", &SwitchNode<bool>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<bool>::nested_graphs);
 
         nb::class_<SwitchNode<int64_t>, NestedNode>(m, "SwitchNode_int")
-            .def_prop_ro("nested_graphs", &SwitchNode<int64_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<int64_t>::nested_graphs);
 
         nb::class_<SwitchNode<double>, NestedNode>(m, "SwitchNode_float")
-            .def_prop_ro("nested_graphs", &SwitchNode<double>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<double>::nested_graphs);
 
         nb::class_<SwitchNode<engine_date_t>, NestedNode>(m, "SwitchNode_date")
-            .def_prop_ro("nested_graphs", &SwitchNode<engine_date_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<engine_date_t>::nested_graphs);
 
         nb::class_<SwitchNode<engine_time_t>, NestedNode>(m, "SwitchNode_date_time")
-            .def_prop_ro("nested_graphs", &SwitchNode<engine_time_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<engine_time_t>::nested_graphs);
 
         nb::class_<SwitchNode<engine_time_delta_t>, NestedNode>(m, "SwitchNode_time_delta")
-            .def_prop_ro("nested_graphs", &SwitchNode<engine_time_delta_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<engine_time_delta_t>::nested_graphs);
 
         nb::class_<SwitchNode<nb::object>, NestedNode>(m, "SwitchNode_object")
-            .def_prop_ro("nested_graphs", &SwitchNode<nb::object>::nested_graphs);
+                .def_prop_ro("nested_graphs", &SwitchNode<nb::object>::nested_graphs);
     }
 } // namespace hgraph

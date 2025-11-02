@@ -7,8 +7,7 @@
 
 #include <hgraph/types/node.h>
 
-namespace hgraph
-{
+namespace hgraph {
     /**
      * BasePythonNode - Base class for Python-based compute nodes
      *
@@ -22,22 +21,29 @@ namespace hgraph
      * - PythonNode: Standard Python compute nodes
      * - PythonGeneratorNode: Generator-based nodes
      */
-    struct BasePythonNode : Node
-    {
+    struct BasePythonNode : Node {
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                        nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
 
         void _initialise_kwargs();
+
         void _initialise_kwarg_inputs();
+
         void _initialise_state();
+
         void reset_input(time_series_bundle_input_ptr value) override;
 
     protected:
         void do_eval() override;
+
         void do_start() override;
+
         void do_stop() override;
+
         void initialise() override;
+
         void start() override;
+
         void dispose() override;
 
         nb::callable _eval_fn;
