@@ -344,3 +344,38 @@ TEST_CASE("to_string for TsCollectionEventAny", "[time_series][collection][strin
     REQUIRE(s.find("Reset") != std::string::npos);
     REQUIRE(s.find("Remove") != std::string::npos);
 }
+
+
+// ---- Recover event tests ----
+TEST_CASE("TsEventAny: recover without payload", "[time_series][event][recover]") {
+    engine_time_t t{};
+    auto e = TsEventAny::recover(t);
+    REQUIRE(e.kind == TsEventKind::Recover);
+    REQUIRE_FALSE(e.value.has_value());
+    auto s = to_string(e);
+    REQUIRE(s.find("kind=Recover") != std::string::npos);
+    REQUIRE(s.find("value=") == std::string::npos);
+}
+
+TEST_CASE("TsEventAny: recover with payload", "[time_series][event][recover]") {
+    engine_time_t t{};
+    auto e = TsEventAny::recover(t, static_cast<int64_t>(42));
+    REQUIRE(e.kind == TsEventKind::Recover);
+    auto p = e.value.get_if<int64_t>();
+    REQUIRE(p != nullptr);
+    REQUIRE(*p == 42);
+    auto s = to_string(e);
+    REQUIRE(s.find("kind=Recover") != std::string::npos);
+    REQUIRE(s.find("value=42") != std::string::npos);
+}
+
+TEST_CASE("TsCollectionEventAny: recover header only", "[time_series][collection][recover]") {
+    engine_time_t t{};
+    auto e = TsCollectionEventAny::recover(t);
+    REQUIRE(e.kind == TsEventKind::Recover);
+    REQUIRE(e.items.empty());
+    auto s = to_string(e);
+    REQUIRE(s.find("kind=Recover") != std::string::npos);
+    // items list printed only when kind==Modify
+    REQUIRE(s.find("items=") == std::string::npos);
+}
