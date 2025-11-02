@@ -657,3 +657,161 @@ TEST_CASE("AnyValue < : empty comparisons", "[any][lt][empty]") {
     REQUIRE_THROWS_AS((void)(e1 < v), std::runtime_error);
     REQUIRE_THROWS_AS((void)(v < e1), std::runtime_error);
 }
+
+// ---- AnyValue visitor pattern tests ----
+TEST_CASE("AnyValue visit_as: type-safe visitation", "[any][visitor]") {
+    AnyValue<> v;
+    v.emplace<int64_t>(42);
+
+    // Visit with matching type
+    int64_t result = 0;
+    bool visited = v.visit_as<int64_t>([&result](int64_t val) {
+        result = val * 2;
+    });
+    REQUIRE(visited);
+    REQUIRE(result == 84);
+
+    // Visit with non-matching type
+    visited = v.visit_as<double>([](double) {
+        REQUIRE(false); // Should not be called
+    });
+    REQUIRE_FALSE(visited);
+
+    // Empty AnyValue
+    AnyValue<> empty;
+    visited = empty.visit_as<int64_t>([](int64_t) {
+        REQUIRE(false); // Should not be called
+    });
+    REQUIRE_FALSE(visited);
+}
+
+TEST_CASE("AnyValue visit_as: mutable visitation", "[any][visitor]") {
+    AnyValue<> v;
+    v.emplace<int64_t>(42);
+
+    // Modify value through visitor
+    bool visited = v.visit_as<int64_t>([](int64_t& val) {
+        val = 100;
+    });
+    REQUIRE(visited);
+    REQUIRE(*v.get_if<int64_t>() == 100);
+}
+
+TEST_CASE("AnyValue visit_as: with std::string", "[any][visitor]") {
+    AnyValue<> v;
+    v.emplace<std::string>("hello");
+
+    std::string result;
+    bool visited = v.visit_as<std::string>([&result](const std::string& s) {
+        result = s + " world";
+    });
+    REQUIRE(visited);
+    REQUIRE(result == "hello world");
+
+    // Modify the string
+    visited = v.visit_as<std::string>([](std::string& s) {
+        s = "goodbye";
+    });
+    REQUIRE(visited);
+    REQUIRE(*v.get_if<std::string>() == "goodbye");
+}
+
+TEST_CASE("AnyValue visit_as: with references", "[any][visitor][ref]") {
+    int x = 42;
+    AnyValue<> v;
+    v.emplace_ref(x);
+
+    // Visit reference (const)
+    int result = 0;
+    bool visited = v.visit_as<int>([&result](int val) {
+        result = val;
+    });
+    REQUIRE(visited);
+    REQUIRE(result == 42);
+
+    // Modify through reference - this modifies the referent
+    x = 100;
+    visited = v.visit_as<int>([&result](int val) {
+        result = val;
+    });
+    REQUIRE(visited);
+    REQUIRE(result == 100);
+}
+
+TEST_CASE("AnyValue visit_untyped: introspection", "[any][visitor]") {
+    AnyValue<> v_int;
+    v_int.emplace<int64_t>(42);
+
+    // Visit with type info
+    bool visited = false;
+    const void* ptr = nullptr;
+    const std::type_info* tinfo = nullptr;
+
+    v_int.visit_untyped([&](const void* p, const std::type_info& ti) {
+        visited = true;
+        ptr = p;
+        tinfo = &ti;
+    });
+
+    REQUIRE(visited);
+    REQUIRE(ptr != nullptr);
+    REQUIRE(tinfo == &typeid(int64_t));
+    REQUIRE(*static_cast<const int64_t*>(ptr) == 42);
+}
+
+TEST_CASE("AnyValue visit_untyped: with std::string", "[any][visitor]") {
+    AnyValue<> v;
+    v.emplace<std::string>("test");
+
+    bool visited = false;
+    v.visit_untyped([&visited](const void* p, const std::type_info& ti) {
+        visited = true;
+        REQUIRE(ti == typeid(std::string));
+        const auto* s = static_cast<const std::string*>(p);
+        REQUIRE(*s == "test");
+    });
+    REQUIRE(visited);
+}
+
+TEST_CASE("AnyValue visit_untyped: empty does nothing", "[any][visitor]") {
+    AnyValue<> empty;
+
+    bool visited = false;
+    empty.visit_untyped([&visited](const void*, const std::type_info&) {
+        visited = true;
+    });
+    REQUIRE_FALSE(visited);
+}
+
+TEST_CASE("AnyValue visitor: combined pattern", "[any][visitor]") {
+    // Demonstrates using both visit types together
+    AnyValue<> v;
+    v.emplace<double>(3.14);
+
+    // Try multiple types with visit_as
+    bool found = false;
+    found = v.visit_as<int64_t>([](int64_t) {
+        REQUIRE(false); // Not this type
+    });
+    REQUIRE_FALSE(found);
+
+    found = v.visit_as<std::string>([](const std::string&) {
+        REQUIRE(false); // Not this type
+    });
+    REQUIRE_FALSE(found);
+
+    found = v.visit_as<double>([](double val) {
+        REQUIRE(val == Catch::Approx(3.14));
+    });
+    REQUIRE(found);
+
+    // Or use visit_untyped for dynamic dispatch
+    v.visit_untyped([](const void* p, const std::type_info& ti) {
+        if (ti == typeid(double)) {
+            double val = *static_cast<const double*>(p);
+            REQUIRE(val == Catch::Approx(3.14));
+        } else if (ti == typeid(int64_t)) {
+            REQUIRE(false); // Not this type
+        }
+    });
+}
