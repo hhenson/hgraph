@@ -74,6 +74,15 @@ class WebSocketAdaptorManager:
         self.requests = {}
         self.message_handlers = {}
         self.binary = binary
+        # Stable ids for requests and per-port handler registration
+        self._next_request_id = 1
+        self._pyid_to_id: dict[int, int] = {}
+        self._registered_paths_by_port: dict[int, set[str]] = {}
+        # Queues are set from adaptor start; buffer early events until ready
+        self.connect_queue = None
+        self.message_queue = None
+        self._pending_connect: list[tuple[int, WebSocketConnectRequest]] = []
+        self._pending_messages: list[tuple[int, object]] = []
 
     @classmethod
     def instance(cls, tp):
@@ -86,30 +95,92 @@ class WebSocketAdaptorManager:
     def set_queues(self, connect_queue, message_queue):
         self.connect_queue = connect_queue
         self.message_queue = message_queue
+        # Flush any buffered connections/messages if any were queued before queues were ready
+        if getattr(self, "_pending_connect", None):
+            for rid, req in self._pending_connect:
+                logger.debug(f"[WS] Flushing buffered connect rid={rid} path={getattr(req, 'url', '?')}")
+                try:
+                    self.connect_queue({rid: req})
+                except Exception:
+                    logger.debug("[WS] Failed to flush buffered connect", exc_info=True)
+            self._pending_connect.clear()
+        if getattr(self, "_pending_messages", None):
+            for rid, msg in self._pending_messages:
+                logger.debug(f"[WS] Flushing buffered message rid={rid} len={len(msg) if hasattr(msg,'__len__') else 'n/a'}")
+                try:
+                    self.message_queue({rid: msg})
+                except Exception:
+                    logger.debug("[WS] Failed to flush buffered message", exc_info=True)
+            self._pending_messages.clear()
 
     def start(self, port):
         self.tornado_web = TornadoWeb.instance(port)
 
+        reg = self._registered_paths_by_port.setdefault(port, set())
         for path in self.handlers.keys():
-            self.tornado_web.add_handler(path, WebSocketHandler, {"path": path, "binary": self.binary, "mgr": self})
+            if path not in reg:
+                logger.info("[WS] Register handler path=%s on port=%s", path, port)
+                self.tornado_web.add_handler(path, WebSocketHandler, {"path": path, "binary": self.binary, "mgr": self})
+                reg.add(path)
 
         self.tornado_web.start()
 
     def stop(self):
         self.tornado_web.stop()
 
+    def shutdown(self, path: str | None = None):
+        # Cancel any outstanding futures and clear mappings
+        for fut in list(self.requests.values()):
+            try:
+                if fut is not None and not fut.done():
+                    fut.cancel()
+            except Exception:
+                logger.debug("[WS] Ignoring exception while cancelling pending future", exc_info=True)
+        self.requests.clear()
+        self.message_handlers.clear()
+        self._pyid_to_id.clear()
+        # Clear any buffered items
+        try:
+            self._pending_connect.clear()
+            self._pending_messages.clear()
+        except Exception:
+            pass
+        # Drop queue references and remove GlobalState keys if provided
+        if path is not None:
+            try:
+                del GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"]
+            except Exception:
+                pass
+            try:
+                del GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"]
+            except Exception:
+                pass
+        self.connect_queue = None
+        self.message_queue = None
+
     def add_handler(self, path, handler):
         self.handlers[path] = handler
 
     def add_request(self, request_id, request, message_handler):
+        # Map transient Python object id to a stable, unique request id to avoid id() reuse collisions
+        pyid = request_id
+        rid = self._pyid_to_id.get(pyid)
+        if rid is None:
+            rid = self._next_request_id
+            self._next_request_id += 1
+            self._pyid_to_id[pyid] = rid
         try:
+            future = asyncio.get_running_loop().create_future()
+        except Exception:
             future = asyncio.Future()
-        except Exception as e:
-            print(f"Error creating future: {e}")
-            raise e
-        self.requests[request_id] = future
-        self.message_handlers[request_id] = message_handler
-        self.connect_queue({request_id: request})
+        self.requests[rid] = future
+        self.message_handlers[rid] = message_handler
+        if self.connect_queue is None:
+            # Buffer until queues are set by adaptor start
+            logger.debug(f"[WS] Buffer connect rid={rid} path={getattr(request, 'url', '?')} (queues not ready)")
+            self._pending_connect.append((rid, request))
+        else:
+            self.connect_queue({rid: request})
         return future
 
     def remove_message_handler(self, request_id):
@@ -117,12 +188,24 @@ class WebSocketAdaptorManager:
         self.connect_queue({request_id: REMOVE})
         self.message_queue({request_id: REMOVE})
 
+    def enqueue_message_for(self, rid: int, msg: object):
+        if self.message_queue is None:
+            logger.debug(f"[WS] Buffer message rid={rid} len={len(msg) if hasattr(msg,'__len__') else 'n/a'} (queue not ready)")
+            self._pending_messages.append((rid, msg))
+        else:
+            self.message_queue({rid: msg})
+
     def complete_request(self, request_id, response):
+        # request_id here is the stable rid used by the engine
         if r := response.get("connect_response"):
             self.requests[request_id].set_result(
-                (r, lambda m: self.message_queue({request_id: m}), lambda: self.remove_message_handler(request_id))
+                (
+                    r,
+                    lambda m, rid=request_id: self.enqueue_message_for(rid, m),
+                    lambda rid=request_id: self.remove_message_handler(rid),
+                )
             )
-            print(f"Completed websocket open request {request_id} with response {response}")
+            logger.info(f"[WS] Completed websocket open request rid={request_id} with response keys={list(response.keys())}")
         if m := response.get("message"):
             if h := self.message_handlers.get(request_id):
                 h(m)
@@ -332,8 +415,13 @@ def websocket_server_adaptor_impl(path: str, port: int):
         _state.mgr.start(port)
 
     @to_web.stop
-    def to_web_stop(_state: STATE):
-        _state.mgr.tornado_web.stop()
+    def to_web_stop(path: str, _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE, _state: STATE = None):
+        # Ensure we clean up pending futures/queues and remove global keys before stopping the server
+        try:
+            typed_path = f"{path}[{_tp.__name__.lower()}]"
+            _state.mgr.shutdown(typed_path)
+        finally:
+            _state.mgr.tornado_web.stop()
 
     adaptors_dedup = set()
     for msg_type in (str, bytes):
