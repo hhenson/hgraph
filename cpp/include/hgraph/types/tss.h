@@ -118,7 +118,7 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object &item) const = 0;
     };
 
-    struct TimeSeriesSetOutput : TimeSeriesSet<TimeSeriesOutput> {
+    struct TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesSetOutput>;
 
         explicit TimeSeriesSetOutput(const node_ptr &parent);
@@ -142,8 +142,8 @@ namespace hgraph {
         nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
     };
 
-    struct TimeSeriesSetInput : TimeSeriesSet<TimeSeriesInput> {
-        using TimeSeriesSet<TimeSeriesInput>::TimeSeriesSet;
+    struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
+        using TimeSeriesSet<BaseTimeSeriesInput>::TimeSeriesSet;
 
         TimeSeriesSetOutput &set_output() const;
 
@@ -258,7 +258,7 @@ namespace hgraph {
             return dynamic_cast<const TimeSeriesSetOutput_T<T_Key> *>(other) != nullptr;
         }
 
-        using TimeSeriesOutput::mark_modified;
+        using BaseTimeSeriesOutput::mark_modified;
 
         void mark_modified(engine_time_t modified_time) override;
 

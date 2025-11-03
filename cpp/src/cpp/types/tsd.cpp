@@ -90,7 +90,7 @@ namespace hgraph {
             }
         }
 
-        TimeSeriesOutput::mark_child_modified(child, modified_time);
+        BaseTimeSeriesOutput::mark_child_modified(child, modified_time);
     }
 
     template<typename T_Key>
@@ -531,12 +531,12 @@ namespace hgraph {
     nb::object TimeSeriesDictOutput_T<T_Key>::py_key_set() const { return nb::cast(_key_set); }
 
     template<typename T_Key>
-    TimeSeriesSet<TimeSeriesDict<TimeSeriesOutput>::ts_type> &TimeSeriesDictOutput_T<T_Key>::key_set() {
+    TimeSeriesSetOutput &TimeSeriesDictOutput_T<T_Key>::key_set() {
         return key_set_t();
     }
 
     template<typename T_Key>
-    const TimeSeriesSet<TimeSeriesDict<TimeSeriesOutput>::ts_type> &TimeSeriesDictOutput_T<T_Key>::key_set() const {
+    const TimeSeriesSetOutput &TimeSeriesDictOutput_T<T_Key>::key_set() const {
         return const_cast<TimeSeriesDictOutput_T *>(this)->key_set();
     }
 
@@ -813,7 +813,7 @@ namespace hgraph {
     }
 
     template<typename T_Key>
-    TimeSeriesSet<TimeSeriesInput> &TimeSeriesDictInput_T<T_Key>::key_set() { return key_set_t(); }
+    TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() { return key_set_t(); }
 
     template<typename T_Key>
     bool TimeSeriesDictInput_T<T_Key>::py_was_modified(const nb::object &key) const {
@@ -942,7 +942,7 @@ namespace hgraph {
     bool TimeSeriesDictInput_T<T_Key>::has_removed() const { return !_removed_items.empty(); }
 
     template<typename T_Key>
-    const TimeSeriesSet<TimeSeriesInput> &TimeSeriesDictInput_T<T_Key>::key_set() const {
+    const TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() const {
         return key_set_t();
     }
 
@@ -1021,7 +1021,7 @@ namespace hgraph {
         // Call base implementation which will set _output and call make_active if needed
         // Note: Base calls make_passive first, but we already did that above with the OLD has_peer
         // Base then sets _output and calls make_active with the NEW has_peer (which we just set)
-        TimeSeriesInput::do_bind_output(value);
+        BaseTimeSeriesInput::do_bind_output(value);
 
         if (!_ts_values.empty()) { register_clear_key_changes(); }
 
@@ -1061,7 +1061,7 @@ namespace hgraph {
         // If we are un-binding then the output must exist by definition.
         output_t().remove_key_observer(this);
         if (has_peer()) {
-            TimeSeriesInput::do_un_bind_output(unbind_refs);
+            BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
         } else {
             reset_output();
         }
@@ -1245,7 +1245,7 @@ namespace hgraph {
             }
         }
 
-        TimeSeriesInput::notify_parent(this, modified_time);
+        BaseTimeSeriesInput::notify_parent(this, modified_time);
     }
 
     template<typename T_Key>
@@ -1342,7 +1342,7 @@ namespace hgraph {
     // template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::post_modify() { _post_modify(); }
 
     void tsd_register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesDictOutput, TimeSeriesOutput>(m, "TimeSeriesDictOutput")
+        nb::class_<TimeSeriesDictOutput, BaseTimeSeriesOutput>(m, "TimeSeriesDictOutput")
                 .def("__contains__", &TimeSeriesDictOutput::py_contains, "key"_a)
                 .def("__getitem__", &TimeSeriesDictOutput::py_get_item, "key"_a)
                 .def("__setitem__", &TimeSeriesDictOutput::py_set_item, "key"_a, "value"_a)
@@ -1398,7 +1398,7 @@ namespace hgraph {
                                        self.valid());
                 });
 
-        nb::class_<TimeSeriesDictInput, TimeSeriesInput>(m, "TimeSeriesDictInput")
+        nb::class_<TimeSeriesDictInput, BaseTimeSeriesInput>(m, "TimeSeriesDictInput")
                 .def("__contains__", &TimeSeriesDictInput::py_contains, "key"_a)
                 .def("__getitem__", &TimeSeriesDictInput::py_get_item, "key"_a)
                 .def(

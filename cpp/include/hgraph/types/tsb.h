@@ -117,9 +117,6 @@ namespace hgraph {
         [[nodiscard]] bool has_reference() const override;
 
     protected:
-        using T_TS::index_with_constraint;
-        using T_TS::ts_values;
-
         template<bool is_delta>
         nb::object py_value_with_constraint(const std::function<bool(const ts_type &)> &constraint) const;
 
@@ -168,7 +165,7 @@ namespace hgraph {
         // This is used by the nested graph infra to rewrite the stub inputs when we build the nested graphs.
         // The general pattern in python was copy_with(node, ts=...)
         // To keep the code in sync for now, will keep this, but there is probably a better way to implement this going forward.
-        ptr copy_with(const node_ptr &parent, collection_type ts_values);
+        ptr copy_with(const node_ptr &parent, IndexedTimeSeriesInput::collection_type ts_values);
 
     protected:
         using bundle_type::set_ts_values;

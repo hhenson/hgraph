@@ -6,6 +6,8 @@
 #define REF_H
 
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series_input.h>
+#include <hgraph/types/base_time_series_output.h>
 
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesReference : nb::intrusive_base {
@@ -92,8 +94,8 @@ namespace hgraph {
         std::vector<ptr> _items;
     };
 
-    struct TimeSeriesReferenceOutput : TimeSeriesOutput {
-        using TimeSeriesOutput::TimeSeriesOutput;
+    struct TimeSeriesReferenceOutput : BaseTimeSeriesOutput {
+        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
@@ -149,9 +151,9 @@ namespace hgraph {
         std::unordered_set<TimeSeriesInput::ptr> _reference_observers;
     };
 
-    struct TimeSeriesReferenceInput : TimeSeriesInput {
+    struct TimeSeriesReferenceInput : BaseTimeSeriesInput {
         using ptr = nb::ref<TimeSeriesReferenceInput>;
-        using TimeSeriesInput::TimeSeriesInput;
+        using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
             return dynamic_cast<const TimeSeriesReferenceInput *>(other) != nullptr;

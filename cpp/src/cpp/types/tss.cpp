@@ -191,14 +191,14 @@ namespace hgraph {
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
-        : TimeSeriesSet<TimeSeriesOutput>(parent), _is_empty_ref_output{
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{
               dynamic_cast_ref<TimeSeriesValueOutput<bool> >(
                   TimeSeriesValueOutputBuilder<bool>().make_instance(this))
           } {
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSet<TimeSeriesOutput>(parent), _is_empty_ref_output{
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{
               dynamic_cast_ref<TimeSeriesValueOutput<bool> >(
                   TimeSeriesValueOutputBuilder<bool>().make_instance(this))
           } {
@@ -880,7 +880,7 @@ namespace hgraph {
             // Clean up after the engine cycle is complete
             _add_reset_prev();
         }
-        return TimeSeriesInput::do_bind_output(output);
+        return BaseTimeSeriesInput::do_bind_output(output);
     }
 
     void TimeSeriesSetInput::do_un_bind_output(bool unbind_refs) {
@@ -888,7 +888,7 @@ namespace hgraph {
             _prev_output = &set_output();
             _add_reset_prev();
         }
-        TimeSeriesInput::do_un_bind_output(unbind_refs);
+        BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
     }
 
     template struct TimeSeriesSetInput_T<bool>;
@@ -908,7 +908,7 @@ namespace hgraph {
     template struct TimeSeriesSetOutput_T<nb::object>;
 
     void tss_register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesSetInput, TimeSeriesInput>(m, "TimeSeriesSetInput")
+        nb::class_<TimeSeriesSetInput, BaseTimeSeriesInput>(m, "TimeSeriesSetInput")
                 .def("__contains__", &TimeSeriesSetInput::py_contains)
                 .def("__len__", &TimeSeriesSetInput::size)
                 .def("empty", &TimeSeriesSetInput::empty)
@@ -954,7 +954,7 @@ namespace hgraph {
                     });
         };
 
-        nb::class_ < TimeSeriesSetOutput, TimeSeriesOutput > (m, "TimeSeriesSetOutput")
+        nb::class_ < TimeSeriesSetOutput, BaseTimeSeriesOutput > (m, "TimeSeriesSetOutput")
                 .def("__contains__", &TimeSeriesSetOutput::py_contains)
                 .def("__len__", &TimeSeriesSetOutput::size)
                 .def("empty", &TimeSeriesSetOutput::empty)

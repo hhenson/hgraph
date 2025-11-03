@@ -75,6 +75,8 @@ set(HGRAPH_SOURCES
         types/scalar_types.cpp
         types/schema_type.cpp
         types/time_series_type.cpp
+        types/base_time_series_input.cpp
+        types/base_time_series_output.cpp
         types/traits.cpp
         types/ts.cpp
         types/ts_signal.cpp

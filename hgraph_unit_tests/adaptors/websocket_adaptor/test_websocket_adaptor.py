@@ -227,7 +227,7 @@ try:
                     i=const(
                         queries,
                         tp=TSD[str, TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]],
-                        delay=timedelta(milliseconds=10),
+                        delay=timedelta(milliseconds=30),
                     ),
                 ),
             )

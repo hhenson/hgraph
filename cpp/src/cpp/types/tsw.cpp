@@ -80,7 +80,7 @@ namespace hgraph {
     void TimeSeriesFixedWindowOutput<T>::mark_invalid() {
         _start = 0;
         _length = 0;
-        TimeSeriesOutput::mark_invalid();
+        BaseTimeSeriesOutput::mark_invalid();
     }
 
     template<typename T>
@@ -116,7 +116,7 @@ namespace hgraph {
         using Out = TimeSeriesFixedWindowOutput<T>;
         using In = TimeSeriesWindowInput<T>;
 
-        auto out_cls = nb::class_<Out, TimeSeriesOutput>(
+        auto out_cls = nb::class_<Out, BaseTimeSeriesOutput>(
                     m, (std::string("TimeSeriesFixedWindowOutput_") + suffix).c_str())
                 .def_prop_ro("value_times", &Out::py_value_times)
                 .def_prop_ro("first_modified_time", &Out::first_modified_time)
@@ -128,7 +128,7 @@ namespace hgraph {
                 })
                 .def("__len__", &Out::len);
 
-        auto in_cls = nb::class_<In, TimeSeriesInput>(m, (std::string("TimeSeriesWindowInput_") + suffix).c_str())
+        auto in_cls = nb::class_<In, BaseTimeSeriesInput>(m, (std::string("TimeSeriesWindowInput_") + suffix).c_str())
                 .def_prop_ro("value_times", &In::py_value_times)
                 .def_prop_ro("first_modified_time", &In::first_modified_time)
                 .def_prop_ro("has_removed_value", &In::has_removed_value)
@@ -274,7 +274,7 @@ namespace hgraph {
         _buffer.clear();
         _times.clear();
         _ready = false;
-        TimeSeriesOutput::mark_invalid();
+        BaseTimeSeriesOutput::mark_invalid();
     }
 
     template<typename T>
@@ -311,7 +311,7 @@ namespace hgraph {
     static void bind_time_tsw_for_type(nb::module_ &m, const char *suffix) {
         using Out = TimeSeriesTimeWindowOutput<T>;
 
-        auto out_cls = nb::class_<Out, TimeSeriesOutput>(
+        auto out_cls = nb::class_<Out, BaseTimeSeriesOutput>(
                     m, (std::string("TimeSeriesTimeWindowOutput_") + suffix).c_str())
                 .def_prop_ro("value_times", &Out::py_value_times)
                 .def_prop_ro("first_modified_time", &Out::first_modified_time)

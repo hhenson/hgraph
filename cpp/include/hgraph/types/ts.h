@@ -6,14 +6,16 @@
 #define TS_H
 
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series_input.h>
+#include <hgraph/types/base_time_series_output.h>
 
 namespace hgraph {
     template<typename T>
-    struct TimeSeriesValueOutput : TimeSeriesOutput {
+    struct TimeSeriesValueOutput : BaseTimeSeriesOutput {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueOutput<T> >;
 
-        using TimeSeriesOutput::TimeSeriesOutput;
+        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         [[nodiscard]] nb::object py_value() const override;
 
@@ -44,11 +46,11 @@ namespace hgraph {
     };
 
     template<typename T>
-    struct TimeSeriesValueInput : TimeSeriesInput {
+    struct TimeSeriesValueInput : BaseTimeSeriesInput {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueInput<T> >;
 
-        using TimeSeriesInput::TimeSeriesInput;
+        using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] TimeSeriesValueOutput<T> &value_output();
 
