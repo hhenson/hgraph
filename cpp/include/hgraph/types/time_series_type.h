@@ -127,64 +127,35 @@ namespace hgraph
         using ptr = nb::ref<TimeSeriesOutput>;
         using TimeSeriesType::TimeSeriesType;
 
-        [[nodiscard]] bool modified() const override;
-
-        [[nodiscard]] engine_time_t last_modified_time() const override;
-
-        virtual void mark_invalid();
-
-        virtual void mark_modified();
-
-        virtual void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time);
-
-        [[nodiscard]] bool valid() const override;
-
-        [[nodiscard]] bool all_valid() const override;
-
-        [[nodiscard]] ptr parent_output() const;
-
-        [[nodiscard]] ptr parent_output();
-
-        [[nodiscard]] bool has_parent_output() const;
-
-        void subscribe(Notifiable *node);
-
-        void un_subscribe(Notifiable *node);
-
+        // Interface: pure virtual behaviour to be implemented by concrete base
+        [[nodiscard]] virtual bool modified() const = 0;
+        [[nodiscard]] virtual engine_time_t last_modified_time() const = 0;
+        virtual void mark_invalid() = 0;
+        virtual void mark_modified() = 0;
+        virtual void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) = 0;
+        [[nodiscard]] virtual bool valid() const = 0;
+        [[nodiscard]] virtual bool all_valid() const = 0;
+        [[nodiscard]] virtual ptr parent_output() const = 0;
+        [[nodiscard]] virtual ptr parent_output() = 0;
+        [[nodiscard]] virtual bool has_parent_output() const = 0;
+        virtual void subscribe(Notifiable *node) = 0;
+        virtual void un_subscribe(Notifiable *node) = 0;
         // Minimal-teardown helper used by builders during release; must not access owning_node/graph
-        void builder_release_cleanup();
-
+        virtual void builder_release_cleanup() = 0;
         virtual void py_set_value(nb::object value) = 0;
-
-        virtual bool can_apply_result(nb::object value);
-
+        virtual bool can_apply_result(nb::object value) = 0;
         virtual void apply_result(nb::object value) = 0;
-
         virtual void copy_from_output(const TimeSeriesOutput &output) = 0;
-
         virtual void copy_from_input(const TimeSeriesInput &input) = 0;
-
-        virtual void clear();
-
-        virtual void invalidate();
-
-        virtual void mark_modified(engine_time_t modified_time);
-
+        virtual void clear() = 0;
+        virtual void invalidate() = 0;
+        virtual void mark_modified(engine_time_t modified_time) = 0;
         static void register_with_nanobind(nb::module_ &m);
-
-        void notify(engine_time_t et) override;
-
-    protected:
-        void _notify(engine_time_t modified_time);
-
-        void _reset_last_modified_time();
-
-    private:
-        friend OutputBuilder;
-        // I think we can change this to not reference count if we track the inputs, this should be one-to-one
-        std::unordered_set<Notifiable *> _subscribers{};
-        engine_time_t _last_modified_time{MIN_DT};
+        virtual void notify(engine_time_t et) = 0;
     };
+
+
+    struct BaseTimeSeriesInput;
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType
     {
@@ -192,91 +163,63 @@ namespace hgraph
         using TimeSeriesType::TimeSeriesType;
 
         // The input that this input is bound to. This will be nullptr if this is the root input.
-        [[nodiscard]] ptr parent_input() const;
+        [[nodiscard]] virtual ptr parent_input() const = 0;
 
         // True if this input is a child of another input, False otherwise
-        [[nodiscard]] bool has_parent_input() const;
+        [[nodiscard]] virtual bool has_parent_input() const = 0;
 
         // Is this time-series input bound to an output?
-        [[nodiscard]] virtual bool bound() const;
+        [[nodiscard]] virtual bool bound() const = 0;
 
         // True if this input is peered.
-        [[nodiscard]] virtual bool has_peer() const;
+        [[nodiscard]] virtual bool has_peer() const = 0;
 
         // The output bound to this input. If the input is not bound then this will be nullptr.
-        [[nodiscard]] virtual time_series_output_ptr output() const;
+        [[nodiscard]] virtual time_series_output_ptr output() const = 0;
 
         // FOR LIBRARY USE ONLY. Binds the output provided to this input.
-        virtual bool bind_output(time_series_output_ptr output_);
+        virtual bool bind_output(time_series_output_ptr output_) = 0;
 
         // FOR LIBRARY USE ONLY. Unbinds the output from this input.
-        virtual void un_bind_output(bool unbind_refs);
+        virtual void un_bind_output(bool unbind_refs) = 0;
 
         // An active input will cause the node it is associated with to be scheduled when the value
         // the input represents is modified. Returns True if this input is active.
-        [[nodiscard]] virtual bool active() const;
+        [[nodiscard]] virtual bool active() const = 0;
 
         // Marks the input as being active, causing its node to be scheduled for evaluation when the value changes.
-        virtual void make_active();
+        virtual void make_active() = 0;
 
         // Marks the input as passive, preventing the associated node from being scheduled for evaluation
         // when the value changes.
-        virtual void make_passive();
+        virtual void make_passive() = 0;
 
-        [[nodiscard]] virtual bool has_output() const;
+        [[nodiscard]] virtual bool has_output() const = 0;
 
         // Minimal-teardown helper used by builders during release; must not access owning_node/graph
-        void builder_release_cleanup();
+        virtual void builder_release_cleanup() = 0;
 
-        [[nodiscard]] nb::object py_value() const override;
+        [[nodiscard]] virtual nb::object py_value() const = 0;
+        [[nodiscard]] virtual nb::object py_delta_value() const = 0;
+        [[nodiscard]] virtual bool modified() const = 0;
+        [[nodiscard]] virtual bool valid() const = 0;
+        [[nodiscard]] virtual bool all_valid() const = 0;
+        [[nodiscard]] virtual engine_time_t last_modified_time() const = 0;
 
-        [[nodiscard]] nb::object py_delta_value() const override;
+        [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const = 0;
 
-        [[nodiscard]] bool modified() const override;
-
-        [[nodiscard]] bool valid() const override;
-
-        [[nodiscard]] bool all_valid() const override;
-
-        [[nodiscard]] engine_time_t last_modified_time() const override;
-
-        [[nodiscard]] time_series_reference_output_ptr reference_output() const;
-
-        [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const;
-
-        [[nodiscard]] virtual TimeSeriesInput *get_input(size_t index);
+        [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
+        [[nodiscard]] virtual TimeSeriesInput *get_input(size_t index) = 0;
 
         static void register_with_nanobind(nb::module_ &m);
-
     protected:
+        friend BaseTimeSeriesInput;
         // Derived classes override this to implement specific behaviours
-        virtual bool do_bind_output(time_series_output_ptr &output_);
-
+        virtual bool do_bind_output(time_series_output_ptr &output_) = 0;
         // Derived classes override this to implement specific behaviours
-        virtual void do_un_bind_output(bool unbind_refs);
+        virtual void do_un_bind_output(bool unbind_refs) = 0;
+        virtual void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) = 0;
 
-        void notify(engine_time_t modified_time) override;
-
-        virtual void notify_parent(TimeSeriesInput *child, engine_time_t modified_time);
-
-        void set_sample_time(engine_time_t sample_time);
-
-        [[nodiscard]] engine_time_t sample_time() const;
-
-        [[nodiscard]] bool sampled() const;
-
-        void reset_output();
-
-        void set_output(time_series_output_ptr output);
-
-        void set_active(bool active);
-
-    private:
-        time_series_output_ptr _output;
-        time_series_reference_output_ptr _reference_output;
-        bool _active{false};
-        engine_time_t _sample_time{MIN_DT};
-        engine_time_t _notify_time{MIN_DT};
     };
 } // namespace hgraph
 

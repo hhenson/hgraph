@@ -178,7 +178,7 @@ namespace hgraph {
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     bool TimeSeriesBundle<T_TS>::has_reference() const {
-        return std::any_of(ts_values().begin(), ts_values().end(),
+        return std::any_of(this->ts_values().begin(), this->ts_values().end(),
                            [](const ts_type::ptr &ts) { return ts->has_reference(); });
     }
 
@@ -190,9 +190,9 @@ const std::function < bool(const ts_type &) > &constraint)
     const
  {
         nb::dict out;
-        for (size_t i = 0, l = ts_values().size(); i < l; ++i) {
+        for (size_t i = 0, l = this->ts_values().size(); i < l; ++i) {
             const auto &key = _schema->keys()[i];
-            const auto &ts  = ts_values()[i];
+            const auto &ts  = this->ts_values()[i];
             if (constraint(*ts)) {
                 nb::object val;
                 if constexpr (is_delta) {
@@ -230,7 +230,7 @@ const std::function < bool(const ts_type &) > &constraint)
     TimeSeriesBundle<T_TS>::keys_with_constraint(const std::function < bool(const ts_type &) > &constraint)
     const
  {
-        auto                      index_results = index_with_constraint(constraint);
+        auto                      index_results = this->index_with_constraint(constraint);
         std::vector<c_string_ref> result;
         result.reserve(index_results.size());
         for (auto i : index_results) { result.emplace_back(_schema->keys()[i]); }
@@ -283,7 +283,7 @@ const std::function < bool(const ts_type &) > &constraint)
 
     void TimeSeriesBundleOutput::mark_invalid() {
         // Always invalidate children to ensure no stale fields remain (match Python semantics)
-        TimeSeriesOutput::mark_invalid(); // Call parent FIRST
+        BaseTimeSeriesOutput::mark_invalid(); // Call parent FIRST
         for (auto &v: ts_values()) { v->mark_invalid(); }
     }
 
@@ -468,7 +468,7 @@ const std::function < bool(const ts_type &) > &constraint)
                 });
     }
 
-    TimeSeriesBundleInput::ptr TimeSeriesBundleInput::copy_with(const node_ptr &parent, collection_type ts_values) {
+    TimeSeriesBundleInput::ptr TimeSeriesBundleInput::copy_with(const node_ptr &parent, IndexedTimeSeriesInput::collection_type ts_values) {
         auto v{new TimeSeriesBundleInput(parent, TimeSeriesSchema::ptr{&schema()})};
         v->set_ts_values(ts_values);
         // Not sure if this may be required, but doing this did not fix anything so leaving it out as the Python code does not

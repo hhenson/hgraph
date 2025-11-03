@@ -76,7 +76,7 @@ namespace hgraph
             _key_updated(key);
         }
 
-        TimeSeriesOutput::mark_child_modified(child, modified_time);
+        BaseTimeSeriesOutput::mark_child_modified(child, modified_time);
     }
 
     template <typename T_Key> const typename TimeSeriesDictOutput_T<T_Key>::map_type &TimeSeriesDictOutput_T<T_Key>::value() const {
@@ -478,12 +478,12 @@ namespace hgraph
 
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_key_set() const { return nb::cast(_key_set); }
 
-    template <typename T_Key> TimeSeriesSet<TimeSeriesDict<TimeSeriesOutput>::ts_type> &TimeSeriesDictOutput_T<T_Key>::key_set() {
+    template <typename T_Key> TimeSeriesSetOutput &TimeSeriesDictOutput_T<T_Key>::key_set() {
         return key_set_t();
     }
 
     template <typename T_Key>
-    const TimeSeriesSet<TimeSeriesDict<TimeSeriesOutput>::ts_type> &TimeSeriesDictOutput_T<T_Key>::key_set() const {
+    const TimeSeriesSetOutput &TimeSeriesDictOutput_T<T_Key>::key_set() const {
         return const_cast<TimeSeriesDictOutput_T *>(this)->key_set();
     }
 
@@ -728,7 +728,7 @@ namespace hgraph
         return nb::make_iterator(nb::type<map_type>(), "ModifiedItemIterator", items.begin(), items.end());
     }
 
-    template <typename T_Key> TimeSeriesSet<TimeSeriesInput> &TimeSeriesDictInput_T<T_Key>::key_set() { return key_set_t(); }
+    template <typename T_Key> TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() { return key_set_t(); }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::py_was_modified(const nb::object &key) const {
         return was_modified(nb::cast<T_Key>(key));
@@ -841,7 +841,7 @@ namespace hgraph
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_removed() const { return !_removed_items.empty(); }
 
-    template <typename T_Key> const TimeSeriesSet<TimeSeriesInput> &TimeSeriesDictInput_T<T_Key>::key_set() const {
+    template <typename T_Key> const TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() const {
         return key_set_t();
     }
 
@@ -913,7 +913,7 @@ namespace hgraph
         // Call base implementation which will set _output and call make_active if needed
         // Note: Base calls make_passive first, but we already did that above with the OLD has_peer
         // Base then sets _output and calls make_active with the NEW has_peer (which we just set)
-        TimeSeriesInput::do_bind_output(value);
+        BaseTimeSeriesInput::do_bind_output(value);
 
         if (!_ts_values.empty()) { register_clear_key_changes(); }
 
@@ -952,7 +952,7 @@ namespace hgraph
         // If we are un-binding then the output must exist by definition.
         output_t().remove_key_observer(this);
         if (has_peer()) {
-            TimeSeriesInput::do_un_bind_output(unbind_refs);
+            BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
         } else {
             reset_output();
         }
@@ -1129,7 +1129,7 @@ namespace hgraph
             _key_updated(key);
         }
 
-        TimeSeriesInput::notify_parent(this, modified_time);
+        BaseTimeSeriesInput::notify_parent(this, modified_time);
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_create(const key_type &key) {
@@ -1216,7 +1216,7 @@ namespace hgraph
     // template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::post_modify() { _post_modify(); }
 
     void tsd_register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesDictOutput, TimeSeriesOutput>(m, "TimeSeriesDictOutput")
+        nb::class_<TimeSeriesDictOutput, BaseTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__contains__", &TimeSeriesDictOutput::py_contains, "key"_a)
             .def("__getitem__", &TimeSeriesDictOutput::py_get_item, "key"_a)
             .def("__setitem__", &TimeSeriesDictOutput::py_set_item, "key"_a, "value"_a)
@@ -1270,7 +1270,7 @@ namespace hgraph
                                    self.valid());
             });
 
-        nb::class_<TimeSeriesDictInput, TimeSeriesInput>(m, "TimeSeriesDictInput")
+        nb::class_<TimeSeriesDictInput, BaseTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__contains__", &TimeSeriesDictInput::py_contains, "key"_a)
             .def("__getitem__", &TimeSeriesDictInput::py_get_item, "key"_a)
             .def(

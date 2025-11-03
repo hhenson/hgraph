@@ -30,9 +30,9 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        value_iterator begin() { return ts_values().begin(); }
+        value_iterator begin() { return this->ts_values().begin(); }
         value_const_iterator begin() const { return const_cast<list_type *>(this)->begin(); }
-        value_iterator end() { return ts_values().end(); }
+        value_iterator end() { return this->ts_values().end(); }
         value_const_iterator end() const { return const_cast<list_type *>(this)->end(); }
 
         // Retrieves valid keys
@@ -58,8 +58,7 @@ namespace hgraph {
         [[nodiscard]] bool has_reference() const override;
 
     protected:
-        using T_TS::index_with_constraint;
-        using T_TS::ts_values;
+        // Access base utilities (index_with_constraint, ts_values) via this-> within implementation
     };
 
     struct TimeSeriesListOutputBuilder;

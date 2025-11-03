@@ -30,8 +30,9 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct TimeSeriesDict : T_TS {
-        using ts_type = T_TS;
-        using ts_type_ptr = nb::ref<T_TS>;
+        // Map concrete base (BaseTimeSeriesInput/Output) to pure interface type (TimeSeriesInput/Output)
+        using ts_type = std::conditional_t<std::derived_from<T_TS, TimeSeriesInput>, TimeSeriesInput, TimeSeriesOutput>;
+        using ts_type_ptr = nb::ref<ts_type>;
         using T_TS::T_TS;
 
         [[nodiscard]] virtual size_t size() const = 0;
@@ -97,7 +98,7 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object &key) const = 0;
     };
 
-    struct TimeSeriesDictOutput : TimeSeriesDict<TimeSeriesOutput> {
+    struct TimeSeriesDictOutput : TimeSeriesDict<BaseTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesDictOutput>;
         using TimeSeriesDict::TimeSeriesDict;
 
@@ -112,9 +113,9 @@ namespace hgraph {
         virtual void py_release_ref(const nb::object &key, const nb::object &requester) = 0;
     };
 
-    struct TimeSeriesDictInput : TimeSeriesDict<TimeSeriesInput> {
+    struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput> {
         using ptr = nb::ref<TimeSeriesDictInput>;
-        using TimeSeriesDict<TimeSeriesInput>::TimeSeriesDict;
+        using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
     };
 
     template<typename T_Key>
@@ -249,9 +250,9 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_key_set() const override;
 
-        [[nodiscard]] TimeSeriesSet<ts_type> &key_set() override;
+        [[nodiscard]] TimeSeriesSetOutput &key_set() override;
 
-        [[nodiscard]] const TimeSeriesSet<ts_type> &key_set() const override;
+        [[nodiscard]] const TimeSeriesSetOutput &key_set() const override;
 
         [[nodiscard]] TimeSeriesSetOutput_T<key_type> &key_set_t();
 
@@ -433,13 +434,13 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_key_set() const override;
 
-        [[nodiscard]] TimeSeriesSet<TimeSeriesInput> &key_set() override;
+        [[nodiscard]] TimeSeriesSetInput &key_set() override;
 
         [[nodiscard]] bool has_added() const override;
 
         [[nodiscard]] bool has_removed() const override;
 
-        [[nodiscard]] const TimeSeriesSet<TimeSeriesInput> &key_set() const override;
+        [[nodiscard]] const TimeSeriesSetInput &key_set() const override;
 
         void on_key_added(const key_type &key) override;
 

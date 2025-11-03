@@ -44,7 +44,7 @@ namespace hgraph {
     template<typename T>
     void TimeSeriesValueOutput<T>::mark_invalid() {
         _value = {}; // Set to the equivalent of none
-        TimeSeriesOutput::mark_invalid();
+        BaseTimeSeriesOutput::mark_invalid();
     }
 
     template<typename T>
@@ -121,19 +121,19 @@ namespace hgraph {
     using TS_Out_Object = TimeSeriesValueOutput<nb::object>;
 
     void register_ts_with_nanobind(nb::module_ &m) {
-        nb::class_<TS_Out_Bool, TimeSeriesOutput>(m, "TS_Out_Bool");
-        nb::class_<TS_Bool, TimeSeriesInput>(m, "TS_Bool");
-        nb::class_<TS_Out_Int, TimeSeriesOutput>(m, "TS_Out_Int");
-        nb::class_<TS_Int, TimeSeriesInput>(m, "TS_Int");
-        nb::class_<TS_Out_Float, TimeSeriesOutput>(m, "TS_Out_Float");
-        nb::class_<TS_Float, TimeSeriesInput>(m, "TS_Float");
-        nb::class_<TS_Out_Date, TimeSeriesOutput>(m, "TS_Out_Date");
-        nb::class_<TS_Date, TimeSeriesInput>(m, "TS_Date");
-        nb::class_<TS_Out_DateTime, TimeSeriesOutput>(m, "TS_Out_DateTime");
-        nb::class_<TS_DateTime, TimeSeriesInput>(m, "TS_DateTime");
-        nb::class_<TS_Out_TimeDelta, TimeSeriesOutput>(m, "TS_Out_TimeDelta");
-        nb::class_<TS_TimeDelta, TimeSeriesInput>(m, "TS_TimeDelta");
-        nb::class_<TS_Out_Object, TimeSeriesOutput>(m, "TS_Out_Object");
-        nb::class_<TS_Object, TimeSeriesInput>(m, "TS_Object");
+        nb::class_<TS_Out_Bool, BaseTimeSeriesOutput>(m, "TS_Out_Bool");
+        nb::class_<TS_Bool, BaseTimeSeriesInput>(m, "TS_Bool");
+        nb::class_<TS_Out_Int, BaseTimeSeriesOutput>(m, "TS_Out_Int");
+        nb::class_<TS_Int, BaseTimeSeriesInput>(m, "TS_Int");
+        nb::class_<TS_Out_Float, BaseTimeSeriesOutput>(m, "TS_Out_Float");
+        nb::class_<TS_Float, BaseTimeSeriesInput>(m, "TS_Float");
+        nb::class_<TS_Out_Date, BaseTimeSeriesOutput>(m, "TS_Out_Date");
+        nb::class_<TS_Date, BaseTimeSeriesInput>(m, "TS_Date");
+        nb::class_<TS_Out_DateTime, BaseTimeSeriesOutput>(m, "TS_Out_DateTime");
+        nb::class_<TS_DateTime, BaseTimeSeriesInput>(m, "TS_DateTime");
+        nb::class_<TS_Out_TimeDelta, BaseTimeSeriesOutput>(m, "TS_Out_TimeDelta");
+        nb::class_<TS_TimeDelta, BaseTimeSeriesInput>(m, "TS_TimeDelta");
+        nb::class_<TS_Out_Object, BaseTimeSeriesOutput>(m, "TS_Out_Object");
+        nb::class_<TS_Object, BaseTimeSeriesInput>(m, "TS_Object");
     }
 } // namespace hgraph
