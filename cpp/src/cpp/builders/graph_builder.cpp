@@ -70,7 +70,7 @@ namespace hgraph {
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
                 output = src_node->error_output();
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = dynamic_cast_ref<TimeSeriesOutput>(src_node->recordable_state());
+                output = src_node->recordable_state().get();
             } else {
                 output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
             }
