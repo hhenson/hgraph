@@ -49,3 +49,4 @@ docs/build/*
 /cmake-build-debug/
 /.tmp/
 /cmake-build-relwithdebinfo/
+/build/
