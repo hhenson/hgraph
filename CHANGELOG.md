@@ -1542,3 +1542,10 @@ Version 0.4.102 (27-10-2025)
 ---------------------------
 
 * Deal with non-peered TSD's view of contains method.
+
+Version 0.5.4 (03-11-2025)
+--------------------------
+
+* Moved c++ code from hg_cpp into main hgraph package
+* add a feature switch to control use of CPP engine (HGRAPH_USE_CPP=1)
+* Cleanups to improve the stability of tests on CICD
