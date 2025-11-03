@@ -436,7 +436,8 @@ namespace hgraph {
             } else {
                 // Graph not yet attached; mark with a maximal time to preserve monotonicity without dereferencing
                 // This is a bad situation, I would probably prefer to find out why,
-                // TODO: find the root cause of why this could be called without a bound graph.
+                // This seems to be happening when used as a const value, so outside the scope of a graph.
+                mark_modified(MAX_ET);
             }
         } else {
             mark_modified(MAX_ET);
@@ -451,7 +452,9 @@ namespace hgraph {
         }
     }
 
-    void TimeSeriesOutput::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) { notify(modified_time); } // NOLINT(*-no-recursion)
+    void TimeSeriesOutput::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) {
+        mark_modified(modified_time);
+    } // NOLINT(*-no-recursion)
 
     void TimeSeriesOutput::subscribe(Notifiable *notifiable) { _subscribers.insert(notifiable); }
 
