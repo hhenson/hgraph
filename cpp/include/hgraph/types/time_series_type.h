@@ -2,11 +2,14 @@
 #define TIME_SERIES_TYPE_H
 
 #include <hgraph/hgraph_base.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/ts_traits.h>
 #include <variant>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base {
+namespace hgraph
+{
+
+    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, CurrentTimeProvider, Notifiable
+    {
         using ptr = nb::ref<TimeSeriesType>;
 
         explicit TimeSeriesType(const node_ptr &parent);
@@ -24,6 +27,8 @@ namespace hgraph {
         ~TimeSeriesType() override = default;
 
         // Pure virtual methods to be implemented in derived classes
+
+        [[nodiscard]] engine_time_t current_engine_time() const override;
 
         // Method for owning node
         [[nodiscard]] node_ptr owning_node();
@@ -167,6 +172,8 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
+        void notify(engine_time_t et) override;
+
     protected:
         void _notify(engine_time_t modified_time);
 
@@ -179,7 +186,8 @@ namespace hgraph {
         engine_time_t _last_modified_time{MIN_DT};
     };
 
-    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable {
+    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType
+    {
         using ptr = nb::ref<TimeSeriesInput>;
         using TimeSeriesType::TimeSeriesType;
 

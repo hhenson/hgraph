@@ -48,7 +48,7 @@ if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
 # Required: Python interpreter + development module
-find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(Python 3.12 COMPONENTS Interpreter Development Development.Module REQUIRED)
 include_directories(${Python_INCLUDE_DIRS})
 
 # Get Python SOABI to avoid double .so extension in nanobind
@@ -90,13 +90,23 @@ else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif ()
 
+# Catch2 for unit tests
+include(FetchContent)
+FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.5.3
+)
+FetchContent_MakeAvailable(Catch2)
+include(CTest)
+enable_testing()
 
 # backward-cpp via package or FetchContent (optional)
 if (HGRAPH_WITH_BACKWARD)
     find_package(Backward CONFIG QUIET)
     if (NOT Backward_FOUND)
         message(STATUS "Backward not found via find_package, using FetchContent")
-        include(FetchContent)
+        # include(FetchContent) already included
         set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
         FetchContent_Declare(backward GIT_REPOSITORY https://github.com/bombela/backward-cpp.git GIT_TAG v1.6)
         # On manylinux and constrained envs, disable non-portable features
@@ -142,12 +152,13 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
-        include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
         include/hgraph/builders/input_builder.h
         include/hgraph/builders/node_builder.h
         include/hgraph/builders/output_builder.h
+        include/hgraph/hgraph_export.h
+        include/hgraph/hgraph_forward_declarations.h
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/component_node.h
         include/hgraph/nodes/last_value_pull_node.h
@@ -155,14 +166,21 @@ set(HGRAPH_INCLUDES
         include/hgraph/nodes/nest_graph_node.h
         include/hgraph/nodes/nested_evaluation_engine.h
         include/hgraph/nodes/nested_node.h
-        include/hgraph/nodes/python_node.h
         include/hgraph/nodes/non_associative_reduce_node.h
-        include/hgraph/nodes/python_generator_node.h
         include/hgraph/nodes/push_queue_node.h
+        include/hgraph/nodes/python_generator_node.h
+        include/hgraph/nodes/python_node.h
         include/hgraph/nodes/reduce_node.h
         include/hgraph/nodes/switch_node.h
         include/hgraph/nodes/try_except_node.h
         include/hgraph/nodes/tsd_map_node.h
+        include/hgraph/python/chrono.h
+        include/hgraph/python/format.h
+        include/hgraph/python/global_keys.h
+        include/hgraph/python/global_state.h
+        include/hgraph/python/hashable.h
+        include/hgraph/python/nb_types_ext.h
+        include/hgraph/python/reference_wrapper.h
         include/hgraph/runtime/evaluation_context.h
         include/hgraph/runtime/evaluation_engine.h
         include/hgraph/runtime/graph_executor.h
@@ -178,26 +196,18 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
         include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
         include/hgraph/types/ts_indexed.h
+        include/hgraph/types/ts_signal.h
+        include/hgraph/types/ts_traits.h
         include/hgraph/types/tsb.h
+        include/hgraph/types/tsd.h
         include/hgraph/types/tsl.h
-        include/hgraph/python/chrono.h
-        include/hgraph/python/format.h
-        include/hgraph/python/global_state.h
-        include/hgraph/python/global_keys.h
-        include/hgraph/python/hashable.h
-        include/hgraph/python/nb_types_ext.h
-        include/hgraph/python/reference_wrapper.h
+        include/hgraph/types/tss.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
-        include/hgraph/util/reference_count_subscriber.h
         include/hgraph/util/sender_receiver_state.h
         include/hgraph/util/stack_trace.h
         include/hgraph/util/string_utils.h
-        include/hgraph/hgraph_export.h
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
@@ -205,3 +215,4 @@ list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
 
 add_subdirectory(src/cpp)
+add_subdirectory(tests)

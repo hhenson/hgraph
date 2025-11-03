@@ -84,6 +84,8 @@ set(HGRAPH_SOURCES
         types/tsb.cpp
         types/tsl.cpp
         types/tsw.cpp
+        types/v2/ts_event.cpp
+        types/v2/ts_value.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
@@ -94,6 +96,9 @@ set(HGRAPH_SOURCES
 add_definitions(-Dhgraph_EXPORTS)
 
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
+
+# Enable Python-backed nb::object to_string in the engine module (not in tests)
+target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_PYTHON_TOSTRING=1)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
 

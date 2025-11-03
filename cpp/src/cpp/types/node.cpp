@@ -578,7 +578,7 @@ namespace hgraph {
         }
 
         auto is_started{_node->is_started()};
-        auto now_{is_scheduled_now() ? _node->graph()->evaluation_clock()->evaluation_time() : MIN_DT};
+        auto now_{is_started ? _node->graph()->evaluation_clock()->evaluation_time() : MIN_DT};
         if (when > now_) {
             _tags[tag.value_or("")] = when;
             auto current_first = !_scheduled_events.empty() ? _scheduled_events.begin()->first : MAX_DT;
@@ -895,6 +895,12 @@ namespace hgraph {
             return fmt::format("{}.{}", signature().wiring_path_name, signature().label.value());
         }
         return fmt::format("{}.{}", signature().wiring_path_name, signature().name);
+    }
+
+    engine_time_t Node::current_engine_time() const {
+        auto owning_graph_{graph()};
+        if (owning_graph_ != nullptr) { return owning_graph_->evaluation_clock()->evaluation_time(); }
+        return MIN_DT;
     }
 
     void Node::start() {
