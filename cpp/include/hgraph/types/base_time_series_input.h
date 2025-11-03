@@ -2,6 +2,7 @@
 #define BASE_TIME_SERIES_INPUT_H
 
 #include <hgraph/types/time_series_type.h>
+#include <optional>
 
 namespace hgraph {
     /*
@@ -10,9 +11,24 @@ namespace hgraph {
      */
     struct HGRAPH_EXPORT BaseTimeSeriesInput : TimeSeriesInput {
         using ptr = nb::ref<BaseTimeSeriesInput>;
-        using TimeSeriesInput::TimeSeriesInput;
+
+        BaseTimeSeriesInput() = default;
+        explicit BaseTimeSeriesInput(const node_ptr &parent) { re_parent(parent); }
+        explicit BaseTimeSeriesInput(const TimeSeriesType::ptr &parent) { re_parent(parent); }
 
         static void register_with_nanobind(nb::module_ &m);
+
+        // Implement TimeSeriesType abstract interface
+        [[nodiscard]] engine_time_t current_engine_time() const override;
+        [[nodiscard]] node_ptr owning_node() override;
+        [[nodiscard]] node_ptr owning_node() const override;
+        [[nodiscard]] graph_ptr owning_graph() override;
+        [[nodiscard]] graph_ptr owning_graph() const override;
+        void re_parent(const node_ptr &parent) override;
+        void re_parent(const TimeSeriesType::ptr &parent) override;
+        [[nodiscard]] bool is_reference() const override;
+        [[nodiscard]] bool has_reference() const override;
+        void reset_parent_or_node() override;
 
         // Relationship helpers
         [[nodiscard]] TimeSeriesInput::ptr parent_input() const override;
@@ -61,7 +77,21 @@ namespace hgraph {
         void set_output(time_series_output_ptr output);
         void set_active(bool active);
 
+        // TimeSeriesType storage hooks
+        [[nodiscard]] TimeSeriesType::ptr &_parent_time_series();
+        [[nodiscard]] TimeSeriesType::ptr &_parent_time_series() const;
+        [[nodiscard]] bool _has_parent_time_series() const;
+        void _set_parent_time_series(TimeSeriesType *ts);
+        void _set_parent(const node_ptr &parent);
+        void _set_parent(const TimeSeriesType::ptr &parent);
+        void _reset_parent_or_node();
+        [[nodiscard]] bool has_parent_or_node() const;
+        [[nodiscard]] bool has_owning_node() const override;
+        [[nodiscard]] node_ptr _owning_node() const;
+
     private:
+        using TsOrNode = std::variant<time_series_type_ptr, node_ptr>;
+        std::optional<TsOrNode> _parent_ts_or_node{};
         time_series_output_ptr _output;
         time_series_reference_output_ptr _reference_output;
         bool _active{false};
