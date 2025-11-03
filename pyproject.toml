@@ -1,6 +1,6 @@
 [project]
 name = "hgraph"
-version = "0.5.4"
+version = "0.5.5"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 readme = "README.md"
 license = {text = "MIT"}
