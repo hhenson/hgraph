@@ -578,7 +578,7 @@ namespace hgraph {
         }
 
         auto is_started{_node->is_started()};
-        auto now_{is_scheduled_now() ? _node->graph()->evaluation_clock()->evaluation_time() : MIN_DT};
+        auto now_{is_started ? _node->graph()->evaluation_clock()->evaluation_time() : MIN_DT};
         if (when > now_) {
             _tags[tag.value_or("")] = when;
             auto current_first = !_scheduled_events.empty() ? _scheduled_events.begin()->first : MAX_DT;
