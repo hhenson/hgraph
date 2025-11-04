@@ -60,6 +60,9 @@ export HGRAPH_USE_CPP=1
 
 The tests are currently all in python and can be found in ``hgraph_unit_tests``.
 
+When tracing C++ code, I suggest using ``fmt::print`` to print values, use ``to_string`` (in util/string_utils.h) to 
+convert value keys (i.e. nb::object etc.).
+
 ## Project Structure
 
 The project model uses ``uv`` to manage the project. This uses the ``pyproject.toml`` file to define the project structure.
