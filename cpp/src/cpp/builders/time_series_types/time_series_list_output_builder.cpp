@@ -4,20 +4,19 @@
 
 #include <utility>
 
-namespace hgraph {
+namespace hgraph
+{
     TimeSeriesListOutputBuilder::TimeSeriesListOutputBuilder(OutputBuilder::ptr output_builder, size_t size)
-        : output_builder{std::move(output_builder)}, size{size} {
-    }
+        : output_builder{std::move(output_builder)}, size{size} {}
 
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
         auto v{nb::ref(new TimeSeriesListOutput(owning_node))};
-        time_series_output_ptr out{make_and_set_outputs(v.get())};
-        return out;
+        return {make_and_set_outputs(v.get())};
     }
 
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
         auto v{nb::ref(new TimeSeriesListOutput(dynamic_cast_ref<TimeSeriesType>(owning_output)))};
-        return make_and_set_outputs(v.get());
+        return {make_and_set_outputs(v.get())};
     }
 
     bool TimeSeriesListOutputBuilder::is_same_type(const Builder &other) const {
@@ -31,7 +30,7 @@ namespace hgraph {
         OutputBuilder::release_instance(item);
         auto list = dynamic_cast<TimeSeriesListOutput *>(item.get());
         if (list) {
-            for (auto &value: list->ts_values()) { output_builder->release_instance(value); }
+            for (auto &value : list->ts_values()) { output_builder->release_instance(value); }
         }
     }
 
@@ -40,11 +39,11 @@ namespace hgraph {
         outputs.reserve(size);
         for (size_t i = 0; i < size; ++i) { outputs.push_back(output_builder->make_instance(output)); }
         output->set_ts_values(outputs);
-        return output;
+        return {output};
     }
 
     void TimeSeriesListOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < TimeSeriesListOutputBuilder, OutputBuilder > (m, "OutputBuilder_TSL")
-                .def(nb::init<OutputBuilder::ptr, size_t>(), "output_builder"_a, "size"_a);
+        nb::class_<TimeSeriesListOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSL")
+            .def(nb::init<OutputBuilder::ptr, size_t>(), "output_builder"_a, "size"_a);
     }
-} // namespace hgraph
+}  // namespace hgraph
