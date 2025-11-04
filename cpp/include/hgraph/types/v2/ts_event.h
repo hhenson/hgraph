@@ -24,7 +24,7 @@ namespace hgraph
 
     /// Time series event kind enumeration.
     /// Represents the type of change in a time series.
-    enum class TsEventKind : std::uint8_t
+    enum class HGRAPH_EXPORT TsEventKind : std::uint8_t
     {
         None = 0,       ///< No event
         Recover = 1,    ///< Recovery/replay event
@@ -135,7 +135,7 @@ namespace hgraph
     using AnyKey = AnyValue<>; ///< Type alias for collection keys (improves readability)
 
     /// Collection item operation kind.
-    enum class ColItemKind : std::uint8_t
+    enum class HGRAPH_EXPORT ColItemKind : std::uint8_t
     {
         Reset = 0,  ///< Reset operation (clear key's value)
         Modify = 1, ///< Modify operation (set key's value)
@@ -144,7 +144,7 @@ namespace hgraph
 
     /// Single item in a collection event.
     /// Represents a change to one key-value pair in a collection.
-    struct CollectionItem
+    struct HGRAPH_EXPORT CollectionItem
     {
         AnyKey      key;                       ///< The key being modified
         ColItemKind kind{ColItemKind::Modify}; ///< The operation type

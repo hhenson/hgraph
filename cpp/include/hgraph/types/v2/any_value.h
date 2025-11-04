@@ -32,7 +32,7 @@ namespace hgraph
     HGRAPH_EXPORT bool operator==(TypeId a, TypeId b);
 
     template <std::size_t SBO = HGRAPH_TS_VALUE_SBO, std::size_t Align = HGRAPH_TS_ALIGN>
-    class AnyValue
+    class HGRAPH_EXPORT AnyValue
     {
     public:
         AnyValue() noexcept : vtable_(nullptr), using_heap_(false) {}

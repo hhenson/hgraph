@@ -1,14 +1,14 @@
 #pragma once
 
-#include <memory>
-#include <unordered_set>
-#include <typeinfo>
 #include "any_value.h"
+#include "hgraph/types/time_series_type.h"
+#include "hgraph/types/ts_traits.h"
+#include "hgraph/util/date_time.h"
 #include "ts_event.h"
 #include "ts_value.h"
-#include "hgraph/types/time_series_type.h"
-#include "hgraph/util/date_time.h"
-#include "hgraph/types/ts_traits.h"
+#include <memory>
+#include <typeinfo>
+#include <unordered_set>
 
 namespace hgraph
 {
@@ -21,12 +21,11 @@ namespace hgraph
      */
     struct NonBoundImpl : TSValue
     {
-        bool       _active{false}; // Active state tracked locally
-        AnyValue<> _empty_value;   // Empty value to return
-        TypeId     _value_type;    // Expected value type
+        bool       _active{false};  // Active state tracked locally
+        AnyValue<> _empty_value;    // Empty value to return
+        TypeId     _value_type;     // Expected value type
 
-        explicit NonBoundImpl(const std::type_info &type)
-            : _value_type(TypeId{&type}) {}
+        explicit NonBoundImpl(const std::type_info &type) : _value_type(TypeId{&type}) {}
 
         void apply_event(const TsEventAny &event) override {
             // Non-bound inputs don't receive events
@@ -43,32 +42,36 @@ namespace hgraph
             // No-op
         }
 
-        void mark_active([[maybe_unused]] Notifiable *subscriber) override { _active = true; }
+        void reset() override {
+            // No-op
+        }
 
-        void mark_passive([[maybe_unused]] Notifiable *subscriber) override { _active = false; }
+        void make_active([[maybe_unused]] Notifiable *subscriber) override { _active = true; }
+
+        void make_passive([[maybe_unused]] Notifiable *subscriber) override { _active = false; }
 
         [[nodiscard]] bool active([[maybe_unused]] Notifiable *subscriber) const override {
-            return _active; // Return the local active state, ignore subscriber parameter
+            return _active;  // Return the local active state, ignore subscriber parameter
         }
 
         [[nodiscard]] bool modified(engine_time_t t) const override {
-            return false; // Never modified when not bound
+            return false;  // Never modified when not bound
         }
 
         [[nodiscard]] bool all_valid() const override {
-            return false; // Never valid when not bound
+            return false;  // Never valid when not bound
         }
 
         [[nodiscard]] bool valid() const override {
-            return false; // Never valid when not bound
+            return false;  // Never valid when not bound
         }
 
         [[nodiscard]] engine_time_t last_modified_time() const override {
-            return min_time(); // Never modified
+            return min_time();  // Never modified
         }
 
         [[nodiscard]] const AnyValue<> &value() const override {
-            return _empty_value; // Always empty
+            return _empty_value;  // Always empty
         }
 
         [[nodiscard]] const std::type_info &value_type() const override { return *_value_type.info; }
@@ -93,13 +96,12 @@ namespace hgraph
     struct SimplePeeredImpl : TSValue
     {
         // Shared state (single source of truth)
-        AnyValue<>                       _value;       // Current value (type-erased)
-        TsEventAny                       _last_event;  // Most recent event (holds timestamp + kind + value)
-        std::unordered_set<Notifiable *> _subscribers; // Notification subscribers
-        TypeId                           _value_type;  // Expected value type
+        AnyValue<>                       _value;        // Current value (type-erased)
+        TsEventAny                       _last_event;   // Most recent event (holds timestamp + kind + value)
+        std::unordered_set<Notifiable *> _subscribers;  // Notification subscribers
+        TypeId                           _value_type;   // Expected value type
 
-        explicit SimplePeeredImpl(const std::type_info &type)
-            : _value_type(TypeId{&type}) {}
+        explicit SimplePeeredImpl(const std::type_info &type) : _value_type(TypeId{&type}) {}
 
         void apply_event(const TsEventAny &event) override {
             // Guard: Only one event can be applied at a particular time
@@ -110,10 +112,8 @@ namespace hgraph
             // Type validation: ensure event value matches expected type
             if ((event.kind == TsEventKind::Modify || event.kind == TsEventKind::Recover) && event.value.has_value()) {
                 if (!(event.value.type() == _value_type)) {
-                    throw std::runtime_error(
-                        std::string("Type mismatch in apply_event: expected ") +
-                        _value_type.info->name() + " but got " + event.value.type().info->name()
-                        );
+                    throw std::runtime_error(std::string("Type mismatch in apply_event: expected ") + _value_type.info->name() +
+                                             " but got " + event.value.type().info->name());
                 }
             }
 
@@ -125,7 +125,7 @@ namespace hgraph
                 // Invalid means no value - reset to empty state
                 _value.reset();
             }
-            _last_event = event; // Stores value, timestamp, and kind
+            _last_event = event;  // Stores value, timestamp, and kind
             notify_subscribers(event.time);
         }
 
@@ -143,6 +143,11 @@ namespace hgraph
             // No-op for simple peered
         }
 
+        void reset() override {
+            _value.reset();
+            _last_event = TsEventAny::none(min_time());
+        }
+
         // Modified state (computed from _last_event.time)
         [[nodiscard]] bool modified(engine_time_t t) const override { return last_modified_time() == t; }
 
@@ -150,8 +155,7 @@ namespace hgraph
 
         // Valid state (derived from _last_event)
         [[nodiscard]] bool valid() const override {
-            return _last_event.kind == TsEventKind::Modify ||
-                   _last_event.kind == TsEventKind::Recover;
+            return _last_event.kind == TsEventKind::Modify || _last_event.kind == TsEventKind::Recover;
         }
 
         // Last modified time (derived from _last_event)
@@ -169,13 +173,15 @@ namespace hgraph
             apply_event(event);
         }
 
-        void mark_active(Notifiable *subscriber) override { _subscribers.insert(subscriber); }
+        void make_active(Notifiable *subscriber) override { _subscribers.insert(subscriber); }
 
-        void mark_passive(Notifiable *subscriber) override { _subscribers.erase(subscriber); }
+        void make_passive(Notifiable *subscriber) override { _subscribers.erase(subscriber); }
 
-        void notify_subscribers(engine_time_t t) override { for (auto *subscriber : _subscribers) { subscriber->notify(t); } }
+        void notify_subscribers(engine_time_t t) override {
+            for (auto *subscriber : _subscribers) { subscriber->notify(t); }
+        }
 
         [[nodiscard]] bool active(Notifiable *subscriber) const override { return _subscribers.contains(subscriber); }
     };
 
-} // namespace hgraph
+}  // namespace hgraph

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <concepts>
 #include "any_value.h"
-#include "ts_event.h"
 #include "hgraph/hgraph_forward_declarations.h"
-#include "hgraph/util/date_time.h"
 #include "hgraph/types/ts_traits.h"
+#include "hgraph/util/date_time.h"
+#include "ts_event.h"
+#include <concepts>
+#include <memory>
 
 namespace hgraph
 {
@@ -30,24 +30,25 @@ namespace hgraph
      * - Computed properties: valid() and last_modified_time() derived from _last_event
      * - Swappable implementations: Virtual interface allows different state machine variants
      */
-    struct TSValue
+    struct HGRAPH_EXPORT TSValue
     {
         // Virtual interface for variant behavior
         virtual void       apply_event(const TsEventAny &event) = 0;
-        virtual TsEventAny query_event(engine_time_t t) const = 0;
-        virtual void       bind_to(TSValue *other) = 0;
-        virtual void       unbind() = 0;
+        virtual TsEventAny query_event(engine_time_t t) const   = 0;
+        virtual void       bind_to(TSValue *other)              = 0;
+        virtual void       unbind()                             = 0;
+        virtual void       reset()                              = 0;
 
         // Subscriber management (for active state)
-        virtual void mark_active(Notifiable *subscriber) = 0;
-        virtual void mark_passive(Notifiable *subscriber) = 0;
+        virtual void make_active(Notifiable *subscriber)  = 0;
+        virtual void make_passive(Notifiable *subscriber) = 0;
         virtual bool active(Notifiable *subscriber) const = 0;
 
         // State queries
         virtual bool          modified(engine_time_t t) const = 0;
-        virtual bool          all_valid() const = 0;
-        virtual bool          valid() const = 0;
-        virtual engine_time_t last_modified_time() const = 0;
+        virtual bool          all_valid() const               = 0;
+        virtual bool          valid() const                   = 0;
+        virtual engine_time_t last_modified_time() const      = 0;
 
         // Value access
         virtual const AnyValue<> &value() const = 0;
@@ -64,11 +65,8 @@ namespace hgraph
         virtual ~TSValue() = default;
     };
 
-} // namespace hgraph
+    struct TSInput;
 
-
-namespace hgraph
-{
     /**
      * @brief Type-erased time series output (event generator).
      *
@@ -77,8 +75,9 @@ namespace hgraph
      *
      * This is the internal implementation used by TimeSeriesValueOutput<T>.
      */
-    struct TSOutput
+    struct HGRAPH_EXPORT TSOutput
     {
+        // NOTE: An output can be nested, and so needs to be notifiable to notify it's parents.
         using impl_ptr = std::shared_ptr<TSValue>;
 
         // Non-template constructor (implementation in .cpp)
@@ -104,6 +103,11 @@ namespace hgraph
         // Invalidate the value
         void invalidate();
 
+        // Resets the state of the time-series, this will clear out the values
+        // and remove any this leaves parent and subscriptions in place, no
+        // notifications will be sent though
+        void reset();
+
         // Delegate to impl
         [[nodiscard]] bool          modified() const;
         [[nodiscard]] bool          valid() const;
@@ -111,15 +115,23 @@ namespace hgraph
 
         [[nodiscard]] TsEventAny delta_value() const;
 
-        // Access to impl for binding
-        [[nodiscard]] impl_ptr get_impl() const;
-
         // Current time accessor (delegates to parent)
         [[nodiscard]] engine_time_t current_time() const;
 
-    private:
-        impl_ptr    _impl;   // Shared with bound inputs
-        Notifiable *_parent; // Owning node (implements both Notifiable and CurrentTimeProvider)
+        // The parent can also be considered as the interested observer of this output. In the case of the output, this can be
+        // a collection output. For the case of output, the outer nodes notify are a nop in the sense that it does not need to be
+        // scheduled. However, the wrapper collection may be tracking observers at their level and also update their last updated
+        // state.
+        [[nodiscard]] Notifiable *parent() const;
+        void                      set_parent(Notifiable *parent);
+
+      protected:
+        void notify_parent(engine_time_t t) const;
+
+      private:
+        friend TSInput;
+        impl_ptr    _impl;    // Shared with bound inputs
+        Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     /**
@@ -131,7 +143,7 @@ namespace hgraph
      *
      * This is the internal implementation used by TimeSeriesValueInput<T>.
      */
-    struct TSInput
+    struct HGRAPH_EXPORT TSInput : Notifiable
     {
         using impl_ptr = std::shared_ptr<TSValue>;
 
@@ -145,9 +157,6 @@ namespace hgraph
         // Delete copy operations
         TSInput(const TSInput &)            = delete;
         TSInput &operator=(const TSInput &) = delete;
-
-        // Bind to output (shares impl) - implementation in .cpp
-        void bind_output(TSOutput *output);
 
         // Value access (returns AnyValue)
         [[nodiscard]] const AnyValue<> &value() const;
@@ -165,31 +174,47 @@ namespace hgraph
         [[nodiscard]] bool active() const;
 
         // Mark input as active (adds to subscriber set)
-        void mark_active();
+        void make_active();
 
         // Mark input as passive (removes from subscriber set)
-        void mark_passive();
+        void make_passive();
 
-        // Notifiable interface (would be implemented if this inherited from Notifiable)
-        void notify(engine_time_t t) const;
+        // Notifiable interface
+        // This is needed as we use our own reference to mark active, and we will be called when notified.
+        // The expected flow is: output get's modified, it calls notify on subscribers, we are a subscriber
+        // we get notified, this method then notifies the parent, ultimately this will notify the containing Node
+        // which will result in the node owning this Input being scheduled.
+        void notify(engine_time_t et) override;
 
         // Current time accessor (delegates to parent)
         [[nodiscard]] engine_time_t current_time() const;
 
-    private:
-        impl_ptr    _impl;   // Shared impl
-        Notifiable *_parent; // Owning node (implements both Notifiable and CurrentTimeProvider)
+        // The parent can also be considered as the interested observer of this output. In the case of the output, this can be
+        // a collection output. For the case of output, the outer nodes notify are a nop in the sense that it does not need to be
+        // scheduled. However, the wrapper collection may be tracking observers at their level and also update their last updated
+        // state.
+        [[nodiscard]] Notifiable *parent() const;
+        void                      set_parent(Notifiable *parent);
+
+        // The input is associated with a model not owned by this input.
+        // This mirrors the concept of having the _output set on the old view of TS
+        [[nodiscard]] bool bound() const;
+        // Bind to output (shares impl) - implementation in .cpp
+        void bind_output(TSOutput &output);
+        void un_bind();
+
+      private:
+        impl_ptr    _impl;    // Shared impl
+        Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     // Factory functions for template convenience
-    template <ParentNode P, typename T>
-    TSOutput make_ts_output(P *parent, const std::type_info &value_type = typeid(T)) {
+    template <ParentNode P, typename T> TSOutput make_ts_output(P *parent, const std::type_info &value_type = typeid(T)) {
         return TSOutput(static_cast<Notifiable *>(parent), value_type);
     }
 
-    template <ParentNode P, typename T>
-    TSInput make_ts_input(P *parent, const std::type_info &value_type = typeid(T)) {
+    template <ParentNode P, typename T> TSInput make_ts_input(P *parent, const std::type_info &value_type = typeid(T)) {
         return TSInput(static_cast<Notifiable *>(parent), value_type);
     }
 
-} // namespace hgraph
+}  // namespace hgraph

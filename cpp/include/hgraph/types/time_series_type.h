@@ -169,14 +169,10 @@ namespace hgraph
         [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
         [[nodiscard]] virtual TimeSeriesInput *get_input(size_t index) = 0;
 
+
+        virtual void notify_parent(TimeSeriesInput *child, engine_time_t et) = 0;
+
         static void register_with_nanobind(nb::module_ &m);
-    protected:
-        friend BaseTimeSeriesInput;
-        // Derived classes override this to implement specific behaviours
-        virtual bool do_bind_output(time_series_output_ptr &output_) = 0;
-        // Derived classes override this to implement specific behaviours
-        virtual void do_un_bind_output(bool unbind_refs) = 0;
-        virtual void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) = 0;
 
     };
 } // namespace hgraph

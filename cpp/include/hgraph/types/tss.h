@@ -8,6 +8,8 @@
 #include <hgraph/python/hashable.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/base_time_series_output.h>
+#include <hgraph/types/base_time_series_input.h>
 #include <hgraph/types/ts.h>
 
 namespace hgraph {

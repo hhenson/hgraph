@@ -19,7 +19,7 @@ namespace hgraph {
     void TimeSeriesValueOutputBuilder<T>::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
         auto ts = dynamic_cast<TimeSeriesValueOutput<T> *>(item.get());
-        if (ts) { ts->reset_value(); }
+        if (ts) { ts->clear(); }
     }
 
     void time_series_value_output_builder_register_with_nanobind(nb::module_ &m) {
