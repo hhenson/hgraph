@@ -91,7 +91,6 @@ namespace hgraph
         using ptr        = nb::ref<TimeSeriesValueInput<T>>;
 
         // Constructors
-        TimeSeriesValueInput() = default;
         explicit TimeSeriesValueInput(const node_ptr &parent);
 
         explicit TimeSeriesValueInput(const TimeSeriesType::ptr &parent);
@@ -163,7 +162,7 @@ namespace hgraph
         void notify_parent(TimeSeriesInput *child, engine_time_t et) override;
 
       private:
-        TSInput _ts{static_cast<Notifiable *>(nullptr), typeid(T)};
+        TSInput _ts;
     };
 
     void register_ts_with_nanobind(nb::module_ &m);
