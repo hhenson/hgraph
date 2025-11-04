@@ -106,7 +106,6 @@ TEST_CASE (
 }
 
 TEST_CASE (
-
 "TimeSeriesValueOutput with different types"
 ,
 "[ts_value][output][types]"
@@ -451,7 +450,7 @@ TEST_CASE (
         TimeSeriesValueOutput<int> output(&parent);
 
         // Create an impl directly to test guard clause
-        auto impl = std::make_shared<SimplePeeredImpl>();
+        auto impl = std::make_shared<SimplePeeredImpl>(typeinfo(int));
         impl->_value.emplace<int>(0);
 
         // Apply first event at time T

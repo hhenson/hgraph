@@ -97,58 +97,63 @@ set(HGRAPH_SOURCES
 
 add_definitions(-Dhgraph_EXPORTS)
 
-nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
+# Option to allow building without the Python extension module (e.g., when running Catch2 tests)
+option(HGRAPH_BUILD_PY_MODULE "Build the nanobind-based Python extension module" ON)
 
-# Enable Python-backed nb::object to_string in the engine module (not in tests)
-target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_PYTHON_TOSTRING=1)
+if (HGRAPH_BUILD_PY_MODULE)
+    nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
+    # Enable Python-backed nb::object to_string in the engine module (not in tests)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_PYTHON_TOSTRING=1)
 
-# Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
-if (HGRAPH_WITH_BACKWARD)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=1)
-else ()
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=0)
-endif ()
+    target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads fmt::fmt)
 
-# Suppress benign fmt warning on GCC/Clang for this target only (avoid touching ALIAS/IMPORTED fmt targets)
-if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(${PROJECT_NAME} PRIVATE -Wno-tautological-compare)
-endif ()
-
-# Link Backward only if enabled and available
-if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
-    target_link_libraries(${PROJECT_NAME} PRIVATE Backward::Backward)
-endif ()
-#target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
-
-# Windows: link required debug helper libraries for backward-cpp stack traces
-if (WIN32)
+    # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
     if (HGRAPH_WITH_BACKWARD)
-        target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=1)
+    else ()
+        target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=0)
     endif ()
-endif ()
 
-# Install directive for scikit-build-core
-# Allow customization of Python module name and install subdirectory
-set(HGRAPH_PYMOD_NAME "_hgraph" CACHE STRING "Python extension module name")
-set(HGRAPH_PYMOD_INSTALL_SUBDIR "hgraph" CACHE STRING "Install subdir under site-packages")
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${HGRAPH_PYMOD_NAME}")
-# Install into the package directory (so wheel ends up with hgraph/_hgraph.*)
-# Cover Windows by also specifying RUNTIME destination for .pyd files
-# (Diagnostics removed to keep logs clean)
-install(TARGETS ${PROJECT_NAME}
-        LIBRARY DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
-        RUNTIME DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
-)
+    # Suppress benign fmt warning on GCC/Clang for this target only (avoid touching ALIAS/IMPORTED fmt targets)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${PROJECT_NAME} PRIVATE -Wno-tautological-compare)
+    endif ()
 
-option(HGRAPH_GENERATE_STUBS "Generate nanobind .pyi stubs for the Python module" OFF)
-if (HGRAPH_GENERATE_STUBS)
-    nanobind_add_stub(
-            "${PROJECT_NAME}_stub"
-            MODULE ${PROJECT_NAME}
-            OUTPUT "${PROJECT_NAME}.pyi"
-            PYTHON_PATH $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            DEPENDS ${PROJECT_NAME}
+    # Link Backward only if enabled and available
+    if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
+        target_link_libraries(${PROJECT_NAME} PRIVATE Backward::Backward)
+    endif ()
+    #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
+
+    # Windows: link required debug helper libraries for backward-cpp stack traces
+    if (WIN32)
+        if (HGRAPH_WITH_BACKWARD)
+            target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
+        endif ()
+    endif ()
+
+    # Install directive for scikit-build-core
+    # Allow customization of Python module name and install subdirectory
+    set(HGRAPH_PYMOD_NAME "_hgraph" CACHE STRING "Python extension module name")
+    set(HGRAPH_PYMOD_INSTALL_SUBDIR "hgraph" CACHE STRING "Install subdir under site-packages")
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${HGRAPH_PYMOD_NAME}")
+    # Install into the package directory (so wheel ends up with hgraph/_hgraph.*)
+    # Cover Windows by also specifying RUNTIME destination for .pyd files
+    # (Diagnostics removed to keep logs clean)
+    install(TARGETS ${PROJECT_NAME}
+            LIBRARY DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
+            RUNTIME DESTINATION ${HGRAPH_PYMOD_INSTALL_SUBDIR}
     )
+
+    option(HGRAPH_GENERATE_STUBS "Generate nanobind .pyi stubs for the Python module" OFF)
+    if (HGRAPH_GENERATE_STUBS)
+        nanobind_add_stub(
+                "${PROJECT_NAME}_stub"
+                MODULE ${PROJECT_NAME}
+                OUTPUT "${PROJECT_NAME}.pyi"
+                PYTHON_PATH $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                DEPENDS ${PROJECT_NAME}
+        )
+    endif ()
 endif ()

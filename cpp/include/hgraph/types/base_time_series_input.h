@@ -62,12 +62,12 @@ namespace hgraph {
 
         [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        void virtual notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
     protected:
-        bool do_bind_output(time_series_output_ptr &output_) override;
-        void do_un_bind_output(bool unbind_refs) override;
+        bool virtual do_bind_output(time_series_output_ptr &output_);
+        void virtual do_un_bind_output(bool unbind_refs);
         void notify(engine_time_t modified_time) override;
-        void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
         void set_sample_time(engine_time_t sample_time);
         [[nodiscard]] engine_time_t sample_time() const;
