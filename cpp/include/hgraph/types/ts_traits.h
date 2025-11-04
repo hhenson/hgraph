@@ -4,7 +4,8 @@
 
 #ifndef HGRAPH_CPP_ROOT_TS_TRAITS_H
 #define HGRAPH_CPP_ROOT_TS_TRAITS_H
-#include "hgraph/util/date_time.h"
+
+#include <hgraph/util/date_time.h>
 
 namespace hgraph
 {

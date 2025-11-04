@@ -47,7 +47,7 @@ namespace hgraph
 
     time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(TimeSeriesBundleOutput *output) const {
         std::vector<time_series_output_ptr> outputs;
-        time_series_output_ptr              output_{output};
+        time_series_output_ptr              output_{nb::ref(output)};
         outputs.reserve(output_builders.size());
         std::ranges::copy(output_builders | std::views::transform([&](auto &builder) { return builder->make_instance(output_); }),
                           std::back_inserter(outputs));

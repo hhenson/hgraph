@@ -1,9 +1,8 @@
 #pragma once
 
 #include "any_value.h"
-#include "hgraph/types/time_series_type.h"
-#include "hgraph/types/ts_traits.h"
-#include "hgraph/util/date_time.h"
+#include <hgraph/types/ts_traits.h>
+#include <hgraph/util/date_time.h>
 #include "ts_event.h"
 #include "ts_value.h"
 #include <memory>
@@ -46,9 +45,9 @@ namespace hgraph
             // No-op
         }
 
-        void make_active([[maybe_unused]] Notifiable *subscriber) override { _active = true; }
+        void mark_active([[maybe_unused]] Notifiable *subscriber) override { _active = true; }
 
-        void make_passive([[maybe_unused]] Notifiable *subscriber) override { _active = false; }
+        void mark_passive([[maybe_unused]] Notifiable *subscriber) override { _active = false; }
 
         [[nodiscard]] bool active([[maybe_unused]] Notifiable *subscriber) const override {
             return _active;  // Return the local active state, ignore subscriber parameter
@@ -173,9 +172,9 @@ namespace hgraph
             apply_event(event);
         }
 
-        void make_active(Notifiable *subscriber) override { _subscribers.insert(subscriber); }
+        void mark_active(Notifiable *subscriber) override { _subscribers.insert(subscriber); }
 
-        void make_passive(Notifiable *subscriber) override { _subscribers.erase(subscriber); }
+        void mark_passive(Notifiable *subscriber) override { _subscribers.erase(subscriber); }
 
         void notify_subscribers(engine_time_t t) override {
             for (auto *subscriber : _subscribers) { subscriber->notify(t); }

@@ -138,6 +138,8 @@ namespace hgraph {
 
         [[nodiscard]] TimeSeriesValueOutput<bool>::ptr &is_empty_output();
 
+        void set_empty_output(bool value);
+
         void invalidate() override;
 
     private:

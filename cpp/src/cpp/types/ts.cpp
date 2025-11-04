@@ -143,14 +143,14 @@ namespace hgraph
         // The only subscribers should be from the bound TSInput, this does not manage
         // Subscriptions this way
         // This is probably another method that can go away
-        throw std::runtime_error("subscribe() unavailable: no subscribers");
+        _ts.subscribe(node);
     }
 
     template <typename T> void TimeSeriesValueOutput<T>::un_subscribe(Notifiable *node) {
         // The only subscribers should be from the bound TSInput, this does not manage
         // Subscriptions this way
         // This is probably another method that can go away
-        throw std::runtime_error("un_subscribe() unavailable: no subscribers");
+        _ts.un_subscribe(node);
     }
 
     template <typename T> void TimeSeriesValueOutput<T>::builder_release_cleanup() {
