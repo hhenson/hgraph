@@ -203,6 +203,14 @@ namespace hgraph {
         return fmt::format("REF[{}]", fmt::join(string_items, ", "));
     }
 
+    TimeSeriesReferenceOutput::TimeSeriesReferenceOutput(const node_ptr &parent)
+        : BaseTimeSeriesOutput(parent), _value{TimeSeriesReference::make()} {}
+
+    TimeSeriesReferenceOutput::TimeSeriesReferenceOutput(const std::variant<TimeSeriesType::ptr, node_ptr> &parent)
+        : BaseTimeSeriesOutput(), _value{TimeSeriesReference::make()} {
+        std::visit([this](auto &&p) { re_parent(p); }, parent);
+    }
+
     bool TimeSeriesReferenceOutput::is_same_type(const TimeSeriesType *other) const {
         return dynamic_cast<const TimeSeriesReferenceOutput *>(other) != nullptr;
     }

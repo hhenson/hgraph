@@ -95,7 +95,8 @@ namespace hgraph {
     };
 
     struct TimeSeriesReferenceOutput : BaseTimeSeriesOutput {
-        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
+        explicit TimeSeriesReferenceOutput(const node_ptr &parent);
+        explicit TimeSeriesReferenceOutput(const std::variant<TimeSeriesType::ptr, node_ptr> &parent);
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
