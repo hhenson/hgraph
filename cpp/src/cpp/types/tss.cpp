@@ -173,7 +173,7 @@ namespace hgraph
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
         : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
-          _is_empty_ref_output{{new TimeSeriesValueOutput<bool>(parent)}} {}
+          _is_empty_ref_output{new TimeSeriesValueOutput<bool>(parent)} {}
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
         : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
