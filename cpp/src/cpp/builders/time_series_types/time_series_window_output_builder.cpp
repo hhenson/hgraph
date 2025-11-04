@@ -11,15 +11,15 @@ namespace hgraph {
     // TSW output builder implementations
     template<typename T>
     time_series_output_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesFixedWindowOutput<T>(owning_node, size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+        auto v{nb::ref(new TimeSeriesFixedWindowOutput<T>(owning_node, size, min_size))};
+        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v.get())};
     }
 
     template<typename T>
     time_series_output_ptr TimeSeriesWindowOutputBuilder_T<
         T>::make_instance(time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesFixedWindowOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output), size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+        auto v{nb::ref(new TimeSeriesFixedWindowOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output), size, min_size))};
+        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v.get())};
     }
 
     template<typename T>
@@ -46,15 +46,15 @@ namespace hgraph {
 
     template<typename T>
     time_series_output_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesTimeWindowOutput<T>(owning_node, size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+        auto v{nb::ref(new TimeSeriesTimeWindowOutput<T>(owning_node, size, min_size))};
+        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v.get())};
     }
 
     template<typename T>
     time_series_output_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(
         time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesTimeWindowOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output), size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+        auto v{nb::ref(new TimeSeriesTimeWindowOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output), size, min_size))};
+        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v.get())};
     }
 
     template<typename T>

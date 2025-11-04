@@ -7,14 +7,14 @@ namespace hgraph {
     // Creates unified input that dynamically works with both fixed-size and timedelta outputs
     template<typename T>
     time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesWindowInput<T>(owning_node)};
-        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
+        auto v{nb::ref(new TimeSeriesWindowInput<T>(owning_node))};
+        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v.get())};
     }
 
     template<typename T>
     time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesWindowInput<T>(dynamic_cast_ref<TimeSeriesType>(owning_input))};
-        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
+        auto v{nb::ref(new TimeSeriesWindowInput<T>(dynamic_cast_ref<TimeSeriesType>(owning_input)))};
+        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v.get())};
     }
 
     void time_series_window_input_builder_register_with_nanobind(nb::module_ &m) {

@@ -10,13 +10,14 @@ namespace hgraph {
     }
 
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesListOutput(owning_node)};
-        return make_and_set_outputs(v);
+        auto v{nb::ref(new TimeSeriesListOutput(owning_node))};
+        time_series_output_ptr out{make_and_set_outputs(v.get())};
+        return out;
     }
 
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesListOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
-        return make_and_set_outputs(v);
+        auto v{nb::ref(new TimeSeriesListOutput(dynamic_cast_ref<TimeSeriesType>(owning_output)))};
+        return make_and_set_outputs(v.get());
     }
 
     bool TimeSeriesListOutputBuilder::is_same_type(const Builder &other) const {
