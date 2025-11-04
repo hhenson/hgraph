@@ -55,6 +55,14 @@ namespace hgraph
 
     void TSOutput::set_parent(Notifiable *parent) { _parent = parent; }
 
+    void TSOutput::subscribe(Notifiable *notifier) {
+        _impl->mark_active(notifier);
+    }
+
+    void TSOutput::un_subscribe(Notifiable *notifier) {
+        _impl->mark_passive(notifier);
+    }
+
     void TSOutput::notify_parent(engine_time_t t) const {
         if (_parent) { _parent->notify(t); }
     }
@@ -75,13 +83,13 @@ namespace hgraph
         bool was_active = _impl->active(reinterpret_cast<Notifiable *>(this));
 
         // Mark passive on old impl
-        if (was_active) { _impl->make_passive(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
 
         // Bind to new impl
         _impl = output._impl;
 
         // Restore active state on new impl
-        if (was_active) { _impl->make_active(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
     }
 
     void TSInput::un_bind() {
@@ -91,13 +99,13 @@ namespace hgraph
         bool was_active = _impl->active(reinterpret_cast<Notifiable *>(this));
 
         // Mark passive on old impl
-        if (was_active) { _impl->make_passive(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
 
         // Reset the state model to NonBoundImpl
         _impl = std::make_shared<NonBoundImpl>(_impl->value_type());
 
         // Restore active state on new impl
-        if (was_active) { _impl->make_active(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
     }
 
     const AnyValue<> &TSInput::value() const { return _impl->value(); }
@@ -113,11 +121,11 @@ namespace hgraph
     bool TSInput::active() const { return _impl->active(reinterpret_cast<Notifiable *>(const_cast<TSInput *>(this))); }
 
     void TSInput::make_active() {
-        if (_impl) { _impl->make_active(reinterpret_cast<Notifiable *>(this)); }
+        if (_impl) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
     }
 
     void TSInput::make_passive() {
-        if (_impl) { _impl->make_passive(reinterpret_cast<Notifiable *>(this)); }
+        if (_impl) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
     }
 
     void TSInput::notify(engine_time_t t) {

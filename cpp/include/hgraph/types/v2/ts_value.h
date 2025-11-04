@@ -40,8 +40,8 @@ namespace hgraph
         virtual void       reset()                              = 0;
 
         // Subscriber management (for active state)
-        virtual void make_active(Notifiable *subscriber)  = 0;
-        virtual void make_passive(Notifiable *subscriber) = 0;
+        virtual void mark_active(Notifiable *subscriber)  = 0;
+        virtual void mark_passive(Notifiable *subscriber) = 0;
         virtual bool active(Notifiable *subscriber) const = 0;
 
         // State queries
@@ -124,6 +124,9 @@ namespace hgraph
         // state.
         [[nodiscard]] Notifiable *parent() const;
         void                      set_parent(Notifiable *parent);
+
+        void subscribe(Notifiable *notifier);
+        void un_subscribe(Notifiable *notifier);
 
       protected:
         void notify_parent(engine_time_t t) const;

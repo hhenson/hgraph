@@ -12,6 +12,7 @@ from hgraph.test import eval_node
 
 
 def test_convert_tsd_to_frame():
+    ...
     @dataclass
     class ABStruct(CompoundScalar):
         a: int

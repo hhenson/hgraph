@@ -45,7 +45,7 @@ namespace hgraph
 
     time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(TimeSeriesBundleInput *input) const {
         std::vector<time_series_input_ptr> inputs;
-        time_series_input_ptr              input_{input};
+        time_series_input_ptr              input_{nb::ref(input)};
         inputs.reserve(input_builders.size());
         std::ranges::copy(input_builders | std::views::transform([&](auto &builder) { return builder->make_instance(input_); }),
                           std::back_inserter(inputs));
