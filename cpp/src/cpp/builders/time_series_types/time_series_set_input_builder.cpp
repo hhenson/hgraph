@@ -5,14 +5,14 @@
 namespace hgraph {
     template<typename T>
     time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesSetInput_T<T>{owning_node}};
-        return v;
+        auto v{nb::ref(new TimeSeriesSetInput_T<T>{owning_node})};
+        return v.get();
     }
 
     template<typename T>
     time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesSetInput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
-        return v;
+        auto v{nb::ref(new TimeSeriesSetInput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_input)})};
+        return v.get();
     }
 
     void time_series_set_input_builder_register_with_nanobind(nb::module_ &m) {

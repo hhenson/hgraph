@@ -8,11 +8,12 @@ namespace hgraph
 {
 
     template <typename T>
-    TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const node_ptr &parent) : _ts(const_cast<Node *>(parent.get()), typeid(T)) {}
+    TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const node_ptr &parent) : _ts(
+        static_cast<Notifiable *>(const_cast<Node *>(parent.get())), typeid(T)) {}
 
     template <typename T>
     TimeSeriesValueOutput<T>::TimeSeriesValueOutput(const TimeSeriesType::ptr &parent)
-        : _ts(const_cast<TimeSeriesType *>(parent.get()), typeid(T)) {}
+        : _ts(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(parent.get())), typeid(T)) {}
 
     template <typename T> node_ptr TimeSeriesValueOutput<T>::owning_node() {
         auto parent{_ts.parent()};
@@ -37,11 +38,11 @@ namespace hgraph
 
     template <typename T> void TimeSeriesValueOutput<T>::re_parent(const node_ptr &node) {
         // This effectively changes the notification route for this output or input.
-        _ts.set_parent(const_cast<Node *>(node.get()));
+        _ts.set_parent(static_cast<Notifiable *>(const_cast<Node *>(node.get())));
     }
 
     template <typename T> void TimeSeriesValueOutput<T>::re_parent(const TimeSeriesType::ptr &ts) {
-        _ts.set_parent(const_cast<TimeSeriesType *>(ts.get()));
+        _ts.set_parent(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(ts.get())));
     }
 
     template <typename T> bool TimeSeriesValueOutput<T>::has_owning_node() const {
@@ -195,11 +196,11 @@ namespace hgraph
     template <typename T> const TSOutput &TimeSeriesValueOutput<T>::ts() const { return _ts; }
 
     template <typename T>
-    TimeSeriesValueInput<T>::TimeSeriesValueInput(const node_ptr &parent) : _ts(const_cast<Node *>(parent.get()), typeid(T)) {}
+    TimeSeriesValueInput<T>::TimeSeriesValueInput(const node_ptr &parent) : _ts(static_cast<Notifiable *>(const_cast<Node *>(parent.get())), typeid(T)) {}
 
     template <typename T>
     TimeSeriesValueInput<T>::TimeSeriesValueInput(const TimeSeriesType::ptr &parent)
-        : _ts(const_cast<TimeSeriesType *>(parent.get()), typeid(T)) {}
+        : _ts(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(parent.get())), typeid(T)) {}
 
     template <typename T> node_ptr TimeSeriesValueInput<T>::owning_node() {
         auto parent{_ts.parent()};
@@ -223,11 +224,11 @@ namespace hgraph
     }
 
     template <typename T> void TimeSeriesValueInput<T>::re_parent(const node_ptr &node) {
-        _ts.set_parent(const_cast<Node *>(node.get()));
+        _ts.set_parent(static_cast<Notifiable *>(const_cast<Node *>(node.get())));
     }
 
     template <typename T> void TimeSeriesValueInput<T>::re_parent(const TimeSeriesType::ptr &ts) {
-        _ts.set_parent(const_cast<TimeSeriesType *>(ts.get()));
+        _ts.set_parent(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(ts.get())));
     }
 
     template <typename T> bool TimeSeriesValueInput<T>::has_owning_node() const { return owning_node() != nullptr; }

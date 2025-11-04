@@ -11,7 +11,7 @@ namespace hgraph {
 
     template<typename T>
     time_series_input_ptr TimeSeriesValueInputBuilder<T>::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesValueInput<T>(dynamic_cast_ref<TimeSeriesType>(owning_input))};
+        auto v{new TimeSeriesValueInput<T>(dynamic_cast<TimeSeriesType *>(owning_input.get()))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 

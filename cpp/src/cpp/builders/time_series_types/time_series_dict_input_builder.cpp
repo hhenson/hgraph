@@ -11,14 +11,14 @@ namespace hgraph {
 
     template<typename T>
     time_series_input_ptr TimeSeriesDictInputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesDictInput_T<T>(owning_node, ts_builder)};
-        return v;
+        auto v{nb::ref(new TimeSeriesDictInput_T<T>(owning_node, ts_builder))};
+        return v.get();
     }
 
     template<typename T>
     time_series_input_ptr TimeSeriesDictInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesDictInput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_input), ts_builder}};
-        return v;
+        auto v{nb::ref(new TimeSeriesDictInput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_input), ts_builder})};
+        return v.get();
     }
 
     template<typename T>

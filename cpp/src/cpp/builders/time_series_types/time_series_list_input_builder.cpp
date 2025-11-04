@@ -10,13 +10,13 @@ namespace hgraph {
     }
 
     time_series_input_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesListInput{owning_node}};
-        return make_and_set_inputs(v);
+        auto v{nb::ref(new TimeSeriesListInput{owning_node})};
+        return make_and_set_inputs(v.get());
     }
 
     time_series_input_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesListInput{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
-        return make_and_set_inputs(v);
+        auto v{nb::ref(new TimeSeriesListInput{dynamic_cast_ref<TimeSeriesType>(owning_input)})};
+        return time_series_input_ptr(make_and_set_inputs(v.get()));
     }
 
     bool TimeSeriesListInputBuilder::has_reference() const { return input_builder->has_reference(); }

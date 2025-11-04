@@ -4,13 +4,13 @@
 
 namespace hgraph {
     time_series_input_ptr TimeSeriesSignalInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesSignalInput(owning_node)};
-        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
+        auto v{nb::ref(new TimeSeriesSignalInput(owning_node))};
+        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v.get())};
     }
 
     time_series_input_ptr TimeSeriesSignalInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesSignalInput(dynamic_cast_ref<TimeSeriesType>(owning_input))};
-        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
+        auto v{nb::ref(new TimeSeriesSignalInput(dynamic_cast_ref<TimeSeriesType>(owning_input)))};
+        return time_series_input_ptr{static_cast<TimeSeriesInput *>(v.get())};
     }
 
     void TimeSeriesSignalInputBuilder::release_instance(time_series_input_ptr item) const {

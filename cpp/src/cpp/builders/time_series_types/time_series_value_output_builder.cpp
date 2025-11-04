@@ -5,14 +5,14 @@
 namespace hgraph {
     template<typename T>
     time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesValueOutput<T>(owning_node)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+        auto v{nb::ref(new TimeSeriesValueOutput<T>(owning_node))};
+        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v.get())};
     }
 
     template<typename T>
     time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesValueOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output))};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+        auto v{nb::ref(new TimeSeriesValueOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output)))};
+        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v.get())};
     }
 
     template<typename T>
