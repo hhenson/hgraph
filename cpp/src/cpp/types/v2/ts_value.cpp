@@ -125,11 +125,17 @@ namespace hgraph
         if (_parent) { _parent->notify(t); }
     }
 
-    engine_time_t TSInput::current_time() const { return dynamic_cast<CurrentTimeProvider *>(_parent)->current_engine_time(); }
+    engine_time_t TSInput::current_time() const {
+        auto *provider = dynamic_cast<CurrentTimeProvider *>(_parent);
+        if (!provider) { throw std::runtime_error("Parent does not implement CurrentTimeProvider"); }
+        return provider->current_engine_time();
+    }
 
     Notifiable *TSInput::parent() const { return _parent; }
 
-    void TSInput::set_parent(Notifiable *parent) {}
+    void TSInput::set_parent(Notifiable *parent) {
+        _parent = parent;
+    }
 
     bool TSInput::bound() const { return dynamic_cast<const NonBoundImpl *>(_impl.get()) == nullptr; }
 }  // namespace hgraph
