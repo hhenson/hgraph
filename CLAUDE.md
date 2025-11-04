@@ -51,6 +51,9 @@ ln -s `pwd`/cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so `pwd`/.v
 
 # 5. Verify installation
 uv run pytest hgraph_unit_tests/_operators/test_const.py -v
+
+#6. When running the code, use the following command to enable the c++ version, without it we run the current python implementation.
+export HGRAPH_USE_CPP=1
 ```
 
 ## Testing
