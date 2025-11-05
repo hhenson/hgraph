@@ -1,5 +1,5 @@
-#include "hgraph/types/v2/ts_value.h"
-#include "hgraph/types/v2/ts_value_impl.h"
+#include <hgraph/types/v2/ts_value.h>
+#include <hgraph/types/v2/ts_value_impl.h>
 
 namespace hgraph
 {
@@ -192,10 +192,4 @@ namespace hgraph
         return !is_non_bound(_impl);
     }
 
-    // NonBoundTSValue notification behavior
-    void NonBoundTSValue::notify_subscribers(engine_time_t t) {
-        // For non-bound inputs, notifications are handled by the owning TSInput when appropriate
-        // (e.g., via make_sampled or explicit scheduling). No external subscribers to notify here.
-        (void)t;
-    }
 }  // namespace hgraph
