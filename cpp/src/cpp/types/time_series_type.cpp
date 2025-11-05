@@ -9,6 +9,26 @@
 
 namespace hgraph {
 
+    void TimeSeriesType::add_before_evaluation_notification(std::function<void()> &&fn) {
+        auto graph = owning_graph();
+        if (graph != nullptr) {
+            graph->evaluation_engine_api()->add_before_evaluation_notification(std::forward<std::function<void()>>(fn));
+        }
+    }
+
+    void TimeSeriesType::add_after_evaluation_notification(std::function<void()> &&fn) {
+        auto graph = owning_graph();
+        if (graph != nullptr) {
+            graph->evaluation_engine_api()->add_after_evaluation_notification(std::forward<std::function<void()>>(fn));
+        }
+    }
+
+    engine_time_t TimeSeriesType::current_engine_time() const {
+        auto graph = owning_graph();
+        if (graph != nullptr) { return graph->evaluation_engine_clock()->evaluation_time(); }
+        return MIN_DT;
+    }
+
     void TimeSeriesType::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesType, nb::intrusive_base>(m, "TimeSeriesType")
                 .def_prop_ro("owning_node",

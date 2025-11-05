@@ -75,8 +75,6 @@ namespace hgraph
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        [[nodiscard]] engine_time_t current_engine_time() const override;
-
         TSOutput &ts();
         const TSOutput &ts() const;
 
@@ -157,7 +155,6 @@ namespace hgraph
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
         void                        notify(engine_time_t et) override;
-        [[nodiscard]] engine_time_t current_engine_time() const override;
 
         void notify_parent(TimeSeriesInput *child, engine_time_t et) override;
 

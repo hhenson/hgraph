@@ -1,18 +1,20 @@
 #pragma once
 
-#include "any_value.h"
-#include "hgraph/hgraph_forward_declarations.h"
-#include "hgraph/types/ts_traits.h"
-#include "hgraph/util/date_time.h"
-#include "ts_event.h"
 #include <concepts>
+#include <hgraph/hgraph_forward_declarations.h>
+#include <hgraph/runtime/evaluation_engine.h>
+#include <hgraph/types/ts_traits.h>
+#include <hgraph/types/v2/any_value.h>
+#include <hgraph/types/v2/ts_event.h>
+#include <hgraph/util/date_time.h>
 #include <memory>
 
 namespace hgraph
 {
     // Concept for parent node requirements
     template <typename T>
-    concept ParentNode = std::derived_from<T, Notifiable> && std::derived_from<T, CurrentTimeProvider>;
+    concept ParentNode =
+        std::derived_from<T, Notifiable> && std::derived_from<T, CurrentTimeProvider> && std::derived_from<T, EvaluationScheduler>;
 
     /**
      * @brief Base implementation class for type-erased time series value storage.
@@ -68,7 +70,7 @@ namespace hgraph
 
         bool is_value_instanceof(const TSValue &value) { return is_value_instanceof(value.value_type()); }
 
-        bool is_value_instanceof(const s_ptr& value) { return is_value_instanceof(value->value_type()); }
+        bool is_value_instanceof(const s_ptr &value) { return is_value_instanceof(value->value_type()); }
 
         virtual ~TSValue() = default;
     };
@@ -172,6 +174,12 @@ namespace hgraph
         // Value access (returns AnyValue)
         [[nodiscard]] const AnyValue<> &value() const;
 
+        // Set value with AnyValue (only if we are in a non-bound state)
+        void set_value(const AnyValue<> &v);
+
+        // Set value with AnyValue move (only if we are in a non-bound state)
+        void set_value(AnyValue<> &&v);
+
         // Queries delegate to shared impl
         [[nodiscard]] bool modified() const;
 
@@ -179,20 +187,18 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t last_modified_time() const;
 
-        [[nodiscard]] TsEventAny delta_value() const;
-
         // Active state (computed from subscription)
         [[nodiscard]] bool active() const;
 
-        // Mark input as active (adds to subscriber set)
+        // Mark input as active (adds to the subscriber-set)
         void make_active();
 
-        // Mark input as passive (removes from subscriber set)
+        // Mark input as passive (removes from the subscriber-set)
         void make_passive();
 
         // Notifiable interface
         // This is needed as we use our own reference to mark active, and we will be called when notified.
-        // The expected flow is: output get's modified, it calls notify on subscribers, we are a subscriber
+        // The expected flow is: output gets modified, it calls notify on subscribers, we are a subscriber
         // we get notified, this method then notifies the parent, ultimately this will notify the containing Node
         // which will result in the node owning this Input being scheduled.
         void notify(engine_time_t et) override;
@@ -212,11 +218,21 @@ namespace hgraph
         [[nodiscard]] bool bound() const;
         // Bind to output (shares impl) - implementation in .cpp
         void bind_output(TSOutput &output);
+        void copy_from_input(TSInput &input);
+
         void un_bind();
 
+        // Marks the input as sampled, this means input will appear as being modified
+        // For the current engine time, afterward things go back to normal.
+        void make_sampled(bool use_active_guard);
+
         // bind a reference
-        //  Need to descide how a reference looks, I think to start with a reference is just like a normal TS with extra magic
-      private:
+        //  Need to decide how a reference looks, I think to start with a reference is just like a normal TS with extra magic
+    protected:
+        void add_before_evaluation_notification(std::function<void()> &&fn) const;
+        void add_after_evaluation_notification(std::function<void()> &&fn) const;
+        void bind(impl_ptr &other);
+    private:
         impl_ptr    _impl;    // Shared impl
         Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };

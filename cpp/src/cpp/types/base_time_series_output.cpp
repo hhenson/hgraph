@@ -4,13 +4,6 @@
 
 namespace hgraph {
 
-    // Implement TimeSeriesType abstract interface in BaseTimeSeriesOutput
-    engine_time_t BaseTimeSeriesOutput::current_engine_time() const {
-        auto g = owning_graph();
-        if (g != nullptr) { return g->evaluation_clock()->evaluation_time(); }
-        return MIN_DT;
-    }
-
     node_ptr BaseTimeSeriesOutput::owning_node() { return _owning_node(); }
 
     node_ptr BaseTimeSeriesOutput::owning_node() const { return _owning_node(); }
