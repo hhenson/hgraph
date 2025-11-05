@@ -56,11 +56,11 @@ namespace hgraph
     void TSOutput::set_parent(Notifiable *parent) { _parent = parent; }
 
     void TSOutput::subscribe(Notifiable *notifier) {
-        _impl->mark_active(notifier);
+        _impl->add_subscriber(notifier);
     }
 
-    void TSOutput::un_subscribe(Notifiable *notifier) {
-        _impl->mark_passive(notifier);
+    void TSOutput::unsubscribe(Notifiable *notifier) {
+        _impl->remove_subscriber(notifier);
     }
 
     void TSOutput::notify_parent(engine_time_t t) const {
@@ -74,38 +74,38 @@ namespace hgraph
     // TSInput::bind_output implementation
     void TSInput::bind_output(TSOutput &output) {
         // Type validation: ensure input and output types match
-        if (_impl->value_type() != output._impl->value_type()) {
+        if (_impl->is_value_instanceof(output._impl->value_type())) {
             throw std::runtime_error(std::string("Type mismatch in bind_output: input expects ") + _impl->value_type().name() +
                                      " but output provides " + output._impl->value_type().name());
         }
 
         // Get active-state from current impl before switching
-        bool was_active = _impl->active(reinterpret_cast<Notifiable *>(this));
+        bool was_active{active()};
 
         // Mark passive on old impl
-        if (was_active) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { make_passive(); }
 
         // Bind to new impl
         _impl = output._impl;
 
         // Restore active state on new impl
-        if (was_active) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { make_active(); }
     }
 
     void TSInput::un_bind() {
         if (!bound()) { return; }
 
         // Get active-state from current impl before switching
-        bool was_active = _impl->active(reinterpret_cast<Notifiable *>(this));
+        bool was_active = _impl->has_subscriber(reinterpret_cast<Notifiable *>(this));
 
         // Mark passive on old impl
-        if (was_active) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { _impl->remove_subscriber(reinterpret_cast<Notifiable *>(this)); }
 
         // Reset the state model to NonBoundImpl
         _impl = std::make_shared<NonBoundImpl>(_impl->value_type());
 
         // Restore active state on new impl
-        if (was_active) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
+        if (was_active) { _impl->add_subscriber(reinterpret_cast<Notifiable *>(this)); }
     }
 
     const AnyValue<> &TSInput::value() const { return _impl->value(); }
@@ -118,14 +118,14 @@ namespace hgraph
 
     TsEventAny TSInput::delta_value() const { return _impl ? _impl->query_event(current_time()) : TsEventAny::none(min_time()); }
 
-    bool TSInput::active() const { return _impl->active(reinterpret_cast<Notifiable *>(const_cast<TSInput *>(this))); }
+    bool TSInput::active() const { return _impl->has_subscriber(reinterpret_cast<Notifiable *>(const_cast<TSInput *>(this))); }
 
     void TSInput::make_active() {
-        if (_impl) { _impl->mark_active(reinterpret_cast<Notifiable *>(this)); }
+        if (_impl) { _impl->add_subscriber(reinterpret_cast<Notifiable *>(this)); }
     }
 
     void TSInput::make_passive() {
-        if (_impl) { _impl->mark_passive(reinterpret_cast<Notifiable *>(this)); }
+        if (_impl) { _impl->remove_subscriber(reinterpret_cast<Notifiable *>(this)); }
     }
 
     void TSInput::notify(engine_time_t t) {

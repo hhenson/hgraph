@@ -34,33 +34,35 @@ namespace hgraph
     {
         // Virtual interface for variant behavior
         virtual void       apply_event(const TsEventAny &event) = 0;
-        virtual TsEventAny query_event(engine_time_t t) const   = 0;
+        [[nodiscard]] virtual TsEventAny query_event(engine_time_t t) const   = 0;
         virtual void       bind_to(TSValue *other)              = 0;
         virtual void       unbind()                             = 0;
         virtual void       reset()                              = 0;
 
         // Subscriber management (for active state)
-        virtual void mark_active(Notifiable *subscriber)  = 0;
-        virtual void mark_passive(Notifiable *subscriber) = 0;
-        virtual bool active(Notifiable *subscriber) const = 0;
+        virtual void add_subscriber(Notifiable *subscriber)  = 0;
+        virtual void remove_subscriber(Notifiable *subscriber) = 0;
+        virtual bool has_subscriber(Notifiable *subscriber) const = 0;
 
         // State queries
-        virtual bool          modified(engine_time_t t) const = 0;
-        virtual bool          all_valid() const               = 0;
-        virtual bool          valid() const                   = 0;
-        virtual engine_time_t last_modified_time() const      = 0;
+        [[nodiscard]] virtual bool          modified(engine_time_t t) const = 0;
+        [[nodiscard]] virtual bool          all_valid() const               = 0;
+        [[nodiscard]] virtual bool          valid() const                   = 0;
+        [[nodiscard]] virtual engine_time_t last_modified_time() const      = 0;
 
         // Value access
-        virtual const AnyValue<> &value() const = 0;
+        [[nodiscard]] virtual const AnyValue<> &value() const = 0;
 
         // Type information
-        virtual const std::type_info &value_type() const = 0;
+        [[nodiscard]] virtual const std::type_info &value_type() const = 0;
 
         // Event generation
         virtual void mark_invalid(engine_time_t t) = 0;
 
         // Notification
         virtual void notify_subscribers(engine_time_t t) = 0;
+
+        [[nodiscard]] virtual bool is_value_instanceof(const std::type_info &value_type) = 0;
 
         virtual ~TSValue() = default;
     };
@@ -126,7 +128,7 @@ namespace hgraph
         void                      set_parent(Notifiable *parent);
 
         void subscribe(Notifiable *notifier);
-        void un_subscribe(Notifiable *notifier);
+        void unsubscribe(Notifiable *notifier);
 
       protected:
         void notify_parent(engine_time_t t) const;
@@ -206,6 +208,8 @@ namespace hgraph
         void bind_output(TSOutput &output);
         void un_bind();
 
+        //bind a reference
+        // Need to descide how a reference looks, I think to start with a reference is just like a normal TS with extra magic
       private:
         impl_ptr    _impl;    // Shared impl
         Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)

@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts.h>
 #include <hgraph/util/string_utils.h>
+#include <hgraph/types/ref.h>
 
 namespace hgraph
 {
@@ -150,7 +151,7 @@ namespace hgraph
         // The only subscribers should be from the bound TSInput, this does not manage
         // Subscriptions this way
         // This is probably another method that can go away
-        _ts.un_subscribe(node);
+        _ts.unsubscribe(node);
     }
 
     template <typename T> void TimeSeriesValueOutput<T>::builder_release_cleanup() {
@@ -270,6 +271,10 @@ namespace hgraph
 
     template <typename T> bool TimeSeriesValueInput<T>::bind_output(time_series_output_ptr output_) {
         if (output_ == nullptr) return false;
+        auto *ts_ref = dynamic_cast<TimeSeriesReferenceOutput *>(output_.get());
+        if (ts_ref != nullptr) {
+            //TODO: Put in reference handling logic here.
+        }
         auto *ts_out = dynamic_cast<TimeSeriesValueOutput<T> *>(output_.get());
         if (!ts_out) return false;
         _ts.bind_output(ts_out->ts());
