@@ -7,9 +7,11 @@
 
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/v2/ts_value.h>
+#include <hgraph/types/ref_value.h>
 
 namespace hgraph
 {
+#if !defined(HGRAPH_REF_VALUE_TYPES_DECLARED)
     struct HGRAPH_EXPORT TimeSeriesReference : nb::intrusive_base
     {
         using ptr = nb::ref<TimeSeriesReference>;
@@ -101,6 +103,7 @@ namespace hgraph
     // Use this definition of the ref-value-type to make it easier to switch
     // out later when we turn the ref into a proper value type.
     using ref_value_tp = TimeSeriesReference::ptr;
+#endif // !HGRAPH_REF_VALUE_TYPES_DECLARED
 
     // ORIGINAL: Inherited from BaseTimeSeriesOutput with _value member
     // NEW: Direct TimeSeriesOutput inheritance, uses TSOutput _ts for storage

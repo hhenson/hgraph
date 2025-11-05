@@ -119,6 +119,8 @@ namespace hgraph
     }
 
     void TSInput::bind(impl_ptr &other) {
+        // If the other is a reference and we are not ...
+        //if (other->is_value_instanceof(reference_value))
         // Type validation: ensure input and output types match
         if (!_impl->is_value_instanceof(other)) {
             throw std::runtime_error(std::string("Type mismatch in bind_output: input expects ") + _impl->value_type().name() +
