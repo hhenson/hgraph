@@ -45,11 +45,11 @@ namespace hgraph
             // No-op
         }
 
-        void mark_active([[maybe_unused]] Notifiable *subscriber) override { _active = true; }
+        void add_subscriber([[maybe_unused]] Notifiable *subscriber) override { _active = true; }
 
-        void mark_passive([[maybe_unused]] Notifiable *subscriber) override { _active = false; }
+        void remove_subscriber([[maybe_unused]] Notifiable *subscriber) override { _active = false; }
 
-        [[nodiscard]] bool active([[maybe_unused]] Notifiable *subscriber) const override {
+        [[nodiscard]] bool has_subscriber([[maybe_unused]] Notifiable *subscriber) const override {
             return _active;  // Return the local active state, ignore subscriber parameter
         }
 
@@ -77,6 +77,10 @@ namespace hgraph
 
         void mark_invalid(engine_time_t t) override {
             // No-op - non-bound inputs don't track invalidation
+        }
+
+        [[nodiscard]] bool is_value_instanceof(const std::type_info &value_type) override {
+            return _value_type.info == &value_type;
         }
 
         void notify_subscribers(engine_time_t t) override {
@@ -172,15 +176,19 @@ namespace hgraph
             apply_event(event);
         }
 
-        void mark_active(Notifiable *subscriber) override { _subscribers.insert(subscriber); }
+        void add_subscriber(Notifiable *subscriber) override { _subscribers.insert(subscriber); }
 
-        void mark_passive(Notifiable *subscriber) override { _subscribers.erase(subscriber); }
+        void remove_subscriber(Notifiable *subscriber) override { _subscribers.erase(subscriber); }
 
         void notify_subscribers(engine_time_t t) override {
             for (auto *subscriber : _subscribers) { subscriber->notify(t); }
         }
 
-        [[nodiscard]] bool active(Notifiable *subscriber) const override { return _subscribers.contains(subscriber); }
+        [[nodiscard]] bool is_value_instanceof(const std::type_info &value_type) override {
+            return _value_type.info == &value_type;
+        }
+
+        [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override { return _subscribers.contains(subscriber); }
     };
 
 }  // namespace hgraph
