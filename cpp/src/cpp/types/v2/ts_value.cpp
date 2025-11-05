@@ -74,7 +74,7 @@ namespace hgraph
     // TSInput::bind_output implementation
     void TSInput::bind_output(TSOutput &output) {
         // Type validation: ensure input and output types match
-        if (!_impl->is_value_instanceof(output._impl->value_type())) {
+        if (!_impl->is_value_instanceof(output._impl)) {
             throw std::runtime_error(std::string("Type mismatch in bind_output: input expects ") + _impl->value_type().name() +
                                      " but output provides " + output._impl->value_type().name());
         }
