@@ -152,15 +152,50 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
+        # Top-level API headers
+        include/hgraph/hgraph_export.h
+        include/hgraph/hgraph_forward_declarations.h
+        include/hgraph/hgraph_base.h
+
+        # Builder APIs
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
         include/hgraph/builders/input_builder.h
         include/hgraph/builders/node_builder.h
         include/hgraph/builders/output_builder.h
-        include/hgraph/hgraph_export.h
-        include/hgraph/hgraph_forward_declarations.h
+        include/hgraph/builders/nodes/base_nested_graph_node_builder.h
+        include/hgraph/builders/nodes/component_node_builder.h
+        include/hgraph/builders/nodes/context_node_builder.h
+        include/hgraph/builders/nodes/last_value_pull_node_builder.h
+        include/hgraph/builders/nodes/mesh_node_builder.h
+        include/hgraph/builders/nodes/nested_graph_node_builder.h
+        include/hgraph/builders/nodes/python_generator_node_builder.h
+        include/hgraph/builders/nodes/python_node_builder.h
+        include/hgraph/builders/nodes/reduce_node_builder.h
+        include/hgraph/builders/nodes/switch_node_builder.h
+        include/hgraph/builders/nodes/try_except_node_builder.h
+        include/hgraph/builders/nodes/tsd_map_node_builder.h
+        include/hgraph/builders/nodes/tsd_non_associative_reduce_node_builder.h
+        include/hgraph/builders/time_series_types/time_series_bundle_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_bundle_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_dict_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_dict_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_list_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_list_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_ref_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_ref_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_set_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_set_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_signal_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_value_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_value_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_window_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_window_output_builder.h
+
+        # Node interfaces
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/component_node.h
+        include/hgraph/nodes/context_node.h
         include/hgraph/nodes/last_value_pull_node.h
         include/hgraph/nodes/mesh_node.h
         include/hgraph/nodes/nest_graph_node.h
@@ -174,6 +209,8 @@ set(HGRAPH_INCLUDES
         include/hgraph/nodes/switch_node.h
         include/hgraph/nodes/try_except_node.h
         include/hgraph/nodes/tsd_map_node.h
+
+        # Python interop
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_keys.h
@@ -181,16 +218,21 @@ set(HGRAPH_INCLUDES
         include/hgraph/python/hashable.h
         include/hgraph/python/nb_types_ext.h
         include/hgraph/python/reference_wrapper.h
+
+        # Runtime
         include/hgraph/runtime/evaluation_context.h
         include/hgraph/runtime/evaluation_engine.h
         include/hgraph/runtime/graph_executor.h
         include/hgraph/runtime/record_replay.h
+
+        # Types (core)
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
         include/hgraph/types/feature_extension.h
         include/hgraph/types/graph.h
         include/hgraph/types/node.h
         include/hgraph/types/ref.h
+        include/hgraph/types/ref_value.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
         include/hgraph/types/time_series_type.h
@@ -203,6 +245,16 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/tsd.h
         include/hgraph/types/tsl.h
         include/hgraph/types/tss.h
+        include/hgraph/types/base_time_series_input.h
+        include/hgraph/types/base_time_series_output.h
+
+        # Types v2 (AnyValue/TSValue API)
+        include/hgraph/types/v2/any_value.h
+        include/hgraph/types/v2/ts_event.h
+        include/hgraph/types/v2/ts_value.h
+        include/hgraph/types/v2/ts_value_impl.h
+
+        # Utils
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
         include/hgraph/util/sender_receiver_state.h
