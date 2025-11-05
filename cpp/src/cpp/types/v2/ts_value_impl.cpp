@@ -1,4 +1,5 @@
 #include "hgraph/nodes/last_value_pull_node.h"
+#include "hgraph/types/ref.h"
 
 #include <hgraph/types/ref_value.h>
 #include <hgraph/types/v2/ts_value_impl.h>
@@ -155,10 +156,14 @@ namespace hgraph
         }
         auto v(get_from_any<ref_value_tp>(_reference_value->value()));
         if (v->has_output()) {
+            // We can be bound to a TS value, not another reference that would not make sense.
             auto output{dynamic_cast<BoundTimeSeriesReference *>(v.get())->output()};
             // We can only deal with Bound types being TimeSeriesValueOutput (and perhaps REF, see if that is needed)
-            auto &output_v = dynamic_cast<TimeSeriesValueOutput&>(*output);
-
+            if (auto output_v = dynamic_cast<TimeSeriesValueOutput *>(output.get()); output_v != nullptr) {
+                auto p{output_v->ts()._impl};
+                swap(p);
+                // DO we need to so a sample?
+            }
         } else {
             throw std::runtime_error("ReferencedTSValue::update_binding: Expected BoundTimeSeriesReference");
         }

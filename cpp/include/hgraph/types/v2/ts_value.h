@@ -76,6 +76,7 @@ namespace hgraph
     };
 
     struct TSInput;
+    struct ReferencedTSValue;
 
     /**
      * @brief Type-erased time series output (event generator).
@@ -145,6 +146,7 @@ namespace hgraph
 
       private:
         friend TSInput;
+        friend ReferencedTSValue;
         impl_ptr    _impl;    // Shared with bound inputs
         Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
