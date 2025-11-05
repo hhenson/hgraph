@@ -5,12 +5,12 @@
 namespace hgraph
 {
     template <typename T> time_series_input_ptr TimeSeriesValueInputBuilder<T>::make_instance(node_ptr owning_node) const {
-        return {new TimeSeriesValueInput<T>(owning_node)};
+        return {new TimeSeriesValueInput(owning_node, typeid(T))};
     }
 
     template <typename T>
     time_series_input_ptr TimeSeriesValueInputBuilder<T>::make_instance(time_series_input_ptr owning_input) const {
-        return {new TimeSeriesValueInput<T>(dynamic_cast<TimeSeriesType *>(owning_input.get()))};
+        return {new TimeSeriesValueInput(dynamic_cast<TimeSeriesType *>(owning_input.get()), typeid(T))};
     }
 
     void time_series_value_input_builder_register_with_nanobind(nb::module_ &m) {

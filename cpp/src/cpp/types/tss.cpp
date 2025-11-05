@@ -173,19 +173,19 @@ namespace hgraph
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
         : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
-          _is_empty_ref_output{new TimeSeriesValueOutput<bool>(parent)} {}
+          _is_empty_ref_output{new TimeSeriesValueOutput(parent, typeid(bool))} {}
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
         : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
-          _is_empty_ref_output{new TimeSeriesValueOutput<bool>(parent)} {}
+          _is_empty_ref_output{new TimeSeriesValueOutput(parent, typeid(bool))} {}
 
-    TimeSeriesValueOutput<bool>::ptr &TimeSeriesSetOutput::is_empty_output() {
+    TimeSeriesValueOutput::ptr &TimeSeriesSetOutput::is_empty_output() {
         if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
         return _is_empty_ref_output;
     }
 
     void TimeSeriesSetOutput::set_empty_output(bool value) {
-        _is_empty_ref_output->set_value(value);
+        _is_empty_ref_output->set_value<bool>(value);
     }
 
     void TimeSeriesSetOutput::invalidate() {
@@ -201,7 +201,7 @@ namespace hgraph
           _contains_ref_outputs{this,
                                 new TimeSeriesValueOutputBuilder<bool>(),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
-                                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
+                                    reinterpret_cast<TimeSeriesValueOutput &>(ref).set_value(
                                         reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
                                 },
                                 {}} {}
@@ -212,7 +212,7 @@ namespace hgraph
           _contains_ref_outputs{{this},
                                 {new TimeSeriesValueOutputBuilder<bool>()},
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
-                                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
+                                    reinterpret_cast<TimeSeriesValueOutput &>(ref).set_value(
                                         reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
                                 },
                                 {}} {}
@@ -358,7 +358,7 @@ namespace hgraph
         bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_clock()->evaluation_time());
         if ((has_changes || needs_validation) && is_current_cycle) {
             mark_modified();
-            if (_added.size() > 0 && is_empty_output()->valid() && is_empty_output()->value()) {
+            if (_added.size() > 0 && is_empty_output()->valid() && is_empty_output()->template value<bool>()) {
                 is_empty_output()->set_value(false);
             } else if (_removed.size() > 0 && empty()) {
                 is_empty_output()->set_value(true);
@@ -698,9 +698,9 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::empty() const { return _value.empty(); }
 
     template <typename T_Key>
-    TimeSeriesValueOutput<bool>::ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
+    TimeSeriesValueOutput::ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
                                                                                        const nb::object &requester) {
-        return dynamic_cast<TimeSeriesValueOutput<bool> *>(
+        return dynamic_cast<TimeSeriesValueOutput *>(
             _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())).get());
     }
 

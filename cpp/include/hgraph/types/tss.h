@@ -131,19 +131,19 @@ namespace hgraph {
 
         virtual void py_add(const nb::object &key) = 0;
 
-        [[nodiscard]] virtual TimeSeriesValueOutput<bool>::ptr get_contains_output(const nb::object &item,
+        [[nodiscard]] virtual TimeSeriesValueOutput::ptr get_contains_output(const nb::object &item,
             const nb::object &requester) = 0;
 
         virtual void release_contains_output(const nb::object &item, const nb::object &requester) = 0;
 
-        [[nodiscard]] TimeSeriesValueOutput<bool>::ptr &is_empty_output();
+        [[nodiscard]] TimeSeriesValueOutput::ptr &is_empty_output();
 
         void set_empty_output(bool value);
 
         void invalidate() override;
 
     private:
-        nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
+        nb::ref<TimeSeriesValueOutput> _is_empty_ref_output;
     };
 
     struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
@@ -253,7 +253,7 @@ namespace hgraph {
 
         [[nodiscard]] bool empty() const override;
 
-        [[nodiscard]] TimeSeriesValueOutput<bool>::ptr get_contains_output(const nb::object &item,
+        [[nodiscard]] TimeSeriesValueOutput::ptr get_contains_output(const nb::object &item,
                                                                            const nb::object &requester) override;
 
         void release_contains_output(const nb::object &item, const nb::object &requester) override;

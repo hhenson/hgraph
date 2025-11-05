@@ -12,7 +12,7 @@
 #include <functional>
 #include <stdexcept>
 
-#include "hgraph/hgraph_export.h"
+#include <hgraph/hgraph_export.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph

@@ -9,18 +9,15 @@
 #include <hgraph/types/v2/ts_value.h>
 #include <hgraph/util/string_utils.h>
 
-
 namespace hgraph
 {
-    template <typename T>
     struct HGRAPH_EXPORT TimeSeriesValueOutput : TimeSeriesOutput
     {
-        using value_type = T;
-        using ptr        = nb::ref<TimeSeriesValueOutput<T>>;
+        using ptr = nb::ref<TimeSeriesValueOutput>;
 
         // Constructors
-        explicit TimeSeriesValueOutput(const node_ptr &parent);
-        explicit TimeSeriesValueOutput(const TimeSeriesType::ptr &parent);
+        explicit TimeSeriesValueOutput(const node_ptr &parent, const std::type_info &tp);
+        explicit TimeSeriesValueOutput(const TimeSeriesType::ptr &parent, const std::type_info &tp);
 
         // TimeSeriesType interface (best-effort)
         [[nodiscard]] node_ptr  owning_node() override;
@@ -33,8 +30,8 @@ namespace hgraph
         [[nodiscard]] bool      is_reference() const override;
         [[nodiscard]] bool      has_reference() const override;
 
-        //This is a candidate for removal later
-        void                    reset_parent_or_node() override;
+        // This is a candidate for removal later
+        void reset_parent_or_node() override;
 
         // Python interop
         [[nodiscard]] nb::object py_value() const override;
@@ -44,12 +41,24 @@ namespace hgraph
         bool can_apply_result(nb::object value) override;
         void apply_result(nb::object value) override;
 
-        // Value API
-        [[nodiscard]] const T &value() const;
+        template <typename T> const T value() const {
+            const auto &av = _ts.value();
+            const T    *pv = av.template get_if<T>();
+            if (!pv) throw std::bad_cast();
+            return *pv;
+        }
 
-        void set_value(const T &v);
+        template <typename T> void set_value(const T &v) {
+            AnyValue<> any;
+            any.emplace<T>(v);
+            _ts.set_value(any);
+        }
 
-        void set_value(T &&v);
+        template <typename T> void set_value(T &&v) {
+            AnyValue<> any;
+            any.emplace<T>(std::move(v));
+            _ts.set_value(std::move(any));
+        }
 
         // Output state and operations
         void                                mark_invalid() override;
@@ -70,28 +79,26 @@ namespace hgraph
         void                                mark_modified(engine_time_t modified_time) override;
         void                                notify(engine_time_t) override;
 
-        void               copy_from_output(const TimeSeriesOutput &output) override;
-        void               copy_from_input(const TimeSeriesInput &input) override;
+        void copy_from_output(const TimeSeriesOutput &output) override;
+        void copy_from_input(const TimeSeriesInput &input) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        TSOutput &ts();
+        TSOutput       &ts();
         const TSOutput &ts() const;
 
       private:
         TSOutput _ts;
     };
 
-    template <typename T>
     struct HGRAPH_EXPORT TimeSeriesValueInput : TimeSeriesInput
     {
-        using value_type = T;
-        using ptr        = nb::ref<TimeSeriesValueInput<T>>;
+        using ptr = nb::ref<TimeSeriesValueInput>;
 
         // Constructors
-        explicit TimeSeriesValueInput(const node_ptr &parent);
+        explicit TimeSeriesValueInput(const node_ptr &parent, const std::type_info &tp);
 
-        explicit TimeSeriesValueInput(const TimeSeriesType::ptr &parent);
+        explicit TimeSeriesValueInput(const TimeSeriesType::ptr &parent, const std::type_info &tp);
 
         // TimeSeriesType interface (best-effort)
         [[nodiscard]] node_ptr  owning_node() override;
@@ -143,26 +150,29 @@ namespace hgraph
         [[nodiscard]] time_series_reference_output_ptr reference_output() const override;
 
         [[nodiscard]] const TimeSeriesInput *get_input(size_t) const override;
-        [[nodiscard]] TimeSeriesInput *      get_input(size_t) override;
-
-        // Extra helpers
-        [[nodiscard]] const T &value() const;
-
-        [[nodiscard]] TimeSeriesValueOutput<T> &value_output();
-
-        [[nodiscard]] const TimeSeriesValueOutput<T> &value_output() const;
+        [[nodiscard]] TimeSeriesInput       *get_input(size_t) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        void                        notify(engine_time_t et) override;
+        void notify(engine_time_t et) override;
 
         void notify_parent(TimeSeriesInput *child, engine_time_t et) override;
+
+        template <typename T> const T &value() const {
+            const auto &av = _ts.value();
+            const T    *pv = av.template get_if<T>();
+            if (!pv) throw std::bad_cast();
+            return *pv;
+        }
+
+        TSInput       &ts();
+        const TSInput &ts() const;
 
       private:
         TSInput _ts;
     };
 
     void register_ts_with_nanobind(nb::module_ &m);
-} // namespace hgraph
+}  // namespace hgraph
 
 #endif  // TS_H

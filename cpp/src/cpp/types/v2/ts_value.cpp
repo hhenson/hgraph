@@ -59,6 +59,10 @@ namespace hgraph
 
     void TSOutput::unsubscribe(Notifiable *notifier) { _impl->remove_subscriber(notifier); }
 
+    const std::type_info &TSOutput::value_type() const {
+        return _impl->value_type();
+    }
+
     void TSOutput::notify_parent(engine_time_t t) const {
         if (_parent) { _parent->notify(t); }
     }
@@ -108,6 +112,10 @@ namespace hgraph
         });
 
         if (!use_active_guard || active()) { notify(tm); }
+    }
+
+    const std::type_info &TSInput::value_type() const {
+        return _impl->value_type();
     }
 
     void TSInput::add_before_evaluation_notification(std::function<void()> &&fn) const {
