@@ -19,7 +19,6 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
         // Implement TimeSeriesType abstract interface
-        [[nodiscard]] engine_time_t current_engine_time() const override;
         [[nodiscard]] node_ptr owning_node() override;
         [[nodiscard]] node_ptr owning_node() const override;
         [[nodiscard]] graph_ptr owning_graph() override;

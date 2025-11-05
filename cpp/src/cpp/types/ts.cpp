@@ -190,9 +190,6 @@ namespace hgraph
         return dynamic_cast<const TimeSeriesValueOutput<T> *>(other) != nullptr;
     }
 
-    template <typename T> engine_time_t TimeSeriesValueOutput<T>::current_engine_time() const {
-        return owning_graph()->evaluation_clock()->evaluation_time();
-    }
     template <typename T> TSOutput       &TimeSeriesValueOutput<T>::ts() { return _ts; }
     template <typename T> const TSOutput &TimeSeriesValueOutput<T>::ts() const { return _ts; }
 
@@ -351,10 +348,6 @@ namespace hgraph
         // is in the TSD, but the check there is find the key that is change, this could be
         // a problem ...
         throw std::runtime_error("notify() unavailable: we directly notify parent");
-    }
-
-    template <typename T> engine_time_t TimeSeriesValueInput<T>::current_engine_time() const {
-        return owning_graph()->evaluation_clock()->evaluation_time();
     }
 
     template <typename T> void TimeSeriesValueInput<T>::notify_parent(TimeSeriesInput *child, engine_time_t et) {

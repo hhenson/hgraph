@@ -2,6 +2,7 @@
 #define TIME_SERIES_TYPE_H
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/ts_traits.h>
 #include <variant>
 
@@ -9,23 +10,23 @@ namespace hgraph
 {
     struct BaseTimeSeriesInput;
 
-    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, CurrentTimeProvider, Notifiable
+    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, CurrentTimeProvider, Notifiable, EvaluationScheduler
     {
         using ptr = nb::ref<TimeSeriesType>;
 
-        TimeSeriesType() = default;
-        TimeSeriesType(const TimeSeriesType &) = default;
-        TimeSeriesType(TimeSeriesType &&) = default;
+        TimeSeriesType()                                  = default;
+        TimeSeriesType(const TimeSeriesType &)            = default;
+        TimeSeriesType(TimeSeriesType &&)                 = default;
         TimeSeriesType &operator=(const TimeSeriesType &) = default;
-        TimeSeriesType &operator=(TimeSeriesType &&) = default;
-        ~TimeSeriesType() override = default;
+        TimeSeriesType &operator=(TimeSeriesType &&)      = default;
+        ~TimeSeriesType() override                        = default;
 
         // Method for owning node
-        [[nodiscard]] virtual node_ptr owning_node() = 0;
+        [[nodiscard]] virtual node_ptr owning_node()       = 0;
         [[nodiscard]] virtual node_ptr owning_node() const = 0;
 
         // Method for owning graph
-        [[nodiscard]] virtual graph_ptr owning_graph() = 0;
+        [[nodiscard]] virtual graph_ptr owning_graph()       = 0;
         [[nodiscard]] virtual graph_ptr owning_graph() const = 0;
 
         // Method for value - as python object
@@ -59,7 +60,7 @@ namespace hgraph
         For example, see use in map implementation.
         */
         virtual void re_parent(const node_ptr &parent) = 0;
-        virtual void re_parent(const ptr &parent) = 0;
+        virtual void re_parent(const ptr &parent)      = 0;
 
         [[nodiscard]] virtual bool has_owning_node() const = 0;
 
@@ -69,10 +70,15 @@ namespace hgraph
          */
         [[nodiscard]] virtual bool is_same_type(const TimeSeriesType *other) const = 0;
 
-        [[nodiscard]] virtual bool is_reference() const = 0;
+        [[nodiscard]] virtual bool is_reference() const  = 0;
         [[nodiscard]] virtual bool has_reference() const = 0;
 
         virtual void reset_parent_or_node() = 0;
+
+        void add_before_evaluation_notification(std::function<void()> &&fn) override;
+        void add_after_evaluation_notification(std::function<void()> &&fn) override;
+
+        [[nodiscard]] engine_time_t current_engine_time() const override;
 
         static void register_with_nanobind(nb::module_ &m);
 
@@ -82,38 +88,37 @@ namespace hgraph
     struct TimeSeriesInput;
     struct OutputBuilder;
 
-    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType {
+    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType
+    {
         using ptr = nb::ref<TimeSeriesOutput>;
         using TimeSeriesType::TimeSeriesType;
 
         // Interface: pure virtual behaviour to be implemented by concrete base
-        [[nodiscard]] virtual bool modified() const = 0;
-        [[nodiscard]] virtual engine_time_t last_modified_time() const = 0;
-        virtual void mark_invalid() = 0;
-        virtual void mark_modified() = 0;
-        virtual void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) = 0;
-        [[nodiscard]] virtual bool valid() const = 0;
-        [[nodiscard]] virtual bool all_valid() const = 0;
-        [[nodiscard]] virtual ptr parent_output() const = 0;
-        [[nodiscard]] virtual ptr parent_output() = 0;
-        [[nodiscard]] virtual bool has_parent_output() const = 0;
-        virtual void subscribe(Notifiable *node) = 0;
-        virtual void un_subscribe(Notifiable *node) = 0;
+        [[nodiscard]] virtual bool          modified() const                                                          = 0;
+        [[nodiscard]] virtual engine_time_t last_modified_time() const                                                = 0;
+        virtual void                        mark_invalid()                                                            = 0;
+        virtual void                        mark_modified()                                                           = 0;
+        virtual void                        mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) = 0;
+        [[nodiscard]] virtual bool          valid() const                                                             = 0;
+        [[nodiscard]] virtual bool          all_valid() const                                                         = 0;
+        [[nodiscard]] virtual ptr           parent_output() const                                                     = 0;
+        [[nodiscard]] virtual ptr           parent_output()                                                           = 0;
+        [[nodiscard]] virtual bool          has_parent_output() const                                                 = 0;
+        virtual void                        subscribe(Notifiable *node)                                               = 0;
+        virtual void                        un_subscribe(Notifiable *node)                                            = 0;
         // Minimal-teardown helper used by builders during release; must not access owning_node/graph
-        virtual void builder_release_cleanup() = 0;
-        virtual void py_set_value(nb::object value) = 0;
-        virtual bool can_apply_result(nb::object value) = 0;
-        virtual void apply_result(nb::object value) = 0;
+        virtual void builder_release_cleanup()                        = 0;
+        virtual void py_set_value(nb::object value)                   = 0;
+        virtual bool can_apply_result(nb::object value)               = 0;
+        virtual void apply_result(nb::object value)                   = 0;
         virtual void copy_from_output(const TimeSeriesOutput &output) = 0;
-        virtual void copy_from_input(const TimeSeriesInput &input) = 0;
-        virtual void clear() = 0;
-        virtual void invalidate() = 0;
-        virtual void mark_modified(engine_time_t modified_time) = 0;
-        static void register_with_nanobind(nb::module_ &m);
+        virtual void copy_from_input(const TimeSeriesInput &input)    = 0;
+        virtual void clear()                                          = 0;
+        virtual void invalidate()                                     = 0;
+        virtual void mark_modified(engine_time_t modified_time)       = 0;
+        static void  register_with_nanobind(nb::module_ &m);
         virtual void notify(engine_time_t et) = 0;
     };
-
-
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType
     {
@@ -157,24 +162,22 @@ namespace hgraph
         // Minimal-teardown helper used by builders during release; must not access owning_node/graph
         virtual void builder_release_cleanup() = 0;
 
-        [[nodiscard]] virtual nb::object py_value() const = 0;
-        [[nodiscard]] virtual nb::object py_delta_value() const = 0;
-        [[nodiscard]] virtual bool modified() const = 0;
-        [[nodiscard]] virtual bool valid() const = 0;
-        [[nodiscard]] virtual bool all_valid() const = 0;
+        [[nodiscard]] virtual nb::object    py_value() const           = 0;
+        [[nodiscard]] virtual nb::object    py_delta_value() const     = 0;
+        [[nodiscard]] virtual bool          modified() const           = 0;
+        [[nodiscard]] virtual bool          valid() const              = 0;
+        [[nodiscard]] virtual bool          all_valid() const          = 0;
         [[nodiscard]] virtual engine_time_t last_modified_time() const = 0;
 
         [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const = 0;
 
         [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
-        [[nodiscard]] virtual TimeSeriesInput *get_input(size_t index) = 0;
-
+        [[nodiscard]] virtual TimeSeriesInput       *get_input(size_t index)       = 0;
 
         virtual void notify_parent(TimeSeriesInput *child, engine_time_t et) = 0;
 
         static void register_with_nanobind(nb::module_ &m);
-
     };
-} // namespace hgraph
+}  // namespace hgraph
 
 #endif  // TIME_SERIES_TYPE_H
