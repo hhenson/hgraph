@@ -1,3 +1,4 @@
+#include <hgraph/types/ref_value.h>
 #include <hgraph/types/v2/ts_value.h>
 #include <hgraph/types/v2/ts_value_impl.h>
 
@@ -59,9 +60,7 @@ namespace hgraph
 
     void TSOutput::unsubscribe(Notifiable *notifier) { _impl->remove_subscriber(notifier); }
 
-    const std::type_info &TSOutput::value_type() const {
-        return _impl->value_type();
-    }
+    const std::type_info &TSOutput::value_type() const { return _impl->value_type(); }
 
     void TSOutput::notify_parent(engine_time_t t) const {
         if (_parent) { _parent->notify(t); }
@@ -114,9 +113,7 @@ namespace hgraph
         if (!use_active_guard || active()) { notify(tm); }
     }
 
-    const std::type_info &TSInput::value_type() const {
-        return _impl->value_type();
-    }
+    const std::type_info &TSInput::value_type() const { return _impl->value_type(); }
 
     void TSInput::add_before_evaluation_notification(std::function<void()> &&fn) const {
         dynamic_cast<EvaluationScheduler *>(_parent)->add_before_evaluation_notification(std::move(fn));
@@ -128,9 +125,9 @@ namespace hgraph
 
     void TSInput::bind(impl_ptr &other) {
         // If the other is a reference and we are not ...
-        //if (other->is_value_instanceof(reference_value))
-        // Type validation: ensure input and output types match
-        if (!_impl->is_value_instanceof(other)) {
+        auto is_ref{other->is_value_instanceof(typeid(ref_value_tp)) && !_impl->is_value_instanceof(typeid(ref_value_tp))};
+        auto is_same{_impl->is_value_instanceof(other)};
+        if (!(is_ref || is_same)) {
             throw std::runtime_error(std::string("Type mismatch in bind_output: input expects ") + _impl->value_type().name() +
                                      " but output provides " + other->value_type().name());
         }
@@ -142,6 +139,7 @@ namespace hgraph
         if (was_active) { make_passive(); }
 
         // Bind to new impl
+        if (is_ref) { other = std::make_shared<ReferencedTSValue>(other); }
         _impl = other;
 
         // Restore active state on new impl
