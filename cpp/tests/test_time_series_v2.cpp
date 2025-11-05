@@ -8,6 +8,8 @@
 #include <map>
 #include <typeinfo>
 
+#include <nanobind/intrusive/counter.inl>
+
 using namespace hgraph;
 
 // Bring hgraph::to_string into scope explicitly for ADL clarity

@@ -99,6 +99,23 @@ set(HGRAPH_SOURCES
 
 add_definitions(-Dhgraph_EXPORTS)
 
+# Create a core library with all C++ sources for use in tests
+# This includes all implementation files from HGRAPH_SOURCES
+set(HGRAPH_CORE_SOURCES ${HGRAPH_SOURCES})
+
+add_library(hgraph_core STATIC ${HGRAPH_CORE_SOURCES})
+target_link_libraries(hgraph_core PUBLIC fmt::fmt Threads::Threads)
+target_compile_features(hgraph_core PUBLIC cxx_std_23)
+target_compile_definitions(hgraph_core PUBLIC NB_STATIC=1)
+
+# Link Backward if enabled
+if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
+    target_link_libraries(hgraph_core PUBLIC Backward::Backward)
+    target_compile_definitions(hgraph_core PUBLIC HGRAPH_WITH_BACKWARD=1)
+else ()
+    target_compile_definitions(hgraph_core PUBLIC HGRAPH_WITH_BACKWARD=0)
+endif ()
+
 # Option to allow building without the Python extension module (e.g., when running Catch2 tests)
 option(HGRAPH_BUILD_PY_MODULE "Build the nanobind-based Python extension module" ON)
 
