@@ -1,5 +1,7 @@
-#include <hgraph/types/v2/ts_value_impl.h>
+#include "hgraph/nodes/last_value_pull_node.h"
+
 #include <hgraph/types/ref_value.h>
+#include <hgraph/types/v2/ts_value_impl.h>
 
 namespace hgraph
 {
@@ -155,7 +157,10 @@ namespace hgraph
         if (v->has_output()) {
             auto output{dynamic_cast<BoundTimeSeriesReference *>(v.get())->output()};
             // We can only deal with Bound types being TimeSeriesValueOutput (and perhaps REF, see if that is needed)
+            auto &output_v = dynamic_cast<TimeSeriesValueOutput&>(*output);
 
+        } else {
+            throw std::runtime_error("ReferencedTSValue::update_binding: Expected BoundTimeSeriesReference");
         }
     }
 

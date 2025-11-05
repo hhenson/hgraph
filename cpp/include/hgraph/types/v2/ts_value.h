@@ -138,6 +138,8 @@ namespace hgraph
         void subscribe(Notifiable *notifier);
         void unsubscribe(Notifiable *notifier);
 
+        const std::type_info &value_type() const;
+
       protected:
         void notify_parent(engine_time_t t) const;
 
@@ -225,6 +227,8 @@ namespace hgraph
         // Marks the input as sampled, this means input will appear as being modified
         // For the current engine time, afterward things go back to normal.
         void make_sampled(bool use_active_guard);
+
+        const std::type_info &value_type() const;
 
         // bind a reference
         //  Need to decide how a reference looks, I think to start with a reference is just like a normal TS with extra magic
