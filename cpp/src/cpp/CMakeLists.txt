@@ -72,6 +72,7 @@ set(HGRAPH_SOURCES
         types/graph.cpp
         types/node.cpp
         types/ref.cpp
+        types/ref_value.cpp
         types/scalar_types.cpp
         types/schema_type.cpp
         types/time_series_type.cpp

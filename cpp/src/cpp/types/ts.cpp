@@ -270,7 +270,10 @@ namespace hgraph
         if (output_ == nullptr) return false;
         auto *ts_ref = dynamic_cast<TimeSeriesReferenceOutput *>(output_.get());
         if (ts_ref != nullptr) {
-            //TODO: Put in reference handling logic here.
+            // Since this is a TS instance, we will not experience the list
+            // variation. This means we can just rely on standard binding
+            _ts.bind_output(ts_ref->ts());
+            return false;
         }
         auto *ts_out = dynamic_cast<TimeSeriesValueOutput<T> *>(output_.get());
         if (!ts_out) return false;
