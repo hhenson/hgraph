@@ -187,7 +187,7 @@ namespace hgraph
         : DelegateTSValue(std::make_shared<NoneTSValue>(type)), _reference_ts_value(std::move(reference_ts_value)),
           _context(context) {
         // We are always active to reference changes
-        reference_ts_value->add_subscriber(this);
+        _reference_ts_value->add_subscriber(this);
         update_binding();
         if (_context == nullptr) { throw std::runtime_error("ReferencedTSValue: Cannot create with null scheduler"); }
     }
