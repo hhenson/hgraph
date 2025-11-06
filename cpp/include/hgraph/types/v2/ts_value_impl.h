@@ -161,13 +161,8 @@ namespace hgraph
      */
     struct ReferencedTSValue final : DelegateTSValue, Notifiable
     {
-        explicit ReferencedTSValue(TSValue::s_ptr reference_ts_value, const std::type_info &type, NotifiableContext *context)
-            : DelegateTSValue(std::make_shared<NoneTSValue>(type)), _reference_ts_value(std::move(reference_ts_value)), _context(context) {
-            update_binding();
-            if (_context == nullptr) {
-                throw std::runtime_error("ReferencedTSValue: Cannot create with null scheduler");
-            }
-        }
+        explicit ReferencedTSValue(TSValue::s_ptr reference_ts_value, const std::type_info &type, NotifiableContext *context);
+        ~ReferencedTSValue() override;
 
         void               add_subscriber(Notifiable *subscriber) override;
         void               remove_subscriber(Notifiable *subscriber) override;
