@@ -351,6 +351,13 @@ namespace hgraph
             // This will is even better than marking sampled as it treat this as being
             // set with a new value.
             _ts.set_value(make_any_value(TimeSeriesReference::make(*_items)));
+        } else if (other->valid()) {
+            // Required!
+            _ts.un_bind();
+            _ts.set_value(other->ts().value());
+            if (owning_node() != nullptr && owning_node()->is_started() && _ts.valid()) {
+                owning_node()->notify(_ts.last_modified_time());
+            }
         }
     }
 
