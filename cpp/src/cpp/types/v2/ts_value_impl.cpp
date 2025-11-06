@@ -204,7 +204,14 @@ namespace hgraph
 
     // ReferencedTSValue implementations
     void ReferencedTSValue::update_binding() {
-        if (!_reference_ts_value->valid()) { return; }
+        if (!_reference_ts_value->valid()) {
+            // If reference is not valid yet, ensure we have a NonBoundTSValue instead of NoneTSValue
+            // so that operations like set_value can work properly
+            if (is_none(delegate())) {
+                swap(std::make_shared<NonBoundTSValue>(value_type()));
+            }
+            return;
+        }
         auto v(get_from_any<ref_value_tp>(_reference_ts_value->value()));
         if (v->has_output()) {
             // We can be bound to a TS value, not another reference that would not make sense.
