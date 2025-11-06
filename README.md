@@ -57,12 +57,12 @@ PyCharm can make use of the virtual environment created by uv to ``setup`` the p
 
 ```bash
 # No Coverage
-python -m pytest
+uv run pytest
 ```
 
 ```bash
 # Generate Coverage Report
-python -m pytest --cov=hgraph --cov-report=xml
+uv run pytest --cov=hgraph --cov-report=xml
 ```
 
 
@@ -73,7 +73,7 @@ The hgraph package includes an optional C++ runtime/engine that can significantl
 - macOS/Linux (bash/zsh):
   - One-off command
     ```bash
-    HGRAPH_USE_CPP=1 python -m pytest -q
+    HGRAPH_USE_CPP=1 uv run pytest -q
     ```
   - Persistent in shell
     ```bash
