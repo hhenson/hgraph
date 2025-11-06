@@ -254,8 +254,6 @@ namespace hgraph
                     if (delegate()->valid()) {}
                 }
             }
-        } else {
-            throw std::runtime_error("ReferencedTSValue::update_binding: Expected BoundTimeSeriesReference");
         }
     }
 
