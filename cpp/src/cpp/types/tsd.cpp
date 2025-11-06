@@ -1142,7 +1142,13 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_create(const key_type &key) {
-        key_set_t().add(key);  // This handles adding to the _added set in TSS
+        // Guard against re-entrant calls for the same key
+        if (_ts_values.contains(key)) {
+            throw std::runtime_error("TimeSeriesDictOutput_T::_create called for key that already exists");
+        }
+
+        // Create and insert the item BEFORE adding to key_set
+        // This prevents infinite recursion when observers call operator[] during on_key_added
         auto item{_ts_builder->make_instance(this)};
         _ts_values.insert({key, item});
         _add_key_value(key, item);
@@ -1152,6 +1158,10 @@ namespace hgraph
             _ts_builder->release_instance(it->second);
             _removed_items.erase(it);
         }
+
+        // Add to key_set AFTER inserting into _ts_values
+        // This ensures the key exists when observers are notified
+        key_set_t().add(key); // This handles adding to the _added set in TSS
 
         _ref_ts_feature.update(key);
         for (auto &observer : _key_observers) { observer->on_key_added(key); }
