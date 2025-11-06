@@ -1,6 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_value_input_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts.h>
+#include <hgraph/types/ref_value.h>
 
 namespace hgraph
 {
@@ -39,4 +40,6 @@ namespace hgraph
     template struct TimeSeriesValueInputBuilder<engine_time_t>;
     template struct TimeSeriesValueInputBuilder<engine_time_delta_t>;
     template struct TimeSeriesValueInputBuilder<nb::object>;
+    // Explicit instantiation for ref_value_tp to avoid RTTI issues with typedef
+    template struct TimeSeriesValueInputBuilder<ref_value_tp>;
 }  // namespace hgraph
