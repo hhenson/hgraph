@@ -8,7 +8,7 @@
 using namespace hgraph;
 
 // Mock parent node for testing - provides advancing time
-struct MockParentNode : Notifiable, CurrentTimeProvider
+struct MockParentNode : NotifiableContext
 {
     engine_time_t _current_time{min_start_time()};
 
@@ -25,6 +25,9 @@ struct MockParentNode : Notifiable, CurrentTimeProvider
     {
         _current_time = _current_time + std::chrono::microseconds(1);
     }
+
+    void add_before_evaluation_notification(std::function<void()> &&fn) override{}
+    void add_after_evaluation_notification(std::function<void()> &&fn) override{}
 };
 
 TEST_CASE (
