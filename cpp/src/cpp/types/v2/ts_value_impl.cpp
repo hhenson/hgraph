@@ -245,13 +245,16 @@ namespace hgraph
                 // We have a TimeSeriesValueOutput so we can extract TSOutput (ts) get the underlying impl
                 // and bind it to delegate. Using p, we should get a scoped copy
                 auto p{output_v->ts()._impl};
-
+                auto was_valid{delegate()->valid()};
                 // Now we swap it in, clearing out anything that was.
                 swap(p);
                 if (is_active()) {
                     p->remove_subscriber(_active);
                     delegate()->add_subscriber(_active);
-                    if (delegate()->valid()) {}
+                    if (was_valid || delegate()->valid()) {
+                        // We have just swapped this in, we should mark the value as sampled to make sure we evaluate
+                        mark_sampled();
+                    }
                 }
             }
         }
