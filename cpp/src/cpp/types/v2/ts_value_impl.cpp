@@ -183,6 +183,22 @@ namespace hgraph
 
     engine_time_t SampledTSValue::last_modified_time() const { return _sampled_time; }
 
+    ReferencedTSValue::ReferencedTSValue(TSValue::s_ptr reference_ts_value, const std::type_info &type, NotifiableContext *context)
+        : DelegateTSValue(std::make_shared<NoneTSValue>(type)), _reference_ts_value(std::move(reference_ts_value)),
+          _context(context) {
+        // We are always active to reference changes
+        reference_ts_value->add_subscriber(this);
+        update_binding();
+        if (_context == nullptr) { throw std::runtime_error("ReferencedTSValue: Cannot create with null scheduler"); }
+    }
+
+    ReferencedTSValue::~ReferencedTSValue() {
+        if (_active != nullptr) {
+            delegate()->remove_subscriber(_active);
+        }
+        _reference_ts_value->remove_subscriber(this);
+    }
+
     void ReferencedTSValue::add_subscriber(Notifiable *subscriber) {
         if (_active == subscriber) { return; }
         if (_active != nullptr) {
@@ -192,7 +208,15 @@ namespace hgraph
         if (bound()) { DelegateTSValue::add_subscriber(subscriber); }
     }
 
-    void ReferencedTSValue::remove_subscriber(Notifiable *subscriber) {}
+    void ReferencedTSValue::remove_subscriber(Notifiable *subscriber) {
+        if (_active == subscriber) {
+            _active = nullptr;
+            _reference_ts_value->remove_subscriber(this);
+            if (bound()) { DelegateTSValue::remove_subscriber(subscriber); }
+        } else if (_active != nullptr) {
+            throw std::runtime_error("ReferenceTSValue::remove_subscriber: Trying to remove a subscriber that was not subscribed");
+        }
+    }
 
     bool ReferencedTSValue::has_subscriber(Notifiable *subscriber) const { return _active != nullptr; }
 
