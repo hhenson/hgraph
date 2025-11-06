@@ -447,8 +447,10 @@ namespace hgraph
     void TimeSeriesReferenceInput::builder_release_cleanup() { _ts.un_bind(); }
 
     void TimeSeriesReferenceInput::notify(engine_time_t et) {
-        // Notification is handled by parent node, not by the input wrapper
-        throw std::runtime_error("TimeSeriesReferenceInput::notify() - should not be called directly");
+        // Forward notification to the internal TSInput which handles the actual notification logic
+        // This can happen when the TimeSeriesReferenceInput is used in contexts where it's treated
+        // as a regular TimeSeriesInput (e.g., in collections or as a parent input)
+        _ts.notify(et);
     }
 
     bool TimeSeriesReferenceInput::active() const { return _ts.active(); }
