@@ -1,3 +1,5 @@
+#include "hgraph/types/v2/ts_value_helpers.h"
+
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
@@ -18,10 +20,10 @@ namespace hgraph
     // ORIGINAL: Inherited from BaseTimeSeriesOutput, initialized _value member
     // NEW: Initialize TSOutput with ref_value_tp type
     TimeSeriesReferenceOutput::TimeSeriesReferenceOutput(const node_ptr &parent)
-        : _ts(static_cast<Notifiable *>(const_cast<Node *>(parent.get())), typeid(ref_value_tp)) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<Node *>(parent.get())), typeid(ref_value_tp)) {}
 
     TimeSeriesReferenceOutput::TimeSeriesReferenceOutput(const TimeSeriesType::ptr &parent)
-        : _ts(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(parent.get())), typeid(ref_value_tp)) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(parent.get())), typeid(ref_value_tp)) {}
 
     // TimeSeriesType interface - delegate to _ts or implement directly
     node_ptr TimeSeriesReferenceOutput::owning_node() {
@@ -44,11 +46,11 @@ namespace hgraph
     }
 
     void TimeSeriesReferenceOutput::re_parent(const node_ptr &node) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<Node *>(node.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<Node *>(node.get())));
     }
 
     void TimeSeriesReferenceOutput::re_parent(const TimeSeriesType::ptr &ts) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(ts.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(ts.get())));
     }
 
     bool TimeSeriesReferenceOutput::has_owning_node() const {
@@ -212,10 +214,10 @@ namespace hgraph
     // ORIGINAL: Inherited constructors from BaseTimeSeriesInput
     // NEW: Initialize TSInput with ref_value_tp type
     TimeSeriesReferenceInput::TimeSeriesReferenceInput(const node_ptr &parent)
-        : _ts(static_cast<Notifiable *>(const_cast<Node *>(parent.get())), typeid(ref_value_tp)) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<Node *>(parent.get())), typeid(ref_value_tp)) {}
 
     TimeSeriesReferenceInput::TimeSeriesReferenceInput(const TimeSeriesType::ptr &parent)
-        : _ts(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(parent.get())), typeid(ref_value_tp)) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(parent.get())), typeid(ref_value_tp)) {}
 
     // TimeSeriesType interface - delegate to _ts or implement directly
     node_ptr TimeSeriesReferenceInput::owning_node() {
@@ -238,11 +240,11 @@ namespace hgraph
     }
 
     void TimeSeriesReferenceInput::re_parent(const node_ptr &node) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<Node *>(node.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<Node *>(node.get())));
     }
 
     void TimeSeriesReferenceInput::re_parent(const TimeSeriesType::ptr &ts) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(ts.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(ts.get())));
     }
 
     bool TimeSeriesReferenceInput::has_owning_node() const {
@@ -267,7 +269,7 @@ namespace hgraph
         // to ensure that it marked as "modified" so that if there is an existing
         // reference, it will propagate.
         // In the world we are working with, we should use a specialised impl for this
-        _ts.make_sampled(false);
+        _ts.mark_sampled();
     }
 
     nb::object TimeSeriesReferenceInput::py_value() const {
@@ -282,22 +284,17 @@ namespace hgraph
     ref_value_tp TimeSeriesReferenceInput::value() const {
         // When bound to a REF output, extract from _ts
         if (_ts.valid()) {
-            auto       &av = _ts.value();
-            const auto *pv = av.template get_if<ref_value_tp>();
-            if (pv) return *pv;
+            return get_from_any<ref_value_tp>(_ts.value());
         }
 
         // If there was no value, then we may need to build it.
         if (_items.has_value() && !_items->empty()) {
-            AnyValue<> any;
-            any.emplace<ref_value_tp>(TimeSeriesReference::make(*_items));
-            const_cast<TSInput &>(_ts).set_value(std::move(any));
-            return *_ts.value().template get_if<ref_value_tp>();
+            const_cast<TSInput &>(_ts).set_value(make_any_value(TimeSeriesReference::make(*_items)));
+            return get_from_any<ref_value_tp>(_ts.value());
         }
 
-        // If we were not valid, and we had no items to make a value from, then we return
-        // a none reference.
-        return TimeSeriesReference::make();
+        // The current logic is to return a nullptr if there is no value.
+        return nullptr;
     }
 
     // OK, so either we are bound directly, or we have _items that imply bound.
@@ -349,11 +346,11 @@ namespace hgraph
         if (other->bound()) {
             _ts.copy_from_input(const_cast<TSInput &>(other->ts()));
         } else if (other->_items.has_value()) {
-            for (size_t i = 0; i < other->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other->_items)[i]); }
-        }
-        // Just do the sample irrespective of why.
-        if (owning_node()->is_started()) {
-            _ts.make_sampled(true);
+            // In this case we are running unbound
+            _ts.un_bind();  // Just in case we were bound
+            // This will is even better than marking sampled as it treat this as being
+            // set with a new value.
+            _ts.set_value(make_any_value(TimeSeriesReference::make(*_items)));
         }
     }
 
@@ -365,7 +362,6 @@ namespace hgraph
     bool TimeSeriesReferenceInput::bind_output(time_series_output_ptr output_) {
         if (auto out{dynamic_cast<TimeSeriesReferenceOutput *>(output_.get())}; out != nullptr) {
             _ts.bind_output(out->ts());
-            if (owning_node()->is_started() && _ts.valid()) { _ts.make_sampled(true); }
             return true;
         }
 
@@ -373,12 +369,8 @@ namespace hgraph
         if (_ts.bound()) {
             _ts.un_bind();  // This should leave us with a non-bound wrapper
         }
-        AnyValue<> any;
-        any.emplace<ref_value_tp>(TimeSeriesReference::make(std::move(output_)));
-        _ts.set_value(std::move(any));
-        if (owning_node()->is_started()) {
-            _ts.make_sampled(false);
-        } else {
+        _ts.set_value(make_any_value(TimeSeriesReference::make(std::move(output_))));
+        if (!owning_node()->is_started()) {
             // Since we can't schedule yet (we are in the middle of wiring the graph)
             // And since we are not an output, we use this hack to ensure we get scheduled
             // on the first tick.
@@ -388,14 +380,11 @@ namespace hgraph
     }
 
     void TimeSeriesReferenceInput::un_bind_output(bool unbind_refs) {
-        bool was_valid = valid();
+        _ts.un_bind();
         if (_items.has_value() && !_items->empty()) {
             for (auto &item : *_items) { item->un_bind_output(unbind_refs); }
             _items.reset();
         }
-        _ts.un_bind();
-
-        if (has_owning_node() && owning_node()->is_started() && was_valid) { _ts.make_sampled(true); }
     }
 
     void TimeSeriesReferenceInput::make_active() {
@@ -404,16 +393,17 @@ namespace hgraph
         }
         _ts.make_active();
 
-        // It is code like this that I am not convinced is useful (specifically on the input that is)
-        if (valid()) { _ts.make_sampled(false); }
+        // I guess this makes sure the last value is processed, but on an input making it active
+        // should not do this. Perhaps there is a good use-case, once it is all working again,
+        // this needs to be reviewed.
+        if (valid()) { _ts.mark_sampled(); }
     }
 
     void TimeSeriesReferenceInput::make_passive() {
-        _ts.make_passive();
-
         if (_items.has_value()) {
             for (auto &item : *_items) { item->make_passive(); }
         }
+        _ts.make_passive();
     }
 
     TimeSeriesInput *TimeSeriesReferenceInput::get_input(size_t index) { return get_ref_input(index); }
@@ -505,8 +495,11 @@ namespace hgraph
     }
 
     void TimeSeriesReferenceInput::notify_parent(TimeSeriesInput *child, engine_time_t modified_time) {
-        _ts.un_bind();  // We must be un-peered if we got here, so just unbind the TSInput, effectively reset
-        _ts.make_sampled(true);
+       if (_items.has_value() && !_items->empty()) {
+           // I'm assuming the items have their reference changes, so this will reset that state
+           // Since it is a normal setting of value, we should not need to do anything else.
+           _ts.set_value(make_any_value(TimeSeriesReference::make(*_items)));
+       }
     }
 
 }  // namespace hgraph

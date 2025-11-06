@@ -6,6 +6,47 @@
 
 namespace hgraph
 {
+
+    // NoneTSValue implementations
+
+    NoneTSValue::NoneTSValue(const std::type_info &type) : _value_type(TypeId(&type)), _value({}) {}
+
+    void NoneTSValue::apply_event(const TsEventAny &event) { throw std::runtime_error("Cannot apply event to NoneTSValue"); }
+
+    TsEventAny NoneTSValue::query_event(engine_time_t t) const { return TsEventAny::none(t); }
+
+    void NoneTSValue::bind_to(TSValue *other) { throw std::runtime_error("Cannot bind to NoneTSValue"); }
+
+    void NoneTSValue::unbind() { /* Nothing to do */ }
+
+    void NoneTSValue::reset() { /* Nothing to do */ }
+
+    void NoneTSValue::add_subscriber(Notifiable *subscriber) { throw std::runtime_error("Cannot add subscriber to NoneTSValue"); }
+
+    void NoneTSValue::remove_subscriber(Notifiable *subscriber) {
+        throw std::runtime_error("Cannot remove subscriber from NoneTSValue");
+    }
+
+    bool NoneTSValue::has_subscriber(Notifiable *subscriber) const { return false; }
+
+    bool NoneTSValue::modified(engine_time_t t) const { return false; }
+
+    bool NoneTSValue::all_valid() const { return false; }
+
+    bool NoneTSValue::valid() const { return false; }
+
+    engine_time_t NoneTSValue::last_modified_time() const { return MIN_DT; }
+
+    const AnyValue<> &NoneTSValue::value() const { return _value; }
+
+    const std::type_info &NoneTSValue::value_type() const { return *_value_type.info; }
+
+    void NoneTSValue::mark_invalid(engine_time_t t) { /* Nothing to do */ }
+
+    void NoneTSValue::notify_subscribers(engine_time_t t) { /* Nothing to do */ }
+
+    bool NoneTSValue::is_value_instanceof(const std::type_info &value_type) { return _value_type.info == &value_type; }
+
     // DelegateTSValue implementations
 
     DelegateTSValue::DelegateTSValue(TSValue::s_ptr ts_value) : _ts_value(std::move(ts_value)) {}
@@ -96,9 +137,7 @@ namespace hgraph
 
     bool BaseTSValue::all_valid() const { return valid(); }
 
-    bool BaseTSValue::valid() const {
-        return _last_event.kind == TsEventKind::Modify || _last_event.kind == TsEventKind::Recover;
-    }
+    bool BaseTSValue::valid() const { return _last_event.kind == TsEventKind::Modify || _last_event.kind == TsEventKind::Recover; }
 
     engine_time_t BaseTSValue::last_modified_time() const {
         return _last_event.kind != TsEventKind::None ? _last_event.time : min_time();
@@ -113,9 +152,7 @@ namespace hgraph
         apply_event(event);
     }
 
-    bool BaseTSValue::is_value_instanceof(const std::type_info &value_type) {
-        return _value_type.info == &value_type;
-    }
+    bool BaseTSValue::is_value_instanceof(const std::type_info &value_type) { return _value_type.info == &value_type; }
 
     // NonBoundTSValue implementations
     void NonBoundTSValue::add_subscriber([[maybe_unused]] Notifiable *subscriber) { _active = true; }
@@ -146,27 +183,85 @@ namespace hgraph
 
     engine_time_t SampledTSValue::last_modified_time() const { return _sampled_time; }
 
+    void ReferencedTSValue::add_subscriber(Notifiable *subscriber) {
+        if (_active == subscriber) { return; }
+        if (_active != nullptr) {
+            throw std::runtime_error("ReferencedTSValue::add_subscriber: Trying to bind an additional subsriber not supported");
+        }
+        _active = subscriber;
+        if (bound()) { DelegateTSValue::add_subscriber(subscriber); }
+    }
+
+    void ReferencedTSValue::remove_subscriber(Notifiable *subscriber) {}
+
+    bool ReferencedTSValue::has_subscriber(Notifiable *subscriber) const { return _active != nullptr; }
+
+    void ReferencedTSValue::notify_subscribers(engine_time_t t) { _active->notify(t); }
+
+    void ReferencedTSValue::notify(engine_time_t et) {
+        if (_reference_ts_value->modified(et)) { update_binding(); }
+    }
+
     // ReferencedTSValue implementations
     void ReferencedTSValue::update_binding() {
-        if (!_reference_value->valid()) {
-            if((dynamic_cast<const SampledTSValue *>(delegate().get()) != nullptr)) {
-                DelegateTSValue::swap(std::make_shared<NonBoundTSValue>(_reference_value->value_type()));
-            }
-            return;
-        }
-        auto v(get_from_any<ref_value_tp>(_reference_value->value()));
+        if (!_reference_ts_value->valid()) { return; }
+        auto v(get_from_any<ref_value_tp>(_reference_ts_value->value()));
         if (v->has_output()) {
             // We can be bound to a TS value, not another reference that would not make sense.
             auto output{dynamic_cast<BoundTimeSeriesReference *>(v.get())->output()};
             // We can only deal with Bound types being TimeSeriesValueOutput (and perhaps REF, see if that is needed)
             if (auto output_v = dynamic_cast<TimeSeriesValueOutput *>(output.get()); output_v != nullptr) {
+                // We have a TimeSeriesValueOutput so we can extract TSOutput (ts) get the underlying impl
+                // and bind it to delegate. Using p, we should get a scoped copy
                 auto p{output_v->ts()._impl};
+
+                // Now we swap it in, clearing out anything that was.
                 swap(p);
-                // DO we need to so a sample?
+                if (is_active()) {
+                    p->remove_subscriber(_active);
+                    delegate()->add_subscriber(_active);
+                    if (delegate()->valid()) {}
+                }
             }
         } else {
             throw std::runtime_error("ReferencedTSValue::update_binding: Expected BoundTimeSeriesReference");
         }
     }
 
-}
+    bool ReferencedTSValue::bound() const { return is_bound(delegate()); }
+
+    bool ReferencedTSValue::is_active() const { return _active != nullptr; }
+
+    void ReferencedTSValue::mark_sampled() {
+        // Sampled is always now, if our delegate is already sampled there there
+        // is no work to do.
+        if (is_sampled(delegate())) { return; }
+        auto tm{current_time()};
+
+        // Since the code may look at the value even if it does not actively subscribe to it
+        // We need to indicate that the value has changed (in this case due to a binding
+        // change).
+        auto sampled{std::make_shared<SampledTSValue>(delegate(), tm)};
+        // Register a cleanup handler, as we don't want to keep this indefinitely
+        _context->add_after_evaluation_notification([&]() {
+            // Make sure the current delegate is in fact a sampled delegate, if not...
+            auto *impl = dynamic_cast<SampledTSValue *>(delegate().get());
+            if (impl != nullptr) {
+                // Switch the delegate in the sample with the delegate in ourselves
+                // Currently held by the delegate.
+                swap(impl->delegate());
+            }
+        });
+
+        // Now, if we are active, we need to notify the subscriber
+        if (is_active()) { notify_subscribers(tm); }
+    }
+
+    engine_time_t ReferencedTSValue::current_time() const {
+        // Rely on the fact that the _scheduler is also a CurrentTimeProvider
+        auto ctp{dynamic_cast<CurrentTimeProvider *>(_context)};
+        if (ctp == nullptr) { throw std::runtime_error("ReferencedTSValue::current_time: Expected CurrentTimeProvider"); }
+        return ctp->current_engine_time();
+    }
+
+}  // namespace hgraph

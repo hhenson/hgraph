@@ -10,7 +10,7 @@ namespace hgraph
 {
     struct BaseTimeSeriesInput;
 
-    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, CurrentTimeProvider, Notifiable, EvaluationScheduler
+    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, NotifiableContext
     {
         using ptr = nb::ref<TimeSeriesType>;
 

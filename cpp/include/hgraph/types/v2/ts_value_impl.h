@@ -26,15 +26,15 @@ namespace hgraph
         void remove_subscriber(Notifiable *subscriber) override;
         void mark_invalid(engine_time_t t) override;
 
-        [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override;
-        [[nodiscard]] bool modified(engine_time_t t) const override;
-        [[nodiscard]] bool all_valid() const override;
-        [[nodiscard]] bool valid() const override;
+        [[nodiscard]] bool                  has_subscriber(Notifiable *subscriber) const override;
+        [[nodiscard]] bool                  modified(engine_time_t t) const override;
+        [[nodiscard]] bool                  all_valid() const override;
+        [[nodiscard]] bool                  valid() const override;
         [[nodiscard]] engine_time_t         last_modified_time() const override;
         [[nodiscard]] const AnyValue<>     &value() const override;
         [[nodiscard]] const std::type_info &value_type() const override;
         [[nodiscard]] bool                  is_value_instanceof(const std::type_info &value_type) override;
-        void notify_subscribers(engine_time_t t) override;
+        void                                notify_subscribers(engine_time_t t) override;
 
         void swap(TSValue::s_ptr other) { std::swap(_ts_value, other); }
 
@@ -53,19 +53,45 @@ namespace hgraph
 
         explicit BaseTSValue(const std::type_info &type) : _value_type(TypeId{&type}) {}
 
-        void apply_event(const TsEventAny &event) override;
-        [[nodiscard]] TsEventAny query_event(engine_time_t t) const override;
-        void bind_to(TSValue *) override;
-        void unbind() override;
-        void reset() override;
-        [[nodiscard]] bool modified(engine_time_t t) const override;
-        [[nodiscard]] bool all_valid() const override;
-        [[nodiscard]] bool valid() const override;
-        [[nodiscard]] engine_time_t last_modified_time() const override;
-        [[nodiscard]] const AnyValue<> &value() const override;
+        void                                apply_event(const TsEventAny &event) override;
+        [[nodiscard]] TsEventAny            query_event(engine_time_t t) const override;
+        void                                bind_to(TSValue *) override;
+        void                                unbind() override;
+        void                                reset() override;
+        [[nodiscard]] bool                  modified(engine_time_t t) const override;
+        [[nodiscard]] bool                  all_valid() const override;
+        [[nodiscard]] bool                  valid() const override;
+        [[nodiscard]] engine_time_t         last_modified_time() const override;
+        [[nodiscard]] const AnyValue<>     &value() const override;
         [[nodiscard]] const std::type_info &value_type() const override;
-        void mark_invalid(engine_time_t t) override;
-        [[nodiscard]] bool is_value_instanceof(const std::type_info &value_type) override;
+        void                                mark_invalid(engine_time_t t) override;
+        [[nodiscard]] bool                  is_value_instanceof(const std::type_info &value_type) override;
+    };
+
+    struct NoneTSValue final : TSValue
+    {
+        TypeId     _value_type;  // Expected value type
+        AnyValue<> _value;       // Current value (type-erased)
+
+        explicit NoneTSValue(const std::type_info &type);
+
+        void                                apply_event(const TsEventAny &event) override;
+        [[nodiscard]] TsEventAny            query_event(engine_time_t t) const override;
+        void                                bind_to(TSValue *other) override;
+        void                                unbind() override;
+        void                                reset() override;
+        void                                add_subscriber(Notifiable *subscriber) override;
+        void                                remove_subscriber(Notifiable *subscriber) override;
+        bool                                has_subscriber(Notifiable *subscriber) const override;
+        [[nodiscard]] bool                  modified(engine_time_t t) const override;
+        [[nodiscard]] bool                  all_valid() const override;
+        [[nodiscard]] bool                  valid() const override;
+        [[nodiscard]] engine_time_t         last_modified_time() const override;
+        [[nodiscard]] const AnyValue<>     &value() const override;
+        [[nodiscard]] const std::type_info &value_type() const override;
+        void                                mark_invalid(engine_time_t t) override;
+        void                                notify_subscribers(engine_time_t t) override;
+        [[nodiscard]] bool                  is_value_instanceof(const std::type_info &value_type) override;
     };
 
     /**
@@ -87,10 +113,10 @@ namespace hgraph
 
         explicit NonBoundTSValue(const std::type_info &type) : BaseTSValue(type) {}
 
-        void add_subscriber(Notifiable *subscriber) override;
-        void remove_subscriber(Notifiable *subscriber) override;
+        void               add_subscriber(Notifiable *subscriber) override;
+        void               remove_subscriber(Notifiable *subscriber) override;
         [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override;
-        void notify_subscribers(engine_time_t t) override;
+        void               notify_subscribers(engine_time_t t) override;
     };
 
     /**
@@ -108,9 +134,9 @@ namespace hgraph
 
         explicit PeeredTSValue(const std::type_info &type) : BaseTSValue(type) {}
 
-        void add_subscriber(Notifiable *subscriber) override;
-        void remove_subscriber(Notifiable *subscriber) override;
-        void notify_subscribers(engine_time_t t) override;
+        void               add_subscriber(Notifiable *subscriber) override;
+        void               remove_subscriber(Notifiable *subscriber) override;
+        void               notify_subscribers(engine_time_t t) override;
         [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override;
     };
 
@@ -126,18 +152,40 @@ namespace hgraph
         engine_time_t _sampled_time;
     };
 
-    struct ReferencedTSValue final : DelegateTSValue
+    /**
+     * This is an input side-only wrapper that provides the ability to manage
+     * a reference output bound to a non-reference input. In this model, make_active/make_passive
+     * and active are by definition expected to be the same notifiable instance.
+     * We hold the value of this to be able to correctly track and manage the state with
+     * the underlying outputs as they get switched in and out.
+     */
+    struct ReferencedTSValue final : DelegateTSValue, Notifiable
     {
-        explicit ReferencedTSValue(TSValue::s_ptr reference_value)
-            : DelegateTSValue(nullptr), _reference_value(std::move(reference_value)) {
+        explicit ReferencedTSValue(TSValue::s_ptr reference_ts_value, const std::type_info &type, NotifiableContext *context)
+            : DelegateTSValue(std::make_shared<NoneTSValue>(type)), _reference_ts_value(std::move(reference_ts_value)), _context(context) {
             update_binding();
+            if (_context == nullptr) {
+                throw std::runtime_error("ReferencedTSValue: Cannot create with null scheduler");
+            }
         }
+
+        void               add_subscriber(Notifiable *subscriber) override;
+        void               remove_subscriber(Notifiable *subscriber) override;
+        [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override;
+        void               notify_subscribers(engine_time_t t) override;
+        void notify(engine_time_t et) override;
 
       protected:
         void update_binding();
+        bool bound() const;
+        bool is_active() const;
+        void mark_sampled();
+        engine_time_t current_time() const;
 
       private:
-        TSValue::s_ptr _reference_value;
+        TSValue::s_ptr _reference_ts_value;
+        NotifiableContext *_context;
+        Notifiable    *_active{nullptr};
     };
 
     inline bool is_sampled(const TSValue::s_ptr &ts_value) { return dynamic_cast<SampledTSValue *>(ts_value.get()) != nullptr; }
@@ -145,4 +193,12 @@ namespace hgraph
     inline bool is_peered(const TSValue::s_ptr &ts_value) { return dynamic_cast<PeeredTSValue *>(ts_value.get()) != nullptr; }
 
     inline bool is_non_bound(const TSValue::s_ptr &ts_value) { return dynamic_cast<NonBoundTSValue *>(ts_value.get()) != nullptr; }
+
+    inline bool is_none(const TSValue::s_ptr &ts_value) { return dynamic_cast<NoneTSValue *>(ts_value.get()) != nullptr; }
+
+    inline bool is_bound(const TSValue::s_ptr &ts_value) {
+        return !is_non_bound(ts_value) && !is_none(ts_value) &&
+               (is_sampled(ts_value) ? is_bound(dynamic_cast<SampledTSValue *>(ts_value.get())->delegate()) : true);
+    }
+
 }  // namespace hgraph
