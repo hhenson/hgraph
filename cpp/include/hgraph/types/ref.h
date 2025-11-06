@@ -91,6 +91,8 @@ namespace hgraph
         friend struct TimeSeriesReference;
 
         TSOutput _ts;
+        //TODO: put back notification list as I think we will need it for legacy
+        // support
     };
 
     /**

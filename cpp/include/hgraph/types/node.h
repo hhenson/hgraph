@@ -164,7 +164,7 @@ namespace hgraph {
         engine_time_t _last_scheduled_time{MIN_DT};
     };
 
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable, CurrentTimeProvider
+    struct HGRAPH_EXPORT Node : ComponentLifeCycle, NotifiableContext
     {
         using ptr = nanobind::ref<Node>;
 
@@ -238,7 +238,11 @@ namespace hgraph {
 
         [[nodiscard]] engine_time_t current_engine_time() const override;
 
-    protected:
+        void add_before_evaluation_notification(std::function<void()> &&fn) override;
+
+        void add_after_evaluation_notification(std::function<void()> &&fn) override;
+
+      protected:
         void start() override;
 
         void stop() override;

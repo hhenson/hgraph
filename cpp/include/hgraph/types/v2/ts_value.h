@@ -11,10 +11,6 @@
 
 namespace hgraph
 {
-    // Concept for parent node requirements
-    template <typename T>
-    concept ParentNode =
-        std::derived_from<T, Notifiable> && std::derived_from<T, CurrentTimeProvider> && std::derived_from<T, EvaluationScheduler>;
 
     /**
      * @brief Base implementation class for type-erased time series value storage.
@@ -92,7 +88,7 @@ namespace hgraph
         using impl_ptr = TSValue::s_ptr;
 
         // Non-template constructor (implementation in .cpp)
-        explicit TSOutput(Notifiable *parent, const std::type_info &value_type);
+        explicit TSOutput(NotifiableContext *parent, const std::type_info &value_type);
 
         // Move semantics
         TSOutput(TSOutput &&)            = default;
@@ -134,7 +130,7 @@ namespace hgraph
         // scheduled. However, the wrapper collection may be tracking observers at their level and also update their last updated
         // state.
         [[nodiscard]] Notifiable *parent() const;
-        void                      set_parent(Notifiable *parent);
+        void                      set_parent(NotifiableContext *parent);
 
         void subscribe(Notifiable *notifier);
         void unsubscribe(Notifiable *notifier);
@@ -147,8 +143,8 @@ namespace hgraph
       private:
         friend TSInput;
         friend ReferencedTSValue;
-        impl_ptr    _impl;    // Shared with bound inputs
-        Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
+        impl_ptr           _impl;    // Shared with bound inputs
+        NotifiableContext *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     /**
@@ -160,12 +156,12 @@ namespace hgraph
      *
      * This is the internal implementation used by TimeSeriesValueInput<T>.
      */
-    struct HGRAPH_EXPORT TSInput : Notifiable
+    struct HGRAPH_EXPORT TSInput final : Notifiable
     {
         using impl_ptr = TSValue::s_ptr;
 
         // Non-template constructor (implementation in .cpp)
-        explicit TSInput(Notifiable *parent, const std::type_info &value_type);
+        explicit TSInput(NotifiableContext *parent, const std::type_info &value_type);
 
         // Move semantics
         TSInput(TSInput &&)            = default;
@@ -200,6 +196,12 @@ namespace hgraph
         // Mark input as passive (removes from the subscriber-set)
         void make_passive();
 
+        // Marks the input as being modified for the current engine time.
+        // This will make the input show as modified and will notify the parent.
+        // NOTE: This may go away, it is used as we transition from the legacy model
+        //       to the new model and is important to reflect current implementation logic.
+        void mark_sampled();
+
         // Notifiable interface
         // This is needed as we use our own reference to mark active, and we will be called when notified.
         // The expected flow is: output gets modified, it calls notify on subscribers, we are a subscriber
@@ -214,8 +216,8 @@ namespace hgraph
         // a collection output. For the case of output, the outer nodes notify are a nop in the sense that it does not need to be
         // scheduled. However, the wrapper collection may be tracking observers at their level and also update their last updated
         // state.
-        [[nodiscard]] Notifiable *parent() const;
-        void                      set_parent(Notifiable *parent);
+        [[nodiscard]] NotifiableContext *parent() const;
+        void                             set_parent(NotifiableContext *parent);
 
         // The input is associated with a model not owned by this input.
         // This mirrors the concept of having the _output set on the old view of TS
@@ -226,30 +228,27 @@ namespace hgraph
 
         void un_bind();
 
-        // Marks the input as sampled, this means input will appear as being modified
-        // For the current engine time, afterward things go back to normal.
-        void make_sampled(bool use_active_guard);
-
         const std::type_info &value_type() const;
 
         // bind a reference
         //  Need to decide how a reference looks, I think to start with a reference is just like a normal TS with extra magic
-    protected:
+      protected:
         void add_before_evaluation_notification(std::function<void()> &&fn) const;
         void add_after_evaluation_notification(std::function<void()> &&fn) const;
         void bind(impl_ptr &other);
-    private:
-        impl_ptr    _impl;    // Shared impl
-        Notifiable *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
+
+      private:
+        impl_ptr           _impl;    // Shared impl
+        NotifiableContext *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     // Factory functions for template convenience
-    template <ParentNode P, typename T> TSOutput make_ts_output(P *parent, const std::type_info &value_type = typeid(T)) {
-        return TSOutput(static_cast<Notifiable *>(parent), value_type);
+    template <typename T> TSOutput make_ts_output(NotifiableContext *parent, const std::type_info &value_type = typeid(T)) {
+        return TSOutput(parent, value_type);
     }
 
-    template <ParentNode P, typename T> TSInput make_ts_input(P *parent, const std::type_info &value_type = typeid(T)) {
-        return TSInput(static_cast<Notifiable *>(parent), value_type);
+    template <typename T> TSInput make_ts_input(NotifiableContext *parent, const std::type_info &value_type = typeid(T)) {
+        return TSInput(parent, value_type);
     }
 
 }  // namespace hgraph

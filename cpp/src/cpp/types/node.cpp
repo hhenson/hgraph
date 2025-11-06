@@ -903,6 +903,14 @@ namespace hgraph {
         return MIN_DT;
     }
 
+    void Node::add_before_evaluation_notification(std::function<void()> &&fn) {
+        graph()->evaluation_engine_api()->add_before_evaluation_notification(std::move(fn));
+    }
+
+    void Node::add_after_evaluation_notification(std::function<void()> &&fn) {
+        graph()->evaluation_engine_api()->add_after_evaluation_notification(std::move(fn));
+    }
+
     void Node::start() {
         do_start();
         if (has_scheduler()) {

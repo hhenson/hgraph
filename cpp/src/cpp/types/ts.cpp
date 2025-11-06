@@ -9,10 +9,10 @@ namespace hgraph
 {
 
     TimeSeriesValueOutput::TimeSeriesValueOutput(const node_ptr &parent, const std::type_info &tp)
-        : _ts(static_cast<Notifiable *>(const_cast<Node *>(parent.get())), tp) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<Node *>(parent.get())), tp) {}
 
     TimeSeriesValueOutput::TimeSeriesValueOutput(const TimeSeriesType::ptr &parent, const std::type_info &tp)
-        : _ts(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(parent.get())), tp) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(parent.get())), tp) {}
 
     node_ptr TimeSeriesValueOutput::owning_node() {
         auto parent{_ts.parent()};
@@ -33,11 +33,11 @@ namespace hgraph
 
     void TimeSeriesValueOutput::re_parent(const node_ptr &node) {
         // This effectively changes the notification route for this output or input.
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<Node *>(node.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<Node *>(node.get())));
     }
 
     void TimeSeriesValueOutput::re_parent(const TimeSeriesType::ptr &ts) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(ts.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(ts.get())));
     }
 
     bool TimeSeriesValueOutput::has_owning_node() const {
@@ -195,10 +195,10 @@ namespace hgraph
     const TSOutput &TimeSeriesValueOutput::ts() const { return _ts; }
 
     TimeSeriesValueInput::TimeSeriesValueInput(const node_ptr &parent, const std::type_info &tp)
-        : _ts(static_cast<Notifiable *>(const_cast<Node *>(parent.get())), tp) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<Node *>(parent.get())), tp) {}
 
     TimeSeriesValueInput::TimeSeriesValueInput(const TimeSeriesType::ptr &parent, const std::type_info &tp)
-        : _ts(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(parent.get())), tp) {}
+        : _ts(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(parent.get())), tp) {}
 
     node_ptr TimeSeriesValueInput::owning_node() {
         auto parent{_ts.parent()};
@@ -218,11 +218,11 @@ namespace hgraph
     graph_ptr TimeSeriesValueInput::owning_graph() const { return const_cast<TimeSeriesValueInput *>(this)->owning_graph(); }
 
     void TimeSeriesValueInput::re_parent(const node_ptr &node) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<Node *>(node.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<Node *>(node.get())));
     }
 
     void TimeSeriesValueInput::re_parent(const TimeSeriesType::ptr &ts) {
-        _ts.set_parent(static_cast<Notifiable *>(const_cast<TimeSeriesType *>(ts.get())));
+        _ts.set_parent(static_cast<NotifiableContext *>(const_cast<TimeSeriesType *>(ts.get())));
     }
 
     bool TimeSeriesValueInput::has_owning_node() const { return owning_node() != nullptr; }
