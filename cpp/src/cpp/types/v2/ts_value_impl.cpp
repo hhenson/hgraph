@@ -89,10 +89,8 @@ namespace hgraph
 
     // BaseTSValue implementations
     void BaseTSValue::apply_event(const TsEventAny &event) {
-        // Guard: Only one event can be applied at a particular time
-        if (_last_event.kind != TsEventKind::None && _last_event.time == event.time) {
-            throw std::runtime_error("Cannot apply multiple events at the same time");
-        }
+        // We need to support the possibility of multiple updates, this happens in cases such as TSD updates to KeySet as we process
+        // multiple keys. Perhaps we can see how to optimise this a bit later.
 
         // Type validation: ensure event value matches expected type
         if ((event.kind == TsEventKind::Modify || event.kind == TsEventKind::Recover) && event.value.has_value()) {
