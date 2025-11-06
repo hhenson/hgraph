@@ -131,8 +131,11 @@ namespace hgraph
         if (was_active) { make_passive(); }
 
         // Bind to new impl
-        if (is_ts_bound_to_ref) { other = std::make_shared<ReferencedTSValue>(other, value_type(), this->parent()); }
-        _impl = other;
+        if (is_ts_bound_to_ref) {
+            _impl = std::make_shared<ReferencedTSValue>(other, value_type(), this->parent());
+        } else {
+            _impl = other;
+        }
 
         // Restore active state on new impl
         if (was_active) {
