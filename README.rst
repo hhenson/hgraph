@@ -65,12 +65,12 @@ Run Tests
 .. code-block:: bash
 
     # No Coverage
-    python -m pytest
+    uv run pytest
 
 .. code-block:: bash
 
     # Generate Coverage Report
-    python -m pytest --cov=hgraph --cov-report=xml
+    uv run pytest --cov=hgraph --cov-report=xml
 
 
 Indexing with Context7 MCP
