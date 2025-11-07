@@ -180,11 +180,19 @@ namespace hgraph
     void TimeSeriesValueOutput::copy_from_output(const TimeSeriesOutput &output) {
         auto &output_t = dynamic_cast<const TimeSeriesValueOutput &>(output);
         _ts.set_value(output_t._ts.value());
+        // This does not seem to be required, but prefer the symetry since this was required for copy_from_input
+        if (has_parent_output()) {
+            parent_output()->mark_child_modified(*this, _ts.last_modified_time());
+        }
     }
 
     inline void TimeSeriesValueOutput::copy_from_input(const TimeSeriesInput &input) {
         const auto &input_t = dynamic_cast<const TimeSeriesValueInput &>(input);
         _ts.set_value(input_t.ts().value());
+        // This is required to make at least one unit test pass
+        if (has_parent_output()) {
+            parent_output()->mark_child_modified(*this, _ts.last_modified_time());
+        }
     }
 
     bool TimeSeriesValueOutput::is_same_type(const TimeSeriesType *other) const {
