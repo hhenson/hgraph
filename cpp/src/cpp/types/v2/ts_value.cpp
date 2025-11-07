@@ -106,7 +106,10 @@ namespace hgraph
         // If we aren't pointing to a delegate, upgrade this to be a delegate so we can benefit from
         // its local subscription tracking.
         if (auto delegate{dynamic_cast<DelegateTSValue *>(_impl.get())}; delegate == nullptr) {
+            auto was_active{active()};
+            if (was_active) { make_passive(); }
             _impl = std::make_shared<DelegateTSValue>(_impl);
+            if (was_active) { make_active(); }
         }
         _impl->add_subscriber(notifier);
     }
