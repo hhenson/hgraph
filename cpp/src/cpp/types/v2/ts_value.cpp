@@ -104,6 +104,15 @@ namespace hgraph
         }
     }
 
+    void TSInput::subscribe(Notifiable *notifier) {
+        // This is a bit more complicated as the impl can be switched in and out
+        // So we need to build a tracker
+    }
+
+    void TSInput::unsubscribe(Notifiable *notifier) {
+
+    }
+
     const std::type_info &TSInput::value_type() const { return _impl->value_type(); }
 
     void TSInput::add_before_evaluation_notification(std::function<void()> &&fn) const {

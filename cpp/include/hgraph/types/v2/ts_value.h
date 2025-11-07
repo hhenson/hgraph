@@ -228,6 +228,9 @@ namespace hgraph
 
         void un_bind();
 
+        void subscribe(Notifiable *notifier);
+        void unsubscribe(Notifiable *notifier);
+
         const std::type_info &value_type() const;
 
         // bind a reference
