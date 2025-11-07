@@ -41,7 +41,10 @@ namespace hgraph
 
     void NoneTSValue::notify_subscribers(engine_time_t t) { /* Nothing to do */ }
 
-    bool NoneTSValue::is_value_instanceof(const std::type_info &value_type) { return _value_type.info == &value_type; }
+    bool NoneTSValue::is_value_instanceof(const std::type_info &value_type) {
+        // Treat nanobind::object as a dynamic "any" that can bind to any concrete type
+        return _value_type.info == &value_type || _value_type.info == &typeid(nanobind::object) || &value_type == &typeid(nanobind::object);
+    }
 
     // DelegateTSValue implementations
 
@@ -103,15 +106,28 @@ namespace hgraph
     const std::set<Notifiable *> &DelegateTSValue::delegate_subscribers() const { return _subscribers; }
 
     // BaseTSValue implementations
+    static bool allow_pyobject_wildcard() {
+        const char* env = std::getenv("HGRAPH_PYOBJECT_WILDCARD");
+        return env && (env[0] == '1' || env[0] == 'T' || env[0] == 't' || env[0] == 'Y' || env[0] == 'y');
+    }
+
     void BaseTSValue::apply_event(const TsEventAny &event) {
         // We need to support the possibility of multiple updates, this happens in cases such as TSD updates to KeySet as we process
         // multiple keys. Perhaps we can see how to optimise this a bit later.
 
         // Type validation: ensure event value matches expected type
         if ((event.kind == TsEventKind::Modify || event.kind == TsEventKind::Recover) && event.value.has_value()) {
-            if (!(event.value.type() == _value_type)) {
-                throw std::runtime_error(std::string("Type mismatch in apply_event: expected ") + _value_type.info->name() +
-                                         " but got " + event.value.type().info->name());
+            if (allow_pyobject_wildcard()) {
+                // Allow wildcard binding when expected type is nb::object
+                if (!(_value_type.info == &typeid(nanobind::object) || (event.value.type() == _value_type))) {
+                    throw std::runtime_error(std::string("Type mismatch in apply_event: expected ") + _value_type.info->name() +
+                                             " but got " + event.value.type().info->name());
+                }
+            } else {
+                if (!(event.value.type() == _value_type)) {
+                    throw std::runtime_error(std::string("Type mismatch in apply_event: expected ") + _value_type.info->name() +
+                                             " but got " + event.value.type().info->name());
+                }
             }
         }
 
@@ -157,7 +173,13 @@ namespace hgraph
         apply_event(event);
     }
 
-    bool BaseTSValue::is_value_instanceof(const std::type_info &value_type) { return _value_type.info == &value_type; }
+    bool BaseTSValue::is_value_instanceof(const std::type_info &value_type) {
+        if (allow_pyobject_wildcard()) {
+            // Treat nanobind::object as a dynamic "any" that can bind to any concrete type
+            return _value_type.info == &value_type || _value_type.info == &typeid(nanobind::object) || &value_type == &typeid(nanobind::object);
+        }
+        return _value_type.info == &value_type;
+    }
 
     // NonBoundTSValue implementations
     void NonBoundTSValue::add_subscriber([[maybe_unused]] Notifiable *subscriber) { _active = true; }

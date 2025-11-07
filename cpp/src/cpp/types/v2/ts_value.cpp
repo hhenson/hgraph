@@ -4,6 +4,7 @@
 #include <hgraph/types/ref_value.h>
 #include <hgraph/types/v2/ts_value.h>
 #include <hgraph/types/v2/ts_value_impl.h>
+#include <nanobind/nanobind.h>
 
 namespace hgraph
 {
@@ -133,8 +134,9 @@ namespace hgraph
         // If the other is a reference and we are not ...
         auto is_ts_bound_to_ref{other->is_value_instanceof(typeid(ref_value_tp)) &&
                                 !_impl->is_value_instanceof(typeid(ref_value_tp))};
-        auto is_same{_impl->is_value_instanceof(other)};
-        if (!(is_ts_bound_to_ref || is_same)) {
+        // Treat compatibility symmetrically: accept if either side considers the other a compatible instance
+        auto is_compatible{_impl->is_value_instanceof(other) || other->is_value_instanceof(_impl)};
+        if (!(is_ts_bound_to_ref || is_compatible)) {
             throw std::runtime_error(std::string("Type mismatch in bind_output: input expects ") + _impl->value_type().name() +
                                      " but output provides " + other->value_type().name());
         }
