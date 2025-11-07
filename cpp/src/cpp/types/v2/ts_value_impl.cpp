@@ -90,9 +90,12 @@ namespace hgraph
     }
 
     void DelegateTSValue::swap(TSValue::s_ptr other) {
-        if (delegate() != nullptr){for (auto subscriber : _subscribers) { delegate()->remove_subscriber(subscriber); }}
+        if (delegate() != nullptr) {
+            for (auto subscriber : _subscribers) { delegate()->remove_subscriber(subscriber); }
+        }
         std::swap(_ts_value, other);
-        if (delegate() != nullptr)for (auto subscriber : _subscribers) { delegate()->add_subscriber(subscriber); }
+        if (delegate() != nullptr)
+            for (auto subscriber : _subscribers) { delegate()->add_subscriber(subscriber); }
     }
 
     const TSValue::s_ptr &DelegateTSValue::delegate() const { return _ts_value; }
@@ -184,6 +187,12 @@ namespace hgraph
     bool SampledTSValue::modified(engine_time_t t) const { return t == _sampled_time; }
 
     engine_time_t SampledTSValue::last_modified_time() const { return _sampled_time; }
+
+    void SampledTSValue::add_subscriber(Notifiable *subscriber) { delegate()->add_subscriber(subscriber); }
+    void SampledTSValue::remove_subscriber(Notifiable *subscriber) { delegate()->remove_subscriber(subscriber); }
+    bool SampledTSValue::has_subscriber(Notifiable *subscriber) const { return delegate()->has_subscriber(subscriber); }
+
+    void SampledTSValue::notify_subscribers(engine_time_t t) { delegate()->notify_subscribers(t); }
 
     ReferencedTSValue::ReferencedTSValue(TSValue::s_ptr reference_ts_value, const std::type_info &type, NotifiableContext *context)
         : DelegateTSValue(std::make_shared<NoneTSValue>(type)), _reference_ts_value(std::move(reference_ts_value)),

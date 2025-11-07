@@ -75,9 +75,7 @@ namespace hgraph
         : _impl(std::make_shared<NonBoundTSValue>(value_type)), _parent(parent) {}
 
     // TSInput::bind_output implementation
-    void TSInput::bind_output(TSOutput &output) {
-        bind(output._impl);
-    }
+    void TSInput::bind_output(TSOutput &output) { bind(output._impl); }
 
     void TSInput::copy_from_input(TSInput &input) { bind(input._impl); }
 
@@ -105,12 +103,17 @@ namespace hgraph
     }
 
     void TSInput::subscribe(Notifiable *notifier) {
-        // This is a bit more complicated as the impl can be switched in and out
-        // So we need to build a tracker
+        // If we aren't pointing to a delegate, upgrade this to be a delegate so we can benefit from
+        // its local subscription tracking.
+        if (auto delegate{dynamic_cast<DelegateTSValue *>(_impl.get())}; delegate == nullptr) {
+            _impl = std::make_shared<DelegateTSValue>(_impl);
+        }
+        _impl->add_subscriber(notifier);
     }
 
     void TSInput::unsubscribe(Notifiable *notifier) {
-
+        // We will not worry about downgrading once we have upgraded to tracking status.
+        _impl->remove_subscriber(notifier);
     }
 
     const std::type_info &TSInput::value_type() const { return _impl->value_type(); }
@@ -134,20 +137,35 @@ namespace hgraph
         }
 
         // Get active-state from current impl before switching
-        bool was_active{active()};
+        bool                             was_active{active()};
+        std::unordered_set<Notifiable *> subscriptions{};
 
         // Mark passive on old impl
-        if (was_active) { make_passive(); }
+        if (was_active) {
+            make_passive();  // First, remove ourselves as we only want to see if there are external subscriptions to track
+            // If we are pointing to an instance of delegate, we need to capture the subscribers.
+            if (auto delegate{dynamic_cast<DelegateTSValue *>(_impl.get())}; delegate != nullptr) {
+                subscriptions.insert_range(delegate->delegate_subscribers());
+            }
+        }
 
         // Bind to new impl
         if (is_ts_bound_to_ref) {
             _impl = std::make_shared<ReferencedTSValue>(other, value_type(), this->parent());
         } else {
-            _impl = other;
+            // If we have subscribers and the other is not a delegate, make it a delegate first!
+            if (!subscriptions.empty()) {
+                _impl = std::make_shared<DelegateTSValue>(other);
+            } else {
+                _impl = other;
+            }
         }
 
         // Restore active state on new impl
         if (was_active) {
+            if (!subscriptions.empty()) {
+                for (auto *sub : subscriptions) { _impl->add_subscriber(sub); }
+            }
             make_active();
             // If we are active and the newly bound value is valid, we need to sample as this is
             // equivalent to a new tick for this input.

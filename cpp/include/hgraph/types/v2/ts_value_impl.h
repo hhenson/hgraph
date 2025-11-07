@@ -8,6 +8,7 @@
 #include <memory>
 #include <typeinfo>
 #include <unordered_set>
+#include <utility>
 
 namespace hgraph
 {
@@ -38,7 +39,6 @@ namespace hgraph
 
         [[nodiscard]] const TSValue::s_ptr &delegate() const;
 
-      protected:
         [[nodiscard]] const std::set<Notifiable *> &delegate_subscribers() const;
 
       private:
@@ -145,10 +145,15 @@ namespace hgraph
     struct SampledTSValue final : DelegateTSValue
     {
         explicit SampledTSValue(TSValue::s_ptr ts_value, engine_time_t sampled_time)
-            : DelegateTSValue(ts_value), _sampled_time(sampled_time) {}
+            : DelegateTSValue(std::move(ts_value)), _sampled_time(sampled_time) {}
 
         [[nodiscard]] bool          modified(engine_time_t t) const override;
         [[nodiscard]] engine_time_t last_modified_time() const override;
+
+        void               add_subscriber(Notifiable *subscriber) override;
+        void               remove_subscriber(Notifiable *subscriber) override;
+        [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override;
+        void               notify_subscribers(engine_time_t t) override;
 
       private:
         engine_time_t _sampled_time;
