@@ -1142,14 +1142,7 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_create(const key_type &key) {
-        // Guard against re-entrant calls for the same key
-        if (_ts_values.contains(key)) {
-            throw std::runtime_error("TimeSeriesDictOutput_T::_create called for key that already exists");
-        }
-
-    template<typename T_Key>
-    void TimeSeriesDictOutput_T<T_Key>::_create(const key_type &key) {
-        // Guard against re-entrant calls for the same key
+       // Guard against re-entrant calls for the same key
         if (_ts_values.contains(key)) {
             throw std::runtime_error("TimeSeriesDictOutput_T::_create called for key that already exists");
         }
