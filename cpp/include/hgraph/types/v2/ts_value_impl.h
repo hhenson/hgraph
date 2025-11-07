@@ -19,8 +19,6 @@ namespace hgraph
         [[nodiscard]] TsEventAny query_event(engine_time_t t) const override;
 
         void apply_event(const TsEventAny &event) override;
-        void bind_to(TSValue *value) override;
-        void unbind() override;
         void reset() override;
         void add_subscriber(Notifiable *subscriber) override;
         void remove_subscriber(Notifiable *subscriber) override;
@@ -36,12 +34,20 @@ namespace hgraph
         [[nodiscard]] bool                  is_value_instanceof(const std::type_info &value_type) override;
         void                                notify_subscribers(engine_time_t t) override;
 
-        void swap(TSValue::s_ptr other) { std::swap(_ts_value, other); }
+        void swap(TSValue::s_ptr other);
 
-        const TSValue::s_ptr &delegate() const { return _ts_value; }
+        [[nodiscard]] const TSValue::s_ptr &delegate() const;
+
+      protected:
+        [[nodiscard]] const std::set<Notifiable *> &delegate_subscribers() const;
 
       private:
         TSValue::s_ptr _ts_value;
+        // This is a temporary fix to allow subscription on inputs, this is here to support TSD inputs
+        // That use notification as an optimisation to try the updated state.
+        // I intend to remove it once I have a full re-write, but for now it is a convenience
+        // to support subscription behavior.
+        std::set<Notifiable *> _subscribers{};
     };
 
     struct BaseTSValue : TSValue
@@ -55,8 +61,6 @@ namespace hgraph
 
         void                                apply_event(const TsEventAny &event) override;
         [[nodiscard]] TsEventAny            query_event(engine_time_t t) const override;
-        void                                bind_to(TSValue *) override;
-        void                                unbind() override;
         void                                reset() override;
         [[nodiscard]] bool                  modified(engine_time_t t) const override;
         [[nodiscard]] bool                  all_valid() const override;
@@ -77,8 +81,6 @@ namespace hgraph
 
         void                                apply_event(const TsEventAny &event) override;
         [[nodiscard]] TsEventAny            query_event(engine_time_t t) const override;
-        void                                bind_to(TSValue *other) override;
-        void                                unbind() override;
         void                                reset() override;
         void                                add_subscriber(Notifiable *subscriber) override;
         void                                remove_subscriber(Notifiable *subscriber) override;
@@ -164,23 +166,18 @@ namespace hgraph
         explicit ReferencedTSValue(TSValue::s_ptr reference_ts_value, const std::type_info &type, NotifiableContext *context);
         ~ReferencedTSValue() override;
 
-        void               add_subscriber(Notifiable *subscriber) override;
-        void               remove_subscriber(Notifiable *subscriber) override;
-        [[nodiscard]] bool has_subscriber(Notifiable *subscriber) const override;
-        void               notify_subscribers(engine_time_t t) override;
         void notify(engine_time_t et) override;
 
       protected:
-        void update_binding();
-        bool bound() const;
-        bool is_active() const;
-        void mark_sampled();
+        void          update_binding();
+        bool          bound() const;
+        bool          is_active() const;
+        void          mark_sampled();
         engine_time_t current_time() const;
 
       private:
-        TSValue::s_ptr _reference_ts_value;
+        TSValue::s_ptr     _reference_ts_value;
         NotifiableContext *_context;
-        Notifiable    *_active{nullptr};
     };
 
     inline bool is_sampled(const TSValue::s_ptr &ts_value) { return dynamic_cast<SampledTSValue *>(ts_value.get()) != nullptr; }

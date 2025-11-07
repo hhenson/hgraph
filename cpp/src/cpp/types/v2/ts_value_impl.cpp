@@ -15,10 +15,6 @@ namespace hgraph
 
     TsEventAny NoneTSValue::query_event(engine_time_t t) const { return TsEventAny::none(t); }
 
-    void NoneTSValue::bind_to(TSValue *other) { throw std::runtime_error("Cannot bind to NoneTSValue"); }
-
-    void NoneTSValue::unbind() { /* Nothing to do */ }
-
     void NoneTSValue::reset() { /* Nothing to do */ }
 
     void NoneTSValue::add_subscriber(Notifiable *subscriber) { throw std::runtime_error("Cannot add subscriber to NoneTSValue"); }
@@ -55,19 +51,21 @@ namespace hgraph
 
     void DelegateTSValue::apply_event(const TsEventAny &event) { _ts_value->apply_event(event); }
 
-    void DelegateTSValue::bind_to(TSValue *value) { _ts_value->bind_to(value); }
-
-    void DelegateTSValue::unbind() { _ts_value->unbind(); }
-
     void DelegateTSValue::reset() { _ts_value->reset(); }
 
-    void DelegateTSValue::add_subscriber(Notifiable *subscriber) { _ts_value->add_subscriber(subscriber); }
+    void DelegateTSValue::add_subscriber(Notifiable *subscriber) {
+        auto result{_subscribers.insert(subscriber)};
+        if (result.second) { _ts_value->add_subscriber(subscriber); }
+    }
 
-    void DelegateTSValue::remove_subscriber(Notifiable *subscriber) { _ts_value->remove_subscriber(subscriber); }
+    void DelegateTSValue::remove_subscriber(Notifiable *subscriber) {
+        auto result{_subscribers.erase(subscriber)};
+        if (result != 0) { _ts_value->remove_subscriber(subscriber); }
+    }
 
     void DelegateTSValue::mark_invalid(engine_time_t t) { _ts_value->mark_invalid(t); }
 
-    bool DelegateTSValue::has_subscriber(Notifiable *subscriber) const { return _ts_value->has_subscriber(subscriber); }
+    bool DelegateTSValue::has_subscriber(Notifiable *subscriber) const { return _subscribers.contains(subscriber); }
 
     bool DelegateTSValue::modified(engine_time_t t) const { return _ts_value->modified(t); }
 
@@ -85,7 +83,21 @@ namespace hgraph
         return _ts_value->is_value_instanceof(value_type);
     }
 
-    void DelegateTSValue::notify_subscribers(engine_time_t t) { _ts_value->notify_subscribers(t); }
+    void DelegateTSValue::notify_subscribers(engine_time_t t) {
+        // The delegate manages its own subscriber list, and if called directly, we should only be
+        // notifying those subscribers
+        for (auto subscriber : _subscribers) { subscriber->notify(t); }
+    }
+
+    void DelegateTSValue::swap(TSValue::s_ptr other) {
+        if (delegate() != nullptr){for (auto subscriber : _subscribers) { delegate()->remove_subscriber(subscriber); }}
+        std::swap(_ts_value, other);
+        if (delegate() != nullptr)for (auto subscriber : _subscribers) { delegate()->add_subscriber(subscriber); }
+    }
+
+    const TSValue::s_ptr &DelegateTSValue::delegate() const { return _ts_value; }
+
+    const std::set<Notifiable *> &DelegateTSValue::delegate_subscribers() const { return _subscribers; }
 
     // BaseTSValue implementations
     void BaseTSValue::apply_event(const TsEventAny &event) {
@@ -116,14 +128,6 @@ namespace hgraph
         // Check if last event occurred at requested time
         if (last_modified_time() == t) { return _last_event; }
         return TsEventAny::none(t);
-    }
-
-    void BaseTSValue::bind_to(TSValue *) {
-        // No-op for simple peered
-    }
-
-    void BaseTSValue::unbind() {
-        // No-op for simple peered
     }
 
     void BaseTSValue::reset() {
@@ -191,34 +195,9 @@ namespace hgraph
     }
 
     ReferencedTSValue::~ReferencedTSValue() {
-        if (_active != nullptr) {
-            delegate()->remove_subscriber(_active);
-        }
+        for (auto subscriber : delegate_subscribers()) { delegate()->remove_subscriber(subscriber); }
         _reference_ts_value->remove_subscriber(this);
     }
-
-    void ReferencedTSValue::add_subscriber(Notifiable *subscriber) {
-        if (_active == subscriber) { return; }
-        if (_active != nullptr) {
-            throw std::runtime_error("ReferencedTSValue::add_subscriber: Trying to bind an additional subsriber not supported");
-        }
-        _active = subscriber;
-        if (bound()) { DelegateTSValue::add_subscriber(subscriber); }
-    }
-
-    void ReferencedTSValue::remove_subscriber(Notifiable *subscriber) {
-        if (_active == subscriber) {
-            _active = nullptr;
-            _reference_ts_value->remove_subscriber(this);
-            if (bound()) { DelegateTSValue::remove_subscriber(subscriber); }
-        } else if (_active != nullptr) {
-            throw std::runtime_error("ReferenceTSValue::remove_subscriber: Trying to remove a subscriber that was not subscribed");
-        }
-    }
-
-    bool ReferencedTSValue::has_subscriber(Notifiable *subscriber) const { return _active != nullptr; }
-
-    void ReferencedTSValue::notify_subscribers(engine_time_t t) { _active->notify(t); }
 
     void ReferencedTSValue::notify(engine_time_t et) {
         if (_reference_ts_value->modified(et)) { update_binding(); }
@@ -229,9 +208,7 @@ namespace hgraph
         if (!_reference_ts_value->valid()) {
             // If reference is not valid yet, ensure we have a NonBoundTSValue instead of NoneTSValue
             // so that operations like set_value can work properly
-            if (is_none(delegate())) {
-                swap(std::make_shared<NonBoundTSValue>(value_type()));
-            }
+            if (is_none(delegate())) { swap(std::make_shared<NonBoundTSValue>(value_type())); }
             return;
         }
         auto v(get_from_any<ref_value_tp>(_reference_ts_value->value()));
@@ -246,13 +223,9 @@ namespace hgraph
                 auto was_valid{delegate()->valid()};
                 // Now we swap it in, clearing out anything that was.
                 swap(p);
-                if (is_active()) {
-                    p->remove_subscriber(_active);
-                    delegate()->add_subscriber(_active);
-                    if (was_valid || delegate()->valid()) {
-                        // We have just swapped this in, we should mark the value as sampled to make sure we evaluate
-                        mark_sampled();
-                    }
+                if (is_active() && (was_valid || delegate()->valid())) {
+                    // We have just swapped this in, we should mark the value as sampled to make sure we evaluate
+                    mark_sampled();
                 }
             }
         }
@@ -260,7 +233,7 @@ namespace hgraph
 
     bool ReferencedTSValue::bound() const { return is_bound(delegate()); }
 
-    bool ReferencedTSValue::is_active() const { return _active != nullptr; }
+    bool ReferencedTSValue::is_active() const { return !delegate_subscribers().empty(); }
 
     void ReferencedTSValue::mark_sampled() {
         // Sampled is always now, if our delegate is already sampled there there

@@ -35,9 +35,8 @@ namespace hgraph
         // Virtual interface for variant behavior
         virtual void                     apply_event(const TsEventAny &event) = 0;
         [[nodiscard]] virtual TsEventAny query_event(engine_time_t t) const   = 0;
-        virtual void                     bind_to(TSValue *other)              = 0;
-        virtual void                     unbind()                             = 0;
-        virtual void                     reset()                              = 0;
+
+        virtual void reset() = 0;
 
         // Subscriber management (for active state)
         virtual void add_subscriber(Notifiable *subscriber)       = 0;
@@ -241,8 +240,8 @@ namespace hgraph
         void bind(impl_ptr &other);
 
       private:
-        impl_ptr           _impl;    // Shared impl
-        NotifiableContext *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
+        impl_ptr                _impl;                  // Shared impl
+        NotifiableContext      *_parent;                // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     // Factory functions for template convenience
