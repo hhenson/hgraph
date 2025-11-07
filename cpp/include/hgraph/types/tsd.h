@@ -294,9 +294,14 @@ namespace hgraph {
 
         void _create(const key_type &key);
 
-        const key_type &key_from_value(TimeSeriesOutput *value) const;
-
         void remove_value(const key_type &key, bool raise_if_not_found);
+
+        // Isolate the modified tracking logic here
+        const key_type &key_from_value(TimeSeriesOutput *value) const;
+        void _clear_key_tracking();
+        void _add_key_value(const key_type &key, const value_type& value);
+        void _key_updated(const key_type& key);
+        void _remove_key_value(const key_type &key, const value_type& value);
 
     private:
         nb::ref<key_set_type> _key_set;
@@ -472,10 +477,6 @@ namespace hgraph {
 
         void do_un_bind_output(bool unbind_refs) override;
 
-        [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
-
-        [[nodiscard]] const key_type &key_from_value(value_type value) const;
-
         [[nodiscard]] bool was_removed_valid(const key_type &key) const;
 
         void reset_prev();
@@ -485,6 +486,14 @@ namespace hgraph {
         void register_clear_key_changes() const;
 
         void register_clear_key_changes();
+
+        // Isolate modified tracking here.
+        [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
+        [[nodiscard]] const key_type &key_from_value(value_type value) const;
+        void _clear_key_tracking();
+        void _add_key_value(const key_type &key, const value_type& value);
+        void _key_updated(const key_type& key);
+        void _remove_key_value(const key_type &key, const value_type& value);
 
     private:
         friend TSD_Builder<T_Key>;
