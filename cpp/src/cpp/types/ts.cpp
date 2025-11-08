@@ -50,13 +50,21 @@ namespace hgraph {
     template<typename T>
     void TimeSeriesValueOutput<T>::copy_from_output(const TimeSeriesOutput &output) {
         auto &output_t = dynamic_cast<const TimeSeriesValueOutput<T> &>(output);
-        set_value(output_t._value);
+        if (output_t.valid()){
+            set_value(output_t._value);
+        } else {
+            mark_invalid();
+        }
     }
 
     template<typename T>
     void TimeSeriesValueOutput<T>::copy_from_input(const TimeSeriesInput &input) {
         const auto &input_t = dynamic_cast<const TimeSeriesValueInput<T> &>(input);
-        set_value(input_t.value());
+        if (input_t.valid()) {
+            set_value(input_t.value());
+        } else {
+            mark_invalid();
+        }
     }
 
     template<typename T>
