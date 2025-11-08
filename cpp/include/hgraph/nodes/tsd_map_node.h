@@ -67,7 +67,7 @@ namespace hgraph {
         // Protected members accessible by derived classes (e.g., MeshNode)
         graph_builder_ptr nested_graph_builder_;
         std::unordered_map<K, graph_ptr> active_graphs_;
-        std::set<K> pending_keys_;
+        std::unordered_set<K> pending_keys_;
         int64_t count_{1};
 
     private:

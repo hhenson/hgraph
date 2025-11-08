@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from typing import Tuple, Callable
 
+from hgraph._types._scalar_types import CompoundScalar
 import pytest
 
 from hgraph import (
@@ -174,3 +176,26 @@ def test_mesh_removal():
         return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
 
     assert eval_node(g, [{7}, {Removed(7)}]) == [{}, {}]
+
+
+def test_mesh_object_keys():
+    @dataclass(unsafe_hash=True)
+    class Key(CompoundScalar):
+        value: int
+
+    @graph
+    def fib(n: TS[Key]) -> TS[int]:
+        return switch_(
+            n,
+            {
+                Key(0): lambda key: const(0),
+                Key(1): lambda key: const(1),
+                DEFAULT: lambda key: mesh_(fib)[combine[TS[Key]](value=key.value - 1)] + mesh_(fib)[combine[TS[Key]](value=key.value - 2)],
+            },
+        )
+
+    @graph
+    def g(i: TSS[Key]) -> TSD[Key, TS[int]]:
+        return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
+
+    assert eval_node(g, [{Key(7)}, {Removed(Key(7))}]) == [{}, {}]
