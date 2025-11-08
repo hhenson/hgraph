@@ -66,6 +66,8 @@ set(HGRAPH_SOURCES
         runtime/graph_executor.cpp
         runtime/record_replay.cpp
 
+        types/base_time_series_input.cpp
+        types/base_time_series_output.cpp
         types/constants.cpp
         types/error_type.cpp
         types/feature_extension.cpp

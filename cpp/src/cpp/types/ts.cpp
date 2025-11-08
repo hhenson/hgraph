@@ -44,7 +44,7 @@ namespace hgraph {
     template<typename T>
     void TimeSeriesValueOutput<T>::mark_invalid() {
         _value = {}; // Set to the equivalent of none
-        TimeSeriesOutput::mark_invalid();
+        BaseTimeSeriesOutput::mark_invalid();
     }
 
     template<typename T>

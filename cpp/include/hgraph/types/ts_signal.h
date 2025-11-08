@@ -5,14 +5,14 @@
 #ifndef TS_SIGNAL_H
 #define TS_SIGNAL_H
 
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series_input.h>
 
 namespace hgraph {
     struct TimeSeriesSignalInputBuilder;
 
-    struct TimeSeriesSignalInput : TimeSeriesInput {
+    struct TimeSeriesSignalInput : BaseTimeSeriesInput {
         using ptr = nb::ref<TimeSeriesSignalInput>;
-        using TimeSeriesInput::TimeSeriesInput;
+        using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] nb::object py_value() const override;
 
@@ -34,7 +34,7 @@ namespace hgraph {
 
         void make_passive() override;
 
-        void do_un_bind_output(bool unbind_refs) override;
+        void do_un_bind_output(bool unbind_refs);
 
         static void register_with_nanobind(nb::module_ &m);
 

@@ -86,7 +86,7 @@ namespace hgraph {
     using c_string_ref = std::reference_wrapper<const std::string>;
 
     template<typename T_TS>
-    concept TimeSeriesT = std::is_same_v<T_TS, TimeSeriesInput> || std::is_same_v<T_TS, TimeSeriesOutput>;
+    concept TimeSeriesT = std::derived_from<T_TS, TimeSeriesInput> || std::derived_from<T_TS, TimeSeriesOutput>;
 
     struct OutputBuilder;
     struct InputBuilder;

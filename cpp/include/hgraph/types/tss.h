@@ -9,6 +9,8 @@
 #include <hgraph/types/constants.h>
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/ts.h>
+#include <hgraph/types/base_time_series_input.h>
+#include <hgraph/types/base_time_series_output.h>
 
 namespace hgraph {
     struct SetDelta : nb::intrusive_base {
@@ -99,6 +101,7 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct TimeSeriesSet : T_TS {
+        using ts_type = std::conditional_t<std::derived_from<T_TS, TimeSeriesInput>, TimeSeriesInput, TimeSeriesOutput>;
         using T_TS::T_TS;
 
         [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
@@ -118,7 +121,7 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object &item) const = 0;
     };
 
-    struct TimeSeriesSetOutput : TimeSeriesSet<TimeSeriesOutput> {
+    struct TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesSetOutput>;
 
         explicit TimeSeriesSetOutput(const node_ptr &parent);
@@ -142,14 +145,14 @@ namespace hgraph {
         nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
     };
 
-    struct TimeSeriesSetInput : TimeSeriesSet<TimeSeriesInput> {
-        using TimeSeriesSet<TimeSeriesInput>::TimeSeriesSet;
+    struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
+        using TimeSeriesSet<BaseTimeSeriesInput>::TimeSeriesSet;
 
         TimeSeriesSetOutput &set_output() const;
 
-        bool do_bind_output(TimeSeriesOutput::ptr &output) override;
+        bool do_bind_output(TimeSeriesOutput::ptr &output);
 
-        void do_un_bind_output(bool unbind_refs) override;
+        void do_un_bind_output(bool unbind_refs);
 
         [[nodiscard]] nb::object py_added() const override;
 

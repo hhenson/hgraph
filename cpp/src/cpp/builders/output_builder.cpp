@@ -1,6 +1,6 @@
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series_output.h>
 
 // Include all the extracted builder headers
 #include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
@@ -17,11 +17,13 @@ namespace hgraph {
         item->builder_release_cleanup();
         // We can't check if we are in an error condition, nanobind should raise the python error into a C++
         // one, and then the state is gone, I think. Anyhow, if this is an issue, we can look into this later.
-        if (item->_subscribers.size() != 0) {
-            fmt::print("Output instance still has subscribers when released, this is a bug.\nOutput belongs to node: "
-                       "{}\nSubscriber count: {}",
-                       (item->has_owning_node() ? item->owning_node()->signature().name : "null"),
-                       std::to_string(item->_subscribers.size()));
+        if (auto *base = dynamic_cast<BaseTimeSeriesOutput *>(item.get())) {
+            if (base->_subscribers.size() != 0) {
+                fmt::print("Output instance still has subscribers when released, this is a bug.\nOutput belongs to node: "
+                           "{}\nSubscriber count: {}",
+                           (item->has_owning_node() ? item->owning_node()->signature().name : "null"),
+                           std::to_string(base->_subscribers.size()));
+            }
         }
         item->reset_parent_or_node();
     }
