@@ -276,6 +276,7 @@ namespace hgraph
         // We need to indicate that the value has changed (in this case due to a binding
         // change).
         auto sampled{std::make_shared<SampledTSValue>(delegate(), tm)};
+        swap(sampled);
         // Register a cleanup handler, as we don't want to keep this indefinitely
         _context->add_after_evaluation_notification([&]() {
             // Make sure the current delegate is in fact a sampled delegate, if not...
@@ -283,7 +284,8 @@ namespace hgraph
             if (impl != nullptr) {
                 // Switch the delegate in the sample with the delegate in ourselves
                 // Currently held by the delegate.
-                swap(impl->delegate());
+                auto delegate{impl->delegate()};
+                swap(delegate);
             }
         });
 
