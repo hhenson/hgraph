@@ -144,7 +144,7 @@ def _publish_table_from_tsd(
         state.manager.update_table(name, state.data, state.removed)
         if history:
             state.manager.update_table(name + "_history", state.history)
-        elif history is 0:
+        elif history == 0:
             state.manager.replace_table(name + "_history", state.history)
 
         state.data = []

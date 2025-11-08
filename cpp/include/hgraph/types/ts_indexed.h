@@ -2,7 +2,8 @@
 #define TS_INDEXED_H
 
 #include <algorithm>
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series_input.h>
+#include <hgraph/types/base_time_series_output.h>
 
 namespace hgraph {
     struct TimeSeriesBundleInputBuilder;
@@ -11,7 +12,7 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct IndexedTimeSeries : T_TS {
-        using ts_type = T_TS;
+        using ts_type = std::conditional_t<std::derived_from<T_TS, TimeSeriesInput>, TimeSeriesInput, TimeSeriesOutput>;
         using index_ts_type = IndexedTimeSeries<T_TS>;
         using ptr = nb::ref<IndexedTimeSeries<ts_type> >;
         using collection_type = std::vector<typename ts_type::ptr>;
@@ -20,8 +21,8 @@ namespace hgraph {
         using value_iterator = typename collection_type::iterator;
         using value_const_iterator = typename collection_type::const_iterator;
 
-        using ts_type::ts_type;
-        using ts_type::valid;
+        using T_TS::T_TS;
+        using T_TS::valid;
 
         [[nodiscard]] bool all_valid() const override {
             if (empty()) { return true; }
@@ -48,7 +49,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] collection_type valid_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.valid(); });
+            return values_with_constraint([](const ts_type &ts) { return ts.valid(); });
         }
 
         [[nodiscard]] collection_type valid_values() const { return const_cast<index_ts_type *>(this)->valid_values(); }
@@ -64,7 +65,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] collection_type modified_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.modified(); });
+            return values_with_constraint([](const ts_type &ts) { return ts.modified(); });
         }
 
         [[nodiscard]] collection_type modified_values() const {
@@ -122,45 +123,45 @@ namespace hgraph {
         collection_type _ts_values;
     };
 
-    struct IndexedTimeSeriesOutput : IndexedTimeSeries<TimeSeriesOutput> {
+    struct IndexedTimeSeriesOutput : IndexedTimeSeries<BaseTimeSeriesOutput> {
         using index_ts_type::IndexedTimeSeries;
 
-        void invalidate() override;
+        void invalidate();
 
-        void copy_from_output(const TimeSeriesOutput &output) override;
+        void copy_from_output(const TimeSeriesOutput &output);
 
-        void copy_from_input(const TimeSeriesInput &input) override;
+        void copy_from_input(const TimeSeriesInput &input);
 
-        void clear() override;
+        void clear();
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct IndexedTimeSeriesInput : IndexedTimeSeries<TimeSeriesInput> {
+    struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput> {
         using index_ts_type::IndexedTimeSeries;
 
-        [[nodiscard]] bool modified() const override;
+        [[nodiscard]] bool modified() const;
 
-        [[nodiscard]] bool valid() const override;
+        [[nodiscard]] bool valid() const;
 
-        [[nodiscard]] engine_time_t last_modified_time() const override;
+        [[nodiscard]] engine_time_t last_modified_time() const;
 
-        [[nodiscard]] bool bound() const override;
+        [[nodiscard]] bool bound() const;
 
-        [[nodiscard]] bool active() const override;
+        [[nodiscard]] bool active() const;
 
-        void make_active() override;
+        void make_active();
 
-        void make_passive() override;
+        void make_passive();
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput *get_input(size_t index);
 
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
-        bool do_bind_output(time_series_output_ptr &value) override;
+        bool do_bind_output(time_series_output_ptr &value);
 
-        void do_un_bind_output(bool unbind_refs) override;
+        void do_un_bind_output(bool unbind_refs);
     };
 
     template<typename T_TS>
