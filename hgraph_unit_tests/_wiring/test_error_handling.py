@@ -1,5 +1,10 @@
+from datetime import timedelta
 from typing import cast
 
+from hgraph._operators._flow_control import if_then_else
+from hgraph._operators._graph_operators import default, nothing
+from hgraph._runtime._constants import MIN_TD
+from hgraph._wiring._decorators import compute_node
 import pytest
 from frozendict import frozendict
 
@@ -134,3 +139,40 @@ def test_sink_node():
     assert len(out) == 2
     assert out[0] is None
     assert cast(NodeError, out[1]).error_msg.endswith("Test error")
+
+
+def test_try_except_delayed():
+    @graph
+    def delayed(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+        return if_then_else(default(const(True, delay=MIN_TD*3), False), lhs + rhs, nothing(TS[float]))
+        
+
+    @graph
+    def main(lhs: TS[float], rhs: TS[float]) -> TSB[TryExceptResult[TS[float]]]:
+        return try_except(delayed, lhs, rhs)
+
+    assert eval_node(main, [1.0, 2.0, 3.0], [2.0, 0.0, 3.0]) == [None, None, None, {"out": 6.0}]
+
+
+def test_tsb_out_of_try_except():
+    from hgraph import TimeSeriesSchema
+
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @compute_node
+    def make_tsb(a: TS[int], b: TS[int]) -> TSB[AB]:
+        return {"a": a.value, "b": b.value}
+
+    @graph
+    def return_tsb(a: TS[int], b: TS[int]) -> TSB[AB]:
+        return make_tsb(a, b)
+
+    @graph
+    def g(a: TS[int], b: TS[int]) -> TS[int]:
+        from hgraph import combine
+
+        return try_except(return_tsb, a=a, b=b).out.a
+
+    assert eval_node(g, a=[1, 2], b=[3, 4], __trace__=True) == [1, 2]

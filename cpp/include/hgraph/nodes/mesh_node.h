@@ -70,9 +70,9 @@ namespace hgraph {
         std::map<int, engine_time_t> scheduled_ranks_;
         std::map<int, std::unordered_map<K, engine_time_t> > scheduled_keys_by_rank_;
         std::unordered_map<K, int> active_graphs_rank_;
-        std::unordered_map<K, std::set<K> > active_graphs_dependencies_;
+        std::unordered_map<K, std::unordered_set<K> > active_graphs_dependencies_;
         std::vector<std::pair<K, K> > re_rank_requests_;
-        std::set<K> graphs_to_remove_;
+        std::unordered_set<K> graphs_to_remove_;
         std::optional<int> current_eval_rank_;
         std::optional<K> current_eval_graph_;
         int max_rank_{0};
