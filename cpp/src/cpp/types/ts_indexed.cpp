@@ -59,8 +59,8 @@ namespace hgraph {
     }
 
     void IndexedTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
-        using IndexedTimeSeries_Output = IndexedTimeSeries<TimeSeriesOutput>;
-        nb::class_<IndexedTimeSeries_Output, TimeSeriesOutput>(m, "IndexedTimeSeries_Output")
+        using IndexedTimeSeries_Output = IndexedTimeSeries<BaseTimeSeriesOutput>;
+        nb::class_<IndexedTimeSeries_Output, BaseTimeSeriesOutput>(m, "IndexedTimeSeries_Output")
                 .def(
                     "__getitem__", [](const IndexedTimeSeries_Output &self, size_t idx) { return self[idx]; },
                     "index"_a)
@@ -78,20 +78,20 @@ namespace hgraph {
     }
 
     bool IndexedTimeSeriesInput::modified() const {
-        if (has_peer()) { return TimeSeriesInput::modified(); }
+        if (has_peer()) { return BaseTimeSeriesInput::modified(); }
         if (ts_values().empty()) { return false; }
         return std::ranges::any_of(ts_values(), [](const time_series_input_ptr &ts) { return ts->modified(); });
     }
 
     bool IndexedTimeSeriesInput::valid() const {
-        if (has_peer()) { return TimeSeriesInput::valid(); }
+        if (has_peer()) { return BaseTimeSeriesInput::valid(); }
         // Empty bundles are considered valid (no invalid items)
         if (ts_values().empty()) { return true; }
         return std::ranges::any_of(ts_values(), [](const time_series_input_ptr &ts) { return ts->valid(); });
     }
 
     engine_time_t IndexedTimeSeriesInput::last_modified_time() const {
-        if (has_peer()) { return TimeSeriesInput::last_modified_time(); }
+        if (has_peer()) { return BaseTimeSeriesInput::last_modified_time(); }
         if (ts_values().empty()) { return MIN_DT; }
         return std::ranges::max(ts_values() |
                                 std::views::transform([](const time_series_input_ptr &ts) {
@@ -100,19 +100,19 @@ namespace hgraph {
     }
 
     bool IndexedTimeSeriesInput::bound() const {
-        return TimeSeriesInput::bound() ||
+        return BaseTimeSeriesInput::bound() ||
                std::ranges::any_of(ts_values(), [](const time_series_input_ptr &ts) { return ts->bound(); });
     }
 
     bool IndexedTimeSeriesInput::active() const {
-        if (has_peer()) { return TimeSeriesInput::active(); }
+        if (has_peer()) { return BaseTimeSeriesInput::active(); }
         if (ts_values().empty()) { return false; }
         return std::ranges::any_of(ts_values(), [](const time_series_input_ptr &ts) { return ts->active(); });
     }
 
     void IndexedTimeSeriesInput::make_active() {
         if (has_peer()) {
-            TimeSeriesInput::make_active();
+            BaseTimeSeriesInput::make_active();
         } else {
             for (auto &ts: ts_values()) { ts->make_active(); }
         }
@@ -120,7 +120,7 @@ namespace hgraph {
 
     void IndexedTimeSeriesInput::make_passive() {
         if (has_peer()) {
-            TimeSeriesInput::make_passive();
+            BaseTimeSeriesInput::make_passive();
         } else {
             for (auto &ts: ts_values()) { ts->make_passive(); }
         }
@@ -129,9 +129,9 @@ namespace hgraph {
     TimeSeriesInput *IndexedTimeSeriesInput::get_input(size_t index) { return (*this)[index].get(); }
 
     void IndexedTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
-        using IndexedTimeSeries_Input = IndexedTimeSeries<TimeSeriesInput>;
+        using IndexedTimeSeries_Input = IndexedTimeSeries<BaseTimeSeriesInput>;
 
-        nb::class_<IndexedTimeSeries_Input, TimeSeriesInput>(m, "IndexedTimeSeries_Input")
+        nb::class_<IndexedTimeSeries_Input, BaseTimeSeriesInput>(m, "IndexedTimeSeries_Input")
                 .def(
                     "__getitem__", [](const IndexedTimeSeries_Input &self, size_t index) { return self[index]; },
                     "index"_a)
@@ -156,12 +156,12 @@ namespace hgraph {
         for (size_t i = 0; i < ts_values().size(); ++i) { peer &= ts_values()[i]->bind_output((*output_bundle)[i]); }
 
         time_series_output_ptr none{};
-        TimeSeriesInput::do_bind_output(peer ? value : none);
+        BaseTimeSeriesInput::do_bind_output(peer ? value : none);
         return peer;
     }
 
     void IndexedTimeSeriesInput::do_un_bind_output(bool unbind_refs) {
         for (auto &ts: ts_values()) { ts->un_bind_output(unbind_refs); }
-        if (has_peer()) { TimeSeriesInput::do_un_bind_output(unbind_refs); }
+        if (has_peer()) { BaseTimeSeriesInput::do_un_bind_output(unbind_refs); }
     }
 } // namespace hgraph

@@ -62,15 +62,25 @@ PyCharm can make use of the virtual environment created by uv to ``setup`` the p
 Run Tests
 .........
 
-.. code-block:: bash
-
-    # No Coverage
-    python -m pytest
+To ensure the tests use the C++ runtime and pick up the correct compiled libraries, set the environment variable
+``HGRAPH_USE_CPP=1`` when running pytest via uv.
 
 .. code-block:: bash
 
-    # Generate Coverage Report
-    python -m pytest --cov=hgraph --cov-report=xml
+    # macOS/Linux: run tests using the C++ runtime
+    HGRAPH_USE_CPP=1 uv run pytest
+
+.. code-block:: bash
+
+    # Generate Coverage Report (C++ runtime)
+    HGRAPH_USE_CPP=1 uv run pytest --cov=hgraph --cov-report=xml
+
+On Windows (PowerShell):
+
+.. code-block:: powershell
+
+    $env:HGRAPH_USE_CPP = "1"
+    uv run pytest
 
 
 Indexing with Context7 MCP

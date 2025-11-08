@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series_input.h>
+#include <hgraph/types/base_time_series_output.h>
 
 namespace hgraph {
     struct TimeSeriesBundleInputBuilder;
@@ -11,7 +13,8 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct IndexedTimeSeries : T_TS {
-        using ts_type = T_TS;
+        // Map concrete base (BaseTimeSeriesInput/Output) to pure interface type (TimeSeriesInput/Output)
+        using ts_type = std::conditional_t<std::derived_from<T_TS, TimeSeriesInput>, TimeSeriesInput, TimeSeriesOutput>;
         using index_ts_type = IndexedTimeSeries<T_TS>;
         using ptr = nb::ref<IndexedTimeSeries<ts_type> >;
         using collection_type = std::vector<typename ts_type::ptr>;
@@ -20,8 +23,8 @@ namespace hgraph {
         using value_iterator = typename collection_type::iterator;
         using value_const_iterator = typename collection_type::const_iterator;
 
-        using ts_type::ts_type;
-        using ts_type::valid;
+        using T_TS::T_TS;
+        using T_TS::valid;
 
         [[nodiscard]] bool all_valid() const override {
             if (empty()) { return true; }
@@ -48,7 +51,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] collection_type valid_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.valid(); });
+            return values_with_constraint([](const ts_type &ts) { return ts.valid(); });
         }
 
         [[nodiscard]] collection_type valid_values() const { return const_cast<index_ts_type *>(this)->valid_values(); }
@@ -64,7 +67,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] collection_type modified_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.modified(); });
+            return values_with_constraint([](const ts_type &ts) { return ts.modified(); });
         }
 
         [[nodiscard]] collection_type modified_values() const {
@@ -84,7 +87,13 @@ namespace hgraph {
 
         [[nodiscard]] const collection_type &ts_values() const { return _ts_values; }
 
-        void set_ts_values(collection_type ts_values) { _ts_values = std::move(ts_values); }
+        void set_ts_values(collection_type ts_values) {
+            _ts_values.clear();
+            _ts_values.reserve(ts_values.size());
+            for (auto &v : ts_values) {
+                _ts_values.push_back(dynamic_cast_ref<ts_type>(v));
+            }
+        }
 
         [[nodiscard]] index_collection_type index_with_constraint(
             const std::function<bool(const ts_type &)> &constraint) const {
@@ -122,7 +131,7 @@ namespace hgraph {
         collection_type _ts_values;
     };
 
-    struct IndexedTimeSeriesOutput : IndexedTimeSeries<TimeSeriesOutput> {
+    struct IndexedTimeSeriesOutput : IndexedTimeSeries<BaseTimeSeriesOutput> {
         using index_ts_type::IndexedTimeSeries;
 
         void invalidate() override;
@@ -136,7 +145,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct IndexedTimeSeriesInput : IndexedTimeSeries<TimeSeriesInput> {
+    struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput> {
         using index_ts_type::IndexedTimeSeries;
 
         [[nodiscard]] bool modified() const override;

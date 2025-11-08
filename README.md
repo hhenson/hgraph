@@ -57,14 +57,47 @@ PyCharm can make use of the virtual environment created by uv to ``setup`` the p
 
 ```bash
 # No Coverage
-python -m pytest
+uv run pytest
 ```
 
 ```bash
 # Generate Coverage Report
-python -m pytest --cov=hgraph --cov-report=xml
+uv run pytest --cov=hgraph --cov-report=xml
 ```
 
+
+## Using the C++ runtime
+
+The hgraph package includes an optional C++ runtime/engine that can significantly improve performance. By default, the Python implementation is used. To force the C++ implementation, enable the feature flag via an environment variable before importing hgraph:
+
+- macOS/Linux (bash/zsh):
+  - One-off command
+    ```bash
+    HGRAPH_USE_CPP=1 uv run pytest -q
+    ```
+  - Persistent in shell
+    ```bash
+    export HGRAPH_USE_CPP=1
+    python your_script.py
+    ```
+- Windows (PowerShell):
+  ```powershell
+  $env:HGRAPH_USE_CPP = "1"
+  python your_script.py
+  ```
+
+Accepted truthy values include: 1, true, yes, on (case-insensitive).
+
+Verification
+- When enabled successfully, you will see this banner once on import:
+  
+  >>>>>>>>>>>>>>>>>>>
+  C++ Runtime enabled
+  <<<<<<<<<<<<<<<<<<<
+
+Notes
+- The feature flag name is "use_cpp" internally; the environment variable read by the feature switch is HGRAPH_USE_CPP.
+- If the flag is not set, hgraph will automatically fall back to the pure-Python implementation.
 
 ## Indexing with Context7 MCP
 

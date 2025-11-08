@@ -36,13 +36,13 @@ namespace hgraph {
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::index_collection_type TimeSeriesList<T_TS>::valid_keys() const {
-        return index_with_constraint([](const ts_type &ts) { return ts.valid(); });
+        return this->index_with_constraint([](const ts_type &ts) { return ts.valid(); });
     }
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     typename TimeSeriesList<T_TS>::index_collection_type TimeSeriesList<T_TS>::modified_keys() const {
-        return index_with_constraint([](const ts_type &ts) { return ts.modified(); });
+        return this->index_with_constraint([](const ts_type &ts) { return ts.modified(); });
     }
 
     template<typename T_TS>
@@ -50,7 +50,7 @@ namespace hgraph {
     typename TimeSeriesList<T_TS>::enumerated_collection_type TimeSeriesList<T_TS>::items() {
         enumerated_collection_type result;
         result.reserve(size());
-        for (size_t i = 0; i < size(); ++i) { result.push_back({i, ts_values()[i]}); }
+        for (size_t i = 0; i < size(); ++i) { result.push_back({i, this->ts_values()[i]}); }
         return result;
     }
 
@@ -87,7 +87,7 @@ namespace hgraph {
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
     bool TimeSeriesList<T_TS>::has_reference() const {
-        if (size() == 0) { return false; } else { return ts_values()[0]->has_reference(); }
+        if (size() == 0) { return false; } else { return this->ts_values()[0]->has_reference(); }
     }
 
     void TimeSeriesListOutput::apply_result(nb::object value) {

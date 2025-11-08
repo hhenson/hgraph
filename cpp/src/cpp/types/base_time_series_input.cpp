@@ -1,0 +1,262 @@
+#include <hgraph/types/base_time_series_input.h>
+#include <hgraph/types/graph.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/node.h>
+
+namespace hgraph {
+
+    node_ptr BaseTimeSeriesInput::owning_node() { return _owning_node(); }
+
+    node_ptr BaseTimeSeriesInput::owning_node() const { return _owning_node(); }
+
+    graph_ptr BaseTimeSeriesInput::owning_graph() {
+        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    }
+
+    graph_ptr BaseTimeSeriesInput::owning_graph() const {
+        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    }
+
+    void BaseTimeSeriesInput::re_parent(const node_ptr &parent) { _set_parent(parent); }
+
+    void BaseTimeSeriesInput::re_parent(const TimeSeriesType::ptr &parent) { _set_parent(parent); }
+
+    bool BaseTimeSeriesInput::is_reference() const { return false; }
+
+    bool BaseTimeSeriesInput::has_reference() const { return false; }
+
+    void BaseTimeSeriesInput::reset_parent_or_node() { _reset_parent_or_node(); }
+
+    void BaseTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
+        nb::class_<BaseTimeSeriesInput, TimeSeriesInput>(m, "BaseTimeSeriesInput");
+    }
+
+    TimeSeriesInput::ptr BaseTimeSeriesInput::parent_input() const {
+        return static_cast<TimeSeriesInput *>(_parent_time_series().get());
+    }
+
+    bool BaseTimeSeriesInput::has_parent_input() const { return _has_parent_time_series(); }
+
+    bool BaseTimeSeriesInput::bound() const { return _output != nullptr; }
+
+    bool BaseTimeSeriesInput::has_peer() const { return _output != nullptr; }
+
+    time_series_output_ptr BaseTimeSeriesInput::output() const { return _output; }
+
+    bool BaseTimeSeriesInput::has_output() const { return _output.get() != nullptr; }
+
+    bool BaseTimeSeriesInput::bind_output(time_series_output_ptr output_) {
+        bool peer;
+        bool was_bound = bound();
+
+        if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(output_.get())) {
+            if (ref_output->valid() && ref_output->value()) { ref_output->value()->bind_input(*this); }
+            ref_output->observe_reference(this);
+            _reference_output = ref_output;
+            peer = false;
+        } else {
+            if (output_ == _output) { return has_peer(); }
+            peer = do_bind_output(output_);
+        }
+
+        if ((owning_node()->is_started() || owning_node()->is_starting()) && _output.get() && (was_bound || _output->valid())) {
+            _sample_time = owning_graph()->evaluation_clock()->evaluation_time();
+            if (active()) {
+                notify(_sample_time);
+            }
+        }
+
+        return peer;
+    }
+
+    void BaseTimeSeriesInput::un_bind_output(bool unbind_refs) {
+        bool was_valid = valid();
+
+        if (unbind_refs && _reference_output != nullptr) {
+            _reference_output->stop_observing_reference(this);
+            _reference_output.reset();
+        }
+
+        if (bound()) {
+            do_un_bind_output(unbind_refs);
+
+            if (owning_node()->is_started() && was_valid) {
+                _sample_time = owning_graph()->evaluation_clock()->evaluation_time();
+                if (active()) {
+                    owning_node()->notify(_sample_time);
+                }
+            }
+        }
+    }
+
+    bool BaseTimeSeriesInput::active() const { return _active; }
+
+    void BaseTimeSeriesInput::make_active() {
+        if (!_active) {
+            _active = true;
+            if (_output != nullptr) {
+                output()->subscribe(this);
+                if (output()->valid() && output()->modified()) {
+                    notify(output()->last_modified_time());
+                    return;
+                }
+            }
+
+            if (sampled()) { notify(_sample_time); }
+        }
+    }
+
+    void BaseTimeSeriesInput::make_passive() {
+        if (_active) {
+            _active = false;
+            if (_output != nullptr) { output()->un_subscribe(this); }
+        }
+    }
+
+    nb::object BaseTimeSeriesInput::py_value() const {
+        if (_output != nullptr) {
+            return _output->py_value();
+        } else {
+            return nb::none();
+        }
+    }
+
+    nb::object BaseTimeSeriesInput::py_delta_value() const {
+        if (_output != nullptr) {
+            return _output->py_delta_value();
+        } else {
+            return nb::none();
+        }
+    }
+
+    bool BaseTimeSeriesInput::do_bind_output(time_series_output_ptr &output_) {
+        auto active_{active()};
+        make_passive();
+        _output = output_;
+        if (active_) {
+            make_active();
+        }
+        return true;
+    }
+
+    void BaseTimeSeriesInput::notify(engine_time_t modified_time) {
+        if (_notify_time != modified_time) {
+            _notify_time = modified_time;
+            if (has_parent_input()) {
+                parent_input()->notify_parent(this, modified_time);
+            } else {
+                owning_node()->notify(modified_time);
+            }
+        }
+    }
+
+    void BaseTimeSeriesInput::do_un_bind_output(bool) {
+        if (_active) { output()->un_subscribe(this); }
+        _output = nullptr;
+    }
+
+    void BaseTimeSeriesInput::builder_release_cleanup() {
+        if (_output.get() != nullptr && _active) {
+            _output->un_subscribe(this);
+        }
+        _active = false;
+        if (_reference_output != nullptr) {
+            _reference_output->stop_observing_reference(this);
+            _reference_output.reset();
+        }
+        _output = nullptr;
+    }
+
+    void BaseTimeSeriesInput::notify_parent(TimeSeriesInput *, engine_time_t modified_time) {
+        notify(modified_time);
+    }
+
+    void BaseTimeSeriesInput::set_sample_time(engine_time_t sample_time) { _sample_time = sample_time; }
+
+    engine_time_t BaseTimeSeriesInput::sample_time() const { return _sample_time; }
+
+    bool BaseTimeSeriesInput::sampled() const {
+        return _sample_time != MIN_DT && _sample_time == owning_graph()->evaluation_clock()->evaluation_time();
+    }
+
+    time_series_reference_output_ptr BaseTimeSeriesInput::reference_output() const { return _reference_output; }
+
+    const TimeSeriesInput *BaseTimeSeriesInput::get_input(size_t index) const {
+        return const_cast<BaseTimeSeriesInput *>(this)->get_input(index);
+    }
+
+    TimeSeriesInput *BaseTimeSeriesInput::get_input(size_t) {
+        throw std::runtime_error("TimeSeriesInput [] not supported");
+    }
+
+    void BaseTimeSeriesInput::reset_output() { _output = nullptr; }
+
+    void BaseTimeSeriesInput::set_output(time_series_output_ptr output) { _output = std::move(output); }
+
+    void BaseTimeSeriesInput::set_active(bool active) { _active = active; }
+
+    bool BaseTimeSeriesInput::modified() const { return _output != nullptr && (_output->modified() || sampled()); }
+
+    bool BaseTimeSeriesInput::valid() const { return bound() && _output != nullptr && _output->valid(); }
+
+    bool BaseTimeSeriesInput::all_valid() const { return bound() && _output != nullptr && _output->all_valid(); }
+
+    engine_time_t BaseTimeSeriesInput::last_modified_time() const {
+        return bound() ? std::max(_output->last_modified_time(), _sample_time) : MIN_DT;
+    }
+
+    // --- TimeSeriesType ownership hooks (moved from TimeSeriesType) ---
+    TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() {
+        if (_parent_ts_or_node.has_value() && std::holds_alternative<time_series_type_ptr>(*_parent_ts_or_node)) {
+            return std::get<time_series_type_ptr>(*_parent_ts_or_node);
+        }
+        return null_ptr;
+    }
+
+    TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() const {
+        return const_cast<BaseTimeSeriesInput *>(this)->_parent_time_series();
+    }
+
+    bool BaseTimeSeriesInput::_has_parent_time_series() const {
+        return _parent_ts_or_node.has_value() && std::holds_alternative<time_series_type_ptr>(*_parent_ts_or_node);
+    }
+
+    void BaseTimeSeriesInput::_set_parent_time_series(TimeSeriesType *ts) { _parent_ts_or_node = time_series_type_ptr{ts}; }
+
+    void BaseTimeSeriesInput::_set_parent(const node_ptr &parent) { _parent_ts_or_node = parent; }
+
+    void BaseTimeSeriesInput::_set_parent(const TimeSeriesType::ptr &parent) { _parent_ts_or_node = parent; }
+
+    void BaseTimeSeriesInput::_reset_parent_or_node() { _parent_ts_or_node.reset(); }
+
+    bool BaseTimeSeriesInput::has_parent_or_node() const { return _parent_ts_or_node.has_value(); }
+
+    bool BaseTimeSeriesInput::has_owning_node() const {
+        if (_parent_ts_or_node.has_value()) {
+            if (std::holds_alternative<node_ptr>(*_parent_ts_or_node)) {
+                return std::get<node_ptr>(*_parent_ts_or_node) != node_ptr{};
+            }
+            return std::get<time_series_type_ptr>(*_parent_ts_or_node)->has_owning_node();
+        }
+        return false;
+    }
+
+    node_ptr BaseTimeSeriesInput::_owning_node() const {
+        if (_parent_ts_or_node.has_value()) {
+            return std::visit(
+                []<typename T_>(T_ &&value) -> node_ptr {
+                    using T = std::decay_t<T_>;
+                    if constexpr (std::is_same_v<T, time_series_type_ptr>) {
+                        return value->owning_node();
+                    } else if constexpr (std::is_same_v<T, node_ptr>) {
+                        return value;
+                    } else {
+                        throw std::runtime_error("Unknown type");
+                    }
+                },
+                _parent_ts_or_node.value());
+        }
+        throw std::runtime_error("No node is accessible");
+    }
+
+} // namespace hgraph
