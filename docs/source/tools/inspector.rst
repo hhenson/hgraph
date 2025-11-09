@@ -58,6 +58,8 @@ Operating inspector
 * Double-click on a name to expand/collapse
 * Ctrl-click an input value to navigate to the output it is getting its value from
 * Ctrl-click an REF output value to navigate to the output that the reference points to
+* Shift-Ctrl-click an output value to navigate to the output where the value comes from while skipping copy nodes (filters, dedups etc)
+* Shift-click an input value to navigate to the output it is getting its value or reference from, so will go to stub nodes etc
 * Double-click on a Frame XxY value to open the frame in a new window (the new window is static i.e. does not update)
 * Click on an item to select it (it will highlight)
 * Hitting enter expands/collapses the selected item

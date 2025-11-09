@@ -197,6 +197,7 @@ class PythonTimeSeriesReferenceOutput(PythonTimeSeriesOutput, TimeSeriesReferenc
 
     def clear(self):
         self.value = EmptyTimeSeriesReference()
+        self.value = EmptyTimeSeriesReference()
 
     def invalidate(self):
         self._value = None

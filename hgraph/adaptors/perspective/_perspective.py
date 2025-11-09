@@ -26,6 +26,7 @@ if perspective.__version__ == "2.10.1":
     psp_new_api = False
 else:
     from perspective import Server, Client, Table, View, table
+    from perspective import Server, Client, Table, View, table
     from perspective.handlers.tornado import PerspectiveTornadoHandler
 
     psp_new_api = True
@@ -568,6 +569,12 @@ class PerspectiveTornadoHandlerWithLogNewApi(PerspectiveTornadoHandler):
 
         self.callback(self.session.handle_request, msg)
         # self.callback(self.session.poll)
+        
+    def write_message(self, message, binary=False):
+        try:
+            super().write_message(message, binary=binary)
+        except tornado.websocket.WebSocketClosedError:
+            logger.warning("Tried to write to closed websocket")
 
 
 @sink_node

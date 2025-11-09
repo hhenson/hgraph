@@ -112,7 +112,7 @@ def random_values(
     sched.schedule(
         round_time_up(
             ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)
-        )
+        ), tag=''
     )
     return data
 
@@ -132,7 +132,7 @@ def random_events(
     sched.schedule(
         round_time_up(
             ec.now + timedelta(milliseconds=randint(freq_ms // 2, freq_ms + freq_ms // 2)), timedelta(milliseconds=50)
-        )
+        ), tag=''
     )
     return data if data["magnitude"] else None
 

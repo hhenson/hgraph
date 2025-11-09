@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Tuple
 
 import polars as pl
 from frozendict import frozendict as fd
@@ -176,6 +177,27 @@ def test_table_schema_tsd_ts_simple_scalar():
             int,
         ),
         ("__key_1__",),
+        ("__key_1_removed__",),
+    )
+
+
+def test_table_schema_tsd_tuple_key():
+    schema = table_schema(TSD[tuple[int, str], TS[int]]).value
+    assert schema == make_table_schema(
+        TSD[tuple[int, str], TS[int]],
+        (
+            "__key_1_removed__",
+            "__key_1_0__",
+            "__key_1_1__",
+            "value",
+        ),
+        (
+            bool,
+            int,
+            str,
+            int,
+        ),
+        ("__key_1_0__", "__key_1_1__"),
         ("__key_1_removed__",),
     )
 

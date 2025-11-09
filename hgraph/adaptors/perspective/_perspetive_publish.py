@@ -1,36 +1,37 @@
+import logging
+import threading
 from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime, timedelta
-import logging
-import threading
-from typing import Any, Type, Callable, Generic
+from typing import Any, Callable, Generic, Type
 
 from perspective import View
 
 from hgraph import (
-    TIME_SERIES_TYPE,
-    GlobalState,
-    sink_node,
-    TSD,
-    K,
     AUTO_RESOLVE,
-    EvaluationClock,
+    SCHEDULER,
     STATE,
+    TIME_SERIES_TYPE,
+    TSB,
+    TSD,
+    TSS,
+    EvaluationClock,
+    GlobalState,
+    HgCompoundScalarType,
+    HgDataFrameScalarTypeMetaData,
     HgScalarTypeMetaData,
-    HgTupleFixedScalarType,
     HgTimeSeriesTypeMetaData,
     HgTSBTypeMetaData,
     HgTSTypeMetaData,
-    HgCompoundScalarType,
-    HgDataFrameScalarTypeMetaData,
-    push_queue,
-    SCHEDULER,
-    operator,
-    TimeSeriesSchema,
-    TSB,
-    TSS,
+    HgTupleFixedScalarType,
+    K,
     Removed,
+    TimeSeriesSchema,
+    operator,
+    push_queue,
+    sink_node,
 )
+
 from ._perspective import PerspectiveTablesManager
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ def _publish_table_from_tsd(
         removes = len(state.removed)
 
     if not sched.is_scheduled and (data or removes):
-        sched.schedule(timedelta(milliseconds=250), on_wall_clock=True)
+        sched.schedule(timedelta(milliseconds=250), on_wall_clock=True, tag='')
 
     if sched.is_scheduled_now:
         state.manager.update_table(name, state.data, state.removed)
@@ -190,6 +191,20 @@ def _publish_table_from_tsd_start(
         state.key_schema = {"index": str, **{index[i]: ks_tps[i] for i in range(ks)}}
 
         residual_index_col_names = index_col_names[ks:]
+    elif isinstance(_key, HgCompoundScalarType):
+        if index_col_name:
+            index = [i for i in index_col_names if i in _key.meta_data_schema]
+        else:
+            index = list(_key.meta_data_schema.keys())
+
+        index_col_name = "index"
+
+        state.process_key = lambda k: {index[i]: getattr(k, index[i]) for i in range(len(index))}
+        state.create_index = lambda v: {"index": ",".join(str(v[i]) for i in index_col_names)}
+        state.create_row_key = lambda v: _key.py_type(**{i: v[i] for i in index_col_names})
+        state.key_schema = {"index": str, **{k: v.py_type for k, v in _key.meta_data_schema.items() if k in index}}
+
+        residual_index_col_names = [i for i in index_col_names if i not in index]
     else:
         if index_col_name is None:
             index = "index"
@@ -266,9 +281,12 @@ def _publish_table_from_tsd_start(
             editable=editable,
             edit_role=edit_role,
         )
-        empty_values = (
-            [i.py_type() for i in _key.element_types] if isinstance(_key, HgTupleFixedScalarType) else _key.py_type()
-        )
+        if isinstance(_key, HgTupleFixedScalarType):
+            empty_values = tuple(i.py_type() for i in _key.element_types)
+        elif isinstance(_key, HgCompoundScalarType):
+            empty_values = _key.py_type(**{k: v.py_type() for k, v in _key.meta_data_schema.items()})
+        else:
+            empty_values = _key.py_type()
         table.update([{"_id": 0, **state.process_key(empty_values)}])
     else:
         state.map_index = False
@@ -328,8 +346,16 @@ def _receive_table_edits_tsd(
             index = [s.strip() for s in index_col_name.split(",")]
         else:
             index = [f"index_{i}" for i in range(len(_key.py_type.__args__))]
+        process_key = lambda row, _index: tuple(row[i] for i in _index)
+    elif isinstance(_key, HgCompoundScalarType):
+        if index_col_name:
+            index = [s.strip() for s in index_col_name.split(",")]
+        else:
+            index = list(_key.meta_data_schema.keys())
+        process_key = lambda row, _index: _key.py_type(**{i: row[i] for i in _index})
     else:
         index = index_col_name or "index"
+        process_key = lambda row, _index: row[_index]
 
     # the publish node will populate the global state with the index to id mapping object and its lock to be used for lookups
     if empty_row:
@@ -343,7 +369,7 @@ def _receive_table_edits_tsd(
         for row in data.to_records():
             if empty_row:
                 _id = row.get("_id")
-                key = row[index] if type(index) is str else tuple(row[i] for i in index)
+                key = process_key(row, index)
 
                 if index_mapping:
                     with index_mapping["lock"]:

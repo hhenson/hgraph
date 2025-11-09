@@ -222,6 +222,10 @@
             import {setupInspectorTable} from "/workspace_code/inspector.js";
             import {WebSocketHelper} from "/workspace_code/websocket_helper.js";
 
+            {% if mgr.options.get('refresh_cookie', None) %}
+            document.cookie = `{{ mgr.options.get('refresh_cookie', None) }}=true; Path=${location.pathname}; Max-Age=172800`;
+            {% end %}
+
             {% if mgr.get_table_config_files() %}
                 {% autoescape None %}
                 {% import json %}
@@ -299,7 +303,7 @@
 
                     {% try %}
                     {% if mgr.options.get('user_roles') %}
-                    const user_roles = [{{ ', '.join(f'"{r}"' for r in mgr.options.get('user_roles').get(current_user, mgr.options.get('user_roles').get("DEFAULT", []))) }}]
+                    const user_roles = [{{ ', '.join(f'"{r}"' for r in mgr.options.get('user_roles').get(current_user[0], mgr.options.get('user_roles').get("DEFAULT", []))) }}]
                     {% else %}
                     const user_roles = [];
                     {% end %}

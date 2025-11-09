@@ -241,16 +241,16 @@ def throttle_default(
             _state.tick = _state.fn(ts, _state.tick)
         elif delay_first_tick:
             _state.tick = _state.fn(ts, _state.tick)
-            _sched.schedule(period.value)
+            _sched.schedule(period.value, tag='')
         else:
             _state.tick = {}
-            _sched.schedule(period.value)
+            _sched.schedule(period.value, tag='')
             return ts.delta_value
 
     if _sched.is_scheduled_now:
         if tick := _state.tick:
             _state.tick = {}
-            _sched.schedule(period.value, on_wall_clock=use_wall_clock)
+            _sched.schedule(period.value, on_wall_clock=use_wall_clock, tag='')
             return tick
 
 
@@ -429,7 +429,7 @@ def gate_default(
         elif (condition.modified or _sched.is_scheduled_now) and _state.buffer:
             out = _state.buffer.popleft()
             if _state.buffer:
-                _sched.schedule(MIN_TD)
+                _sched.schedule(MIN_TD, tag='')
             return out
 
 
@@ -460,7 +460,7 @@ def batch_default(
         return
 
     if not _sched.is_scheduled and not condition.modified:  # only schedule on data ticks
-        _sched.schedule(delay)
+        _sched.schedule(delay, tag='')
 
     if (_sched.is_scheduled_now or condition.modified) and _state.buffer:
         out = tuple(_state.buffer)

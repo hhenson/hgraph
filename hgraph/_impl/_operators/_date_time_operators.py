@@ -1,4 +1,5 @@
 from datetime import datetime, date, time, timedelta
+from zoneinfo import ZoneInfo
 
 from hgraph import (
     compute_node,
@@ -28,7 +29,7 @@ _datetime_properties = {
     "hour": int,
     "minute": int,
     "second": int,
-    "microsecond": int,
+    "microsecond": int
 }
 
 _datetime_methods = {
@@ -36,7 +37,7 @@ _datetime_methods = {
     "isoweekday": int,
     "timestamp": int,
     "date": date,
-    "time": time,
+    "time": time
 }
 
 
@@ -104,6 +105,39 @@ def date_getattr(ts: TS[date], attribute: str) -> TS[SCALAR]:
         return date_methods(ts, attribute)
     else:
         raise AttributeError(f"TS[date] has no property {attribute}")
+
+
+_time_properties = {
+    "hour": int,
+    "minute": int,
+    "second": int,
+    "microsecond": int,
+}
+
+_time_methods = {
+    "isoformat": str,
+}
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: _time_properties[s["attribute"]]})
+def time_properties(ts: TS[time], attribute: str) -> TS[SCALAR]:
+    return getattr(ts.value, attribute)
+
+
+@compute_node(resolvers={SCALAR: lambda m, s: _time_methods[s["attribute"]]})
+def time_methods(ts: TS[time], attribute: str) -> TS[SCALAR]:
+    # Note: tzname() and tzinfo are no longer supported for C++ engine compatibility
+    return getattr(ts.value, attribute)()
+
+
+@graph(overloads=getattr_)
+def time_getattr(ts: TS[time], attribute: str) -> TS[SCALAR]:
+    if attribute in _time_properties:
+        return time_properties(ts, attribute)
+    elif attribute in _time_methods:
+        return time_methods(ts, attribute)
+    else:
+        raise AttributeError(f"TS[time] has no property {attribute}")
 
 
 _timedelta_properties = {

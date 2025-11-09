@@ -1,7 +1,8 @@
 import itertools
 from functools import reduce
 from statistics import fmean
-from typing import Type, TypeVar, Optional, Sequence
+from types import UnionType
+from typing import Type, TypeVar, Optional, Sequence, Union, get_args, get_origin
 
 from hgraph._types._time_series_types import TimeSeries
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
@@ -128,6 +129,16 @@ class HgTsTypeVarTypeMetaData(HgTimeSeriesTypeMetaData):
                 return HgTsTypeVarTypeMetaData(
                     value_tp, tuple(HgTimeSeriesTypeMetaData.parse_type(t) or t for t in value_tp.__constraints__)
                 )
+        elif get_origin(value_tp) in (Union, UnionType):
+            constraints = []
+            for arg in get_args(value_tp):
+                parsed = HgTimeSeriesTypeMetaData.parse_type(arg)
+                if parsed is None or parsed.is_scalar:
+                    break
+                constraints.append(parsed)
+            else:
+                return HgTsTypeVarTypeMetaData(value_tp, tuple(constraints))
+            
         return None
 
     def __eq__(self, o: object) -> bool:

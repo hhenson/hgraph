@@ -7,10 +7,6 @@ export async function setupInspectorTable(){
 
         await fetch("/inspect/expand/", {cache: "no-store"});        
 
-        var sheet = new CSSStyleSheet
-        sheet.replaceSync( `.highlight { background-color: pink }`)
-        g.shadowRoot.adoptedStyleSheets.push(sheet)
-
         let name_col = null;
         function findNameCol(){
             if (!name_col){
@@ -25,17 +21,24 @@ export async function setupInspectorTable(){
             return name_col
         }
 
-        let SELECTED_ROW = null;
+        const get_selected_row = () => {
+            return table.dataset.selected_row ? parseInt(table.dataset.selected_row) : null;
+        }
+        const set_selected_row = (row) => {
+            if (row === null){
+                delete table.dataset.selected_row;
+            } else {
+                table.dataset.selected_row = row;
+            }
+        }
+
         let SEARCH_TERM = null;
+        const REF_HISTORY = [];
+        let REF_HISTORY_POS = 0;
+
         table.addStyleListener(function fixOverflow() {
             for (const tr of table.children[0].children[1].children) {
                 const meta = table.getMeta(tr.children[0]);
-
-                if (meta.y === SELECTED_ROW) {
-                    tr.classList.add("highlight");
-                }else{
-                    tr.classList.remove("highlight");
-                }
 
                 if (SEARCH_TERM){
                     const name = tr.children[findNameCol()];
@@ -75,6 +78,20 @@ export async function setupInspectorTable(){
             }
         }
 
+        async function lookForRow(table, stuff, id) {
+            const id_col = stuff.column_headers.findIndex((c) => {
+                return c[0] === 'id'
+            });
+            const ids = await table._view_cache.view(id_col, 0, id_col + 1, stuff.num_rows);
+            let row_num = ids.metadata[0].indexOf(id);
+            if (row_num === -1) {
+                window.setTimeout(async () => { lookForRow(table, stuff, id); }, 250);
+            } else {
+                await table.scrollToCell(0, row_num - 1, ids.num_columns, row_num + 1);
+                set_selected_row(row_num);
+            }
+        }
+
         table.addEventListener("click", async function observerClickEventListener(event) {
             event.stopPropagation()
 
@@ -90,45 +107,28 @@ export async function setupInspectorTable(){
                     }
                 }
                 if (meta.column_header[0] === 'value') {
-                    if (event.ctrlKey) {
+                    if (event.ctrlKey || event.shiftKey) {
+                        const url = !event.ctrlKey ? "/inspect/output/" : event.shiftKey ? "/inspect/refs/" :  "/inspect/ref/";
                         event.target.style.cursor = "progress";
-                        const reply = await (await fetch("/inspect/ref/" + row.id, {cache: "no-store"}));
+                        const reply = await (await fetch(url + row.id, {cache: "no-store"}));
                         if (reply.status === 200) {
-                            const new_row = await reply.text()
-                            console.log("looking for row " + new_row)
-                            window.setTimeout(async function lookForRow() {
-                                const id_col = stuff.column_headers.findIndex((c) => {
-                                    return c[0] === 'id'
-                                })
-                                const ids = await table._view_cache.view(id_col, 0, id_col + 1, meta.y);
-                                let row_num = ids.metadata[0].indexOf(new_row);
-                                if (row_num === -1) {
-                                    window.setTimeout(lookForRow, 250);
-                                } else {
-                                    table.scrollToCell(0, row_num - 1, ids.num_columns, row_num + 1)
-                                    SELECTED_ROW = row_num;
-                                }
-                            }, 250);
-                        } else {
-                            const msg = await reply.text()
-                            console.error(msg)
-                            alert(msg)
-                        }
-                    }
-                }
-                if (meta.column_header[0] === 'name'){
-                    if (!event.ctrlKey && !event.altKey && !event.shiftKey) {
-                        if (SELECTED_ROW == meta.y) {
-                            SELECTED_ROW = null;
-                            const selectedRow = table.querySelector(".highlight");
-                            if (selectedRow){
-                                selectedRow.classList.remove("highlight");
-                                table.draw();
+                            const new_row = await reply.text();
+                            console.log("looking for row " + new_row);
+
+                            if (REF_HISTORY.length && REF_HISTORY_POS != 0) {
+                                REF_HISTORY.length = REF_HISTORY.length + REF_HISTORY_POS;
                             }
+                            if (REF_HISTORY.length == 0 || REF_HISTORY[REF_HISTORY.length - 1] != row.id){
+                                REF_HISTORY.push(row.id);
+                            }
+                            REF_HISTORY.push(new_row);
+                            REF_HISTORY_POS = -1;
+
+                            window.setTimeout(async () => { lookForRow(table, stuff, new_row) }, 250);
                         } else {
-                            SELECTED_ROW = meta.y;
-                            event.target.parentElement.classList.add("highlight");
-                            table.draw();
+                            const msg = await reply.text();
+                            console.error(msg);
+                            alert(msg);
                         }
                     }
                 }
@@ -161,7 +161,9 @@ export async function setupInspectorTable(){
                     topLevelSearch = true
                     searchRow = table.children[0].children[1].children[0]
                 }
-                const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
+                const [meta, stuff, row] = await targetInfo(
+                    searchRow.tagName == 'TD' ? searchRow : searchRow.children[0]
+                );
                 const search = document.createElement("input");
                 search.type = "text";
                 search.style.position = "absolute";
@@ -180,7 +182,7 @@ export async function setupInspectorTable(){
                                 {cache: "no-store"});
                         } else {
                             const names = await table._view_cache.view(findNameCol(), 0, findNameCol() + 1, stuff.num_rows);
-                            for (let i = SELECTED_ROW === null ? 0: SELECTED_ROW; i < names.metadata[0].length; i++){
+                            for (let i = get_selected_row() === null ? 0: get_selected_row(); i < names.metadata[0].length; i++){
                                 if (names.metadata[0][i].includes(search)){
                                     table.scrollToCell(0, i - 1, names.num_columns, i + 1)
                                     break;
@@ -215,7 +217,7 @@ export async function setupInspectorTable(){
                             event.target.remove();
                             await fetch_alert("/inspect/stopsearch/", {cache: "no-store"});
                             table.focus();
-                            SELECTED_ROW = null;
+                            set_selected_row(null);
                         }
                     } else {
                         if (event.key === "Enter") {
@@ -232,19 +234,19 @@ export async function setupInspectorTable(){
                             SEARCH_TERM = null;
                         } else if (event.key === "ArrowDown") {
                             const names = await table._view_cache.view(findNameCol(), 0, findNameCol() + 1, stuff.num_rows);
-                            for (let i = SELECTED_ROW === null ? 0: SELECTED_ROW + 1; i < names.metadata[0].length; i++){
+                            for (let i = get_selected_row() === null ? 0: get_selected_row() + 1; i < names.metadata[0].length; i++){
                                 if (names.metadata[0][i].includes(search)){
                                     table.scrollToCell(0, i - 1, names.num_columns, i + 1)
-                                    SELECTED_ROW = i
+                                    set_selected_row(i);
                                     break;
                                 }
                             }
                         } else if (event.key === "ArrowUp") {
                             const names = await table._view_cache.view(findNameCol(), 0, findNameCol() + 1, stuff.num_rows);
-                            for (let i = SELECTED_ROW === null ? stuff.num_rows - 1: SELECTED_ROW - 1; i >= 0; i--){
+                            for (let i = get_selected_row() === null ? stuff.num_rows - 1: get_selected_row() - 1; i >= 0; i--){
                                 if (names.metadata[0][i].includes(search)){
                                     table.scrollToCell(0, i - 1, names.num_columns, i + 1)
-                                    SELECTED_ROW = i
+                                    set_selected_row(i);
                                     break;
                                 }
                             }
@@ -254,19 +256,21 @@ export async function setupInspectorTable(){
                 });
             }
             if (event.key === "ArrowDown") {
-                if (SELECTED_ROW === null) {
+                const selected = get_selected_row();
+                if (selected === null) {
                 } else {
-                    if (SELECTED_ROW < table._nrows - 1){
-                        SELECTED_ROW += 1;
+                    if (selected < table._nrows - 1){
+                        set_selected_row(selected + 1);
                     }
                 }
                 table.draw();
             }
             if (event.key === "ArrowUp") {
-                if (SELECTED_ROW === null) {
+                const selected = get_selected_row();
+                if (selected === null) {
                 } else {
-                    if (SELECTED_ROW > 0) {
-                        SELECTED_ROW -= 1;
+                    if (selected > 0) {
+                        set_selected_row(selected - 1);
                     }
                 }
                 table.draw();
@@ -274,13 +278,35 @@ export async function setupInspectorTable(){
             if (event.key === "Enter") {
                 const searchRow = table.querySelector(".highlight");
                 if (searchRow) {
-                    const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
+                    const [meta, stuff, row] = await targetInfo(
+                        searchRow.tagName == 'TD' ? searchRow : searchRow.children[0]
+                    );
 
                     if (row.X === '+' || row.X === '?') {
                         await fetch_alert("/inspect/expand/" + row.id, {cache: "no-store"});
                     } else {
                         await fetch_alert("/inspect/collapse/" + row.id, {cache: "no-store"});
                     }
+                }
+            }
+            if (event.key === "ArrowLeft" && event.ctrlKey) {
+                const searchRow = table.children[0].children[1].children[0];
+                const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
+
+                if (REF_HISTORY.length > 0 && -REF_HISTORY_POS < REF_HISTORY.length){
+                    REF_HISTORY_POS -= 1;
+                    const id = REF_HISTORY[REF_HISTORY.length + REF_HISTORY_POS];
+                    lookForRow(table, stuff, id);
+                }
+            }
+            if (event.key === "ArrowRight" && event.ctrlKey) {
+                const searchRow = table.children[0].children[1].children[0];
+                const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
+
+                if (REF_HISTORY.length > 0) {
+                    REF_HISTORY_POS = REF_HISTORY_POS == 0 ? -1 : REF_HISTORY_POS + 1;
+                    const id = REF_HISTORY[REF_HISTORY.length + REF_HISTORY_POS];
+                    lookForRow(table, stuff, id);
                 }
             }
         });

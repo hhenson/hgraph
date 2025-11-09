@@ -3,9 +3,13 @@ import perspective from "/node_modules/@finos/perspective/dist/cdn/perspective.j
 let DEBUG = false;
 let DEBUG_LOCK = false;
 
+let arrow = null;
 let tableFromIPC = null;
+let tableFromJSON = null;
+let tableToIPC = null;
+
 import("/node_modules/@apache-arrow/es2015-esm/Arrow.js")
-                .then(m => tableFromIPC = m.tableFromIPC)
+                .then(m => (arrow = m) && (tableFromIPC = m.tableFromIPC) && (tableFromJSON = m.tableFromJSON) && (tableToIPC = m.tableToIPC))
                 .catch(e => {});
 
 export async function arrowToColumns(arrow, worker) {
@@ -43,6 +47,37 @@ export async function arrowToJSON(arrow, worker) {
 BigInt.prototype.toJSON = function () {
   return Number(this);
 };
+
+async function processBlank(blank) {
+    if (tableFromJSON){
+        const props = {};
+        if (typeof blank === 'string') {
+            props.blank_arrow_ipc = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
+        } else {
+            props.blank_arrow_ipc = blank;
+        }
+        props.blank_arrrow_table = arrow.tableFromIPC(props.blank_arrow_ipc);
+        props.arrow_schema = Object.fromEntries(props.blank_arrrow_table.schema.fields.map((x) => [x.name, x.typeId == -1 ? x.type.dictionary : x.type]));
+        return props;
+    } else {
+        return {};
+    }
+}
+
+export async function jsonToArrow(json, table_name) {
+    let data = json;
+    if (tableFromJSON) {
+        const schema = workspace_tables[table_name].arrow_schema;
+        const columns = Object.assign({}, ...Object.keys(json[0]).map(props => ({[props]: json.map(prop => prop[props])})))
+        const vectors = Object.fromEntries(Object.entries(columns).filter((x) => x[0] in schema).map(([k, v]) => [
+            k, 
+            new arrow.Vector([...arrow.builderThroughIterable({type: schema[k], nullValues: [null, undefined]})(v)])
+        ]));
+        data = tableToIPC(new arrow.Table(vectors));
+    }
+    return data;
+}
+
 
 export class DefaultMap extends Map {
     constructor(defaultFactory, iterable) {
@@ -113,25 +148,29 @@ class AsyncLock {
 class Stats {
     static updates_received = 0;
     static updates_processed = 0;
+    static current_updates_waiting = 0;  // Track actual current queue depth
     static max_updates_waiting = 0;
     static rows_joined = 0;
-    
+
     static update_processing_times = [];
     static max_processing_time = 0;
     static total_processing_time = 0;
     static processing_time_samples = 0;
     static last_reset_time = performance.now();
-    
+
     // Redesigned metrics for concurrent processing time tracking
     static active_updates_count = 0;
     static last_activity_change_time = performance.now();
     static total_active_time = 0;
-    
+
     // New metrics for parsing time
     static parsing_times = [];
     static max_parsing_time = 0;
     static total_parsing_time = 0;
     static parsing_time_samples = 0;
+
+    // Memory and CPU metrics
+    static latest_system_info = null;
 
     static startProcessing() {
         const now = performance.now();
@@ -208,6 +247,17 @@ class Stats {
         };
     }
 
+    static incrementReceived() {
+        Stats.updates_received++;
+        Stats.current_updates_waiting++;
+        Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.current_updates_waiting);
+    }
+
+    static incrementProcessed() {
+        Stats.updates_processed++;
+        Stats.current_updates_waiting = Math.max(0, Stats.current_updates_waiting - 1);
+    }
+
     static trackParsingTime(time) {
         Stats.parsing_times.push(time);
         // Keep only the last 100 samples for memory efficiency
@@ -226,19 +276,23 @@ class Stats {
     
     static getParsingPercentiles() {
         if (Stats.parsing_times.length === 0) return { p90: 0 };
-        
+
         const sorted = [...Stats.parsing_times].sort((a, b) => a - b);
         return {
             p90: sorted[Math.floor(sorted.length * 0.9)]
         };
     }
 
+    static updateSystemInfo(sys_info) {
+        Stats.latest_system_info = sys_info;
+    }
+
     static getTelemetryData(elapsed) {
         Stats.updateActivityTracking();
         const percentiles = Stats.getPercentiles();
         const parsingPercentiles = Stats.getParsingPercentiles();
-        
-        return {
+
+        const telemetry = {
             max_updates_waiting: Stats.max_updates_waiting,
             updates_received_per_min: 60 * Stats.updates_received / (elapsed / 1000),
             updates_processed_per_min: 60 * Stats.updates_processed / (elapsed / 1000),
@@ -252,6 +306,15 @@ class Stats {
             p90_parsing_time_ms: parsingPercentiles.p90,
             parsing_time_percent: Stats.total_parsing_time / (Stats.total_processing_time || 1) * 100
         };
+
+        // Add memory and CPU stats if available
+        if (Stats.latest_system_info) {
+            telemetry.used_heap_mb = Stats.latest_system_info.used_size;
+            const cpu_percent = 100 * (Stats.latest_system_info.cpu_time / Stats.latest_system_info.cpu_time_epoch);
+            telemetry.cpu_percent = Math.min(100, Math.max(0, cpu_percent));
+        }
+
+        return telemetry;
     }
 
     static reset() {
@@ -349,10 +412,14 @@ async function buildClientOnlyTable(workspace, table_name, index, worker) {
         if (adjusted_index === 'index') {
             adjusted_schema.index = 'string';
         }
-        table_config.table = await worker.table(adjusted_schema, {index: adjusted_index});
+        table_config.table = await worker.table(adjusted_schema, {index: adjusted_index, name: table_name});
     } else {
-        table_config.table = await worker.table(adjusted_schema);
+        table_config.table = await worker.table(adjusted_schema, {name: table_name});
     }
+
+    const v = await table_config.table.view();
+    Object.assign(table_config, await processBlank(await v.to_arrow()));
+    v.delete();
 
     table_config.started = true;
 
@@ -371,12 +438,13 @@ async function connectDataView(workspace, table_name, schema, index, websocket, 
     const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
     let client = undefined;
     if (index)
-        client = await worker.table(blank, {index: index});
+        client = await worker.table(blank, {index: index, name: table_name});
     else
-        client = await worker.table(blank);
+        client = await worker.table(blank, {name: table_name});
 
     workspace.addTable(table_name, client);
 
+    Object.assign(workspace_tables[table_name], await processBlank(blank));
     workspace_tables[table_name].table = client;
     workspace_tables[table_name].started = false;
     workspace_tables[table_name].start = async () => {
@@ -393,12 +461,13 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
     const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
     let client = undefined;
     if (index)
-        client = await worker.table(blank, {index: index});
+        client = await worker.table(blank, {index: index, name: table_name});
     else
-        client = await worker.table(blank);
+        client = await worker.table(blank, {name: table_name});
 
     workspace.addTable(table_name, client);
 
+    Object.assign(workspace_tables[table_name], await processBlank(blank));
     workspace_tables[table_name].table = client;
     workspace_tables[table_name].started = false;
     workspace_tables[table_name].start = async (callback) => {
@@ -422,8 +491,7 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
         callback && callback(0.9, undefined, table_name, "setting up callbacks");
 
         const update_fn = async (updated) => {
-            Stats.updates_received += 1;
-            Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
+            Stats.incrementReceived();
             await table_lock.enter("update");
             try {
                 const view_waits = Object.entries(view_locks).map(([k, v]) => {
@@ -439,20 +507,19 @@ async function connectClientTable(workspace, table_name, removes_table, index, w
                 });
             } finally {
                 table_lock.exit("update");
-                Stats.updates_processed += 1;
+                Stats.incrementProcessed();
             }
         };
 
         const remove_fn = async (updated) => {
-            Stats.updates_received += 1;
-            Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
+            Stats.incrementReceived();
             await table_lock.enter("remove");
             try {
                 const update_data = await arrowToColumns(updated.delta, worker);
                 await client.remove(update_data['i']);
             } finally {
                 table_lock.exit("remove");
-                Stats.updates_processed += 1;
+                Stats.incrementProcessed();
             }
         };
 
@@ -483,12 +550,13 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
     const blank = await (await fetch("data:application/octet;base64," + workspace_tables[table_name].blank)).arrayBuffer();
     let client = undefined;
     if (index)
-        client = await worker.table(blank, {index: index});
+        client = await worker.table(blank, {index: index, name: table_name});
     else
-        client = await worker.table(blank);
+        client = await worker.table(blank, {name: table_name});
 
     workspace.addTable(table_name, client);
 
+    Object.assign(workspace_tables[table_name], await processBlank(blank));
     workspace_tables[table_name].table = client;
     workspace_tables[table_name].started = false;
     workspace_tables[table_name].start = async (callback) => {
@@ -519,8 +587,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
 
         view.on_update(
             async (updated) => {
-                Stats.updates_received += 1;
-                Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
+                Stats.incrementReceived();
                 await table_lock.enter("update");
                 try {
                     const view_waits = Object.entries(view_locks).map(([k, v]) => {
@@ -540,7 +607,7 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
                     });
                 } finally {
                     table_lock.exit("update");
-                    Stats.updates_processed += 1;
+                    Stats.incrementProcessed();
                 }
             },
             {mode: "row"}
@@ -555,15 +622,14 @@ async function connectEditableTable(workspace, table_name, removes_table, index,
 
             removes_view.on_update(
                 async (updated) => {
-                    Stats.updates_received += 1;
-                    Stats.max_updates_waiting = Math.max(Stats.max_updates_waiting, Stats.updates_received - Stats.updates_processed);
+                    Stats.incrementReceived();
                     await table_lock.enter("remove");
                     try {
                         const update_data = await arrowToColumns(updated.delta, worker);
                         await client.remove(update_data['i']);
                     } finally {
                         table_lock.exit("remove");
-                        Stats.updates_processed += 1;
+                        Stats.incrementProcessed();
                     }
                 },
                 {mode: "row"}
@@ -609,11 +675,12 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
         adjusted_schema.index = 'string';
     }
 
-    const join_table = await worker.table(adjusted_schema, {index: adjusted_index});
-    const removes_table = await worker.table({i: adjusted_schema[adjusted_index]})
+    const join_table = await worker.table(adjusted_schema, {index: adjusted_index, name: table_name});
+    const removes_table = await worker.table({i: adjusted_schema[adjusted_index]}, {name: table_name + "_removes"});
 
     workspace.addTable(table_name, join_table);
 
+    Object.assign(workspace_tables[table_name], await processBlank(await (await join_table.view()).to_arrow()));
     workspace_tables[table_name].table = join_table;
     workspace_tables[table_name].started = false;
     workspace_tables[table_name].start = async (callback) => {
@@ -753,7 +820,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
 
                 const parent_waits = [];
 
-                view.on_update(
+                const update_id = await view.on_update(
                     async (updated) => {
                         try {
                             await description._total.lock.enter("update " + table_name);
@@ -776,10 +843,12 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
                     }
                 }
 
+                const remove_info = {};
                 if ('removes' in workspace_table) {
                     const removes = workspace_table.removes;
                     const removes_view = await removes.view();
-                    removes_view.on_update(
+                    remove_info.view = removes_view;
+                    remove_info.id = await removes_view.on_update(
                         async (updated) => {
                             if (workspace_table_lock)
                                 await workspace_table_lock.enter("remove from " + description._total.name);
@@ -794,6 +863,19 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
                         },
                         {mode: "row"}
                     );
+                }
+
+                if (table_description.refresh) {
+                    setTimeout(async function refresh_loop() {
+                        const old_view = view;
+                        await loader(table_name);
+                        await old_view.remove_update(update_id);
+                        await old_view.delete();
+                        if ('view' in remove_info) {
+                            await remove_info.view.remove_update(remove_info.id);
+                            await remove_info.view.delete();
+                        }
+                    }, table_description.refresh);
                 }
 
                 callback && callback(1, undefined, `${description._total.name}/${table_name}`, "done");
@@ -985,11 +1067,17 @@ async function join_table_updated(target, removes_table, join_tables, table_name
             return;
         }
     } else {
+        try {
         const parseStart = performance.now();
         const view = updated.delta;
         update_data = await view.to_columns();
         const parseEnd = performance.now();
         Stats.trackParsingTime(parseEnd - parseStart);
+        } catch (e) {
+            console.error("Failed to parse update for join table", join_tables._total.name, "from", table_name, e);
+            Stats.endProcessing(startProcessing);
+            return;
+        }
     }
 
     const table = join_tables[table_name];
@@ -1194,7 +1282,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
     }
     if (join_data.length > 0) {
         DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "of", join_data.length, safeClone(join_data));
-        target.update(join_data);
+        target.update(await jsonToArrow(join_data, join_tables._total.name));
     }
     if (new_row_indices.length > 0) {
         const total_index_col_name = join_tables._total.index;
@@ -1214,8 +1302,9 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         }
         DEBUG && console.log("Joining", join_tables._total.name, join_data.length, "rows", "while processing update to", table_name, "of", update_data.length, safeClone(join_data));
         try {
-            target.update(Array.from(join_data.values()));
+            target.update(await jsonToArrow(Array.from(join_data.values()), join_tables._total.name));
         } catch (e) {
+            console.error("Failed to update join table", join_tables._total.name, "while processing update to", table_name, e);
             // sometimes when the table is pivoted and split, this might fail due to columns not being setup, can be ignored
         }
     }
@@ -1238,23 +1327,61 @@ async function connectStatsTable(workspace, worker, websocket){
             timestamp: "datetime",
             client_used: "float",
             client_heap: "float",
-        }
+        },
+        {name: "psp_memory_stats"}
     );
 
     workspace.addTable("psp_memory_stats", stats_table);
 
     (async function checkmem() {
         try {
-            const sys_info = await websocket.system_info()
-            sys_info.timestamp = new Date();
+            const timestamp = new Date();
+            const sys_info = await worker.system_info()
+            sys_info.timestamp = timestamp;
+            Stats.updateSystemInfo(sys_info);
             await stats_table.update([sys_info]);
         } catch (e) {
             DEBUG && console.log("Memory stats update failed", e);
         }
-        setTimeout(checkmem, 1000);
+        setTimeout(checkmem, 60000);
     })();
 
     workspace_tables["psp_memory_stats"] = {table: stats_table, started: true};
+
+    const table_stats_table = await worker.table(
+        {
+            timestamp: "datetime",
+            name: "string",
+            rows: "integer",
+        },
+        {name: "psp_table_stats"}
+    );
+
+    workspace.addTable("psp_table_stats", table_stats_table);
+
+    (async function tablestats() {
+        try {
+            const timestamp = new Date();
+            const tables = await worker.get_hosted_table_names();
+            const table_stats = [];
+            for (const name of tables) {
+                try {
+                    const table = await worker.open_table(name);
+                    const num_rows = await table.size();
+                    if (num_rows === 0) continue;
+                    table_stats.push({timestamp: timestamp, name: name, rows: num_rows});
+                } catch (e) {
+                    // table might not exist or be readable, ignore
+                }
+            }
+            await table_stats_table.update(table_stats);
+        } catch (e) {
+            DEBUG && console.log("Table stats update failed", e);
+        }
+        setTimeout(tablestats, 60000);
+    })();
+
+    workspace_tables["psp_table_stats"] = {table: table_stats_table, started: true};
 }
 
 const workspace_tables = {};
@@ -1414,12 +1541,16 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
                 Stats.reset();
 
                 heartbeat_time = time_now;
+                const heartbeat_timeout = 120000; // 2 minutes
 
                 if (heartbeat_timer)
                     window.clearTimeout(heartbeat_timer);
 
                 heartbeat_timer = window.setTimeout(async() => {
                     DEBUG && console.log("Heartbeat timeout");
+                    if (heartbeat_time + heartbeat_timeout > new Date()){
+                        return; // the browser pauses timers when the computer is asleep or the tab is inactive for a long time
+                    }
                     if (management_ws){
                         let should_reload = true;
                         while (true) {
@@ -1458,7 +1589,7 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
                                 window.location.reload(); 
                         }, 15000);
                     }
-                }, 120000);
+                }, heartbeat_timeout);
             }
         },
         { mode: "row" }
