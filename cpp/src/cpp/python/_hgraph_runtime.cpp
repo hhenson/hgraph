@@ -4,6 +4,10 @@
 
 #include <hgraph/runtime/evaluation_engine.h>
 
+namespace hgraph {
+    void register_observers_with_nanobind(nb::module_ &m);
+}
+
 void export_runtime(nb::module_ &m) {
     using namespace hgraph;
 
@@ -22,4 +26,7 @@ void export_runtime(nb::module_ &m) {
     EvaluationEngine::register_with_nanobind(m);
     EvaluationEngineImpl::register_with_nanobind(m);
     EvaluationEngineDelegate::register_with_nanobind(m);
+    
+    // Register observer classes
+    register_observers_with_nanobind(m);
 }

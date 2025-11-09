@@ -748,6 +748,10 @@ if is_feature_enabled("use_cpp"):
 
 
         hgraph._wiring._context_wiring.ContextNodeClass.BUILDER_CLASS = _context_node_builder
+        
+        # Setup C++ observer implementations
+        from hgraph.test._cpp_observers import setup_cpp_observers
+        setup_cpp_observers()
 
     except ImportError as e:
         import warnings

@@ -65,6 +65,10 @@ set(HGRAPH_SOURCES
         runtime/evaluation_engine.cpp
         runtime/graph_executor.cpp
         runtime/record_replay.cpp
+        runtime/observers/evaluation_profiler.cpp
+        runtime/observers/evaluation_trace.cpp
+        runtime/observers/inspection_observer.cpp
+        runtime/observers/observers_bindings.cpp
 
         types/constants.cpp
         types/error_type.cpp
