@@ -2,11 +2,11 @@
 #define TIME_SERIES_TYPE_H
 
 #include <hgraph/hgraph_base.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/ts_traits.h>
 #include <variant>
 
 namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base {
+    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base, NotifiableContext {
         using ptr = nb::ref<TimeSeriesType>;
 
         explicit TimeSeriesType(const node_ptr &parent);
@@ -26,14 +26,14 @@ namespace hgraph {
         // Pure virtual methods to be implemented in derived classes
 
         // Method for owning node
-        [[nodiscard]] node_ptr owning_node();
+        [[nodiscard]] virtual node_ptr owning_node() = 0;
 
-        [[nodiscard]] node_ptr owning_node() const;
+        [[nodiscard]] virtual node_ptr owning_node() const = 0;
 
         // Method for owning graph
-        [[nodiscard]] graph_ptr owning_graph();
+        [[nodiscard]] virtual graph_ptr owning_graph() = 0;
 
-        [[nodiscard]] graph_ptr owning_graph() const;
+        [[nodiscard]] virtual graph_ptr owning_graph() const = 0;
 
         // Method for value - as python object
         [[nodiscard]] virtual nb::object py_value() const = 0;
@@ -65,9 +65,9 @@ namespace hgraph {
         This is used when grafting a time-series input from one node / time-series container to another.
         For example, see use in map implementation.
         */
-        void re_parent(const node_ptr &parent);
+        virtual void re_parent(const node_ptr &parent) = 0;
 
-        void re_parent(const ptr &parent);
+        virtual void re_parent(const ptr &parent) = 0;
 
         /*
          * This is used to deal with the fact we are not tracking the type in the time-series value.
@@ -75,11 +75,18 @@ namespace hgraph {
          */
         [[nodiscard]] virtual bool is_same_type(const TimeSeriesType *other) const = 0;
 
-        [[nodiscard]] virtual bool is_reference() const;
+        [[nodiscard]] virtual bool is_reference() const = 0;
 
-        [[nodiscard]] virtual bool has_reference() const;
+        [[nodiscard]] virtual bool has_reference() const = 0;
 
-        void reset_parent_or_node();
+        virtual void reset_parent_or_node() = 0;
+
+        [[nodiscard]] virtual bool has_owning_node() const = 0;
+
+        // NotifiableContext implementations
+        void add_before_evaluation_notification(std::function<void()> &&fn) override;
+        void add_after_evaluation_notification(std::function<void()> &&fn) override;
+        [[nodiscard]] engine_time_t current_engine_time() const override;
 
         // // Overload for re_parent with TimeSeries
         // virtual void re_parent(TimeSeriesType::ptr parent) = 0;
@@ -102,18 +109,15 @@ namespace hgraph {
 
         bool has_parent_or_node() const;
 
-    public:
-        [[nodiscard]] bool has_owning_node() const;
-
-    private:
-        using TsOrNode = std::variant<ptr, node_ptr>;
-        std::optional<TsOrNode> _parent_ts_or_node{};
-
         /*
          * Utility to extract the owning node associated to this time-series.
          * Will raise if no value set.
          */
         node_ptr _owning_node() const;
+
+    protected:
+        using TsOrNode = std::variant<ptr, node_ptr>;
+        std::optional<TsOrNode> _parent_ts_or_node{};
     };
 
     struct TimeSeriesInput;
@@ -149,7 +153,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable {
+    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType {
         using ptr = nb::ref<TimeSeriesInput>;
         using TimeSeriesType::TimeSeriesType;
 

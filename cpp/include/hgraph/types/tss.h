@@ -150,9 +150,9 @@ namespace hgraph {
 
         TimeSeriesSetOutput &set_output() const;
 
-        bool do_bind_output(TimeSeriesOutput::ptr &output);
+        bool do_bind_output(TimeSeriesOutput::ptr &output) override;
 
-        void do_un_bind_output(bool unbind_refs);
+        void do_un_bind_output(bool unbind_refs) override;
 
         [[nodiscard]] nb::object py_added() const override;
 

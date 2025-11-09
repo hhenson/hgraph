@@ -14,6 +14,18 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
+        // TimeSeriesType pure virtual implementations
+        [[nodiscard]] node_ptr owning_node() override;
+        [[nodiscard]] node_ptr owning_node() const override;
+        [[nodiscard]] graph_ptr owning_graph() override;
+        [[nodiscard]] graph_ptr owning_graph() const override;
+        void re_parent(const node_ptr &parent) override;
+        void re_parent(const TimeSeriesType::ptr &parent) override;
+        [[nodiscard]] bool has_owning_node() const override;
+        [[nodiscard]] bool is_reference() const override;
+        [[nodiscard]] bool has_reference() const override;
+        void reset_parent_or_node() override;
+
         // The input that this input is bound to. This will be nullptr if this is the root input.
         [[nodiscard]] TimeSeriesInput::ptr parent_input() const override;
 

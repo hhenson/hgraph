@@ -206,18 +206,25 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/graph.h
         include/hgraph/types/node.h
         include/hgraph/types/ref.h
+        include/hgraph/types/ref_value.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
         include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
         include/hgraph/types/ts.h
         include/hgraph/types/ts_signal.h
+        include/hgraph/types/ts_traits.h
         include/hgraph/types/tsd.h
         include/hgraph/types/tss.h
         include/hgraph/types/ts_indexed.h
         include/hgraph/types/tsb.h
         include/hgraph/types/tsl.h
         include/hgraph/types/tsw.h
+        include/hgraph/types/v2/any_value.h
+        include/hgraph/types/v2/ts_event.h
+        include/hgraph/types/v2/ts_value.h
+        include/hgraph/types/v2/ts_value_helpers.h
+        include/hgraph/types/v2/ts_value_impl.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_state.h
@@ -227,7 +234,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/python/reference_wrapper.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
-        include/hgraph/util/reference_count_subscriber.h
         include/hgraph/util/scope.h
         include/hgraph/util/sender_receiver_state.h
         include/hgraph/util/stack_trace.h

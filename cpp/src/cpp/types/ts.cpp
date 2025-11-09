@@ -15,13 +15,13 @@ namespace hgraph {
             return;
         }
         set_value(nb::cast<T>(value));
-    }
+        }
 
     template<typename T>
     void TimeSeriesValueOutput<T>::apply_result(nb::object value) {
         if (!value.is_valid() || value.is_none()) { return; }
         try {
-            py_set_value(value);
+        py_set_value(value);
         } catch (std::exception &e) {
             std::string msg = "Cannot apply node output " + to_string(value) + " of type " +
                               std::string(typeid(T).name()) + " to TimeSeriesValueOutput: " + e.what();
@@ -144,4 +144,4 @@ namespace hgraph {
         nb::class_<TS_Out_Object, TimeSeriesOutput>(m, "TS_Out_Object");
         nb::class_<TS_Object, TimeSeriesInput>(m, "TS_Object");
     }
-} // namespace hgraph
+}  // namespace hgraph

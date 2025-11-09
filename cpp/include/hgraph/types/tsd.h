@@ -473,11 +473,11 @@ namespace hgraph {
         [[nodiscard]] const TimeSeriesDictOutput_T<key_type> &output_t() const;
 
     protected:
-        void notify_parent(TimeSeriesInput *child, engine_time_t modified_time);
+        void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
-        bool do_bind_output(time_series_output_ptr &value);
+        bool do_bind_output(time_series_output_ptr &value) override;
 
-        void do_un_bind_output(bool unbind_refs);
+        void do_un_bind_output(bool unbind_refs) override;
 
         [[nodiscard]] bool was_removed_valid(const key_type &key) const;
 

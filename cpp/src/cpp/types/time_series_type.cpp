@@ -9,16 +9,28 @@ namespace hgraph {
     /*
      * The python code sets the node and unsets the parent_input, we have an optional with a
      * variant so we just need to set the _parent_ts_or_node property
+     * These methods are now pure virtual and implemented in derived classes
      */
-    void TimeSeriesType::re_parent(const Node::ptr &parent) { _parent_ts_or_node = parent; }
 
-    void TimeSeriesType::re_parent(const ptr &parent) { _parent_ts_or_node = parent; }
+    void TimeSeriesType::add_before_evaluation_notification(std::function<void()> &&fn) {
+        auto graph = owning_graph();
+        if (graph != nullptr) {
+            graph->evaluation_engine_api()->add_before_evaluation_notification(std::forward<std::function<void()>>(fn));
+        }
+    }
 
-    bool TimeSeriesType::is_reference() const { return false; }
+    void TimeSeriesType::add_after_evaluation_notification(std::function<void()> &&fn) {
+        auto graph = owning_graph();
+        if (graph != nullptr) {
+            graph->evaluation_engine_api()->add_after_evaluation_notification(std::forward<std::function<void()>>(fn));
+        }
+    }
 
-    bool TimeSeriesType::has_reference() const { return false; }
-
-    void TimeSeriesType::reset_parent_or_node() { _parent_ts_or_node.reset(); }
+    engine_time_t TimeSeriesType::current_engine_time() const {
+        auto graph = owning_graph();
+        if (graph != nullptr) { return graph->evaluation_engine_clock()->evaluation_time(); }
+        return MIN_DT;
+    }
 
     void TimeSeriesType::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesType, nb::intrusive_base>(m, "TimeSeriesType")
@@ -68,25 +80,6 @@ namespace hgraph {
     void TimeSeriesType::_set_parent_time_series(TimeSeriesType *ts) { _parent_ts_or_node = ptr{ts}; }
 
     bool TimeSeriesType::has_parent_or_node() const { return _parent_ts_or_node.has_value(); }
-
-    bool TimeSeriesType::has_owning_node() const {
-        if (_parent_ts_or_node.has_value()) {
-            if (std::holds_alternative<Node::ptr>(*_parent_ts_or_node)) {
-                return std::get<Node::ptr>(*_parent_ts_or_node) != Node::ptr{};
-            }
-            return std::get<ptr>(*_parent_ts_or_node)->has_owning_node();
-        } else {
-            return false;
-        }
-    }
-
-    graph_ptr TimeSeriesType::owning_graph() {
-        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
-    }
-
-    graph_ptr TimeSeriesType::owning_graph() const {
-        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
-    }
 
     void TimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesOutput, TimeSeriesType>(m, "TimeSeriesOutput")
@@ -143,10 +136,6 @@ namespace hgraph {
 
     TimeSeriesType::TimeSeriesType(const ptr &parent) : _parent_ts_or_node{parent} {
     }
-
-    node_ptr TimeSeriesType::owning_node() { return _owning_node(); }
-
-    node_ptr TimeSeriesType::owning_node() const { return _owning_node(); }
 
     void TimeSeriesInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesInput, TimeSeriesType>(m, "TimeSeriesInput")

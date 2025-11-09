@@ -74,6 +74,7 @@ set(HGRAPH_SOURCES
         types/graph.cpp
         types/node.cpp
         types/ref.cpp
+        types/ref_value.cpp
         types/scalar_types.cpp
         types/schema_type.cpp
         types/time_series_type.cpp
@@ -86,6 +87,9 @@ set(HGRAPH_SOURCES
         types/tsb.cpp
         types/tsl.cpp
         types/tsw.cpp
+        types/v2/ts_event.cpp
+        types/v2/ts_value.cpp
+        types/v2/ts_value_impl.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
