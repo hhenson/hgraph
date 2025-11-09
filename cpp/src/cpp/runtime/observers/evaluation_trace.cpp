@@ -29,7 +29,7 @@ namespace hgraph {
         std::string formatted = fmt::format("[{}] {}", time_us, msg);
         if (_use_logger) {
             // For now, just use cout. In future could integrate with a logging framework
-            std::cout << formatted << std::endl;
+            std::cerr << formatted << std::endl;
         } else {
             std::cout << formatted << std::endl;
         }
