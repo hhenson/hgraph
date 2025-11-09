@@ -118,7 +118,6 @@ namespace hgraph {
         double _progress_interval;
         std::chrono::time_point<std::chrono::high_resolution_clock> _progress_last_time;
         bool _compute_sizes;
-        bool _track_recent_performance;
 
         std::set<std::vector<int>> _graph_subscriptions;
         std::set<std::vector<int>> _node_subscriptions;

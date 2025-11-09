@@ -127,7 +127,7 @@ namespace hgraph {
         void make_passive() override;
         [[nodiscard]] bool has_output() const override;
 
-        void builder_release_cleanup();
+        void builder_release_cleanup() override;
 
         [[nodiscard]] nb::object py_value() const override;
         [[nodiscard]] nb::object py_delta_value() const override;
