@@ -17,7 +17,6 @@ namespace hgraph {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         [[nodiscard]] nb::object py_value() const override;
-
         [[nodiscard]] nb::object py_delta_value() const override;
 
         void py_set_value(nb::object value) override;
@@ -30,17 +29,16 @@ namespace hgraph {
 
         void set_value(T &&value);
 
-        void mark_invalid() override;
+        void                                mark_invalid() override;
 
         void copy_from_output(const TimeSeriesOutput &output) override;
-
         void copy_from_input(const TimeSeriesInput &input) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
         void reset_value();
 
-    private:
+      private:
         T _value{};
     };
 
@@ -60,7 +58,7 @@ namespace hgraph {
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
     };
 
-    void register_ts_with_nanobind(nb::module_ & m);
-} // namespace hgraph
+    void register_ts_with_nanobind(nb::module_ &m);
+}  // namespace hgraph
 
 #endif  // TS_H

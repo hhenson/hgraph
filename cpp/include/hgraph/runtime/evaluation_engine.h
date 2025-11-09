@@ -10,6 +10,24 @@
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
+    struct HGRAPH_EXPORT EvaluationScheduler {
+        virtual ~EvaluationScheduler() = default;
+
+        /**
+         * This method is used to add a notification function that will be triggered before the next evaluation cycle.
+         *
+         * @param fn The notification function to be triggered before the evaluation of the next engine cycle.
+         */
+        virtual void add_before_evaluation_notification(std::function<void()> &&fn) = 0;
+
+        /**
+         * This method is used to add a notification function that will be triggered after the evaluation cycle is completed.
+         *
+         * @param fn The notification function to be triggered after the evaluation of the current engine cycle.
+         */
+        virtual void add_after_evaluation_notification(std::function<void()> &&fn) = 0;
+    };
+
     struct HGRAPH_EXPORT EvaluationClock : nb::intrusive_base {
         using ptr = nanobind::ref<EvaluationClock>;
 
@@ -78,7 +96,7 @@ namespace hgraph {
     struct Graph;
     struct Node;
 
-    struct HGRAPH_EXPORT EvaluationEngineApi : ComponentLifeCycle {
+    struct HGRAPH_EXPORT EvaluationEngineApi : ComponentLifeCycle, EvaluationScheduler {
         using ptr = nanobind::ref<EvaluationEngineApi>;
 
         [[nodiscard]] virtual EvaluationMode evaluation_mode() const = 0;
@@ -96,10 +114,6 @@ namespace hgraph {
         virtual void request_engine_stop() = 0;
 
         virtual bool is_stop_requested() = 0;
-
-        virtual void add_before_evaluation_notification(std::function<void()> &&fn) = 0;
-
-        virtual void add_after_evaluation_notification(std::function<void()> &&fn) = 0;
 
         virtual void add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) = 0;
 

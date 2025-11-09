@@ -2,7 +2,7 @@
 #define NODE_H
 
 #include <hgraph/util/lifecycle.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/ts_traits.h>
 
 namespace hgraph {
     template<typename Enum>
@@ -164,7 +164,7 @@ namespace hgraph {
         engine_time_t _last_scheduled_time{MIN_DT};
     };
 
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable {
+    struct HGRAPH_EXPORT Node : ComponentLifeCycle, NotifiableContext {
         using ptr = nanobind::ref<Node>;
 
         Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature, nb::dict scalars);
@@ -176,6 +176,11 @@ namespace hgraph {
         void notify();
 
         void notify_next_cycle();
+
+        // NotifiableContext implementations
+        [[nodiscard]] engine_time_t current_engine_time() const override;
+        void add_before_evaluation_notification(std::function<void()> &&fn) override;
+        void add_after_evaluation_notification(std::function<void()> &&fn) override;
 
         int64_t node_ndx() const;
 

@@ -708,6 +708,20 @@ namespace hgraph {
         }
     }
 
+    engine_time_t Node::current_engine_time() const {
+        auto owning_graph_ = graph();
+        if (owning_graph_ != nullptr) { return owning_graph_->evaluation_clock()->evaluation_time(); }
+        return MIN_DT;
+    }
+
+    void Node::add_before_evaluation_notification(std::function<void()> &&fn) {
+        graph()->evaluation_engine_api()->add_before_evaluation_notification(std::move(fn));
+    }
+
+    void Node::add_after_evaluation_notification(std::function<void()> &&fn) {
+        graph()->evaluation_engine_api()->add_after_evaluation_notification(std::move(fn));
+    }
+
     int64_t Node::node_ndx() const { return _node_ndx; }
 
     const std::vector<int64_t> &Node::owning_graph_id() const { return _owning_graph_id; }

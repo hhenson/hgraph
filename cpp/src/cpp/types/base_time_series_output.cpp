@@ -4,6 +4,41 @@
 
 namespace hgraph {
 
+    node_ptr BaseTimeSeriesOutput::owning_node() { return _owning_node(); }
+
+    node_ptr BaseTimeSeriesOutput::owning_node() const { return _owning_node(); }
+
+    graph_ptr BaseTimeSeriesOutput::owning_graph() {
+        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    }
+
+    graph_ptr BaseTimeSeriesOutput::owning_graph() const {
+        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    }
+
+    void BaseTimeSeriesOutput::re_parent(const node_ptr &parent) { _parent_ts_or_node = parent; }
+
+    void BaseTimeSeriesOutput::re_parent(const TimeSeriesType::ptr &parent) { _parent_ts_or_node = parent; }
+
+    bool BaseTimeSeriesOutput::is_reference() const { return false; }
+
+    bool BaseTimeSeriesOutput::has_reference() const { return false; }
+
+    void BaseTimeSeriesOutput::reset_parent_or_node() { _parent_ts_or_node.reset(); }
+
+    bool BaseTimeSeriesOutput::has_owning_node() const {
+        if (_parent_ts_or_node.has_value()) {
+            if (std::holds_alternative<node_ptr>(*_parent_ts_or_node)) {
+                return std::get<node_ptr>(*_parent_ts_or_node) != node_ptr{};
+            }
+            return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node)->has_owning_node();
+        } else {
+            return false;
+        }
+    }
+
+    void BaseTimeSeriesOutput::notify(engine_time_t et) { mark_modified(et); }
+
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() const {
         return static_cast<TimeSeriesOutput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
     }
