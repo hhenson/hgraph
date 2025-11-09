@@ -1,3 +1,4 @@
+from hgraph._operators._stream import filter_
 import pytest
 from frozendict import frozendict
 import pytest
@@ -480,3 +481,22 @@ def test_map_input_rebind_to_nonpeer():
         {'a': 4, 'b': 5},
         {'a': 5, 'b': 6},
     ]
+
+
+def test_map_output_invalid():
+    @graph
+    def delayed_output(key: TS[int], ts: TS[str]) -> TS[str]:
+        return switch_(key > 0, {
+            False: lambda i: nothing(TS[str]),
+            True: lambda i: i,
+        }, ts)
+    
+    @graph
+    def g(ts: TSD[int, TS[str]], snap: TS[bool]) -> TSD[int, TS[str]]:
+        return filter_(snap, map_(delayed_output, ts))
+    
+    assert eval_node(g, [{1: '1', 0: '0'}], [False, True]) == [
+        None,
+        {1: '1'},
+    ]
+    
