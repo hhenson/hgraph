@@ -1549,3 +1549,8 @@ Version 0.5.4 (03-11-2025)
 * Moved c++ code from hg_cpp into main hgraph package
 * add a feature switch to control use of CPP engine (HGRAPH_USE_CPP=1)
 * Cleanups to improve the stability of tests on CICD
+
+Verion 0.5.6 (09-11-2025)
+-------------------------
+
+* Add observer support and a few bug fixes.
