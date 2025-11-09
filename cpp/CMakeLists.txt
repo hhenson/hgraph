@@ -167,6 +167,10 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/evaluation_engine.h
         include/hgraph/runtime/graph_executor.h
         include/hgraph/runtime/record_replay.h
+        include/hgraph/runtime/observers/evaluation_profiler.h
+        include/hgraph/runtime/observers/evaluation_trace.h
+        include/hgraph/runtime/observers/inspection_observer.h
+        include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
         include/hgraph/types/feature_extension.h

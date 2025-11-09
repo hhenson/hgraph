@@ -6,7 +6,7 @@
 #ifndef TSW_H
 #define TSW_H
 
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series.h>
 #include <deque>
 
 namespace hgraph {
@@ -15,20 +15,20 @@ namespace hgraph {
     struct TimeSeriesTimeWindowOutput;
 
     template<typename T>
-    struct TimeSeriesFixedWindowOutput : TimeSeriesOutput {
+    struct TimeSeriesFixedWindowOutput : BaseTimeSeriesOutput {
         using value_type = T;
 
-        using TimeSeriesOutput::TimeSeriesOutput;
+        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         // Construct with capacity and min size
         TimeSeriesFixedWindowOutput(const node_ptr &parent, size_t size, size_t min_size)
-            : TimeSeriesOutput(parent), _size(size), _min_size(min_size) {
+            : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size) {
             _buffer.resize(_size);
             _times.resize(_size, engine_time_t{});
         }
 
         TimeSeriesFixedWindowOutput(const TimeSeriesType::ptr &parent, size_t size, size_t min_size)
-            : TimeSeriesOutput(parent), _size(size), _min_size(min_size) {
+            : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size) {
             _buffer.resize(_size);
             _times.resize(_size, engine_time_t{});
         }
@@ -96,8 +96,8 @@ namespace hgraph {
 
     // Unified window input that works with both fixed-size and timedelta outputs
     template<typename T>
-    struct TimeSeriesWindowInput : TimeSeriesInput {
-        using TimeSeriesInput::TimeSeriesInput;
+    struct TimeSeriesWindowInput : BaseTimeSeriesInput {
+        using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         // Helpers to dynamically get the output as the correct type
         [[nodiscard]] TimeSeriesFixedWindowOutput<T> *as_fixed_output() const {
@@ -174,19 +174,19 @@ namespace hgraph {
 
     // TimeSeriesTimeWindowOutput - timedelta-based window
     template<typename T>
-    struct TimeSeriesTimeWindowOutput : TimeSeriesOutput {
+    struct TimeSeriesTimeWindowOutput : BaseTimeSeriesOutput {
         using value_type = T;
 
-        using TimeSeriesOutput::TimeSeriesOutput;
+        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         // Construct with time window and min time window
         TimeSeriesTimeWindowOutput(const node_ptr &parent, engine_time_delta_t size, engine_time_delta_t min_size)
-            : TimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
+            : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
         }
 
         TimeSeriesTimeWindowOutput(const TimeSeriesType::ptr &parent, engine_time_delta_t size,
                                    engine_time_delta_t min_size)
-            : TimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
+            : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
         }
 
         [[nodiscard]] nb::object py_value() const override;

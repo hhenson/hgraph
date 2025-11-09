@@ -80,7 +80,7 @@ namespace hgraph {
     void TimeSeriesFixedWindowOutput<T>::mark_invalid() {
         _start = 0;
         _length = 0;
-        TimeSeriesOutput::mark_invalid();
+        BaseTimeSeriesOutput::mark_invalid();
     }
 
     template<typename T>
@@ -274,7 +274,7 @@ namespace hgraph {
         _buffer.clear();
         _times.clear();
         _ready = false;
-        TimeSeriesOutput::mark_invalid();
+        BaseTimeSeriesOutput::mark_invalid();
     }
 
     template<typename T>

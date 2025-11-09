@@ -283,7 +283,7 @@ const std::function < bool(const ts_type &) > &constraint)
 
     void TimeSeriesBundleOutput::mark_invalid() {
         // Always invalidate children to ensure no stale fields remain (match Python semantics)
-        TimeSeriesOutput::mark_invalid(); // Call parent FIRST
+        BaseTimeSeriesOutput::mark_invalid(); // Call parent FIRST
         for (auto &v: ts_values()) { v->mark_invalid(); }
     }
 
