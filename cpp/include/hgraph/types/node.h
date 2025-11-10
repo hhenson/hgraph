@@ -221,7 +221,11 @@ namespace hgraph {
 
         void set_error_output(time_series_output_ptr value);
 
+        // Performance optimization: provide access to cached evaluation time pointer
+        [[nodiscard]] const engine_time_t* cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
+
         friend struct Graph;
+        friend struct NodeScheduler;
 
         void add_start_input(nb::ref<TimeSeriesReferenceInput> input);
 
@@ -266,6 +270,10 @@ namespace hgraph {
         // Cache for these calculated values.
         std::vector<nb::ref<TimeSeriesInput> > _check_valid_inputs;
         std::vector<nb::ref<TimeSeriesInput> > _check_all_valid_inputs;
+
+        // Performance optimization: Cache evaluation time pointer from graph
+        // Set once when graph is assigned to node, never changes
+        const engine_time_t* _cached_evaluation_time_ptr{nullptr};
     };
 } // namespace hgraph
 

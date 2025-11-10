@@ -1554,3 +1554,9 @@ Version 0.5.6 (09-11-2025)
 --------------------------
 
 * Add observer support and a few bug fixes.
+
+Version 0.5.7 (10-11-2025)
+--------------------------
+
+* Refactoring cleanup to prepare for further C++ improvements.
+* Performance optimisation for accessing evaluation_time.

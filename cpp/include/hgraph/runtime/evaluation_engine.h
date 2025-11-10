@@ -41,6 +41,9 @@ namespace hgraph {
 
         virtual void reset_push_node_requires_scheduling() = 0;
 
+        // Performance: Direct access to evaluation time for caching
+        [[nodiscard]] virtual const engine_time_t* evaluation_time_ptr() const = 0;
+
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -68,6 +71,8 @@ namespace hgraph {
         [[nodiscard]] bool push_node_requires_scheduling() const override;
 
         void reset_push_node_requires_scheduling() override;
+
+        [[nodiscard]] const engine_time_t* evaluation_time_ptr() const override;
 
         static void register_with_nanobind(nb::module_ &m);
 
@@ -260,6 +265,9 @@ namespace hgraph {
         [[nodiscard]] engine_time_t next_scheduled_evaluation_time() const override;
 
         void update_next_scheduled_evaluation_time(engine_time_t scheduled_time) override;
+
+        // Performance: Direct access to evaluation time for caching
+        [[nodiscard]] const engine_time_t* evaluation_time_ptr() const override;
 
         static void register_with_nanobind(nb::module_ &m);
 
