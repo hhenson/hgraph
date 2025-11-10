@@ -187,7 +187,7 @@ if is_feature_enabled("use_cpp"):
                         else _hgraph.TimeSeriesSchema(keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys())),
                         [self.make_input_builder(tp) for tp in value_tp.bundle_schema_tp.meta_data_schema.values()],
                     ),
-                    hgraph.HgREFTypeMetaData: lambda: _hgraph.InputBuilder_TS_Ref(),
+                    hgraph.HgREFTypeMetaData: lambda: self._make_ref_input_builder(value_tp),
                     hgraph.HgTSSTypeMetaData: lambda: _tss_input_builder_type_for(value_tp.value_scalar_tp)(),
                     hgraph.HgTSDTypeMetaData: lambda: _tsd_input_builder_type_for(value_tp.key_tp)(
                         self.make_input_builder(value_tp.value_tp),
@@ -229,7 +229,7 @@ if is_feature_enabled("use_cpp"):
                             self.make_output_builder(tp) for tp in value_tp.bundle_schema_tp.meta_data_schema.values()
                         ],
                     ),
-                    hgraph.HgREFTypeMetaData: lambda: _hgraph.OutputBuilder_TS_Ref(),
+                    hgraph.HgREFTypeMetaData: lambda: self._make_ref_output_builder(value_tp),
                     hgraph.HgTSSTypeMetaData: lambda: _tss_output_builder_for_tp(value_tp.value_scalar_tp)(),
                     hgraph.HgTSDTypeMetaData: lambda: _tsd_output_builder_for_tp(value_tp.key_tp)(
                         self.make_output_builder(value_tp.value_tp),
@@ -237,6 +237,56 @@ if is_feature_enabled("use_cpp"):
                     ),
                     hgraph.HgTSWTypeMetaData: lambda: self._make_tsw_output_builder(value_tp),
                 }.get(type(value_tp), lambda: hgraph._impl._builder._ts_builder._throw(value_tp))()
+            
+            def _make_ref_input_builder(self, ref_tp):
+                """Create specialized C++ reference input builder"""
+                referenced_tp = ref_tp.value_tp
+                
+                if isinstance(referenced_tp, hgraph.HgTSLTypeMetaData):
+                    # REF[TSL[...]] - will need child builder in Stage 2
+                    # child_ref_tp = hgraph.HgREFTypeMetaData(referenced_tp.value_tp)
+                    # child_builder = self._make_ref_input_builder(child_ref_tp)
+                    
+                    # For now, return existing builder but with detection logged
+                    # TODO: Replace with C++ specialized builder once implemented
+                    print(f"[DETECTION C++] Creating REF[TSL] input builder, size={referenced_tp.size_tp.py_type.SIZE}")
+                    return _hgraph.InputBuilder_TS_Ref()
+                
+                elif isinstance(referenced_tp, hgraph.HgTSBTypeMetaData):
+                    # REF[TSB[...]] - will need field builders in Stage 2
+                    # field_builders = []
+                    # for field_tp in referenced_tp.bundle_schema_tp.meta_data_schema.values():
+                    #     field_ref_tp = hgraph.HgREFTypeMetaData(field_tp)
+                    #     field_builders.append(self._make_ref_input_builder(field_ref_tp))
+                    
+                    # For now, return existing builder but with detection logged
+                    # TODO: Replace with C++ specialized builder once implemented
+                    print(f"[DETECTION C++] Creating REF[TSB] input builder, schema={list(referenced_tp.bundle_schema_tp.meta_data_schema.keys())}")
+                    return _hgraph.InputBuilder_TS_Ref()
+                
+                else:
+                    # All other types - use current generic builder
+                    return _hgraph.InputBuilder_TS_Ref()
+            
+            def _make_ref_output_builder(self, ref_tp):
+                """Create specialized C++ reference output builder"""
+                referenced_tp = ref_tp.value_tp
+                
+                if isinstance(referenced_tp, hgraph.HgTSLTypeMetaData):
+                    # For now, return existing builder but with detection logged
+                    # TODO: Replace with C++ specialized builder once implemented
+                    print(f"[DETECTION C++] Creating REF[TSL] output builder, size={referenced_tp.size_tp.py_type.SIZE}")
+                    return _hgraph.OutputBuilder_TS_Ref()
+                
+                elif isinstance(referenced_tp, hgraph.HgTSBTypeMetaData):
+                    # For now, return existing builder but with detection logged
+                    # TODO: Replace with C++ specialized builder once implemented
+                    print(f"[DETECTION C++] Creating REF[TSB] output builder, schema={list(referenced_tp.bundle_schema_tp.meta_data_schema.keys())}")
+                    return _hgraph.OutputBuilder_TS_Ref()
+                
+                else:
+                    # All other types - use current generic builder
+                    return _hgraph.OutputBuilder_TS_Ref()
 
 
         def _ts_input_builder_type_for(scalar_type):
