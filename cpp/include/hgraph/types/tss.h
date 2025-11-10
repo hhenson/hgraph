@@ -8,6 +8,7 @@
 #include <hgraph/python/hashable.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/base_time_series.h>
 #include <hgraph/types/ts.h>
 
 namespace hgraph {
@@ -99,6 +100,12 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct TimeSeriesSet : T_TS {
+        // Map concrete Base types back to interface types for collections
+        using ts_type = std::conditional_t<
+            std::is_base_of_v<TimeSeriesInput, T_TS>,
+            TimeSeriesInput,
+            TimeSeriesOutput
+        >;
         using T_TS::T_TS;
 
         [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
@@ -118,7 +125,7 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object &item) const = 0;
     };
 
-    struct TimeSeriesSetOutput : TimeSeriesSet<TimeSeriesOutput> {
+    struct TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesSetOutput>;
 
         explicit TimeSeriesSetOutput(const node_ptr &parent);
@@ -142,8 +149,8 @@ namespace hgraph {
         nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
     };
 
-    struct TimeSeriesSetInput : TimeSeriesSet<TimeSeriesInput> {
-        using TimeSeriesSet<TimeSeriesInput>::TimeSeriesSet;
+    struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
+        using TimeSeriesSet<BaseTimeSeriesInput>::TimeSeriesSet;
 
         TimeSeriesSetOutput &set_output() const;
 

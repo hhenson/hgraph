@@ -70,6 +70,7 @@ set(HGRAPH_SOURCES
         runtime/observers/inspection_observer.cpp
         runtime/observers/observers_bindings.cpp
 
+        types/base_time_series.cpp
         types/constants.cpp
         types/error_type.cpp
         types/feature_extension.cpp

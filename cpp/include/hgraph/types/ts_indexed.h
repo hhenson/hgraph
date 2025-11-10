@@ -2,7 +2,7 @@
 #define TS_INDEXED_H
 
 #include <algorithm>
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series.h>
 
 namespace hgraph {
     struct TimeSeriesBundleInputBuilder;
@@ -11,7 +11,12 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct IndexedTimeSeries : T_TS {
-        using ts_type = T_TS;
+        // Map concrete Base types back to interface types for collections
+        using ts_type = std::conditional_t<
+            std::is_base_of_v<TimeSeriesInput, T_TS>,
+            TimeSeriesInput,
+            TimeSeriesOutput
+        >;
         using index_ts_type = IndexedTimeSeries<T_TS>;
         using ptr = nb::ref<IndexedTimeSeries<ts_type> >;
         using collection_type = std::vector<typename ts_type::ptr>;
@@ -20,8 +25,8 @@ namespace hgraph {
         using value_iterator = typename collection_type::iterator;
         using value_const_iterator = typename collection_type::const_iterator;
 
-        using ts_type::ts_type;
-        using ts_type::valid;
+        using T_TS::T_TS;  // Inherit constructors from actual base class
+        using T_TS::valid;  // Inherit valid() from actual base class
 
         [[nodiscard]] bool all_valid() const override {
             if (empty()) { return true; }
@@ -48,7 +53,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] collection_type valid_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.valid(); });
+            return values_with_constraint([](const ts_type &ts) { return ts.valid(); });
         }
 
         [[nodiscard]] collection_type valid_values() const { return const_cast<index_ts_type *>(this)->valid_values(); }
@@ -64,7 +69,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] collection_type modified_values() {
-            return values_with_constraint([](const T_TS &ts) { return ts.modified(); });
+            return values_with_constraint([](const ts_type &ts) { return ts.modified(); });
         }
 
         [[nodiscard]] collection_type modified_values() const {
@@ -122,7 +127,7 @@ namespace hgraph {
         collection_type _ts_values;
     };
 
-    struct IndexedTimeSeriesOutput : IndexedTimeSeries<TimeSeriesOutput> {
+    struct IndexedTimeSeriesOutput : IndexedTimeSeries<BaseTimeSeriesOutput> {
         using index_ts_type::IndexedTimeSeries;
 
         void invalidate() override;
@@ -136,7 +141,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct IndexedTimeSeriesInput : IndexedTimeSeries<TimeSeriesInput> {
+    struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput> {
         using index_ts_type::IndexedTimeSeries;
 
         [[nodiscard]] bool modified() const override;

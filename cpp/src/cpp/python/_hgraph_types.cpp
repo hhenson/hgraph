@@ -7,6 +7,7 @@
 #include <hgraph/types/schema_type.h>
 #include <hgraph/types/scalar_types.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/base_time_series.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/ts.h>
 #include <hgraph/types/tsb.h>
@@ -30,6 +31,10 @@ void export_types(nb::module_ &m) {
     TimeSeriesType::register_with_nanobind(m);
     TimeSeriesOutput::register_with_nanobind(m);
     TimeSeriesInput::register_with_nanobind(m);
+    
+    // Register concrete base classes
+    BaseTimeSeriesOutput::register_with_nanobind(m);
+    BaseTimeSeriesInput::register_with_nanobind(m);
 
     TimeSeriesReference::register_with_nanobind(m);
     TimeSeriesReferenceOutput::register_with_nanobind(m);

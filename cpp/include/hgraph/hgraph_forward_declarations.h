@@ -48,6 +48,7 @@ namespace hgraph {
     using time_series_type_ptr = nanobind::ref<TimeSeriesType>;
 
     struct TimeSeriesInput;
+    struct BaseTimeSeriesInput;
     using time_series_input_ptr = nanobind::ref<TimeSeriesInput>;
 
     struct TimeSeriesBundleInput;
@@ -57,6 +58,7 @@ namespace hgraph {
     using time_series_bundle_output_ptr = nanobind::ref<TimeSeriesBundleOutput>;
 
     struct TimeSeriesOutput;
+    struct BaseTimeSeriesOutput;
     using time_series_output_ptr = nanobind::ref<TimeSeriesOutput>;
 
     struct TimeSeriesReference;
@@ -86,7 +88,7 @@ namespace hgraph {
     using c_string_ref = std::reference_wrapper<const std::string>;
 
     template<typename T_TS>
-    concept TimeSeriesT = std::is_same_v<T_TS, TimeSeriesInput> || std::is_same_v<T_TS, TimeSeriesOutput>;
+    concept TimeSeriesT = std::is_base_of_v<TimeSeriesInput, T_TS> || std::is_base_of_v<TimeSeriesOutput, T_TS>;
 
     struct OutputBuilder;
     struct InputBuilder;

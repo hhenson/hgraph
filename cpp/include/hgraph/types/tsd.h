@@ -9,6 +9,7 @@
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
+#include <hgraph/types/base_time_series.h>
 #include <hgraph/types/tss.h>
 #include <ranges>
 
@@ -30,8 +31,13 @@ namespace hgraph {
     template<typename T_TS>
         requires TimeSeriesT<T_TS>
     struct TimeSeriesDict : T_TS {
-        using ts_type = T_TS;
-        using ts_type_ptr = nb::ref<T_TS>;
+        // Map concrete Base types back to interface types for collections
+        using ts_type = std::conditional_t<
+            std::is_base_of_v<TimeSeriesInput, T_TS>,
+            TimeSeriesInput,
+            TimeSeriesOutput
+        >;
+        using ts_type_ptr = nb::ref<ts_type>;  // Use interface type for pointers
         using T_TS::T_TS;
 
         [[nodiscard]] virtual size_t size() const = 0;
@@ -51,10 +57,6 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
 
         [[nodiscard]] virtual nb::object py_key_set() const = 0;
-
-        [[nodiscard]] virtual TimeSeriesSet<T_TS> &key_set() = 0;
-
-        [[nodiscard]] virtual const TimeSeriesSet<T_TS> &key_set() const = 0;
 
         [[nodiscard]] virtual nb::iterator py_keys() const = 0;
 
@@ -97,7 +99,7 @@ namespace hgraph {
         [[nodiscard]] virtual bool py_was_removed(const nb::object &key) const = 0;
     };
 
-    struct TimeSeriesDictOutput : TimeSeriesDict<TimeSeriesOutput> {
+    struct TimeSeriesDictOutput : TimeSeriesDict<BaseTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesDictOutput>;
         using TimeSeriesDict::TimeSeriesDict;
 
@@ -110,11 +112,19 @@ namespace hgraph {
         virtual nb::object py_get_ref(const nb::object &key, const nb::object &requester) = 0;
 
         virtual void py_release_ref(const nb::object &key, const nb::object &requester) = 0;
+
+        // Returns a TimeSeriesSetOutput that tracks the keys in this dict
+        [[nodiscard]] virtual TimeSeriesSetOutput &key_set() = 0;
+        [[nodiscard]] virtual const TimeSeriesSetOutput &key_set() const = 0;
     };
 
-    struct TimeSeriesDictInput : TimeSeriesDict<TimeSeriesInput> {
+    struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput> {
         using ptr = nb::ref<TimeSeriesDictInput>;
-        using TimeSeriesDict<TimeSeriesInput>::TimeSeriesDict;
+        using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
+
+        // Returns a TimeSeriesSetInput that tracks the keys in this dict
+        [[nodiscard]] virtual TimeSeriesSetInput &key_set() = 0;
+        [[nodiscard]] virtual const TimeSeriesSetInput &key_set() const = 0;
     };
 
     template<typename T_Key>
@@ -249,9 +259,9 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_key_set() const override;
 
-        [[nodiscard]] TimeSeriesSet<ts_type> &key_set() override;
+        [[nodiscard]] TimeSeriesSetOutput &key_set() override;
 
-        [[nodiscard]] const TimeSeriesSet<ts_type> &key_set() const override;
+        [[nodiscard]] const TimeSeriesSetOutput &key_set() const override;
 
         [[nodiscard]] TimeSeriesSetOutput_T<key_type> &key_set_t();
 
@@ -433,13 +443,13 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_key_set() const override;
 
-        [[nodiscard]] TimeSeriesSet<TimeSeriesInput> &key_set() override;
+        [[nodiscard]] TimeSeriesSetInput &key_set() override;
 
         [[nodiscard]] bool has_added() const override;
 
         [[nodiscard]] bool has_removed() const override;
 
-        [[nodiscard]] const TimeSeriesSet<TimeSeriesInput> &key_set() const override;
+        [[nodiscard]] const TimeSeriesSetInput &key_set() const override;
 
         void on_key_added(const key_type &key) override;
 

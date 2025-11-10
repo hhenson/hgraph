@@ -22,15 +22,14 @@ namespace hgraph {
                                           ProgressCallback callback_progress,
                                           double progress_interval,
                                           bool compute_sizes,
-                                          bool track_recent_performance)
+                                          [[maybe_unused]] bool track_recent_performance)
         : _current_graph(nullptr),
           _callback_node(std::move(callback_node)),
           _callback_graph(std::move(callback_graph)),
           _callback_progress(std::move(callback_progress)),
           _progress_interval(progress_interval),
           _progress_last_time(std::chrono::high_resolution_clock::now()),
-          _compute_sizes(compute_sizes),
-          _track_recent_performance(track_recent_performance) {
+          _compute_sizes(compute_sizes) {
         
         if (graph) {
             walk(graph);

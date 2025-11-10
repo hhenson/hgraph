@@ -13,16 +13,8 @@
 
 namespace hgraph {
     void OutputBuilder::release_instance(time_series_output_ptr item) const {
-        // Perform minimal teardown before diagnostics to avoid dangling subscriptions
+        // Perform minimal teardown - builder_release_cleanup handles subscriber cleanup
         item->builder_release_cleanup();
-        // We can't check if we are in an error condition, nanobind should raise the python error into a C++
-        // one, and then the state is gone, I think. Anyhow, if this is an issue, we can look into this later.
-        if (item->_subscribers.size() != 0) {
-            fmt::print("Output instance still has subscribers when released, this is a bug.\nOutput belongs to node: "
-                       "{}\nSubscriber count: {}",
-                       (item->has_owning_node() ? item->owning_node()->signature().name : "null"),
-                       std::to_string(item->_subscribers.size()));
-        }
         item->reset_parent_or_node();
     }
 
