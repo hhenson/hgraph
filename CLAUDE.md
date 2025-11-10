@@ -50,19 +50,46 @@ rm .venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 ln -s `pwd`/cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so `pwd`/.venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 
 # 5. Verify installation
-uv run pytest hgraph_unit_tests/_operators/test_const.py -v
+HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests/_operators/test_const.py -v
 ```
+
+## Feature Switches
+
+The project has a concept of a feature switch to be able to turn on and off features. These can be defined in a number
+of ways, but the most useful to an agent is the environment variable.
+
+The current key feature is the use of C++ for the core runtime. This is controlled by the env var ``HGRAPH_USE_CPP=1``.
+When set, the code will use the C++ implementation; when it is off, the python implementation is used.
+This is important to check when validating re-factoring as it is easy to forget to set the env var and not test the change.
 
 ## Testing
 
 The tests are currently all in python and can be found in ``hgraph_unit_tests``.
 
+```bash
+HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests
+```
+
 ## Project Structure
 
 The project model uses ``uv`` to manage the project. This uses the ``pyproject.toml`` file to define the project structure.
-The C++ build is managed by CMake, and the integration between uv and CMake is the scikit-build-core builder.
+The C++ build is managed by CMake, and the integration between uv and CMake is the ``scikit-build-core`` builder.
 We use pytest for running the python unit tests.
 
-The project is index using the Context7 mcp. Use this mcp for project-specific API and documentation, 
+The project is index using the ``Context7`` mcp. Use this mcp for project-specific API and documentation, 
 it indexes most open source projects.
+
+## Debugging / Development
+
+Techniques to apply:
+
+1. Tracing: The python code is generally speaking correct, and does make the unit tests pass. When there is a bug in 
+            the c++ code, putting trace code into the Python implementation and comparing it to the equivalent C++ code
+            can help identify the differences in behavior.
+2. Validation: When making changes to the code, always compile the changes to make sure the code works, then run the
+               unit tests to ensure all non-xfail / skipped tests are still working (and remember to set the env var
+               ``HGRAPH_USE_CPP=1``). You can't report success if there are failing tests.
+3. Checks: Always make sure the env is set up correctly, this can be a quick spot check that the symlink for the
+           .so is in the right place and linked. Otherwise, it results in checks against an incorrect version of 
+           the code.
 
