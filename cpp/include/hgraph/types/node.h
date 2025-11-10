@@ -221,6 +221,9 @@ namespace hgraph {
 
         void set_error_output(time_series_output_ptr value);
 
+        // Performance optimization: provide access to cached evaluation time pointer
+        [[nodiscard]] const engine_time_t* cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
+
         friend struct Graph;
         friend struct NodeScheduler;
 

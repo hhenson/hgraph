@@ -123,10 +123,10 @@ namespace hgraph {
     }
 
     bool BaseTimeSeriesOutput::modified() const {
-        auto g = owning_graph();
-        if (g.get() == nullptr) { return false; }
-        // Use cached evaluation time pointer from graph for performance
-        return *g->cached_evaluation_time_ptr() == _last_modified_time;
+        auto n = owning_node();
+        if (n.get() == nullptr) { return false; }
+        // Use cached evaluation time pointer from node for performance
+        return *n->cached_evaluation_time_ptr() == _last_modified_time;
     }
 
     bool BaseTimeSeriesOutput::valid() const { return _last_modified_time > MIN_DT; }
@@ -140,26 +140,26 @@ namespace hgraph {
     void BaseTimeSeriesOutput::mark_invalid() {
         if (_last_modified_time > MIN_DT) {
             _last_modified_time = MIN_DT;
-            auto g = owning_graph();
-            if (g.get() != nullptr) {
-                // Use cached evaluation time pointer from graph for performance
-                _notify(*g->cached_evaluation_time_ptr());
+            auto n = owning_node();
+            if (n.get() != nullptr) {
+                // Use cached evaluation time pointer from node for performance
+                _notify(*n->cached_evaluation_time_ptr());
             } else {
-                // Owning graph not yet attached; skip notify to avoid dereferencing null during start/recover
+                // Owning node not yet attached; skip notify to avoid dereferencing null during start/recover
             }
         }
     }
 
     void BaseTimeSeriesOutput::mark_modified() {
         if (has_parent_or_node()) {
-            auto g = owning_graph();
-            if (g.get() != nullptr) {
-                // Use cached evaluation time pointer from graph for performance
-                mark_modified(*g->cached_evaluation_time_ptr());
+            auto n = owning_node();
+            if (n.get() != nullptr) {
+                // Use cached evaluation time pointer from node for performance
+                mark_modified(*n->cached_evaluation_time_ptr());
             } else {
-                // Graph not yet attached; mark with a maximal time to preserve monotonicity without dereferencing
+                // Owning node not yet attached; mark with a maximal time to preserve monotonicity without dereferencing
                 // This is a bad situation, I would probably prefer to find out why,
-                // TODO: find the root cause of why this could be called without a bound graph.
+                // TODO: find the root cause of why this could be called without a bound node.
             }
         } else {
             mark_modified(MAX_ET);
@@ -312,10 +312,10 @@ namespace hgraph {
         // - The input was previously bound (rebinding case), OR
         // - The new output is valid
         // This matches the Python implementation: (was_bound or self._output.valid)
-        if ((owning_node()->is_started() || owning_node()->is_starting()) && _output.get() && (was_bound || _output->
-                valid())) {
-            // Use cached evaluation time pointer from graph for performance
-            _sample_time = *owning_graph()->cached_evaluation_time_ptr();
+        auto n = owning_node();
+        if ((n->is_started() || n->is_starting()) && _output.get() && (was_bound || _output->valid())) {
+            // Use cached evaluation time pointer from node for performance
+            _sample_time = *n->cached_evaluation_time_ptr();
             if (active()) {
                 notify(_sample_time);
                 // TODO: This might belong to make_active, or not? There is a race with setting sample_time too.
@@ -337,12 +337,13 @@ namespace hgraph {
         if (bound()) {
             do_un_bind_output(unbind_refs);
 
-            if (owning_node()->is_started() && was_valid) {
-                // Use cached evaluation time pointer from graph for performance
-                _sample_time = *owning_graph()->cached_evaluation_time_ptr();
+            auto n = owning_node();
+            if (n->is_started() && was_valid) {
+                // Use cached evaluation time pointer from node for performance
+                _sample_time = *n->cached_evaluation_time_ptr();
                 if (active()) {
                     // Notify as the state of the node has changed from bound to un_bound
-                    owning_node()->notify(_sample_time);
+                    n->notify(_sample_time);
                 }
             }
         }
@@ -446,10 +447,10 @@ namespace hgraph {
     engine_time_t BaseTimeSeriesInput::sample_time() const { return _sample_time; }
 
     bool BaseTimeSeriesInput::sampled() const {
-        auto g = owning_graph();
-        if (g.get() == nullptr) { return false; }
-        // Use cached evaluation time pointer from graph for performance
-        return _sample_time != MIN_DT && _sample_time == *g->cached_evaluation_time_ptr();
+        auto n = owning_node();
+        if (n.get() == nullptr) { return false; }
+        // Use cached evaluation time pointer from node for performance
+        return _sample_time != MIN_DT && _sample_time == *n->cached_evaluation_time_ptr();
     }
 
     time_series_reference_output_ptr BaseTimeSeriesInput::reference_output() const { return _reference_output; }
