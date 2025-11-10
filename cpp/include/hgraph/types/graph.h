@@ -65,6 +65,10 @@ namespace hgraph {
 
         void dispose_subgraph(int64_t start, int64_t end);
 
+        // Performance: Cached clock pointer and evaluation time reference set during initialization
+        [[nodiscard]] EngineEvaluationClock* cached_engine_clock() const { return _cached_engine_clock; }
+        [[nodiscard]] const engine_time_t* cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
+
     protected:
         void initialise() override;
 
@@ -85,6 +89,11 @@ namespace hgraph {
         SenderReceiverState _receiver;
         engine_time_t _last_evaluation_time{MIN_DT};
         int64_t _push_source_nodes_end{-1};
+
+        // Performance optimization: Cache clock pointer and evaluation time pointer at initialization
+        // Set once when evaluation engine is assigned, never changes
+        EngineEvaluationClock* _cached_engine_clock{nullptr};
+        const engine_time_t* _cached_evaluation_time_ptr{nullptr};
     };
 } // namespace hgraph
 

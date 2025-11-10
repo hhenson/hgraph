@@ -86,6 +86,10 @@ namespace hgraph {
         _engine_evalaution_clock->reset_push_node_requires_scheduling();
     }
 
+    const engine_time_t* EngineEvaluationClockDelegate::evaluation_time_ptr() const {
+        return _engine_evalaution_clock->evaluation_time_ptr();
+    }
+
     void EngineEvaluationClockDelegate::register_with_nanobind(nb::module_ &m) {
         nb::class_ < EngineEvaluationClockDelegate, EngineEvaluationClock > (m, "EngineEvaluationClockDelegate")
                 .def(nb::init<EngineEvaluationClock::ptr>());
@@ -297,6 +301,8 @@ namespace hgraph {
         _next_scheduled_evaluation_time =
                 std::max(next_cycle_evaluation_time(), std::min(_next_scheduled_evaluation_time, scheduled_time));
     }
+
+    const engine_time_t *BaseEvaluationClock::evaluation_time_ptr() const { return &_evaluation_time; }
 
     void BaseEvaluationClock::register_with_nanobind(nb::module_ &m) {
         nb::class_ < BaseEvaluationClock, EngineEvaluationClock > (m, "BaseEvaluationClock");

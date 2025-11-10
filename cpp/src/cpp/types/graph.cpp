@@ -48,6 +48,10 @@ namespace hgraph {
         }
         _evaluation_engine = std::move(value);
 
+        // Cache the clock pointer and evaluation time pointer once at initialization for performance
+        _cached_engine_clock = _evaluation_engine->engine_evaluation_clock().get();
+        _cached_evaluation_time_ptr = _cached_engine_clock->evaluation_time_ptr();
+
         if (_push_source_nodes_end > 0) { _receiver.set_evaluation_clock(evaluation_engine_clock()); }
     }
 
@@ -56,8 +60,8 @@ namespace hgraph {
     void Graph::schedule_node(int64_t node_ndx, engine_time_t when) { schedule_node(node_ndx, when, false); }
 
     void Graph::schedule_node(int64_t node_ndx, engine_time_t when, bool force_set) {
-        auto clock = this->evaluation_engine_clock();
-        auto et = clock->evaluation_time();
+        // Use cached evaluation time pointer (set at initialization) - direct memory access
+        auto et = *_cached_evaluation_time_ptr;
 
         // Match Python: just throw if scheduling in the past
         if (when < et) {
@@ -72,7 +76,7 @@ namespace hgraph {
 
         auto &st = this->_schedule[node_ndx];
         if (force_set || st <= et || st > when) { st = when; }
-        clock->update_next_scheduled_evaluation_time(when);
+        _cached_engine_clock->update_next_scheduled_evaluation_time(when);
     }
 
     std::vector<engine_time_t> &Graph::schedule() { return _schedule; }
@@ -80,8 +84,9 @@ namespace hgraph {
     void Graph::evaluate_graph() {
         NotifyGraphEvaluation nge{evaluation_engine(), graph_ptr{this}};
 
-        engine_time_t now = evaluation_engine_clock()->evaluation_time();
-        auto clock = evaluation_engine_clock();
+        // Use cached pointers (set at initialization) for direct memory access
+        auto clock = _cached_engine_clock;
+        engine_time_t now = *_cached_evaluation_time_ptr;
         auto &nodes = _nodes;
         auto &schedule = _schedule;
 

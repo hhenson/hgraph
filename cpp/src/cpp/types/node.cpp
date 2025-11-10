@@ -538,8 +538,10 @@ namespace hgraph {
     bool NodeScheduler::is_scheduled() const { return !_scheduled_events.empty() || !_alarm_tags.empty(); }
 
     bool NodeScheduler::is_scheduled_now() const {
-        return !_scheduled_events.empty() &&
-               _scheduled_events.begin()->first == _node->graph()->evaluation_clock()->evaluation_time();
+        if (_scheduled_events.empty()) return false;
+        // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
+        auto eval_time = *_node->_cached_evaluation_time_ptr;
+        return _scheduled_events.begin()->first == eval_time;
     }
 
     bool NodeScheduler::has_tag(const std::string &tag) const { return _tags.contains(tag); }
@@ -578,7 +580,9 @@ namespace hgraph {
         }
 
         auto is_started{_node->is_started()};
-        auto now_{is_started ? _node->graph()->evaluation_clock()->evaluation_time() : MIN_DT};
+        // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
+        engine_time_t now_ = is_started ? *_node->_cached_evaluation_time_ptr : MIN_DT;
+
         if (when > now_) {
             _tags[tag.value_or("")] = when;
             auto current_first = !_scheduled_events.empty() ? _scheduled_events.begin()->first : MAX_DT;
@@ -592,7 +596,9 @@ namespace hgraph {
     }
 
     void NodeScheduler::schedule(engine_time_delta_t when, std::optional<std::string> tag, bool on_wall_clock) {
-        auto when_{_node->graph()->evaluation_clock()->evaluation_time() + when};
+        // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
+        auto eval_time = *_node->_cached_evaluation_time_ptr;
+        auto when_ = eval_time + when;
         schedule(when_, std::move(tag), on_wall_clock);
     }
 
@@ -622,7 +628,8 @@ namespace hgraph {
 
     void NodeScheduler::advance() {
         if (_scheduled_events.empty()) { return; }
-        auto until = _node->graph()->evaluation_clock()->evaluation_time();
+        // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
+        auto until = *_node->_cached_evaluation_time_ptr;
         // Note: empty string is considered smallest in std::string comparison,
         // so upper_bound will correctly find elements <= until regardless of tag value
         _scheduled_events.erase(_scheduled_events.begin(), _scheduled_events.upper_bound({until, VERY_LARGE_STRING}));
@@ -690,7 +697,8 @@ namespace hgraph {
         if (is_started() || is_starting()) {
             // When a node is starting, it might be notified with a historical time (from inputs that ticked in the past).
             // We should schedule for MAX(modified_time, current_evaluation_time) to avoid scheduling in the past.
-            auto eval_time = graph()->evaluation_clock()->evaluation_time();
+            // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
+            auto eval_time = *_cached_evaluation_time_ptr;
             auto schedule_time = std::max(modified_time, eval_time);
             graph()->schedule_node(node_ndx(), schedule_time);
         } else {
@@ -698,11 +706,18 @@ namespace hgraph {
         }
     }
 
-    void Node::notify() { notify(graph()->evaluation_clock()->evaluation_time()); }
+    void Node::notify() {
+        // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
+        auto eval_time = *_cached_evaluation_time_ptr;
+        notify(eval_time);
+    }
 
     void Node::notify_next_cycle() {
         if (is_started() || is_starting()) {
-            graph()->schedule_node(node_ndx(), graph()->evaluation_clock()->next_cycle_evaluation_time());
+            // Use node's cached evaluation time pointer and calculate next_cycle directly
+            // next_cycle_evaluation_time is just evaluation_time + MIN_TD
+            auto next_time = *_cached_evaluation_time_ptr + MIN_TD;
+            graph()->schedule_node(node_ndx(), next_time);
         } else {
             notify();
         }
@@ -729,7 +744,11 @@ namespace hgraph {
     graph_ptr Node::graph() { return _graph; }
     graph_ptr Node::graph() const { return _graph; }
 
-    void Node::set_graph(graph_ptr value) { _graph = value; }
+    void Node::set_graph(graph_ptr value) {
+        _graph = value;
+        // Cache the evaluation time pointer from the graph for performance
+        _cached_evaluation_time_ptr = value->cached_evaluation_time_ptr();
+    }
 
     time_series_bundle_input_ptr Node::input() { return _input; }
     time_series_bundle_input_ptr Node::input() const { return _input; }
