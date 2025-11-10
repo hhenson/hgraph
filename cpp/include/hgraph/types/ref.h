@@ -222,6 +222,90 @@ namespace hgraph {
         std::optional<std::vector<TimeSeriesReferenceInput::ptr> > _items;
         static inline std::vector<TimeSeriesReferenceInput::ptr> empty_items{};
     };
+
+    // ============================================================
+    // Specialized Reference Input Classes
+    // ============================================================
+
+    struct TimeSeriesValueReferenceInput : TimeSeriesReferenceInput {
+        using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct TimeSeriesListReferenceInput : TimeSeriesReferenceInput {
+        using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        
+        TimeSeriesInput *get_input(size_t index) override;
+        
+        static void register_with_nanobind(nb::module_ &m);
+        
+    private:
+        size_t _size{0};
+    };
+
+    struct TimeSeriesBundleReferenceInput : TimeSeriesReferenceInput {
+        using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        static void register_with_nanobind(nb::module_ &m);
+        
+    private:
+        size_t _size{0};
+    };
+
+    struct TimeSeriesDictReferenceInput : TimeSeriesReferenceInput {
+        using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct TimeSeriesSetReferenceInput : TimeSeriesReferenceInput {
+        using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct TimeSeriesWindowReferenceInput : TimeSeriesReferenceInput {
+        using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    // ============================================================
+    // Specialized Reference Output Classes
+    // ============================================================
+
+    struct TimeSeriesValueReferenceOutput : TimeSeriesReferenceOutput {
+        using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct TimeSeriesListReferenceOutput : TimeSeriesReferenceOutput {
+        using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        static void register_with_nanobind(nb::module_ &m);
+        
+    private:
+        size_t _size{0};
+    };
+
+    struct TimeSeriesBundleReferenceOutput : TimeSeriesReferenceOutput {
+        using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        static void register_with_nanobind(nb::module_ &m);
+        
+    private:
+        size_t _size{0};
+    };
+
+    struct TimeSeriesDictReferenceOutput : TimeSeriesReferenceOutput {
+        using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct TimeSeriesSetReferenceOutput : TimeSeriesReferenceOutput {
+        using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct TimeSeriesWindowReferenceOutput : TimeSeriesReferenceOutput {
+        using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
 } // namespace hgraph
 
 #endif  // REF_H

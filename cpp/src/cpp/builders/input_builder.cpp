@@ -8,6 +8,7 @@
 #include <hgraph/builders/time_series_types/time_series_signal_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_value_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_ref_input_builder.h>
+#include <hgraph/builders/time_series_types/specialized_ref_builders.h>
 #include <hgraph/builders/time_series_types/time_series_list_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_bundle_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_set_input_builder.h>
@@ -50,6 +51,15 @@ namespace hgraph {
         TimeSeriesSignalInputBuilder::register_with_nanobind(m);
         time_series_value_input_builder_register_with_nanobind(m);
         TimeSeriesRefInputBuilder::register_with_nanobind(m);
+        
+        // Specialized reference input builders
+        TimeSeriesValueRefInputBuilder::register_with_nanobind(m);
+        TimeSeriesListRefInputBuilder::register_with_nanobind(m);
+        TimeSeriesBundleRefInputBuilder::register_with_nanobind(m);
+        TimeSeriesDictRefInputBuilder::register_with_nanobind(m);
+        TimeSeriesSetRefInputBuilder::register_with_nanobind(m);
+        TimeSeriesWindowRefInputBuilder::register_with_nanobind(m);
+        
         TimeSeriesListInputBuilder::register_with_nanobind(m);
         TimeSeriesBundleInputBuilder::register_with_nanobind(m);
         time_series_set_input_builder_register_with_nanobind(m);

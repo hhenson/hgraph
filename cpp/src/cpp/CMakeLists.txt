@@ -22,6 +22,7 @@ set(HGRAPH_SOURCES
         builders/time_series_types/time_series_signal_input_builder.cpp
         builders/time_series_types/time_series_value_input_builder.cpp
         builders/time_series_types/time_series_ref_input_builder.cpp
+        builders/time_series_types/specialized_ref_builders.cpp
         builders/time_series_types/time_series_list_input_builder.cpp
         builders/time_series_types/time_series_bundle_input_builder.cpp
         builders/time_series_types/time_series_set_input_builder.cpp
