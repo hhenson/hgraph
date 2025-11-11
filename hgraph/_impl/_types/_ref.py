@@ -411,6 +411,11 @@ class PythonTimeSeriesListReferenceInput(PythonTimeSeriesReferenceInput, Generic
     _size: int = 0  # Set by builder - known size for validation
     _value_builder: typing.Optional["TSInputBuilder"] = None  # Set by builder - for creating children
 
+    @property
+    def max_size(self) -> int:
+        """The declared maximum size of this REF[TSL]."""
+        return self._size
+
     def __getitem__(self, item):
         # Size check before access
         if not isinstance(item, int) or item < 0 or item >= self._size:
@@ -429,7 +434,9 @@ class PythonTimeSeriesListReferenceInput(PythonTimeSeriesReferenceInput, Generic
         return self._items[item]
     
     def __len__(self):
-        return self._size
+        # Return actual number of created items, not the max size
+        # This ensures consistency with __iter__
+        return len(self._items) if self._items is not None else 0
     
     def __iter__(self):
         # Only iterate if items were already created (don't force creation)
@@ -447,6 +454,11 @@ class PythonTimeSeriesBundleReferenceInput(PythonTimeSeriesReferenceInput, Gener
 
     _size: int = 0  # Set by builder - number of fields (for validation)
     _field_builders: list["TSInputBuilder"] | None = None  # Set by builder (for future batch creation)
+
+    @property
+    def max_size(self) -> int:
+        """The declared maximum size (number of fields) of this REF[TSB]."""
+        return self._size
 
     def __getitem__(self, item):
         # Check if integer index - could add size validation here
