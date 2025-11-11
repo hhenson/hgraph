@@ -1,0 +1,199 @@
+//
+// PyTimeSeriesInput/Output implementation - Base time series wrappers
+//
+
+#include <hgraph/api/python/py_time_series.h>
+#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/node.h>
+
+namespace nb = nanobind;
+using namespace nb::literals;
+
+namespace hgraph::api {
+    
+    // ============================================================================
+    // PyTimeSeriesInput
+    // ============================================================================
+    
+    PyTimeSeriesInput::PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block)
+        : _impl(impl, std::move(control_block)) {}
+    
+    nb::object PyTimeSeriesInput::owning_node() const {
+        // TODO: Wrap in PyNode
+        return nb::cast(_impl->owning_node());
+    }
+    
+    nb::object PyTimeSeriesInput::parent_input() const {
+        // TODO: Wrap in appropriate PyTimeSeriesInput type
+        auto parent = _impl->parent_input();
+        if (parent) {
+            return nb::cast(parent);
+        }
+        return nb::none();
+    }
+    
+    bool PyTimeSeriesInput::has_parent_input() const {
+        return _impl->has_parent_input();
+    }
+    
+    bool PyTimeSeriesInput::valid() const {
+        return _impl->valid();
+    }
+    
+    bool PyTimeSeriesInput::modified() const {
+        return _impl->modified();
+    }
+    
+    bool PyTimeSeriesInput::all_valid() const {
+        return _impl->all_valid();
+    }
+    
+    bool PyTimeSeriesInput::active() const {
+        return _impl->active();
+    }
+    
+    void PyTimeSeriesInput::make_active() {
+        _impl->make_active();
+    }
+    
+    void PyTimeSeriesInput::make_passive() {
+        _impl->make_passive();
+    }
+    
+    bool PyTimeSeriesInput::bound() const {
+        return _impl->bound();
+    }
+    
+    bool PyTimeSeriesInput::has_peer() const {
+        return _impl->has_peer();
+    }
+    
+    nb::object PyTimeSeriesInput::output() const {
+        // TODO: Wrap in appropriate PyTimeSeriesOutput type
+        auto out = _impl->output();
+        if (out) {
+            return nb::cast(out);
+        }
+        return nb::none();
+    }
+    
+    bool PyTimeSeriesInput::is_reference() const {
+        return _impl->is_reference();
+    }
+    
+    std::string PyTimeSeriesInput::str() const {
+        return fmt::format("TimeSeriesInput@{:p}", static_cast<const void*>(_impl.get()));
+    }
+    
+    std::string PyTimeSeriesInput::repr() const {
+        return str();
+    }
+    
+    void PyTimeSeriesInput::register_with_nanobind(nb::module_& m) {
+        nb::class_<PyTimeSeriesInput>(m, "TimeSeriesInput")
+            .def_prop_ro("owning_node", &PyTimeSeriesInput::owning_node)
+            .def_prop_ro("parent_input", &PyTimeSeriesInput::parent_input)
+            .def_prop_ro("has_parent_input", &PyTimeSeriesInput::has_parent_input)
+            .def_prop_ro("valid", &PyTimeSeriesInput::valid)
+            .def_prop_ro("modified", &PyTimeSeriesInput::modified)
+            .def_prop_ro("all_valid", &PyTimeSeriesInput::all_valid)
+            .def_prop_ro("active", &PyTimeSeriesInput::active)
+            .def("make_active", &PyTimeSeriesInput::make_active)
+            .def("make_passive", &PyTimeSeriesInput::make_passive)
+            .def_prop_ro("bound", &PyTimeSeriesInput::bound)
+            .def_prop_ro("has_peer", &PyTimeSeriesInput::has_peer)
+            .def_prop_ro("output", &PyTimeSeriesInput::output)
+            .def("is_reference", &PyTimeSeriesInput::is_reference)
+            .def("__str__", &PyTimeSeriesInput::str)
+            .def("__repr__", &PyTimeSeriesInput::repr);
+    }
+    
+    // ============================================================================
+    // PyTimeSeriesOutput
+    // ============================================================================
+    
+    PyTimeSeriesOutput::PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block)
+        : _impl(impl, std::move(control_block)) {}
+    
+    nb::object PyTimeSeriesOutput::owning_node() const {
+        // TODO: Wrap in PyNode
+        return nb::cast(_impl->owning_node());
+    }
+    
+    nb::object PyTimeSeriesOutput::parent_output() const {
+        // TODO: Wrap in appropriate PyTimeSeriesOutput type
+        auto parent = _impl->parent_output();
+        if (parent) {
+            return nb::cast(parent);
+        }
+        return nb::none();
+    }
+    
+    bool PyTimeSeriesOutput::has_parent_output() const {
+        return _impl->has_parent_output();
+    }
+    
+    bool PyTimeSeriesOutput::valid() const {
+        return _impl->valid();
+    }
+    
+    bool PyTimeSeriesOutput::modified() const {
+        return _impl->modified();
+    }
+    
+    bool PyTimeSeriesOutput::all_valid() const {
+        return _impl->all_valid();
+    }
+    
+    nb::object PyTimeSeriesOutput::value() const {
+        return _impl->value();
+    }
+    
+    void PyTimeSeriesOutput::set_value(nb::object value) {
+        _impl->apply_result(value);
+    }
+    
+    nb::object PyTimeSeriesOutput::delta_value() const {
+        return _impl->delta_value();
+    }
+    
+    void PyTimeSeriesOutput::subscribe(nb::object node) {
+        // TODO: Unwrap PyNode
+        _impl->subscribe(nb::cast<node_ptr>(node));
+    }
+    
+    void PyTimeSeriesOutput::invalidate() {
+        _impl->invalidate();
+    }
+    
+    bool PyTimeSeriesOutput::is_reference() const {
+        return _impl->is_reference();
+    }
+    
+    std::string PyTimeSeriesOutput::str() const {
+        return fmt::format("TimeSeriesOutput@{:p}", static_cast<const void*>(_impl.get()));
+    }
+    
+    std::string PyTimeSeriesOutput::repr() const {
+        return str();
+    }
+    
+    void PyTimeSeriesOutput::register_with_nanobind(nb::module_& m) {
+        nb::class_<PyTimeSeriesOutput>(m, "TimeSeriesOutput")
+            .def_prop_ro("owning_node", &PyTimeSeriesOutput::owning_node)
+            .def_prop_ro("parent_output", &PyTimeSeriesOutput::parent_output)
+            .def_prop_ro("has_parent_output", &PyTimeSeriesOutput::has_parent_output)
+            .def_prop_ro("valid", &PyTimeSeriesOutput::valid)
+            .def_prop_ro("modified", &PyTimeSeriesOutput::modified)
+            .def_prop_ro("all_valid", &PyTimeSeriesOutput::all_valid)
+            .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value)
+            .def_prop_ro("delta_value", &PyTimeSeriesOutput::delta_value)
+            .def("subscribe", &PyTimeSeriesOutput::subscribe, "node"_a)
+            .def("invalidate", &PyTimeSeriesOutput::invalidate)
+            .def("is_reference", &PyTimeSeriesOutput::is_reference)
+            .def("__str__", &PyTimeSeriesOutput::str)
+            .def("__repr__", &PyTimeSeriesOutput::repr);
+    }
+    
+} // namespace hgraph::api
+
