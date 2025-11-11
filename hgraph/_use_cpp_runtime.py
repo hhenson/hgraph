@@ -187,7 +187,7 @@ if is_feature_enabled("use_cpp"):
                         else _hgraph.TimeSeriesSchema(keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys())),
                         [self.make_input_builder(tp) for tp in value_tp.bundle_schema_tp.meta_data_schema.values()],
                     ),
-                    hgraph.HgREFTypeMetaData: lambda: _hgraph.InputBuilder_TS_Ref(),
+                    hgraph.HgREFTypeMetaData: lambda: self._make_ref_input_builder(value_tp),
                     hgraph.HgTSSTypeMetaData: lambda: _tss_input_builder_type_for(value_tp.value_scalar_tp)(),
                     hgraph.HgTSDTypeMetaData: lambda: _tsd_input_builder_type_for(value_tp.key_tp)(
                         self.make_input_builder(value_tp.value_tp),
@@ -229,7 +229,7 @@ if is_feature_enabled("use_cpp"):
                             self.make_output_builder(tp) for tp in value_tp.bundle_schema_tp.meta_data_schema.values()
                         ],
                     ),
-                    hgraph.HgREFTypeMetaData: lambda: _hgraph.OutputBuilder_TS_Ref(),
+                    hgraph.HgREFTypeMetaData: lambda: self._make_ref_output_builder(value_tp),
                     hgraph.HgTSSTypeMetaData: lambda: _tss_output_builder_for_tp(value_tp.value_scalar_tp)(),
                     hgraph.HgTSDTypeMetaData: lambda: _tsd_output_builder_for_tp(value_tp.key_tp)(
                         self.make_output_builder(value_tp.value_tp),
@@ -237,6 +237,74 @@ if is_feature_enabled("use_cpp"):
                     ),
                     hgraph.HgTSWTypeMetaData: lambda: self._make_tsw_output_builder(value_tp),
                 }.get(type(value_tp), lambda: hgraph._impl._builder._ts_builder._throw(value_tp))()
+            
+            def _make_ref_input_builder(self, ref_tp):
+                """Create specialized C++ reference input builder based on what's being referenced"""
+                referenced_tp = ref_tp.value_tp
+                
+                def _make_child_ref_builder(child_tp):
+                    """Wrap child type in REF if not already a REF type"""
+                    if type(child_tp) is hgraph.HgREFTypeMetaData:
+                        # Already a reference type, use its builder directly
+                        return self._make_ref_input_builder(child_tp)
+                    else:
+                        # Wrap in REF
+                        child_ref_tp = hgraph.HgREFTypeMetaData(child_tp)
+                        return self._make_ref_input_builder(child_ref_tp)
+                
+                # Use dictionary lookup for type-based dispatch (matching Python pattern)
+                return {
+                    hgraph.HgTSTypeMetaData: lambda: _hgraph.InputBuilder_TS_Value_Ref(),
+                    hgraph.HgTSLTypeMetaData: lambda: _hgraph.InputBuilder_TSL_Ref(
+                        _make_child_ref_builder(referenced_tp.value_tp),
+                        referenced_tp.size_tp.py_type.SIZE
+                    ),
+                    hgraph.HgTSBTypeMetaData: lambda: _hgraph.InputBuilder_TSB_Ref(
+                        _hgraph.TimeSeriesSchema(
+                            tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys()),
+                            tp
+                        ) if (tp := referenced_tp.bundle_schema_tp.py_type.scalar_type()) is not None
+                        else _hgraph.TimeSeriesSchema(tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys())),
+                        [_make_child_ref_builder(tp) for tp in referenced_tp.bundle_schema_tp.meta_data_schema.values()]
+                    ),
+                    hgraph.HgTSDTypeMetaData: lambda: _hgraph.InputBuilder_TSD_Ref(),
+                    hgraph.HgTSSTypeMetaData: lambda: _hgraph.InputBuilder_TSS_Ref(),
+                    hgraph.HgTSWTypeMetaData: lambda: _hgraph.InputBuilder_TSW_Ref(),
+                }.get(type(referenced_tp), lambda: _hgraph.InputBuilder_TS_Ref())()
+            
+            def _make_ref_output_builder(self, ref_tp):
+                """Create specialized C++ reference output builder based on what's being referenced"""
+                referenced_tp = ref_tp.value_tp
+                
+                def _make_child_ref_builder(child_tp):
+                    """Wrap child type in REF if not already a REF type"""
+                    if type(child_tp) is hgraph.HgREFTypeMetaData:
+                        # Already a reference type, use its builder directly
+                        return self._make_ref_output_builder(child_tp)
+                    else:
+                        # Wrap in REF
+                        child_ref_tp = hgraph.HgREFTypeMetaData(child_tp)
+                        return self._make_ref_output_builder(child_ref_tp)
+                
+                # Use dictionary lookup for type-based dispatch (matching Python pattern)
+                return {
+                    hgraph.HgTSTypeMetaData: lambda: _hgraph.OutputBuilder_TS_Value_Ref(),
+                    hgraph.HgTSLTypeMetaData: lambda: _hgraph.OutputBuilder_TSL_Ref(
+                        _make_child_ref_builder(referenced_tp.value_tp),
+                        referenced_tp.size_tp.py_type.SIZE
+                    ),
+                    hgraph.HgTSBTypeMetaData: lambda: _hgraph.OutputBuilder_TSB_Ref(
+                        _hgraph.TimeSeriesSchema(
+                            tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys()),
+                            tp
+                        ) if (tp := referenced_tp.bundle_schema_tp.py_type.scalar_type()) is not None
+                        else _hgraph.TimeSeriesSchema(tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys())),
+                        [_make_child_ref_builder(tp) for tp in referenced_tp.bundle_schema_tp.meta_data_schema.values()]
+                    ),
+                    hgraph.HgTSDTypeMetaData: lambda: _hgraph.OutputBuilder_TSD_Ref(),
+                    hgraph.HgTSSTypeMetaData: lambda: _hgraph.OutputBuilder_TSS_Ref(),
+                    hgraph.HgTSWTypeMetaData: lambda: _hgraph.OutputBuilder_TSW_Ref(),
+                }.get(type(referenced_tp), lambda: _hgraph.OutputBuilder_TS_Ref())()
 
 
         def _ts_input_builder_type_for(scalar_type):

@@ -5,6 +5,7 @@
 // Include all the extracted builder headers
 #include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_ref_output_builder.h>
+#include <hgraph/builders/time_series_types/specialized_ref_builders.h>
 #include <hgraph/builders/time_series_types/time_series_list_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_bundle_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_set_output_builder.h>
@@ -43,6 +44,15 @@ namespace hgraph {
         // Call the register functions from each builder type
         time_series_value_output_builder_register_with_nanobind(m);
         TimeSeriesRefOutputBuilder::register_with_nanobind(m);
+        
+        // Specialized reference output builders
+        TimeSeriesValueRefOutputBuilder::register_with_nanobind(m);
+        TimeSeriesListRefOutputBuilder::register_with_nanobind(m);
+        TimeSeriesBundleRefOutputBuilder::register_with_nanobind(m);
+        TimeSeriesDictRefOutputBuilder::register_with_nanobind(m);
+        TimeSeriesSetRefOutputBuilder::register_with_nanobind(m);
+        TimeSeriesWindowRefOutputBuilder::register_with_nanobind(m);
+        
         TimeSeriesListOutputBuilder::register_with_nanobind(m);
         TimeSeriesBundleOutputBuilder::register_with_nanobind(m);
         time_series_set_output_builder_register_with_nanobind(m);

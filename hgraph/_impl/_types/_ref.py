@@ -10,7 +10,23 @@ from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceOutp
 from hgraph._types._scalar_types import SCALAR
 from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput, TimeSeriesIterable
 
-__all__ = ("python_time_series_reference_builder", "PythonTimeSeriesReferenceOutput", "PythonTimeSeriesReferenceInput")
+__all__ = (
+    "python_time_series_reference_builder",
+    "PythonTimeSeriesReferenceOutput",
+    "PythonTimeSeriesReferenceInput",
+    "PythonTimeSeriesValueReferenceInput",
+    "PythonTimeSeriesValueReferenceOutput",
+    "PythonTimeSeriesListReferenceInput",
+    "PythonTimeSeriesListReferenceOutput",
+    "PythonTimeSeriesBundleReferenceInput",
+    "PythonTimeSeriesBundleReferenceOutput",
+    "PythonTimeSeriesDictReferenceInput",
+    "PythonTimeSeriesDictReferenceOutput",
+    "PythonTimeSeriesSetReferenceInput",
+    "PythonTimeSeriesSetReferenceOutput",
+    "PythonTimeSeriesWindowReferenceInput",
+    "PythonTimeSeriesWindowReferenceOutput",
+)
 
 
 def python_time_series_reference_builder(
@@ -381,3 +397,156 @@ class PythonTimeSeriesReferenceInput(PythonBoundTimeSeriesInput, TimeSeriesRefer
 
     def is_reference(self) -> bool:
         return True
+
+
+@dataclass
+class PythonTimeSeriesListReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference input for TSL types - inherits generic wrapper, adds size-checked __getitem__.
+    
+    Inherits all binding behavior from PythonTimeSeriesReferenceInput (wraps entire output).
+    Only customizes item access to enforce size and create all children at once.
+    """
+
+    _size: int = 0  # Set by builder - known size for validation
+    _value_builder: typing.Optional["TSInputBuilder"] = None  # Set by builder - for creating children
+
+    @property
+    def max_size(self) -> int:
+        """The declared maximum size of this REF[TSL]."""
+        return self._size
+
+    def __getitem__(self, item):
+        # Size check before access
+        if not isinstance(item, int) or item < 0 or item >= self._size:
+            raise IndexError(f"Index {item} out of range for REF[TSL] with size {self._size}")
+        
+        # On first access, create ALL items at once (more efficient than one-by-one)
+        if self._items is None:
+            if self._value_builder is None:
+                raise RuntimeError("REF[TSL] value_builder not set by builder")
+            # Create all items up to size
+            self._items = [
+                self._value_builder.make_instance(owning_input=self)
+                for _ in range(self._size)
+            ]
+        
+        return self._items[item]
+    
+    def __len__(self):
+        # Return actual number of created items, not the max size
+        # This ensures consistency with __iter__
+        return len(self._items) if self._items is not None else 0
+    
+    def __iter__(self):
+        # Only iterate if items were already created (don't force creation)
+        return iter(self._items) if self._items else iter([])
+
+
+@dataclass
+class PythonTimeSeriesBundleReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference input for TSB types - inherits generic wrapper.
+    
+    Marker class for type distinction. Supports both integer index (ordinal) and string key (field name) access.
+    Uses parent's lazy creation logic - batch creation can be added later if needed.
+    """
+
+    _size: int = 0  # Set by builder - number of fields (for validation)
+    _field_builders: list["TSInputBuilder"] | None = None  # Set by builder (for future batch creation)
+
+    @property
+    def max_size(self) -> int:
+        """The declared maximum size (number of fields) of this REF[TSB]."""
+        return self._size
+
+    def __getitem__(self, item):
+        # Check if integer index - could add size validation here
+        if isinstance(item, int):
+            # Use generic lazy creation for now
+            return super().__getitem__(item)
+        else:
+            # String key (field name) - use generic lazy creation
+            return super().__getitem__(item)
+
+
+@dataclass
+class PythonTimeSeriesListReferenceOutput(PythonTimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference output for TSL types - inherits generic wrapper.
+    Simple marker class for type distinction.
+    """
+    _size: int = 0  # Set by builder for validation
+
+
+@dataclass  
+class PythonTimeSeriesBundleReferenceOutput(PythonTimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference output for TSB types - inherits generic wrapper.
+    Simple marker class for type distinction.
+    """
+    _size: int = 0  # Set by builder for validation
+
+
+@dataclass
+class PythonTimeSeriesValueReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference input for TS (scalar/value) types - inherits generic wrapper.
+    Marker class for type distinction, behaves identically to generic for now.
+    """
+
+
+@dataclass
+class PythonTimeSeriesValueReferenceOutput(PythonTimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference output for TS (scalar/value) types - inherits generic wrapper.
+    Marker class for type distinction.
+    """
+
+
+@dataclass
+class PythonTimeSeriesDictReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference input for TSD (dict) types - inherits generic wrapper.
+    Marker class for type distinction, behaves identically to generic for now.
+    """
+
+
+@dataclass
+class PythonTimeSeriesDictReferenceOutput(PythonTimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference output for TSD (dict) types - inherits generic wrapper.
+    Marker class for type distinction.
+    """
+
+
+@dataclass
+class PythonTimeSeriesSetReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference input for TSS (set) types - inherits generic wrapper.
+    Marker class for type distinction, behaves identically to generic for now.
+    """
+
+
+@dataclass
+class PythonTimeSeriesSetReferenceOutput(PythonTimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference output for TSS (set) types - inherits generic wrapper.
+    Marker class for type distinction.
+    """
+
+
+@dataclass
+class PythonTimeSeriesWindowReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference input for TSW (window) types - inherits generic wrapper.
+    Marker class for type distinction, behaves identically to generic for now.
+    """
+
+
+@dataclass
+class PythonTimeSeriesWindowReferenceOutput(PythonTimeSeriesReferenceOutput, Generic[TIME_SERIES_TYPE]):
+    """
+    Specialized reference output for TSW (window) types - inherits generic wrapper.
+    Marker class for type distinction.
+    """

@@ -40,6 +40,22 @@ void export_types(nb::module_ &m) {
     TimeSeriesReferenceOutput::register_with_nanobind(m);
     TimeSeriesReferenceInput::register_with_nanobind(m);
 
+    // Specialized reference input types
+    TimeSeriesValueReferenceInput::register_with_nanobind(m);
+    TimeSeriesListReferenceInput::register_with_nanobind(m);
+    TimeSeriesBundleReferenceInput::register_with_nanobind(m);
+    TimeSeriesDictReferenceInput::register_with_nanobind(m);
+    TimeSeriesSetReferenceInput::register_with_nanobind(m);
+    TimeSeriesWindowReferenceInput::register_with_nanobind(m);
+
+    // Specialized reference output types
+    TimeSeriesValueReferenceOutput::register_with_nanobind(m);
+    TimeSeriesListReferenceOutput::register_with_nanobind(m);
+    TimeSeriesBundleReferenceOutput::register_with_nanobind(m);
+    TimeSeriesDictReferenceOutput::register_with_nanobind(m);
+    TimeSeriesSetReferenceOutput::register_with_nanobind(m);
+    TimeSeriesWindowReferenceOutput::register_with_nanobind(m);
+
     IndexedTimeSeriesOutput::register_with_nanobind(m);
     IndexedTimeSeriesInput::register_with_nanobind(m);
 

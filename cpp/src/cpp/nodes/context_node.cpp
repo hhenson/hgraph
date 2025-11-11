@@ -82,14 +82,15 @@ namespace hgraph {
         time_series_reference_output_ptr output_ts = nullptr;
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
-        if (shared.type().is(nb::type<TimeSeriesReferenceOutput>())) {
+        // Use nb::isinstance to handle both base and specialized reference types
+        if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
             output_ts = nb::cast<time_series_reference_output_ptr>(shared);
             if (output_ts->valid()) {
                 value_ref = output_ts->value();
             }
         }
         // Case 2: TimeSeriesReferenceInput stored in GlobalState
-        else if (shared.type().is(nb::type<TimeSeriesReferenceInput>())) {
+        else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
             auto ref = nb::cast<time_series_reference_input_ptr>(shared);
             if (ref->has_peer()) {
                 // Use the bound peer output (stub remains a reference node)

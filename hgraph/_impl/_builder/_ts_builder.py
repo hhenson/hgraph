@@ -393,6 +393,239 @@ class PythonREFInputBuilder(PythonInputBuilder, REFInputBuilder):
         super().release_instance(item)
 
 
+@dataclass(frozen=True)
+class PythonTSREFInputBuilder(PythonInputBuilder, REFInputBuilder):
+    """Builder for REF[TS[...]] - scalar/value reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph._impl._types._ref import PythonTimeSeriesValueReferenceInput
+        
+        return PythonTimeSeriesValueReferenceInput[self.value_tp.py_type](
+            _parent_or_node=owning_input if owning_input is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSDREFInputBuilder(PythonInputBuilder, REFInputBuilder):
+    """Builder for REF[TSD[...]] - dict reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph._impl._types._ref import PythonTimeSeriesDictReferenceInput
+        
+        return PythonTimeSeriesDictReferenceInput[self.value_tp.py_type](
+            _parent_or_node=owning_input if owning_input is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSSREFInputBuilder(PythonInputBuilder, REFInputBuilder):
+    """Builder for REF[TSS[...]] - set reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph._impl._types._ref import PythonTimeSeriesSetReferenceInput
+        
+        return PythonTimeSeriesSetReferenceInput[self.value_tp.py_type](
+            _parent_or_node=owning_input if owning_input is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSWREFInputBuilder(PythonInputBuilder, REFInputBuilder):
+    """Builder for REF[TSW[...]] - window reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph._impl._types._ref import PythonTimeSeriesWindowReferenceInput
+        
+        return PythonTimeSeriesWindowReferenceInput[self.value_tp.py_type](
+            _parent_or_node=owning_input if owning_input is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSLREFInputBuilder(PythonInputBuilder, REFInputBuilder):
+    """Builder for REF[TSL[...]] - stores size and child builder for on-demand creation"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+    value_builder: TSInputBuilder  # Builder for child references
+    size_tp: "HgScalarTypeMetaData"
+    
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph._impl._types._ref import PythonTimeSeriesListReferenceInput
+        from hgraph import Size
+        
+        size = cast(Size, self.size_tp.py_type).SIZE
+        
+        ref = PythonTimeSeriesListReferenceInput[self.value_tp.py_type](
+            _parent_or_node=owning_input if owning_input is not None else owning_node,
+            _size=size,
+            _value_builder=self.value_builder
+        )
+        
+        # Don't pre-create items!
+        # If peered binding: _items stays None
+        # If non-peered: __getitem__ called during wiring, creates all items
+        
+        return ref
+    
+    def release_instance(self, item):
+        super().release_instance(item)
+        # Don't release children - they may be shared or released elsewhere
+        # Match generic PythonREFInputBuilder behavior
+
+
+@dataclass(frozen=True)
+class PythonTSBREFInputBuilder(PythonInputBuilder, REFInputBuilder):
+    """Builder for REF[TSB[...]] - stores schema and field builders in ordinal order"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+    schema: "TimeSeriesSchema"
+    field_builders: tuple[TSInputBuilder, ...]  # Tuple of builders in schema order, heterogeneous
+    
+    def make_instance(self, owning_node=None, owning_input=None):
+        from hgraph._impl._types._ref import PythonTimeSeriesBundleReferenceInput
+        
+        ref = PythonTimeSeriesBundleReferenceInput[self.value_tp.py_type](
+            _parent_or_node=owning_input if owning_input is not None else owning_node,
+            _size=len(self.field_builders),
+            _field_builders=list(self.field_builders)
+        )
+        
+        return ref
+    
+    def release_instance(self, item):
+        super().release_instance(item)
+        # Don't release children - they may be shared or released elsewhere
+        # Match generic PythonREFInputBuilder behavior
+
+
+@dataclass(frozen=True)
+class PythonTSREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
+    """Builder for REF[TS[...]] output - scalar/value reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph._impl._types._ref import PythonTimeSeriesValueReferenceOutput
+        
+        return PythonTimeSeriesValueReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _parent_or_node=owning_output if owning_output is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSDREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
+    """Builder for REF[TSD[...]] output - dict reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph._impl._types._ref import PythonTimeSeriesDictReferenceOutput
+        
+        return PythonTimeSeriesDictReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _parent_or_node=owning_output if owning_output is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSSREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
+    """Builder for REF[TSS[...]] output - set reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph._impl._types._ref import PythonTimeSeriesSetReferenceOutput
+        
+        return PythonTimeSeriesSetReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _parent_or_node=owning_output if owning_output is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSWREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
+    """Builder for REF[TSW[...]] output - window reference types"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph._impl._types._ref import PythonTimeSeriesWindowReferenceOutput
+        
+        return PythonTimeSeriesWindowReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _parent_or_node=owning_output if owning_output is not None else owning_node
+        )
+
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSLREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
+    """Builder for REF[TSL[...]] output"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+    size_tp: "HgScalarTypeMetaData"
+    
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph._impl._types._ref import PythonTimeSeriesListReferenceOutput
+        from hgraph import Size
+        
+        size = cast(Size, self.size_tp.py_type).SIZE
+        
+        ref = PythonTimeSeriesListReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _size=size,
+            _parent_or_node=owning_output if owning_output is not None else owning_node
+        )
+        return ref
+    
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
+@dataclass(frozen=True)
+class PythonTSBREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
+    """Builder for REF[TSB[...]] output"""
+    value_tp: "HgTimeSeriesTypeMetaData"
+    schema: "TimeSeriesSchema"
+    
+    def make_instance(self, owning_node: Node = None, owning_output: TimeSeriesOutput = None):
+        from hgraph._impl._types._ref import PythonTimeSeriesBundleReferenceOutput
+        
+        # Get size from schema
+        size = len(self.schema.__meta_data_schema__)
+        
+        ref = PythonTimeSeriesBundleReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
+            _size=size,
+            _parent_or_node=owning_output if owning_output is not None else owning_node
+        )
+        return ref
+    
+    def release_instance(self, item):
+        super().release_instance(item)
+
+
 def _throw(value_tp):
     if type(value_tp) in (HgTSOutTypeMetaData, HgTSDOutTypeMetaData, HgTSSOutTypeMetaData):
         raise TypeError(
@@ -421,7 +654,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSDTypeMetaData: lambda: PythonTSDInputBuilder(
                 key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp, value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp
             ),
-            HgREFTypeMetaData: lambda: PythonREFInputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp),
+            HgREFTypeMetaData: lambda: self._make_ref_input_builder(cast(HgREFTypeMetaData, value_tp)),
             HgCONTEXTTypeMetaData: lambda: self.make_input_builder(value_tp.ts_type),
         }.get(type(value_tp), lambda: _throw(value_tp))()
 
@@ -437,8 +670,93 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSDTypeMetaData: lambda: PythonTSDOutputBuilder(
                 key_tp=cast(HgTSDTypeMetaData, value_tp).key_tp, value_tp=cast(HgTSDTypeMetaData, value_tp).value_tp
             ),
-            HgREFTypeMetaData: lambda: PythonREFOutputBuilder(value_tp=cast(HgREFTypeMetaData, value_tp).value_tp),
+            HgREFTypeMetaData: lambda: self._make_ref_output_builder(cast(HgREFTypeMetaData, value_tp)),
         }.get(type(value_tp), lambda: _throw(value_tp))()
+    
+    def _make_ref_input_builder(self, ref_tp: HgREFTypeMetaData) -> TSInputBuilder:
+        """Create appropriate reference input builder based on what's being referenced"""
+        referenced_tp = ref_tp.value_tp
+        
+        def _make_tsl_ref_builder():
+            # REF[TSL[...]] - create specialized builder with child references
+            # Don't create REF[REF[...]] - if already REF type, use it directly
+            if type(referenced_tp.value_tp) is HgREFTypeMetaData:
+                # Already a reference type, use its builder directly
+                child_builder = self._make_ref_input_builder(referenced_tp.value_tp)
+            else:
+                # Wrap in REF
+                child_ref_tp = HgREFTypeMetaData(referenced_tp.value_tp)
+                child_builder = self._make_ref_input_builder(child_ref_tp)
+            return PythonTSLREFInputBuilder(
+                value_tp=referenced_tp,
+                value_builder=child_builder,
+                size_tp=referenced_tp.size_tp
+            )
+        
+        def _make_tsb_ref_builder():
+            # REF[TSB[...]] - create specialized builder with field references
+            # Iterate schema in order to create list (not dict) - TSB accessed by index
+            field_builders_list = []
+            for key, field_tp in referenced_tp.bundle_schema_tp.meta_data_schema.items():
+                # Don't create REF[REF[...]] - if already REF type, use it directly
+                if type(field_tp) is HgREFTypeMetaData:
+                    # Already a reference type, use its builder directly
+                    field_builders_list.append(self._make_ref_input_builder(field_tp))
+                else:
+                    # Wrap in REF
+                    field_ref_tp = HgREFTypeMetaData(field_tp)
+                    field_builders_list.append(self._make_ref_input_builder(field_ref_tp))
+            return PythonTSBREFInputBuilder(
+                value_tp=referenced_tp,
+                schema=referenced_tp.bundle_schema_tp.py_type,
+                field_builders=tuple(field_builders_list)  # Tuple for immutability
+            )
+        
+        def _make_ts_ref_builder():
+            # REF[TS[...]] - create specialized builder for scalar/value types
+            return PythonTSREFInputBuilder(value_tp=referenced_tp)
+        
+        def _make_tsd_ref_builder():
+            # REF[TSD[...]] - create specialized builder for dict types
+            return PythonTSDREFInputBuilder(value_tp=referenced_tp)
+        
+        def _make_tss_ref_builder():
+            # REF[TSS[...]] - create specialized builder for set types
+            return PythonTSSREFInputBuilder(value_tp=referenced_tp)
+        
+        def _make_tsw_ref_builder():
+            # REF[TSW[...]] - create specialized builder for window types
+            return PythonTSWREFInputBuilder(value_tp=referenced_tp)
+        
+        # Use dictionary lookup for faster dispatch
+        return {
+            HgTSTypeMetaData: _make_ts_ref_builder,
+            HgTSLTypeMetaData: _make_tsl_ref_builder,
+            HgTSBTypeMetaData: _make_tsb_ref_builder,
+            HgTSDTypeMetaData: _make_tsd_ref_builder,
+            HgTSSTypeMetaData: _make_tss_ref_builder,
+            HgTSWTypeMetaData: _make_tsw_ref_builder,
+        }.get(type(referenced_tp), lambda: PythonREFInputBuilder(value_tp=referenced_tp))()
+    
+    def _make_ref_output_builder(self, ref_tp: HgREFTypeMetaData) -> TSOutputBuilder:
+        """Create appropriate reference output builder based on what's being referenced"""
+        referenced_tp = ref_tp.value_tp
+        
+        # Use dictionary lookup for faster dispatch
+        return {
+            HgTSTypeMetaData: lambda: PythonTSREFOutputBuilder(value_tp=referenced_tp),
+            HgTSLTypeMetaData: lambda: PythonTSLREFOutputBuilder(
+                value_tp=referenced_tp,
+                size_tp=referenced_tp.size_tp
+            ),
+            HgTSBTypeMetaData: lambda: PythonTSBREFOutputBuilder(
+                value_tp=referenced_tp,
+                schema=referenced_tp.bundle_schema_tp.py_type
+            ),
+            HgTSDTypeMetaData: lambda: PythonTSDREFOutputBuilder(value_tp=referenced_tp),
+            HgTSSTypeMetaData: lambda: PythonTSSREFOutputBuilder(value_tp=referenced_tp),
+            HgTSWTypeMetaData: lambda: PythonTSWREFOutputBuilder(value_tp=referenced_tp),
+        }.get(type(referenced_tp), lambda: PythonREFOutputBuilder(value_tp=referenced_tp))()
 
 
 def _make_buff_output(meta_data: HgTSWTypeMetaData) -> TSOutputBuilder:
