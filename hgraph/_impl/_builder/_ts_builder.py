@@ -521,6 +521,7 @@ class PythonTSREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
         from hgraph._impl._types._ref import PythonTimeSeriesValueReferenceOutput
         
         return PythonTimeSeriesValueReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
             _parent_or_node=owning_output if owning_output is not None else owning_node
         )
 
@@ -537,6 +538,7 @@ class PythonTSDREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
         from hgraph._impl._types._ref import PythonTimeSeriesDictReferenceOutput
         
         return PythonTimeSeriesDictReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
             _parent_or_node=owning_output if owning_output is not None else owning_node
         )
 
@@ -553,6 +555,7 @@ class PythonTSSREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
         from hgraph._impl._types._ref import PythonTimeSeriesSetReferenceOutput
         
         return PythonTimeSeriesSetReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
             _parent_or_node=owning_output if owning_output is not None else owning_node
         )
 
@@ -569,6 +572,7 @@ class PythonTSWREFOutputBuilder(PythonOutputBuilder, REFOutputBuilder):
         from hgraph._impl._types._ref import PythonTimeSeriesWindowReferenceOutput
         
         return PythonTimeSeriesWindowReferenceOutput[self.value_tp.py_type](
+            _tp=self.value_tp,
             _parent_or_node=owning_output if owning_output is not None else owning_node
         )
 
