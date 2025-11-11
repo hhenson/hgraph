@@ -235,7 +235,12 @@ namespace hgraph {
     struct TimeSeriesListReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         
+        // Constructor that accepts size
+        TimeSeriesListReferenceInput(Node *owning_node, size_t size);
+        TimeSeriesListReferenceInput(TimeSeriesType *parent_input, size_t size);
+        
         TimeSeriesInput *get_input(size_t index) override;
+        size_t size() const { return _size; }
         
         static void register_with_nanobind(nb::module_ &m);
         
@@ -245,6 +250,13 @@ namespace hgraph {
 
     struct TimeSeriesBundleReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
+        
+        // Constructor that accepts size
+        TimeSeriesBundleReferenceInput(Node *owning_node, size_t size);
+        TimeSeriesBundleReferenceInput(TimeSeriesType *parent_input, size_t size);
+        
+        size_t size() const { return _size; }
+        
         static void register_with_nanobind(nb::module_ &m);
         
     private:
@@ -277,6 +289,13 @@ namespace hgraph {
 
     struct TimeSeriesListReferenceOutput : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        
+        // Constructor that accepts size
+        TimeSeriesListReferenceOutput(Node *owning_node, size_t size);
+        TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, size_t size);
+        
+        size_t size() const { return _size; }
+        
         static void register_with_nanobind(nb::module_ &m);
         
     private:
@@ -285,6 +304,13 @@ namespace hgraph {
 
     struct TimeSeriesBundleReferenceOutput : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
+        
+        // Constructor that accepts size
+        TimeSeriesBundleReferenceOutput(Node *owning_node, size_t size);
+        TimeSeriesBundleReferenceOutput(TimeSeriesType *parent_output, size_t size);
+        
+        size_t size() const { return _size; }
+        
         static void register_with_nanobind(nb::module_ &m);
         
     private:

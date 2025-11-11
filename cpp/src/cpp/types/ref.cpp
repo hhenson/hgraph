@@ -559,6 +559,12 @@ namespace hgraph {
     }
 
     // TimeSeriesListReferenceInput - REF[TSL[...]]
+    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(Node *owning_node, size_t size)
+        : TimeSeriesReferenceInput(owning_node), _size(size) {}
+
+    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(TimeSeriesType *parent_input, size_t size)
+        : TimeSeriesReferenceInput(parent_input), _size(size) {}
+
     TimeSeriesInput *TimeSeriesListReferenceInput::get_input(size_t index) {
         // Delegate to parent for now - batch creation can be added later
         return TimeSeriesReferenceInput::get_input(index);
@@ -566,13 +572,21 @@ namespace hgraph {
 
     void TimeSeriesListReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesListReferenceInput, TimeSeriesReferenceInput>(m, "TimeSeriesListReferenceInput")
-                .def(nb::init<Node *>(), "owning_node"_a);
+                .def(nb::init<Node *>(), "owning_node"_a)
+                .def(nb::init<Node *, size_t>(), "owning_node"_a, "size"_a);
     }
 
     // TimeSeriesBundleReferenceInput - REF[TSB[...]]
+    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(Node *owning_node, size_t size)
+        : TimeSeriesReferenceInput(owning_node), _size(size) {}
+
+    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(TimeSeriesType *parent_input, size_t size)
+        : TimeSeriesReferenceInput(parent_input), _size(size) {}
+
     void TimeSeriesBundleReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesBundleReferenceInput, TimeSeriesReferenceInput>(m, "TimeSeriesBundleReferenceInput")
-                .def(nb::init<Node *>(), "owning_node"_a);
+                .def(nb::init<Node *>(), "owning_node"_a)
+                .def(nb::init<Node *, size_t>(), "owning_node"_a, "size"_a);
     }
 
     // TimeSeriesDictReferenceInput - REF[TSD[...]]
@@ -604,15 +618,29 @@ namespace hgraph {
     }
 
     // TimeSeriesListReferenceOutput - REF[TSL[...]]
+    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(Node *owning_node, size_t size)
+        : TimeSeriesReferenceOutput(owning_node), _size(size) {}
+
+    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, size_t size)
+        : TimeSeriesReferenceOutput(parent_output), _size(size) {}
+
     void TimeSeriesListReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesListReferenceOutput, TimeSeriesReferenceOutput>(m, "TimeSeriesListReferenceOutput")
-                .def(nb::init<Node *>(), "owning_node"_a);
+                .def(nb::init<Node *>(), "owning_node"_a)
+                .def(nb::init<Node *, size_t>(), "owning_node"_a, "size"_a);
     }
 
     // TimeSeriesBundleReferenceOutput - REF[TSB[...]]
+    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(Node *owning_node, size_t size)
+        : TimeSeriesReferenceOutput(owning_node), _size(size) {}
+
+    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(TimeSeriesType *parent_output, size_t size)
+        : TimeSeriesReferenceOutput(parent_output), _size(size) {}
+
     void TimeSeriesBundleReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesBundleReferenceOutput, TimeSeriesReferenceOutput>(m, "TimeSeriesBundleReferenceOutput")
-                .def(nb::init<Node *>(), "owning_node"_a);
+                .def(nb::init<Node *>(), "owning_node"_a)
+                .def(nb::init<Node *, size_t>(), "owning_node"_a, "size"_a);
     }
 
     // TimeSeriesDictReferenceOutput - REF[TSD[...]]
