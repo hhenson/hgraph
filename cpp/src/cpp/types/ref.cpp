@@ -44,7 +44,15 @@ namespace hgraph {
         nb::class_<TimeSeriesReference, nb::intrusive_base>(m, "TimeSeriesReference")
                 .def("__str__", &TimeSeriesReference::to_string)
                 .def("__repr__", &TimeSeriesReference::to_string)
-                .def("bind_input", &TimeSeriesReference::bind_input)
+                .def("bind_input", [](const TimeSeriesReference& self, nb::object input) {
+                    // Accept both old _TimeSeriesInput and new TimeSeriesInput wrappers
+                    auto* raw_input = api::unwrap_input(input);
+                    if (!raw_input) {
+                        // Fallback to old binding
+                        raw_input = nb::cast<TimeSeriesInput*>(input);
+                    }
+                    self.bind_input(*raw_input);
+                })
                 .def_prop_ro("has_output", &TimeSeriesReference::has_output)
                 .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
                 .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
