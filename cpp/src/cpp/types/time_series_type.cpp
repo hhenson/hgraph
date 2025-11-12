@@ -2,6 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/api/python/python_api.h>
 
 namespace hgraph {
     void TimeSeriesType::register_with_nanobind(nb::module_ &m) {
@@ -49,8 +50,24 @@ namespace hgraph {
                      static_cast<void (TimeSeriesOutput::*)(engine_time_t)>(&TimeSeriesOutput::mark_modified))
                 .def("subscribe", &TimeSeriesOutput::subscribe)
                 .def("unsubscribe", &TimeSeriesOutput::un_subscribe)
-                .def("copy_from_output", &TimeSeriesOutput::copy_from_output)
-                .def("copy_from_input", &TimeSeriesOutput::copy_from_input)
+                .def("copy_from_output", [](TimeSeriesOutput& self, nb::object output) {
+                    // Accept both old _TimeSeriesOutput and new TimeSeriesOutput wrappers
+                    auto* raw_output = api::unwrap_output(output);
+                    if (!raw_output) {
+                        // Fallback to old binding
+                        raw_output = nb::cast<TimeSeriesOutput*>(output);
+                    }
+                    self.copy_from_output(*raw_output);
+                })
+                .def("copy_from_input", [](TimeSeriesOutput& self, nb::object input) {
+                    // Accept both old _TimeSeriesInput and new TimeSeriesInput wrappers
+                    auto* raw_input = api::unwrap_input(input);
+                    if (!raw_input) {
+                        // Fallback to old binding
+                        raw_input = nb::cast<TimeSeriesInput*>(input);
+                    }
+                    self.copy_from_input(*raw_input);
+                })
                 .def("__str__", [](const TimeSeriesOutput &self) {
                     return fmt::format("TimeSeriesOutput@{:p}[valid={}, modified={}]",
                                        static_cast<const void *>(&self), self.valid(), self.modified());
