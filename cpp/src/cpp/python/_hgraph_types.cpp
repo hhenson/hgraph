@@ -66,7 +66,7 @@ void export_types(nb::module_ &m) {
     // TimeSeriesListInput::register_with_nanobind(m);
     // TimeSeriesBundleInput::register_with_nanobind(m);
     // TimeSeriesBundleOutput::register_with_nanobind(m);
-    // SetDelta::register_with_nanobind(m);
+    SetDelta::register_with_nanobind(m);  // Helper class for TSS delta tracking
     // tss_register_with_nanobind(m);  // TimeSeriesSetInput/Output
     // tsd_register_with_nanobind(m);  // TimeSeriesDictInput/Output
     // tsw_register_with_nanobind(m);  // TimeSeriesWindowInput/Output

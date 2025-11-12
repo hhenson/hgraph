@@ -7,6 +7,7 @@
 
 #include <hgraph/api/python/api_ptr.h>
 #include <hgraph/hgraph_forward_declarations.h>
+#include <hgraph/util/date_time.h>
 #include <nanobind/nanobind.h>
 
 namespace nb = nanobind;
@@ -37,6 +38,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::object parent_input() const;  // Returns cached specialized wrapper
         [[nodiscard]] bool has_parent_input() const;
         
+        [[nodiscard]] engine_time_t last_modified_time() const;
         [[nodiscard]] bool valid() const;
         [[nodiscard]] bool modified() const;
         [[nodiscard]] bool all_valid() const;
@@ -101,6 +103,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::object parent_output() const;  // Returns cached specialized wrapper
         [[nodiscard]] bool has_parent_output() const;
         
+        [[nodiscard]] engine_time_t last_modified_time() const;
         [[nodiscard]] bool valid() const;
         [[nodiscard]] bool modified() const;
         [[nodiscard]] bool all_valid() const;

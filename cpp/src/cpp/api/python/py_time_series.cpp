@@ -32,13 +32,17 @@ namespace hgraph::api {
         return _impl->has_parent_input();
     }
     
-    bool PyTimeSeriesInput::valid() const {
-        return _impl->valid();
-    }
-    
-    bool PyTimeSeriesInput::modified() const {
-        return _impl->modified();
-    }
+engine_time_t PyTimeSeriesInput::last_modified_time() const {
+    return _impl->last_modified_time();
+}
+
+bool PyTimeSeriesInput::valid() const {
+    return _impl->valid();
+}
+
+bool PyTimeSeriesInput::modified() const {
+    return _impl->modified();
+}
     
     bool PyTimeSeriesInput::all_valid() const {
         return _impl->all_valid();
@@ -116,6 +120,7 @@ namespace hgraph::api {
             .def_prop_ro("owning_node", &PyTimeSeriesInput::owning_node)
             .def_prop_ro("parent_input", &PyTimeSeriesInput::parent_input)
             .def_prop_ro("has_parent_input", &PyTimeSeriesInput::has_parent_input)
+            .def_prop_ro("last_modified_time", &PyTimeSeriesInput::last_modified_time)
             .def_prop_ro("valid", &PyTimeSeriesInput::valid)
             .def_prop_ro("modified", &PyTimeSeriesInput::modified)
             .def_prop_ro("all_valid", &PyTimeSeriesInput::all_valid)
@@ -154,17 +159,21 @@ namespace hgraph::api {
         return _impl->has_parent_output();
     }
     
-    bool PyTimeSeriesOutput::valid() const {
-        return _impl->valid();
-    }
-    
-    bool PyTimeSeriesOutput::modified() const {
-        return _impl->modified();
-    }
-    
-    bool PyTimeSeriesOutput::all_valid() const {
-        return _impl->all_valid();
-    }
+engine_time_t PyTimeSeriesOutput::last_modified_time() const {
+    return _impl->last_modified_time();
+}
+
+bool PyTimeSeriesOutput::valid() const {
+    return _impl->valid();
+}
+
+bool PyTimeSeriesOutput::modified() const {
+    return _impl->modified();
+}
+
+bool PyTimeSeriesOutput::all_valid() const {
+    return _impl->all_valid();
+}
     
     nb::object PyTimeSeriesOutput::value() const {
         return _impl->py_value();
@@ -207,6 +216,7 @@ namespace hgraph::api {
             .def_prop_ro("owning_node", &PyTimeSeriesOutput::owning_node)
             .def_prop_ro("parent_output", &PyTimeSeriesOutput::parent_output)
             .def_prop_ro("has_parent_output", &PyTimeSeriesOutput::has_parent_output)
+            .def_prop_ro("last_modified_time", &PyTimeSeriesOutput::last_modified_time)
             .def_prop_ro("valid", &PyTimeSeriesOutput::valid)
             .def_prop_ro("modified", &PyTimeSeriesOutput::modified)
             .def_prop_ro("all_valid", &PyTimeSeriesOutput::all_valid)
