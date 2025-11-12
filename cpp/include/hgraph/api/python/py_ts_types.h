@@ -211,6 +211,7 @@ namespace hgraph::api {
         
         // TSD key management
         void _create(nb::object key);
+        [[nodiscard]] nb::object get_or_create(nb::object key);
         
         static void register_with_nanobind(nb::module_& m);
     };

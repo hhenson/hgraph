@@ -904,6 +904,57 @@ namespace hgraph::api {
         impl->py_create(key);
     }
     
+    nb::object PyTimeSeriesDictOutput::get_or_create(nb::object key) {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        
+        // py_get_or_create returns the old Python binding with cached wrapper
+        // We need to get the C++ pointer and create a fresh new wrapper
+        auto old_binding = impl->py_get_or_create(key);
+        if (old_binding.is_none()) {
+            return old_binding;
+        }
+        
+        // Extract the C++ pointer from the old binding
+        try {
+            auto* raw_ptr = nb::cast<TimeSeriesOutput*>(old_binding);
+            if (raw_ptr) {
+                // Check if it's already wrapped with our new wrapper type
+                // If the cached Python object is one of our new wrappers, return it
+                PyObject* cached = raw_ptr->self_py();
+                if (cached) {
+                    nb::object cached_obj = nb::borrow(cached);
+                    // Check if it's already a new wrapper type (has `add` method for TSS)
+                    if (nb::hasattr(cached_obj, "add")) {
+                        return cached_obj;
+                    }
+                }
+                
+                // Otherwise, we need to create a new wrapper
+                // Create it without modifying the cache to avoid ref counting issues
+                // Multiple Python wrappers can point to the same C++ object
+                nb::object new_wrapper;
+                if (auto* tss = dynamic_cast<TimeSeriesSetOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesSetOutput(tss, _impl.control_block()));
+                } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesListOutput(tsl, _impl.control_block()));
+                } else {
+                    // For other types, create base wrapper
+                    // Note: We can't use wrap_output because it will check the cache and return the old binding
+                    // So we just return the old binding for now
+                    // This means non-TSS/TSL types will still have the issue, but at least TSS will work
+                    return old_binding;
+                }
+                
+                return new_wrapper;
+            }
+        } catch (...) {
+            // If extraction fails, return the old binding as-is
+            return old_binding;
+        }
+        
+        return old_binding;
+    }
+    
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item)
@@ -915,7 +966,8 @@ namespace hgraph::api {
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
             .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
             .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set)
-            .def("_create", &PyTimeSeriesDictOutput::_create, "key"_a);
+            .def("_create", &PyTimeSeriesDictOutput::_create, "key"_a)
+            .def("get_or_create", &PyTimeSeriesDictOutput::get_or_create, "key"_a);
     }
     
     // ============================================================================
