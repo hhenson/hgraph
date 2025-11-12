@@ -64,6 +64,45 @@ namespace hgraph::api {
      */
     nb::object wrap_output(const hgraph::TimeSeriesOutput* impl, control_block_ptr control_block);
     
+    /**
+     * Extract raw Node pointer from PyNode wrapper.
+     * Returns nullptr if obj is not a PyNode.
+     */
+    hgraph::Node* unwrap_node(const nb::object& obj);
+    
+    /**
+     * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
+     * Returns nullptr if obj is not a PyTimeSeriesInput.
+     */
+    hgraph::TimeSeriesInput* unwrap_input(const nb::object& obj);
+    
+    /**
+     * Extract raw TimeSeriesOutput pointer from PyTimeSeriesOutput wrapper.
+     * Returns nullptr if obj is not a PyTimeSeriesOutput.
+     */
+    hgraph::TimeSeriesOutput* unwrap_output(const nb::object& obj);
+    
+    /**
+     * Wrap an EvaluationEngineApi pointer in a PyEvaluationEngineApi.
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Creates and caches new wrapper if not.
+     */
+    nb::object wrap_evaluation_engine_api(const hgraph::EvaluationEngineApi* impl, control_block_ptr control_block);
+    
+    /**
+     * Wrap an EvaluationClock pointer in a PyEvaluationClock.
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Creates and caches new wrapper if not.
+     */
+    nb::object wrap_evaluation_clock(const hgraph::EvaluationClock* impl, control_block_ptr control_block);
+    
+    /**
+     * Wrap a Traits pointer in a PyTraits.
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Creates and caches new wrapper if not.
+     */
+    nb::object wrap_traits(const hgraph::Traits* impl, control_block_ptr control_block);
+    
 } // namespace hgraph::api
 
 #endif // HGRAPH_WRAPPER_FACTORY_H

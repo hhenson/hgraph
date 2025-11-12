@@ -9,7 +9,7 @@ namespace hgraph {
     }
 
     void EvaluationClock::register_with_nanobind(nb::module_ &m) {
-        nb::class_<EvaluationClock, nb::intrusive_base>(m, "EvaluationClock")
+        nb::class_<EvaluationClock, nb::intrusive_base>(m, "_EvaluationClock")
                 .def_prop_ro("evaluation_time", &EvaluationClock::evaluation_time)
                 .def_prop_ro("now", &EvaluationClock::now)
                 .def_prop_ro("next_cycle_evaluation_time", &EvaluationClock::next_cycle_evaluation_time)
@@ -96,7 +96,7 @@ namespace hgraph {
     }
 
     void EvaluationEngineApi::register_with_nanobind(nb::module_ &m) {
-        nb::class_<EvaluationEngineApi, ComponentLifeCycle>(m, "EvaluationEngineApi")
+        nb::class_<EvaluationEngineApi, ComponentLifeCycle>(m, "_EvaluationEngineApi")
                 .def_prop_ro("evaluation_mode", &EvaluationEngineApi::evaluation_mode)
                 .def_prop_ro("start_time", &EvaluationEngineApi::start_time)
                 .def_prop_ro("end_time", &EvaluationEngineApi::end_time)

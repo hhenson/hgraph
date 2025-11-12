@@ -67,6 +67,9 @@ set(HGRAPH_SOURCES
         api/python/py_node_scheduler.cpp
         api/python/py_time_series.cpp
         api/python/py_ts_types.cpp
+        api/python/py_evaluation_engine_api.cpp
+        api/python/py_evaluation_clock.cpp
+        api/python/py_traits.cpp
         api/python/py_api_registration.cpp
         api/python/wrapper_factory.cpp
 

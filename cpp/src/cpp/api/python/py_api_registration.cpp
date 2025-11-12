@@ -5,6 +5,9 @@
 #include <hgraph/api/python/py_node.h>
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node_scheduler.h>
+#include <hgraph/api/python/py_evaluation_engine_api.h>
+#include <hgraph/api/python/py_evaluation_clock.h>
+#include <hgraph/api/python/py_traits.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_ts_types.h>
 #include <nanobind/nanobind.h>
@@ -24,6 +27,9 @@ namespace hgraph::api {
         PyNode::register_with_nanobind(m);
         PyGraph::register_with_nanobind(m);
         PyNodeScheduler::register_with_nanobind(m);
+        PyEvaluationEngineApi::register_with_nanobind(m);
+        PyEvaluationClock::register_with_nanobind(m);
+        PyTraits::register_with_nanobind(m);
         
         // Base time series types
         PyTimeSeriesInput::register_with_nanobind(m);

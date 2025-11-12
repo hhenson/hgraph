@@ -75,6 +75,9 @@ namespace hgraph::api {
         PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
         ApiPtr<TimeSeriesInput> _impl;
+        
+        // Friend declarations for C++ code that needs to extract raw impl
+        friend hgraph::TimeSeriesInput* unwrap_input(const nb::object& obj);
     };
     
     /**
@@ -131,6 +134,9 @@ namespace hgraph::api {
         PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
         
         ApiPtr<TimeSeriesOutput> _impl;
+        
+        // Friend declarations for C++ code that needs to extract raw impl
+        friend hgraph::TimeSeriesOutput* unwrap_output(const nb::object& obj);
     };
     
 } // namespace hgraph::api

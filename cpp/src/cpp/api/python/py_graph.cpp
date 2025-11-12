@@ -48,17 +48,22 @@ namespace hgraph::api {
     }
     
     nb::object PyGraph::evaluation_engine_api() const {
-        // TODO: Wrap EvaluationEngineApi
-        return nb::cast(_impl->evaluation_engine_api());
+        // Return raw API pointer - these objects have complex lifetime that's tied to graph
+        // Wrapping them causes issues during graph teardown
+        auto api = _impl->evaluation_engine_api();
+        return nb::cast(api.get());
     }
     
     nb::object PyGraph::evaluation_clock() const {
-        // TODO: Wrap EvaluationClock
-        return nb::cast(_impl->evaluation_clock());
+        // Return raw clock pointer - these objects have complex lifetime that's tied to graph
+        // Wrapping them causes issues during graph teardown
+        auto clock = _impl->evaluation_clock();
+        return nb::cast(clock.get());
     }
     
     nb::object PyGraph::traits() const {
-        // TODO: Wrap Traits
+        // Return raw traits reference - this is a member of graph, not a separate object
+        // Wrapping it causes issues during graph teardown
         return nb::cast(&_impl->traits());
     }
     

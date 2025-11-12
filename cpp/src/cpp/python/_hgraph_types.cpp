@@ -44,7 +44,7 @@ void export_types(nb::module_ &m) {
     TimeSeriesReference::register_with_nanobind(m);
     TimeSeriesReferenceOutput::register_with_nanobind(m);
     TimeSeriesReferenceInput::register_with_nanobind(m);
-    
+
     // Specialized reference types - Still needed by Python wiring code
     TimeSeriesValueReferenceInput::register_with_nanobind(m);
     TimeSeriesListReferenceInput::register_with_nanobind(m);
@@ -58,7 +58,7 @@ void export_types(nb::module_ &m) {
     TimeSeriesDictReferenceOutput::register_with_nanobind(m);
     TimeSeriesSetReferenceOutput::register_with_nanobind(m);
     TimeSeriesWindowReferenceOutput::register_with_nanobind(m);
-    
+
     // OLD DIRECT BINDINGS - Commented out, replaced by Python API wrappers
     // IndexedTimeSeriesOutput::register_with_nanobind(m);
     // IndexedTimeSeriesInput::register_with_nanobind(m);
@@ -76,7 +76,7 @@ void export_types(nb::module_ &m) {
     node_type_enum_py_register(m);
     injectable_type_enum(m);
     NodeSignature::register_with_nanobind(m);
-    
+
     // OLD DIRECT BINDINGS - Renamed with _ prefix for internal use only
     // These are needed for nanobind type hierarchy but Python API wrappers use public names
     NodeScheduler::register_with_nanobind(m);  // Registers as "_NodeScheduler"

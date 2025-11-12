@@ -327,7 +327,7 @@ namespace hgraph {
     template nb::dict wrap_switch_node_nested_graphs<engine_time_t>(const SwitchNode<engine_time_t>&);
     template nb::dict wrap_switch_node_nested_graphs<engine_time_delta_t>(const SwitchNode<engine_time_delta_t>&);
     template nb::dict wrap_switch_node_nested_graphs<nb::object>(const SwitchNode<nb::object>&);
-    
+
     void register_switch_node_with_nanobind(nb::module_ &m) {
         nb::class_<SwitchNode<bool>, NestedNode>(m, "SwitchNode_bool")
                 .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<bool>);

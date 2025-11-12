@@ -86,6 +86,10 @@ namespace hgraph::api {
         
     private:
         ApiPtr<Node> _impl;
+        
+        // Friend declarations for C++ code that needs to extract raw impl
+        friend nb::object wrap_node(const hgraph::Node* impl, control_block_ptr control_block);
+        friend hgraph::Node* unwrap_node(const nb::object& obj);
     };
     
 } // namespace hgraph::api

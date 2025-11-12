@@ -12,6 +12,9 @@
 #include <hgraph/api/python/py_node.h>
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node_scheduler.h>
+#include <hgraph/api/python/py_evaluation_engine_api.h>
+#include <hgraph/api/python/py_evaluation_clock.h>
+#include <hgraph/api/python/py_traits.h>
 
 // Base time series types
 #include <hgraph/api/python/py_time_series.h>

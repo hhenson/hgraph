@@ -13,6 +13,11 @@
 #include <hgraph/types/tss.h>
 #include <hgraph/types/tsw.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/runtime/evaluation_engine.h>
+#include <hgraph/types/traits.h>
+#include <hgraph/api/python/py_evaluation_engine_api.h>
+#include <hgraph/api/python/py_evaluation_clock.h>
+#include <hgraph/api/python/py_traits.h>
 
 namespace hgraph::api {
     
@@ -88,6 +93,52 @@ namespace hgraph::api {
                 // For now, just use base wrapper - type-specific methods will be added later
                 return PyTimeSeriesOutput(impl, std::move(cb));
             });
+    }
+    
+    hgraph::Node* unwrap_node(const nb::object& obj) {
+        if (auto* py_node = nb::inst_ptr<PyNode>(obj)) {
+            return py_node->_impl.get();
+        }
+        return nullptr;
+    }
+    
+    hgraph::TimeSeriesInput* unwrap_input(const nb::object& obj) {
+        if (auto* py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) {
+            return py_input->_impl.get();
+        }
+        return nullptr;
+    }
+    
+    hgraph::TimeSeriesOutput* unwrap_output(const nb::object& obj) {
+        if (auto* py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) {
+            return py_output->_impl.get();
+        }
+        return nullptr;
+    }
+    
+    nb::object wrap_evaluation_engine_api(const hgraph::EvaluationEngineApi* impl, control_block_ptr control_block) {
+        return get_or_create_wrapper(impl, std::move(control_block),
+            [](hgraph::EvaluationEngineApi* impl, control_block_ptr cb) {
+                return PyEvaluationEngineApi(impl, std::move(cb));
+            });
+    }
+    
+    nb::object wrap_evaluation_clock(const hgraph::EvaluationClock* impl, control_block_ptr control_block) {
+        return get_or_create_wrapper(impl, std::move(control_block),
+            [](hgraph::EvaluationClock* impl, control_block_ptr cb) {
+                return PyEvaluationClock(impl, std::move(cb));
+            });
+    }
+    
+    nb::object wrap_traits(const hgraph::Traits* impl, control_block_ptr control_block) {
+        // Don't cache traits wrappers - traits is a member of Graph, not a separate heap object
+        // Caching on intrusive_base could cause issues during graph teardown
+        if (!impl) {
+            return nb::none();
+        }
+        auto* mutable_impl = const_cast<hgraph::Traits*>(impl);
+        auto wrapper = PyTraits(mutable_impl, std::move(control_block));
+        return nb::cast(std::move(wrapper));
     }
     
 } // namespace hgraph::api
