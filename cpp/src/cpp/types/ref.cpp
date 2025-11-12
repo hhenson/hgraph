@@ -12,6 +12,7 @@
 #include <hgraph/api/python/python_api.h>
 
 #include <algorithm>
+#include <iostream>
 
 namespace hgraph {
     TimeSeriesReference::ptr TimeSeriesReference::make() { return new EmptyTimeSeriesReference(); }
@@ -57,13 +58,48 @@ namespace hgraph {
                 .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
                 .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
                 .def_static("make", static_cast<ptr (*)()>(&TimeSeriesReference::make))
-                .def_static("make", static_cast<ptr (*)(TimeSeriesOutput::ptr)>(&TimeSeriesReference::make))
+                .def_static("make", [](nb::object output) -> ptr {
+                    // Accept both old TimeSeriesOutput and new PyTimeSeriesOutput wrappers
+                    if (output.is_none()) {
+                        return TimeSeriesReference::make(nullptr);
+                    }
+                    
+                    // Try to unwrap our new API wrapper first
+                    if (nb::isinstance<api::PyTimeSeriesOutput>(output)) {
+                        auto* raw_output = api::unwrap_output(output);
+                        // Create a ref from the unwrapped output - must inc_ref to keep it alive
+                        TimeSeriesOutput::ptr output_ref(raw_output);
+                        return TimeSeriesReference::make(output_ref);
+                    }
+                    
+                    // Fallback to old binding (already an nb::ref<TimeSeriesOutput>)
+                    return TimeSeriesReference::make(nb::cast<TimeSeriesOutput::ptr>(output));
+                })
                 .def_static("make", static_cast<ptr (*)(std::vector<ptr>)>(&TimeSeriesReference::make))
                 .def_static(
                     "make",
                     [](nb::object ts, nb::object items) -> ptr {
                         if (not ts.is_none()
                         ) {
+                            // Check for new PyTimeSeriesOutput wrapper first
+                            if (nb::isinstance<api::PyTimeSeriesOutput>(ts)) {
+                                auto* raw_output = api::unwrap_output(ts);
+                                TimeSeriesOutput::ptr output_ref(raw_output);
+                                return TimeSeriesReference::make(output_ref);
+                            }
+                            
+                            // Check for new PyTimeSeriesInput wrapper
+                            if (nb::isinstance<api::PyTimeSeriesInput>(ts)) {
+                                auto* raw_input = api::unwrap_input(ts);
+                                TimeSeriesInput::ptr input_ref(raw_input);
+                                if (input_ref->has_peer()) {
+                                    auto output = input_ref->output();
+                                    return TimeSeriesReference::make(output);
+                                }
+                                // Deal with list of inputs - not implemented for new wrappers yet
+                                // Fall through to old logic
+                            }
+                            
                             if (nb::isinstance<TimeSeriesOutput>(ts)) return make(nb::cast<TimeSeriesOutput::ptr>(ts));
                             if (nb::isinstance<TimeSeriesReferenceInput>(ts))
                                 return nb::cast<TimeSeriesReferenceInput::ptr>(ts)->value();
