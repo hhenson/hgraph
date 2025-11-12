@@ -902,6 +902,16 @@ namespace hgraph::api {
         return old_binding;
     }
     
+    nb::object PyTimeSeriesDictOutput::get(nb::object key, nb::object default_value) const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        
+        // Check if key exists, if so return get_item, otherwise return default
+        if (impl->py_contains(key)) {
+            return get_item(key);
+        }
+        return default_value;
+    }
+    
     bool PyTimeSeriesDictOutput::contains(nb::object key) const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
         return impl->py_contains(key);
@@ -1023,6 +1033,7 @@ namespace hgraph::api {
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item)
+            .def("get", &PyTimeSeriesDictOutput::get, "key"_a, "default"_a = nb::none())
             .def("__contains__", &PyTimeSeriesDictOutput::contains)
             .def("__len__", &PyTimeSeriesDictOutput::len)
             .def("keys", &PyTimeSeriesDictOutput::keys)

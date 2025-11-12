@@ -198,6 +198,7 @@ namespace hgraph::api {
         PyTimeSeriesDictOutput(TimeSeriesDictOutput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(nb::object key) const;
+        [[nodiscard]] nb::object get(nb::object key, nb::object default_value) const;
         [[nodiscard]] bool contains(nb::object key) const;
         
         [[nodiscard]] int64_t len() const;
