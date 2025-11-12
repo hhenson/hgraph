@@ -81,7 +81,10 @@ namespace hgraph::api {
         // Try to unwrap PyTimeSeriesOutput first
         auto* unwrapped = unwrap_output(output);
         if (unwrapped) {
-            return _impl->bind_output(time_series_output_ptr(unwrapped));
+            // Create a new ref from the raw pointer - this is safe because
+            // TimeSeriesOutput inherits from intrusive_base and manages its own ref count
+            time_series_output_ptr output_ref(unwrapped);
+            return _impl->bind_output(output_ref);
         }
         // Fallback to direct cast for old bindings
         return _impl->bind_output(nb::cast<time_series_output_ptr>(output));
