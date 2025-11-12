@@ -878,6 +878,10 @@ namespace hgraph::api {
                     new_wrapper = nb::cast(PyTimeSeriesSetOutput(tss, _impl.control_block()));
                 } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(raw_ptr)) {
                     new_wrapper = nb::cast(PyTimeSeriesListOutput(tsl, _impl.control_block()));
+                } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesDictOutput(tsd, _impl.control_block()));
+                } else if (auto* tsb = dynamic_cast<TimeSeriesBundleOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesBundleOutput(tsb, _impl.control_block()));
                 } else {
                     // For other types, return the old binding for now
                     return old_binding;
@@ -991,11 +995,12 @@ namespace hgraph::api {
                     new_wrapper = nb::cast(PyTimeSeriesSetOutput(tss, _impl.control_block()));
                 } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(raw_ptr)) {
                     new_wrapper = nb::cast(PyTimeSeriesListOutput(tsl, _impl.control_block()));
+                } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesDictOutput(tsd, _impl.control_block()));
+                } else if (auto* tsb = dynamic_cast<TimeSeriesBundleOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesBundleOutput(tsb, _impl.control_block()));
                 } else {
-                    // For other types, create base wrapper
-                    // Note: We can't use wrap_output because it will check the cache and return the old binding
-                    // So we just return the old binding for now
-                    // This means non-TSS/TSL types will still have the issue, but at least TSS will work
+                    // For other types, return the old binding for now
                     return old_binding;
                 }
                 
