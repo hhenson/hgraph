@@ -78,6 +78,10 @@ namespace hgraph::api {
         return wrap_node_scheduler(_impl->scheduler(), _impl.control_block());
     }
     
+    void PyNode::notify(engine_time_t modified_time) {
+        _impl->notify(modified_time);
+    }
+    
     std::string PyNode::str() const {
         return _impl->str();
     }
@@ -98,6 +102,7 @@ namespace hgraph::api {
             .def_prop_ro("inputs", &PyNode::inputs)
             .def_prop_ro("output", &PyNode::output)
             .def_prop_ro("scheduler", &PyNode::scheduler)
+            .def("notify", &PyNode::notify, "modified_time"_a)
             .def("__str__", &PyNode::str)
             .def("__repr__", &PyNode::repr);
     }

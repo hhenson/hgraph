@@ -8,6 +8,7 @@
 
 #include <hgraph/api/python/api_ptr.h>
 #include <hgraph/hgraph_forward_declarations.h>
+#include <hgraph/util/date_time.h>
 #include <nanobind/nanobind.h>
 #include <vector>
 #include <string>
@@ -66,6 +67,9 @@ namespace hgraph::api {
         
         // Scheduler (read-only, for debugging)
         [[nodiscard]] nb::object scheduler() const;  // Returns cached PyNodeScheduler wrapper
+        
+        // Node notification (scheduling)
+        void notify(engine_time_t modified_time);
         
         // Python __str__ and __repr__
         [[nodiscard]] std::string str() const;
