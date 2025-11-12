@@ -25,8 +25,10 @@ namespace hgraph {
             std::string key{nb::cast<std::string>(key_)};
             try {
                 if (has_injectables && signature().injectable_inputs->contains(key)) {
-                    // TODO: This may be better extracted directly, but for now use the python function calls.
-                    nb::object node{nb::cast(this)};
+                    // Wrap this node using PyNode wrapper instead of old _Node binding
+                    // This ensures injectors receive the new API wrapper with proper wrapping
+                    auto g = graph();
+                    nb::object node = g ? api::wrap_node(this, g->api_control_block()) : nb::cast(this);
                     nb::object key_handle{value(node)};
                     _kwargs[key_] = key_handle; // Assuming this call applies the Injector properly
                 } else {
