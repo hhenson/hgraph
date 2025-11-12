@@ -765,6 +765,22 @@ namespace hgraph::api {
         return impl->py_items();
     }
     
+    nb::object PyTimeSeriesDictOutput::get_ref(nb::object key, nb::object requester) const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto result = impl->py_get_ref(key, requester);
+        // Wrap the result as a time series output
+        if (nb::isinstance<nb::ref<TimeSeriesOutput>>(result)) {
+            auto ts_output = nb::cast<nb::ref<TimeSeriesOutput>>(result);
+            return wrap_output(ts_output.get(), _impl.control_block());
+        }
+        return result;
+    }
+    
+    void PyTimeSeriesDictOutput::release_ref(nb::object key, nb::object requester) {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        impl->py_release_ref(key, requester);
+    }
+    
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item)
@@ -772,7 +788,9 @@ namespace hgraph::api {
             .def("__len__", &PyTimeSeriesDictOutput::len)
             .def("keys", &PyTimeSeriesDictOutput::keys)
             .def("values", &PyTimeSeriesDictOutput::values)
-            .def("items", &PyTimeSeriesDictOutput::items);
+            .def("items", &PyTimeSeriesDictOutput::items)
+            .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
+            .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a);
     }
     
     // ============================================================================

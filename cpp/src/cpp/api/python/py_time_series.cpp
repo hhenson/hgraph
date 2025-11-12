@@ -78,7 +78,12 @@ namespace hgraph::api {
     }
     
     bool PyTimeSeriesInput::bind_output(nb::object output) {
-        // TODO: Unwrap PyTimeSeriesOutput
+        // Try to unwrap PyTimeSeriesOutput first
+        auto* unwrapped = unwrap_output(output);
+        if (unwrapped) {
+            return _impl->bind_output(time_series_output_ptr(unwrapped));
+        }
+        // Fallback to direct cast for old bindings
         return _impl->bind_output(nb::cast<time_series_output_ptr>(output));
     }
     

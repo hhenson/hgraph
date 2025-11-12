@@ -191,6 +191,9 @@ namespace hgraph::api {
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;
         
+        [[nodiscard]] nb::object get_ref(nb::object key, nb::object requester) const;
+        void release_ref(nb::object key, nb::object requester);
+        
         static void register_with_nanobind(nb::module_& m);
     };
     

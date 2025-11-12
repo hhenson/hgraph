@@ -9,6 +9,7 @@
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsd.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/api/python/python_api.h>
 
 #include <algorithm>
 
@@ -86,7 +87,18 @@ namespace hgraph {
         nb::class_<EmptyTimeSeriesReference, TimeSeriesReference>(m, "EmptyTimeSeriesReference");
 
         nb::class_<BoundTimeSeriesReference, TimeSeriesReference>(m, "BoundTimeSeriesReference")
-                .def_prop_ro("output", &BoundTimeSeriesReference::output);
+                .def_prop_ro("output", [](const BoundTimeSeriesReference& self) -> nb::object {
+                    auto output_ptr = self.output();
+                    if (output_ptr) {
+                        // Get the graph from the output's owning node to access control block
+                        auto graph = output_ptr->owning_graph();
+                        if (graph && graph->api_control_block()) {
+                            return api::wrap_output(output_ptr.get(), graph->api_control_block());
+                        }
+                    }
+                    // Fallback to old binding if no graph/control block available
+                    return nb::cast(output_ptr);
+                });
 
         nb::class_<UnBoundTimeSeriesReference, TimeSeriesReference>(m, "UnBoundTimeSeriesReference")
                 .def_prop_ro("items", &UnBoundTimeSeriesReference::items)
