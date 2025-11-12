@@ -158,6 +158,15 @@ namespace hgraph::api {
         return result;
     }
     
+    nb::object PyTimeSeriesListInput::values() const {
+        auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
+        nb::list result;
+        for (auto& value : *impl) {
+            result.append(wrap_input(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
     nb::dict PyTimeSeriesListInput::items() const {
         auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
         nb::dict result;
@@ -176,7 +185,16 @@ namespace hgraph::api {
         return result;
     }
     
-    nb::dict PyTimeSeriesListInput::valid_items() const {
+    nb::object PyTimeSeriesListInput::valid_values() const {
+        auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
+        nb::list result;
+        for (const auto& [idx, value] : impl->valid_items()) {
+            result.append(wrap_input(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
+    nb::dict PyTimeSeriesListInput::valid_items() const{
         auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
         nb::dict result;
         for (const auto& [idx, value] : impl->valid_items()) {
@@ -194,6 +212,15 @@ namespace hgraph::api {
         return result;
     }
     
+    nb::object PyTimeSeriesListInput::modified_values() const {
+        auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
+        nb::list result;
+        for (const auto& [idx, value] : impl->modified_items()) {
+            result.append(wrap_input(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
     nb::dict PyTimeSeriesListInput::modified_items() const {
         auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
         nb::dict result;
@@ -209,10 +236,13 @@ namespace hgraph::api {
             .def("__len__", &PyTimeSeriesListInput::len)
             .def("__iter__", &PyTimeSeriesListInput::iter)
             .def("keys", &PyTimeSeriesListInput::keys)
+            .def("values", &PyTimeSeriesListInput::values)
             .def("items", &PyTimeSeriesListInput::items)
             .def("valid_keys", &PyTimeSeriesListInput::valid_keys)
+            .def("valid_values", &PyTimeSeriesListInput::valid_values)
             .def("valid_items", &PyTimeSeriesListInput::valid_items)
             .def("modified_keys", &PyTimeSeriesListInput::modified_keys)
+            .def("modified_values", &PyTimeSeriesListInput::modified_values)
             .def("modified_items", &PyTimeSeriesListInput::modified_items);
     }
     
