@@ -32,6 +32,8 @@ namespace hgraph {
         void _initialise_state();
 
         void reset_input(time_series_bundle_input_ptr value) override;
+        
+        void set_graph(graph_ptr value) override;
 
     protected:
         void do_eval() override;

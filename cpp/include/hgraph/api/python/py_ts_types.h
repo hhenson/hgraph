@@ -118,11 +118,11 @@ namespace hgraph::api {
         [[nodiscard]] bool contains(const std::string& key) const;
         
         [[nodiscard]] nb::list keys() const;
-        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list items() const;
         [[nodiscard]] nb::list modified_keys() const;
-        [[nodiscard]] nb::dict modified_items() const;
+        [[nodiscard]] nb::list modified_items() const;
         [[nodiscard]] nb::list valid_keys() const;
-        [[nodiscard]] nb::dict valid_items() const;
+        [[nodiscard]] nb::list valid_items() const;
         
         [[nodiscard]] nb::object schema() const;
         

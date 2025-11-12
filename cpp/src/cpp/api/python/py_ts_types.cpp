@@ -328,11 +328,15 @@ namespace hgraph::api {
         return result;
     }
     
-    nb::dict PyTimeSeriesBundleInput::items() const {
+    nb::list PyTimeSeriesBundleInput::items() const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [key, value] : impl->items()) {
-            result[nb::str(key.get().c_str())] = wrap_input(value.get(), _impl.control_block());
+            nb::tuple item = nb::make_tuple(
+                nb::str(key.get().c_str()),
+                wrap_input(value.get(), _impl.control_block())
+            );
+            result.append(item);
         }
         return result;
     }
@@ -346,11 +350,15 @@ namespace hgraph::api {
         return result;
     }
     
-    nb::dict PyTimeSeriesBundleInput::modified_items() const {
+    nb::list PyTimeSeriesBundleInput::modified_items() const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [key, value] : impl->modified_items()) {
-            result[nb::str(key.get().c_str())] = wrap_input(value.get(), _impl.control_block());
+            nb::tuple item = nb::make_tuple(
+                nb::str(key.get().c_str()),
+                wrap_input(value.get(), _impl.control_block())
+            );
+            result.append(item);
         }
         return result;
     }
@@ -364,11 +372,15 @@ namespace hgraph::api {
         return result;
     }
     
-    nb::dict PyTimeSeriesBundleInput::valid_items() const {
+    nb::list PyTimeSeriesBundleInput::valid_items() const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [key, value] : impl->valid_items()) {
-            result[nb::str(key.get().c_str())] = wrap_input(value.get(), _impl.control_block());
+            nb::tuple item = nb::make_tuple(
+                nb::str(key.get().c_str()),
+                wrap_input(value.get(), _impl.control_block())
+            );
+            result.append(item);
         }
         return result;
     }

@@ -14,7 +14,7 @@ namespace hgraph {
                  std::string label_, traits_ptr traits_)
         : ComponentLifeCycle(), _graph_id{std::move(graph_id_)}, _nodes{std::move(nodes_)},
           _parent_node{parent_node_.has_value() ? std::move(*parent_node_) : nullptr}, _label{std::move(label_)},
-          _traits{std::move(traits_)} {
+          _traits{std::move(traits_)}, _api_control_block{std::make_shared<api::ApiControlBlock>()} {
         auto it{
             std::find_if(_nodes.begin(), _nodes.end(),
                          [](const Node *v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })

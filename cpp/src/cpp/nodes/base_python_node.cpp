@@ -5,6 +5,8 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
+#include <hgraph/api/python/python_api.h>
+#include <fmt/format.h>
 
 namespace hgraph {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
@@ -47,16 +49,24 @@ namespace hgraph {
 
     void BasePythonNode::_initialise_kwarg_inputs() {
         auto &signature_args = signature().args;
+        auto g = graph();
+        
+        // Only initialize time series kwargs if graph is set
+        // Otherwise they'll be initialized when set_graph() is called
+        if (!g) {
+            return;
+        }
+        
         for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
              i < l;
              ++i) {
             // Apple does not yet support ranges::contains :(
             auto key{input()->schema().keys()[i]};
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                // Expose inputs as base TimeSeriesInput using nb::ref to preserve lifetime semantics.
-                // Avoid casting to raw pointer, which bypasses intrusive ref counting and can cause
-                // dangling references when Python holds onto the object (e.g., during iteration).
-                _kwargs[key.c_str()] = nb::cast((*input())[i]);
+                // Wrap inputs using our Python API wrappers
+                auto ts_input = (*input())[i];
+                auto cb = g->api_control_block();
+                _kwargs[key.c_str()] = api::wrap_input(ts_input.get(), cb);
             }
         }
     }
@@ -115,6 +125,14 @@ namespace hgraph {
     void BasePythonNode::reset_input(time_series_bundle_input_ptr value) {
         Node::reset_input(value);
         _initialise_kwarg_inputs();
+    }
+    
+    void BasePythonNode::set_graph(graph_ptr value) {
+        Node::set_graph(value);
+        // Initialize kwargs with wrapped inputs now that graph is set
+        if (has_input()) {
+            _initialise_kwarg_inputs();
+        }
     }
 
     class ContextManager {

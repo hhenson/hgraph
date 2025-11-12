@@ -191,7 +191,7 @@ namespace hgraph {
 
         graph_ptr graph() const;
 
-        void set_graph(graph_ptr value);
+        virtual void set_graph(graph_ptr value);
 
         time_series_bundle_input_ptr input();
 

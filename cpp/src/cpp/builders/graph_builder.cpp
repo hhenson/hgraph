@@ -50,12 +50,8 @@ namespace hgraph {
     graph_ptr GraphBuilder::make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node,
                                           const std::string &label) const {
         auto nodes = make_and_connect_nodes(graph_id, 0);
+        // Graph constructor now creates its own control block
         auto graph = nb::ref<Graph>{new Graph{graph_id, nodes, parent_node, label, new Traits()}};
-        
-        // Create and set the API control block for Python wrapper lifetime tracking
-        auto control_block = std::make_shared<api::ApiControlBlock>();
-        graph->set_api_control_block(control_block);
-        
         return graph;
     }
 
