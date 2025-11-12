@@ -121,10 +121,13 @@ namespace hgraph::api {
         [[nodiscard]] bool contains(const std::string& key) const;
         
         [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::object values() const;  // Returns iterator
         [[nodiscard]] nb::list items() const;
         [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::object modified_values() const;  // Returns iterator
         [[nodiscard]] nb::list modified_items() const;
         [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::object valid_values() const;  // Returns iterator
         [[nodiscard]] nb::list valid_items() const;
         
         [[nodiscard]] nb::object schema() const;

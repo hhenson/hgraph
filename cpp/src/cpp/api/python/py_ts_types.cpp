@@ -360,12 +360,13 @@ namespace hgraph::api {
     
     nb::object PyTimeSeriesBundleInput::iter() const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
-        // Return iterator over keys (matching Python dict behavior)
-        nb::list keys;
-        for (const auto& key : impl->keys()) {
-            keys.append(nb::str(key.get().c_str()));
+        // Return iterator over values (TimeSeriesInput objects), not keys
+        // This matches Python's behavior for varargs iteration
+        nb::list values;
+        for (size_t i = 0; i < impl->size(); ++i) {
+            values.append(wrap_input(impl->get_input(i), _impl.control_block()));
         }
-        return keys.attr("__iter__")();
+        return values.attr("__iter__")();
     }
     
     bool PyTimeSeriesBundleInput::contains(const std::string& key) const {
@@ -380,6 +381,15 @@ namespace hgraph::api {
             result.append(nb::str(key.get().c_str()));
         }
         return result;
+    }
+    
+    nb::object PyTimeSeriesBundleInput::values() const {
+        auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
+        nb::list result;
+        for (size_t i = 0; i < impl->size(); ++i) {
+            result.append(wrap_input(impl->get_input(i), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
     }
     
     nb::list PyTimeSeriesBundleInput::items() const {
@@ -404,6 +414,15 @@ namespace hgraph::api {
         return result;
     }
     
+    nb::object PyTimeSeriesBundleInput::modified_values() const {
+        auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
+        nb::list result;
+        for (const auto& [key, value] : impl->modified_items()) {
+            result.append(wrap_input(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
     nb::list PyTimeSeriesBundleInput::modified_items() const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
         nb::list result;
@@ -424,6 +443,15 @@ namespace hgraph::api {
             result.append(nb::str(key.get().c_str()));
         }
         return result;
+    }
+    
+    nb::object PyTimeSeriesBundleInput::valid_values() const {
+        auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
+        nb::list result;
+        for (const auto& [key, value] : impl->valid_items()) {
+            result.append(wrap_input(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
     }
     
     nb::list PyTimeSeriesBundleInput::valid_items() const {
@@ -451,10 +479,13 @@ namespace hgraph::api {
             .def("__iter__", &PyTimeSeriesBundleInput::iter)
             .def("__contains__", &PyTimeSeriesBundleInput::contains)
             .def("keys", &PyTimeSeriesBundleInput::keys)
+            .def("values", &PyTimeSeriesBundleInput::values)
             .def("items", &PyTimeSeriesBundleInput::items)
             .def("modified_keys", &PyTimeSeriesBundleInput::modified_keys)
+            .def("modified_values", &PyTimeSeriesBundleInput::modified_values)
             .def("modified_items", &PyTimeSeriesBundleInput::modified_items)
             .def("valid_keys", &PyTimeSeriesBundleInput::valid_keys)
+            .def("valid_values", &PyTimeSeriesBundleInput::valid_values)
             .def("valid_items", &PyTimeSeriesBundleInput::valid_items)
             .def_prop_ro("__schema__", &PyTimeSeriesBundleInput::schema);
     }
