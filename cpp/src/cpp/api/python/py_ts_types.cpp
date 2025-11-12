@@ -774,16 +774,44 @@ namespace hgraph::api {
             .def("times", &PyTimeSeriesWindowOutput::times);
     }
     
-    nb::object PyTimeSeriesReferenceInput::value_ref() const { return nb::none(); }
+    // ============================================================================
+    // REF (Reference) Types
+    // ============================================================================
     
-    void PyTimeSeriesReferenceInput::register_with_nanobind(nb::module_& m) {
-        nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput");
+    nb::object PyTimeSeriesReferenceInput::get_item(int64_t index) const {
+        auto* impl = static_cast<TimeSeriesReferenceInput*>(_impl.get());
+        auto* item = impl->get_input(static_cast<size_t>(index));
+        return wrap_input(item, _impl.control_block());
     }
     
-    void PyTimeSeriesReferenceOutput::set_value_ref(nb::object ref) {}
+    void PyTimeSeriesReferenceInput::register_with_nanobind(nb::module_& m) {
+        nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
+            .def("__getitem__", &PyTimeSeriesReferenceInput::get_item);
+    }
+    
+    void PyTimeSeriesReferenceOutput::observe_reference(nb::object input) {
+        auto* impl = static_cast<TimeSeriesReferenceOutput*>(_impl.get());
+        // Accept raw TimeSeriesInput::ptr from wiring code
+        auto ts_input = nb::cast<nb::ref<TimeSeriesInput>>(input);
+        impl->observe_reference(ts_input);
+    }
+    
+    void PyTimeSeriesReferenceOutput::stop_observing_reference(nb::object input) {
+        auto* impl = static_cast<TimeSeriesReferenceOutput*>(_impl.get());
+        auto ts_input = nb::cast<nb::ref<TimeSeriesInput>>(input);
+        impl->stop_observing_reference(ts_input);
+    }
+    
+    void PyTimeSeriesReferenceOutput::clear() {
+        auto* impl = static_cast<TimeSeriesReferenceOutput*>(_impl.get());
+        impl->clear();
+    }
     
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_& m) {
-        nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput");
+        nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput")
+            .def("observe_reference", &PyTimeSeriesReferenceOutput::observe_reference, "input"_a)
+            .def("stop_observing_reference", &PyTimeSeriesReferenceOutput::stop_observing_reference, "input"_a)
+            .def("clear", &PyTimeSeriesReferenceOutput::clear);
     }
     
 } // namespace hgraph::api

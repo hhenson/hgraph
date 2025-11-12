@@ -24,6 +24,8 @@ namespace hgraph {
     struct TimeSeriesDictOutput;
     struct TimeSeriesSetInput;
     struct TimeSeriesSetOutput;
+    struct TimeSeriesReferenceInput;
+    struct TimeSeriesReferenceOutput;
 }
 
 namespace hgraph::api {
@@ -259,7 +261,7 @@ namespace hgraph::api {
     public:
         PyTimeSeriesReferenceInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
-        [[nodiscard]] nb::object value_ref() const;
+        [[nodiscard]] nb::object get_item(int64_t index) const;  // Access nested references
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -268,7 +270,9 @@ namespace hgraph::api {
     public:
         PyTimeSeriesReferenceOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
         
-        void set_value_ref(nb::object ref);
+        void observe_reference(nb::object input);
+        void stop_observing_reference(nb::object input);
+        void clear();
         
         static void register_with_nanobind(nb::module_& m);
     };

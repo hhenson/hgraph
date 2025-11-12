@@ -8,6 +8,7 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/api/python/python_api.h>
 
 namespace hgraph {
     constexpr int64_t ERROR_PATH = -1; // The path in the wiring edges representing the error output of the node
@@ -49,7 +50,13 @@ namespace hgraph {
     graph_ptr GraphBuilder::make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node,
                                           const std::string &label) const {
         auto nodes = make_and_connect_nodes(graph_id, 0);
-        return nb::ref<Graph>{new Graph{graph_id, nodes, parent_node, label, new Traits()}};
+        auto graph = nb::ref<Graph>{new Graph{graph_id, nodes, parent_node, label, new Traits()}};
+        
+        // Create and set the API control block for Python wrapper lifetime tracking
+        auto control_block = std::make_shared<api::ApiControlBlock>();
+        graph->set_api_control_block(control_block);
+        
+        return graph;
     }
 
     std::vector<node_ptr> GraphBuilder::make_and_connect_nodes(const std::vector<int64_t> &graph_id,
@@ -91,10 +98,28 @@ namespace hgraph {
     void GraphBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_ < GraphBuilder, Builder > (m, "GraphBuilder")
                 .def(nb::init<std::vector<node_builder_ptr>, std::vector<Edge> >(), "node_builders"_a, "edges"_a)
-                .def("make_instance", &GraphBuilder::make_instance, "graph_id"_a, "parent_node"_a = nullptr,
-                     "label"_a = "")
+                .def("make_instance", 
+                     [](const GraphBuilder &self, const std::vector<int64_t> &graph_id, 
+                        node_ptr parent_node, const std::string &label) -> nb::object {
+                         // Create Graph instance
+                         auto graph = self.make_instance(graph_id, parent_node, label);
+                         // Wrap in PyGraph using the graph's own control block
+                         return api::wrap_graph(graph.get(), graph->api_control_block());
+                     },
+                     "graph_id"_a, "parent_node"_a = nullptr, "label"_a = "")
                 .def("make_and_connect_nodes", &GraphBuilder::make_and_connect_nodes, "graph_id"_a, "first_node_ndx"_a)
-                .def("release_instance", &GraphBuilder::release_instance, "item"_a)
+                .def("release_instance", [](const GraphBuilder &self, nb::object graph_obj) {
+                    // Extract raw graph from PyGraph wrapper
+                    graph_ptr graph;
+                    nb::handle graph_handle = graph_obj;
+                    auto* py_graph = nb::inst_ptr<api::PyGraph>(graph_handle);
+                    if (py_graph) {
+                        graph = nb::ref<Graph>(py_graph->_impl.get());
+                    } else {
+                        graph = nb::cast<graph_ptr>(graph_obj);
+                    }
+                    self.release_instance(graph);
+                }, "item"_a)
                 .def_prop_ro("node_builders", [](const GraphBuilder &self) {
                     return nb::tuple(nb::cast(self.node_builders));
                 })

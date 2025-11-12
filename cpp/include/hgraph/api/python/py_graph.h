@@ -19,11 +19,17 @@ namespace hgraph {
     struct EvaluationClock;
     struct EngineEvaluationClock;
     struct Traits;
+    struct GraphExecutorImpl;
+    struct GraphBuilder;
 }
 
 namespace hgraph::api {
     
     class PyGraph {
+        // Allow extracting raw graph pointer for C++ interop
+        friend struct hgraph::GraphExecutorImpl;
+        friend struct hgraph::GraphBuilder;
+        
     public:
         PyGraph(Graph* impl, control_block_ptr control_block);
         
@@ -39,6 +45,7 @@ namespace hgraph::api {
         [[nodiscard]] std::string label() const;
         
         // Evaluation context (read-only)
+        [[nodiscard]] nb::object evaluation_engine_api() const;
         [[nodiscard]] nb::object evaluation_clock() const;
         [[nodiscard]] nb::object traits() const;
         

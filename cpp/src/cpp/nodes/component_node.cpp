@@ -9,6 +9,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/lifecycle.h>
+#include <hgraph/api/python/python_api.h>
 #include <format>
 
 namespace hgraph {
@@ -269,7 +270,20 @@ namespace hgraph {
 
     void ComponentNode::register_with_nanobind(nb::module_ &m) {
         nb::class_ < ComponentNode, NestedNode > (m, "ComponentNode")
-                .def_prop_ro("active_graph", [](ComponentNode &self) { return self.m_active_graph_; })
-                .def_prop_ro("nested_graphs", &ComponentNode::nested_graphs);
+                .def_prop_ro("active_graph", [](ComponentNode &self) -> nb::object {
+                    if (self.m_active_graph_) {
+                        // Use the graph's own control block
+                        return api::wrap_graph(self.m_active_graph_.get(), self.m_active_graph_->api_control_block());
+                    }
+                    return nb::none();
+                })
+                .def_prop_ro("nested_graphs", [](const ComponentNode &self) -> nb::dict {
+                    nb::dict result;
+                    for (const auto &[key, graph] : self.nested_graphs()) {
+                        // Use each graph's own control block
+                        result[nb::cast(key)] = api::wrap_graph(graph.get(), graph->api_control_block());
+                    }
+                    return result;
+                });
     }
 } // namespace hgraph

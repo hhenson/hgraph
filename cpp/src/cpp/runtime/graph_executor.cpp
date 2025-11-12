@@ -4,6 +4,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/util/lifecycle.h>
+#include <hgraph/api/python/python_api.h>
 
 namespace hgraph {
     struct PyEvaluationLifeCycleObserver : EvaluationLifeCycleObserver {
@@ -37,7 +38,11 @@ namespace hgraph {
     void GraphExecutor::register_with_nanobind(nb::module_ &m) {
         nb::class_<GraphExecutor, nb::intrusive_base>(m, "GraphExecutor")
                 .def_prop_ro("run_mode", &GraphExecutor::run_mode)
-                .def_prop_ro("graph", &GraphExecutor::graph)
+                .def_prop_ro("graph", [](const GraphExecutor &self) -> nb::object {
+                    auto graph = self.graph();
+                    // Use the graph's own control block
+                    return api::wrap_graph(graph.get(), graph->api_control_block());
+                })
                 .def("run", &GraphExecutor::run)
                 .def("__str__",
                      [](const GraphExecutor &self) {
@@ -143,9 +148,26 @@ namespace hgraph {
 
     void GraphExecutorImpl::register_with_nanobind(nb::module_ &m) {
         nb::class_ < GraphExecutorImpl, GraphExecutor > (m, "GraphExecutorImpl")
-                .def(nb::init<graph_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::ptr> >(), "graph"_a,
-                     "run_mode"_a,
-                     "observers"_a = std::vector<EvaluationLifeCycleObserver::ptr>{});
+                .def("__init__", [](GraphExecutorImpl *self, nb::object graph_obj, EvaluationMode run_mode,
+                                    std::vector<EvaluationLifeCycleObserver::ptr> observers) {
+                    // Extract raw graph from PyGraph wrapper or accept raw graph
+                    graph_ptr graph;
+                    try {
+                        // Try to extract from PyGraph wrapper using handle
+                        nb::handle graph_handle = graph_obj;
+                        auto* py_graph = nb::inst_ptr<api::PyGraph>(graph_handle);
+                        if (py_graph) {
+                            graph = nb::ref<Graph>(py_graph->_impl.get());
+                        } else {
+                            // Fallback: accept raw graph_ptr (for backward compatibility)
+                            graph = nb::cast<graph_ptr>(graph_obj);
+                        }
+                    } catch (...) {
+                        // Final fallback
+                        graph = nb::cast<graph_ptr>(graph_obj);
+                    }
+                    new (self) GraphExecutorImpl(graph, run_mode, std::move(observers));
+                }, "graph"_a, "run_mode"_a, "observers"_a = std::vector<EvaluationLifeCycleObserver::ptr>{});
     }
 
     void GraphExecutorImpl::_evaluate(EvaluationEngine &evaluationEngine) {

@@ -5,6 +5,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
+#include <hgraph/api/python/api_ptr.h>
 
 #include <utility>
 
@@ -320,6 +321,11 @@ namespace hgraph {
     }
 
     void Graph::dispose() {
+        // Mark control block as dead so all Python wrappers know this graph is no longer valid
+        if (_api_control_block) {
+            _api_control_block->mark_dead();
+        }
+        
         // Since we initialise nodes from within the graph, we need to dispose them here.
         for (auto &node: _nodes) { node->dispose(); }
     }

@@ -8,6 +8,7 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/api/python/python_api.h>
 #include <utility>
 
 namespace hgraph {
@@ -92,7 +93,20 @@ namespace hgraph {
 
     void NestedGraphNode::register_with_nanobind(nb::module_ &m) {
         nb::class_ < NestedGraphNode, NestedNode > (m, "NestedGraphNode")
-                .def_prop_ro("active_graph", [](NestedGraphNode &self) { return self.m_active_graph_; })
-                .def_prop_ro("nested_graphs", &NestedGraphNode::nested_graphs);
+                .def_prop_ro("active_graph", [](NestedGraphNode &self) -> nb::object {
+                    if (self.m_active_graph_) {
+                        // Use the graph's own control block
+                        return api::wrap_graph(self.m_active_graph_.get(), self.m_active_graph_->api_control_block());
+                    }
+                    return nb::none();
+                })
+                .def_prop_ro("nested_graphs", [](const NestedGraphNode &self) -> nb::dict {
+                    nb::dict result;
+                    for (const auto &[key, graph] : self.nested_graphs()) {
+                        // Use each graph's own control block
+                        result[nb::cast(key)] = api::wrap_graph(graph.get(), graph->api_control_block());
+                    }
+                    return result;
+                });
     }
 } // namespace hgraph

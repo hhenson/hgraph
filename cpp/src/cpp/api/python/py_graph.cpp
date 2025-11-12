@@ -47,6 +47,11 @@ namespace hgraph::api {
         return lbl.value_or("");
     }
     
+    nb::object PyGraph::evaluation_engine_api() const {
+        // TODO: Wrap EvaluationEngineApi
+        return nb::cast(_impl->evaluation_engine_api());
+    }
+    
     nb::object PyGraph::evaluation_clock() const {
         // TODO: Wrap EvaluationClock
         return nb::cast(_impl->evaluation_clock());
@@ -74,6 +79,7 @@ namespace hgraph::api {
             .def_prop_ro("nodes", &PyGraph::nodes)
             .def_prop_ro("parent_node", &PyGraph::parent_node)
             .def_prop_ro("label", &PyGraph::label)
+            .def_prop_ro("evaluation_engine_api", &PyGraph::evaluation_engine_api)
             .def_prop_ro("evaluation_clock", &PyGraph::evaluation_clock)
             .def_prop_ro("traits", &PyGraph::traits)
             .def("__str__", &PyGraph::str)

@@ -12,6 +12,7 @@
 #include <hgraph/types/ts.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/lifecycle.h>
+#include <hgraph/api/python/python_api.h>
 
 namespace hgraph {
     // Helper to compare keys (special handling for nb::object)
@@ -307,26 +308,46 @@ namespace hgraph {
     template struct SwitchNode<engine_time_delta_t>;
     template struct SwitchNode<nb::object>;
 
+    // Helper template to wrap nested_graphs map
+    template<typename T>
+    nb::dict wrap_switch_node_nested_graphs(const SwitchNode<T> &self) {
+        nb::dict result;
+        for (const auto &[key, graph] : self.nested_graphs()) {
+            // Use each graph's own control block
+            result[nb::cast(key)] = api::wrap_graph(graph.get(), graph->api_control_block());
+        }
+        return result;
+    }
+    
+    // Explicit instantiations
+    template nb::dict wrap_switch_node_nested_graphs<bool>(const SwitchNode<bool>&);
+    template nb::dict wrap_switch_node_nested_graphs<int64_t>(const SwitchNode<int64_t>&);
+    template nb::dict wrap_switch_node_nested_graphs<double>(const SwitchNode<double>&);
+    template nb::dict wrap_switch_node_nested_graphs<engine_date_t>(const SwitchNode<engine_date_t>&);
+    template nb::dict wrap_switch_node_nested_graphs<engine_time_t>(const SwitchNode<engine_time_t>&);
+    template nb::dict wrap_switch_node_nested_graphs<engine_time_delta_t>(const SwitchNode<engine_time_delta_t>&);
+    template nb::dict wrap_switch_node_nested_graphs<nb::object>(const SwitchNode<nb::object>&);
+    
     void register_switch_node_with_nanobind(nb::module_ &m) {
         nb::class_<SwitchNode<bool>, NestedNode>(m, "SwitchNode_bool")
-                .def_prop_ro("nested_graphs", &SwitchNode<bool>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<bool>);
 
         nb::class_<SwitchNode<int64_t>, NestedNode>(m, "SwitchNode_int")
-                .def_prop_ro("nested_graphs", &SwitchNode<int64_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<int64_t>);
 
         nb::class_<SwitchNode<double>, NestedNode>(m, "SwitchNode_float")
-                .def_prop_ro("nested_graphs", &SwitchNode<double>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<double>);
 
         nb::class_<SwitchNode<engine_date_t>, NestedNode>(m, "SwitchNode_date")
-                .def_prop_ro("nested_graphs", &SwitchNode<engine_date_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<engine_date_t>);
 
         nb::class_<SwitchNode<engine_time_t>, NestedNode>(m, "SwitchNode_date_time")
-                .def_prop_ro("nested_graphs", &SwitchNode<engine_time_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<engine_time_t>);
 
         nb::class_<SwitchNode<engine_time_delta_t>, NestedNode>(m, "SwitchNode_time_delta")
-                .def_prop_ro("nested_graphs", &SwitchNode<engine_time_delta_t>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<engine_time_delta_t>);
 
         nb::class_<SwitchNode<nb::object>, NestedNode>(m, "SwitchNode_object")
-                .def_prop_ro("nested_graphs", &SwitchNode<nb::object>::nested_graphs);
+                .def_prop_ro("nested_graphs", &wrap_switch_node_nested_graphs<nb::object>);
     }
 } // namespace hgraph
