@@ -229,6 +229,10 @@ namespace hgraph::api {
         void add(nb::object item);
         void remove(nb::object item);
         
+        [[nodiscard]] nb::object is_empty_output();
+        [[nodiscard]] nb::object get_contains_output(nb::object item, nb::object requester);
+        void release_contains_output(nb::object item, nb::object requester);
+        
         static void register_with_nanobind(nb::module_& m);
     };
     

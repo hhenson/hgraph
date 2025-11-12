@@ -879,6 +879,23 @@ namespace hgraph::api {
         impl->py_remove(item);
     }
     
+    nb::object PyTimeSeriesSetOutput::is_empty_output() {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        auto& output_ref = impl->is_empty_output();
+        return wrap_output(output_ref.get(), _impl.control_block());
+    }
+    
+    nb::object PyTimeSeriesSetOutput::get_contains_output(nb::object item, nb::object requester) {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        auto result = impl->get_contains_output(item, requester);
+        return wrap_output(result.get(), _impl.control_block());
+    }
+    
+    void PyTimeSeriesSetOutput::release_contains_output(nb::object item, nb::object requester) {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        impl->release_contains_output(item, requester);
+    }
+    
     void PyTimeSeriesSetOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput")
             .def("__contains__", &PyTimeSeriesSetOutput::contains)
@@ -886,7 +903,10 @@ namespace hgraph::api {
             .def("empty", &PyTimeSeriesSetOutput::empty)
             .def("values", &PyTimeSeriesSetOutput::values)
             .def("add", &PyTimeSeriesSetOutput::add)
-            .def("remove", &PyTimeSeriesSetOutput::remove);
+            .def("remove", &PyTimeSeriesSetOutput::remove)
+            .def("is_empty_output", &PyTimeSeriesSetOutput::is_empty_output)
+            .def("get_contains_output", &PyTimeSeriesSetOutput::get_contains_output, "item"_a, "requester"_a)
+            .def("release_contains_output", &PyTimeSeriesSetOutput::release_contains_output, "item"_a, "requester"_a);
     }
     
     // ============================================================================
