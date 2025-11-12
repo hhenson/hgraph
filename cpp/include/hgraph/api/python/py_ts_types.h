@@ -174,6 +174,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::object items() const;
         
         [[nodiscard]] nb::object valid_keys() const;
+        [[nodiscard]] nb::object valid_values() const;
         [[nodiscard]] nb::object valid_items() const;
         [[nodiscard]] nb::object added_keys() const;
         [[nodiscard]] nb::object added_items() const;

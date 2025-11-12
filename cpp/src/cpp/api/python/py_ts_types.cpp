@@ -690,6 +690,11 @@ namespace hgraph::api {
         return impl->py_valid_keys();
     }
     
+    nb::object PyTimeSeriesDictInput::valid_values() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        return impl->py_valid_values();
+    }
+    
     nb::object PyTimeSeriesDictInput::valid_items() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
         
@@ -835,6 +840,7 @@ namespace hgraph::api {
             .def("values", &PyTimeSeriesDictInput::values)
             .def("items", &PyTimeSeriesDictInput::items)
             .def("valid_keys", &PyTimeSeriesDictInput::valid_keys)
+            .def("valid_values", &PyTimeSeriesDictInput::valid_values)
             .def("valid_items", &PyTimeSeriesDictInput::valid_items)
             .def("added_keys", &PyTimeSeriesDictInput::added_keys)
             .def("added_items", &PyTimeSeriesDictInput::added_items)
