@@ -3,9 +3,11 @@
 //
 
 #include <hgraph/api/python/py_node.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/tsb.h>  // For TimeSeriesBundleInput
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
@@ -48,76 +50,32 @@ namespace hgraph::api {
         return _impl->scalars();
     }
     
-    nb::object PyNode::graph() const {
-        // TODO: Wrap in PyGraph
-        return nb::cast(_impl->graph());
+    PyGraph PyNode::graph() const {
+        return wrap_graph(_impl->graph(), _impl.control_block());
     }
     
-    void PyNode::set_graph(nb::object graph) {
-        // TODO: Unwrap PyGraph
-        _impl->set_graph(nb::cast<graph_ptr>(graph));
-    }
-    
-    nb::object PyNode::input() const {
-        // TODO: Wrap in PyTimeSeriesBundleInput
-        return nb::cast(_impl->input());
-    }
-    
-    void PyNode::set_input(nb::object input) {
-        // TODO: Unwrap PyTimeSeriesBundleInput
-        _impl->set_input(nb::cast<time_series_bundle_input_ptr>(input));
+    PyTimeSeriesBundleInput PyNode::input() const {
+        auto tsb_ref = _impl->input();
+        return PyTimeSeriesBundleInput(tsb_ref.get(), _impl.control_block());
     }
     
     nb::dict PyNode::inputs() const {
         nb::dict d;
         auto inp = *_impl->input();
         for (const auto& key : inp.schema().keys()) {
-            // TODO: Wrap each input in appropriate PyTimeSeriesInput type
-            d[key.c_str()] = inp[key];
+            // Wrap each input in appropriate type using factory
+            d[key.c_str()] = wrap_input(inp[key], _impl.control_block());
         }
         return d;
     }
     
-    nb::list PyNode::start_inputs() const {
-        // TODO: Wrap each input in appropriate PyTimeSeriesInput type
-        return nb::list();  // Stub
+    PyTimeSeriesOutput PyNode::output() const {
+        // Use factory to determine appropriate wrapper type
+        return wrap_output(_impl->output(), _impl.control_block());
     }
     
-    nb::object PyNode::output() const {
-        // TODO: Wrap in appropriate PyTimeSeriesOutput type
-        return nb::cast(_impl->output());
-    }
-    
-    void PyNode::set_output(nb::object output) {
-        // TODO: Unwrap PyTimeSeriesOutput
-        _impl->set_output(nb::cast<time_series_output_ptr>(output));
-    }
-    
-    nb::object PyNode::recordable_state() const {
-        // TODO: Wrap in PyTimeSeriesBundleOutput
-        return nb::cast(_impl->recordable_state());
-    }
-    
-    void PyNode::set_recordable_state(nb::object state) {
-        // TODO: Unwrap PyTimeSeriesBundleOutput
-        _impl->set_recordable_state(nb::cast<time_series_bundle_output_ptr>(state));
-    }
-    
-    nb::object PyNode::scheduler() const {
-        // TODO: Wrap in PyNodeScheduler
-        return nb::cast(_impl->scheduler());
-    }
-    
-    void PyNode::eval() {
-        _impl->eval();
-    }
-    
-    void PyNode::notify() {
-        _impl->notify();
-    }
-    
-    void PyNode::notify(engine_time_t modified_time) {
-        _impl->notify(modified_time);
+    PyNodeScheduler PyNode::scheduler() const {
+        return wrap_node_scheduler(_impl->scheduler(), _impl.control_block());
     }
     
     std::string PyNode::str() const {
@@ -135,16 +93,11 @@ namespace hgraph::api {
             .def_prop_ro("node_id", &PyNode::node_id)
             .def_prop_ro("signature", &PyNode::signature)
             .def_prop_ro("scalars", &PyNode::scalars)
-            .def_prop_rw("graph", &PyNode::graph, &PyNode::set_graph)
-            .def_prop_rw("input", &PyNode::input, &PyNode::set_input)
+            .def_prop_ro("graph", &PyNode::graph)
+            .def_prop_ro("input", &PyNode::input)
             .def_prop_ro("inputs", &PyNode::inputs)
-            .def_prop_ro("start_inputs", &PyNode::start_inputs)
-            .def_prop_rw("output", &PyNode::output, &PyNode::set_output)
-            .def_prop_rw("recordable_state", &PyNode::recordable_state, &PyNode::set_recordable_state)
+            .def_prop_ro("output", &PyNode::output)
             .def_prop_ro("scheduler", &PyNode::scheduler)
-            .def("eval", &PyNode::eval)
-            .def("notify", nb::overload_cast<>(&PyNode::notify))
-            .def("notify", nb::overload_cast<engine_time_t>(&PyNode::notify))
             .def("__str__", &PyNode::str)
             .def("__repr__", &PyNode::repr);
     }

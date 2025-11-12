@@ -95,6 +95,11 @@ namespace hgraph::api {
             return _control_block && _control_block->is_alive();
         }
         
+        // Get control block (for passing to factory functions)
+        [[nodiscard]] control_block_ptr control_block() const noexcept {
+            return _control_block;
+        }
+        
         // Explicit bool conversion
         explicit operator bool() const noexcept {
             return has_value();

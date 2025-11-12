@@ -19,6 +19,9 @@
 // Specialized time series types
 #include <hgraph/api/python/py_ts_types.h>
 
+// Factory functions
+#include <hgraph/api/python/wrapper_factory.h>
+
 #include <nanobind/nanobind.h>
 
 namespace hgraph::api {

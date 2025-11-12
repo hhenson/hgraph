@@ -34,24 +34,14 @@ namespace hgraph::api {
         PyGraph(const PyGraph&) = delete;
         PyGraph& operator=(const PyGraph&) = delete;
         
+        // Graph identification
         [[nodiscard]] nb::tuple graph_id() const;
-        [[nodiscard]] nb::tuple nodes() const;
-        [[nodiscard]] nb::object parent_node() const;
+        [[nodiscard]] nb::tuple nodes() const;  // Tuple of PyNode wrappers
+        [[nodiscard]] nb::object parent_node() const;  // Optional PyNode
         [[nodiscard]] std::string label() const;
         
-        [[nodiscard]] nb::object evaluation_engine_api() const;
+        // Evaluation context (read-only)
         [[nodiscard]] nb::object evaluation_clock() const;
-        [[nodiscard]] nb::object engine_evaluation_clock() const;
-        
-        [[nodiscard]] nb::object evaluation_engine() const;
-        void set_evaluation_engine(nb::object engine);
-        
-        [[nodiscard]] int64_t push_source_nodes_end() const;
-        void schedule_node(int64_t node_ndx, engine_time_t when, bool force_set = false);
-        [[nodiscard]] nb::object schedule() const;
-        
-        void evaluate_graph();
-        [[nodiscard]] nb::object copy_with(nb::tuple nodes) const;
         [[nodiscard]] nb::object traits() const;
         
         [[nodiscard]] std::string str() const;
@@ -59,8 +49,15 @@ namespace hgraph::api {
         
         static void register_with_nanobind(nb::module_& m);
         
-        [[nodiscard]] Graph* impl() const { return _impl.get(); }
-        [[nodiscard]] bool is_valid() const { return _impl.has_value(); }
+        /**
+         * Check if this wrapper is valid and usable.
+         * Returns false if:
+         * - The wrapper is empty/moved-from, OR
+         * - The graph has been destroyed/disposed
+         */
+        [[nodiscard]] bool is_valid() const { 
+            return _impl.has_value() && _impl.is_graph_alive(); 
+        }
         
     private:
         ApiPtr<Graph> _impl;

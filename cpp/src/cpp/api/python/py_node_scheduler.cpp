@@ -14,40 +14,40 @@ namespace hgraph::api {
     PyNodeScheduler::PyNodeScheduler(NodeScheduler* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
     
-    void PyNodeScheduler::schedule(engine_time_t when) {
-        _impl->schedule(when);
-    }
-    
-    void PyNodeScheduler::schedule(engine_time_t when, bool force_set) {
-        _impl->schedule(when, force_set);
+    void PyNodeScheduler::schedule(engine_time_t when, std::optional<std::string> tag, bool on_wall_clock) {
+        _impl->schedule(when, std::move(tag), on_wall_clock);
     }
     
     bool PyNodeScheduler::is_scheduled() const {
         return _impl->is_scheduled();
     }
     
-    engine_time_t PyNodeScheduler::last_scheduled_time() const {
-        return _impl->last_scheduled_time();
+    bool PyNodeScheduler::is_scheduled_now() const {
+        return _impl->is_scheduled_now();
     }
     
     engine_time_t PyNodeScheduler::next_scheduled_time() const {
         return _impl->next_scheduled_time();
     }
     
-    void PyNodeScheduler::pop_tag(const std::string& tag) {
-        _impl->pop_tag(tag);
+    engine_time_t PyNodeScheduler::pop_tag(const std::string& tag) {
+        return _impl->pop_tag(tag);
     }
     
-    void PyNodeScheduler::schedule_with_tag(engine_time_t when, const std::string& tag) {
-        _impl->schedule_with_tag(when, tag);
+    engine_time_t PyNodeScheduler::pop_tag(const std::string& tag, engine_time_t default_time) {
+        return _impl->pop_tag(tag, default_time);
     }
     
     bool PyNodeScheduler::has_tag(const std::string& tag) const {
         return _impl->has_tag(tag);
     }
     
-    void PyNodeScheduler::set_alarm(engine_time_t when, const std::string& tag) {
-        _impl->set_alarm(when, tag);
+    void PyNodeScheduler::un_schedule() {
+        _impl->un_schedule();
+    }
+    
+    void PyNodeScheduler::un_schedule(const std::string& tag) {
+        _impl->un_schedule(tag);
     }
     
     std::string PyNodeScheduler::str() const {
@@ -60,15 +60,15 @@ namespace hgraph::api {
     
     void PyNodeScheduler::register_with_nanobind(nb::module_& m) {
         nb::class_<PyNodeScheduler>(m, "NodeScheduler")
-            .def("schedule", nb::overload_cast<engine_time_t>(&PyNodeScheduler::schedule), "when"_a)
-            .def("schedule", nb::overload_cast<engine_time_t, bool>(&PyNodeScheduler::schedule), "when"_a, "force_set"_a)
+            .def("schedule", &PyNodeScheduler::schedule, "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
             .def_prop_ro("is_scheduled", &PyNodeScheduler::is_scheduled)
-            .def_prop_ro("last_scheduled_time", &PyNodeScheduler::last_scheduled_time)
+            .def_prop_ro("is_scheduled_now", &PyNodeScheduler::is_scheduled_now)
             .def_prop_ro("next_scheduled_time", &PyNodeScheduler::next_scheduled_time)
-            .def("pop_tag", &PyNodeScheduler::pop_tag, "tag"_a)
-            .def("schedule_with_tag", &PyNodeScheduler::schedule_with_tag, "when"_a, "tag"_a)
+            .def("pop_tag", nb::overload_cast<const std::string&>(&PyNodeScheduler::pop_tag), "tag"_a)
+            .def("pop_tag", nb::overload_cast<const std::string&, engine_time_t>(&PyNodeScheduler::pop_tag), "tag"_a, "default_time"_a)
             .def("has_tag", &PyNodeScheduler::has_tag, "tag"_a)
-            .def("set_alarm", &PyNodeScheduler::set_alarm, "when"_a, "tag"_a)
+            .def("un_schedule", nb::overload_cast<>(&PyNodeScheduler::un_schedule))
+            .def("un_schedule", nb::overload_cast<const std::string&>(&PyNodeScheduler::un_schedule), "tag"_a)
             .def("__str__", &PyNodeScheduler::str)
             .def("__repr__", &PyNodeScheduler::repr);
     }

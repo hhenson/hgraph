@@ -3,6 +3,7 @@
 //
 
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/node.h>
 
@@ -18,18 +19,13 @@ namespace hgraph::api {
     PyTimeSeriesInput::PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
     
-    nb::object PyTimeSeriesInput::owning_node() const {
-        // TODO: Wrap in PyNode
-        return nb::cast(_impl->owning_node());
+    PyNode PyTimeSeriesInput::owning_node() const {
+        return wrap_node(_impl->owning_node(), _impl.control_block());
     }
     
-    nb::object PyTimeSeriesInput::parent_input() const {
-        // TODO: Wrap in appropriate PyTimeSeriesInput type
+    PyTimeSeriesInput PyTimeSeriesInput::parent_input() const {
         auto parent = _impl->parent_input();
-        if (parent) {
-            return nb::cast(parent);
-        }
-        return nb::none();
+        return wrap_input(parent, _impl.control_block());
     }
     
     bool PyTimeSeriesInput::has_parent_input() const {
@@ -68,13 +64,18 @@ namespace hgraph::api {
         return _impl->has_peer();
     }
     
-    nb::object PyTimeSeriesInput::output() const {
-        // TODO: Wrap in appropriate PyTimeSeriesOutput type
+    PyTimeSeriesOutput PyTimeSeriesInput::output() const {
         auto out = _impl->output();
-        if (out) {
-            return nb::cast(out);
-        }
-        return nb::none();
+        return wrap_output(out, _impl.control_block());
+    }
+    
+    bool PyTimeSeriesInput::bind_output(nb::object output) {
+        // TODO: Unwrap PyTimeSeriesOutput
+        return _impl->bind_output(nb::cast<time_series_output_ptr>(output));
+    }
+    
+    void PyTimeSeriesInput::un_bind_output(bool unbind_refs) {
+        _impl->un_bind_output(unbind_refs);
     }
     
     bool PyTimeSeriesInput::is_reference() const {
@@ -103,6 +104,8 @@ namespace hgraph::api {
             .def_prop_ro("bound", &PyTimeSeriesInput::bound)
             .def_prop_ro("has_peer", &PyTimeSeriesInput::has_peer)
             .def_prop_ro("output", &PyTimeSeriesInput::output)
+            .def("bind_output", &PyTimeSeriesInput::bind_output, "output"_a)
+            .def("un_bind_output", &PyTimeSeriesInput::un_bind_output, "unbind_refs"_a = false)
             .def("is_reference", &PyTimeSeriesInput::is_reference)
             .def("__str__", &PyTimeSeriesInput::str)
             .def("__repr__", &PyTimeSeriesInput::repr);
@@ -115,18 +118,13 @@ namespace hgraph::api {
     PyTimeSeriesOutput::PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
     
-    nb::object PyTimeSeriesOutput::owning_node() const {
-        // TODO: Wrap in PyNode
-        return nb::cast(_impl->owning_node());
+    PyNode PyTimeSeriesOutput::owning_node() const {
+        return wrap_node(_impl->owning_node(), _impl.control_block());
     }
     
-    nb::object PyTimeSeriesOutput::parent_output() const {
-        // TODO: Wrap in appropriate PyTimeSeriesOutput type
+    PyTimeSeriesOutput PyTimeSeriesOutput::parent_output() const {
         auto parent = _impl->parent_output();
-        if (parent) {
-            return nb::cast(parent);
-        }
-        return nb::none();
+        return wrap_output(parent, _impl.control_block());
     }
     
     bool PyTimeSeriesOutput::has_parent_output() const {
@@ -146,20 +144,15 @@ namespace hgraph::api {
     }
     
     nb::object PyTimeSeriesOutput::value() const {
-        return _impl->value();
+        return _impl->py_value();
     }
     
     void PyTimeSeriesOutput::set_value(nb::object value) {
-        _impl->apply_result(value);
+        _impl->py_set_value(std::move(value));
     }
     
     nb::object PyTimeSeriesOutput::delta_value() const {
-        return _impl->delta_value();
-    }
-    
-    void PyTimeSeriesOutput::subscribe(nb::object node) {
-        // TODO: Unwrap PyNode
-        _impl->subscribe(nb::cast<node_ptr>(node));
+        return _impl->py_delta_value();
     }
     
     void PyTimeSeriesOutput::invalidate() {
@@ -188,7 +181,6 @@ namespace hgraph::api {
             .def_prop_ro("all_valid", &PyTimeSeriesOutput::all_valid)
             .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value)
             .def_prop_ro("delta_value", &PyTimeSeriesOutput::delta_value)
-            .def("subscribe", &PyTimeSeriesOutput::subscribe, "node"_a)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
             .def("is_reference", &PyTimeSeriesOutput::is_reference)
             .def("__str__", &PyTimeSeriesOutput::str)

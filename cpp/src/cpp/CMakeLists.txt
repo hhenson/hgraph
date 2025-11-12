@@ -68,6 +68,7 @@ set(HGRAPH_SOURCES
         api/python/py_time_series.cpp
         api/python/py_ts_types.cpp
         api/python/py_api_registration.cpp
+        api/python/wrapper_factory.cpp
 
         runtime/evaluation_context.cpp
         runtime/evaluation_engine.cpp

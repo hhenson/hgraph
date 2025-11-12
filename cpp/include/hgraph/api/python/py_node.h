@@ -30,11 +30,10 @@ namespace hgraph::api {
     
     // Forward declarations for Python API types
     class PyGraph;
-    class PyTimeSeriesBundleInput;
+    class PyNodeScheduler;
     class PyTimeSeriesInput;
     class PyTimeSeriesOutput;
-    class PyTimeSeriesBundleOutput;
-    class PyNodeScheduler;
+    class PyTimeSeriesBundleInput;
     
     /**
      * PyNode - Python API wrapper for Node implementation
@@ -64,31 +63,16 @@ namespace hgraph::api {
         [[nodiscard]] nb::object signature() const;  // Returns NodeSignature wrapper
         [[nodiscard]] const nb::dict& scalars() const;
         
-        // Graph access
-        [[nodiscard]] nb::object graph() const;  // Returns PyGraph wrapper
-        void set_graph(nb::object graph);  // Accepts PyGraph wrapper
+        // Graph access (read-only)
+        [[nodiscard]] PyGraph graph() const;
         
-        // Input/Output access
-        [[nodiscard]] nb::object input() const;  // Returns PyTimeSeriesBundleInput wrapper
-        void set_input(nb::object input);  // Accepts PyTimeSeriesBundleInput wrapper
+        // Input/Output access (read-only)
+        [[nodiscard]] PyTimeSeriesBundleInput input() const;
+        [[nodiscard]] nb::dict inputs() const;  // Dict values are polymorphic PyTimeSeriesInput wrappers
+        [[nodiscard]] PyTimeSeriesOutput output() const;  // Returns appropriate specialized wrapper
         
-        [[nodiscard]] nb::dict inputs() const;  // Returns dict of input name -> PyTimeSeriesInput
-        [[nodiscard]] nb::list start_inputs() const;  // Returns list of PyTimeSeriesInput
-        
-        [[nodiscard]] nb::object output() const;  // Returns PyTimeSeriesOutput wrapper
-        void set_output(nb::object output);  // Accepts PyTimeSeriesOutput wrapper
-        
-        // Recordable state
-        [[nodiscard]] nb::object recordable_state() const;  // Returns PyTimeSeriesBundleOutput wrapper
-        void set_recordable_state(nb::object state);  // Accepts PyTimeSeriesBundleOutput wrapper
-        
-        // Scheduler
-        [[nodiscard]] nb::object scheduler() const;  // Returns PyNodeScheduler wrapper
-        
-        // Methods
-        void eval();
-        void notify();
-        void notify(engine_time_t modified_time);
+        // Scheduler (read-only, for debugging)
+        [[nodiscard]] PyNodeScheduler scheduler() const;
         
         // Python __str__ and __repr__
         [[nodiscard]] std::string str() const;
@@ -97,9 +81,15 @@ namespace hgraph::api {
         // Nanobind registration (as "Node" in Python)
         static void register_with_nanobind(nb::module_& m);
         
-        // Internal: Get the raw implementation pointer (for internal use only)
-        [[nodiscard]] Node* impl() const { return _impl.get(); }
-        [[nodiscard]] bool is_valid() const { return _impl.has_value(); }
+        /**
+         * Check if this wrapper is valid and usable.
+         * Returns false if:
+         * - The wrapper is empty/moved-from, OR
+         * - The graph has been destroyed/disposed
+         */
+        [[nodiscard]] bool is_valid() const { 
+            return _impl.has_value() && _impl.is_graph_alive(); 
+        }
         
     private:
         ApiPtr<Node> _impl;
