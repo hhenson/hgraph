@@ -41,6 +41,9 @@ namespace hgraph::api {
         [[nodiscard]] bool modified() const;
         [[nodiscard]] bool all_valid() const;
         
+        [[nodiscard]] nb::object value() const;
+        [[nodiscard]] nb::object delta_value() const;
+        
         [[nodiscard]] bool active() const;
         void make_active();
         void make_passive();

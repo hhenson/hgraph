@@ -44,6 +44,14 @@ namespace hgraph::api {
         return _impl->all_valid();
     }
     
+    nb::object PyTimeSeriesInput::value() const {
+        return _impl->py_value();
+    }
+    
+    nb::object PyTimeSeriesInput::delta_value() const {
+        return _impl->py_delta_value();
+    }
+    
     bool PyTimeSeriesInput::active() const {
         return _impl->active();
     }
@@ -98,6 +106,8 @@ namespace hgraph::api {
             .def_prop_ro("valid", &PyTimeSeriesInput::valid)
             .def_prop_ro("modified", &PyTimeSeriesInput::modified)
             .def_prop_ro("all_valid", &PyTimeSeriesInput::all_valid)
+            .def_prop_ro("value", &PyTimeSeriesInput::value)
+            .def_prop_ro("delta_value", &PyTimeSeriesInput::delta_value)
             .def_prop_ro("active", &PyTimeSeriesInput::active)
             .def("make_active", &PyTimeSeriesInput::make_active)
             .def("make_passive", &PyTimeSeriesInput::make_passive)
