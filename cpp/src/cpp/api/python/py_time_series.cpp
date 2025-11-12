@@ -159,6 +159,14 @@ namespace hgraph::api {
         _impl->invalidate();
     }
     
+    void PyTimeSeriesOutput::copy_from_output(const PyTimeSeriesOutput& output) {
+        _impl->copy_from_output(*output._impl);
+    }
+    
+    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput& input) {
+        _impl->copy_from_input(*input._impl);
+    }
+    
     bool PyTimeSeriesOutput::is_reference() const {
         return _impl->is_reference();
     }
@@ -182,6 +190,8 @@ namespace hgraph::api {
             .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value)
             .def_prop_ro("delta_value", &PyTimeSeriesOutput::delta_value)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
+            .def("copy_from_output", &PyTimeSeriesOutput::copy_from_output, "output"_a)
+            .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input, "input"_a)
             .def("is_reference", &PyTimeSeriesOutput::is_reference)
             .def("__str__", &PyTimeSeriesOutput::str)
             .def("__repr__", &PyTimeSeriesOutput::repr);

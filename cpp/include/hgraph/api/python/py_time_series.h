@@ -104,6 +104,10 @@ namespace hgraph::api {
         
         void invalidate();
         
+        // Copy operations
+        void copy_from_output(const PyTimeSeriesOutput& output);
+        void copy_from_input(const PyTimeSeriesInput& input);
+        
         [[nodiscard]] bool is_reference() const;
         
         [[nodiscard]] std::string str() const;
