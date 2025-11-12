@@ -787,6 +787,44 @@ namespace hgraph::api {
         impl->py_create(key);
     }
     
+    void PyTimeSeriesDictInput::on_key_added(nb::object key) {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        
+        // Cast to template type to access on_key_added
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            tsd->on_key_added(key);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<std::string>*>(impl)) {
+            tsd->on_key_added(nb::cast<std::string>(key));
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            tsd->on_key_added(nb::cast<int64_t>(key));
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            tsd->on_key_added(nb::cast<double>(key));
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            tsd->on_key_added(nb::cast<bool>(key));
+        } else {
+            throw std::runtime_error("on_key_added: Unsupported TSD key type");
+        }
+    }
+    
+    void PyTimeSeriesDictInput::on_key_removed(nb::object key) {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        
+        // Cast to template type to access on_key_removed
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            tsd->on_key_removed(key);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<std::string>*>(impl)) {
+            tsd->on_key_removed(nb::cast<std::string>(key));
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            tsd->on_key_removed(nb::cast<int64_t>(key));
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            tsd->on_key_removed(nb::cast<double>(key));
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            tsd->on_key_removed(nb::cast<bool>(key));
+        } else {
+            throw std::runtime_error("on_key_removed: Unsupported TSD key type");
+        }
+    }
+    
     void PyTimeSeriesDictInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__getitem__", &PyTimeSeriesDictInput::get_item)
@@ -805,7 +843,9 @@ namespace hgraph::api {
             .def("removed_keys", &PyTimeSeriesDictInput::removed_keys)
             .def("removed_items", &PyTimeSeriesDictInput::removed_items)
             .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set)
-            .def("_create", &PyTimeSeriesDictInput::_create, "key"_a);
+            .def("_create", &PyTimeSeriesDictInput::_create, "key"_a)
+            .def("on_key_added", &PyTimeSeriesDictInput::on_key_added, "key"_a)
+            .def("on_key_removed", &PyTimeSeriesDictInput::on_key_removed, "key"_a);
     }
     
     nb::object PyTimeSeriesDictOutput::get_item(nb::object key) const {

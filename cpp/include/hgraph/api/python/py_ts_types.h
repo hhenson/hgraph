@@ -184,8 +184,10 @@ namespace hgraph::api {
         
         [[nodiscard]] nb::object key_set() const;  // Returns PyTimeSeriesSetInput wrapper
         
-        // TSD key management (used by operators)
+        // TSD key management (used by operators) - TSDKeyObserver interface
         void _create(nb::object key);
+        void on_key_added(nb::object key);
+        void on_key_removed(nb::object key);
         
         static void register_with_nanobind(nb::module_& m);
     };
