@@ -18,6 +18,10 @@ namespace hgraph::api {
         _impl->schedule(when, std::move(tag), on_wall_clock);
     }
     
+    void PyNodeScheduler::schedule(engine_time_delta_t when, std::optional<std::string> tag, bool on_wall_clock) {
+        _impl->schedule(when, std::move(tag), on_wall_clock);
+    }
+    
     bool PyNodeScheduler::is_scheduled() const {
         return _impl->is_scheduled();
     }
@@ -60,7 +64,8 @@ namespace hgraph::api {
     
     void PyNodeScheduler::register_with_nanobind(nb::module_& m) {
         nb::class_<PyNodeScheduler>(m, "NodeScheduler")
-            .def("schedule", &PyNodeScheduler::schedule, "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
+            .def("schedule", nb::overload_cast<engine_time_t, std::optional<std::string>, bool>(&PyNodeScheduler::schedule), "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
+            .def("schedule", nb::overload_cast<engine_time_delta_t, std::optional<std::string>, bool>(&PyNodeScheduler::schedule), "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
             .def_prop_ro("is_scheduled", &PyNodeScheduler::is_scheduled)
             .def_prop_ro("is_scheduled_now", &PyNodeScheduler::is_scheduled_now)
             .def_prop_ro("next_scheduled_time", &PyNodeScheduler::next_scheduled_time)

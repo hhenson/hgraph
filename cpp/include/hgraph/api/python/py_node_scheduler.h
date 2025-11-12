@@ -30,6 +30,7 @@ namespace hgraph::api {
         
         // Schedule methods
         void schedule(engine_time_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
+        void schedule(engine_time_delta_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
         
         // Status queries
         [[nodiscard]] bool is_scheduled() const;
