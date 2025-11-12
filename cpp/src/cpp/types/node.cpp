@@ -640,7 +640,7 @@ namespace hgraph {
     }
 
     void NodeScheduler::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < NodeScheduler, intrusive_base > (m, "NodeScheduler")
+        nb::class_ < NodeScheduler, intrusive_base > (m, "_NodeScheduler")
                 .def_prop_ro("next_scheduled_time", &NodeScheduler::next_scheduled_time)
                 .def_prop_ro("is_scheduled", &NodeScheduler::is_scheduled)
                 .def_prop_ro("is_scheduled_now", &NodeScheduler::is_scheduled_now)
@@ -808,7 +808,7 @@ namespace hgraph {
     void Node::add_start_input(nb::ref<TimeSeriesReferenceInput> input) { _start_inputs.push_back(std::move(input)); }
 
     void Node::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < Node, ComponentLifeCycle > (m, "Node")
+        nb::class_ < Node, ComponentLifeCycle > (m, "_Node")
                 .def_prop_ro("node_ndx", &Node::node_ndx)
                 .def_prop_ro("owning_graph_id",
                              [](const Node &n) {

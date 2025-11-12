@@ -5,7 +5,7 @@
 
 namespace hgraph {
     void TimeSeriesType::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesType, nb::intrusive_base>(m, "TimeSeriesType")
+        nb::class_<TimeSeriesType, nb::intrusive_base>(m, "_TimeSeriesType")
                 .def_prop_ro("owning_node",
                              static_cast<node_ptr (TimeSeriesType::*)() const>(&TimeSeriesType::owning_node))
                 .def_prop_ro("owning_graph",
@@ -31,7 +31,7 @@ namespace hgraph {
     }
 
     void TimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesOutput, TimeSeriesType>(m, "TimeSeriesOutput")
+        nb::class_<TimeSeriesOutput, TimeSeriesType>(m, "_TimeSeriesOutput")
                 .def_prop_ro("parent_output",
                              [](const TimeSeriesOutput &ts) -> nb::object {
                                  if (ts.has_parent_output()) { return nb::cast(ts.parent_output()); }
@@ -62,7 +62,7 @@ namespace hgraph {
     }
 
     void TimeSeriesInput::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesInput, TimeSeriesType>(m, "TimeSeriesInput")
+        nb::class_<TimeSeriesInput, TimeSeriesType>(m, "_TimeSeriesInput")
                 .def_prop_ro("parent_input",
                              [](const TimeSeriesInput &ts) -> nb::object {
                                  if (ts.has_parent_input()) { return nb::cast(ts.parent_input()); }
