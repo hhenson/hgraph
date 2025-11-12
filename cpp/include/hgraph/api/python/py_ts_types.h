@@ -184,6 +184,9 @@ namespace hgraph::api {
         
         [[nodiscard]] nb::object key_set() const;  // Returns PyTimeSeriesSetInput wrapper
         
+        // TSD key management (used by operators)
+        void _create(nb::object key);
+        
         static void register_with_nanobind(nb::module_& m);
     };
     
@@ -203,6 +206,9 @@ namespace hgraph::api {
         void release_ref(nb::object key, nb::object requester);
         
         [[nodiscard]] nb::object key_set() const;  // Returns PyTimeSeriesSetOutput wrapper
+        
+        // TSD key management
+        void _create(nb::object key);
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -235,6 +241,10 @@ namespace hgraph::api {
         [[nodiscard]] int64_t len() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] nb::object values() const;
+        [[nodiscard]] nb::object added() const;
+        [[nodiscard]] nb::object removed() const;
+        [[nodiscard]] bool was_added(nb::object item) const;
+        [[nodiscard]] bool was_removed(nb::object item) const;
         
         void add(nb::object item);
         void remove(nb::object item);

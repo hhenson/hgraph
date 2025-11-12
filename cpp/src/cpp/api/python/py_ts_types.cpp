@@ -782,6 +782,11 @@ namespace hgraph::api {
         return wrap_input(&impl->key_set(), _impl.control_block());
     }
     
+    void PyTimeSeriesDictInput::_create(nb::object key) {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        impl->py_create(key);
+    }
+    
     void PyTimeSeriesDictInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__getitem__", &PyTimeSeriesDictInput::get_item)
@@ -799,7 +804,8 @@ namespace hgraph::api {
             .def("modified_items", &PyTimeSeriesDictInput::modified_items)
             .def("removed_keys", &PyTimeSeriesDictInput::removed_keys)
             .def("removed_items", &PyTimeSeriesDictInput::removed_items)
-            .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set);
+            .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set)
+            .def("_create", &PyTimeSeriesDictInput::_create, "key"_a);
     }
     
     nb::object PyTimeSeriesDictOutput::get_item(nb::object key) const {
@@ -853,6 +859,11 @@ namespace hgraph::api {
         return wrap_output(&impl->key_set(), _impl.control_block());
     }
     
+    void PyTimeSeriesDictOutput::_create(nb::object key) {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        impl->py_create(key);
+    }
+    
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item)
@@ -863,7 +874,8 @@ namespace hgraph::api {
             .def("items", &PyTimeSeriesDictOutput::items)
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
             .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
-            .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set);
+            .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set)
+            .def("_create", &PyTimeSeriesDictOutput::_create, "key"_a);
     }
     
     // ============================================================================
@@ -942,6 +954,26 @@ namespace hgraph::api {
         return impl->py_values();
     }
     
+    nb::object PyTimeSeriesSetOutput::added() const {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        return impl->py_added();
+    }
+    
+    nb::object PyTimeSeriesSetOutput::removed() const {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        return impl->py_removed();
+    }
+    
+    bool PyTimeSeriesSetOutput::was_added(nb::object item) const {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        return impl->py_was_added(item);
+    }
+    
+    bool PyTimeSeriesSetOutput::was_removed(nb::object item) const {
+        auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
+        return impl->py_was_removed(item);
+    }
+    
     void PyTimeSeriesSetOutput::add(nb::object item) {
         auto* impl = static_cast<TimeSeriesSetOutput*>(_impl.get());
         impl->py_add(item);
@@ -975,6 +1007,10 @@ namespace hgraph::api {
             .def("__len__", &PyTimeSeriesSetOutput::len)
             .def("empty", &PyTimeSeriesSetOutput::empty)
             .def("values", &PyTimeSeriesSetOutput::values)
+            .def("added", &PyTimeSeriesSetOutput::added)
+            .def("removed", &PyTimeSeriesSetOutput::removed)
+            .def("was_added", &PyTimeSeriesSetOutput::was_added, "item"_a)
+            .def("was_removed", &PyTimeSeriesSetOutput::was_removed, "item"_a)
             .def("add", &PyTimeSeriesSetOutput::add)
             .def("remove", &PyTimeSeriesSetOutput::remove)
             .def("is_empty_output", &PyTimeSeriesSetOutput::is_empty_output)
