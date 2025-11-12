@@ -573,6 +573,26 @@ namespace hgraph::api {
         return impl->py_removed_keys();
     }
     
+    nb::object PyTimeSeriesDictInput::valid_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        return impl->py_valid_items();
+    }
+    
+    nb::object PyTimeSeriesDictInput::added_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        return impl->py_added_items();
+    }
+    
+    nb::object PyTimeSeriesDictInput::modified_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        return impl->py_modified_items();
+    }
+    
+    nb::object PyTimeSeriesDictInput::removed_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        return impl->py_removed_items();
+    }
+    
     void PyTimeSeriesDictInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__getitem__", &PyTimeSeriesDictInput::get_item)
@@ -583,9 +603,13 @@ namespace hgraph::api {
             .def("values", &PyTimeSeriesDictInput::values)
             .def("items", &PyTimeSeriesDictInput::items)
             .def("valid_keys", &PyTimeSeriesDictInput::valid_keys)
+            .def("valid_items", &PyTimeSeriesDictInput::valid_items)
             .def("added_keys", &PyTimeSeriesDictInput::added_keys)
+            .def("added_items", &PyTimeSeriesDictInput::added_items)
             .def("modified_keys", &PyTimeSeriesDictInput::modified_keys)
-            .def("removed_keys", &PyTimeSeriesDictInput::removed_keys);
+            .def("modified_items", &PyTimeSeriesDictInput::modified_items)
+            .def("removed_keys", &PyTimeSeriesDictInput::removed_keys)
+            .def("removed_items", &PyTimeSeriesDictInput::removed_items);
     }
     
     nb::object PyTimeSeriesDictOutput::get_item(nb::object key) const {

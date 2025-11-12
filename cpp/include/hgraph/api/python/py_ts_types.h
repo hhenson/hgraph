@@ -168,9 +168,13 @@ namespace hgraph::api {
         [[nodiscard]] nb::object items() const;
         
         [[nodiscard]] nb::object valid_keys() const;
+        [[nodiscard]] nb::object valid_items() const;
         [[nodiscard]] nb::object added_keys() const;
+        [[nodiscard]] nb::object added_items() const;
         [[nodiscard]] nb::object modified_keys() const;
+        [[nodiscard]] nb::object modified_items() const;
         [[nodiscard]] nb::object removed_keys() const;
+        [[nodiscard]] nb::object removed_items() const;
         
         static void register_with_nanobind(nb::module_& m);
     };

@@ -97,14 +97,17 @@ namespace hgraph::api {
         nb::object py_obj;
         
         // Check for concrete collection types first (non-template)
+        // NOTE: Order matters! Check derived types before base types
         if (auto* tsb = dynamic_cast<TimeSeriesBundleInput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesBundleInput(tsb, control_block));
-        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput*>(mutable_impl)) {
-            py_obj = nb::cast(PyTimeSeriesDictInput(tsd, control_block));
-        } else if (auto* tss = dynamic_cast<TimeSeriesSetInput*>(mutable_impl)) {
-            py_obj = nb::cast(PyTimeSeriesSetInput(tss, control_block));
         } else if (auto* tsl = dynamic_cast<TimeSeriesListInput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesListInput(tsl, control_block));
+        } else if (auto* tss = dynamic_cast<TimeSeriesSetInput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesSetInput(tss, control_block));
+        } 
+        // TSD types - these are templates, so check against base TimeSeriesDictInput
+        else if (auto* tsd = dynamic_cast<TimeSeriesDictInput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesDictInput(tsd, control_block));
         } 
         // Check for base templated types (these inherit from IndexedTimeSeriesInput)
         else if (dynamic_cast<IndexedTimeSeriesInput*>(mutable_impl)) {
@@ -139,15 +142,18 @@ namespace hgraph::api {
         // Dynamic type dispatch to create appropriate specialized wrapper
         nb::object py_obj;
         
-        // Check for concrete collection types (non-template)
+        // Check for concrete collection types first (non-template)
+        // NOTE: Order matters! Check derived types before base types
         if (auto* tsb = dynamic_cast<TimeSeriesBundleOutput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesBundleOutput(tsb, control_block));
-        } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput*>(mutable_impl)) {
-            py_obj = nb::cast(PyTimeSeriesDictOutput(tsd, control_block));
-        } else if (auto* tss = dynamic_cast<TimeSeriesSetOutput*>(mutable_impl)) {
-            py_obj = nb::cast(PyTimeSeriesSetOutput(tss, control_block));
         } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesListOutput(tsl, control_block));
+        } else if (auto* tss = dynamic_cast<TimeSeriesSetOutput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesSetOutput(tss, control_block));
+        } 
+        // TSD types - these are templates, so check against base TimeSeriesDictOutput
+        else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesDictOutput(tsd, control_block));
         } else {
             // Fallback to base wrapper for templates and other types
             py_obj = nb::cast(PyTimeSeriesOutput(mutable_impl, control_block));
