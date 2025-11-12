@@ -378,6 +378,11 @@ const std::function < bool(const ts_type &) > &constraint)
                          return values.attr("__iter__")();
                      })
                 .def("__contains__", &TimeSeriesBundleOutput::contains)
+                .def("__getattr__",
+                     [](TimeSeriesBundleOutput &self, const std::string &key) -> TimeSeriesOutput::ptr {
+                         if (self.contains(key)) { return self[key]; }
+                         throw nb::attribute_error(("Attribute '" + key + "' not found in TimeSeriesBundle").c_str());
+                     })
                 .def("keys", &TimeSeriesBundleOutput::keys)
                 .def("items", static_cast<key_value_collection_type (TimeSeriesBundleOutput::*)() const>(
                          &TimeSeriesBundleOutput::items))

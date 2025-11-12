@@ -98,7 +98,8 @@ class ServiceImplNodeClass(BaseWiringNodeClass):
             resolved_signature = resolved_signature.copy_with(
                 input_types=frozendict(
                     {**resolved_signature.input_types, "inner_graph": HgObjectType.parse_type(object)}
-                )
+                ),
+                has_nested_graphs=True,
             )
 
             with WiringContext(current_wiring_node=self, current_signature=self.signature):

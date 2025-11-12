@@ -368,7 +368,7 @@ class NodeSchedulerImpl(SCHEDULER):
         from hgraph import RealTimeEvaluationClock
 
         original_time = None
-        if tag is not None and tag in self._tags:
+        if tag is not None and tag in self._tags and not on_wall_clock:
             original_time = self.next_scheduled_time
             self._scheduled_events.remove((self._tags[tag], tag))
 
@@ -491,6 +491,10 @@ class PythonPushQueueNodeImpl(NodeImpl):  # Node
         """
         if self.batch:
             if isinstance(self.output, TimeSeriesDictOutput):
+                for k, v in message.items():
+                    if v is REMOVE or v is REMOVE_IF_EXISTS:
+                        if (output := self.output.get(k)) and output.modified:
+                            return False
                 for k, v in message.items():
                     if v is not REMOVE and v is not REMOVE_IF_EXISTS:
                         output = self.output.get_or_create(k)

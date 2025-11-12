@@ -57,6 +57,7 @@ def nested_graph(
             context_inputs=None,
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
+            has_nested_graphs=True,
             # label=f"nested_graph({resolved_signature.signature}, {', '.join(resolved_signature.args)})",
         )
         from hgraph import NestedGraphWiringNodeClass

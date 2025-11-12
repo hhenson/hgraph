@@ -1,9 +1,7 @@
 from datetime import date, time, datetime, timezone
 from zoneinfo import ZoneInfo
 
-import pytz
-
-from hgraph import add_date_time_tz, default, explode, graph, TS
+from hgraph import default, explode, graph, TS
 from hgraph.test import eval_node
 
 

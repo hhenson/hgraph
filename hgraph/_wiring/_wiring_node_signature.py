@@ -123,6 +123,7 @@ class WiringNodeSignature:
     var_arg: str = None
     var_kwarg: str = None
     default_type_arg: TypeVar = None
+    has_nested_graphs: bool = False
 
     def __repr__(self):
         return self.signature
@@ -188,6 +189,7 @@ class WiringNodeSignature:
             var_arg=self.var_arg,
             var_kwarg=self.var_kwarg,
             default_type_arg=self.default_type_arg,
+            has_nested_graphs=self.has_nested_graphs,
         )
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":

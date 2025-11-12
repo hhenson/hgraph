@@ -87,6 +87,7 @@ class NodeSignature:
     label: str = ""
     capture_values: bool = False
     record_replay_id: str = ""
+    has_nested_graphs: bool = False
 
     @property
     def uses_scheduler(self) -> bool:
@@ -177,6 +178,7 @@ class NodeSignature:
             label=self.label,
             capture_values=self.capture_values,
             record_replay_id=self.record_replay_id,
+            has_nested_graphs=self.has_nested_graphs,
         )
 
     def copy_with(self, **kwargs) -> "NodeSignature":

@@ -25,6 +25,7 @@ class TsdMapWiringSignature(WiringNodeSignature):
     key_arg: str | None = None  # The arg name of the key in the map function is there is one
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
     inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
+    has_nested_graphs: bool = True
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class TslMapWiringSignature(WiringNodeSignature):
     key_arg: str | None = None
     multiplexed_args: frozenset[str] | None = None  # The inputs that need to be de-multiplexed.
     inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
+    has_nested_graphs: bool = True
 
 
 class TsdMapWiringNodeClass(BaseWiringNodeClass):

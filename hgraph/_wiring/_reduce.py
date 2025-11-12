@@ -207,6 +207,7 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
         time_series_args=resolved_signature.time_series_args,
         injectables=resolved_signature.injectables,
         # label=resolved_signature.label,
+        has_nested_graphs=True,
     )
 
     if not isinstance(func, WiringNodeClass):

@@ -236,7 +236,7 @@ namespace hgraph {
                 .def(nb::init<std::vector<int64_t>, std::vector<node_ptr>, std::optional<node_ptr>, std::string,
                          traits_ptr>(),
                      "graph_id"_a, "nodes"_a, "parent_node"_a, "label"_a, "traits"_a)
-                .def_prop_ro("graph_id", &Graph::graph_id)
+                .def_prop_ro("graph_id", [](const Graph& self){ return nb::tuple(nb::cast(self.graph_id())); })
                 .def_prop_ro("nodes", &Graph::nodes)
                 .def_prop_ro("parent_node", &Graph::parent_node)
                 .def_prop_ro("label", &Graph::label)

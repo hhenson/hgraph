@@ -90,6 +90,12 @@ namespace hgraph {
                    : std::unordered_map<int, graph_ptr>();
     }
 
+    void NestedGraphNode::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+        if (m_active_graph_) {
+            callback(m_active_graph_);
+        }
+    }
+
     void NestedGraphNode::register_with_nanobind(nb::module_ &m) {
         nb::class_ < NestedGraphNode, NestedNode > (m, "NestedGraphNode")
                 .def_prop_ro("active_graph", [](NestedGraphNode &self) { return self.m_active_graph_; })
