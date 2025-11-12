@@ -850,7 +850,46 @@ namespace hgraph::api {
     
     nb::object PyTimeSeriesDictOutput::get_item(nb::object key) const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
-        return impl->py_get_item(key);
+        
+        // py_get_item returns the old Python binding with cached wrapper
+        // We need to get the C++ pointer and create a fresh new wrapper (same as get_or_create)
+        auto old_binding = impl->py_get_item(key);
+        if (old_binding.is_none()) {
+            return old_binding;
+        }
+        
+        // Extract the C++ pointer from the old binding
+        try {
+            auto* raw_ptr = nb::cast<TimeSeriesOutput*>(old_binding);
+            if (raw_ptr) {
+                // Check if it's already wrapped with our new wrapper type
+                PyObject* cached = raw_ptr->self_py();
+                if (cached) {
+                    nb::object cached_obj = nb::borrow(cached);
+                    // Check if it's already a new wrapper type (has `add` method for TSS)
+                    if (nb::hasattr(cached_obj, "add")) {
+                        return cached_obj;
+                    }
+                }
+                
+                // Otherwise, create a new wrapper for common types
+                nb::object new_wrapper;
+                if (auto* tss = dynamic_cast<TimeSeriesSetOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesSetOutput(tss, _impl.control_block()));
+                } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(raw_ptr)) {
+                    new_wrapper = nb::cast(PyTimeSeriesListOutput(tsl, _impl.control_block()));
+                } else {
+                    // For other types, return the old binding for now
+                    return old_binding;
+                }
+                
+                return new_wrapper;
+            }
+        } catch (...) {
+            return old_binding;
+        }
+        
+        return old_binding;
     }
     
     bool PyTimeSeriesDictOutput::contains(nb::object key) const {
@@ -876,6 +915,21 @@ namespace hgraph::api {
     nb::object PyTimeSeriesDictOutput::items() const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
         return impl->py_items();
+    }
+    
+    nb::object PyTimeSeriesDictOutput::modified_keys() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_modified_keys();
+    }
+    
+    nb::object PyTimeSeriesDictOutput::modified_values() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_modified_values();
+    }
+    
+    nb::object PyTimeSeriesDictOutput::modified_items() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_modified_items();
     }
     
     nb::object PyTimeSeriesDictOutput::get_ref(nb::object key, nb::object requester) const {
@@ -963,6 +1017,9 @@ namespace hgraph::api {
             .def("keys", &PyTimeSeriesDictOutput::keys)
             .def("values", &PyTimeSeriesDictOutput::values)
             .def("items", &PyTimeSeriesDictOutput::items)
+            .def("modified_keys", &PyTimeSeriesDictOutput::modified_keys)
+            .def("modified_values", &PyTimeSeriesDictOutput::modified_values)
+            .def("modified_items", &PyTimeSeriesDictOutput::modified_items)
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
             .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
             .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set)

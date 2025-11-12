@@ -204,6 +204,11 @@ namespace hgraph::api {
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;
         
+        // Modified tracking
+        [[nodiscard]] nb::object modified_keys() const;
+        [[nodiscard]] nb::object modified_values() const;
+        [[nodiscard]] nb::object modified_items() const;
+        
         [[nodiscard]] nb::object get_ref(nb::object key, nb::object requester) const;
         void release_ref(nb::object key, nb::object requester);
         
