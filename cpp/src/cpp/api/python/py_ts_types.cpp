@@ -18,6 +18,30 @@ namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace hgraph::api {
+
+    // ============================================================================
+    // Helper template functions for TSD type-specific operations
+    // ============================================================================
+    
+    template<typename T_Key>
+    nb::list build_tsd_items_list(const std::unordered_map<T_Key, time_series_input_ptr>& items, control_block_ptr cb) {
+        nb::list result;
+        for (const auto& [key, value] : items) {
+            nb::tuple item = nb::make_tuple(
+                nb::cast(key),
+                wrap_input(value.get(), cb)
+            );
+            result.append(item);
+        }
+        return result;
+    }
+    
+    // Explicit instantiation for common key types matching those in tsd.cpp
+    template nb::list build_tsd_items_list<bool>(const std::unordered_map<bool, time_series_input_ptr>&, control_block_ptr);
+    template nb::list build_tsd_items_list<int64_t>(const std::unordered_map<int64_t, time_series_input_ptr>&, control_block_ptr);
+    template nb::list build_tsd_items_list<double>(const std::unordered_map<double, time_series_input_ptr>&, control_block_ptr);
+    template nb::list build_tsd_items_list<nb::object>(const std::unordered_map<nb::object, time_series_input_ptr>&, control_block_ptr);
+
     
     // ============================================================================
     // Constructor Definitions
@@ -520,7 +544,18 @@ namespace hgraph::api {
     
     nb::object PyTimeSeriesDictInput::get_item(nb::object key) const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_get_item(key);
+        // Get the raw C++ time series input, then wrap it using our factory
+        // This ensures nested TSDs are wrapped as TimeSeriesDictInput instead of base _TimeSeriesInput
+        auto raw_result = impl->py_get_item(key);
+        
+        // Check if it's a time_series_input_ptr and wrap it
+        if (nb::isinstance<nb::ref<TimeSeriesInput>>(raw_result)) {
+            auto ts_input = nb::cast<nb::ref<TimeSeriesInput>>(raw_result);
+            return wrap_input(ts_input.get(), _impl.control_block());
+        }
+        
+        // Otherwise return as-is (e.g., key_set)
+        return raw_result;
     }
     
     nb::object PyTimeSeriesDictInput::get(nb::object key, nb::object default_value) const {
@@ -545,12 +580,48 @@ namespace hgraph::api {
     
     nb::object PyTimeSeriesDictInput::values() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_values();
+        
+        // Try to cast to specific template instantiations and use direct access
+        nb::list result;
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            for (const auto& [key, value] : tsd->value()) {
+                result.append(wrap_input(value.get(), _impl.control_block()));
+            }
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            for (const auto& [key, value] : tsd->value()) {
+                result.append(wrap_input(value.get(), _impl.control_block()));
+            }
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            for (const auto& [key, value] : tsd->value()) {
+                result.append(wrap_input(value.get(), _impl.control_block()));
+            }
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            for (const auto& [key, value] : tsd->value()) {
+                result.append(wrap_input(value.get(), _impl.control_block()));
+            }
+        } else {
+            // Fallback to old iterator-based approach for other key types
+            return impl->py_values();
+        }
+        return result;
     }
     
     nb::object PyTimeSeriesDictInput::items() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_items();
+        
+        // Try to cast to specific template instantiations and use direct access
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_items_list(tsd->value(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_items_list(tsd->value(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_items_list(tsd->value(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_items_list(tsd->value(), _impl.control_block());
+        } else {
+            // Fallback to old iterator-based approach for other key types
+            return impl->py_items();
+        }
     }
     
     nb::object PyTimeSeriesDictInput::valid_keys() const {
@@ -558,9 +629,45 @@ namespace hgraph::api {
         return impl->py_valid_keys();
     }
     
+    nb::object PyTimeSeriesDictInput::valid_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        
+        // Try to cast to specific template instantiations and use direct access
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_items_list(tsd->valid_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_items_list(tsd->valid_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_items_list(tsd->valid_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_items_list(tsd->valid_items(), _impl.control_block());
+        } else {
+            // Fallback to old iterator-based approach for other key types
+            return impl->py_valid_items();
+        }
+    }
+    
     nb::object PyTimeSeriesDictInput::added_keys() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
         return impl->py_added_keys();
+    }
+    
+    nb::object PyTimeSeriesDictInput::added_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        
+        // Try to cast to specific template instantiations and use direct access
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_items_list(tsd->added_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_items_list(tsd->added_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_items_list(tsd->added_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_items_list(tsd->added_items(), _impl.control_block());
+        } else {
+            // Fallback to old iterator-based approach for other key types
+            return impl->py_added_items();
+        }
     }
     
     nb::object PyTimeSeriesDictInput::modified_keys() const {
@@ -568,29 +675,45 @@ namespace hgraph::api {
         return impl->py_modified_keys();
     }
     
+    nb::object PyTimeSeriesDictInput::modified_items() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        
+        // Try to cast to specific template instantiations and use direct access
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_items_list(tsd->modified_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_items_list(tsd->modified_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_items_list(tsd->modified_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_items_list(tsd->modified_items(), _impl.control_block());
+        } else {
+            // Fallback to old iterator-based approach for other key types
+            return impl->py_modified_items();
+        }
+    }
+    
     nb::object PyTimeSeriesDictInput::removed_keys() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
         return impl->py_removed_keys();
     }
     
-    nb::object PyTimeSeriesDictInput::valid_items() const {
-        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_valid_items();
-    }
-    
-    nb::object PyTimeSeriesDictInput::added_items() const {
-        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_added_items();
-    }
-    
-    nb::object PyTimeSeriesDictInput::modified_items() const {
-        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_modified_items();
-    }
-    
     nb::object PyTimeSeriesDictInput::removed_items() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_removed_items();
+        
+        // Try to cast to specific template instantiations and use direct access
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_items_list(tsd->removed_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_items_list(tsd->removed_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_items_list(tsd->removed_items(), _impl.control_block());
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_items_list(tsd->removed_items(), _impl.control_block());
+        } else {
+            // Fallback to old iterator-based approach for other key types
+            return impl->py_removed_items();
+        }
     }
     
     void PyTimeSeriesDictInput::register_with_nanobind(nb::module_& m) {
