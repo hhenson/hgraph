@@ -37,7 +37,7 @@ namespace hgraph::api {
     nb::object PyGraph::parent_node() const {
         auto node_ref = _impl->parent_node();
         if (node_ref) {
-            return nb::cast(wrap_node(node_ref.get(), _impl.control_block()));
+            return wrap_node(node_ref.get(), _impl.control_block());
         }
         return nb::none();
     }

@@ -3,6 +3,7 @@
 //
 
 #include <hgraph/api/python/py_ts_types.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/ts.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/ts_indexed.h>
@@ -21,17 +22,14 @@ namespace hgraph::api {
     // TS (Value) Types
     // ============================================================================
     
-    PyTimeSeriesValueInput::PyTimeSeriesValueInput(TimeSeriesValueInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesValueInput::value() const {
-        auto* impl = static_cast<TimeSeriesValueInput*>(_impl.get());
-        return impl->value();
+        // Use py_value from base TimeSeriesInput
+        return _impl->py_value();
     }
     
     nb::object PyTimeSeriesValueInput::delta_value() const {
-        auto* impl = static_cast<TimeSeriesValueInput*>(_impl.get());
-        return impl->delta_value();
+        // Use py_delta_value from base TimeSeriesInput
+        return _impl->py_delta_value();
     }
     
     void PyTimeSeriesValueInput::register_with_nanobind(nb::module_& m) {
@@ -39,9 +37,6 @@ namespace hgraph::api {
             .def_prop_ro("value", &PyTimeSeriesValueInput::value)
             .def_prop_ro("delta_value", &PyTimeSeriesValueInput::delta_value);
     }
-    
-    PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(TimeSeriesValueOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
     
     void PyTimeSeriesValueOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesValueOutput, PyTimeSeriesOutput>(m, "TimeSeriesValueOutput");
@@ -51,19 +46,13 @@ namespace hgraph::api {
     // Signal Types
     // ============================================================================
     
-    PyTimeSeriesSignalInput::PyTimeSeriesSignalInput(TimeSeriesSignalInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     void PyTimeSeriesSignalInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesSignalInput, PyTimeSeriesInput>(m, "TimeSeriesSignalInput");
     }
     
-    PyTimeSeriesSignalOutput::PyTimeSeriesSignalOutput(TimeSeriesSignalOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
-    
     void PyTimeSeriesSignalOutput::set_value() {
-        auto* impl = static_cast<TimeSeriesSignalOutput*>(_impl.get());
-        impl->set_value();
+        // Signal just calls invalidate to trigger
+        _impl->invalidate();
     }
     
     void PyTimeSeriesSignalOutput::register_with_nanobind(nb::module_& m) {
@@ -75,23 +64,20 @@ namespace hgraph::api {
     // TSL (List) Types
     // ============================================================================
     
-    PyTimeSeriesListInput::PyTimeSeriesListInput(TimeSeriesListInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesListInput::get_item(int64_t index) const {
-        auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
-        // TODO: Wrap in appropriate PyTimeSeriesInput type
-        return nb::cast((*impl)[index]);
+        // Use get_input from base TimeSeriesInput
+        auto* item = _impl->get_input(static_cast<size_t>(index));
+        return wrap_input(item, _impl.control_block());
     }
     
     int64_t PyTimeSeriesListInput::len() const {
-        auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
-        return impl->size();
+        // TODO: Need a size() method on base TimeSeriesInput
+        return 0;  // Placeholder
     }
     
     nb::iterator PyTimeSeriesListInput::iter() const {
-        // TODO: Implement iterator
-        return nb::make_iterator(nb::type<PyTimeSeriesListInput>(), "iterator", nullptr, nullptr);
+        // TODO: Implement proper iterator
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesListInput");
     }
     
     void PyTimeSeriesListInput::register_with_nanobind(nb::module_& m) {
@@ -101,23 +87,19 @@ namespace hgraph::api {
             .def("__iter__", &PyTimeSeriesListInput::iter);
     }
     
-    PyTimeSeriesListOutput::PyTimeSeriesListOutput(TimeSeriesListOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesListOutput::get_item(int64_t index) const {
-        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
-        // TODO: Wrap in appropriate PyTimeSeriesOutput type
-        return nb::cast((*impl)[index]);
+        // TODO: Need operator[] or get_output on base TimeSeriesOutput
+        return nb::none();  // Placeholder
     }
     
     int64_t PyTimeSeriesListOutput::len() const {
-        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
-        return impl->size();
+        // TODO: Need a size() method on base TimeSeriesOutput
+        return 0;  // Placeholder
     }
     
     nb::iterator PyTimeSeriesListOutput::iter() const {
-        // TODO: Implement iterator
-        return nb::make_iterator(nb::type<PyTimeSeriesListOutput>(), "iterator", nullptr, nullptr);
+        // TODO: Implement proper iterator
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesListOutput");
     }
     
     void PyTimeSeriesListOutput::register_with_nanobind(nb::module_& m) {
@@ -131,28 +113,24 @@ namespace hgraph::api {
     // TSB (Bundle) Types
     // ============================================================================
     
-    PyTimeSeriesBundleInput::PyTimeSeriesBundleInput(TimeSeriesBundleInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesBundleInput::get_item(nb::object key) const {
-        auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
-        // TODO: Wrap in appropriate PyTimeSeriesInput type
-        // Handle both string and int keys
-        if (nb::isinstance<nb::str>(key)) {
-            return nb::cast((*impl)[nb::cast<std::string>(key)]);
-        } else {
-            return nb::cast((*impl)[nb::cast<int64_t>(key)]);
+        // Handle both string and int keys using base get_input method
+        if (nb::isinstance<nb::int_>(key)) {
+            auto* item = _impl->get_input(nb::cast<size_t>(key));
+            return wrap_input(item, _impl.control_block());
         }
+        // TODO: Handle string keys - need a method on base class
+        return nb::none();
     }
     
     int64_t PyTimeSeriesBundleInput::len() const {
-        auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
-        return impl->size();
+        // TODO: Need a size() method on base TimeSeriesInput
+        return 0;  // Placeholder
     }
     
     nb::iterator PyTimeSeriesBundleInput::iter() const {
-        // TODO: Implement iterator
-        return nb::make_iterator(nb::type<PyTimeSeriesBundleInput>(), "iterator", nullptr, nullptr);
+        // TODO: Implement proper iterator
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesBundleInput");
     }
     
     nb::object PyTimeSeriesBundleInput::schema() const {
@@ -168,9 +146,6 @@ namespace hgraph::api {
             .def("__iter__", &PyTimeSeriesBundleInput::iter)
             .def_prop_ro("schema", &PyTimeSeriesBundleInput::schema);
     }
-    
-    PyTimeSeriesBundleOutput::PyTimeSeriesBundleOutput(TimeSeriesBundleOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
     
     nb::object PyTimeSeriesBundleOutput::get_item(nb::object key) const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
@@ -188,8 +163,8 @@ namespace hgraph::api {
     }
     
     nb::iterator PyTimeSeriesBundleOutput::iter() const {
-        // TODO: Implement iterator
-        return nb::make_iterator(nb::type<PyTimeSeriesBundleOutput>(), "iterator", nullptr, nullptr);
+        // TODO: Implement proper iterator
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesBundleOutput");
     }
     
     nb::object PyTimeSeriesBundleOutput::schema() const {
@@ -209,9 +184,6 @@ namespace hgraph::api {
     // ============================================================================
     // TSD (Dict) Types - Stubs
     // ============================================================================
-    
-    PyTimeSeriesDictInput::PyTimeSeriesDictInput(TimeSeriesDictInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
     
     nb::object PyTimeSeriesDictInput::get_item(nb::object key) const {
         // TODO: Implement
@@ -283,9 +255,6 @@ namespace hgraph::api {
             .def("removed_keys", &PyTimeSeriesDictInput::removed_keys);
     }
     
-    PyTimeSeriesDictOutput::PyTimeSeriesDictOutput(TimeSeriesDictOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesDictOutput::get_item(nb::object key) const {
         // TODO: Implement
         return nb::none();
@@ -330,13 +299,10 @@ namespace hgraph::api {
     // TSS, TSW, REF Types - Minimal Stubs
     // ============================================================================
     
-    PyTimeSeriesSetInput::PyTimeSeriesSetInput(TimeSeriesSetInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     bool PyTimeSeriesSetInput::contains(nb::object item) const { return false; }
     int64_t PyTimeSeriesSetInput::len() const { return 0; }
     nb::iterator PyTimeSeriesSetInput::iter() const {
-        return nb::make_iterator(nb::type<PyTimeSeriesSetInput>(), "iterator", nullptr, nullptr);
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesSetInput");
     }
     nb::object PyTimeSeriesSetInput::added() const { return nb::set(); }
     nb::object PyTimeSeriesSetInput::removed() const { return nb::set(); }
@@ -345,13 +311,10 @@ namespace hgraph::api {
         nb::class_<PyTimeSeriesSetInput, PyTimeSeriesInput>(m, "TimeSeriesSetInput");
     }
     
-    PyTimeSeriesSetOutput::PyTimeSeriesSetOutput(TimeSeriesSetOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
-    
     bool PyTimeSeriesSetOutput::contains(nb::object item) const { return false; }
     int64_t PyTimeSeriesSetOutput::len() const { return 0; }
     nb::iterator PyTimeSeriesSetOutput::iter() const {
-        return nb::make_iterator(nb::type<PyTimeSeriesSetOutput>(), "iterator", nullptr, nullptr);
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesSetOutput");
     }
     void PyTimeSeriesSetOutput::add(nb::object item) {}
     void PyTimeSeriesSetOutput::remove(nb::object item) {}
@@ -360,13 +323,10 @@ namespace hgraph::api {
         nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput");
     }
     
-    PyTimeSeriesWindowInput::PyTimeSeriesWindowInput(TimeSeriesWindowInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesWindowInput::get_item(int64_t index) const { return nb::none(); }
     int64_t PyTimeSeriesWindowInput::len() const { return 0; }
     nb::iterator PyTimeSeriesWindowInput::iter() const {
-        return nb::make_iterator(nb::type<PyTimeSeriesWindowInput>(), "iterator", nullptr, nullptr);
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesWindowInput");
     }
     nb::object PyTimeSeriesWindowInput::times() const { return nb::list(); }
     nb::object PyTimeSeriesWindowInput::values() const { return nb::list(); }
@@ -375,13 +335,10 @@ namespace hgraph::api {
         nb::class_<PyTimeSeriesWindowInput, PyTimeSeriesInput>(m, "TimeSeriesWindowInput");
     }
     
-    PyTimeSeriesWindowOutput::PyTimeSeriesWindowOutput(TimeSeriesWindowOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesWindowOutput::get_item(int64_t index) const { return nb::none(); }
     int64_t PyTimeSeriesWindowOutput::len() const { return 0; }
     nb::iterator PyTimeSeriesWindowOutput::iter() const {
-        return nb::make_iterator(nb::type<PyTimeSeriesWindowOutput>(), "iterator", nullptr, nullptr);
+        throw std::runtime_error("Iterator not yet implemented for TimeSeriesWindowOutput");
     }
     void PyTimeSeriesWindowOutput::append(nb::object value) {}
     
@@ -389,17 +346,11 @@ namespace hgraph::api {
         nb::class_<PyTimeSeriesWindowOutput, PyTimeSeriesOutput>(m, "TimeSeriesWindowOutput");
     }
     
-    PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TimeSeriesReferenceInput* impl, control_block_ptr control_block)
-        : PyTimeSeriesInput(impl, std::move(control_block)) {}
-    
     nb::object PyTimeSeriesReferenceInput::value_ref() const { return nb::none(); }
     
     void PyTimeSeriesReferenceInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput");
     }
-    
-    PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput(TimeSeriesReferenceOutput* impl, control_block_ptr control_block)
-        : PyTimeSeriesOutput(impl, std::move(control_block)) {}
     
     void PyTimeSeriesReferenceOutput::set_value_ref(nb::object ref) {}
     

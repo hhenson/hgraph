@@ -50,31 +50,31 @@ namespace hgraph::api {
         return _impl->scalars();
     }
     
-    PyGraph PyNode::graph() const {
+    nb::object PyNode::graph() const {
         return wrap_graph(_impl->graph(), _impl.control_block());
     }
     
-    PyTimeSeriesBundleInput PyNode::input() const {
+    nb::object PyNode::input() const {
         auto tsb_ref = _impl->input();
-        return PyTimeSeriesBundleInput(tsb_ref.get(), _impl.control_block());
+        return wrap_input(tsb_ref.get(), _impl.control_block());
     }
     
     nb::dict PyNode::inputs() const {
         nb::dict d;
         auto inp = *_impl->input();
         for (const auto& key : inp.schema().keys()) {
-            // Wrap each input in appropriate type using factory
+            // Wrap each input - factory returns cached wrapper if available
             d[key.c_str()] = wrap_input(inp[key], _impl.control_block());
         }
         return d;
     }
     
-    PyTimeSeriesOutput PyNode::output() const {
-        // Use factory to determine appropriate wrapper type
+    nb::object PyNode::output() const {
+        // Factory returns cached wrapper if available
         return wrap_output(_impl->output(), _impl.control_block());
     }
     
-    PyNodeScheduler PyNode::scheduler() const {
+    nb::object PyNode::scheduler() const {
         return wrap_node_scheduler(_impl->scheduler(), _impl.control_block());
     }
     

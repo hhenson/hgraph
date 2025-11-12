@@ -23,8 +23,6 @@ namespace hgraph {
 
 namespace hgraph::api {
     
-    class PyNode;
-    
     class PyGraph {
     public:
         PyGraph(Graph* impl, control_block_ptr control_block);
@@ -36,8 +34,8 @@ namespace hgraph::api {
         
         // Graph identification
         [[nodiscard]] nb::tuple graph_id() const;
-        [[nodiscard]] nb::tuple nodes() const;  // Tuple of PyNode wrappers
-        [[nodiscard]] nb::object parent_node() const;  // Optional PyNode
+        [[nodiscard]] nb::tuple nodes() const;  // Tuple of cached PyNode wrappers
+        [[nodiscard]] nb::object parent_node() const;  // Optional cached PyNode
         [[nodiscard]] std::string label() const;
         
         // Evaluation context (read-only)

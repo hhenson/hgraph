@@ -25,37 +25,44 @@ namespace hgraph::api {
     
     /**
      * Wrap a Node pointer in a PyNode.
-     * Always returns PyNode (no polymorphism for Node).
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Creates and caches new wrapper if not.
      */
-    PyNode wrap_node(const hgraph::Node* impl, control_block_ptr control_block);
+    nb::object wrap_node(const hgraph::Node* impl, control_block_ptr control_block);
     
     /**
      * Wrap a Graph pointer in a PyGraph.
-     * Always returns PyGraph (no polymorphism for Graph).
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Creates and caches new wrapper if not.
      */
-    PyGraph wrap_graph(const hgraph::Graph* impl, control_block_ptr control_block);
+    nb::object wrap_graph(const hgraph::Graph* impl, control_block_ptr control_block);
     
     /**
      * Wrap a NodeScheduler pointer in a PyNodeScheduler.
-     * Always returns PyNodeScheduler (no polymorphism for NodeScheduler).
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Creates and caches new wrapper if not.
      */
-    PyNodeScheduler wrap_node_scheduler(const hgraph::NodeScheduler* impl, control_block_ptr control_block);
+    nb::object wrap_node_scheduler(const hgraph::NodeScheduler* impl, control_block_ptr control_block);
     
     /**
      * Wrap a TimeSeriesInput pointer in the appropriate PyTimeSeriesXxxInput wrapper.
-     * Uses dynamic_cast to determine actual runtime type and returns specialized wrapper.
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Uses dynamic_cast to determine actual runtime type and creates specialized wrapper.
+     * Caches the created wrapper for future use.
      * 
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    PyTimeSeriesInput wrap_input(const hgraph::TimeSeriesInput* impl, control_block_ptr control_block);
+    nb::object wrap_input(const hgraph::TimeSeriesInput* impl, control_block_ptr control_block);
     
     /**
      * Wrap a TimeSeriesOutput pointer in the appropriate PyTimeSeriesXxxOutput wrapper.
-     * Uses dynamic_cast to determine actual runtime type and returns specialized wrapper.
+     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
+     * Uses dynamic_cast to determine actual runtime type and creates specialized wrapper.
+     * Caches the created wrapper for future use.
      * 
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    PyTimeSeriesOutput wrap_output(const hgraph::TimeSeriesOutput* impl, control_block_ptr control_block);
+    nb::object wrap_output(const hgraph::TimeSeriesOutput* impl, control_block_ptr control_block);
     
 } // namespace hgraph::api
 

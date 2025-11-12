@@ -19,14 +19,12 @@ namespace hgraph {
 
 namespace hgraph::api {
     
-    // Forward declarations
-    class PyNode;
-    class PyTimeSeriesOutput;
-    
     /**
      * PyTimeSeriesInput - Base wrapper for all time series input types
      */
     class PyTimeSeriesInput {
+        friend class PyTimeSeriesOutput;  // For copy_from_input
+        
     public:
         PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
@@ -36,8 +34,8 @@ namespace hgraph::api {
         PyTimeSeriesInput& operator=(const PyTimeSeriesInput&) = delete;
         
         // Common properties
-        [[nodiscard]] PyNode owning_node() const;
-        [[nodiscard]] PyTimeSeriesInput parent_input() const;  // Returns appropriate specialized wrapper
+        [[nodiscard]] nb::object owning_node() const;  // Returns cached PyNode wrapper
+        [[nodiscard]] nb::object parent_input() const;  // Returns cached specialized wrapper
         [[nodiscard]] bool has_parent_input() const;
         
         [[nodiscard]] bool valid() const;
@@ -50,7 +48,7 @@ namespace hgraph::api {
         
         [[nodiscard]] bool bound() const;
         [[nodiscard]] bool has_peer() const;
-        [[nodiscard]] PyTimeSeriesOutput output() const;  // Returns appropriate specialized wrapper
+        [[nodiscard]] nb::object output() const;  // Returns cached specialized wrapper
         
         // Binding (may be used in some cases)
         bool bind_output(nb::object output);
@@ -81,6 +79,8 @@ namespace hgraph::api {
      * PyTimeSeriesOutput - Base wrapper for all time series output types
      */
     class PyTimeSeriesOutput {
+        friend class PyTimeSeriesInput;  // For bind_output
+        
     public:
         PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
         
@@ -90,8 +90,8 @@ namespace hgraph::api {
         PyTimeSeriesOutput& operator=(const PyTimeSeriesOutput&) = delete;
         
         // Common properties
-        [[nodiscard]] PyNode owning_node() const;
-        [[nodiscard]] PyTimeSeriesOutput parent_output() const;  // Returns appropriate specialized wrapper
+        [[nodiscard]] nb::object owning_node() const;  // Returns cached PyNode wrapper
+        [[nodiscard]] nb::object parent_output() const;  // Returns cached specialized wrapper
         [[nodiscard]] bool has_parent_output() const;
         
         [[nodiscard]] bool valid() const;

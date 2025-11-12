@@ -28,13 +28,6 @@ namespace hgraph {
 
 namespace hgraph::api {
     
-    // Forward declarations for Python API types
-    class PyGraph;
-    class PyNodeScheduler;
-    class PyTimeSeriesInput;
-    class PyTimeSeriesOutput;
-    class PyTimeSeriesBundleInput;
-    
     /**
      * PyNode - Python API wrapper for Node implementation
      * 
@@ -64,15 +57,15 @@ namespace hgraph::api {
         [[nodiscard]] const nb::dict& scalars() const;
         
         // Graph access (read-only)
-        [[nodiscard]] PyGraph graph() const;
+        [[nodiscard]] nb::object graph() const;  // Returns cached PyGraph wrapper
         
         // Input/Output access (read-only)
-        [[nodiscard]] PyTimeSeriesBundleInput input() const;
-        [[nodiscard]] nb::dict inputs() const;  // Dict values are polymorphic PyTimeSeriesInput wrappers
-        [[nodiscard]] PyTimeSeriesOutput output() const;  // Returns appropriate specialized wrapper
+        [[nodiscard]] nb::object input() const;  // Returns cached PyTimeSeriesBundleInput wrapper
+        [[nodiscard]] nb::dict inputs() const;  // Dict values are cached PyTimeSeriesInput wrappers
+        [[nodiscard]] nb::object output() const;  // Returns cached specialized wrapper
         
         // Scheduler (read-only, for debugging)
-        [[nodiscard]] PyNodeScheduler scheduler() const;
+        [[nodiscard]] nb::object scheduler() const;  // Returns cached PyNodeScheduler wrapper
         
         // Python __str__ and __repr__
         [[nodiscard]] std::string str() const;

@@ -19,13 +19,13 @@ namespace hgraph::api {
     PyTimeSeriesInput::PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
     
-    PyNode PyTimeSeriesInput::owning_node() const {
+    nb::object PyTimeSeriesInput::owning_node() const {
         return wrap_node(_impl->owning_node(), _impl.control_block());
     }
     
-    PyTimeSeriesInput PyTimeSeriesInput::parent_input() const {
+    nb::object PyTimeSeriesInput::parent_input() const {
         auto parent = _impl->parent_input();
-        return wrap_input(parent, _impl.control_block());
+        return wrap_input(parent.get(), _impl.control_block());
     }
     
     bool PyTimeSeriesInput::has_parent_input() const {
@@ -64,9 +64,9 @@ namespace hgraph::api {
         return _impl->has_peer();
     }
     
-    PyTimeSeriesOutput PyTimeSeriesInput::output() const {
+    nb::object PyTimeSeriesInput::output() const {
         auto out = _impl->output();
-        return wrap_output(out, _impl.control_block());
+        return wrap_output(out.get(), _impl.control_block());
     }
     
     bool PyTimeSeriesInput::bind_output(nb::object output) {
@@ -118,13 +118,13 @@ namespace hgraph::api {
     PyTimeSeriesOutput::PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
     
-    PyNode PyTimeSeriesOutput::owning_node() const {
+    nb::object PyTimeSeriesOutput::owning_node() const {
         return wrap_node(_impl->owning_node(), _impl.control_block());
     }
     
-    PyTimeSeriesOutput PyTimeSeriesOutput::parent_output() const {
+    nb::object PyTimeSeriesOutput::parent_output() const {
         auto parent = _impl->parent_output();
-        return wrap_output(parent, _impl.control_block());
+        return wrap_output(parent.get(), _impl.control_block());
     }
     
     bool PyTimeSeriesOutput::has_parent_output() const {
