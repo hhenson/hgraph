@@ -33,9 +33,8 @@ namespace hgraph::api {
         PyTimeSeriesValueInput::register_with_nanobind(m);
         PyTimeSeriesValueOutput::register_with_nanobind(m);
         
-        // Signal types
+        // Signal types (input-only)
         PyTimeSeriesSignalInput::register_with_nanobind(m);
-        PyTimeSeriesSignalOutput::register_with_nanobind(m);
         
         // TSL (List) types
         PyTimeSeriesListInput::register_with_nanobind(m);

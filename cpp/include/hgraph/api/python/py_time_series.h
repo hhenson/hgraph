@@ -24,10 +24,9 @@ namespace hgraph::api {
      */
     class PyTimeSeriesInput {
         friend class PyTimeSeriesOutput;  // For copy_from_input
+        friend nb::object wrap_input(const hgraph::TimeSeriesInput* impl, control_block_ptr control_block);  // For factory
         
     public:
-        PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block);
-        
         PyTimeSeriesInput(PyTimeSeriesInput&&) noexcept = default;
         PyTimeSeriesInput& operator=(PyTimeSeriesInput&&) noexcept = default;
         PyTimeSeriesInput(const PyTimeSeriesInput&) = delete;
@@ -72,6 +71,9 @@ namespace hgraph::api {
         }
         
     protected:
+        // Protected constructor for use by derived classes
+        PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block);
+        
         ApiPtr<TimeSeriesInput> _impl;
     };
     
@@ -80,10 +82,9 @@ namespace hgraph::api {
      */
     class PyTimeSeriesOutput {
         friend class PyTimeSeriesInput;  // For bind_output
+        friend nb::object wrap_output(const hgraph::TimeSeriesOutput* impl, control_block_ptr control_block);  // For factory
         
     public:
-        PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
-        
         PyTimeSeriesOutput(PyTimeSeriesOutput&&) noexcept = default;
         PyTimeSeriesOutput& operator=(PyTimeSeriesOutput&&) noexcept = default;
         PyTimeSeriesOutput(const PyTimeSeriesOutput&) = delete;
@@ -126,6 +127,9 @@ namespace hgraph::api {
         }
         
     protected:
+        // Protected constructor for use by derived classes
+        PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
+        
         ApiPtr<TimeSeriesOutput> _impl;
     };
     

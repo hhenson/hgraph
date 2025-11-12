@@ -13,9 +13,17 @@
 namespace nb = nanobind;
 
 namespace hgraph {
-    // Forward declarations for base impl types
+    // Forward declarations for impl types
     struct TimeSeriesInput;
     struct TimeSeriesOutput;
+    struct TimeSeriesListInput;
+    struct TimeSeriesListOutput;
+    struct TimeSeriesBundleInput;
+    struct TimeSeriesBundleOutput;
+    struct TimeSeriesDictInput;
+    struct TimeSeriesDictOutput;
+    struct TimeSeriesSetInput;
+    struct TimeSeriesSetOutput;
 }
 
 namespace hgraph::api {
@@ -26,7 +34,7 @@ namespace hgraph::api {
     
     class PyTimeSeriesValueInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesValueInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object value() const;
         [[nodiscard]] nb::object delta_value() const;
@@ -36,7 +44,7 @@ namespace hgraph::api {
     
     class PyTimeSeriesValueOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesValueOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -47,19 +55,12 @@ namespace hgraph::api {
     
     class PyTimeSeriesSignalInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesSignalInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
         static void register_with_nanobind(nb::module_& m);
     };
     
-    class PyTimeSeriesSignalOutput : public PyTimeSeriesOutput {
-    public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
-        
-        void set_value();
-        
-        static void register_with_nanobind(nb::module_& m);
-    };
+    // Note: Signal types are INPUT-ONLY (no PyTimeSeriesSignalOutput)
     
     // ============================================================================
     // TSL (List) Types
@@ -67,22 +68,36 @@ namespace hgraph::api {
     
     class PyTimeSeriesListInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesListInput(TimeSeriesListInput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(int64_t index) const;
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
+        [[nodiscard]] nb::object iter() const;
+        
+        [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::dict valid_items() const;
+        [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::dict modified_items() const;
         
         static void register_with_nanobind(nb::module_& m);
     };
     
     class PyTimeSeriesListOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesListOutput(TimeSeriesListOutput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(int64_t index) const;
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
+        [[nodiscard]] nb::object iter() const;
+        
+        [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::dict valid_items() const;
+        [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::dict modified_items() const;
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -93,11 +108,19 @@ namespace hgraph::api {
     
     class PyTimeSeriesBundleInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesBundleInput(TimeSeriesBundleInput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(nb::object key) const;  // str or int
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
+        [[nodiscard]] nb::object iter() const;
+        [[nodiscard]] bool contains(const std::string& key) const;
+        
+        [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::dict modified_items() const;
+        [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::dict valid_items() const;
         
         [[nodiscard]] nb::object schema() const;
         
@@ -106,11 +129,19 @@ namespace hgraph::api {
     
     class PyTimeSeriesBundleOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesBundleOutput(TimeSeriesBundleOutput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(nb::object key) const;  // str or int
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
+        [[nodiscard]] nb::object iter() const;
+        [[nodiscard]] bool contains(const std::string& key) const;
+        
+        [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::dict modified_items() const;
+        [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::dict valid_items() const;
         
         [[nodiscard]] nb::object schema() const;
         
@@ -123,7 +154,7 @@ namespace hgraph::api {
     
     class PyTimeSeriesDictInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesDictInput(TimeSeriesDictInput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(nb::object key) const;
         [[nodiscard]] nb::object get(nb::object key, nb::object default_value) const;
@@ -144,7 +175,7 @@ namespace hgraph::api {
     
     class PyTimeSeriesDictOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesDictOutput(TimeSeriesDictOutput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object get_item(nb::object key) const;
         [[nodiscard]] bool contains(nb::object key) const;
@@ -163,25 +194,28 @@ namespace hgraph::api {
     
     class PyTimeSeriesSetInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesSetInput(TimeSeriesSetInput* impl, control_block_ptr control_block);
         
         [[nodiscard]] bool contains(nb::object item) const;
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
-        
+        [[nodiscard]] bool empty() const;
+        [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object added() const;
         [[nodiscard]] nb::object removed() const;
+        [[nodiscard]] bool was_added(nb::object item) const;
+        [[nodiscard]] bool was_removed(nb::object item) const;
         
         static void register_with_nanobind(nb::module_& m);
     };
     
     class PyTimeSeriesSetOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesSetOutput(TimeSeriesSetOutput* impl, control_block_ptr control_block);
         
         [[nodiscard]] bool contains(nb::object item) const;
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
+        [[nodiscard]] bool empty() const;
+        [[nodiscard]] nb::object values() const;
         
         void add(nb::object item);
         void remove(nb::object item);
@@ -195,27 +229,24 @@ namespace hgraph::api {
     
     class PyTimeSeriesWindowInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesWindowInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
-        [[nodiscard]] nb::object get_item(int64_t index) const;
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
-        
-        [[nodiscard]] nb::object times() const;
         [[nodiscard]] nb::object values() const;
+        [[nodiscard]] nb::object times() const;
         
         static void register_with_nanobind(nb::module_& m);
     };
     
     class PyTimeSeriesWindowOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesWindowOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
         
-        [[nodiscard]] nb::object get_item(int64_t index) const;
         [[nodiscard]] int64_t len() const;
-        [[nodiscard]] nb::iterator iter() const;
-        
-        void append(nb::object value);
+        [[nodiscard]] int64_t size() const;
+        [[nodiscard]] int64_t min_size() const;
+        [[nodiscard]] nb::object values() const;
+        [[nodiscard]] nb::object times() const;
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -226,7 +257,7 @@ namespace hgraph::api {
     
     class PyTimeSeriesReferenceInput : public PyTimeSeriesInput {
     public:
-        using PyTimeSeriesInput::PyTimeSeriesInput;  // Inherit base constructor
+        PyTimeSeriesReferenceInput(TimeSeriesInput* impl, control_block_ptr control_block);
         
         [[nodiscard]] nb::object value_ref() const;
         
@@ -235,7 +266,7 @@ namespace hgraph::api {
     
     class PyTimeSeriesReferenceOutput : public PyTimeSeriesOutput {
     public:
-        using PyTimeSeriesOutput::PyTimeSeriesOutput;  // Inherit base constructor
+        PyTimeSeriesReferenceOutput(TimeSeriesOutput* impl, control_block_ptr control_block);
         
         void set_value_ref(nb::object ref);
         
