@@ -777,6 +777,11 @@ namespace hgraph::api {
         }
     }
     
+    nb::object PyTimeSeriesDictInput::key_set() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        return wrap_input(&impl->key_set(), _impl.control_block());
+    }
+    
     void PyTimeSeriesDictInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__getitem__", &PyTimeSeriesDictInput::get_item)
@@ -793,7 +798,8 @@ namespace hgraph::api {
             .def("modified_keys", &PyTimeSeriesDictInput::modified_keys)
             .def("modified_items", &PyTimeSeriesDictInput::modified_items)
             .def("removed_keys", &PyTimeSeriesDictInput::removed_keys)
-            .def("removed_items", &PyTimeSeriesDictInput::removed_items);
+            .def("removed_items", &PyTimeSeriesDictInput::removed_items)
+            .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set);
     }
     
     nb::object PyTimeSeriesDictOutput::get_item(nb::object key) const {
@@ -842,6 +848,11 @@ namespace hgraph::api {
         impl->py_release_ref(key, requester);
     }
     
+    nb::object PyTimeSeriesDictOutput::key_set() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return wrap_output(&impl->key_set(), _impl.control_block());
+    }
+    
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item)
@@ -851,7 +862,8 @@ namespace hgraph::api {
             .def("values", &PyTimeSeriesDictOutput::values)
             .def("items", &PyTimeSeriesDictOutput::items)
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
-            .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a);
+            .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
+            .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set);
     }
     
     // ============================================================================

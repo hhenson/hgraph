@@ -182,6 +182,8 @@ namespace hgraph::api {
         [[nodiscard]] nb::object removed_keys() const;
         [[nodiscard]] nb::object removed_items() const;
         
+        [[nodiscard]] nb::object key_set() const;  // Returns PyTimeSeriesSetInput wrapper
+        
         static void register_with_nanobind(nb::module_& m);
     };
     
@@ -199,6 +201,8 @@ namespace hgraph::api {
         
         [[nodiscard]] nb::object get_ref(nb::object key, nb::object requester) const;
         void release_ref(nb::object key, nb::object requester);
+        
+        [[nodiscard]] nb::object key_set() const;  // Returns PyTimeSeriesSetOutput wrapper
         
         static void register_with_nanobind(nb::module_& m);
     };
