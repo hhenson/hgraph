@@ -78,15 +78,20 @@ namespace hgraph::api {
     }
     
     bool PyTimeSeriesInput::bind_output(nb::object output) {
-        // Try to unwrap PyTimeSeriesOutput first
-        auto* unwrapped = unwrap_output(output);
-        if (unwrapped) {
-            // Create a new ref from the raw pointer - this is safe because
-            // TimeSeriesOutput inherits from intrusive_base and manages its own ref count
-            time_series_output_ptr output_ref(unwrapped);
+        // Check if this is a PyTimeSeriesOutput wrapper
+        if (nb::isinstance<PyTimeSeriesOutput>(output)) {
+            auto& py_output = nb::cast<PyTimeSeriesOutput&>(output);
+            auto* raw_ptr = py_output._impl.get();
+            
+            // The C++ object is managed by intrusive_base, so we can safely
+            // create a ref that will keep it alive
+            // Important: we must inc_ref to ensure the object stays alive
+            // while bound, otherwise it could be deleted if Python wrapper is GC'd
+            time_series_output_ptr output_ref(raw_ptr);
             return _impl->bind_output(output_ref);
         }
-        // Fallback to direct cast for old bindings
+        
+        // Fallback to direct cast for old bindings (already a nb::ref<TimeSeriesOutput>)
         return _impl->bind_output(nb::cast<time_series_output_ptr>(output));
     }
     
