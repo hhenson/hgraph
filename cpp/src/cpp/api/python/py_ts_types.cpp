@@ -206,12 +206,9 @@ namespace hgraph::api {
                 "value",
                 [](const PyTimeSeriesValueOutput& self) { return self.value(); },
                 [](PyTimeSeriesValueOutput& self, nb::object value) {
-                    if (!value.is_valid() || value.is_none()) {
-                        self.set_value(nb::none());
-                    } else {
-                        self.set_value(std::move(value));
-                    }
-                });
+                    self.set_value(std::move(value));
+                },
+                nb::arg("value").none());
     }
     
     // ============================================================================

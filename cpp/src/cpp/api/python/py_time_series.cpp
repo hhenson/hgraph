@@ -236,7 +236,7 @@ bool PyTimeSeriesOutput::all_valid() const {
             .def_prop_ro("valid", &PyTimeSeriesOutput::valid)
             .def_prop_ro("modified", &PyTimeSeriesOutput::modified)
             .def_prop_ro("all_valid", &PyTimeSeriesOutput::all_valid)
-            .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value)
+            .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value, nb::arg("value").none())
             .def_prop_ro("delta_value", &PyTimeSeriesOutput::delta_value)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
             .def("copy_from_output", &PyTimeSeriesOutput::copy_from_output, "output"_a)
