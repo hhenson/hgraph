@@ -37,7 +37,7 @@ engine_time_t PyTimeSeriesInput::last_modified_time() const {
 }
 
 bool PyTimeSeriesInput::valid() const {
-    return _impl->valid();
+    return is_valid() && _impl->valid();
 }
 
 bool PyTimeSeriesInput::modified() const {
