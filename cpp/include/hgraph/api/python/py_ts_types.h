@@ -78,10 +78,10 @@ namespace hgraph::api {
         
         [[nodiscard]] nb::list keys() const;
         [[nodiscard]] nb::object values() const;  // Returns iterator
-        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list items() const;
         [[nodiscard]] nb::list valid_keys() const;
         [[nodiscard]] nb::object valid_values() const;  // Returns iterator
-        [[nodiscard]] nb::dict valid_items() const;
+        [[nodiscard]] nb::list valid_items() const;
         [[nodiscard]] nb::list modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;  // Returns iterator
         [[nodiscard]] nb::dict modified_items() const;
@@ -99,13 +99,15 @@ namespace hgraph::api {
         
         [[nodiscard]] nb::list keys() const;
         [[nodiscard]] nb::object values() const;  // Returns iterator
-        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list items() const;
         [[nodiscard]] nb::list valid_keys() const;
         [[nodiscard]] nb::object valid_values() const;  // Returns iterator
-        [[nodiscard]] nb::dict valid_items() const;
+        [[nodiscard]] nb::list valid_items() const;
         [[nodiscard]] nb::list modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;  // Returns iterator
-        [[nodiscard]] nb::dict modified_items() const;
+        [[nodiscard]] nb::list modified_items() const;
+        [[nodiscard]] bool can_apply_result(nb::object value) const;
+        void apply_result(nb::object value);
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -132,6 +134,8 @@ namespace hgraph::api {
         [[nodiscard]] nb::list valid_keys() const;
         [[nodiscard]] nb::object valid_values() const;  // Returns iterator
         [[nodiscard]] nb::list valid_items() const;
+        [[nodiscard]] bool can_apply_result(nb::object value) const;
+        void apply_result(nb::object value);
         
         [[nodiscard]] nb::object schema() const;
         [[nodiscard]] nb::object getattr(nb::handle key) const;
@@ -150,13 +154,15 @@ namespace hgraph::api {
         
         [[nodiscard]] nb::list keys() const;
         [[nodiscard]] nb::object values() const;  // Returns iterator
-        [[nodiscard]] nb::dict items() const;
+        [[nodiscard]] nb::list items() const;
         [[nodiscard]] nb::list modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;  // Returns iterator
-        [[nodiscard]] nb::dict modified_items() const;
+        [[nodiscard]] nb::list modified_items() const;
         [[nodiscard]] nb::list valid_keys() const;
         [[nodiscard]] nb::object valid_values() const;  // Returns iterator
-        [[nodiscard]] nb::dict valid_items() const;
+        [[nodiscard]] nb::list valid_items() const;
+        [[nodiscard]] bool can_apply_result(nb::object value) const;
+        void apply_result(nb::object value);
         
         [[nodiscard]] nb::object schema() const;
         [[nodiscard]] nb::object getattr(nb::handle key) const;

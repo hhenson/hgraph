@@ -103,6 +103,8 @@ namespace hgraph::api {
         PyLastValuePullNode(LastValuePullNode* impl, control_block_ptr control_block);
         
         void apply_value(const nb::object& new_value);
+        void copy_from_input(nb::object input);
+        void copy_from_output(nb::object output);
         
         static void register_with_nanobind(nb::module_& m);
         

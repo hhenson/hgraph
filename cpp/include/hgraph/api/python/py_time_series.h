@@ -34,6 +34,7 @@ namespace hgraph::api {
         PyTimeSeriesInput& operator=(const PyTimeSeriesInput&) = delete;
         
         // Common properties
+        [[nodiscard]] nb::object owning_graph() const;
         [[nodiscard]] nb::object owning_node() const;  // Returns cached PyNode wrapper
         [[nodiscard]] nb::object parent_input() const;  // Returns cached specialized wrapper
         [[nodiscard]] bool has_parent_input() const;
@@ -99,6 +100,7 @@ namespace hgraph::api {
         PyTimeSeriesOutput& operator=(const PyTimeSeriesOutput&) = delete;
         
         // Common properties
+        [[nodiscard]] nb::object owning_graph() const;
         [[nodiscard]] nb::object owning_node() const;  // Returns cached PyNode wrapper
         [[nodiscard]] nb::object parent_output() const;  // Returns cached specialized wrapper
         [[nodiscard]] bool has_parent_output() const;

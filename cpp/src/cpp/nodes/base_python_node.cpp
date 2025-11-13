@@ -7,6 +7,7 @@
 #include <hgraph/util/date_time.h>
 #include <hgraph/api/python/python_api.h>
 #include <fmt/format.h>
+#include <stdexcept>
 
 namespace hgraph {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
@@ -23,7 +24,13 @@ namespace hgraph {
         bool has_injectables{signature().injectables != 0 && signature().injectable_inputs.has_value()};
         auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
         auto g = graph();
-        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        if (g == nullptr) {
+            throw std::runtime_error("BasePythonNode::_initialise_kwargs: missing owning graph");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("BasePythonNode::_initialise_kwargs: graph missing API control block");
+        }
         nb::object node_wrapper{};
         auto get_node_wrapper = [&]() -> nb::object {
             if (!node_wrapper && g) {

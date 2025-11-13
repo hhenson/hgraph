@@ -168,11 +168,12 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesListInput::items() const {
+    nb::list PyTimeSeriesListInput::items() const {
         auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [idx, value] : impl->items()) {
-            result[nb::int_(idx)] = wrap_input(value.get(), _impl.control_block());
+            result.append(nb::make_tuple(nb::int_(idx),
+                                         wrap_input(value.get(), _impl.control_block())));
         }
         return result;
     }
@@ -195,11 +196,12 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesListInput::valid_items() const{
+    nb::list PyTimeSeriesListInput::valid_items() const{
         auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [idx, value] : impl->valid_items()) {
-            result[nb::int_(idx)] = wrap_input(value.get(), _impl.control_block());
+            result.append(nb::make_tuple(nb::int_(idx),
+                                         wrap_input(value.get(), _impl.control_block())));
         }
         return result;
     }
@@ -287,11 +289,12 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesListOutput::items() const {
+    nb::list PyTimeSeriesListOutput::items() const {
         auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [idx, value] : impl->items()) {
-            result[nb::int_(idx)] = wrap_output(value.get(), _impl.control_block());
+            result.append(nb::make_tuple(nb::int_(idx),
+                                         wrap_output(value.get(), _impl.control_block())));
         }
         return result;
     }
@@ -315,11 +318,12 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesListOutput::valid_items() const {
+    nb::list PyTimeSeriesListOutput::valid_items() const {
         auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [idx, value] : impl->valid_items()) {
-            result[nb::int_(idx)] = wrap_output(value.get(), _impl.control_block());
+            result.append(nb::make_tuple(nb::int_(idx),
+                                         wrap_output(value.get(), _impl.control_block())));
         }
         return result;
     }
@@ -343,13 +347,24 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesListOutput::modified_items() const {
+    nb::list PyTimeSeriesListOutput::modified_items() const {
         auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [idx, value] : impl->modified_items()) {
-            result[nb::int_(idx)] = wrap_output(value.get(), _impl.control_block());
+            result.append(nb::make_tuple(nb::int_(idx),
+                                         wrap_output(value.get(), _impl.control_block())));
         }
         return result;
+    }
+    
+    bool PyTimeSeriesListOutput::can_apply_result(nb::object value) const {
+        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
+        return impl->can_apply_result(value);
+    }
+    
+    void PyTimeSeriesListOutput::apply_result(nb::object value) {
+        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
+        impl->apply_result(std::move(value));
     }
     
     void PyTimeSeriesListOutput::register_with_nanobind(nb::module_& m) {
@@ -365,7 +380,9 @@ namespace hgraph::api {
             .def("valid_items", &PyTimeSeriesListOutput::valid_items)
             .def("modified_keys", &PyTimeSeriesListOutput::modified_keys)
             .def("modified_values", &PyTimeSeriesListOutput::modified_values)
-            .def("modified_items", &PyTimeSeriesListOutput::modified_items);
+            .def("modified_items", &PyTimeSeriesListOutput::modified_items)
+            .def("can_apply_result", &PyTimeSeriesListOutput::can_apply_result)
+            .def("apply_result", &PyTimeSeriesListOutput::apply_result);
     }
     
     // ============================================================================
@@ -579,11 +596,14 @@ namespace hgraph::api {
         return result;
     }
     
-    nb::dict PyTimeSeriesBundleOutput::items() const {
+    nb::list PyTimeSeriesBundleOutput::items() const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [key, value] : impl->items()) {
-            result[nb::str(key.get().c_str())] = wrap_output(value.get(), _impl.control_block());
+            result.append(
+                nb::make_tuple(nb::str(key.get().c_str()),
+                               wrap_output(value.get(), _impl.control_block()))
+            );
         }
         return result;
     }
@@ -617,13 +637,26 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesBundleOutput::modified_items() const {
+    nb::list PyTimeSeriesBundleOutput::modified_items() const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [key, value] : impl->modified_items()) {
-            result[nb::str(key.get().c_str())] = wrap_output(value.get(), _impl.control_block());
+            result.append(
+                nb::make_tuple(nb::str(key.get().c_str()),
+                               wrap_output(value.get(), _impl.control_block()))
+            );
         }
         return result;
+    }
+    
+    bool PyTimeSeriesBundleOutput::can_apply_result(nb::object value) const {
+        auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
+        return impl->can_apply_result(value);
+    }
+    
+    void PyTimeSeriesBundleOutput::apply_result(nb::object value) {
+        auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
+        impl->apply_result(std::move(value));
     }
     
     nb::list PyTimeSeriesBundleOutput::valid_keys() const {
@@ -645,11 +678,14 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesBundleOutput::valid_items() const {
+    nb::list PyTimeSeriesBundleOutput::valid_items() const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [key, value] : impl->valid_items()) {
-            result[nb::str(key.get().c_str())] = wrap_output(value.get(), _impl.control_block());
+            result.append(
+                nb::make_tuple(nb::str(key.get().c_str()),
+                               wrap_output(value.get(), _impl.control_block()))
+            );
         }
         return result;
     }
@@ -685,6 +721,8 @@ namespace hgraph::api {
             .def("valid_keys", &PyTimeSeriesBundleOutput::valid_keys)
             .def("valid_values", &PyTimeSeriesBundleOutput::valid_values)
             .def("valid_items", &PyTimeSeriesBundleOutput::valid_items)
+            .def("can_apply_result", &PyTimeSeriesBundleOutput::can_apply_result)
+            .def("apply_result", &PyTimeSeriesBundleOutput::apply_result)
             .def_prop_ro("__schema__", &PyTimeSeriesBundleOutput::schema);
     }
     
@@ -698,10 +736,12 @@ namespace hgraph::api {
         // This ensures nested TSDs are wrapped as TimeSeriesDictInput instead of base _TimeSeriesInput
         auto raw_result = impl->py_get_item(key);
         
-        // Check if it's a time_series_input_ptr and wrap it
-        if (nb::isinstance<nb::ref<TimeSeriesInput>>(raw_result)) {
-            auto ts_input = nb::cast<nb::ref<TimeSeriesInput>>(raw_result);
+        // Try to cast to a time_series_input_ptr and wrap it
+        try {
+            auto ts_input = nb::cast<time_series_input_ptr>(raw_result);
             return wrap_input(ts_input.get(), _impl.control_block());
+        } catch (const nb::cast_error&) {
+            // Fall through for non-time-series results (e.g., key_set)
         }
         
         // Otherwise return as-is (e.g., key_set)

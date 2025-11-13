@@ -19,6 +19,11 @@ namespace hgraph::api {
     PyTimeSeriesInput::PyTimeSeriesInput(TimeSeriesInput* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
     
+    nb::object PyTimeSeriesInput::owning_graph() const {
+        auto graph = _impl->owning_graph();
+        return wrap_graph(graph.get(), _impl.control_block());
+    }
+    
     nb::object PyTimeSeriesInput::owning_node() const {
         return wrap_node(_impl->owning_node(), _impl.control_block());
     }
@@ -117,6 +122,7 @@ bool PyTimeSeriesInput::modified() const {
     
     void PyTimeSeriesInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesInput>(m, "TimeSeriesInput")
+            .def_prop_ro("owning_graph", &PyTimeSeriesInput::owning_graph)
             .def_prop_ro("owning_node", &PyTimeSeriesInput::owning_node)
             .def_prop_ro("parent_input", &PyTimeSeriesInput::parent_input)
             .def_prop_ro("has_parent_input", &PyTimeSeriesInput::has_parent_input)
@@ -145,6 +151,11 @@ bool PyTimeSeriesInput::modified() const {
     
     PyTimeSeriesOutput::PyTimeSeriesOutput(TimeSeriesOutput* impl, control_block_ptr control_block)
         : _impl(impl, std::move(control_block)) {}
+    
+    nb::object PyTimeSeriesOutput::owning_graph() const {
+        auto graph = _impl->owning_graph();
+        return wrap_graph(graph.get(), _impl.control_block());
+    }
     
     nb::object PyTimeSeriesOutput::owning_node() const {
         return wrap_node(_impl->owning_node(), _impl.control_block());
@@ -213,6 +224,7 @@ bool PyTimeSeriesOutput::all_valid() const {
     
     void PyTimeSeriesOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesOutput>(m, "TimeSeriesOutput")
+            .def_prop_ro("owning_graph", &PyTimeSeriesOutput::owning_graph)
             .def_prop_ro("owning_node", &PyTimeSeriesOutput::owning_node)
             .def_prop_ro("parent_output", &PyTimeSeriesOutput::parent_output)
             .def_prop_ro("has_parent_output", &PyTimeSeriesOutput::has_parent_output)

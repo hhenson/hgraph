@@ -11,6 +11,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <fmt/format.h>
+#include <stdexcept>
 #include <nanobind/nanobind.h>
 
 namespace hgraph
@@ -317,7 +318,13 @@ namespace hgraph
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_item(const nb::object &item) const {
         auto key_set_id = nb::module_::import_("hgraph").attr("KEY_SET_ID");
         auto g = owning_graph();
-        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        if (g.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesDictOutput.py_get_item: missing owning graph for wrapping");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("TimeSeriesDictOutput.py_get_item: graph missing API control block");
+        }
         if (key_set_id.is(item)) {
             return api::wrap_output(&key_set(), cb);
         }
@@ -328,7 +335,13 @@ namespace hgraph
 
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_or_create(const nb::object &key) {
         auto g = owning_graph();
-        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        if (g.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesDictOutput.py_get_or_create: missing owning graph for wrapping");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("TimeSeriesDictOutput.py_get_or_create: graph missing API control block");
+        }
         auto ts = _get_or_create(nb::cast<T_Key>(key));
         return api::wrap_output(ts.get(), cb);
     }
@@ -530,7 +543,13 @@ namespace hgraph
     template <typename T_Key>
     nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
         auto g = owning_graph();
-        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        if (g.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesDictOutput.py_get_ref: missing owning graph for wrapping");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("TimeSeriesDictOutput.py_get_ref: graph missing API control block");
+        }
         auto ref = get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr()));
         return api::wrap_output(ref.get(), cb);
     }
@@ -656,8 +675,17 @@ namespace hgraph
     template <typename T_Key>
     nb::object TimeSeriesDictInput_T<T_Key>::py_get(const nb::object &item, const nb::object &default_value) const {
         auto key{nb::cast<T_Key>(item)};
-        if (contains(key)) { return nb::cast(operator[](key)); }
-        return default_value;
+        if (!contains(key)) { return default_value; }
+        auto g = owning_graph();
+        if (g.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesDictInput.py_get: missing owning graph for wrapping");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("TimeSeriesDictInput.py_get: graph missing API control block");
+        }
+        auto ts = operator[](key);
+        return api::wrap_input(ts.get(), cb);
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::py_create(const nb::object &item) {
@@ -668,7 +696,16 @@ namespace hgraph
 
     template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_get_item(const nb::object &item) const {
         if (get_key_set_id().is(item)) { return nb::cast(const_cast<TimeSeriesDictInput_T *>(this)->key_set_t()); }
-        return nb::cast(_ts_values.at(nb::cast<T_Key>(item)));
+        auto g = owning_graph();
+        if (g.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesDictInput.py_get_item: missing owning graph for wrapping");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("TimeSeriesDictInput.py_get_item: graph missing API control block");
+        }
+        auto ts = _ts_values.at(nb::cast<T_Key>(item));
+        return api::wrap_input(ts.get(), cb);
     }
 
     template <typename T_Key>
@@ -1071,7 +1108,13 @@ namespace hgraph
 
     template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_get_or_create(const nb::object &key) {
         auto g = owning_graph();
-        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        if (g.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesDictInput.py_get_or_create: missing owning graph for wrapping");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("TimeSeriesDictInput.py_get_or_create: graph missing API control block");
+        }
         auto ts = get_or_create(nb::cast<T_Key>(key));
         return api::wrap_input(ts.get(), cb);
     }

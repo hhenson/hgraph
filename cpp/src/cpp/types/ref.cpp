@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <fmt/format.h>
 
 namespace hgraph {
     TimeSeriesReference::ptr TimeSeriesReference::make() { return new EmptyTimeSeriesReference(); }
@@ -49,8 +50,20 @@ namespace hgraph {
                     // Accept both old _TimeSeriesInput and new TimeSeriesInput wrappers
                     auto* raw_input = api::unwrap_input(input);
                     if (!raw_input) {
-                        // Fallback to old binding
-                        raw_input = nb::cast<TimeSeriesInput*>(input);
+                        try {
+                            // Fallback to old binding
+                            raw_input = nb::cast<TimeSeriesInput*>(input);
+                        } catch (const nb::cast_error&) {
+                            auto type_obj = input.type();
+                            auto type_repr = nb::cast<std::string>(nb::str(type_obj));
+                            throw std::runtime_error(
+                                fmt::format("TimeSeriesReference.bind_input: expected TimeSeriesInput wrapper, got {}", type_repr));
+                        } catch (const std::bad_cast&) {
+                            auto type_obj = input.type();
+                            auto type_repr = nb::cast<std::string>(nb::str(type_obj));
+                            throw std::runtime_error(
+                                fmt::format("TimeSeriesReference.bind_input: expected TimeSeriesInput wrapper, got {}", type_repr));
+                        }
                     }
                     self.bind_input(*raw_input);
                 })

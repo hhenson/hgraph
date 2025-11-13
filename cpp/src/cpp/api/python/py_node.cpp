@@ -11,6 +11,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 #include <hgraph/nodes/last_value_pull_node.h>
+#include <stdexcept>
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -121,16 +122,34 @@ namespace hgraph::api {
     }
     
     PyLastValuePullNode::PyLastValuePullNode(LastValuePullNode* impl, control_block_ptr control_block)
-        : PyNode(impl, control_block)
-        , _impl_last_value(impl, std::move(control_block)) {}
+        : PyNode(impl, std::move(control_block))
+        , _impl_last_value(static_cast<LastValuePullNode*>(_impl.get()), _impl.control_block()) {}
     
     void PyLastValuePullNode::apply_value(const nb::object& new_value) {
         _impl_last_value->apply_value(new_value);
     }
+
+    void PyLastValuePullNode::copy_from_input(nb::object input) {
+        auto* impl_input = unwrap_input(input);
+        if (impl_input == nullptr) {
+            throw std::runtime_error("LastValuePullNode.copy_from_input: expected TimeSeriesInput");
+        }
+        _impl_last_value->copy_from_input(*impl_input);
+    }
+
+    void PyLastValuePullNode::copy_from_output(nb::object output) {
+        auto* impl_output = unwrap_output(output);
+        if (impl_output == nullptr) {
+            throw std::runtime_error("LastValuePullNode.copy_from_output: expected TimeSeriesOutput");
+        }
+        _impl_last_value->copy_from_output(*impl_output);
+    }
     
     void PyLastValuePullNode::register_with_nanobind(nb::module_& m) {
         nb::class_<PyLastValuePullNode, PyNode>(m, "LastValuePullNode")
-            .def("apply_value", &PyLastValuePullNode::apply_value);
+            .def("apply_value", &PyLastValuePullNode::apply_value)
+            .def("copy_from_input", &PyLastValuePullNode::copy_from_input, "input"_a)
+            .def("copy_from_output", &PyLastValuePullNode::copy_from_output, "output"_a);
     }
     
 } // namespace hgraph::api
