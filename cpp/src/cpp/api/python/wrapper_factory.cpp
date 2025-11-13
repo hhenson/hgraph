@@ -20,7 +20,9 @@
 #include <hgraph/api/python/py_evaluation_engine_api.h>
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_traits.h>
+#include <hgraph/api/python/py_ts_types.h>
 #include <hgraph/nodes/last_value_pull_node.h>
+#include <stdexcept>
 
 namespace hgraph::api {
     
@@ -160,7 +162,17 @@ namespace hgraph::api {
         
         // Check for concrete collection types first (non-template)
         // NOTE: Order matters! Check derived types before base types
-        if (auto* tsb = dynamic_cast<TimeSeriesBundleOutput*>(mutable_impl)) {
+        if (auto* tsv_int = dynamic_cast<TimeSeriesValueOutput<int64_t>*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesValueOutput(tsv_int, control_block));
+        } else if (auto* tsv_double = dynamic_cast<TimeSeriesValueOutput<double>*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesValueOutput(tsv_double, control_block));
+        } else if (auto* tsv_bool = dynamic_cast<TimeSeriesValueOutput<bool>*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesValueOutput(tsv_bool, control_block));
+        } else if (auto* tsv_obj = dynamic_cast<TimeSeriesValueOutput<nb::object>*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesValueOutput(tsv_obj, control_block));
+        } else if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesReferenceOutput(ts_ref, control_block));
+        } else if (auto* tsb = dynamic_cast<TimeSeriesBundleOutput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesBundleOutput(tsb, control_block));
         } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesListOutput(tsl, control_block));
@@ -171,8 +183,7 @@ namespace hgraph::api {
         else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesDictOutput(tsd, control_block));
         } else {
-            // Fallback to base wrapper for templates and other types
-            py_obj = nb::cast(PyTimeSeriesOutput(mutable_impl, control_block));
+            throw std::runtime_error("wrap_output: unsupported TimeSeriesOutput concrete type");
         }
         
         // Cache and return

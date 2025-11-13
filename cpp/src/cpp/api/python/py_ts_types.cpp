@@ -43,6 +43,93 @@ namespace hgraph::api {
     template nb::list build_tsd_items_list<double>(const std::unordered_map<double, time_series_input_ptr>&, control_block_ptr);
     template nb::list build_tsd_items_list<nb::object>(const std::unordered_map<nb::object, time_series_input_ptr>&, control_block_ptr);
 
+    template<typename T_Key>
+    nb::list build_tsd_input_values_list(const std::unordered_map<T_Key, time_series_input_ptr>& items, control_block_ptr cb) {
+        nb::list result;
+        for (const auto& [_, value] : items) {
+            (void)_;
+            result.append(wrap_input(value.get(), cb));
+        }
+        return result;
+    }
+
+    template nb::list build_tsd_input_values_list<bool>(const std::unordered_map<bool, time_series_input_ptr>&, control_block_ptr);
+    template nb::list build_tsd_input_values_list<int64_t>(const std::unordered_map<int64_t, time_series_input_ptr>&, control_block_ptr);
+    template nb::list build_tsd_input_values_list<double>(const std::unordered_map<double, time_series_input_ptr>&, control_block_ptr);
+    template nb::list build_tsd_input_values_list<nb::object>(const std::unordered_map<nb::object, time_series_input_ptr>&, control_block_ptr);
+
+    template<typename T_Key>
+    nb::list build_tsd_output_items_list(const std::unordered_map<T_Key, time_series_output_ptr>& items, control_block_ptr cb) {
+        nb::list result;
+        for (const auto& [key, value] : items) {
+            nb::tuple item = nb::make_tuple(
+                nb::cast(key),
+                wrap_output(value.get(), cb)
+            );
+            result.append(item);
+        }
+        return result;
+    }
+
+    template<typename T_Key>
+    nb::list build_tsd_output_values_list(const std::unordered_map<T_Key, time_series_output_ptr>& items, control_block_ptr cb) {
+        nb::list result;
+        for (const auto& [_, value] : items) {
+            (void)_;
+            result.append(wrap_output(value.get(), cb));
+        }
+        return result;
+    }
+
+    template nb::list build_tsd_output_items_list<bool>(const std::unordered_map<bool, time_series_output_ptr>&, control_block_ptr);
+    template nb::list build_tsd_output_items_list<int64_t>(const std::unordered_map<int64_t, time_series_output_ptr>&, control_block_ptr);
+    template nb::list build_tsd_output_items_list<double>(const std::unordered_map<double, time_series_output_ptr>&, control_block_ptr);
+    template nb::list build_tsd_output_items_list<nb::object>(const std::unordered_map<nb::object, time_series_output_ptr>&, control_block_ptr);
+
+    template nb::list build_tsd_output_values_list<bool>(const std::unordered_map<bool, time_series_output_ptr>&, control_block_ptr);
+    template nb::list build_tsd_output_values_list<int64_t>(const std::unordered_map<int64_t, time_series_output_ptr>&, control_block_ptr);
+    template nb::list build_tsd_output_values_list<double>(const std::unordered_map<double, time_series_output_ptr>&, control_block_ptr);
+    template nb::list build_tsd_output_values_list<nb::object>(const std::unordered_map<nb::object, time_series_output_ptr>&, control_block_ptr);
+
+    template <typename PtrT, typename WrapFn>
+    nb::list build_tsd_values_from_iterable(const nb::object& iterable, WrapFn&& wrap) {
+        nb::list result;
+        for (auto value_obj : nb::iter(iterable)) {
+            try {
+                PtrT raw = nb::cast<PtrT>(value_obj);
+                if (raw != nullptr) {
+                    result.append(wrap(raw));
+                }
+            } catch (const nb::cast_error&) {
+                // Ignore values that cannot be cast
+            }
+        }
+        return result;
+    }
+
+    inline nb::list build_tsd_output_items_from_iterable(const nb::object& iterable, control_block_ptr cb) {
+        nb::list result;
+        for (auto item_obj : nb::iter(iterable)) {
+            if (!nb::isinstance<nb::tuple>(item_obj)) {
+                result.append(item_obj);
+                continue;
+            }
+            nb::tuple tuple = nb::cast<nb::tuple>(item_obj);
+            if (tuple.size() != 2) {
+                result.append(item_obj);
+                continue;
+            }
+            nb::object key = tuple[0];
+            try {
+                auto* raw = nb::cast<TimeSeriesOutput*>(tuple[1]);
+                result.append(nb::make_tuple(key, wrap_output(raw, cb)));
+            } catch (const nb::cast_error&) {
+                result.append(item_obj);
+            }
+        }
+        return result;
+    }
+
     
     // ============================================================================
     // Constructor Definitions
@@ -865,9 +952,45 @@ namespace hgraph::api {
         }
     }
     
+    nb::object PyTimeSeriesDictInput::added_values() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        auto cb = _impl.control_block();
+
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_input_values_list(tsd->added_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_input_values_list(tsd->added_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_input_values_list(tsd->added_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_input_values_list(tsd->added_items(), cb);
+        }
+
+        return build_tsd_values_from_iterable<TimeSeriesInput*>(impl->py_added_values(),
+            [&](TimeSeriesInput* ptr) { return wrap_input(ptr, cb); });
+    }
+    
     nb::object PyTimeSeriesDictInput::modified_keys() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
         return impl->py_modified_keys();
+    }
+    
+    nb::object PyTimeSeriesDictInput::modified_values() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        auto cb = _impl.control_block();
+
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_input_values_list(tsd->modified_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_input_values_list(tsd->modified_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_input_values_list(tsd->modified_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_input_values_list(tsd->modified_items(), cb);
+        }
+
+        return build_tsd_values_from_iterable<TimeSeriesInput*>(impl->py_modified_values(),
+            [&](TimeSeriesInput* ptr) { return wrap_input(ptr, cb); });
     }
     
     nb::object PyTimeSeriesDictInput::modified_items() const {
@@ -891,6 +1014,24 @@ namespace hgraph::api {
     nb::object PyTimeSeriesDictInput::removed_keys() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
         return impl->py_removed_keys();
+    }
+    
+    nb::object PyTimeSeriesDictInput::removed_values() const {
+        auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
+        auto cb = _impl.control_block();
+
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_input_values_list(tsd->removed_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_input_values_list(tsd->removed_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_input_values_list(tsd->removed_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_input_values_list(tsd->removed_items(), cb);
+        }
+
+        return build_tsd_values_from_iterable<TimeSeriesInput*>(impl->py_removed_values(),
+            [&](TimeSeriesInput* ptr) { return wrap_input(ptr, cb); });
     }
     
     nb::object PyTimeSeriesDictInput::removed_items() const {
@@ -972,10 +1113,13 @@ namespace hgraph::api {
             .def("valid_values", &PyTimeSeriesDictInput::valid_values)
             .def("valid_items", &PyTimeSeriesDictInput::valid_items)
             .def("added_keys", &PyTimeSeriesDictInput::added_keys)
+            .def("added_values", &PyTimeSeriesDictInput::added_values)
             .def("added_items", &PyTimeSeriesDictInput::added_items)
             .def("modified_keys", &PyTimeSeriesDictInput::modified_keys)
+            .def("modified_values", &PyTimeSeriesDictInput::modified_values)
             .def("modified_items", &PyTimeSeriesDictInput::modified_items)
             .def("removed_keys", &PyTimeSeriesDictInput::removed_keys)
+            .def("removed_values", &PyTimeSeriesDictInput::removed_values)
             .def("removed_items", &PyTimeSeriesDictInput::removed_items)
             .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set)
             .def("_create", &PyTimeSeriesDictInput::_create, "key"_a)
@@ -1023,6 +1167,42 @@ namespace hgraph::api {
         return impl->py_items();
     }
     
+    nb::object PyTimeSeriesDictOutput::valid_keys() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_valid_keys();
+    }
+
+    nb::object PyTimeSeriesDictOutput::valid_values() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto cb = _impl.control_block();
+        return build_tsd_values_from_iterable<TimeSeriesOutput*>(impl->py_valid_values(),
+            [&](TimeSeriesOutput* ptr) { return wrap_output(ptr, cb); });
+    }
+
+    nb::object PyTimeSeriesDictOutput::valid_items() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto cb = _impl.control_block();
+        return build_tsd_output_items_from_iterable(impl->py_valid_items(), cb);
+    }
+
+    nb::object PyTimeSeriesDictOutput::added_keys() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_added_keys();
+    }
+
+    nb::object PyTimeSeriesDictOutput::added_values() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto cb = _impl.control_block();
+        return build_tsd_values_from_iterable<TimeSeriesOutput*>(impl->py_added_values(),
+            [&](TimeSeriesOutput* ptr) { return wrap_output(ptr, cb); });
+    }
+
+    nb::object PyTimeSeriesDictOutput::added_items() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto cb = _impl.control_block();
+        return build_tsd_output_items_from_iterable(impl->py_added_items(), cb);
+    }
+
     nb::object PyTimeSeriesDictOutput::getattr(nb::handle key) const {
         auto key_str = nb::cast<std::string>(nb::str(key));
         if (!contains(nb::str(key_str.c_str()))) {
@@ -1059,12 +1239,33 @@ namespace hgraph::api {
     
     nb::object PyTimeSeriesDictOutput::modified_values() const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
-        return impl->py_modified_values();
+        auto cb = _impl.control_block();
+        return build_tsd_values_from_iterable<TimeSeriesOutput*>(impl->py_modified_values(),
+            [&](TimeSeriesOutput* ptr) { return wrap_output(ptr, cb); });
     }
     
     nb::object PyTimeSeriesDictOutput::modified_items() const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
-        return impl->py_modified_items();
+        auto cb = _impl.control_block();
+        return build_tsd_output_items_from_iterable(impl->py_modified_items(), cb);
+    }
+
+    nb::object PyTimeSeriesDictOutput::removed_keys() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_removed_keys();
+    }
+
+    nb::object PyTimeSeriesDictOutput::removed_values() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto cb = _impl.control_block();
+        return build_tsd_values_from_iterable<TimeSeriesOutput*>(impl->py_removed_values(),
+            [&](TimeSeriesOutput* ptr) { return wrap_output(ptr, cb); });
+    }
+
+    nb::object PyTimeSeriesDictOutput::removed_items() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        auto cb = _impl.control_block();
+        return build_tsd_output_items_from_iterable(impl->py_removed_items(), cb);
     }
     
     nb::object PyTimeSeriesDictOutput::get_ref(nb::object key, nb::object requester) const {
@@ -1098,51 +1299,16 @@ namespace hgraph::api {
         
         // py_get_or_create returns the old Python binding with cached wrapper
         // We need to get the C++ pointer and create a fresh new wrapper
-        auto old_binding = impl->py_get_or_create(key);
-        if (old_binding.is_none()) {
-            return old_binding;
+        auto binding = impl->py_get_or_create(key);
+        if (binding.is_none()) {
+            return binding;
         }
-        
-        // Extract the C++ pointer from the old binding
-        try {
-            auto* raw_ptr = nb::cast<TimeSeriesOutput*>(old_binding);
-            if (raw_ptr) {
-                // Check if it's already wrapped with our new wrapper type
-                // If the cached Python object is one of our new wrappers, return it
-                PyObject* cached = raw_ptr->self_py();
-                if (cached) {
-                    nb::object cached_obj = nb::borrow(cached);
-                    // Check if it's already a new wrapper type (has `add` method for TSS)
-                    if (nb::hasattr(cached_obj, "add")) {
-                        return cached_obj;
-                    }
-                }
-                
-                // Otherwise, we need to create a new wrapper
-                // Create it without modifying the cache to avoid ref counting issues
-                // Multiple Python wrappers can point to the same C++ object
-                nb::object new_wrapper;
-                if (auto* tss = dynamic_cast<TimeSeriesSetOutput*>(raw_ptr)) {
-                    new_wrapper = nb::cast(PyTimeSeriesSetOutput(tss, _impl.control_block()));
-                } else if (auto* tsl = dynamic_cast<TimeSeriesListOutput*>(raw_ptr)) {
-                    new_wrapper = nb::cast(PyTimeSeriesListOutput(tsl, _impl.control_block()));
-                } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput*>(raw_ptr)) {
-                    new_wrapper = nb::cast(PyTimeSeriesDictOutput(tsd, _impl.control_block()));
-                } else if (auto* tsb = dynamic_cast<TimeSeriesBundleOutput*>(raw_ptr)) {
-                    new_wrapper = nb::cast(PyTimeSeriesBundleOutput(tsb, _impl.control_block()));
-                } else {
-                    // For other types, return the old binding for now
-                    return old_binding;
-                }
-                
-                return new_wrapper;
-            }
-        } catch (...) {
-            // If extraction fails, return the old binding as-is
-            return old_binding;
+
+        if (!nb::inst_ptr<PyTimeSeriesOutput>(binding)) {
+            throw std::runtime_error("PyTimeSeriesDictOutput.get_or_create: expected PyTimeSeriesOutput wrapper");
         }
-        
-        return old_binding;
+
+        return binding;
     }
     
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
@@ -1157,11 +1323,20 @@ namespace hgraph::api {
             .def("keys", &PyTimeSeriesDictOutput::keys)
             .def("values", &PyTimeSeriesDictOutput::values)
             .def("items", &PyTimeSeriesDictOutput::items)
+            .def("valid_keys", &PyTimeSeriesDictOutput::valid_keys)
+            .def("valid_values", &PyTimeSeriesDictOutput::valid_values)
+            .def("valid_items", &PyTimeSeriesDictOutput::valid_items)
+            .def("added_keys", &PyTimeSeriesDictOutput::added_keys)
+            .def("added_values", &PyTimeSeriesDictOutput::added_values)
+            .def("added_items", &PyTimeSeriesDictOutput::added_items)
             .def("pop", &PyTimeSeriesDictOutput::pop, "key"_a, "default"_a = nb::none())
             .def("clear", &PyTimeSeriesDictOutput::clear)
             .def("modified_keys", &PyTimeSeriesDictOutput::modified_keys)
             .def("modified_values", &PyTimeSeriesDictOutput::modified_values)
             .def("modified_items", &PyTimeSeriesDictOutput::modified_items)
+            .def("removed_keys", &PyTimeSeriesDictOutput::removed_keys)
+            .def("removed_values", &PyTimeSeriesDictOutput::removed_values)
+            .def("removed_items", &PyTimeSeriesDictOutput::removed_items)
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
             .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
             .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set)

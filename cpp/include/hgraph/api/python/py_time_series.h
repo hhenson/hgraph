@@ -111,7 +111,7 @@ namespace hgraph::api {
         [[nodiscard]] bool all_valid() const;
         
         [[nodiscard]] nb::object value() const;
-        void set_value(nb::object value);
+        void set_value(nb::handle value);
         [[nodiscard]] nb::object delta_value() const;
         
         void invalidate();

@@ -191,10 +191,13 @@ namespace hgraph::api {
         [[nodiscard]] nb::object valid_values() const;
         [[nodiscard]] nb::object valid_items() const;
         [[nodiscard]] nb::object added_keys() const;
+        [[nodiscard]] nb::object added_values() const;
         [[nodiscard]] nb::object added_items() const;
         [[nodiscard]] nb::object modified_keys() const;
+        [[nodiscard]] nb::object modified_values() const;
         [[nodiscard]] nb::object modified_items() const;
         [[nodiscard]] nb::object removed_keys() const;
+        [[nodiscard]] nb::object removed_values() const;
         [[nodiscard]] nb::object removed_items() const;
         
         [[nodiscard]] nb::object key_set() const;  // Returns PyTimeSeriesSetInput wrapper
@@ -219,6 +222,12 @@ namespace hgraph::api {
         [[nodiscard]] nb::object keys() const;
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;
+        [[nodiscard]] nb::object valid_keys() const;
+        [[nodiscard]] nb::object valid_values() const;
+        [[nodiscard]] nb::object valid_items() const;
+        [[nodiscard]] nb::object added_keys() const;
+        [[nodiscard]] nb::object added_values() const;
+        [[nodiscard]] nb::object added_items() const;
         [[nodiscard]] nb::object getattr(nb::handle key) const;
         
         void set_item(nb::object key, nb::object value);
@@ -230,6 +239,9 @@ namespace hgraph::api {
         [[nodiscard]] nb::object modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;
         [[nodiscard]] nb::object modified_items() const;
+        [[nodiscard]] nb::object removed_keys() const;
+        [[nodiscard]] nb::object removed_values() const;
+        [[nodiscard]] nb::object removed_items() const;
         
         [[nodiscard]] nb::object get_ref(nb::object key, nb::object requester) const;
         void release_ref(nb::object key, nb::object requester);
