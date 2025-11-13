@@ -13,6 +13,7 @@
 #include <hgraph/types/tss.h>
 #include <hgraph/types/tsw.h>
 #include <hgraph/types/ref.h>
+#include <fmt/format.h>
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -982,6 +983,35 @@ namespace hgraph::api {
         return impl->py_items();
     }
     
+    nb::object PyTimeSeriesDictOutput::getattr(nb::handle key) const {
+        auto key_str = nb::cast<std::string>(nb::str(key));
+        if (!contains(nb::str(key_str.c_str()))) {
+            auto message = fmt::format("TimeSeriesDictOutput has no attribute '{}'", key_str);
+            throw nb::attribute_error(message.c_str());
+        }
+        return get_item(nb::str(key_str.c_str()));
+    }
+    
+    void PyTimeSeriesDictOutput::set_item(nb::object key, nb::object value) {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        impl->py_set_item(key, value);
+    }
+    
+    void PyTimeSeriesDictOutput::del_item(nb::object key) {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        impl->py_del_item(key);
+    }
+    
+    nb::object PyTimeSeriesDictOutput::pop(nb::object key, nb::object default_value) const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_pop(key, default_value);
+    }
+    
+    void PyTimeSeriesDictOutput::clear() {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        impl->clear();
+    }
+    
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
         return impl->py_modified_keys();
@@ -1078,12 +1108,17 @@ namespace hgraph::api {
     void PyTimeSeriesDictOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item)
+            .def("__setitem__", &PyTimeSeriesDictOutput::set_item)
+            .def("__delitem__", &PyTimeSeriesDictOutput::del_item)
+            .def("__getattr__", &PyTimeSeriesDictOutput::getattr)
             .def("get", &PyTimeSeriesDictOutput::get, "key"_a, "default"_a = nb::none())
             .def("__contains__", &PyTimeSeriesDictOutput::contains)
             .def("__len__", &PyTimeSeriesDictOutput::len)
             .def("keys", &PyTimeSeriesDictOutput::keys)
             .def("values", &PyTimeSeriesDictOutput::values)
             .def("items", &PyTimeSeriesDictOutput::items)
+            .def("pop", &PyTimeSeriesDictOutput::pop, "key"_a, "default"_a = nb::none())
+            .def("clear", &PyTimeSeriesDictOutput::clear)
             .def("modified_keys", &PyTimeSeriesDictOutput::modified_keys)
             .def("modified_values", &PyTimeSeriesDictOutput::modified_values)
             .def("modified_items", &PyTimeSeriesDictOutput::modified_items)

@@ -213,6 +213,12 @@ namespace hgraph::api {
         [[nodiscard]] nb::object keys() const;
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;
+        [[nodiscard]] nb::object getattr(nb::handle key) const;
+        
+        void set_item(nb::object key, nb::object value);
+        void del_item(nb::object key);
+        [[nodiscard]] nb::object pop(nb::object key, nb::object default_value) const;
+        void clear();
         
         // Modified tracking
         [[nodiscard]] nb::object modified_keys() const;
