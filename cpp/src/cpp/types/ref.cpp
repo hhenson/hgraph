@@ -57,25 +57,7 @@ namespace hgraph {
                 .def_prop_ro("has_output", &TimeSeriesReference::has_output)
                 .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
                 .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-                .def_static("make", static_cast<ptr (*)()>(&TimeSeriesReference::make))
-                .def_static("make", [](nb::object output) -> ptr {
-                    // Accept both old TimeSeriesOutput and new PyTimeSeriesOutput wrappers
-                    if (output.is_none()) {
-                        return TimeSeriesReference::make(nullptr);
-                    }
-                    
-                    // Try to unwrap our new API wrapper first
-                    if (nb::isinstance<api::PyTimeSeriesOutput>(output)) {
-                        auto* raw_output = api::unwrap_output(output);
-                        // Create a ref from the unwrapped output - must inc_ref to keep it alive
-                        TimeSeriesOutput::ptr output_ref(raw_output);
-                        return TimeSeriesReference::make(output_ref);
-                    }
-                    
-                    // Fallback to old binding (already an nb::ref<TimeSeriesOutput>)
-                    return TimeSeriesReference::make(nb::cast<TimeSeriesOutput::ptr>(output));
-                })
-                .def_static("make", static_cast<ptr (*)(std::vector<ptr>)>(&TimeSeriesReference::make))
+
                 .def_static(
                     "make",
                     [](nb::object ts, nb::object items) -> ptr {
