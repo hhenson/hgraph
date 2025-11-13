@@ -98,10 +98,13 @@ namespace hgraph::api {
         [[nodiscard]] nb::object iter() const;
         
         [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::object values() const;  // Returns iterator
         [[nodiscard]] nb::dict items() const;
         [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::object valid_values() const;  // Returns iterator
         [[nodiscard]] nb::dict valid_items() const;
         [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::object modified_values() const;  // Returns iterator
         [[nodiscard]] nb::dict modified_items() const;
         
         static void register_with_nanobind(nb::module_& m);
@@ -145,10 +148,13 @@ namespace hgraph::api {
         [[nodiscard]] bool contains(const std::string& key) const;
         
         [[nodiscard]] nb::list keys() const;
+        [[nodiscard]] nb::object values() const;  // Returns iterator
         [[nodiscard]] nb::dict items() const;
         [[nodiscard]] nb::list modified_keys() const;
+        [[nodiscard]] nb::object modified_values() const;  // Returns iterator
         [[nodiscard]] nb::dict modified_items() const;
         [[nodiscard]] nb::list valid_keys() const;
+        [[nodiscard]] nb::object valid_values() const;  // Returns iterator
         [[nodiscard]] nb::dict valid_items() const;
         
         [[nodiscard]] nb::object schema() const;

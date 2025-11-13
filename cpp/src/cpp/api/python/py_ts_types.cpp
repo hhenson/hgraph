@@ -276,6 +276,16 @@ namespace hgraph::api {
         return result;
     }
     
+    nb::object PyTimeSeriesListOutput::values() const {
+        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
+        nb::list result;
+        for (const auto& [idx, value] : impl->items()) {
+            (void)idx;
+            result.append(wrap_output(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
     nb::dict PyTimeSeriesListOutput::items() const {
         auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
         nb::dict result;
@@ -292,6 +302,16 @@ namespace hgraph::api {
             result.append(key);
         }
         return result;
+    }
+    
+    nb::object PyTimeSeriesListOutput::valid_values() const {
+        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
+        nb::list result;
+        for (const auto& [idx, value] : impl->valid_items()) {
+            (void)idx;
+            result.append(wrap_output(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
     }
     
     nb::dict PyTimeSeriesListOutput::valid_items() const {
@@ -312,6 +332,16 @@ namespace hgraph::api {
         return result;
     }
     
+    nb::object PyTimeSeriesListOutput::modified_values() const {
+        auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
+        nb::list result;
+        for (const auto& [idx, value] : impl->modified_items()) {
+            (void)idx;
+            result.append(wrap_output(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
     nb::dict PyTimeSeriesListOutput::modified_items() const {
         auto* impl = static_cast<TimeSeriesListOutput*>(_impl.get());
         nb::dict result;
@@ -327,10 +357,13 @@ namespace hgraph::api {
             .def("__len__", &PyTimeSeriesListOutput::len)
             .def("__iter__", &PyTimeSeriesListOutput::iter)
             .def("keys", &PyTimeSeriesListOutput::keys)
+            .def("values", &PyTimeSeriesListOutput::values)
             .def("items", &PyTimeSeriesListOutput::items)
             .def("valid_keys", &PyTimeSeriesListOutput::valid_keys)
+            .def("valid_values", &PyTimeSeriesListOutput::valid_values)
             .def("valid_items", &PyTimeSeriesListOutput::valid_items)
             .def("modified_keys", &PyTimeSeriesListOutput::modified_keys)
+            .def("modified_values", &PyTimeSeriesListOutput::modified_values)
             .def("modified_items", &PyTimeSeriesListOutput::modified_items);
     }
     
@@ -543,6 +576,16 @@ namespace hgraph::api {
         return result;
     }
     
+    nb::object PyTimeSeriesBundleOutput::values() const {
+        auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
+        nb::list result;
+        for (const auto& [key, value] : impl->items()) {
+            (void)key;
+            result.append(wrap_output(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
+    }
+    
     nb::list PyTimeSeriesBundleOutput::modified_keys() const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
         nb::list result;
@@ -550,6 +593,16 @@ namespace hgraph::api {
             result.append(nb::str(key.get().c_str()));
         }
         return result;
+    }
+    
+    nb::object PyTimeSeriesBundleOutput::modified_values() const {
+        auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
+        nb::list result;
+        for (const auto& [key, value] : impl->modified_items()) {
+            (void)key;
+            result.append(wrap_output(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
     }
     
     nb::dict PyTimeSeriesBundleOutput::modified_items() const {
@@ -568,6 +621,16 @@ namespace hgraph::api {
             result.append(nb::str(key.get().c_str()));
         }
         return result;
+    }
+    
+    nb::object PyTimeSeriesBundleOutput::valid_values() const {
+        auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
+        nb::list result;
+        for (const auto& [key, value] : impl->valid_items()) {
+            (void)key;
+            result.append(wrap_output(value.get(), _impl.control_block()));
+        }
+        return result.attr("__iter__")();
     }
     
     nb::dict PyTimeSeriesBundleOutput::valid_items() const {
@@ -591,10 +654,13 @@ namespace hgraph::api {
             .def("__iter__", &PyTimeSeriesBundleOutput::iter)
             .def("__contains__", &PyTimeSeriesBundleOutput::contains)
             .def("keys", &PyTimeSeriesBundleOutput::keys)
+            .def("values", &PyTimeSeriesBundleOutput::values)
             .def("items", &PyTimeSeriesBundleOutput::items)
             .def("modified_keys", &PyTimeSeriesBundleOutput::modified_keys)
+            .def("modified_values", &PyTimeSeriesBundleOutput::modified_values)
             .def("modified_items", &PyTimeSeriesBundleOutput::modified_items)
             .def("valid_keys", &PyTimeSeriesBundleOutput::valid_keys)
+            .def("valid_values", &PyTimeSeriesBundleOutput::valid_values)
             .def("valid_items", &PyTimeSeriesBundleOutput::valid_items)
             .def_prop_ro("__schema__", &PyTimeSeriesBundleOutput::schema);
     }
