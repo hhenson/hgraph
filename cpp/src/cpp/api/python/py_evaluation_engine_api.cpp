@@ -4,6 +4,7 @@
 
 #include <hgraph/api/python/py_evaluation_engine_api.h>
 #include <hgraph/runtime/evaluation_engine.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <fmt/format.h>
 
 namespace hgraph::api {
@@ -25,8 +26,7 @@ namespace hgraph::api {
     }
     
     nb::object PyEvaluationEngineApi::evaluation_clock() const {
-        // Return raw clock - it's also wrapped but for now return as-is
-        return nb::cast(_impl->evaluation_clock().get());
+        return wrap_evaluation_clock(_impl->evaluation_clock().get(), _impl.control_block());
     }
     
     void PyEvaluationEngineApi::request_engine_stop() {
