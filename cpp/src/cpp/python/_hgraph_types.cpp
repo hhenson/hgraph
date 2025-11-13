@@ -31,33 +31,31 @@ void export_types(nb::module_ &m) {
     BacktraceSignature::register_with_nanobind(m);
     NodeError::register_with_nanobind(m);
 
-    // OLD DIRECT BINDINGS - Must keep for nanobind type hierarchy
-    // Note: TimeSeriesOutput/Input and Base* are needed for specialized types to inherit from
-    // Our Python API wrappers will shadow these by registering with the same names later
-    TimeSeriesType::register_with_nanobind(m);
-    TimeSeriesOutput::register_with_nanobind(m);
-    TimeSeriesInput::register_with_nanobind(m);
-    BaseTimeSeriesOutput::register_with_nanobind(m);
-    BaseTimeSeriesInput::register_with_nanobind(m);
+    // OLD DIRECT BINDINGS - Disabled while migrating to wrapper-only exposure
+    // TimeSeriesType::register_with_nanobind(m);
+    // TimeSeriesOutput::register_with_nanobind(m);
+    // TimeSeriesInput::register_with_nanobind(m);
+    // BaseTimeSeriesOutput::register_with_nanobind(m);
+    // BaseTimeSeriesInput::register_with_nanobind(m);
 
-    // TimeSeriesReference types - Still needed by Python wiring code for now
+    // TimeSeriesReference types - Disabled (wrappers handle exposure)
     TimeSeriesReference::register_with_nanobind(m);
-    TimeSeriesReferenceOutput::register_with_nanobind(m);
-    TimeSeriesReferenceInput::register_with_nanobind(m);
+    // TimeSeriesReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesReferenceInput::register_with_nanobind(m);
 
-    // Specialized reference types - Still needed by Python wiring code
-    TimeSeriesValueReferenceInput::register_with_nanobind(m);
-    TimeSeriesListReferenceInput::register_with_nanobind(m);
-    TimeSeriesBundleReferenceInput::register_with_nanobind(m);
-    TimeSeriesDictReferenceInput::register_with_nanobind(m);
-    TimeSeriesSetReferenceInput::register_with_nanobind(m);
-    TimeSeriesWindowReferenceInput::register_with_nanobind(m);
-    TimeSeriesValueReferenceOutput::register_with_nanobind(m);
-    TimeSeriesListReferenceOutput::register_with_nanobind(m);
-    TimeSeriesBundleReferenceOutput::register_with_nanobind(m);
-    TimeSeriesDictReferenceOutput::register_with_nanobind(m);
-    TimeSeriesSetReferenceOutput::register_with_nanobind(m);
-    TimeSeriesWindowReferenceOutput::register_with_nanobind(m);
+    // Specialized reference types - Disabled (wrappers handle exposure)
+    // TimeSeriesValueReferenceInput::register_with_nanobind(m);
+    // TimeSeriesListReferenceInput::register_with_nanobind(m);
+    // TimeSeriesBundleReferenceInput::register_with_nanobind(m);
+    // TimeSeriesDictReferenceInput::register_with_nanobind(m);
+    // TimeSeriesSetReferenceInput::register_with_nanobind(m);
+    // TimeSeriesWindowReferenceInput::register_with_nanobind(m);
+    // TimeSeriesValueReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesListReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesBundleReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesDictReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesSetReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesWindowReferenceOutput::register_with_nanobind(m);
 
     // OLD DIRECT BINDINGS - Commented out, replaced by Python API wrappers
     // IndexedTimeSeriesOutput::register_with_nanobind(m);
@@ -79,8 +77,8 @@ void export_types(nb::module_ &m) {
 
     // OLD DIRECT BINDINGS - Renamed with _ prefix for internal use only
     // These are needed for nanobind type hierarchy but Python API wrappers use public names
-    NodeScheduler::register_with_nanobind(m);  // Registers as "_NodeScheduler"
-    Node::register_with_nanobind(m);           // Registers as "_Node"
+    // NodeScheduler::register_with_nanobind(m);  // Registers as "_NodeScheduler"
+    // Node::register_with_nanobind(m);           // Registers as "_Node"
     // Graph has no direct registration - only exposed via PyGraph wrapper
 
     // OLD DIRECT BINDINGS - Commented out, replaced by Python API wrappers

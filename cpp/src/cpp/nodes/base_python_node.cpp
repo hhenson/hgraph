@@ -20,20 +20,49 @@ namespace hgraph {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
         _kwargs = {};
 
-        bool has_injectables{signature().injectables != 0};
+        bool has_injectables{signature().injectables != 0 && signature().injectable_inputs.has_value()};
+        auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
+        auto g = graph();
+        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        nb::object node_wrapper{};
+        auto get_node_wrapper = [&]() -> nb::object {
+            if (!node_wrapper && g) {
+                node_wrapper = api::wrap_node(this, cb);
+            }
+            return node_wrapper;
+        };
         for (const auto &[key_, value]: scalars()) {
             std::string key{nb::cast<std::string>(key_)};
             try {
-                if (has_injectables && signature().injectable_inputs->contains(key)) {
-                    // Wrap this node using PyNode wrapper instead of old _Node binding
-                    // This ensures injectors receive the new API wrapper with proper wrapping
-                    auto g = graph();
-                    nb::object node = g ? api::wrap_node(this, g->api_control_block()) : nb::cast(this);
-                    nb::object key_handle{value(node)};
-                    _kwargs[key_] = key_handle; // Assuming this call applies the Injector properly
-                } else {
-                    _kwargs[key_] = value;
+                if (injectable_map && injectable_map->contains(key)) {
+                    auto injectable = injectable_map->at(key);
+                    nb::object wrapped_value;
+
+                    if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
+                        wrapped_value = get_node_wrapper();
+                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
+                        auto out = output();
+                        wrapped_value = api::wrap_output(out.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
+                        auto sched = scheduler();
+                        wrapped_value = api::wrap_node_scheduler(sched.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::ENGINE_API) != InjectableTypesEnum::NONE) {
+                        auto engine_api = g ? g->evaluation_engine_api() : EvaluationEngineApi::ptr{};
+                        wrapped_value = api::wrap_evaluation_engine_api(engine_api.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::CLOCK) != InjectableTypesEnum::NONE) {
+                        auto clock = g ? g->evaluation_clock() : EvaluationClock::ptr{};
+                        wrapped_value = api::wrap_evaluation_clock(clock.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
+                        wrapped_value = g ? api::wrap_traits(&g->traits(), cb) : nb::none();
+                    } else {
+                        // Fallback: call injector with this node (same behaviour as python impl)
+                        wrapped_value = value(get_node_wrapper());
+                    }
+
+                    _kwargs[key_] = wrapped_value;
+                    continue;
                 }
+                _kwargs[key_] = value;
             } catch (const nb::python_error &e) {
                 throw NodeException::capture_error(e, *this, std::string("Initialising kwargs for '" + key + "'"));
             } catch (const std::exception &e) {
