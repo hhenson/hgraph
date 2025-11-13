@@ -20,6 +20,7 @@
 #include <hgraph/api/python/py_evaluation_engine_api.h>
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_traits.h>
+#include <hgraph/nodes/last_value_pull_node.h>
 
 namespace hgraph::api {
     
@@ -59,10 +60,25 @@ namespace hgraph::api {
     }
     
     nb::object wrap_node(const hgraph::Node* impl, control_block_ptr control_block) {
-        return get_or_create_wrapper(impl, std::move(control_block), 
-            [](hgraph::Node* impl, control_block_ptr cb) {
-                return PyNode(impl, std::move(cb));
-            });
+        if (!impl) {
+            return nb::none();
+        }
+        
+        auto* mutable_impl = const_cast<hgraph::Node*>(impl);
+        PyObject* cached_ptr = mutable_impl->self_py();
+        if (cached_ptr) {
+            return nb::borrow(cached_ptr);
+        }
+        
+        nb::object py_obj;
+        if (auto* lvp = dynamic_cast<LastValuePullNode*>(mutable_impl)) {
+            py_obj = nb::cast(PyLastValuePullNode(lvp, control_block));
+        } else {
+            py_obj = nb::cast(PyNode(mutable_impl, control_block));
+        }
+        
+        mutable_impl->set_self_py(py_obj.ptr());
+        return py_obj;
     }
     
     nb::object wrap_graph(const hgraph::Graph* impl, control_block_ptr control_block) {

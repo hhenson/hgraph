@@ -25,6 +25,7 @@ namespace hgraph::api {
     void register_python_api(nb::module_& m) {
         // Core types
         PyNode::register_with_nanobind(m);
+        PyLastValuePullNode::register_with_nanobind(m);
         PyGraph::register_with_nanobind(m);
         PyNodeScheduler::register_with_nanobind(m);
         PyEvaluationEngineApi::register_with_nanobind(m);

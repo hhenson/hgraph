@@ -25,6 +25,7 @@ namespace hgraph {
     struct TimeSeriesOutput;
     struct TimeSeriesBundleOutput;
     struct NodeScheduler;
+    struct LastValuePullNode;
 }
 
 namespace hgraph::api {
@@ -89,12 +90,24 @@ namespace hgraph::api {
             return _impl.has_value() && _impl.is_graph_alive(); 
         }
         
-    private:
+    protected:
         ApiPtr<Node> _impl;
         
         // Friend declarations for C++ code that needs to extract raw impl
         friend nb::object wrap_node(const hgraph::Node* impl, control_block_ptr control_block);
         friend hgraph::Node* unwrap_node(const nb::object& obj);
+    };
+    
+    class PyLastValuePullNode : public PyNode {
+    public:
+        PyLastValuePullNode(LastValuePullNode* impl, control_block_ptr control_block);
+        
+        void apply_value(const nb::object& new_value);
+        
+        static void register_with_nanobind(nb::module_& m);
+        
+    private:
+        ApiPtr<LastValuePullNode> _impl_last_value;
     };
     
 } // namespace hgraph::api

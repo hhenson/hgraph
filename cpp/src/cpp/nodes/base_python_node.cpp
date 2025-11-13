@@ -88,17 +88,18 @@ namespace hgraph {
             return;
         }
         
-        for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
-             i < l;
-             ++i) {
-            // Apple does not yet support ranges::contains :(
-            auto key{input()->schema().keys()[i]};
-            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                // Wrap inputs using our Python API wrappers
-                auto ts_input = (*input())[i];
-                auto cb = g->api_control_block();
-                _kwargs[key.c_str()] = api::wrap_input(ts_input.get(), cb);
+        auto bundle_input = input();
+        if (bundle_input.get() == nullptr) {
+            return;
+        }
+        
+        auto cb = g->api_control_block();
+        for (auto &[key_ref, ts_ptr]: bundle_input->items()) {
+            std::string key{key_ref.get()};
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
+                continue;
             }
+            _kwargs[key.c_str()] = api::wrap_input(ts_ptr.get(), cb);
         }
     }
 

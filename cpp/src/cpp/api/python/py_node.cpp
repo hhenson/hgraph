@@ -10,6 +10,7 @@
 #include <hgraph/types/tsb.h>  // For TimeSeriesBundleInput
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+#include <hgraph/nodes/last_value_pull_node.h>
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -117,6 +118,19 @@ namespace hgraph::api {
             .def("notify", &PyNode::notify, "modified_time"_a)
             .def("__str__", &PyNode::str)
             .def("__repr__", &PyNode::repr);
+    }
+    
+    PyLastValuePullNode::PyLastValuePullNode(LastValuePullNode* impl, control_block_ptr control_block)
+        : PyNode(impl, control_block)
+        , _impl_last_value(impl, std::move(control_block)) {}
+    
+    void PyLastValuePullNode::apply_value(const nb::object& new_value) {
+        _impl_last_value->apply_value(new_value);
+    }
+    
+    void PyLastValuePullNode::register_with_nanobind(nb::module_& m) {
+        nb::class_<PyLastValuePullNode, PyNode>(m, "LastValuePullNode")
+            .def("apply_value", &PyLastValuePullNode::apply_value);
     }
     
 } // namespace hgraph::api
