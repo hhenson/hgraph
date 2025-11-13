@@ -505,12 +505,23 @@ namespace hgraph::api {
         return nb::cast(&impl->schema());
     }
     
+    nb::object PyTimeSeriesBundleInput::getattr(nb::handle key) const {
+        auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
+        std::string key_str = nb::cast<std::string>(nb::str(key));
+        if (!impl->contains(key_str)) {
+            auto message = fmt::format("TimeSeriesBundleInput has no attribute '{}'", key_str);
+            throw nb::attribute_error(message.c_str());
+        }
+        return get_item(nb::str(key_str.c_str()));
+    }
+    
     void PyTimeSeriesBundleInput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesBundleInput, PyTimeSeriesInput>(m, "TimeSeriesBundleInput")
             .def("__getitem__", &PyTimeSeriesBundleInput::get_item)
             .def("__len__", &PyTimeSeriesBundleInput::len)
             .def("__iter__", &PyTimeSeriesBundleInput::iter)
             .def("__contains__", &PyTimeSeriesBundleInput::contains)
+            .def("__getattr__", &PyTimeSeriesBundleInput::getattr)
             .def("keys", &PyTimeSeriesBundleInput::keys)
             .def("values", &PyTimeSeriesBundleInput::values)
             .def("items", &PyTimeSeriesBundleInput::items)
@@ -647,12 +658,23 @@ namespace hgraph::api {
         return nb::cast(&impl->schema());
     }
     
+    nb::object PyTimeSeriesBundleOutput::getattr(nb::handle key) const {
+        auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
+        std::string key_str = nb::cast<std::string>(nb::str(key));
+        if (!impl->contains(key_str)) {
+            auto message = fmt::format("TimeSeriesBundleOutput has no attribute '{}'", key_str);
+            throw nb::attribute_error(message.c_str());
+        }
+        return get_item(nb::str(key_str.c_str()));
+    }
+    
     void PyTimeSeriesBundleOutput::register_with_nanobind(nb::module_& m) {
         nb::class_<PyTimeSeriesBundleOutput, PyTimeSeriesOutput>(m, "TimeSeriesBundleOutput")
             .def("__getitem__", &PyTimeSeriesBundleOutput::get_item)
             .def("__len__", &PyTimeSeriesBundleOutput::len)
             .def("__iter__", &PyTimeSeriesBundleOutput::iter)
             .def("__contains__", &PyTimeSeriesBundleOutput::contains)
+            .def("__getattr__", &PyTimeSeriesBundleOutput::getattr)
             .def("keys", &PyTimeSeriesBundleOutput::keys)
             .def("values", &PyTimeSeriesBundleOutput::values)
             .def("items", &PyTimeSeriesBundleOutput::items)

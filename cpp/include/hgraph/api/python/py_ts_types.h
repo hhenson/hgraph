@@ -134,6 +134,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::list valid_items() const;
         
         [[nodiscard]] nb::object schema() const;
+        [[nodiscard]] nb::object getattr(nb::handle key) const;
         
         static void register_with_nanobind(nb::module_& m);
     };
@@ -158,6 +159,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::dict valid_items() const;
         
         [[nodiscard]] nb::object schema() const;
+        [[nodiscard]] nb::object getattr(nb::handle key) const;
         
         static void register_with_nanobind(nb::module_& m);
     };
