@@ -8,6 +8,7 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsd.h>
 #include <hgraph/util/string_utils.h>
+#include <hgraph/api/python/wrapper_factory.h>
 
 #include <fmt/format.h>
 #include <nanobind/nanobind.h>
@@ -314,14 +315,15 @@ namespace hgraph
     }
 
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_item(const nb::object &item) const {
-        auto KET_SET_ID = nb::module_::import_("hgraph").attr("KEY_SET_ID");
-        if (KET_SET_ID.is(item)) { return nb::cast(_key_set); }
-        auto  k  = nb::cast<T_Key>(item);
-        auto  ts = operator[](k);
-        auto *py = ts->self_py();
-        if (py) return nb::borrow(py);
-        // Return value directly
-        return nb::cast(ts.get());
+        auto key_set_id = nb::module_::import_("hgraph").attr("KEY_SET_ID");
+        auto g = owning_graph();
+        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        if (key_set_id.is(item)) {
+            return api::wrap_output(&key_set(), cb);
+        }
+        auto k = nb::cast<T_Key>(item);
+        auto ts = operator[](k);
+        return api::wrap_output(ts.get(), cb);
     }
 
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_or_create(const nb::object &key) {
