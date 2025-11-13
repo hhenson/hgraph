@@ -190,12 +190,12 @@ bool PyTimeSeriesOutput::all_valid() const {
         return _impl->py_value();
     }
     
-    void PyTimeSeriesOutput::set_value(nb::handle value) {
-        if (!value || value.is_none()) {
+    void PyTimeSeriesOutput::set_value(nb::object value) {
+        if (!value.is_valid() || value.is_none()) {
             _impl->py_set_value(nb::none());
-            return;
+        } else {
+            _impl->py_set_value(std::move(value));
         }
-        _impl->py_set_value(nb::borrow<nb::object>(value));
     }
     
     nb::object PyTimeSeriesOutput::delta_value() const {

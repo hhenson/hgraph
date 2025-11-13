@@ -201,7 +201,17 @@ namespace hgraph::api {
     }
     
     void PyTimeSeriesValueOutput::register_with_nanobind(nb::module_& m) {
-        nb::class_<PyTimeSeriesValueOutput, PyTimeSeriesOutput>(m, "TimeSeriesValueOutput");
+        nb::class_<PyTimeSeriesValueOutput, PyTimeSeriesOutput>(m, "TimeSeriesValueOutput")
+            .def_prop_rw(
+                "value",
+                [](const PyTimeSeriesValueOutput& self) { return self.value(); },
+                [](PyTimeSeriesValueOutput& self, nb::object value) {
+                    if (!value.is_valid() || value.is_none()) {
+                        self.set_value(nb::none());
+                    } else {
+                        self.set_value(std::move(value));
+                    }
+                });
     }
     
     // ============================================================================
@@ -610,6 +620,10 @@ namespace hgraph::api {
         return nb::cast(&impl->schema());
     }
     
+nb::object PyTimeSeriesBundleInput::as_schema() const {
+    return nb::cast(*this);
+}
+
     nb::object PyTimeSeriesBundleInput::getattr(nb::handle key) const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
         std::string key_str = nb::cast<std::string>(nb::str(key));
@@ -636,7 +650,8 @@ namespace hgraph::api {
             .def("valid_keys", &PyTimeSeriesBundleInput::valid_keys)
             .def("valid_values", &PyTimeSeriesBundleInput::valid_values)
             .def("valid_items", &PyTimeSeriesBundleInput::valid_items)
-            .def_prop_ro("__schema__", &PyTimeSeriesBundleInput::schema);
+            .def_prop_ro("__schema__", &PyTimeSeriesBundleInput::schema)
+            .def_prop_ro("as_schema", &PyTimeSeriesBundleInput::as_schema);
     }
     
     nb::object PyTimeSeriesBundleOutput::get_item(nb::object key) const {
@@ -782,6 +797,10 @@ namespace hgraph::api {
         return nb::cast(&impl->schema());
     }
     
+nb::object PyTimeSeriesBundleOutput::as_schema() const {
+    return nb::cast(*this);
+}
+
     nb::object PyTimeSeriesBundleOutput::getattr(nb::handle key) const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
         std::string key_str = nb::cast<std::string>(nb::str(key));
@@ -810,7 +829,8 @@ namespace hgraph::api {
             .def("valid_items", &PyTimeSeriesBundleOutput::valid_items)
             .def("can_apply_result", &PyTimeSeriesBundleOutput::can_apply_result)
             .def("apply_result", &PyTimeSeriesBundleOutput::apply_result)
-            .def_prop_ro("__schema__", &PyTimeSeriesBundleOutput::schema);
+            .def_prop_ro("__schema__", &PyTimeSeriesBundleOutput::schema)
+            .def_prop_ro("as_schema", &PyTimeSeriesBundleOutput::as_schema);
     }
     
     // ============================================================================
@@ -1267,6 +1287,26 @@ namespace hgraph::api {
         auto cb = _impl.control_block();
         return build_tsd_output_items_from_iterable(impl->py_removed_items(), cb);
     }
+
+void PyTimeSeriesDictOutput::apply_result(nb::object value) {
+    auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+
+    if (auto* tsd = dynamic_cast<TimeSeriesDictOutput_T<nb::object>*>(impl)) {
+        tsd->apply_result(value);
+        return;
+    } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput_T<int64_t>*>(impl)) {
+        tsd->apply_result(value);
+        return;
+    } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput_T<double>*>(impl)) {
+        tsd->apply_result(value);
+        return;
+    } else if (auto* tsd = dynamic_cast<TimeSeriesDictOutput_T<bool>*>(impl)) {
+        tsd->apply_result(value);
+        return;
+    }
+
+    impl->py_set_value(value);
+}
     
     nb::object PyTimeSeriesDictOutput::get_ref(nb::object key, nb::object requester) const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
@@ -1331,6 +1371,7 @@ namespace hgraph::api {
             .def("added_items", &PyTimeSeriesDictOutput::added_items)
             .def("pop", &PyTimeSeriesDictOutput::pop, "key"_a, "default"_a = nb::none())
             .def("clear", &PyTimeSeriesDictOutput::clear)
+            .def("apply_result", &PyTimeSeriesDictOutput::apply_result)
             .def("modified_keys", &PyTimeSeriesDictOutput::modified_keys)
             .def("modified_values", &PyTimeSeriesDictOutput::modified_values)
             .def("modified_items", &PyTimeSeriesDictOutput::modified_items)

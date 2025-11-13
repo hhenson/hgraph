@@ -138,6 +138,7 @@ namespace hgraph::api {
         void apply_result(nb::object value);
         
         [[nodiscard]] nb::object schema() const;
+        [[nodiscard]] nb::object as_schema() const;
         [[nodiscard]] nb::object getattr(nb::handle key) const;
         
         static void register_with_nanobind(nb::module_& m);
@@ -165,6 +166,7 @@ namespace hgraph::api {
         void apply_result(nb::object value);
         
         [[nodiscard]] nb::object schema() const;
+        [[nodiscard]] nb::object as_schema() const;
         [[nodiscard]] nb::object getattr(nb::handle key) const;
         
         static void register_with_nanobind(nb::module_& m);
@@ -251,6 +253,7 @@ namespace hgraph::api {
         // TSD key management
         void _create(nb::object key);
         [[nodiscard]] nb::object get_or_create(nb::object key);
+        void apply_result(nb::object value);
         
         static void register_with_nanobind(nb::module_& m);
     };
