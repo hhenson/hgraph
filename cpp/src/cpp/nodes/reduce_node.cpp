@@ -3,6 +3,7 @@
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/reduce_node.h>
+#include <fmt/format.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
@@ -273,8 +274,17 @@ namespace hgraph {
             auto lhs_input = sub_graph[std::get < 0 > (input_node_ids_)];
             auto rhs_input = sub_graph[std::get < 1 > (input_node_ids_)];
 
-            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent.get());
-            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent.get());
+            auto lhs_ts_ptr = dynamic_cast<TimeSeriesInput *>((*lhs_input->input())[0].get());
+            auto rhs_ts_ptr = dynamic_cast<TimeSeriesInput *>((*rhs_input->input())[0].get());
+            if (lhs_ts_ptr == nullptr || rhs_ts_ptr == nullptr) {
+                auto message = fmt::format(
+                    "ReduceNode wire_graph expected TimeSeriesInput children; lhs={}, rhs={}",
+                    lhs_ts_ptr == nullptr ? "null" : "ok",
+                    rhs_ts_ptr == nullptr ? "null" : "ok");
+                throw std::runtime_error(message);
+            }
+            lhs_ts_ptr->bind_output(left_parent.get());
+            rhs_ts_ptr->bind_output(right_parent.get());
 
             lhs_input->notify();
             rhs_input->notify();

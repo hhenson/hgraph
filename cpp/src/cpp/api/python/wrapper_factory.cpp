@@ -21,6 +21,8 @@
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_traits.h>
 #include <hgraph/api/python/py_ts_types.h>
+#include <hgraph/nodes/mesh_node.h>
+#include <hgraph/nodes/tsd_map_node.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <stdexcept>
 
@@ -211,6 +213,41 @@ namespace hgraph::api {
         }
         return nullptr;
     }
+
+    namespace {
+        template<typename ClockT>
+        bool try_attach_key(nb::object& py_clock, hgraph::NestedEngineEvaluationClock* nested_clock) {
+            if (auto* typed = dynamic_cast<ClockT*>(nested_clock)) {
+                nb::setattr(py_clock, "key", nb::cast(typed->key()));
+                return true;
+            }
+            return false;
+        }
+
+        void attach_nested_clock_metadata(nb::object& py_clock,
+                                          hgraph::NestedEngineEvaluationClock* nested_clock,
+                                          control_block_ptr control_block) {
+            auto nested_node = nested_clock->node();
+            nb::object node_wrapper = nb::none();
+            if (nested_node.get() != nullptr) {
+                node_wrapper = wrap_node(nested_node.get(), control_block);
+            }
+            nb::setattr(py_clock, "node", node_wrapper);
+
+            bool key_set = false;
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<bool>>(py_clock, nested_clock);
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<int64_t>>(py_clock, nested_clock);
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<double>>(py_clock, nested_clock);
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<engine_date_t>>(py_clock, nested_clock);
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<engine_time_t>>(py_clock, nested_clock);
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<engine_time_delta_t>>(py_clock, nested_clock);
+            key_set |= try_attach_key<hgraph::MeshNestedEngineEvaluationClock<nb::object>>(py_clock, nested_clock);
+
+            if (!key_set) {
+                nb::setattr(py_clock, "key", nb::none());
+            }
+        }
+    } // namespace
     
     nb::object wrap_evaluation_engine_api(const hgraph::EvaluationEngineApi* impl, control_block_ptr control_block) {
         return get_or_create_wrapper(impl, std::move(control_block),
@@ -220,10 +257,19 @@ namespace hgraph::api {
     }
     
     nb::object wrap_evaluation_clock(const hgraph::EvaluationClock* impl, control_block_ptr control_block) {
-        return get_or_create_wrapper(impl, std::move(control_block),
-            [](hgraph::EvaluationClock* impl, control_block_ptr cb) {
-                return PyEvaluationClock(impl, std::move(cb));
+        auto py_clock = get_or_create_wrapper(impl, control_block,
+            [](hgraph::EvaluationClock* mutable_impl, control_block_ptr cb) {
+                return PyEvaluationClock(mutable_impl, std::move(cb));
             });
+
+        if (impl != nullptr && py_clock.is_valid()) {
+            auto* mutable_impl = const_cast<hgraph::EvaluationClock*>(impl);
+            if (auto* nested_clock = dynamic_cast<hgraph::NestedEngineEvaluationClock*>(mutable_impl)) {
+                attach_nested_clock_metadata(py_clock, nested_clock, control_block);
+            }
+        }
+
+        return py_clock;
     }
     
     nb::object wrap_traits(const hgraph::Traits* impl, control_block_ptr control_block) {

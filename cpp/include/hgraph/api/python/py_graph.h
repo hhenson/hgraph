@@ -47,6 +47,7 @@ namespace hgraph::api {
         // Evaluation context (read-only)
         [[nodiscard]] nb::object evaluation_engine_api() const;
         [[nodiscard]] nb::object evaluation_clock() const;
+        [[nodiscard]] nb::object engine_evaluation_clock() const;
         [[nodiscard]] nb::object traits() const;
         
         [[nodiscard]] std::string str() const;

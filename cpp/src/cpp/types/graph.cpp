@@ -8,6 +8,8 @@
 #include <hgraph/api/python/api_ptr.h>
 
 #include <utility>
+#include <fmt/format.h>
+#include <typeinfo>
 
 namespace hgraph {
     Graph::Graph(std::vector<int64_t> graph_id_, std::vector<Node::ptr> nodes_, std::optional<Node::ptr> parent_node_,
@@ -100,10 +102,18 @@ namespace hgraph {
             while (auto value = receiver().dequeue()) {
                 auto [i, message] = *value; // Use the already dequeued value
                 auto node = nodes[i];
-                auto &node_ref = *node;
+                auto *node_ptr = node.get();
+                auto &node_ref = *node_ptr;
                 try {
                     NotifyNodeEvaluation nne{evaluation_engine(), node};
-                    bool success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
+                    auto *push_node = dynamic_cast<PushQueueNode *>(node_ptr);
+                    if (push_node == nullptr) {
+                        throw std::runtime_error(
+                            fmt::format("Graph evaluate_graph expected PushQueueNode at index {}, got '{}'",
+                                        i,
+                                        node_ptr != nullptr ? typeid(*node_ptr).name() : "<null>"));
+                    }
+                    bool success = push_node->apply_message(message);
                     if (!success) {
                         receiver().enqueue_front({i, message});
                         clock->mark_push_node_requires_scheduling();

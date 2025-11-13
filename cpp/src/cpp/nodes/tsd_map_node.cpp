@@ -16,6 +16,8 @@
 #include <hgraph/util/string_utils.h>
 
 #include <hgraph/util/scope.h>
+#include <fmt/format.h>
+#include <typeinfo>
 
 namespace hgraph {
     template<typename K>
@@ -86,7 +88,13 @@ namespace hgraph {
     void TsdMapNode<K>::eval() {
         mark_evaluated();
 
-        auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*(*input())[KEYS_ARG]);
+        try {
+            auto keys_entry = (*input())[KEYS_ARG];
+            auto *keys_ptr = dynamic_cast<TimeSeriesSetInput_T<K> *>(keys_entry.get());
+            if (keys_ptr == nullptr) {
+                throw std::runtime_error("TsdMapNode::eval expected TimeSeriesSet input for keys");
+            }
+            auto &keys = *keys_ptr;
         if (keys.modified()) {
             for (const auto &k: keys.added()) {
                 // There seems to be a case where a set can show a value as added even though it is not.
@@ -108,32 +116,39 @@ namespace hgraph {
             }
         }
 
-        std::unordered_map<K, engine_time_t> scheduled_keys;
-        std::swap(scheduled_keys, scheduled_keys_);
+            std::unordered_map<K, engine_time_t> scheduled_keys;
+            std::swap(scheduled_keys, scheduled_keys_);
 
-        for (const auto &[k, dt]: scheduled_keys) {
-            if (dt < last_evaluation_time()) {
-                throw std::runtime_error(
-                    fmt::format(
-                        "Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
-                        last_evaluation_time(), dt, graph()->evaluation_clock()->evaluation_time()));
+            for (const auto &[k, dt]: scheduled_keys) {
+                if (dt < last_evaluation_time()) {
+                    throw std::runtime_error(
+                        fmt::format(
+                            "Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
+                            last_evaluation_time(), dt, graph()->evaluation_clock()->evaluation_time()));
+                }
+                engine_time_t next_dt;
+                if (dt == last_evaluation_time()) {
+                    next_dt = evaluate_graph(k);
+                } else {
+                    next_dt = dt;
+                }
+                if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
+                    scheduled_keys_[k] = next_dt;
+                    graph()->schedule_node(node_ndx(), next_dt);
+                }
             }
-            engine_time_t next_dt;
-            if (dt == last_evaluation_time()) {
-                next_dt = evaluate_graph(k);
-            } else {
-                next_dt = dt;
-            }
-            if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
-                scheduled_keys_[k] = next_dt;
-                graph()->schedule_node(node_ndx(), next_dt);
-            }
+        } catch (const std::bad_cast &e) {
+            throw std::runtime_error(fmt::format("TsdMapNode::eval bad_cast: {}", e.what()));
         }
     }
 
     template<typename K>
     TimeSeriesDictOutput_T<K> &TsdMapNode<K>::tsd_output() {
-        return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*output());
+        auto *tsd_ptr = dynamic_cast<TimeSeriesDictOutput_T<K> *>(output().get());
+        if (tsd_ptr == nullptr) {
+            throw std::runtime_error("TsdMapNode::tsd_output expected dictionary output");
+        }
+        return *tsd_ptr;
     }
 
     template<typename K>
@@ -168,8 +183,11 @@ namespace hgraph {
     void TsdMapNode<K>::remove_graph(const K &key) {
         if (signature().capture_exception) {
             // Remove the error output associated to the graph if there is one
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*error_output());
-            error_output_.erase(key);
+            auto *error_output_ptr = dynamic_cast<TimeSeriesDictOutput_T<K> *>(error_output().get());
+            if (error_output_ptr == nullptr) {
+                throw std::runtime_error("TsdMapNode::remove_graph expected dictionary error output");
+            }
+            error_output_ptr->erase(key);
         }
 
         auto graph{active_graphs_[key]};
@@ -251,27 +269,48 @@ namespace hgraph {
     template<typename K>
     void TsdMapNode<K>::wire_graph(const K &key, Graph::ptr &graph) {
         for (const auto &[arg, node_ndx]: input_node_ids_) {
-            auto node{graph->nodes()[node_ndx]};
-            node->notify();
+            try {
+                auto node_ref = graph->nodes()[node_ndx];
+                auto *node_ptr = node_ref.get();
+                node_ptr->notify();
 
-            if (arg == key_arg_) {
-                auto key_node{dynamic_cast<PythonNode &>(*node)};
-                // This relies on the current stub binding mechanism with a stub python class to hold the key.
-                nb::setattr(key_node.eval_fn(), "key", nb::cast(key));
-            } else {
-                if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                    auto ts = static_cast<TimeSeriesInput *>((*input())[arg].get());
-                    auto &tsd = dynamic_cast<TimeSeriesDictInput_T<K> &>(*ts);
-                    auto ts_value = tsd.get_or_create(key);
-
-                    node->reset_input(node->input()->copy_with(node, {ts_value}));
-                    ts_value->re_parent(node->input().get());
+                if (arg == key_arg_) {
+                    auto *key_node = dynamic_cast<PythonNode *>(node_ptr);
+                    if (key_node == nullptr) {
+                        throw std::runtime_error(
+                            fmt::format("TsdMapNode::wire_graph expected PythonNode for arg '{}'", arg));
+                    }
+                    // This relies on the current stub binding mechanism with a stub python class to hold the key.
+                    nb::setattr(key_node->eval_fn(), "key", nb::cast(key));
                 } else {
-                    auto ts = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
-                    auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>((*node->input())["ts"].get());
+                    if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
+                        auto ts_entry = (*input())[arg];
+                        auto *ts = dynamic_cast<TimeSeriesInput *>(ts_entry.get());
+                        if (ts == nullptr) {
+                            throw std::runtime_error(
+                                fmt::format("TsdMapNode::wire_graph expected TimeSeriesInput for arg '{}'", arg));
+                        }
+                        auto *tsd = dynamic_cast<TimeSeriesDictInput_T<K> *>(ts);
+                        if (tsd == nullptr) {
+                            throw std::runtime_error(
+                                fmt::format("TsdMapNode::wire_graph expected TimeSeriesDictInput for arg '{}'", arg));
+                        }
+                        auto ts_value = tsd->get_or_create(key);
 
-                    if (ts != nullptr && inner_input != nullptr) { inner_input->clone_binding(ts); }
+                        node_ptr->reset_input(node_ptr->input()->copy_with(node_ptr, {ts_value}));
+                        ts_value->re_parent(node_ptr->input().get());
+                    } else {
+                        auto outer_entry = (*input())[arg];
+                        auto ts = dynamic_cast<TimeSeriesReferenceInput *>(outer_entry.get());
+                        auto inner_entry = (*node_ptr->input())["ts"];
+                        auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>(inner_entry.get());
+
+                        if (ts != nullptr && inner_input != nullptr) { inner_input->clone_binding(ts); }
+                    }
                 }
+            } catch (const std::bad_cast &e) {
+                throw std::runtime_error(
+                    fmt::format("TsdMapNode::wire_graph bad_cast for arg '{}': {}", arg, e.what()));
             }
         }
 

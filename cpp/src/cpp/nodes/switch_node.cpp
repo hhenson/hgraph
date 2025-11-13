@@ -1,6 +1,7 @@
 #include "hgraph/util/string_utils.h"
 
 #include <fmt/format.h>
+#include <typeinfo>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
@@ -226,13 +227,21 @@ namespace hgraph {
         // Wire inputs (exactly as Python: notify each node; set key; clone REF binding for others)
         if (input_ids_to_use) {
             for (const auto &[arg, node_ndx]: *input_ids_to_use) {
-                auto node = graph->nodes()[node_ndx];
+                auto node_ref = graph->nodes()[node_ndx];
+                auto* node = node_ref.get();
                 node->notify();
 
                 if (arg == "key") {
                     // The key node is a Python stub whose eval function exposes a 'key' attribute.
-                    auto &key_node = dynamic_cast<PythonNode &>(*node);
-                    nb::setattr(key_node.eval_fn(), "key", nb::cast(graph_key));
+                    auto *key_node = dynamic_cast<PythonNode *>(node);
+                    if (key_node == nullptr) {
+                        auto message = fmt::format(
+                            "SwitchNode wire_graph expected PythonNode for key arg '{}', got '{}'",
+                            arg,
+                            node != nullptr ? typeid(*node).name() : "<null>");
+                        throw std::runtime_error(message);
+                    }
+                    nb::setattr(key_node->eval_fn(), "key", nb::cast(graph_key));
                 } else {
                     // Python expects REF wiring: clone binding from outer REF input to inner REF input 'ts'
                     auto outer_any = (*input())[arg].get();

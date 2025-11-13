@@ -38,7 +38,11 @@ namespace hgraph {
             nb::ref<Node> node{new PushQueueNode{node_ndx, owning_graph_id, signature, scalars}};
             _build_inputs_and_outputs(node);
             // Provide the eval function so the node can expose a sender in start()
-            dynamic_cast<PushQueueNode &>(*node).set_eval_fn(eval_fn_to_use);
+            auto *push_node = dynamic_cast<PushQueueNode *>(node.get());
+            if (push_node == nullptr) {
+                throw std::runtime_error("PythonNodeBuilder expected PushQueueNode for push source");
+            }
+            push_node->set_eval_fn(eval_fn_to_use);
             return node;
         }
 

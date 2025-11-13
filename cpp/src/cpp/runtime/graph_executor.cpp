@@ -5,6 +5,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/api/python/python_api.h>
+#include <hgraph/util/stack_trace.h>
 
 namespace hgraph {
     struct PyEvaluationLifeCycleObserver : EvaluationLifeCycleObserver {
@@ -137,6 +138,12 @@ namespace hgraph {
             throw nb::python_error();
         } catch (const nb::python_error &e) {
             throw; // Preserve Python exception raised above
+        } catch (const std::bad_cast &e) {
+            if (PyErr_Occurred()) { throw nb::python_error(); }
+            fmt::print(stderr, "std::bad_cast during graph execution: {}\n", e.what());
+            hgraph::print_stack_trace();
+            std::string msg = "Graph execution failed: std::bad_cast";
+            throw nb::builtin_exception(nb::exception_type::runtime_error, msg.c_str());
         } catch (const std::exception &e) {
             // Preserve any active Python exception (e.g., hgraph.NodeException)
             if (PyErr_Occurred()) { throw nb::python_error(); }
@@ -186,7 +193,13 @@ namespace hgraph {
         } catch (const NodeException &e) {
             // Let NodeException propagate to nanobind exception translator
             throw;
-        } catch (const nb::python_error &e) { throw; } catch (const std::exception &e) {
+        } catch (const nb::python_error &e) { throw; } catch (const std::bad_cast &e) {
+            if (PyErr_Occurred()) { throw nb::python_error(); }
+            fmt::print(stderr, "std::bad_cast during graph evaluation: {}\n", e.what());
+            hgraph::print_stack_trace();
+            std::string msg = "Graph evaluation failed: std::bad_cast";
+            throw nb::builtin_exception(nb::exception_type::runtime_error, msg.c_str());
+        } catch (const std::exception &e) {
             if (PyErr_Occurred()) { throw nb::python_error(); }
             std::string msg = std::string("Graph evaluation failed: ") + e.what();
             throw nb::builtin_exception(nb::exception_type::runtime_error, msg.c_str());

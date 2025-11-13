@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/python/global_keys.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
@@ -81,15 +82,23 @@ namespace hgraph {
         TimeSeriesReference::ptr value_ref = nullptr;
         time_series_reference_output_ptr output_ts = nullptr;
 
-        // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
-        // Use nb::isinstance to handle both base and specialized reference types
-        if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
+        // Case 1: new Python API wrapper storing TimeSeriesReferenceOutput
+        if (auto* unwrapped = api::unwrap_output(shared)) {
+            if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped)) {
+                output_ts = time_series_reference_output_ptr(ts_ref);
+                if (ts_ref->valid()) {
+                    value_ref = ts_ref->value();
+                }
+            }
+        }
+        // Case 2: direct TimeSeriesReferenceOutput stored in GlobalState (legacy path)
+        else if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
             output_ts = nb::cast<time_series_reference_output_ptr>(shared);
             if (output_ts->valid()) {
                 value_ref = output_ts->value();
             }
         }
-        // Case 2: TimeSeriesReferenceInput stored in GlobalState
+        // Case 3: TimeSeriesReferenceInput stored in GlobalState
         else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
             auto ref = nb::cast<time_series_reference_input_ptr>(shared);
             if (ref->has_peer()) {

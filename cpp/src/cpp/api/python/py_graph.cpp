@@ -57,6 +57,17 @@ namespace hgraph::api {
         return wrap_evaluation_clock(clock.get(), _impl.control_block());
     }
     
+    nb::object PyGraph::engine_evaluation_clock() const {
+        if (!_impl.is_graph_alive()) {
+            return nb::none();
+        }
+        auto clock = _impl->evaluation_engine_clock();
+        if (clock.get() == nullptr) {
+            return nb::none();
+        }
+        return wrap_evaluation_clock(clock.get(), _impl.control_block());
+    }
+    
     nb::object PyGraph::traits() const {
         // Return raw traits reference - this is a member of graph, not a separate object
         // Wrapping it causes issues during graph teardown
@@ -82,6 +93,7 @@ namespace hgraph::api {
             .def_prop_ro("label", &PyGraph::label)
             .def_prop_ro("evaluation_engine_api", &PyGraph::evaluation_engine_api)
             .def_prop_ro("evaluation_clock", &PyGraph::evaluation_clock)
+            .def_prop_ro("engine_evaluation_clock", &PyGraph::engine_evaluation_clock)
             .def_prop_ro("traits", &PyGraph::traits)
             .def("__str__", &PyGraph::str)
             .def("__repr__", &PyGraph::repr);

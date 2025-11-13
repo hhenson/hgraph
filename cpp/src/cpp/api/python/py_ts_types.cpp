@@ -129,7 +129,6 @@ namespace hgraph::api {
         }
         return result;
     }
-
     
     // ============================================================================
     // Constructor Definitions
@@ -617,9 +616,9 @@ namespace hgraph::api {
         return nb::cast(&impl->schema());
     }
     
-nb::object PyTimeSeriesBundleInput::as_schema() const {
-    return nb::cast(*this);
-}
+    nb::object PyTimeSeriesBundleInput::as_schema() const {
+        return nb::cast(*this, nb::rv_policy::reference);
+    }
 
     nb::object PyTimeSeriesBundleInput::getattr(nb::handle key) const {
         auto* impl = static_cast<TimeSeriesBundleInput*>(_impl.get());
@@ -794,9 +793,9 @@ nb::object PyTimeSeriesBundleInput::as_schema() const {
         return nb::cast(&impl->schema());
     }
     
-nb::object PyTimeSeriesBundleOutput::as_schema() const {
-    return nb::cast(*this);
-}
+    nb::object PyTimeSeriesBundleOutput::as_schema() const {
+        return nb::cast(*this, nb::rv_policy::reference);
+    }
 
     nb::object PyTimeSeriesBundleOutput::getattr(nb::handle key) const {
         auto* impl = static_cast<TimeSeriesBundleOutput*>(_impl.get());
