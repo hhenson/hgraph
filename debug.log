@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.8, pytest-8.4.2, pluggy-1.6.0 -- /Users/hhenson/cursor/hgraph/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/hhenson/cursor/hgraph
+configfile: pyproject.toml
+plugins: xdist-3.8.0, cov-7.0.0
+collecting ... collected 1 item
+
+hgraph_unit_tests/_operators/test_const.py::test_delayed 
