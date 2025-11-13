@@ -74,6 +74,17 @@ namespace hgraph::api {
         return wrap_output(_impl->output(), _impl.control_block());
     }
     
+    nb::object PyNode::recordable_state() const {
+        if (!_impl->has_recordable_state()) {
+            return nb::none();
+        }
+        auto state = _impl->recordable_state();
+        if (!state) {
+            return nb::none();
+        }
+        return wrap_output(state.get(), _impl.control_block());
+    }
+    
     nb::object PyNode::scheduler() const {
         return wrap_node_scheduler(_impl->scheduler(), _impl.control_block());
     }
@@ -101,6 +112,7 @@ namespace hgraph::api {
             .def_prop_ro("input", &PyNode::input)
             .def_prop_ro("inputs", &PyNode::inputs)
             .def_prop_ro("output", &PyNode::output)
+            .def_prop_ro("recordable_state", &PyNode::recordable_state)
             .def_prop_ro("scheduler", &PyNode::scheduler)
             .def("notify", &PyNode::notify, "modified_time"_a)
             .def("__str__", &PyNode::str)

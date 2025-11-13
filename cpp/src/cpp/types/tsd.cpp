@@ -327,8 +327,10 @@ namespace hgraph
     }
 
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_or_create(const nb::object &key) {
+        auto g = owning_graph();
+        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
         auto ts = _get_or_create(nb::cast<T_Key>(key));
-        return nb::cast(ts.get());
+        return api::wrap_output(ts.get(), cb);
     }
 
     template <typename T_Key>
@@ -527,7 +529,10 @@ namespace hgraph
 
     template <typename T_Key>
     nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
-        return nb::cast(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())));
+        auto g = owning_graph();
+        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
+        auto ref = get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr()));
+        return api::wrap_output(ref.get(), cb);
     }
 
     template <typename T_Key>
@@ -1065,8 +1070,10 @@ namespace hgraph
     }
 
     template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_get_or_create(const nb::object &key) {
+        auto g = owning_graph();
+        auto cb = g ? g->api_control_block() : api::control_block_ptr{};
         auto ts = get_or_create(nb::cast<T_Key>(key));
-        return nb::cast(ts.get());
+        return api::wrap_input(ts.get(), cb);
     }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::is_same_type(const TimeSeriesType *other) const {

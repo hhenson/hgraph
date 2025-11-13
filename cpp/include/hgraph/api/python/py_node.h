@@ -64,6 +64,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::object input() const;  // Returns cached PyTimeSeriesBundleInput wrapper
         [[nodiscard]] nb::dict inputs() const;  // Dict values are cached PyTimeSeriesInput wrappers
         [[nodiscard]] nb::object output() const;  // Returns cached specialized wrapper
+        [[nodiscard]] nb::object recordable_state() const;
         
         // Scheduler (read-only, for debugging)
         [[nodiscard]] nb::object scheduler() const;  // Returns cached PyNodeScheduler wrapper
