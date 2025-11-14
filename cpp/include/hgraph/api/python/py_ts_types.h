@@ -84,7 +84,7 @@ namespace hgraph::api {
         [[nodiscard]] nb::list valid_items() const;
         [[nodiscard]] nb::list modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;  // Returns iterator
-        [[nodiscard]] nb::dict modified_items() const;
+        [[nodiscard]] nb::list modified_items() const;
         
         static void register_with_nanobind(nb::module_& m);
     };

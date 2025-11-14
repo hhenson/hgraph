@@ -375,11 +375,12 @@ namespace hgraph::api {
         return result.attr("__iter__")();
     }
     
-    nb::dict PyTimeSeriesListInput::modified_items() const {
+    nb::list PyTimeSeriesListInput::modified_items() const {
         auto* impl = static_cast<TimeSeriesListInput*>(_impl.get());
-        nb::dict result;
+        nb::list result;
         for (const auto& [idx, value] : impl->modified_items()) {
-            result[nb::int_(idx)] = wrap_input(value.get(), _impl.control_block());
+            result.append(nb::make_tuple(nb::int_(idx),
+                                         wrap_input(value.get(), _impl.control_block())));
         }
         return result;
     }
