@@ -2,6 +2,8 @@ project(_hgraph)
 
 set(HGRAPH_SOURCES
         api/python/py_graph.cpp
+        api/python/py_node.cpp
+        api/python/wrapper_factory.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/input_builder.cpp
