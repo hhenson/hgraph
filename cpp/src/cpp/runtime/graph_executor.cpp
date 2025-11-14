@@ -1,3 +1,6 @@
+#include "hgraph/builders/graph_builder.h"
+#include "hgraph/util/scope.h"
+
 #include <hgraph/runtime/graph_executor.h>
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/error_type.h>
@@ -37,7 +40,6 @@ namespace hgraph {
     void GraphExecutor::register_with_nanobind(nb::module_ &m) {
         nb::class_<GraphExecutor, nb::intrusive_base>(m, "GraphExecutor")
                 .def_prop_ro("run_mode", &GraphExecutor::run_mode)
-                .def_prop_ro("graph", &GraphExecutor::graph)
                 .def("run", &GraphExecutor::run)
                 .def("__str__",
                      [](const GraphExecutor &self) {
@@ -70,20 +72,20 @@ namespace hgraph {
                 .def("on_after_stop_graph", &EvaluationLifeCycleObserver::on_after_stop_graph);
     }
 
-    GraphExecutorImpl::GraphExecutorImpl(graph_ptr graph, EvaluationMode run_mode,
+    GraphExecutorImpl::GraphExecutorImpl(graph_builder_ptr graph_builder, EvaluationMode run_mode,
                                          std::vector<EvaluationLifeCycleObserver::ptr> observers)
-        : _graph(graph), _run_mode(run_mode), _observers{std::move(observers)} {
+        : _graph_builder(graph_builder), _run_mode(run_mode), _observers{std::move(observers)} {
     }
 
     EvaluationMode GraphExecutorImpl::run_mode() const { return _run_mode; }
 
-    graph_ptr GraphExecutorImpl::graph() const { return _graph; }
-
     void GraphExecutorImpl::run(const engine_time_t &start_time, const engine_time_t &end_time) {
         auto now = std::chrono::system_clock::now();
+        auto graph{_graph_builder->make_instance({})};
+        auto release_graph = scope_exit([this, graph=graph]{_graph_builder->release_instance(graph);});
         fmt::print("{} [CPP] Running graph [{}] start time: {} end time: {}\n",
                    fmt::format("{:%Y-%m-%d %H:%M:%S}", now),
-                   (_graph ? *_graph->label() : std::string{"unknown"}), start_time, end_time);
+                   (graph ? *graph->label() : std::string{"unknown"}), start_time, end_time);
 
         if (end_time <= start_time) {
             if (end_time < start_time) {
@@ -103,17 +105,17 @@ namespace hgraph {
         }
 
         nb::ref<EvaluationEngine> evaluationEngine = new EvaluationEngineImpl(clock, start_time, end_time, _run_mode);
-        _graph->set_evaluation_engine(evaluationEngine);
+        graph->set_evaluation_engine(evaluationEngine);
 
         for (const auto &observer: _observers) { evaluationEngine->add_life_cycle_observer(observer); }
 
         try {
             // Initialise the graph but do not dispose here; disposal is handled by GraphBuilder.release_instance in Python
-            initialise_component(*_graph);
+            initialise_component(*graph);
             // Use RAII; StartStopContext destructor will stop and set Python error if exception occurs
             {
-                auto startStopContext = StartStopContext(*_graph);
-                while (clock->evaluation_time() < end_time) { _evaluate(*evaluationEngine); }
+                auto startStopContext = StartStopContext(*graph);
+                while (clock->evaluation_time() < end_time) { _evaluate(*evaluationEngine, *graph); }
             }
             // After StartStopContext destruction, check if a Python error was set during stop
             if (PyErr_Occurred()) { throw nb::python_error(); }
@@ -143,12 +145,12 @@ namespace hgraph {
 
     void GraphExecutorImpl::register_with_nanobind(nb::module_ &m) {
         nb::class_ < GraphExecutorImpl, GraphExecutor > (m, "GraphExecutorImpl")
-                .def(nb::init<graph_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::ptr> >(), "graph"_a,
+                .def(nb::init<graph_builder_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::ptr> >(), "graph_builder"_a,
                      "run_mode"_a,
                      "observers"_a = std::vector<EvaluationLifeCycleObserver::ptr>{});
     }
 
-    void GraphExecutorImpl::_evaluate(EvaluationEngine &evaluationEngine) {
+    void GraphExecutorImpl::_evaluate(EvaluationEngine &evaluationEngine, Graph &graph) {
         try {
             evaluationEngine.notify_before_evaluation();
         } catch (const NodeException &e) {
@@ -160,7 +162,7 @@ namespace hgraph {
             throw nb::builtin_exception(nb::exception_type::runtime_error, msg.c_str());
         }
         try {
-            _graph->evaluate_graph();
+            graph.evaluate_graph();
         } catch (const NodeException &e) {
             // Let NodeException propagate to nanobind exception translator
             throw;

@@ -6,6 +6,9 @@ from typing import Iterable
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._graph import Graph
 
+if typing.TYPE_CHECKING:
+    from hgraph._builder._graph_builder import GraphBuilder
+
 __all__ = ("GraphExecutor", "GraphEngineFactory")
 
 
@@ -79,7 +82,7 @@ class GraphEngineFactory:
 
     @staticmethod
     def make(
-        graph: Graph, run_mode: EvaluationMode, observers: Iterable[EvaluationLifeCycleObserver] = None
+        graph_builder: "GraphBuilder", run_mode: EvaluationMode, observers: Iterable[EvaluationLifeCycleObserver] = None
     ) -> GraphExecutor:
         """
         Make a new graph engine. If no engine is declared, the default engine will be used.
@@ -89,6 +92,6 @@ class GraphEngineFactory:
         :return: A new graph engine
         """
         if GraphEngineFactory.is_declared():
-            return GraphEngineFactory.declared()(graph=graph, run_mode=run_mode, observers=observers)
+            return GraphEngineFactory.declared()(graph_builder=graph_builder, run_mode=run_mode, observers=observers)
         else:
-            return GraphEngineFactory.default()(graph=graph, run_mode=run_mode, observers=observers)
+            return GraphEngineFactory.default()(graph_builder=graph_builder, run_mode=run_mode, observers=observers)
