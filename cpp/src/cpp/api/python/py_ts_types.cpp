@@ -982,7 +982,22 @@ namespace hgraph::api {
     
     nb::object PyTimeSeriesDictInput::valid_values() const {
         auto* impl = static_cast<TimeSeriesDictInput*>(_impl.get());
-        return impl->py_valid_values();
+        auto cb = _impl.control_block();
+        
+        // Try to cast to specific template instantiations and use direct access
+        if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(impl)) {
+            return build_tsd_input_values_list(tsd->valid_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(impl)) {
+            return build_tsd_input_values_list(tsd->valid_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<double>*>(impl)) {
+            return build_tsd_input_values_list(tsd->valid_items(), cb);
+        } else if (auto* tsd = dynamic_cast<TimeSeriesDictInput_T<bool>*>(impl)) {
+            return build_tsd_input_values_list(tsd->valid_items(), cb);
+        }
+        
+        // Fallback to iterator-based approach for other key types
+        return build_tsd_values_from_iterable<TimeSeriesInput*>(impl->py_valid_values(),
+            [&](TimeSeriesInput* ptr) { return wrap_input(ptr, cb); });
     }
     
     nb::object PyTimeSeriesDictInput::valid_items() const {
@@ -1585,9 +1600,38 @@ void PyTimeSeriesDictOutput::apply_result(nb::object value) {
     // For now, providing basic interface - proper implementation via dynamic dispatch TODO
     // ============================================================================
     
+    namespace {
+        template<typename T>
+        int64_t try_len(TimeSeriesInput* input) {
+            if (auto* window_input = dynamic_cast<TimeSeriesWindowInput<T>*>(input)) {
+                if (auto* fixed = window_input->as_fixed_output()) {
+                    return static_cast<int64_t>(fixed->len());
+                }
+                if (auto* time = window_input->as_time_output()) {
+                    return static_cast<int64_t>(time->len());
+                }
+            }
+            return -1; // Not a window input of this type
+        }
+    }
+    
     int64_t PyTimeSeriesWindowInput::len() const {
-        // TODO: TSW are template types - need proper template dispatch
-        return 0;
+        auto* impl = _impl.get();
+        int64_t result = try_len<bool>(impl);
+        if (result >= 0) return result;
+        result = try_len<int64_t>(impl);
+        if (result >= 0) return result;
+        result = try_len<double>(impl);
+        if (result >= 0) return result;
+        result = try_len<engine_date_t>(impl);
+        if (result >= 0) return result;
+        result = try_len<engine_time_t>(impl);
+        if (result >= 0) return result;
+        result = try_len<engine_time_delta_t>(impl);
+        if (result >= 0) return result;
+        result = try_len<nb::object>(impl);
+        if (result >= 0) return result;
+        throw std::runtime_error("TimeSeriesWindowInput: unable to determine length - output is not a window output");
     }
     
     nb::object PyTimeSeriesWindowInput::values() const {
