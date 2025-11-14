@@ -15,20 +15,20 @@
 void export_nodes(nb::module_ &m) {
     using namespace hgraph;
 
-    NestedNode::register_with_nanobind(m);
-    NestedGraphNode::register_with_nanobind(m);
+    // NestedNode::register_with_nanobind(m);
+    // NestedGraphNode::register_with_nanobind(m);
 
-    NestedEngineEvaluationClock::register_with_nanobind(m);
-    NestedEvaluationEngine::register_with_nanobind(m);
-    register_tsd_map_with_nanobind(m);
-    register_reduce_node_with_nanobind(m);
-
-    PythonGeneratorNode::register_with_nanobind(m);
-    ComponentNode::register_with_nanobind(m);
-    register_switch_node_with_nanobind(m);
-    TryExceptNode::register_with_nanobind(m);
-    register_non_associative_reduce_node_with_nanobind(m);
-    register_mesh_node_with_nanobind(m);
-    LastValuePullNode::register_with_nanobind(m);
-    register_context_node_with_nanobind(m);
+    // NestedEngineEvaluationClock::register_with_nanobind(m);
+    // NestedEvaluationEngine::register_with_nanobind(m);
+    // register_tsd_map_with_nanobind(m);
+    // register_reduce_node_with_nanobind(m);
+    //
+    // PythonGeneratorNode::register_with_nanobind(m);
+    // ComponentNode::register_with_nanobind(m);
+    // register_switch_node_with_nanobind(m);
+    // TryExceptNode::register_with_nanobind(m);
+    // register_non_associative_reduce_node_with_nanobind(m);
+    // register_mesh_node_with_nanobind(m);
+    // LastValuePullNode::register_with_nanobind(m);
+    // register_context_node_with_nanobind(m);
 }

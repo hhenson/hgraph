@@ -639,47 +639,6 @@ namespace hgraph {
         }
     }
 
-    void NodeScheduler::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < NodeScheduler, intrusive_base > (m, "NodeScheduler")
-                .def_prop_ro("next_scheduled_time", &NodeScheduler::next_scheduled_time)
-                .def_prop_ro("is_scheduled", &NodeScheduler::is_scheduled)
-                .def_prop_ro("is_scheduled_now", &NodeScheduler::is_scheduled_now)
-                .def_prop_ro("has_tag", &NodeScheduler::has_tag)
-                .def(
-                    "pop_tag", [](NodeScheduler &self, const std::string &tag) { return self.pop_tag(tag); }, "tag"_a)
-                .def(
-                    "pop_tag",
-                    [](NodeScheduler &self, const std::string &tag, engine_time_t default_time) {
-                        return self.pop_tag(tag, default_time);
-                    },
-                    "tag"_a, "default_time"_a)
-                .def(
-                    "schedule",
-                    [](NodeScheduler &self, engine_time_t when, std::optional<std::string> tag, bool on_wall_clock) {
-                        self.schedule(when, std::move(tag), on_wall_clock);
-                    },
-                    "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
-                .def(
-                    "schedule",
-                    [](NodeScheduler &self, engine_time_delta_t when, std::optional<std::string> tag,
-                       bool on_wall_clock) {
-                        self.schedule(when, std::move(tag), on_wall_clock);
-                    },
-                    "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
-                .def("un_schedule",
-                     static_cast<void (NodeScheduler::*)(const std::string &)>(&NodeScheduler::un_schedule), "tag"_a)
-                .def("un_schedule", static_cast<void (NodeScheduler::*)()>(&NodeScheduler::un_schedule))
-                .def("reset", &NodeScheduler::reset)
-                .def("__str__", [](const NodeScheduler &self) {
-                    return fmt::format("NodeScheduler@{:p}[scheduled={}]",
-                                       static_cast<const void *>(&self), self.is_scheduled());
-                })
-                .def("__repr__", [](const NodeScheduler &self) {
-                    return fmt::format("NodeScheduler@{:p}[scheduled={}]",
-                                       static_cast<const void *>(&self), self.is_scheduled());
-                });
-    }
-
     void NodeScheduler::_on_alarm(engine_time_t when, std::string tag) {
         _tags[tag] = when;
         std::string alarm_tag = fmt::format("{}:{}", reinterpret_cast<std::uintptr_t>(this), tag);
@@ -806,59 +765,6 @@ namespace hgraph {
     void Node::set_error_output(time_series_output_ptr value) { _error_output = std::move(value); }
 
     void Node::add_start_input(nb::ref<TimeSeriesReferenceInput> input) { _start_inputs.push_back(std::move(input)); }
-
-    void Node::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < Node, ComponentLifeCycle > (m, "Node")
-                .def_prop_ro("node_ndx", &Node::node_ndx)
-                .def_prop_ro("owning_graph_id",
-                             [](const Node &n) {
-                                 // Convert vector to tuple for Python compatibility
-                                 // Python code expects owning_graph_id to be a tuple, not a list
-                                 const auto &vec = n.owning_graph_id();
-                                 nb::list py_list;
-                                 for (const auto &id: vec) { py_list.append(id); }
-                                 return nb::tuple(py_list);
-                             })
-                .def_prop_ro("node_id", &Node::node_id)
-                .def_prop_ro("signature", &Node::signature)
-                .def_prop_ro("scalars", &Node::scalars)
-                .def_prop_rw("graph", static_cast<graph_ptr (Node::*)() const>(&Node::graph), &Node::set_graph)
-                .def_prop_rw("input", static_cast<time_series_bundle_input_ptr (Node::*)() const>(&Node::input),
-                             &Node::set_input)
-                .def_prop_ro("inputs",
-                             [](Node &self) {
-                                 nb::dict d;
-                                 auto inp_{*self.input()};
-                                 for (const auto &key: inp_.schema().keys()) { d[key.c_str()] = inp_[key]; }
-                                 return d;
-                             })
-                .def_prop_ro("start_inputs",
-                             [](Node &self) {
-                                 nb::list l;
-                                 for (const auto &input: self._start_inputs) { l.append(input); }
-                                 return l;
-                             })
-                .def_prop_rw("output", &Node::output, &Node::set_output)
-                .def_prop_rw("recordable_state", &Node::recordable_state, &Node::set_recordable_state)
-                .def_prop_ro("scheduler", &Node::scheduler)
-                .def("eval", &Node::eval)
-                .def("notify", [](Node &self) { self.notify(); })
-                .def(
-                    "notify", [](Node &self, engine_time_t modified_time) { self.notify(modified_time); },
-                    "modified_time"_a)
-                .def("notify_next_cycle", &Node::notify_next_cycle)
-                .def_prop_rw("error_output", &Node::error_output, &Node::set_error_output)
-                .def("__repr__", &Node::repr)
-                .def("__str__", &Node::str);
-
-        nb::class_<BasePythonNode, Node>(m, "BasePythonNode");
-        nb::class_<PythonNode, BasePythonNode>(m, "PythonNode")
-                .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, nb::callable, nb::callable,
-                         nb::callable>(),
-                     "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "eval_fn"_a = nb::none(),
-                     "start_fn"_a = nb::none(),
-                     "stop_fn"_a = nb::none());
-    }
 
     bool Node::has_input() const { return _input.get() != nullptr; }
 

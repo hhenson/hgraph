@@ -2,6 +2,7 @@
 
 #include <hgraph/types/error_type.h>
 #include <hgraph/api/python/py_graph.h>
+#include <hgraph/api/python/py_node.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/schema_type.h>
@@ -76,8 +77,8 @@ void export_types(nb::module_ &m) {
     node_type_enum_py_register(m);
     injectable_type_enum(m);
     NodeSignature::register_with_nanobind(m);
-    NodeScheduler::register_with_nanobind(m);
-    Node::register_with_nanobind(m);
+    PyNodeScheduler::register_with_nanobind(m);
+    PyNode::register_with_nanobind(m);
 
 
     PyGraph::register_with_nanobind(m);
