@@ -77,6 +77,9 @@ namespace hgraph::api {
         [[nodiscard]] std::string str() const;
         [[nodiscard]] std::string repr() const;
         
+        // Dynamic attribute access for node-specific methods (e.g., MeshNode._add_graph_dependency)
+        [[nodiscard]] nb::object getattr(nb::handle name) const;
+        
         // Nanobind registration (as "Node" in Python)
         static void register_with_nanobind(nb::module_& m);
         

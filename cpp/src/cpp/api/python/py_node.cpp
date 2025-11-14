@@ -11,6 +11,8 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 #include <hgraph/nodes/last_value_pull_node.h>
+#include <hgraph/nodes/mesh_node.h>
+#include <fmt/format.h>
 #include <stdexcept>
 
 namespace nb = nanobind;
@@ -103,6 +105,118 @@ namespace hgraph::api {
         return _impl->repr();
     }
     
+    namespace {
+        // Helper functions to call MeshNode methods via function pointers
+        template<typename K>
+        bool call_add_dependency(MeshNode<K>* mesh, const K& key, const K& depends_on) {
+            return mesh->_add_graph_dependency(key, depends_on);
+        }
+        
+        template<typename K>
+        void call_remove_dependency(MeshNode<K>* mesh, const K& key, const K& depends_on) {
+            mesh->_remove_graph_dependency(key, depends_on);
+        }
+    }
+    
+    nb::object PyNode::getattr(nb::handle name) const {
+        std::string attr_name = nb::cast<std::string>(nb::str(name));
+        
+        // Try to access the attribute on the underlying C++ Node
+        // This allows access to methods registered directly on specialized node types (e.g., MeshNode)
+        auto* mutable_impl = const_cast<Node*>(_impl.get());
+        
+        // Try MeshNode methods - use nb::cpp_function to properly bind the methods
+        if (auto* mesh_bool = dynamic_cast<MeshNode<bool>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_bool](bool key, bool depends_on) {
+                    return mesh_bool->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_bool](bool key, bool depends_on) {
+                    mesh_bool->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        // Try other MeshNode template types
+        if (auto* mesh_int = dynamic_cast<MeshNode<int64_t>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_int](int64_t key, int64_t depends_on) {
+                    return mesh_int->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_int](int64_t key, int64_t depends_on) {
+                    mesh_int->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        if (auto* mesh_double = dynamic_cast<MeshNode<double>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_double](double key, double depends_on) {
+                    return mesh_double->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_double](double key, double depends_on) {
+                    mesh_double->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        if (auto* mesh_date = dynamic_cast<MeshNode<engine_date_t>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_date](engine_date_t key, engine_date_t depends_on) {
+                    return mesh_date->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_date](engine_date_t key, engine_date_t depends_on) {
+                    mesh_date->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        if (auto* mesh_time = dynamic_cast<MeshNode<engine_time_t>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_time](engine_time_t key, engine_time_t depends_on) {
+                    return mesh_time->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_time](engine_time_t key, engine_time_t depends_on) {
+                    mesh_time->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        if (auto* mesh_delta = dynamic_cast<MeshNode<engine_time_delta_t>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_delta](engine_time_delta_t key, engine_time_delta_t depends_on) {
+                    return mesh_delta->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_delta](engine_time_delta_t key, engine_time_delta_t depends_on) {
+                    mesh_delta->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        if (auto* mesh_obj = dynamic_cast<MeshNode<nb::object>*>(mutable_impl)) {
+            if (attr_name == "_add_graph_dependency") {
+                return nb::cpp_function([mesh_obj](nb::object key, nb::object depends_on) {
+                    return mesh_obj->_add_graph_dependency(key, depends_on);
+                }, nb::name("_add_graph_dependency"), nb::is_method());
+            }
+            if (attr_name == "_remove_graph_dependency") {
+                return nb::cpp_function([mesh_obj](nb::object key, nb::object depends_on) {
+                    mesh_obj->_remove_graph_dependency(key, depends_on);
+                }, nb::name("_remove_graph_dependency"), nb::is_method());
+            }
+        }
+        
+        // Attribute not found
+        throw nb::attribute_error(
+            fmt::format("'{}' object has no attribute '{}'", "Node", attr_name).c_str());
+    }
+    
     void PyNode::register_with_nanobind(nb::module_& m) {
         nb::class_<PyNode>(m, "Node")
             .def_prop_ro("node_ndx", &PyNode::node_ndx)
@@ -118,7 +232,8 @@ namespace hgraph::api {
             .def_prop_ro("scheduler", &PyNode::scheduler)
             .def("notify", &PyNode::notify, "modified_time"_a)
             .def("__str__", &PyNode::str)
-            .def("__repr__", &PyNode::repr);
+            .def("__repr__", &PyNode::repr)
+            .def("__getattr__", &PyNode::getattr);
     }
     
     PyLastValuePullNode::PyLastValuePullNode(LastValuePullNode* impl, control_block_ptr control_block)
