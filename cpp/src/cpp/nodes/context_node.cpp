@@ -82,15 +82,31 @@ namespace hgraph {
         TimeSeriesReference::ptr value_ref = nullptr;
         time_series_reference_output_ptr output_ts = nullptr;
 
-        // Case 1: new Python API wrapper storing TimeSeriesReferenceOutput
-        if (auto* unwrapped_output = api::unwrap_output(shared)) {
+        // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState (check direct C++ objects first)
+        if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
+            output_ts = nb::cast<time_series_reference_output_ptr>(shared);
+            // Always get the value, even if not valid (matches Python behavior)
+            value_ref = output_ts->value();
+        }
+        // Case 2: direct TimeSeriesReferenceInput stored in GlobalState
+        else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
+            auto ref = nb::cast<time_series_reference_input_ptr>(shared);
+            if (ref->has_peer()) {
+                // Use the bound peer output (stub remains a reference node)
+                output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());
+            }
+            // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
+            value_ref = ref->value();
+        }
+        // Case 3: new Python API wrapper storing TimeSeriesReferenceOutput
+        else if (auto* unwrapped_output = api::unwrap_output(shared)) {
             if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped_output)) {
                 output_ts = time_series_reference_output_ptr(ts_ref);
                 // Always get the value, even if not valid (matches Python behavior)
                 value_ref = ts_ref->value();
             }
         }
-        // Case 2: new Python API wrapper storing TimeSeriesReferenceInput
+        // Case 4: new Python API wrapper storing TimeSeriesReferenceInput
         else if (auto* unwrapped_input = api::unwrap_input(shared)) {
             if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceInput*>(unwrapped_input)) {
                 if (ts_ref->has_peer()) {
@@ -100,22 +116,6 @@ namespace hgraph {
                 // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
                 value_ref = ts_ref->value();
             }
-        }
-        // Case 3: direct TimeSeriesReferenceOutput stored in GlobalState (legacy path)
-        else if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
-            output_ts = nb::cast<time_series_reference_output_ptr>(shared);
-            // Always get the value, even if not valid (matches Python behavior)
-            value_ref = output_ts->value();
-        }
-        // Case 4: TimeSeriesReferenceInput stored in GlobalState
-        else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
-            auto ref = nb::cast<time_series_reference_input_ptr>(shared);
-            if (ref->has_peer()) {
-                // Use the bound peer output (stub remains a reference node)
-                output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());
-            }
-            // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
-            value_ref = ref->value();
         } else {
             throw std::runtime_error(
                 fmt::format("Context found an unknown output type bound to {}: {}", key,
