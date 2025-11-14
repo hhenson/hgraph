@@ -1,6 +1,7 @@
 project(_hgraph)
 
 set(HGRAPH_SOURCES
+        api/python/py_graph.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/input_builder.cpp

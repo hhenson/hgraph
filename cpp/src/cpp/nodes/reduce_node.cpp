@@ -60,6 +60,9 @@ namespace hgraph {
 
     template<typename K>
     void ReduceNode<K>::initialise() {
+        //TODO: If this graph escapes into python we will need to look into providing
+        //      an actual control block this may also need to be constructed from
+        //      the builder.
         nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
         nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
             graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));

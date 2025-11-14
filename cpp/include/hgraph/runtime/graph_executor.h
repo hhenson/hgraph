@@ -59,30 +59,26 @@ namespace hgraph {
         // Abstract methods.
         virtual EvaluationMode run_mode() const = 0;
 
-        virtual graph_ptr graph() const = 0;
-
         virtual void run(const engine_time_t &start_time, const engine_time_t &end_time) = 0;
 
         void static register_with_nanobind(nb::module_ &m);
     };
 
     struct HGRAPH_EXPORT GraphExecutorImpl : GraphExecutor {
-        GraphExecutorImpl(graph_ptr graph, EvaluationMode run_mode,
+        GraphExecutorImpl(graph_builder_ptr graph_builder, EvaluationMode run_mode,
                           std::vector<EvaluationLifeCycleObserver::ptr> observers = {});
 
         EvaluationMode run_mode() const override;
-
-        graph_ptr graph() const override;
 
         void run(const engine_time_t &start_time, const engine_time_t &end_time) override;
 
         void static register_with_nanobind(nb::module_ &m);
 
     protected:
-        void _evaluate(EvaluationEngine &evaluationEngine);
+        void _evaluate(EvaluationEngine &evaluationEngine, Graph& graph);
 
     private:
-        graph_ptr _graph;
+        graph_builder_ptr _graph_builder;
         EvaluationMode _run_mode;
         std::vector<EvaluationLifeCycleObserver::ptr> _observers;
     };

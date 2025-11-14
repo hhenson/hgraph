@@ -22,6 +22,8 @@ namespace hgraph {
 
     void TsdNonAssociativeReduceNode::initialise() {
         // Create nested graph and set up evaluation engine (matches Python lines 319, 329-331)
+        //TODO: Should this be constructed by the GraphBuilder, if it does not escape into Python then
+        //      this is fine, otherwise not.
         nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
         nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
             graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));

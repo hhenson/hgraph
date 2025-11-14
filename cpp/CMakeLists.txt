@@ -142,6 +142,8 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
+        include/hgraph/api/python/api_ptr.h
+        include/hgraph/api/python/py_graph.h
         include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h

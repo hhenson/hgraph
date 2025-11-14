@@ -66,95 +66,15 @@ if is_feature_enabled("use_cpp"):
         hgraph._builder._graph_builder.GraphBuilder.register(_hgraph.GraphBuilder)
         hgraph.GraphBuilderFactory.declare(_make_cpp_graph_builder)
 
-        # Register the graph engine via a thin Python wrapper that coerces args
-        class _PyCppGraphExecutor:
-            def __init__(self, graph, run_mode, observers=None):
-                # Coerce run_mode from Python enum to C++ enum reliably
-                def _to_cpp_mode(mode):
-                    try:
-                        if hasattr(mode, "name"):
-                            return _hgraph.EvaluationMode[mode.name]
-                        return _hgraph.EvaluationMode(int(mode))
-                    except Exception:
-                        return mode
+        def _make_cpp_graph_engine(graph_builder, run_mode, observers):
+            """Create a C++ GraphEngine from a Python GraphBuilder"""
+            if hasattr(run_mode, "name"):
+                run_mode = _hgraph.EvaluationMode[run_mode.name]
+            else:
+                run_mode = _hgraph.EvaluationMode(int(run_mode))
+            return _hgraph.GraphExecutorImpl(graph_builder, run_mode, observers)
 
-                # Adapter to wrap Python observers so they are acceptable to C++ nanobind type
-                class _ObserverAdapter(_hgraph.EvaluationLifeCycleObserver):
-                    def __init__(self, delegate):
-                        # Properly initialize nanobind intrusive base
-                        _hgraph.EvaluationLifeCycleObserver.__init__(self)
-                        self._d = delegate
-
-                    def on_before_start_graph(self, graph):
-                        if hasattr(self._d, "on_before_start_graph"):
-                            self._d.on_before_start_graph(graph)
-
-                    def on_after_start_graph(self, graph):
-                        if hasattr(self._d, "on_after_start_graph"):
-                            self._d.on_after_start_graph(graph)
-
-                    def on_before_start_node(self, node):
-                        if hasattr(self._d, "on_before_start_node"):
-                            self._d.on_before_start_node(node)
-
-                    def on_after_start_node(self, node):
-                        if hasattr(self._d, "on_after_start_node"):
-                            self._d.on_after_start_node(node)
-
-                    def on_before_graph_evaluation(self, graph):
-                        if hasattr(self._d, "on_before_graph_evaluation"):
-                            self._d.on_before_graph_evaluation(graph)
-
-                    def on_after_graph_evaluation(self, graph):
-                        if hasattr(self._d, "on_after_graph_evaluation"):
-                            self._d.on_after_graph_evaluation(graph)
-
-                    def on_before_node_evaluation(self, node):
-                        if hasattr(self._d, "on_before_node_evaluation"):
-                            self._d.on_before_node_evaluation(node)
-
-                    def on_after_node_evaluation(self, node):
-                        if hasattr(self._d, "on_after_node_evaluation"):
-                            self._d.on_after_node_evaluation(node)
-
-                    def on_before_stop_node(self, node):
-                        if hasattr(self._d, "on_before_stop_node"):
-                            self._d.on_before_stop_node(node)
-
-                    def on_after_stop_node(self, node):
-                        if hasattr(self._d, "on_after_stop_node"):
-                            self._d.on_after_stop_node(node)
-
-                    def on_before_stop_graph(self, graph):
-                        if hasattr(self._d, "on_before_stop_graph"):
-                            self._d.on_before_stop_graph(graph)
-
-                    def on_after_stop_graph(self, graph):
-                        if hasattr(self._d, "on_after_stop_graph"):
-                            self._d.on_after_stop_graph(graph)
-
-                cpp_mode = _to_cpp_mode(run_mode)
-                # NOTE: Passing observers across the Python/C++ boundary is currently unstable.
-                # To avoid constructor mismatches, we construct without observers.
-                # Observers are still active in the Python runtime; with C++ runtime they are currently ignored.
-                self._impl = _hgraph.GraphExecutorImpl(
-                    graph,
-                    cpp_mode,
-                    [],
-                )
-
-            @property
-            def run_mode(self):
-                return self._impl.run_mode
-
-            @property
-            def graph(self):
-                return self._impl.graph
-
-            def run(self, start_time, end_time):
-                return self._impl.run(start_time, end_time)
-
-        hgraph.GraphEngineFactory.declare(_PyCppGraphExecutor)
+        hgraph.GraphEngineFactory.declare(_make_cpp_graph_engine)
 
 
         # === TimeSeriesBuilderFactory ===

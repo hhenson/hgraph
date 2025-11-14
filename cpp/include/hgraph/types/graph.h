@@ -5,15 +5,23 @@
 #ifndef GRAPH_H
 #define GRAPH_H
 
+#include "hgraph/api/python/api_ptr.h"
+
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>
 
-namespace hgraph {
-    struct HGRAPH_EXPORT Graph : ComponentLifeCycle {
+namespace hgraph
+{
+    struct HGRAPH_EXPORT Graph : ComponentLifeCycle
+    {
         using ptr = nanobind::ref<Graph>;
 
-        Graph(std::vector<int64_t> graph_id_, std::vector<node_ptr> nodes_, std::optional<node_ptr> parent_node_,
-              std::string label_, traits_ptr traits_);
+        Graph(std::vector<int64_t> graph_id_, std::vector<node_ptr> nodes_,
+              std::optional<node_ptr> parent_node_, std::string label_, traits_ptr traits_);
+
+        ~Graph() override;
+
+        [[nodiscard]] control_block_ptr control_block() const;
 
         [[nodiscard]] const std::vector<int64_t> &graph_id() const;
 
@@ -66,10 +74,10 @@ namespace hgraph {
         void dispose_subgraph(int64_t start, int64_t end);
 
         // Performance: Cached clock pointer and evaluation time reference set during initialization
-        [[nodiscard]] EngineEvaluationClock* cached_engine_clock() const { return _cached_engine_clock; }
-        [[nodiscard]] const engine_time_t* cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
+        [[nodiscard]] EngineEvaluationClock *cached_engine_clock() const { return _cached_engine_clock; }
+        [[nodiscard]] const engine_time_t   *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
 
-    protected:
+      protected:
         void initialise() override;
 
         void start() override;
@@ -78,23 +86,24 @@ namespace hgraph {
 
         void dispose() override;
 
-    private:
-        EvaluationEngine::ptr _evaluation_engine;
-        std::vector<int64_t> _graph_id;
-        std::vector<node_ptr> _nodes;
+      private:
+        control_block_ptr          _control_block;
+        EvaluationEngine::ptr      _evaluation_engine;
+        std::vector<int64_t>       _graph_id;
+        std::vector<node_ptr>      _nodes;
         std::vector<engine_time_t> _schedule;
-        node_ptr _parent_node;
-        std::string _label;
-        traits_ptr _traits;
-        SenderReceiverState _receiver;
-        engine_time_t _last_evaluation_time{MIN_DT};
-        int64_t _push_source_nodes_end{-1};
+        node_ptr                   _parent_node;
+        std::string                _label;
+        traits_ptr                 _traits;
+        SenderReceiverState        _receiver;
+        engine_time_t              _last_evaluation_time{MIN_DT};
+        int64_t                    _push_source_nodes_end{-1};
 
         // Performance optimization: Cache clock pointer and evaluation time pointer at initialization
         // Set once when evaluation engine is assigned, never changes
-        EngineEvaluationClock* _cached_engine_clock{nullptr};
-        const engine_time_t* _cached_evaluation_time_ptr{nullptr};
+        EngineEvaluationClock *_cached_engine_clock{nullptr};
+        const engine_time_t   *_cached_evaluation_time_ptr{nullptr};
     };
-} // namespace hgraph
+}  // namespace hgraph
 
 #endif  // GRAPH_H

@@ -1,7 +1,7 @@
 #include "hgraph/types/tsd.h"
 
 #include <hgraph/types/error_type.h>
-#include <hgraph/types/graph.h>
+#include <hgraph/api/python/py_graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/schema_type.h>
@@ -80,7 +80,7 @@ void export_types(nb::module_ &m) {
     Node::register_with_nanobind(m);
 
 
-    Graph::register_with_nanobind(m);
+    PyGraph::register_with_nanobind(m);
 
     register_ts_with_nanobind(m);
 

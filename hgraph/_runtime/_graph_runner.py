@@ -195,7 +195,7 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
 
         config.graph_logger.debug("Creating graph engine: %s", config.run_mode)
         engine = GraphEngineFactory.make(
-            graph=graph_builder.make_instance(tuple()), run_mode=config.run_mode, observers=config.life_cycle_observers
+            graph_builder=graph_builder, run_mode=config.run_mode, observers=config.life_cycle_observers
         )
 
         gc.collect()  # Clean up any garbage from wiring
@@ -213,7 +213,6 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
             raise e
         finally:
             config.graph_logger.debug("Finished running graph")
-            graph_builder.release_instance(engine.graph)
 
 
 def _build_main_graph(graph, config, args, kwargs):
