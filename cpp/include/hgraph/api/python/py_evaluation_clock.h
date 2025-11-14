@@ -47,6 +47,9 @@ namespace hgraph::api {
         [[nodiscard]] std::string str() const;
         [[nodiscard]] std::string repr() const;
         
+        // Dynamic attribute access for nested clock properties (node, key)
+        [[nodiscard]] nb::object getattr(nb::handle name) const;
+        
         // Nanobind registration (as "EvaluationClock" in Python)
         static void register_with_nanobind(nb::module_& m);
         

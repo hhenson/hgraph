@@ -116,6 +116,10 @@ namespace hgraph::api {
         
         void invalidate();
         
+        // Result application
+        bool can_apply_result(nb::object value) const;
+        void apply_result(nb::object value);
+        
         // Copy operations
         void copy_from_output(const PyTimeSeriesOutput& output);
         void copy_from_input(const PyTimeSeriesInput& input);

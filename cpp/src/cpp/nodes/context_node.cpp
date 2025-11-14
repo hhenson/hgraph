@@ -86,17 +86,15 @@ namespace hgraph {
         if (auto* unwrapped = api::unwrap_output(shared)) {
             if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped)) {
                 output_ts = time_series_reference_output_ptr(ts_ref);
-                if (ts_ref->valid()) {
-                    value_ref = ts_ref->value();
-                }
+                // Always get the value, even if not valid (matches Python behavior)
+                value_ref = ts_ref->value();
             }
         }
         // Case 2: direct TimeSeriesReferenceOutput stored in GlobalState (legacy path)
         else if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
             output_ts = nb::cast<time_series_reference_output_ptr>(shared);
-            if (output_ts->valid()) {
-                value_ref = output_ts->value();
-            }
+            // Always get the value, even if not valid (matches Python behavior)
+            value_ref = output_ts->value();
         }
         // Case 3: TimeSeriesReferenceInput stored in GlobalState
         else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {

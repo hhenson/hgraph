@@ -206,6 +206,14 @@ bool PyTimeSeriesOutput::all_valid() const {
         _impl->invalidate();
     }
     
+    bool PyTimeSeriesOutput::can_apply_result(nb::object value) const {
+        return _impl->can_apply_result(std::move(value));
+    }
+    
+    void PyTimeSeriesOutput::apply_result(nb::object value) {
+        _impl->apply_result(std::move(value));
+    }
+    
     void PyTimeSeriesOutput::copy_from_output(const PyTimeSeriesOutput& output) {
         _impl->copy_from_output(*output._impl);
     }
@@ -239,6 +247,8 @@ bool PyTimeSeriesOutput::all_valid() const {
             .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value, nb::arg("value").none())
             .def_prop_ro("delta_value", &PyTimeSeriesOutput::delta_value)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
+            .def("can_apply_result", &PyTimeSeriesOutput::can_apply_result, nb::arg("value").none())
+            .def("apply_result", &PyTimeSeriesOutput::apply_result, nb::arg("value").none())
             .def("copy_from_output", &PyTimeSeriesOutput::copy_from_output, "output"_a)
             .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input, "input"_a)
             .def("is_reference", &PyTimeSeriesOutput::is_reference)

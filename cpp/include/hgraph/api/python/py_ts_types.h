@@ -312,6 +312,8 @@ namespace hgraph::api {
         [[nodiscard]] int64_t len() const;
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object times() const;
+        [[nodiscard]] bool has_removed_value() const;
+        [[nodiscard]] nb::object removed_value() const;
         
         static void register_with_nanobind(nb::module_& m);
     };

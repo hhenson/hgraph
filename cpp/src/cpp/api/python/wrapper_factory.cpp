@@ -128,12 +128,35 @@ namespace hgraph::api {
         // TSD types - these are templates, so check against base TimeSeriesDictInput
         else if (auto* tsd = dynamic_cast<TimeSeriesDictInput*>(mutable_impl)) {
             py_obj = nb::cast(PyTimeSeriesDictInput(tsd, control_block));
-        } 
+        }
+        // TSW types - these are templates, so try all common template types
+        else if (dynamic_cast<TimeSeriesWindowInput<bool>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesWindowInput<int64_t>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesWindowInput<double>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesWindowInput<engine_date_t>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesWindowInput<engine_time_t>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesWindowInput<engine_time_delta_t>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesWindowInput<nb::object>*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesWindowInput(mutable_impl, control_block));
+        }
+        // Reference types
+        else if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceInput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesReferenceInput(ts_ref, control_block));
+        }
+        // Signal types - not a template, just check the concrete type
+        else if (auto* signal = dynamic_cast<TimeSeriesSignalInput*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesSignalInput(signal, control_block));
+        }
+        // Value types - try common template types
+        else if (dynamic_cast<TimeSeriesValueInput<bool>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesValueInput<int64_t>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesValueInput<double>*>(mutable_impl) ||
+                 dynamic_cast<TimeSeriesValueInput<nb::object>*>(mutable_impl)) {
+            py_obj = nb::cast(PyTimeSeriesValueInput(mutable_impl, control_block));
+        }
         // Check for base templated types (these inherit from IndexedTimeSeriesInput)
         else if (dynamic_cast<IndexedTimeSeriesInput*>(mutable_impl)) {
-            // TimeSeriesValueInput<T>, TimeSeriesSignalInput<T>, TimeSeriesReferenceInput, TimeSeriesWindowInput<T>
-            // all inherit from IndexedTimeSeriesInput, so we can't distinguish them here
-            // For now, just use base wrapper - specific methods will be added later if needed
+            // Fallback for any other IndexedTimeSeriesInput types
             py_obj = nb::cast(PyTimeSeriesInput(mutable_impl, control_block));
         } else {
             // Final fallback to base wrapper
@@ -257,16 +280,20 @@ namespace hgraph::api {
     }
     
     nb::object wrap_evaluation_clock(const hgraph::EvaluationClock* impl, control_block_ptr control_block) {
+        if (impl == nullptr) {
+            return nb::none();
+        }
+        
         auto py_clock = get_or_create_wrapper(impl, control_block,
             [](hgraph::EvaluationClock* mutable_impl, control_block_ptr cb) {
                 return PyEvaluationClock(mutable_impl, std::move(cb));
             });
 
-        if (impl != nullptr && py_clock.is_valid()) {
-            auto* mutable_impl = const_cast<hgraph::EvaluationClock*>(impl);
-            if (auto* nested_clock = dynamic_cast<hgraph::NestedEngineEvaluationClock*>(mutable_impl)) {
-                attach_nested_clock_metadata(py_clock, nested_clock, control_block);
-            }
+        // Always check and attach nested clock metadata if applicable
+        // This ensures the node/key attributes are available even if wrapper was cached
+        auto* mutable_impl = const_cast<hgraph::EvaluationClock*>(impl);
+        if (auto* nested_clock = dynamic_cast<hgraph::NestedEngineEvaluationClock*>(mutable_impl)) {
+            attach_nested_clock_metadata(py_clock, nested_clock, control_block);
         }
 
         return py_clock;

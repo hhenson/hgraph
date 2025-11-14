@@ -170,6 +170,64 @@ namespace hgraph::api {
     PyTimeSeriesWindowInput::PyTimeSeriesWindowInput(TimeSeriesInput* impl, control_block_ptr control_block)
         : PyTimeSeriesInput(impl, std::move(control_block)) {}
     
+    namespace {
+        // Helper to call has_removed_value on TimeSeriesWindowInput template instances
+        template<typename T>
+        bool try_has_removed_value(TimeSeriesInput* input) {
+            if (auto* window_input = dynamic_cast<TimeSeriesWindowInput<T>*>(input)) {
+                return window_input->has_removed_value();
+            }
+            return false;
+        }
+        
+        template<typename T>
+        nb::object try_removed_value(TimeSeriesInput* input) {
+            if (auto* window_input = dynamic_cast<TimeSeriesWindowInput<T>*>(input)) {
+                return window_input->removed_value();
+            }
+            return nb::none();
+        }
+    }
+    
+    bool PyTimeSeriesWindowInput::has_removed_value() const {
+        auto* impl = _impl.get();
+        // Try all common template types - return the first successful result
+        // The helper returns false if cast fails, so we need to check each one
+        bool result = try_has_removed_value<bool>(impl);
+        if (result || dynamic_cast<TimeSeriesWindowInput<bool>*>(impl)) return result;
+        result = try_has_removed_value<int64_t>(impl);
+        if (result || dynamic_cast<TimeSeriesWindowInput<int64_t>*>(impl)) return result;
+        result = try_has_removed_value<double>(impl);
+        if (result || dynamic_cast<TimeSeriesWindowInput<double>*>(impl)) return result;
+        result = try_has_removed_value<engine_date_t>(impl);
+        if (result || dynamic_cast<TimeSeriesWindowInput<engine_date_t>*>(impl)) return result;
+        result = try_has_removed_value<engine_time_t>(impl);
+        if (result || dynamic_cast<TimeSeriesWindowInput<engine_time_t>*>(impl)) return result;
+        result = try_has_removed_value<engine_time_delta_t>(impl);
+        if (result || dynamic_cast<TimeSeriesWindowInput<engine_time_delta_t>*>(impl)) return result;
+        result = try_has_removed_value<nb::object>(impl);
+        return result;
+    }
+    
+    nb::object PyTimeSeriesWindowInput::removed_value() const {
+        auto* impl = _impl.get();
+        // Try all common template types
+        auto result = try_removed_value<bool>(impl);
+        if (!result.is_none()) return result;
+        result = try_removed_value<int64_t>(impl);
+        if (!result.is_none()) return result;
+        result = try_removed_value<double>(impl);
+        if (!result.is_none()) return result;
+        result = try_removed_value<engine_date_t>(impl);
+        if (!result.is_none()) return result;
+        result = try_removed_value<engine_time_t>(impl);
+        if (!result.is_none()) return result;
+        result = try_removed_value<engine_time_delta_t>(impl);
+        if (!result.is_none()) return result;
+        result = try_removed_value<nb::object>(impl);
+        return result;
+    }
+    
     PyTimeSeriesWindowOutput::PyTimeSeriesWindowOutput(TimeSeriesOutput* impl, control_block_ptr control_block)
         : PyTimeSeriesOutput(impl, std::move(control_block)) {}
     
@@ -1546,7 +1604,9 @@ void PyTimeSeriesDictOutput::apply_result(nb::object value) {
         nb::class_<PyTimeSeriesWindowInput, PyTimeSeriesInput>(m, "TimeSeriesWindowInput")
             .def("__len__", &PyTimeSeriesWindowInput::len)
             .def("values", &PyTimeSeriesWindowInput::values)
-            .def("times", &PyTimeSeriesWindowInput::times);
+            .def("times", &PyTimeSeriesWindowInput::times)
+            .def_prop_ro("has_removed_value", &PyTimeSeriesWindowInput::has_removed_value)
+            .def_prop_ro("removed_value", &PyTimeSeriesWindowInput::removed_value);
     }
     
     int64_t PyTimeSeriesWindowOutput::len() const {
