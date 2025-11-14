@@ -617,7 +617,7 @@ namespace hgraph::api {
     }
     
     nb::object PyTimeSeriesBundleInput::as_schema() const {
-        return nb::cast(*this, nb::rv_policy::reference);
+        return nb::cast<const PyTimeSeriesBundleInput&>(*this, nb::rv_policy::reference);
     }
 
     nb::object PyTimeSeriesBundleInput::getattr(nb::handle key) const {
@@ -794,7 +794,7 @@ namespace hgraph::api {
     }
     
     nb::object PyTimeSeriesBundleOutput::as_schema() const {
-        return nb::cast(*this, nb::rv_policy::reference);
+        return nb::cast<const PyTimeSeriesBundleOutput&>(*this, nb::rv_policy::reference);
     }
 
     nb::object PyTimeSeriesBundleOutput::getattr(nb::handle key) const {

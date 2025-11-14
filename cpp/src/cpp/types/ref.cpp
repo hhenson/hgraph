@@ -272,6 +272,10 @@ namespace hgraph {
     }
 
     void TimeSeriesReferenceOutput::set_value(TimeSeriesReference::ptr value) {
+        if (value == nullptr) {
+            invalidate();
+            return;
+        }
         _value = value;
         mark_modified();
         for (auto input: _reference_observers) { _value->bind_input(*input); }
