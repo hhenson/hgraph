@@ -21,7 +21,7 @@ namespace hgraph
 
         ~Graph() override;
 
-        [[nodiscard]] control_block_ptr control_block() const;
+        [[nodiscard]] const control_block_ptr &control_block() const;
 
         [[nodiscard]] const std::vector<int64_t> &graph_id() const;
 
