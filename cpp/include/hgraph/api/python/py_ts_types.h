@@ -221,6 +221,7 @@ namespace hgraph::api {
         [[nodiscard]] bool contains(nb::object key) const;
         
         [[nodiscard]] int64_t len() const;
+        [[nodiscard]] nb::object iter() const;
         [[nodiscard]] nb::object keys() const;
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;

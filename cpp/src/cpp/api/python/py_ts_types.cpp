@@ -1242,6 +1242,11 @@ namespace hgraph::api {
         return impl->size();
     }
     
+    nb::object PyTimeSeriesDictOutput::iter() const {
+        auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
+        return impl->py_iter();
+    }
+    
     nb::object PyTimeSeriesDictOutput::keys() const {
         auto* impl = static_cast<TimeSeriesDictOutput*>(_impl.get());
         return impl->py_keys();
@@ -1430,6 +1435,7 @@ void PyTimeSeriesDictOutput::apply_result(nb::object value) {
             .def("get", &PyTimeSeriesDictOutput::get, "key"_a, "default"_a = nb::none())
             .def("__contains__", &PyTimeSeriesDictOutput::contains)
             .def("__len__", &PyTimeSeriesDictOutput::len)
+            .def("__iter__", &PyTimeSeriesDictOutput::iter)
             .def("keys", &PyTimeSeriesDictOutput::keys)
             .def("values", &PyTimeSeriesDictOutput::values)
             .def("items", &PyTimeSeriesDictOutput::items)
