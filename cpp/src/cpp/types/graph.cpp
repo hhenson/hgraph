@@ -10,8 +10,8 @@
 
 namespace hgraph
 {
-    Graph::Graph(std::vector<int64_t> graph_id_, std::vector<Node::ptr> nodes_,
-                 std::optional<Node::ptr> parent_node_, std::string label_, traits_ptr traits_)
+    Graph::Graph(std::vector<int64_t> graph_id_, std::vector<Node::ptr> nodes_, std::optional<Node::ptr> parent_node_,
+                 std::string label_, traits_ptr traits_)
         : ComponentLifeCycle(), _control_block{std::make_shared<ApiControlBlock>()}, _graph_id{std::move(graph_id_)},
           _nodes{std::move(nodes_)}, _parent_node{parent_node_.has_value() ? std::move(*parent_node_) : nullptr},
           _label{std::move(label_)}, _traits{std::move(traits_)} {
@@ -21,13 +21,9 @@ namespace hgraph
         _schedule.resize(_nodes.size(), MIN_DT);
     }
 
-    Graph::~Graph() {
-        _control_block->mark_dead();
-    }
+    Graph::~Graph() { _control_block->mark_dead(); }
 
-    control_block_ptr Graph::control_block() const {
-        return _control_block;
-    }
+    const control_block_ptr &Graph::control_block() const { return _control_block; }
 
     const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
 
@@ -152,7 +148,7 @@ namespace hgraph
     Graph::ptr Graph::copy_with(std::vector<Node::ptr> nodes) {
         // This is a copy, need to make sure we copy the graph contents
         // TODO: This REALLY should be constructed using a builder, for now we will just allow to continue
-        return ptr{new Graph( _graph_id, std::move(nodes), _parent_node, _label, _traits->copy())};
+        return ptr{new Graph(_graph_id, std::move(nodes), _parent_node, _label, _traits->copy())};
     }
 
     const Traits &Graph::traits() const { return *_traits; }
