@@ -32,6 +32,46 @@ namespace hgraph::api {
         return nb::cast(_impl->cycle_time());
     }
     
+    nb::object PyEvaluationClock::node() const {
+        auto* mutable_impl = const_cast<hgraph::EvaluationClock*>(_impl.get());
+        if (auto* nested_clock = dynamic_cast<hgraph::NestedEngineEvaluationClock*>(mutable_impl)) {
+            auto nested_node = nested_clock->node();
+            if (nested_node.get() != nullptr) {
+                return wrap_node(nested_node.get(), _impl.control_block());
+            }
+        }
+        return nb::none();
+    }
+    
+    nb::object PyEvaluationClock::key() const {
+        auto* mutable_impl = const_cast<hgraph::EvaluationClock*>(_impl.get());
+        if (auto* nested_clock = dynamic_cast<hgraph::NestedEngineEvaluationClock*>(mutable_impl)) {
+            // Try all mesh clock types
+            if (auto* mesh_bool = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<bool>*>(nested_clock)) {
+                return nb::cast(mesh_bool->key());
+            }
+            if (auto* mesh_int = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<int64_t>*>(nested_clock)) {
+                return nb::cast(mesh_int->key());
+            }
+            if (auto* mesh_double = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<double>*>(nested_clock)) {
+                return nb::cast(mesh_double->key());
+            }
+            if (auto* mesh_date = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<engine_date_t>*>(nested_clock)) {
+                return nb::cast(mesh_date->key());
+            }
+            if (auto* mesh_time = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<engine_time_t>*>(nested_clock)) {
+                return nb::cast(mesh_time->key());
+            }
+            if (auto* mesh_delta = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<engine_time_delta_t>*>(nested_clock)) {
+                return nb::cast(mesh_delta->key());
+            }
+            if (auto* mesh_obj = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<nb::object>*>(nested_clock)) {
+                return nb::cast(mesh_obj->key());
+            }
+        }
+        return nb::none();
+    }
+    
     std::string PyEvaluationClock::str() const {
         return fmt::format("EvaluationClock@{:p}[eval_time={}]",
                          static_cast<const void*>(_impl.get()),
@@ -42,53 +82,6 @@ namespace hgraph::api {
         return str();
     }
     
-    nb::object PyEvaluationClock::getattr(nb::handle name) const {
-        std::string attr_name = nb::cast<std::string>(nb::str(name));
-        
-        // Check if this is a nested clock and return dynamic attributes
-        auto* mutable_impl = const_cast<hgraph::EvaluationClock*>(_impl.get());
-        if (auto* nested_clock = dynamic_cast<hgraph::NestedEngineEvaluationClock*>(mutable_impl)) {
-            if (attr_name == "node") {
-                auto nested_node = nested_clock->node();
-                if (nested_node.get() != nullptr) {
-                    return wrap_node(nested_node.get(), _impl.control_block());
-                }
-                return nb::none();
-            }
-            
-            // Check for key attribute on mesh nested clocks
-            if (attr_name == "key") {
-                // Try all mesh clock types
-                if (auto* mesh_bool = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<bool>*>(nested_clock)) {
-                    return nb::cast(mesh_bool->key());
-                }
-                if (auto* mesh_int = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<int64_t>*>(nested_clock)) {
-                    return nb::cast(mesh_int->key());
-                }
-                if (auto* mesh_double = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<double>*>(nested_clock)) {
-                    return nb::cast(mesh_double->key());
-                }
-                if (auto* mesh_date = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<engine_date_t>*>(nested_clock)) {
-                    return nb::cast(mesh_date->key());
-                }
-                if (auto* mesh_time = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<engine_time_t>*>(nested_clock)) {
-                    return nb::cast(mesh_time->key());
-                }
-                if (auto* mesh_delta = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<engine_time_delta_t>*>(nested_clock)) {
-                    return nb::cast(mesh_delta->key());
-                }
-                if (auto* mesh_obj = dynamic_cast<hgraph::MeshNestedEngineEvaluationClock<nb::object>*>(nested_clock)) {
-                    return nb::cast(mesh_obj->key());
-                }
-                return nb::none();
-            }
-        }
-        
-        // Attribute not found
-        throw nb::attribute_error(
-            fmt::format("'{}' object has no attribute '{}'", "EvaluationClock", attr_name).c_str());
-    }
-    
     void PyEvaluationClock::register_with_nanobind(nb::module_& m) {
         nb::class_<PyEvaluationClock>(m, "EvaluationClock",
             "Python wrapper for EvaluationClock - provides access to evaluation clock functionality")
@@ -96,10 +89,12 @@ namespace hgraph::api {
             .def_prop_ro("now", &PyEvaluationClock::now)
             .def_prop_ro("next_cycle_evaluation_time", &PyEvaluationClock::next_cycle_evaluation_time)
             .def_prop_ro("cycle_time", &PyEvaluationClock::cycle_time)
+            .def_prop_ro("node", &PyEvaluationClock::node,
+                "The nested node for nested clocks (None for base clocks)")
+            .def_prop_ro("key", &PyEvaluationClock::key,
+                "The mesh key for mesh nested clocks (None for non-mesh clocks)")
             .def("is_valid", &PyEvaluationClock::is_valid,
                 "Check if this wrapper is valid (graph is alive and wrapper has value)")
-            .def("__getattr__", &PyEvaluationClock::getattr,
-                "Dynamic attribute access for nested clock properties (node, key)")
             .def("__str__", &PyEvaluationClock::str)
             .def("__repr__", &PyEvaluationClock::repr);
     }
