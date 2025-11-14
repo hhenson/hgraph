@@ -57,8 +57,7 @@ namespace hgraph
                         // wrapped_value = wrap_evaluation_clock(clock.get(), cb);
                         wrapped_value = nb::cast(clock);
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
-                        // wrapped_value = g ? wrap_traits(&g->traits(), cb) : nb::none();
-                        wrapped_value = g ? nb::cast(g->traits()) : nb::none();
+                        wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -119,9 +118,9 @@ namespace hgraph
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj          = nb::cast(&(graph()->traits()));
-        std::string record_replay_id    = signature().record_replay_id.value_or("");
-        nb::object  recordable_id       = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
+        nb::object  traits_obj = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
+        std::string record_replay_id = signature().record_replay_id.value_or("");
+        nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
         // Get evaluation time minus MIN_TD
         engine_time_t eval_time = graph()->evaluation_clock()->evaluation_time();

@@ -72,7 +72,7 @@ void export_types(nb::module_ &m) {
     tsd_register_with_nanobind(m);
     tsw_register_with_nanobind(m);
 
-    Traits::register_with_nanobind(m);
+    PyTraits::register_with_nanobind(m);
 
     node_type_enum_py_register(m);
     injectable_type_enum(m);

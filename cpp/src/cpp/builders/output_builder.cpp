@@ -3,14 +3,17 @@
 #include <hgraph/types/time_series_type.h>
 
 // Include all the extracted builder headers
-#include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_ref_output_builder.h>
+#include "hgraph/api/python/py_node.h"
+
 #include <hgraph/builders/time_series_types/specialized_ref_builders.h>
-#include <hgraph/builders/time_series_types/time_series_list_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_bundle_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_set_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_window_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
+#include <hgraph/builders/time_series_types/time_series_list_output_builder.h>
+#include <hgraph/builders/time_series_types/time_series_ref_output_builder.h>
+#include <hgraph/builders/time_series_types/time_series_set_output_builder.h>
+#include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
+#include <hgraph/builders/time_series_types/time_series_window_output_builder.h>
+#include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
     void OutputBuilder::release_instance(time_series_output_ptr item) const {
@@ -25,7 +28,7 @@ namespace hgraph {
                     "make_instance",
                     [](OutputBuilder::ptr self, nb::object owning_node,
                        nb::object owning_output) -> time_series_output_ptr {
-                        if (!owning_node.is_none()) { return self->make_instance(nb::cast<node_ptr>(owning_node)); }
+                        if (!owning_node.is_none()) { return self->make_instance(unwrap_node(owning_node)); }
                         if (!owning_output.is_none()) {
                             return self->make_instance(nb::cast<time_series_output_ptr>(owning_output));
                         }

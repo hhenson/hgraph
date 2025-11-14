@@ -1,18 +1,43 @@
+#include "hgraph/api/python/wrapper_factory.h"
+
 #include <fmt/format.h>
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
 
+#include <utility>
+
 namespace hgraph
 {
+    PyTraits::PyTraits(api_ptr traits) : _impl{std::move(traits)} {}
+
+    void PyTraits::set_traits(nb::kwargs traits) { _impl->set_traits(std::move(traits)); }
+
+    void PyTraits::set_trait(const std::string &trait_name, nb::object value) const {
+        _impl->set_trait(trait_name, std::move(value));
+    }
+
+    nb::object PyTraits::get_trait(const std::string &trait_name) const { return _impl->get_trait(trait_name); }
+
+    nb::object PyTraits::get_trait_or(const std::string &trait_name, nb::object def_value) const {
+        return _impl->get_trait_or(trait_name, std::move(def_value));
+    }
+
+    void PyTraits::register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyTraits>(m, "Traits")
+            .def("get_trait", &PyTraits::get_trait, "trait_name"_a)
+            .def("set_traits", &PyTraits::set_traits)
+            .def("get_trait_or", &PyTraits::get_trait_or, "trait_name"_a, "def_value"_a = nb::none());
+    }
+
     PyGraph::PyGraph(ApiPtr<Graph> graph) : _impl{std::move(graph)} {}
 
     nb::tuple PyGraph::graph_id() const { return nb::make_tuple(_impl->graph_id()); }
 
     nb::tuple PyGraph::nodes() const { return nb::make_tuple(_impl->nodes()); }
 
-    node_ptr PyGraph::parent_node() const { return _impl->parent_node(); }
+    nb::object PyGraph::parent_node() const { return wrap_node(_impl->parent_node(), _impl.control_block()); }
 
     nb::object PyGraph::label() const {
         auto lbl{_impl->label()};
@@ -37,13 +62,9 @@ namespace hgraph
         return PyGraph(ApiPtr<Graph>(g.get(), g->control_block()));
     }
 
-    const Traits &PyGraph::traits() const {
-        return _impl->traits();
-    }
+    nb::object PyGraph::traits() const { return wrap_traits(_impl->traits().get(), _impl.control_block()); }
 
-    SenderReceiverState &PyGraph::receiver() {
-        return _impl->receiver();
-    }
+    SenderReceiverState &PyGraph::receiver() { return _impl->receiver(); }
 
     void PyGraph::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyGraph>(m, "Graph")

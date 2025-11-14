@@ -68,7 +68,7 @@ namespace hgraph {
     void TsdMapNode<K>::do_start() {
         // Note: In Python, super().do_start() is called here, but in C++ the base Node class
         // do_start() is pure virtual and has no implementation to call.
-        auto trait{graph()->traits().get_trait_or(RECORDABLE_ID_TRAIT, nb::none())};
+        auto trait{graph()->traits()->get_trait_or(RECORDABLE_ID_TRAIT, nb::none())};
         if (!trait.is_none()) {
             auto recordable_id{signature().record_replay_id};
             recordable_id_ = get_fq_recordable_id(graph()->traits(),

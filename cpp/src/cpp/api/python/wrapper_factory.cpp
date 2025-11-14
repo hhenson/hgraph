@@ -61,8 +61,7 @@ namespace hgraph
     }
 
     nb::object wrap_graph(const Graph *impl, const control_block_ptr &control_block) {
-        return get_or_create_wrapper(impl, control_block,
-                                     [](auto impl, const auto &cb) { return PyGraph({impl, cb}); });
+        return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyGraph({impl, cb}); });
     }
 
     nb::object wrap_node_scheduler(const NodeScheduler *impl, const control_block_ptr &control_block) {
@@ -194,7 +193,8 @@ namespace hgraph
     // }
     //
     // nb::object wrap_evaluation_engine_api(const hgraph::EvaluationEngineApi *impl, control_block_ptr control_block) {
-    //     return get_or_create_wrapper(impl, std::move(control_block), [](hgraph::EvaluationEngineApi *impl, control_block_ptr cb) {
+    //     return get_or_create_wrapper(impl, std::move(control_block), [](hgraph::EvaluationEngineApi *impl, control_block_ptr cb)
+    //     {
     //         return PyEvaluationEngineApi(impl, std::move(cb));
     //     });
     // }
@@ -206,14 +206,14 @@ namespace hgraph
     //         return PyEvaluationClock(mutable_impl, std::move(cb));
     //     });
     // }
-    //
-    // nb::object wrap_traits(const hgraph::Traits *impl, api::control_block_ptr control_block) {
-    //     // Don't cache traits wrappers - traits is a member of Graph, not a separate heap object
-    //     // Caching on intrusive_base could cause issues during graph teardown
-    //     if (!impl) { return nb::none(); }
-    //     auto *mutable_impl = const_cast<hgraph::Traits *>(impl);
-    //     auto  wrapper      = api::PyTraits(mutable_impl, std::move(control_block));
-    //     return nb::cast(std::move(wrapper));
-    // }
+
+    nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block) {
+        // Don't cache traits wrappers - traits is a member of Graph, not a separate heap object
+        // Caching on intrusive_base could cause issues during graph teardown
+        if (!impl) { return nb::none(); }
+        auto *mutable_impl = const_cast<Traits *>(impl);
+        auto  wrapper      = PyTraits({mutable_impl, std::move(control_block)});
+        return nb::cast(std::move(wrapper));
+    }
 
 }  // namespace hgraph

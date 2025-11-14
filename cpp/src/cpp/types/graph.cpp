@@ -151,7 +151,7 @@ namespace hgraph
         return ptr{new Graph(_graph_id, std::move(nodes), _parent_node, _label, _traits->copy())};
     }
 
-    const Traits &Graph::traits() const { return *_traits; }
+    const Traits:: ptr &Graph::traits() const { return _traits; }
 
     SenderReceiverState &Graph::receiver() { return _receiver; }
 
