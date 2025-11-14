@@ -82,44 +82,144 @@ namespace hgraph {
         TimeSeriesReference::ptr value_ref = nullptr;
         time_series_reference_output_ptr output_ts = nullptr;
 
-        // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState (check direct C++ objects first)
-        if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
-            output_ts = nb::cast<time_series_reference_output_ptr>(shared);
-            // Always get the value, even if not valid (matches Python behavior)
-            value_ref = output_ts->value();
-        }
-        // Case 2: direct TimeSeriesReferenceInput stored in GlobalState
-        else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
-            auto ref = nb::cast<time_series_reference_input_ptr>(shared);
-            if (ref->has_peer()) {
-                // Use the bound peer output (stub remains a reference node)
-                output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());
+        // First, try Python isinstance check for Python TimeSeriesReferenceOutput/Input classes
+        // (Python code stores Python objects in GlobalState, not C++ objects)
+        try {
+            auto hgraph_types = nb::module_::import_("hgraph._types._ref_type");
+            auto TimeSeriesReferenceOutput_py = hgraph_types.attr("TimeSeriesReferenceOutput");
+            auto TimeSeriesReferenceInput_py = hgraph_types.attr("TimeSeriesReferenceInput");
+            auto builtins = nb::module_::import_("builtins");
+            auto isinstance = builtins.attr("isinstance");
+            
+            if (nb::cast<bool>(isinstance(shared, TimeSeriesReferenceOutput_py))) {
+                // Python TimeSeriesReferenceOutput - access value and output attributes
+                // The output is the shared object itself (matches Python: output = shared)
+                // Try to unwrap if it's a wrapped C++ object, otherwise try to cast directly
+                if (auto* unwrapped = api::unwrap_output(shared)) {
+                    if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped)) {
+                        output_ts = time_series_reference_output_ptr(ts_ref);
+                        value_ref = ts_ref->value();
+                    }
+                } else if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
+                    output_ts = nb::cast<time_series_reference_output_ptr>(shared);
+                    value_ref = output_ts->value();
+                } else {
+                    // Pure Python object - try to get value attribute and cast it
+                    try {
+                        auto value_attr = shared.attr("value");
+                        value_ref = nb::cast<TimeSeriesReference::ptr>(value_attr);
+                    } catch (const nb::cast_error&) {
+                        // If cast fails, value_ref remains nullptr
+                        value_ref = nullptr;
+                    }
+                }
+            } else if (nb::cast<bool>(isinstance(shared, TimeSeriesReferenceInput_py))) {
+                // Python TimeSeriesReferenceInput - access value and output attributes
+                auto has_peer = nb::cast<bool>(shared.attr("has_peer"));
+                if (has_peer) {
+                    auto output_attr = shared.attr("output");
+                    if (!output_attr.is_none()) {
+                        // Try to unwrap if it's a wrapped C++ object, otherwise use as-is
+                        if (auto* unwrapped = api::unwrap_output(output_attr)) {
+                            if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped)) {
+                                output_ts = time_series_reference_output_ptr(ts_ref);
+                            }
+                        } else if (nb::isinstance<TimeSeriesReferenceOutput>(output_attr)) {
+                            output_ts = nb::cast<time_series_reference_output_ptr>(output_attr);
+                        }
+                    }
+                }
+                // Always get the value from the REF input (matches Python: value = shared.value)
+                try {
+                    auto value_attr = shared.attr("value");
+                    value_ref = nb::cast<TimeSeriesReference::ptr>(value_attr);
+                } catch (const nb::cast_error&) {
+                    // If cast fails, value_ref remains nullptr
+                    value_ref = nullptr;
+                }
+            } else {
+                // Not a Python class, try C++ checks
+                // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState (check direct C++ objects first)
+                if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
+                    output_ts = nb::cast<time_series_reference_output_ptr>(shared);
+                    // Always get the value, even if not valid (matches Python behavior)
+                    value_ref = output_ts->value();
+                }
+                // Case 2: direct TimeSeriesReferenceInput stored in GlobalState
+                else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
+                    auto ref = nb::cast<time_series_reference_input_ptr>(shared);
+                    if (ref->has_peer()) {
+                        // Use the bound peer output (stub remains a reference node)
+                        output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());
+                    }
+                    // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
+                    value_ref = ref->value();
+                }
+                // Case 3: new Python API wrapper storing TimeSeriesReferenceOutput
+                else if (auto* unwrapped_output = api::unwrap_output(shared)) {
+                    if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped_output)) {
+                        output_ts = time_series_reference_output_ptr(ts_ref);
+                        // Always get the value, even if not valid (matches Python behavior)
+                        value_ref = ts_ref->value();
+                    }
+                }
+                // Case 4: new Python API wrapper storing TimeSeriesReferenceInput
+                else if (auto* unwrapped_input = api::unwrap_input(shared)) {
+                    if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceInput*>(unwrapped_input)) {
+                        if (ts_ref->has_peer()) {
+                            // Use the bound peer output (stub remains a reference node)
+                            output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ts_ref->output().get());
+                        }
+                        // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
+                        value_ref = ts_ref->value();
+                    }
+                } else {
+                    throw std::runtime_error(
+                        fmt::format("Context found an unknown output type bound to {}: {}", key,
+                                    nb::str(shared.type()).c_str()));
+                }
             }
-            // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
-            value_ref = ref->value();
-        }
-        // Case 3: new Python API wrapper storing TimeSeriesReferenceOutput
-        else if (auto* unwrapped_output = api::unwrap_output(shared)) {
-            if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped_output)) {
-                output_ts = time_series_reference_output_ptr(ts_ref);
+        } catch (const std::exception& e) {
+            // Fallback to C++ checks if Python isinstance fails
+            // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState (check direct C++ objects first)
+            if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
+                output_ts = nb::cast<time_series_reference_output_ptr>(shared);
                 // Always get the value, even if not valid (matches Python behavior)
-                value_ref = ts_ref->value();
+                value_ref = output_ts->value();
             }
-        }
-        // Case 4: new Python API wrapper storing TimeSeriesReferenceInput
-        else if (auto* unwrapped_input = api::unwrap_input(shared)) {
-            if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceInput*>(unwrapped_input)) {
-                if (ts_ref->has_peer()) {
+            // Case 2: direct TimeSeriesReferenceInput stored in GlobalState
+            else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
+                auto ref = nb::cast<time_series_reference_input_ptr>(shared);
+                if (ref->has_peer()) {
                     // Use the bound peer output (stub remains a reference node)
-                    output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ts_ref->output().get());
+                    output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());
                 }
                 // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
-                value_ref = ts_ref->value();
+                value_ref = ref->value();
             }
-        } else {
-            throw std::runtime_error(
-                fmt::format("Context found an unknown output type bound to {}: {}", key,
-                            nb::str(shared.type()).c_str()));
+            // Case 3: new Python API wrapper storing TimeSeriesReferenceOutput
+            else if (auto* unwrapped_output = api::unwrap_output(shared)) {
+                if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceOutput*>(unwrapped_output)) {
+                    output_ts = time_series_reference_output_ptr(ts_ref);
+                    // Always get the value, even if not valid (matches Python behavior)
+                    value_ref = ts_ref->value();
+                }
+            }
+            // Case 4: new Python API wrapper storing TimeSeriesReferenceInput
+            else if (auto* unwrapped_input = api::unwrap_input(shared)) {
+                if (auto* ts_ref = dynamic_cast<TimeSeriesReferenceInput*>(unwrapped_input)) {
+                    if (ts_ref->has_peer()) {
+                        // Use the bound peer output (stub remains a reference node)
+                        output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ts_ref->output().get());
+                    }
+                    // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
+                    value_ref = ts_ref->value();
+                }
+            } else {
+                throw std::runtime_error(
+                    fmt::format("Context found an unknown output type bound to {}: {} (error: {})", key,
+                                nb::str(shared.type()).c_str(), e.what()));
+            }
         }
 
         // Manage subscription if we have a producing output
