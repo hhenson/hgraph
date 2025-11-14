@@ -53,8 +53,8 @@ namespace hgraph
 
         explicit PyNode(api_ptr node);
 
-        // void notify();
-        //
+        void notify() const;
+
         // void notify_next_cycle();
 
         [[nodiscard]] nb::int_ node_ndx() const;

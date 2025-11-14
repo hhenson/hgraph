@@ -268,7 +268,7 @@ def get_shared_reference_output(
 
 @get_shared_reference_output.start
 def get_shared_reference_output_start(path: str, node: NODE = None, _state: STATE = None):
-    node.notify(node.graph.evaluation_clock.evaluation_time)
+    node.notify()
     _state.subscribed = False
 
 

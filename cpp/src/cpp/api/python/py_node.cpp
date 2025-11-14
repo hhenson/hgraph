@@ -104,6 +104,8 @@ namespace hgraph
 
     PyNode::PyNode(api_ptr node) : _impl{std::move(node)} {}
 
+    void PyNode::notify() const { _impl->notify();}
+
     nb::int_ PyNode::node_ndx() const { return nb::int_(_impl->node_ndx()); }
 
     nb::tuple PyNode::owning_graph_id() const { return nb::make_tuple(_impl->owning_graph_id()); }
@@ -164,7 +166,7 @@ namespace hgraph
             .def_prop_ro("output", &PyNode::output)
             .def_prop_ro("recordable_state", &PyNode::recordable_state)
             .def_prop_ro("scheduler", &PyNode::scheduler)
-            // .def("notify", [](PyNode &self) { self.notify(); })
+            .def("notify", [](PyNode &self) { self.notify(); })
             // .def(
             //     "notify", [](PyNode &self, engine_time_t modified_time) { self.notify(modified_time); }, "modified_time"_a)
             // .def("notify_next_cycle", &PyNode::notify_next_cycle)

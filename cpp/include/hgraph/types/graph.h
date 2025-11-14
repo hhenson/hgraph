@@ -55,7 +55,7 @@ namespace hgraph
 
         Graph::ptr copy_with(std::vector<node_ptr> nodes);
 
-        const Traits &traits() const;
+        const nb::ref<Traits> &traits() const;
 
         [[nodiscard]] SenderReceiverState &receiver();
 

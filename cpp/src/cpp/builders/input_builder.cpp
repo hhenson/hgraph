@@ -5,15 +5,18 @@
 #include <hgraph/types/time_series_type.h>
 
 // Include all the extracted builder headers
+#include "hgraph/api/python/py_node.h"
+
+#include <hgraph/builders/time_series_types/specialized_ref_builders.h>
+#include <hgraph/builders/time_series_types/time_series_bundle_input_builder.h>
+#include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
+#include <hgraph/builders/time_series_types/time_series_list_input_builder.h>
+#include <hgraph/builders/time_series_types/time_series_ref_input_builder.h>
+#include <hgraph/builders/time_series_types/time_series_set_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_signal_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_value_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_ref_input_builder.h>
-#include <hgraph/builders/time_series_types/specialized_ref_builders.h>
-#include <hgraph/builders/time_series_types/time_series_list_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_bundle_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_set_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_window_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
+#include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
     void InputBuilder::release_instance(time_series_input_ptr item) const {
@@ -32,7 +35,7 @@ namespace hgraph {
                     "make_instance",
                     [](InputBuilder::ptr self, nb::object owning_node,
                        nb::object owning_output) -> time_series_input_ptr {
-                        if (!owning_node.is_none()) { return self->make_instance(nb::cast<node_ptr>(owning_node)); }
+                        if (!owning_node.is_none()) { return self->make_instance(unwrap_node(owning_node)); }
                         if (!owning_output.is_none()) {
                             return self->make_instance(nb::cast<time_series_input_ptr>(owning_output));
                         }
