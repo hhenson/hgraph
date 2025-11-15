@@ -4,6 +4,7 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/date_time.h>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <set>
@@ -18,7 +19,7 @@ namespace hgraph {
         graph_ptr graph;
         std::vector<int> id;
         std::string label;
-        size_t parent_graph_ptr;
+        Graph* parent_graph;
         bool stopped = false;
 
         size_t node_count;
@@ -105,10 +106,24 @@ namespace hgraph {
 
         // Query methods
         GraphInfoPtr get_graph_info(const std::vector<int>& graph_id) const;
-        void walk(graph_ptr graph);
+        void walk(const graph_ptr& graph);
+
+        // Recent performance tracking methods
+        void get_recent_node_performance(const std::vector<int>& node_id,
+                                        std::vector<std::pair<std::chrono::system_clock::time_point,
+                                                    std::map<std::string, double>>>& result,
+                                        const std::optional<std::chrono::system_clock::time_point>& after = std::nullopt) const;
+
+        void get_recent_graph_performance(const std::vector<int>& graph_id,
+                                         std::vector<std::pair<std::chrono::system_clock::time_point,
+                                                     std::map<std::string, double>>>& result,
+                                         const std::optional<std::chrono::system_clock::time_point>& after = std::nullopt) const;
+
+        // Getter for recent_performance_batch
+        std::chrono::system_clock::time_point recent_performance_batch() const;
 
     private:
-        std::map<size_t, GraphInfoPtr> _graphs;
+        std::map<Graph*, GraphInfoPtr> _graphs;
         std::map<std::vector<int>, GraphInfoPtr> _graphs_by_id;
         GraphInfoPtr _current_graph;
 
@@ -121,6 +136,15 @@ namespace hgraph {
 
         std::set<std::vector<int>> _graph_subscriptions;
         std::set<std::vector<int>> _node_subscriptions;
+
+        // Recent performance tracking
+        bool _track_recent_performance;
+        std::chrono::system_clock::time_point _recent_performance_batch;
+        std::deque<std::pair<std::chrono::system_clock::time_point,
+                    std::map<std::vector<int>, std::map<std::string, double>>>> _recent_node_performance;
+        std::deque<std::pair<std::chrono::system_clock::time_point,
+                    std::map<std::vector<int>, std::map<std::string, double>>>> _recent_graph_performance;
+        size_t _recent_performance_horizon;
 
         void _check_progress();
         void _process_node_after_eval(node_ptr node);

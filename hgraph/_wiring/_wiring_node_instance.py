@@ -232,6 +232,7 @@ class WiringNodeInstance:
             label=self.label,
             capture_values=self.capture_values,
             record_replay_id=self.resolved_signature.record_and_replay_id,
+            has_nested_graphs=self.resolved_signature.has_nested_graphs,
         )
 
     @property

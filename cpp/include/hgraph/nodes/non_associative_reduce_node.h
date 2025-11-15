@@ -54,6 +54,8 @@ namespace hgraph {
 
         std::vector<node_ptr> get_node(int64_t ndx);
 
+        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+
     private:
         graph_builder_ptr nested_graph_builder_;
         std::tuple<int64_t, int64_t> input_node_ids_; // LHS index, RHS index

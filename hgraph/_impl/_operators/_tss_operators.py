@@ -15,6 +15,7 @@ from hgraph._operators import (
     len_,
     max_,
     mean,
+    merge,
     min_,
     not_,
     or_,
@@ -96,6 +97,21 @@ def bit_or_tsss(
         if i not in lhs_value:
             removed.add(i)
     return set_delta(added, removed, _tp)
+
+
+@graph(overloads=merge)
+def merge_tss(
+    *tsl: TSL[TSS[KEYABLE_SCALAR], SIZE],
+    _sz: type[SIZE] = AUTO_RESOLVE,
+) -> TSS[KEYABLE_SCALAR]:
+    """
+    Merge TSS elements together
+    """
+    if _sz == 2:
+        return tsl[0] | tsl[1]
+    else:
+        from hgraph import reduce
+        return reduce(bit_or_tsss, tsl, zero=None)
 
 
 @compute_node(overloads=sub_)

@@ -107,8 +107,29 @@ def _reduce_tsl(func, ts, zero, is_associative):
     from hgraph import default
 
     tp_ = ts.output_type
+    item_tp = tp_.value_tp.py_type
+
+    if not isinstance(zero, WiringPort):
+        if not is_associative:
+            raise CustomMessageWiringError(
+                "Non-associative operators require a time-series value for zero to be provided"
+            )
+        if zero is ZERO:
+            import hgraph
+
+            zero = hgraph._operators._operators.zero(item_tp, func)
+        elif zero is None:
+            from hgraph import nothing
+
+            zero = nothing(item_tp)
+        else:
+            from hgraph import const
+
+            zero = const(zero, item_tp)
+    
     if (sz := tp_.size_tp.py_type.SIZE) == 0:
         return zero
+    
     if not is_associative or sz < 4:
         out = default(ts[0], zero)
         for i in range(1, sz):
@@ -186,6 +207,7 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
         time_series_args=resolved_signature.time_series_args,
         injectables=resolved_signature.injectables,
         # label=resolved_signature.label,
+        has_nested_graphs=True,
     )
 
     if not isinstance(func, WiringNodeClass):

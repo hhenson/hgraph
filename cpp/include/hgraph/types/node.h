@@ -58,7 +58,7 @@ namespace hgraph {
                       size_t injectables,
                       bool capture_exception, int64_t trace_back_depth, std::string wiring_path_name,
                       std::optional<std::string> label, bool capture_values,
-                      std::optional<std::string> record_replay_id);
+                      std::optional<std::string> record_replay_id, bool has_nested_graphs);
 
         std::string name;
         NodeTypeEnum node_type;
@@ -79,6 +79,7 @@ namespace hgraph {
         std::optional<std::string> label;
         bool capture_values;
         std::optional<std::string> record_replay_id;
+        bool has_nested_graphs;
 
         [[nodiscard]] nb::object get_arg_type(const std::string &arg) const;
 

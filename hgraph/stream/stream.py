@@ -25,7 +25,15 @@ from hgraph import (
     convert,
 )
 
-__all__ = ("Data", "StreamStatus", "Stream", "combine_statuses", "combine_status_messages", "merge_join")
+__all__ = (
+    "Data",
+    "StreamStatus",
+    "Stream",
+    "combine_statuses",
+    "combine_status_messages",
+    "merge_join",
+    "register_status_message_pattern"
+)
 
 
 class StreamStatus(Enum):

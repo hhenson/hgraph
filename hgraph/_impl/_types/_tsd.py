@@ -433,6 +433,8 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
 
     def on_key_added(self, key: K):
         v = self.get_or_create(key)
+        if (not self.has_peer and self.active) or v.active:  # v.active can be true if this was a transplanted input
+            v.make_active()
         v.bind_output(self.output[key])
 
     def on_key_removed(self, key: K):

@@ -1,3 +1,4 @@
+from typing import Union
 from hgraph import graph, TS, CompoundScalar, operator
 from hgraph import dispatch_, dispatch, format_, cast_
 from hgraph.test import eval_node
@@ -44,6 +45,8 @@ def test_dispatch_2():
     class Cow(Animal): ...
 
     class Bear(Animal): ...
+    
+    class Turtle(Animal): ...
 
     class Food(CompoundScalar): ...
 
@@ -78,13 +81,17 @@ def test_dispatch_2():
     def bear_eats_everything(animal: TS[Bear], food: TS[Food]) -> TS[bool]:
         return True
 
+    @graph(overloads=eats)
+    def turtle_eats_everything(animal: TS[Turtle], food: Union[TS[Plant], TS[Meat]]) -> TS[bool]:
+        return True
+
     @graph
     def eat(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
         return dispatch_(eats, animal, food)
 
     assert eval_node(
-        eat, [None, Cat(), None, Cow(), None, Bear()], [None, Plant(), Meat(), Plant(), Meat(), Plant(), Meat()]
-    ) == [None, False, True, True, False, True, None]
+        eat, [None, Cat(), None, Cow(), None, Bear(), None, Turtle(), None], [None, Plant(), Meat(), Plant(), Meat(), Plant(), Meat(), Plant(), Meat()]
+    ) == [None, False, True, True, False, True, None, True, True]
 
-    # Note: last tick is None because there is no change in key value - there is only one Bear related overload and
+    # Note: 7th tick is None because there is no change in key value - there is only one Bear related overload and
     # hence the implementation graph is not swapped out so that const(True) node is not ticked.

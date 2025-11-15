@@ -30,6 +30,10 @@
                 const request = fetch(url);
                 const worker = await perspective.worker();
                 const response = await request;
+                if (!response.ok) {
+                    alert(`Failed to load table from ${url}: ${await response.text()}`);
+                    throw new Error(`Failed to load table`);
+                }
                 const buffer = await response.arrayBuffer();
                 return await worker.table(buffer);
             };

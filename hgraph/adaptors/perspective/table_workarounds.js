@@ -18,7 +18,9 @@ export async function saveLayout(config) {
     const workspaceTables = getWorkspaceTables()
     for (const [table_name, table_config] of Object.entries(workspaceTables)) {
         if (table_config.type === "client_only_table") {
-            layout[table_name] = await (await table_config.table.view()).to_json();
+            const view = await table_config.table.view();
+            layout[table_name] = await (view).to_json();
+            view.delete();
         } 
     }
 
@@ -33,7 +35,9 @@ export async function ensureTablesForConfig(config, progress_callback) {
         const table_progress = {};
 
         const calc_progress = () => {
-            return (Object.values(table_progress).reduce((x, y) => x + y)) / Object.values(table_progress).length;
+            const table_count = Object.values(table_progress).length;
+            if (table_count === 0) return 0;
+            return (Object.values(table_progress).reduce((x, y) => x + y)) / table_count;
         }
 
         for (const [_, viewer] of Object.entries(config.viewers)) {
@@ -81,13 +85,15 @@ export function viewSettings(view, setting) {
 async function initColumnSettings() {
     if (columnSettings.cache !== undefined) return;
 
-    const column_settings_raw = getWorkspaceTables()["column_settings"] ? await (await getWorkspaceTables()["column_settings"].table.view()).to_json() : [];
+    const view = await getWorkspaceTables()["column_settings"].table.view();
+    const column_settings_raw = getWorkspaceTables()["column_settings"] ? await (view).to_json() : [];
     const column_settings = column_settings_raw
                                 .filter(({_id}) => _id != 0)
                                 .flatMap(({view, column, setting, value}) => view.split(',').map((x) => [column, setting, value, x.trim()]))
                                 .reduce((r, [column, setting, value, view]) => (r[view] = {...r[view], [column]: {...r[view]?.[column], [setting]: value}}) && r, {})
 
     columnSettings.cache = column_settings;
+    view.delete();
 }
 
 export function columnSettings(view, column, setting) {
@@ -206,7 +212,7 @@ export async function installTableWorkarounds(mode) {
                     psp_stylesheet.insertRule('regular-table table tbody td { min-width: 1px !important; }');
                     psp_stylesheet.insertRule('regular-table table tbody td.invalid { color: red; }');
                     psp_stylesheet.insertRule('regular-table table tbody td.hidden { overflow: hidden; white-space: nowrap; text-overflow: clip; width: 0; min-width: 0; max-width: 0; padding-left: 1px; padding-right: 0; }');
-                    psp_stylesheet.insertRule( `.highlight { background-color: pink }`);
+                    psp_stylesheet.insertRule( `.highlight { background-image: linear-gradient(rgb(255 192 203/50%) 0 0); }`);
                 }
             }
         }
@@ -274,13 +280,109 @@ export async function installTableWorkarounds(mode) {
             });
         }, 100);
 
-        if (table_config && table_config.selection) {
+        if ((table_config && table_config.selection) || viewSettings(view_config.title, "track_selection")) {
             table.addEventListener("click", async (event) => {
                     await trackSelection(event, table, viewer, table_config, model);
+            });
+            new MutationObserver(async (mutations) => {
+                for (const mutation of mutations) {
+                    if (mutation.type === "attributes" && mutation.attributeName === "data-selected_row") {
+                        await trackSelectionChange(table, viewer, table_config, model);
+                    }
+                }
+            }).observe(table, {
+                attributes: true,
+                attributeFilter: ["data-selected_row"]
+            });
+            table.addStyleListener(() => {
+                highlightSelection(table, viewer);
             });
         }       
 
         table.draw();
+    }
+
+    for (const g of document.querySelectorAll(
+        "perspective-viewer perspective-viewer-d3fc-ybar")) {
+
+        // the mobile version of chrome/edge does not support shadow DOM
+        const shadow = window.CSS?.supports && window.CSS?.supports("selector(:host-context(foo))");
+
+        const root = shadow ? g.shadowRoot : g;
+        const viewer = g.parentElement;
+        const view_config = config.viewers[viewer.slot];
+        const table_config = getWorkspaceTables()[view_config.table];
+
+        if (!table_config)
+            continue;
+
+        if (!table_config.started){
+            await wait_for_table(window.workspace, view_config.table)
+        }
+
+        if (g.dataset.events_set_up){
+            continue;
+        }
+        g.dataset.events_set_up = "true";
+
+        if ("chart_colours" in getWorkspaceTables()) {
+            const chart_colours_table = getWorkspaceTables()["chart_colours"].table;
+            const view = await chart_colours_table.view({filter: [["view", "==", view_config.title]]});
+            const apply_colours = async () => {
+                const choices = await view.to_json();
+                const styles = g._settings.colorStyles;
+                const ids = {};
+                const values = new Array(styles.scheme.length).fill(null);
+                const values_to_index = {};
+                if (g._settings.data){
+                    let i = 0;
+                    for (const key of Object.keys(g._settings.data[0])){
+                        if (key === '__ROW_PATH__') continue;
+                        const parts = key.split("|");
+                        values[i] = g._settings.mainValues.length <= 1 && parts.length > 1
+                            ? parts.slice(0, parts.length - 1).join("|")
+                            : key;
+                        values_to_index[values[i]] = i;
+                        i++;
+                    }
+                }
+                for (const row of choices) {
+                    ids[row.value] = row._id;
+                    if (row.value in values_to_index) {
+                        styles.scheme[values_to_index[row.value]] = row.colour;
+                    }
+                }
+                for (const [v, i] of Object.entries(values_to_index)) {
+                    if (!(v in ids)) {
+                        ids[v] = Math.floor(Math.random() * 1_000_000_000) * -2 - 1;
+                    }
+                }
+                const update = Object.entries(values_to_index).map(([v, i]) => { 
+                    return {_id: ids[v], view: view_config.title, element: i, value: v, colour: styles.scheme[i]}; });
+                await chart_colours_table.update(update);
+                return values_to_index;
+            };
+            let values_to_index = await apply_colours();
+            await view.on_update(async () => {
+                setTimeout(async () => {
+                    const data = await view.to_json();
+                    for (const row of data) {
+                        g._settings.colorStyles.scheme[values_to_index[row.value]] = row.colour;
+                    }
+                    g._draw();
+                }, 100);
+            });
+            g.parentElement.addEventListener("perspective-config-update", async (event) => {
+                let c = 5;
+                const i = setInterval(async () => {
+                    values_to_index = await apply_colours();
+                    g._draw();
+                    if (--c < 0) clearInterval(i);
+                }, 100);
+            });
+        }
+
+        g._draw();
     }
 }
 
@@ -341,6 +443,7 @@ async function load_options(editor) {
             const table = getWorkspaceTables()[editor.options.source].table;
             const view = await table.view({...editor.options.view, ...{"columns": [editor.options.column]}});
             const data = await view.to_columns();
+            view.delete();
             options.push(...new Set(data[editor.options.column].filter((x) => x !== null && x !== undefined)));
         } else if (editor.options.source === "views") {
             const config = await window.workspace.save();
@@ -355,57 +458,115 @@ async function load_options(editor) {
 }
 
 async function dropdown_editor(editor, element, table_, model_, table_config_) {
-    const events = {};
-    const options = [];
-
     const [table, model, table_config] = [table_, model_, table_config_];
+
+    const events = {};
+    const options = await load_options(editor);
+    let options_filtered = options;
+    const max_elements = 20;
+    const max_elements_slack = 5;
+    let scroll_top = 0;
 
     const drop = async () => {
         let datalist = table.parentNode.getElementById("table-workarounds-dropdown");
-        if (datalist)
-            return [datalist, false];
+        let dropped = false;
+        if (!datalist) {
+            dropped = true;
 
-        options.length = 0;
+            datalist = document.createElement("table");
+            datalist.id = "table-workarounds-dropdown";
+            datalist.style.position = "absolute";
+            datalist.style.top = (element.getBoundingClientRect().bottom - table.getBoundingClientRect().top) + 'px';
+            datalist.style.left = (element.getBoundingClientRect().left - table.getBoundingClientRect().left) + 'px';
+            datalist.style.zIndex = "1000";
+            datalist.style.backgroundColor = "white";
+            datalist.style.border = "1px solid grey";
+        }
 
-        datalist = document.createElement("table");
-        datalist.id = "table-workarounds-dropdown";
-        datalist.style.position = "absolute";
-        datalist.style.top = (element.getBoundingClientRect().bottom - table.getBoundingClientRect().top) + 'px';
-        datalist.style.left = (element.getBoundingClientRect().left - table.getBoundingClientRect().left) + 'px';
-        datalist.style.zIndex = "1000";
-        datalist.style.backgroundColor = "white";
-        datalist.style.border = "1px solid grey";
-        options.push(...(await load_options(editor)));
-        for (const option of options) {
+        datalist.innerHTML = "";
+
+        const text = element.innerText;
+        const text_lc = text.toLowerCase();
+        const match = options_filtered.indexOf(text);
+        if (match >= 0 && options_filtered.length > max_elements + max_elements_slack) {
+            while (match >= max_elements + scroll_top - 1)
+                scroll_top++;
+            while (match < scroll_top)
+                scroll_top--;
+        }
+
+        if (scroll_top > 0) {
+            const up = document.createElement("tr");
+            up.innerHTML = `<th style="text-align: left; font-style: italic; cursor: pointer;">...${scroll_top} more items...</th>`;
+            datalist.appendChild(up);
+        }
+
+        for (let i = scroll_top; i < options_filtered.length; i++) {
+            const option = options_filtered[i];
             const r = document.createElement("tr")
             const option_el = document.createElement("th");
             option_el.style.textAlign = "left";
             option_el.value = option;
             option_el.textContent = option;
-            if (option === element.innerText) {
+            if (option === text) {
                 option_el.style.backgroundColor = "whitesmoke";
+            } else if (text_lc !== "") {
+                const index = option.toLowerCase().indexOf(text_lc);
+                if (index >= 0) {
+                    const match = option.substr(index, text_lc.length);
+                    option_el.innerHTML = option.replaceAll(match, `<span style="background-color: whitesmoke">${match}</span>`);
+                }
             }
             r.appendChild(option_el);
             datalist.appendChild(r);
 
             option_el.addEventListener("mouseenter", (event) => {
                 option_el.style.backgroundColor = "lightgrey";
+                
                 event.target.dataset.prev = element.innerText;
                 element.innerHTML = option;
             });
             option_el.addEventListener("mouseleave", (event) => {
                 option_el.style.backgroundColor = "";
                 element.innerHTML = event.target.dataset.prev;
+                delete event.target.dataset.prev;
             });
+            option_el.addEventListener("mousewheel", (event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                if (event.deltaY < 0) {
+                    if (scroll_top > 0) {
+                        scroll_top--;
+                        drop();
+                    }
+                } else {
+                    if (options_filtered.length - scroll_top - max_elements > 0) {
+                        scroll_top++;
+                        drop();
+                    }
+                }
+            });
+
+            if (datalist.children.length >= max_elements && options_filtered.length > max_elements + max_elements_slack) {
+                if (options_filtered.length - scroll_top - max_elements > 0) {
+                    const stop = document.createElement("tr");
+                    stop.innerHTML = `<th style="text-align: left; font-style: italic;">...${options_filtered.length - scroll_top - max_elements} more items...</th>`;
+                    datalist.appendChild(stop);
+                    break;
+                }
+            }
         }
-        table.appendChild(datalist);
-        return [datalist, true];
+        if (dropped) table.appendChild(datalist);
+        return [datalist, dropped];
     };
     const fold = () => {
         const datalist = table.parentNode.getElementById("table-workarounds-dropdown");
         if (datalist) {
             datalist.innerHTML = "";
             datalist.remove();
+            return true;
+        } else {
+            return false;
         }
     };
     if (editor.type === "select" && element.innerText === "") {
@@ -415,43 +576,32 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
     element.addEventListener("keydown", events.keydown = async (event) => {
         if (event.key === "ArrowDown") {
             event.stopPropagation();
-            const [datalist, dropped] = await drop();
-            if (dropped) return;
-            let index = options.indexOf(element.innerText);
+            let index = options_filtered.indexOf(element.innerText);
             console.log(index);
-            while (index < options.length - 1) {
-                element.style.color = "";
-                if (index !== -1)
-                    datalist.children[index].children[0].style.backgroundColor = "";
-                if (!datalist.children[index + 1].children[0].hidden) {
-                    element.innerText = options[index + 1];
-                    datalist.children[index + 1].children[0].style.backgroundColor = "lightgrey";
-                    break
-                } else {
-                    index += 1;
-                }
+            if (index == -1 && element.dataset.prev === undefined){
+                element.dataset.prev = element.innerText;
+            }
+            if (index < options_filtered.length - 1) {
+                element.innerText = options_filtered[index + 1];
+                await drop();
             }
         } else if (event.key === "ArrowUp") {
             event.stopPropagation();
-            const [datalist, dropped] = await drop();
-            if (dropped) return;
-            let index = options.indexOf(element.innerText);
-            while (index > 0) {
-                element.style.color = "";
-                datalist.children[index].children[0].style.backgroundColor = "";
-                if (!datalist.children[index - 1].children[0].hidden) {
-                    element.innerText = options[index - 1];
-                    datalist.children[index - 1].children[0].style.backgroundColor = "lightgrey";
-                    break;
-                } else {
-                    index -= 1;
-                }
+            let index = options_filtered.indexOf(element.innerText);
+            if (index > 0) {
+                element.innerText = options_filtered[index - 1];
+                await drop();
             }
         } else if (event.key === "Escape") {
-            fold();
+            const had_drop = fold();
             event.preventDefault();
             element.style.color = "";
-            element.blur();
+            if (element.dataset.prev !== undefined){
+                element.innerText = element.dataset.prev;
+                delete element.dataset.prev;
+            }
+            if (!had_drop)
+                element.blur();
         } else if (event.key === "Enter") {
             fold();
             await validate_value(editor, element, table, model, table_config, options);
@@ -465,20 +615,24 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
         }
     });
     element.addEventListener("input", events.input = async (event) => {
-        const [datalist, _] = await drop();
-        for (const [index, option] of options.entries()) {
-            const option_el = datalist.children[index].children[0];
-            const text = ["", "\n"].includes(event.target.innerText) ? "" : event.target.innerText;
-            if (option === text) {
-                option_el.style.backgroundColor = "whitesmoke";
-                option_el.parentElement.hidden = "";
-            } else if (option.includes(text)) {
-                option_el.style.backgroundColor = "";
-                option_el.parentElement.hidden = "";
-            } else {
-                option_el.parentElement.hidden = true;
+        const text = ["", "\n"].includes(element.innerText) ? "" : element.innerText.toLowerCase();
+        const len = text.length;
+        if (text === ""){
+            options_filtered = options;
+        } else {
+            const options_index = [];
+            for (const [index, option] of options.entries()) {
+                const match = option.toLowerCase().indexOf(text)
+                if (match > -1) {
+                    options_index.push([match, index, option]);
+                }
             }
+            options_filtered = options_index
+                .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+                .map((x) => x[2]);
         }
+        scroll_top = 0;
+        await drop();
     })
     element.addEventListener("blur", events.blur = async (event) => {
         const td = event.target;
@@ -623,9 +777,36 @@ async function maintainAddButtonOnFilter(event, table, viewer, config) {
 }
 
 
-async function trackSelection(event, table, viewer, config, model) {
-    if (!config.selection) return;
+function highlightSelection(table, viewer) {    
+    for (const t of table.querySelectorAll('.highlight')){
+        t.classList.remove("highlight");
+    }
 
+    if (!table.dataset.selected_row) return; 
+
+    const selection_row = parseInt(table.dataset.selected_row);
+    const selection_col = parseInt(table.dataset.selected_col);
+
+    const selected = table.table_model.body._fetch_cell(selection_row - table._start_row, selection_col - table._start_col + table.table_model._row_headers_length);
+    if (!selected) return;
+    const metadata = table.getMeta(selected);
+    if (!metadata || !metadata.column_header) return;
+    const split_header = metadata.column_header.slice(0, metadata.column_header.length - 1);
+
+    // if (selected){
+    //     selected.parentElement.classList.add("highlight");
+    // }
+
+    for (const td of selected.parentElement.children){
+        const meta = table.getMeta(td);
+
+        if (meta.column_header && meta.column_header.slice(0, meta.column_header.length - 1).every((x, i) => x == split_header[i])) {
+            td.classList.add("highlight");
+        }
+    }
+}
+
+async function trackSelection(event, table, viewer, config, model) {
     if (event.target.tagName === "TD"){
         const td = event.target;
         const metadata = table.getMeta(td);
@@ -639,36 +820,76 @@ async function trackSelection(event, table, viewer, config, model) {
             }
         }
         if (metadata){
-            const selectedRow = table.querySelector(".highlight");
-            if (selectedRow){
+            const selected = table.querySelector(".highlight");
+            if (selected){
                 delete table.dataset.selected_row;
-                selectedRow.classList.remove("highlight");
+                delete table.dataset.selected_col;
             }
-            if (selectedRow !== td.parentElement){
+            if (!td.classList.contains("highlight")){
                 table.dataset.selected_row = metadata.y;
-                td.parentElement.classList.add("highlight");
-
-                const id = model._ids[metadata.y - metadata.y0];
-                if (id){
-                    const view = await (await viewer.getTable()).view({filter: [[config.index, '==', id[0]]]});
-                    const row = (await (view).to_json())[0];
-                    if (row){
-                        await fireContextActions(viewer.slot, row);
-                    }
-                    await view.delete();
-                }
-            } else {
-                await fireContextActions(viewer.slot, null);
+                table.dataset.selected_col = metadata.x;
             }
             setTimeout(() => {
                 table.draw();
+                table.focus();
             }, 100);
         }
     }
 }
 
+async function trackSelectionChange(table, viewer, config, model) {
+    const selected_row = table.dataset.selected_row;
+    if (selected_row !== undefined) {
+        const x = table.dataset.selected_col !== undefined ? parseInt(table.dataset.selected_col) : 1;
+        const y = parseInt(selected_row);
+        const metadata = table.getMeta({dy: y - table._start_row, dx: x - table._start_col});
+        if (!metadata) return;
+        const id = model._ids[metadata.dy];
+        if (metadata && id){
+            const tbl = await viewer.getTable();
+            const index = await tbl.get_index();
+            const view_config = await viewer.save();
+            const required_cols = await getContextActionColumns(viewer.slot);
+            if (required_cols.length === 0)
+                return;
+
+            const { view, get_rows } = await createViewAndGetRows(tbl, view_config, id, metadata, required_cols, index);
+            const rows = await get_rows();
+            if (rows && rows.length == 1){
+                await fireContextActions(viewer.slot, rows[0]);
+            } else {
+                await fireContextActions(viewer.slot, null);
+            }
+            await view.delete();
+        }
+    } else {
+        await fireContextActions(viewer.slot, null);
+    }
+}
+
+async function getContextActionColumns(from) {
+    const view = await getWorkspaceTables()["context_mapping"].table.view();
+    const context_mapping = await (view).to_json();
+    view.delete();
+    
+    const config = await window.workspace.save();
+
+    if (!(from in config.viewers)) return;
+    const from_title = config.viewers[from].title;
+
+    const columns = new Set();
+    const actions = context_mapping.filter((x) => x.source === from_title);
+    for (const action of actions) {
+        columns.add(action.context);
+    }
+    return [...columns];
+}
+
 async function fireContextActions(from, row) {
-    const context_mapping = await (await getWorkspaceTables()["context_mapping"].table.view()).to_json();
+    const view = await getWorkspaceTables()["context_mapping"].table.view();
+    const context_mapping = await (view).to_json();
+    view.delete();
+    
     const config = await window.workspace.save();
 
     if (!(from in config.viewers)) return;
@@ -917,7 +1138,9 @@ function createButtonAction(td, action, metadata, model, viewer) {
             if (id){
                 const tbl = await viewer.getTable();
                 const index = await tbl.get_index();
-                const row = (await (await tbl.view({filter: [[index, '==', id.join(',')]]})).to_json())[0];
+                const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
+                const row = (await (view).to_json())[0];
+                view.delete();
                 if (row){
                     switch (action.action.type) {
                     case 'url':
@@ -972,7 +1195,7 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         view = await tbl.view(query_config);
         get_rows = async () => {
             const rows = await view.to_json()
-            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x["col"] !== null));
+            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x[col] !== null));
         }
     } else if (view_config.group_by.length > 0) {
         const query_config = {
@@ -989,7 +1212,7 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         view = await tbl.view(query_config);
         get_rows = async () => {
             const rows = await view.to_json()
-            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x["col"] !== null));
+            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x[col] !== null));
         }
     }
     
@@ -1136,7 +1359,9 @@ async function enableAddRemove(table, viewer, config, model) {
                         const id = model._ids[metadata.y - metadata.y0];
                         if (!id) {return;}
                         const source_tbl = await viewer.getTable();
-                        const data = (await (await (source_tbl).view({filter: [[await source_tbl.get_index(), '==', id[0]]]})).to_json())[0];
+                        const source_view = await (source_tbl).view({filter: [[await source_tbl.get_index(), '==', id[0]]]});
+                        const data = (await source_view.to_json())[0];
+                        source_view.delete();
                         for (const item of td.parentElement.children) {
                             const meta = table.getMeta(item);
                             const col_name = meta.column_header[meta.column_header.length - 1];
@@ -1211,25 +1436,29 @@ async function enableAddRemove(table, viewer, config, model) {
                                 data.set(col_name, meta.user);
                             }
                         }
-                        const remove_id = Math.floor(Math.random() * 1_000_000_000) * -2; // negative even number to delete
-                        await tbl.update([{...Object.fromEntries(data), _id: remove_id}], {port_id: edit_port});
+                        if (config.type == 'client_only_table') {
+                            await tbl.remove([data.get(config.index)], {port_id: edit_port});
+                        } else {
+                            const remove_id = Math.floor(Math.random() * 1_000_000_000) * -2; // negative even number to delete
+                            await tbl.update([{...Object.fromEntries(data), _id: remove_id}], {port_id: edit_port});
 
-                        const client_table = await viewer.getTable();
-                        const client_table_index = await client_table.get_index();
+                            const client_table = await viewer.getTable();
+                            const client_table_index = await client_table.get_index();
 
-                        let id = undefined;
-                        const empty = {};
-                        for (const item of td.parentElement.children) {
-                            if (item.contentEditable === "true") {
-                                const meta = table.getMeta(item);
-                                const col_name = meta.column_header[meta.column_header.length - 1];
-                                id = model._ids[meta.y - meta.y0]
-                                empty[client_table_index] = id;
-                                empty[col_name] = null;
+                            let id = undefined;
+                            const empty = {};
+                            for (const item of td.parentElement.children) {
+                                if (item.contentEditable === "true") {
+                                    const meta = table.getMeta(item);
+                                    const col_name = meta.column_header[meta.column_header.length - 1];
+                                    id = model._ids[meta.y - meta.y0]
+                                    empty[client_table_index] = id;
+                                    empty[col_name] = null;
+                                }
                             }
-                        }
-                        if (id){
-                            client_table.update([empty], {port_id: 0});
+                            if (id){
+                                client_table.update([empty], {port_id: 0});
+                            }
                         }
                     });
                 }

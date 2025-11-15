@@ -6,6 +6,7 @@ from frozendict import frozendict
 
 from hgraph import (
     TSB,
+    TSB_OUT,
     TimeSeriesSchema,
     TS,
     compute_node,
@@ -248,3 +249,17 @@ def test_tsb_ref_index():
         return first
 
     eval_(True, "") | if_then(c(1) / c("a")) >> g >> assert_(1)
+
+
+def test_tsb_output_access():
+    @compute_node
+    def f(tsb: TSB[MyTsb], _output: TSB_OUT[MyTsb] = None) -> TSB[MyTsb]:
+        if tsb.p1.value != _output.p1.value:
+            return tsb.delta_value
+
+    @graph
+    def g(ts1: TS[int], ts2: TS[str]) -> TS[str]:
+        tsb: TSB[MyTsb] = TSB[MyTsb].from_ts(p1=ts1, p2=ts2)
+        return f(tsb).p2
+
+    assert eval_node(g, [1, 1, 2], ["a", "b", "c"]) == ["a", None, "c"]

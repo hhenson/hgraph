@@ -23,6 +23,7 @@ __all__ = ("SwitchWiringNodeClass",)
 @dataclass(frozen=True)
 class SwitchWiringSignature(WiringNodeSignature):
     inner_graphs: Mapping[SCALAR, "GraphBuilder"] = field(default=None, hash=False, compare=False)
+    has_nested_graphs: bool = True
 
 
 class SwitchWiringNodeClass(BaseWiringNodeClass):

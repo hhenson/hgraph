@@ -56,6 +56,8 @@ namespace hgraph {
         bool _elide{false};
         bool _batch{false};
         nb::callable _eval_fn;
+
+        bool _is_tsd = false;
     };
 } // namespace hgraph
 

@@ -1,12 +1,10 @@
-from datetime import date, time, datetime
+from datetime import date, time, datetime, timezone
 
 import pytz
 
 from hgraph import compute_node, TS, TSL, Size, explode, graph, day_of_month, month_of_year, year, add_
 
-__all__ = [
-    "add_date_time",
-]
+__all__ = ["add_date_time"]
 
 
 @compute_node(overloads=explode)
@@ -46,24 +44,27 @@ def year_impl(ts: TS[date]) -> TS[int]:
 
 
 @compute_node(overloads=add_)
-def add_date_time_node(lhs: TS[date], rhs: TS[time]) -> TS[datetime]:
+def add_date_time_node(lhs: TS[date], rhs: TS[time], tz: TS[str] = None) -> TS[datetime]:
     """
-    Add date and time to produce a datetime, this will be returned in UTC. Thus, if the time
-    has a time-zone, it will be adjusted to UTC once combined and then returned.
+    Add date and time to produce a datetime, this will be returned in UTC, 
+    if tz is provided the time is assumed to be in the timezone and will be converted to UTC.
     """
     dt: date = lhs.value
     tm: time = rhs.value
-    return add_date_time(dt, tm)
+    tz_name: str = tz.value if tz is not None and tz.valid else None
+    return add_date_time(dt, tm, tz_name)
 
 
-def add_date_time(dt: date, tm: time) -> datetime:
+def add_date_time(dt: date, tm: time, tz_name: str = None) -> datetime:
     """
-    Adds time to a date, taking into account the time-zone info if present.
+    Adds time to a date, taking into account the timezone if provided.
     The return value is in UTC.
     """
-    dt_tm: datetime = datetime.combine(dt, tm.replace(tzinfo=None))
-    if (tz := tm.tzinfo) is not None:
-        dt_tm = tz.localize(dt_tm)
-        dt_tm = dt_tm.astimezone(pytz.UTC)
-        dt_tm = dt_tm.replace(tzinfo=None)
+    dt_tm: datetime = datetime.combine(dt, tm)
+    if tz_name is not None:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+        dt_tm = dt_tm.replace(tzinfo=tz)
+        dt_tm = dt_tm.astimezone(timezone.utc)
+        dt_tm = dt_tm.replace(tzinfo=None)  # Return naive UTC
     return dt_tm

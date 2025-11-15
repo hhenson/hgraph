@@ -378,7 +378,7 @@ class InspectorItemId:
                 )
             )
 
-        return parents[:-1]
+        return parents
 
     def __str__(self):
         return self.to_str()

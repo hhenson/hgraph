@@ -42,6 +42,13 @@ namespace hgraph {
     }
 
     template<typename K>
+    void ReduceNode<K>::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+        if (nested_graph_) {
+            callback(nested_graph_);
+        }
+    }
+
+    template<typename K>
     typename TimeSeriesDictInput_T<K>::ptr ReduceNode<K>::ts() {
         return dynamic_cast<TimeSeriesDictInput_T<K> *>((*input())[0].get());
     }
@@ -442,6 +449,7 @@ namespace hgraph {
                      "input_node_ids"_a,
                      "output_node_id"_a)
                 .def_prop_ro("nested_graph", &ReduceNode<K>::nested_graph)
+                .def_prop_ro("nested_graphs", &ReduceNode<K>::nested_graphs)
                 .def_prop_ro("ts", &ReduceNode<K>::ts)
                 .def_prop_ro("zero", &ReduceNode<K>::zero)
                 .def_prop_ro("input_node_ids", &ReduceNode<K>::input_node_ids)

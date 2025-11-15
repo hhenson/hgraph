@@ -30,13 +30,14 @@ def min_enum_unary(ts: TS[ENUM], _output: TS_OUT[ENUM] = None) -> TS[ENUM]:
 
 @compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
 def min_enum_binary(lhs: TS[ENUM], rhs: TS[ENUM], __strict__: bool = True) -> TS[ENUM]:
-    if lhs.valid and rhs.valid:
-        lhs_val, rhs_val = lhs.value, rhs.value
-        return lhs_val if lhs_val.value <= rhs_val.value else rhs_val
-    if lhs.valid:
-        return lhs.value
-    if rhs.valid:
-        return rhs.value
+    l = lhs.value
+    r = rhs.value
+    if l is None:
+        return r
+    elif r is None:
+        return l
+    else:
+        return l if l.value <= r.value else r
 
 
 @compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
@@ -70,13 +71,14 @@ def max_enum_unary(ts: TS[ENUM], _output: TS_OUT[ENUM] = None) -> TS[ENUM]:
 
 @compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
 def max_enum_binary(lhs: TS[ENUM], rhs: TS[ENUM], __strict__: bool = True) -> TS[ENUM]:
-    if lhs.valid and rhs.valid:
-        lhs_val, rhs_val = lhs.value, rhs.value
-        return lhs_val if lhs_val.value >= rhs_val.value else rhs_val
-    if lhs.valid:
-        return lhs.value
-    if rhs.valid:
-        return rhs.value
+    l = lhs.value
+    r = rhs.value
+    if l is None:
+        return r
+    elif r is None:
+        return l
+    else:
+        return l if l.value >= r.value else r
 
 
 @compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
