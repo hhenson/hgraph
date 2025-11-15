@@ -98,7 +98,7 @@ namespace hgraph {
 
     void BaseTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
         // Register just for type hierarchy - methods are defined on interface
-        nb::class_<BaseTimeSeriesOutput, TimeSeriesOutput>(m, "BaseTimeSeriesOutput");
+        nb::class_<BaseTimeSeriesOutput, TimeSeriesOutput>(m, "_BaseTimeSeriesOutput");
     }
 
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() const {
@@ -391,7 +391,7 @@ namespace hgraph {
 
     void BaseTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
         // Register just for type hierarchy - methods are defined on interface
-        nb::class_<BaseTimeSeriesInput, TimeSeriesInput>(m, "BaseTimeSeriesInput");
+        nb::class_<BaseTimeSeriesInput, TimeSeriesInput>(m, "_BaseTimeSeriesInput");
     }
 
     bool BaseTimeSeriesInput::do_bind_output(time_series_output_ptr &output_) {

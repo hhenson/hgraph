@@ -9,8 +9,11 @@
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsd.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/api/python/python_api.h>
 
 #include <algorithm>
+#include <iostream>
+#include <fmt/format.h>
 
 namespace hgraph {
     TimeSeriesReference::ptr TimeSeriesReference::make() { return new EmptyTimeSeriesReference(); }
@@ -43,18 +46,55 @@ namespace hgraph {
         nb::class_<TimeSeriesReference, nb::intrusive_base>(m, "TimeSeriesReference")
                 .def("__str__", &TimeSeriesReference::to_string)
                 .def("__repr__", &TimeSeriesReference::to_string)
-                .def("bind_input", &TimeSeriesReference::bind_input)
+                .def("bind_input", [](const TimeSeriesReference& self, nb::object input) {
+                    // Accept both old _TimeSeriesInput and new TimeSeriesInput wrappers
+                    auto* raw_input = api::unwrap_input(input);
+                    if (!raw_input) {
+                        try {
+                            // Fallback to old binding
+                            raw_input = nb::cast<TimeSeriesInput*>(input);
+                        } catch (const nb::cast_error&) {
+                            auto type_obj = input.type();
+                            auto type_repr = nb::cast<std::string>(nb::str(type_obj));
+                            throw std::runtime_error(
+                                fmt::format("TimeSeriesReference.bind_input: expected TimeSeriesInput wrapper, got {}", type_repr));
+                        } catch (const std::bad_cast&) {
+                            auto type_obj = input.type();
+                            auto type_repr = nb::cast<std::string>(nb::str(type_obj));
+                            throw std::runtime_error(
+                                fmt::format("TimeSeriesReference.bind_input: expected TimeSeriesInput wrapper, got {}", type_repr));
+                        }
+                    }
+                    self.bind_input(*raw_input);
+                })
                 .def_prop_ro("has_output", &TimeSeriesReference::has_output)
                 .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
                 .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-                .def_static("make", static_cast<ptr (*)()>(&TimeSeriesReference::make))
-                .def_static("make", static_cast<ptr (*)(TimeSeriesOutput::ptr)>(&TimeSeriesReference::make))
-                .def_static("make", static_cast<ptr (*)(std::vector<ptr>)>(&TimeSeriesReference::make))
+
                 .def_static(
                     "make",
                     [](nb::object ts, nb::object items) -> ptr {
                         if (not ts.is_none()
                         ) {
+                            // Check for new PyTimeSeriesOutput wrapper first
+                            if (nb::isinstance<api::PyTimeSeriesOutput>(ts)) {
+                                auto* raw_output = api::unwrap_output(ts);
+                                TimeSeriesOutput::ptr output_ref(raw_output);
+                                return TimeSeriesReference::make(output_ref);
+                            }
+                            
+                            // Check for new PyTimeSeriesInput wrapper
+                            if (nb::isinstance<api::PyTimeSeriesInput>(ts)) {
+                                auto* raw_input = api::unwrap_input(ts);
+                                TimeSeriesInput::ptr input_ref(raw_input);
+                                if (input_ref->has_peer()) {
+                                    auto output = input_ref->output();
+                                    return TimeSeriesReference::make(output);
+                                }
+                                // Deal with list of inputs - not implemented for new wrappers yet
+                                // Fall through to old logic
+                            }
+                            
                             if (nb::isinstance<TimeSeriesOutput>(ts)) return make(nb::cast<TimeSeriesOutput::ptr>(ts));
                             if (nb::isinstance<TimeSeriesReferenceInput>(ts))
                                 return nb::cast<TimeSeriesReferenceInput::ptr>(ts)->value();
@@ -86,7 +126,18 @@ namespace hgraph {
         nb::class_<EmptyTimeSeriesReference, TimeSeriesReference>(m, "EmptyTimeSeriesReference");
 
         nb::class_<BoundTimeSeriesReference, TimeSeriesReference>(m, "BoundTimeSeriesReference")
-                .def_prop_ro("output", &BoundTimeSeriesReference::output);
+                .def_prop_ro("output", [](const BoundTimeSeriesReference& self) -> nb::object {
+                    auto output_ptr = self.output();
+                    if (output_ptr) {
+                        // Get the graph from the output's owning node to access control block
+                        auto graph = output_ptr->owning_graph();
+                        if (graph && graph->api_control_block()) {
+                            return api::wrap_output(output_ptr.get(), graph->api_control_block());
+                        }
+                    }
+                    // Fallback to old binding if no graph/control block available
+                    return nb::cast(output_ptr);
+                });
 
         nb::class_<UnBoundTimeSeriesReference, TimeSeriesReference>(m, "UnBoundTimeSeriesReference")
                 .def_prop_ro("items", &UnBoundTimeSeriesReference::items)
@@ -221,6 +272,10 @@ namespace hgraph {
     }
 
     void TimeSeriesReferenceOutput::set_value(TimeSeriesReference::ptr value) {
+        if (value == nullptr) {
+            invalidate();
+            return;
+        }
         _value = value;
         mark_modified();
         for (auto input: _reference_observers) { _value->bind_input(*input); }

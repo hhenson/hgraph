@@ -1,6 +1,8 @@
 #include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/api/python/python_api.h>
 
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/builders/input_builder.h>
@@ -64,8 +66,26 @@ namespace hgraph {
 
     void NodeBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_ < NodeBuilder, Builder > (m, "NodeBuilder")
-                .def("make_instance", &NodeBuilder::make_instance, "owning_graph_id"_a, "node_ndx"_a)
-                .def("release_instance", &NodeBuilder::release_instance, "node"_a)
+                .def("make_instance", 
+                    [](const NodeBuilder* self, const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) -> nb::object {
+                        auto node = self->make_instance(owning_graph_id, node_ndx);
+                        // Use the node's graph control block
+                        return hgraph::api::wrap_node(node.get(), node->graph()->api_control_block());
+                    }, 
+                    "owning_graph_id"_a, "node_ndx"_a)
+                .def("release_instance", 
+                    [](const NodeBuilder* self, nb::object node_obj) {
+                        // Extract raw node from PyNode wrapper
+                        if (auto* raw_node = hgraph::api::unwrap_node(node_obj)) {
+                            node_ptr node(raw_node);
+                            self->release_instance(node);
+                        } else {
+                            // Fallback to direct cast
+                            auto node = nb::cast<node_ptr>(node_obj);
+                            self->release_instance(node);
+                        }
+                    }, 
+                    "node"_a)
                 .def_ro("signature", &NodeBuilder::signature)
                 .def_ro("scalars", &NodeBuilder::scalars)
                 .def_ro("input_builder", &NodeBuilder::input_builder)

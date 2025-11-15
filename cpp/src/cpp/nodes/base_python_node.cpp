@@ -5,6 +5,9 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
+#include <hgraph/api/python/python_api.h>
+#include <fmt/format.h>
+#include <stdexcept>
 
 namespace hgraph {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
@@ -18,18 +21,55 @@ namespace hgraph {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
         _kwargs = {};
 
-        bool has_injectables{signature().injectables != 0};
+        bool has_injectables{signature().injectables != 0 && signature().injectable_inputs.has_value()};
+        auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
+        auto g = graph();
+        if (g == nullptr) {
+            throw std::runtime_error("BasePythonNode::_initialise_kwargs: missing owning graph");
+        }
+        auto cb = g->api_control_block();
+        if (cb == nullptr) {
+            throw std::runtime_error("BasePythonNode::_initialise_kwargs: graph missing API control block");
+        }
+        nb::object node_wrapper{};
+        auto get_node_wrapper = [&]() -> nb::object {
+            if (!node_wrapper && g) {
+                node_wrapper = api::wrap_node(this, cb);
+            }
+            return node_wrapper;
+        };
         for (const auto &[key_, value]: scalars()) {
             std::string key{nb::cast<std::string>(key_)};
             try {
-                if (has_injectables && signature().injectable_inputs->contains(key)) {
-                    // TODO: This may be better extracted directly, but for now use the python function calls.
-                    nb::object node{nb::cast(this)};
-                    nb::object key_handle{value(node)};
-                    _kwargs[key_] = key_handle; // Assuming this call applies the Injector properly
-                } else {
-                    _kwargs[key_] = value;
+                if (injectable_map && injectable_map->contains(key)) {
+                    auto injectable = injectable_map->at(key);
+                    nb::object wrapped_value;
+
+                    if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
+                        wrapped_value = get_node_wrapper();
+                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
+                        auto out = output();
+                        wrapped_value = api::wrap_output(out.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
+                        auto sched = scheduler();
+                        wrapped_value = api::wrap_node_scheduler(sched.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::ENGINE_API) != InjectableTypesEnum::NONE) {
+                        auto engine_api = g ? g->evaluation_engine_api() : EvaluationEngineApi::ptr{};
+                        wrapped_value = api::wrap_evaluation_engine_api(engine_api.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::CLOCK) != InjectableTypesEnum::NONE) {
+                        auto clock = g ? g->evaluation_clock() : EvaluationClock::ptr{};
+                        wrapped_value = api::wrap_evaluation_clock(clock.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
+                        wrapped_value = g ? api::wrap_traits(&g->traits(), cb) : nb::none();
+                    } else {
+                        // Fallback: call injector with this node (same behaviour as python impl)
+                        wrapped_value = value(get_node_wrapper());
+                    }
+
+                    _kwargs[key_] = wrapped_value;
+                    continue;
                 }
+                _kwargs[key_] = value;
             } catch (const nb::python_error &e) {
                 throw NodeException::capture_error(e, *this, std::string("Initialising kwargs for '" + key + "'"));
             } catch (const std::exception &e) {
@@ -47,17 +87,26 @@ namespace hgraph {
 
     void BasePythonNode::_initialise_kwarg_inputs() {
         auto &signature_args = signature().args;
-        for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
-             i < l;
-             ++i) {
-            // Apple does not yet support ranges::contains :(
-            auto key{input()->schema().keys()[i]};
-            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                // Expose inputs as base TimeSeriesInput using nb::ref to preserve lifetime semantics.
-                // Avoid casting to raw pointer, which bypasses intrusive ref counting and can cause
-                // dangling references when Python holds onto the object (e.g., during iteration).
-                _kwargs[key.c_str()] = nb::cast((*input())[i]);
+        auto g = graph();
+        
+        // Only initialize time series kwargs if graph is set
+        // Otherwise they'll be initialized when set_graph() is called
+        if (!g) {
+            return;
+        }
+        
+        auto bundle_input = input();
+        if (bundle_input.get() == nullptr) {
+            return;
+        }
+        
+        auto cb = g->api_control_block();
+        for (auto &[key_ref, ts_ptr]: bundle_input->items()) {
+            std::string key{key_ref.get()};
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
+                continue;
             }
+            _kwargs[key.c_str()] = api::wrap_input(ts_ptr.get(), cb);
         }
     }
 
@@ -115,6 +164,14 @@ namespace hgraph {
     void BasePythonNode::reset_input(time_series_bundle_input_ptr value) {
         Node::reset_input(value);
         _initialise_kwarg_inputs();
+    }
+    
+    void BasePythonNode::set_graph(graph_ptr value) {
+        Node::set_graph(value);
+        // Initialize kwargs with wrapped inputs now that graph is set
+        if (has_input()) {
+            _initialise_kwarg_inputs();
+        }
     }
 
     class ContextManager {

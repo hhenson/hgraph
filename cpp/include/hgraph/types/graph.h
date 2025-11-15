@@ -7,6 +7,7 @@
 
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>
+#include <hgraph/api/python/api_ptr.h>
 
 namespace hgraph {
     struct HGRAPH_EXPORT Graph : ComponentLifeCycle {
@@ -69,6 +70,10 @@ namespace hgraph {
         [[nodiscard]] EngineEvaluationClock* cached_engine_clock() const { return _cached_engine_clock; }
         [[nodiscard]] const engine_time_t* cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
 
+        // API control block for Python wrapper lifetime tracking
+        [[nodiscard]] api::control_block_ptr api_control_block() const { return _api_control_block; }
+        void set_api_control_block(api::control_block_ptr control_block) { _api_control_block = std::move(control_block); }
+
     protected:
         void initialise() override;
 
@@ -94,6 +99,10 @@ namespace hgraph {
         // Set once when evaluation engine is assigned, never changes
         EngineEvaluationClock* _cached_engine_clock{nullptr};
         const engine_time_t* _cached_evaluation_time_ptr{nullptr};
+        
+        // API control block for Python wrapper lifetime tracking
+        // Shared by all Python wrappers pointing to this graph
+        api::control_block_ptr _api_control_block;
     };
 } // namespace hgraph
 

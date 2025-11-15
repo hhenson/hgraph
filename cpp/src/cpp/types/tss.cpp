@@ -215,7 +215,11 @@ namespace hgraph {
     }
 
     TimeSeriesSetOutput &TimeSeriesSetInput::set_output() const {
-        return dynamic_cast<TimeSeriesSetOutput &>(*output());
+        auto *ts_output = dynamic_cast<TimeSeriesSetOutput *>(output().get());
+        if (ts_output == nullptr) {
+            throw std::runtime_error("TimeSeriesSetInput::set_output expected TimeSeriesSetOutput");
+        }
+        return *ts_output;
     }
 
     template<typename T_Key>

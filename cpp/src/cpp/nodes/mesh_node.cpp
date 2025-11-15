@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <fmt/format.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
@@ -76,17 +77,33 @@ namespace hgraph {
 
         // Set up the reference output and register in GlobalState
         if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-            // Get the "out" and "ref" outputs from the output bundle
-            auto &tsd_output = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*tsb_output)["out"]);
-            auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
+            try {
+                auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
+                if (tsb_output == nullptr) {
+                    throw std::runtime_error("MeshNode::do_start expected bundle output");
+                }
+                auto out_entry = (*tsb_output)["out"];
+                auto ref_entry = (*tsb_output)["ref"];
+                auto *tsd_output = dynamic_cast<TimeSeriesDictOutput_T<K> *>(out_entry.get());
+                auto *ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(ref_entry.get());
+                if (tsd_output == nullptr || ref_output == nullptr) {
+                    throw std::runtime_error("MeshNode::do_start missing expected 'out' or 'ref' outputs");
+                }
 
-            // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
-            auto reference = TimeSeriesReference::make(time_series_output_ptr(&tsd_output));
-            ref_output.set_value(reference);
+                // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
+                auto reference = TimeSeriesReference::make(time_series_output_ptr(tsd_output));
+                ref_output->set_value(reference);
 
-            // Store the ref output in GlobalState
-            GlobalState::set(full_context_path_, nb::cast(ref_output));
+                // Store the ref output in GlobalState
+                auto owning_graph = ref_output->owning_graph();
+                if (owning_graph.get() == nullptr || owning_graph->api_control_block() == nullptr) {
+                    throw std::runtime_error("MeshNode::do_start missing control block for ref output");
+                }
+                GlobalState::set(full_context_path_,
+                                 api::wrap_output(ref_output, owning_graph->api_control_block()));
+            } catch (const std::bad_cast &e) {
+                throw std::runtime_error(fmt::format("MeshNode::do_start bad_cast: {}", e.what()));
+            }
         } else {
             throw std::runtime_error("GlobalState instance required for MeshNode");
         }
@@ -103,100 +120,111 @@ namespace hgraph {
     template<typename K>
     void MeshNode<K>::eval() {
         this->mark_evaluated();
-
-        // 1. Process keys input (additions/removals)
-        auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-        auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
-        if (keys.modified()) {
-            for (const auto &k: keys.added()) {
-                if (this->active_graphs_.find(k) == this->active_graphs_.end()) {
-                    create_new_graph(k);
-
-                    // If this key was pending (requested as a dependency), re-rank its dependents
-                    if (this->pending_keys_.count(k) > 0) {
-                        this->pending_keys_.erase(k);
-                        for (const auto &d: active_graphs_dependencies_[k]) {
-                            re_rank(d, k);
-                        }
-                    }
-                }
+        try {
+            // 1. Process keys input (additions/removals)
+            auto *input_bundle_ptr = dynamic_cast<TimeSeriesBundleInput *>(this->input().get());
+            if (input_bundle_ptr == nullptr) {
+                throw std::runtime_error("MeshNode::eval expected bundle input");
             }
-            for (const auto &k: keys.removed()) {
-                // Only remove if no dependencies
-                if (active_graphs_dependencies_[k].empty()) {
-                    scheduled_keys_by_rank_[active_graphs_rank_[k]].erase(k);
-                    remove_graph(k);
-                }
+            auto keys_entry = (*input_bundle_ptr)[TsdMapNode<K>::KEYS_ARG];
+            auto *keys_ptr = dynamic_cast<TimeSeriesSetInput_T<K> *>(keys_entry.get());
+            if (keys_ptr == nullptr) {
+                throw std::runtime_error("MeshNode::eval expected TimeSeriesSet input for keys");
             }
-        }
+            auto &keys = *keys_ptr;
+            if (keys.modified()) {
+                for (const auto &k: keys.added()) {
+                    if (this->active_graphs_.find(k) == this->active_graphs_.end()) {
+                        create_new_graph(k);
 
-        // 2. Process pending keys (keys added due to dependencies)
-        if (!this->pending_keys_.empty()) {
-            for (const auto &k: this->pending_keys_) {
-                create_new_graph(k, 0);
-                for (const auto &d: active_graphs_dependencies_[k]) {
-                    re_rank(d, k);
-                }
-            }
-            this->pending_keys_.clear();
-        }
-
-        // 3. Process graphs to remove
-        if (!graphs_to_remove_.empty()) {
-            for (const auto &k: graphs_to_remove_) {
-                if (active_graphs_dependencies_[k].empty() && !keys.contains(k)) { remove_graph(k); }
-            }
-            graphs_to_remove_.clear();
-        }
-
-        // 4. Evaluate scheduled graphs by rank
-        engine_time_t next_time = MAX_DT;
-        int rank = 0;
-        while (rank <= max_rank_) {
-            current_eval_rank_ = rank;
-            auto rank_it = scheduled_ranks_.find(rank);
-            engine_time_t dt = (rank_it != scheduled_ranks_.end()) ? rank_it->second : MIN_DT;
-
-            if (dt == this->last_evaluation_time()) {
-                scheduled_ranks_.erase(rank);
-                auto graphs_it = scheduled_keys_by_rank_.find(rank);
-                if (graphs_it != scheduled_keys_by_rank_.end()) {
-                    auto graphs = std::move(graphs_it->second);
-                    scheduled_keys_by_rank_.erase(rank);
-
-                    for (const auto &[k, dtg]: graphs) {
-                        if (dtg == dt) {
-                            current_eval_graph_ = k;
-                            engine_time_t next_dtg = this->evaluate_graph(k);
-                            current_eval_graph_ = std::nullopt;
-
-                            if (next_dtg != MAX_DT && next_dtg > this->last_evaluation_time()) {
-                                schedule_graph(k, next_dtg);
-                                next_time = std::min(next_time, next_dtg);
+                        // If this key was pending (requested as a dependency), re-rank its dependents
+                        if (this->pending_keys_.count(k) > 0) {
+                            this->pending_keys_.erase(k);
+                            for (const auto &d: active_graphs_dependencies_[k]) {
+                                re_rank(d, k);
                             }
-                        } else if (dtg != MAX_DT && dtg > this->last_evaluation_time()) {
-                            schedule_graph(k, dtg);
-                            next_time = std::min(next_time, dtg);
                         }
                     }
                 }
-            } else if (dt != MIN_DT && dt > this->last_evaluation_time()) {
-                next_time = std::min(next_time, dt);
+                for (const auto &k: keys.removed()) {
+                    // Only remove if no dependencies
+                    if (active_graphs_dependencies_[k].empty()) {
+                        scheduled_keys_by_rank_[active_graphs_rank_[k]].erase(k);
+                        remove_graph(k);
+                    }
+                }
             }
 
-            rank++;
+            // 2. Process pending keys (keys added due to dependencies)
+            if (!this->pending_keys_.empty()) {
+                for (const auto &k: this->pending_keys_) {
+                    create_new_graph(k, 0);
+                    for (const auto &d: active_graphs_dependencies_[k]) {
+                        re_rank(d, k);
+                    }
+                }
+                this->pending_keys_.clear();
+            }
+
+            // 3. Process graphs to remove
+            if (!graphs_to_remove_.empty()) {
+                for (const auto &k: graphs_to_remove_) {
+                    if (active_graphs_dependencies_[k].empty() && !keys.contains(k)) { remove_graph(k); }
+                }
+                graphs_to_remove_.clear();
+            }
+
+            // 4. Evaluate scheduled graphs by rank
+            engine_time_t next_time = MAX_DT;
+            int rank = 0;
+            while (rank <= max_rank_) {
+                current_eval_rank_ = rank;
+                auto rank_it = scheduled_ranks_.find(rank);
+                engine_time_t dt = (rank_it != scheduled_ranks_.end()) ? rank_it->second : MIN_DT;
+
+                if (dt == this->last_evaluation_time()) {
+                    scheduled_ranks_.erase(rank);
+                    auto graphs_it = scheduled_keys_by_rank_.find(rank);
+                    if (graphs_it != scheduled_keys_by_rank_.end()) {
+                        auto graphs = std::move(graphs_it->second);
+                        scheduled_keys_by_rank_.erase(rank);
+
+                        for (const auto &[k, dtg]: graphs) {
+                            if (dtg == dt) {
+                                current_eval_graph_ = k;
+                                engine_time_t next_dtg = this->evaluate_graph(k);
+                                current_eval_graph_ = std::nullopt;
+
+                                if (next_dtg != MAX_DT && next_dtg > this->last_evaluation_time()) {
+                                    schedule_graph(k, next_dtg);
+                                    next_time = std::min(next_time, next_dtg);
+                                }
+                            } else if (dtg != MAX_DT && dtg > this->last_evaluation_time()) {
+                                schedule_graph(k, dtg);
+                                next_time = std::min(next_time, dtg);
+                            }
+                        }
+                    }
+                } else if (dt != MIN_DT && dt > this->last_evaluation_time()) {
+                    next_time = std::min(next_time, dt);
+                }
+
+                rank++;
+            }
+
+            current_eval_rank_ = std::nullopt;
+
+            // 5. Process re-ranking requests
+            if (!re_rank_requests_.empty()) {
+                for (const auto &[k, d]: re_rank_requests_) { re_rank(k, d); }
+                re_rank_requests_.clear();
+            }
+
+            // 6. Schedule next evaluation if needed
+            if (next_time < MAX_DT) { this->graph()->schedule_node(this->node_ndx(), next_time); }
+        } catch (const std::bad_cast &e) {
+            throw std::runtime_error(fmt::format("MeshNode::eval bad_cast: {}", e.what()));
         }
-
-        current_eval_rank_ = std::nullopt;
-
-        // 5. Process re-ranking requests
-        if (!re_rank_requests_.empty()) {
-            for (const auto &[k, d]: re_rank_requests_) { re_rank(k, d); }
-            re_rank_requests_.clear();
-        }
-
-        // 6. Schedule next evaluation if needed
-        if (next_time < MAX_DT) { this->graph()->schedule_node(this->node_ndx(), next_time); }
     }
 
     template<typename K>
@@ -313,9 +341,21 @@ namespace hgraph {
 
         // Check if we should remove the dependency graph
         if (active_graphs_dependencies_[depends_on].empty()) {
-            auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-            auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
-            if (!keys.contains(depends_on)) { graphs_to_remove_.insert(depends_on); }
+            try {
+                auto *input_bundle_ptr = dynamic_cast<TimeSeriesBundleInput *>(this->input().get());
+                if (input_bundle_ptr == nullptr) {
+                    throw std::runtime_error("MeshNode::remove_graph_dependency expected bundle input");
+                }
+                auto keys_entry = (*input_bundle_ptr)[TsdMapNode<K>::KEYS_ARG];
+                auto *keys_ptr = dynamic_cast<TimeSeriesSetInput_T<K> *>(keys_entry.get());
+                if (keys_ptr == nullptr) {
+                    throw std::runtime_error("MeshNode::remove_graph_dependency expected TimeSeriesSet input for keys");
+                }
+                auto &keys = *keys_ptr;
+                if (!keys.contains(depends_on)) { graphs_to_remove_.insert(depends_on); }
+            } catch (const std::bad_cast &e) {
+                throw std::runtime_error(fmt::format("MeshNode::remove_graph_dependency bad_cast: {}", e.what()));
+            }
         }
     }
 

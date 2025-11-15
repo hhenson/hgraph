@@ -62,6 +62,17 @@ set(HGRAPH_SOURCES
         python/global_state.cpp
         python/global_keys.cpp
 
+        api/python/py_node.cpp
+        api/python/py_graph.cpp
+        api/python/py_node_scheduler.cpp
+        api/python/py_time_series.cpp
+        api/python/py_ts_types.cpp
+        api/python/py_evaluation_engine_api.cpp
+        api/python/py_evaluation_clock.cpp
+        api/python/py_traits.cpp
+        api/python/py_api_registration.cpp
+        api/python/wrapper_factory.cpp
+
         runtime/evaluation_context.cpp
         runtime/evaluation_engine.cpp
         runtime/graph_executor.cpp
