@@ -7,6 +7,7 @@
 #define TSW_H
 
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/types/time_series_visitor.h>
 #include <deque>
 
 namespace hgraph {
@@ -84,6 +85,19 @@ namespace hgraph {
             _removed_value.reset();
         }
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesFixedWindowOutput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesFixedWindowOutput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
     private:
         std::vector<T> _buffer{};
         std::vector<engine_time_t> _times{};
@@ -153,6 +167,19 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
             return dynamic_cast<const TimeSeriesWindowInput<T> *>(other) != nullptr;
+        }
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesWindowInput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesWindowInput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
         }
     };
 
@@ -232,6 +259,19 @@ namespace hgraph {
         [[nodiscard]] nb::object removed_value() const;
 
         [[nodiscard]] size_t len() const;
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesTimeWindowOutput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesTimeWindowOutput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
     private:
         void _roll() const; // mutable operation to clean up old items

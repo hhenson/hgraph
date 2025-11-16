@@ -7,6 +7,7 @@
 
 
 #include <hgraph/types/ts_indexed.h>
+#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     template<typename T_TS>
@@ -73,6 +74,19 @@ namespace hgraph {
 
         void py_set_value(nb::object value) override;
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesListOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesListOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
@@ -85,6 +99,19 @@ namespace hgraph {
         using list_type::TimeSeriesList;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesListInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesListInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
         static void register_with_nanobind(nb::module_ &m);
 

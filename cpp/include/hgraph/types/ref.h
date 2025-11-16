@@ -6,6 +6,7 @@
 #define REF_H
 
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesReference : nb::intrusive_base {
@@ -132,6 +133,19 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
@@ -189,6 +203,19 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
 
         [[nodiscard]] TimeSeriesReferenceInput *get_ref_input(size_t index);
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesReferenceInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesReferenceInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
         static void register_with_nanobind(nb::module_ &m);
 
@@ -282,12 +309,12 @@ namespace hgraph {
     // Specialized Reference Output Classes
     // ============================================================
 
-    struct TimeSeriesValueReferenceOutput : TimeSeriesReferenceOutput {
+    struct TimeSeriesValueReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct TimeSeriesListReferenceOutput : TimeSeriesReferenceOutput {
+    struct TimeSeriesListReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         
         // Constructor that accepts size
@@ -302,7 +329,7 @@ namespace hgraph {
         size_t _size{0};
     };
 
-    struct TimeSeriesBundleReferenceOutput : TimeSeriesReferenceOutput {
+    struct TimeSeriesBundleReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         
         // Constructor that accepts size
@@ -317,17 +344,17 @@ namespace hgraph {
         size_t _size{0};
     };
 
-    struct TimeSeriesDictReferenceOutput : TimeSeriesReferenceOutput {
+    struct TimeSeriesDictReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct TimeSeriesSetReferenceOutput : TimeSeriesReferenceOutput {
+    struct TimeSeriesSetReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct TimeSeriesWindowReferenceOutput : TimeSeriesReferenceOutput {
+    struct TimeSeriesWindowReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };

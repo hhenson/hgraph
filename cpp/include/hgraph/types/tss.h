@@ -10,6 +10,7 @@
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/ts.h>
+#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     struct SetDelta : nb::intrusive_base {
@@ -273,6 +274,19 @@ namespace hgraph {
 
         void _reset_value();
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesSetOutput_T<T_Key>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesSetOutput_T<T_Key>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
     protected:
         void _add(const element_type &item);
 
@@ -339,6 +353,19 @@ namespace hgraph {
         [[nodiscard]] bool was_removed(const element_type &item) const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesSetInput_T<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesSetInput_T<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
     protected:
         const TimeSeriesSetOutput_T<element_type> &prev_output_t() const;

@@ -3,6 +3,7 @@
 
 #include <hgraph/types/schema_type.h>
 #include <hgraph/types/ts_indexed.h>
+#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     struct TimeSeriesBundleOutputBuilder;
@@ -149,6 +150,19 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesBundleOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesBundleOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
@@ -169,6 +183,19 @@ namespace hgraph {
         // The general pattern in python was copy_with(node, ts=...)
         // To keep the code in sync for now, will keep this, but there is probably a better way to implement this going forward.
         ptr copy_with(const node_ptr &parent, collection_type ts_values);
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesBundleInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesBundleInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
     protected:
         using bundle_type::set_ts_values;

@@ -209,3 +209,11 @@ list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
 
 add_subdirectory(src/cpp)
+
+# Optional: Build tests if enabled
+# Tests are independent and don't require Python bindings
+option(HGRAPH_BUILD_TESTS "Build hgraph C++ unit tests" OFF)
+if (HGRAPH_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+    message(STATUS "Building hgraph C++ tests")
+    add_subdirectory(tests)
+endif()
