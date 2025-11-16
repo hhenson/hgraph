@@ -24,6 +24,7 @@ __all__ = ("ComponentNodeClass",)
 @dataclass(frozen=True)
 class ComponentWiringNodeSignature(WiringNodeSignature):
     inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
+    has_nested_graphs: bool = True
 
 
 class ComponentNodeClass(BaseWiringNodeClass):
@@ -38,7 +39,7 @@ class ComponentNodeClass(BaseWiringNodeClass):
         self._nested_graph: Callable = wrap_component(fn, signature)
         signature = signature.copy_with(
             input_types=frozendict({k: v.as_reference() for k, v in signature.input_types.items()}),
-            output_type=signature.output_type.as_reference(),
+            output_type=signature.output_type.as_reference(), has_nested_graphs=True
         )
         super().__init__(signature, None)
 

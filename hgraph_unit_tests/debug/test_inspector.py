@@ -1,4 +1,9 @@
-from hgraph import TS, graph, compute_node, TSD, map_, switch_, try_except
+from datetime import timedelta
+from math import e
+
+import pytest
+from hgraph import TS, EvaluationMode, GraphConfiguration, convert, count, evaluate_graph, graph, compute_node, TSD, map_, schedule, switch_, try_except
+from hgraph.debug import inspector
 from hgraph.debug._inspector_item_id import InspectorItemId, InspectorItemType, NodeValueType
 from hgraph.test import eval_node
 
@@ -103,3 +108,18 @@ def test_inspector_sort_key():
     assert eval_node(g4, 1) == ["001X02000001X01001"]
 
     InspectorItemId.__reset__()
+
+
+@pytest.mark.skip(reason="Requires interactive inspection; not suitable for automated testing.")
+def test_run_inspector():
+    @graph
+    def g() -> TSD[int, TS[int]]:
+        inspector(8888)
+        
+        ticks = schedule(timedelta(seconds=1))
+        tsd = convert[TSD[int, TS[int]]](key=count(ticks), ts=count(ticks))
+        mapped = map_(lambda x: x * 2, tsd)
+        return mapped
+    
+    result = evaluate_graph(g, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=5)))
+    assert result

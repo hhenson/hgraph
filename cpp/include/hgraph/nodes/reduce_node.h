@@ -44,6 +44,8 @@ namespace hgraph {
 
         const std::vector<std::tuple<int64_t, int64_t> > &free_node_indexes() const;
 
+        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+
     protected:
         void initialise() override;
 

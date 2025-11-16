@@ -267,6 +267,12 @@ namespace hgraph {
         }
     }
 
+    void ComponentNode::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+        if (m_active_graph_) {
+            callback(m_active_graph_);
+        }
+    }
+
     void ComponentNode::register_with_nanobind(nb::module_ &m) {
         nb::class_ < ComponentNode, NestedNode > (m, "ComponentNode")
                 .def_prop_ro("active_graph", [](ComponentNode &self) { return self.m_active_graph_; })

@@ -13,6 +13,7 @@ from hgraph import (
     SIZE,
     map_,
     pass_through,
+    pass_through,
     reduce,
     HgTypeMetaData,
     SCALAR,

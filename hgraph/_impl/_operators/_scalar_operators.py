@@ -325,12 +325,16 @@ def min_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True)
     """
     Binary min()
     """
-    if lhs.valid and rhs.valid:
-        return min(lhs.value, rhs.value)
-    if lhs.valid:
-        return lhs.value
-    if rhs.valid:
-        return rhs.value
+    l = lhs.value
+    r = rhs.value
+    if l is None:
+        return r
+    elif r is None:
+        return l
+    elif l <= r:
+        return l
+    else:
+        return r
 
 
 @compute_node(valid=("ts",))
@@ -341,12 +345,13 @@ def min_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, _output: TS_OUT[SCALA
     Unary min for scalar collections return the min of the current collection value.
     These are overloaded separately
     """
+    ts_value = ts.value
     if reset.modified:
-        return ts.value
+        return ts_value
     elif not _output.valid:
-        return ts.value
-    elif ts.value < _output.value:
-        return ts.value
+        return ts_value
+    elif ts_value < _output.value:
+        return ts_value
 
 
 @compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
@@ -381,12 +386,13 @@ def max_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, _output: TS_OUT[SCALA
     Unary max for scalar collections return the max of the current collection value.
     These are overloaded separately
     """
+    ts_value = ts.value
     if reset.modified:
-        return ts.value
+        return ts_value
     elif not _output.valid:
-        return ts.value
-    elif ts.value > _output.value:
-        return ts.value
+        return ts_value
+    elif ts_value > _output.value:
+        return ts_value
 
 
 @compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
@@ -394,12 +400,16 @@ def max_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True)
     """
     Binary max()
     """
-    if lhs.valid and rhs.valid:
-        return max(lhs.value, rhs.value)
-    if lhs.valid:
-        return lhs.value
-    if rhs.valid:
-        return rhs.value
+    l = lhs.value
+    r = rhs.value
+    if l is None:
+        return r
+    elif r is None:
+        return l
+    elif l >= r:
+        return l
+    else:
+        return r
 
 
 @compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)

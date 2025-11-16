@@ -253,18 +253,18 @@ def sub_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -> TS
 
 
 @graph(overloads=bit_and)
-def bit_and_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+def bit_and_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     keys = lhs.key_set & rhs.key_set
     return tsd_get_items(lhs, keys)
 
 
 @graph(overloads=bit_or)
-def bit_or_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+def bit_or_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     return merge(lhs, rhs)
 
 
 @graph(overloads=bit_xor)
-def bit_xor_tsds(lhs: TSD[K, TS[SCALAR]], rhs: TSD[K, TS[SCALAR]]) -> TSD[K, TS[SCALAR]]:
+def bit_xor_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     keys = lhs.key_set ^ rhs.key_set
     return merge(tsd_get_items(lhs, keys), tsd_get_items(rhs, keys))
 

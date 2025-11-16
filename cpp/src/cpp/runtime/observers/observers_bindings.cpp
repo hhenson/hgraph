@@ -97,7 +97,7 @@ namespace hgraph {
             .def_ro("graph", &GraphInfo::graph)
             .def_ro("id", &GraphInfo::id)
             .def_ro("label", &GraphInfo::label)
-            .def_ro("parent_graph_ptr", &GraphInfo::parent_graph_ptr)
+            .def_ro("parent_graph", &GraphInfo::parent_graph)
             .def_ro("stopped", &GraphInfo::stopped)
             .def_ro("node_count", &GraphInfo::node_count)
             .def_ro("total_subgraph_count", &GraphInfo::total_subgraph_count)
@@ -174,7 +174,29 @@ namespace hgraph {
                  "Get information about a specific graph")
             .def("walk", &InspectionObserver::walk,
                  "graph"_a,
-                 "Walk a graph and initialize observation state");
+                 "Walk a graph and initialize observation state")
+            .def("get_recent_node_performance",
+                 [](const InspectionObserver& self, const std::vector<int>& node_id,
+                    const std::optional<std::chrono::system_clock::time_point>& after) {
+                     std::vector<std::pair<std::chrono::system_clock::time_point,
+                                 std::map<std::string, double>>> result;
+                     self.get_recent_node_performance(node_id, result, after);
+                     return result;
+                 },
+                 "node_id"_a, "after"_a = std::nullopt,
+                 "Get recent performance data for a specific node")
+            .def("get_recent_graph_performance",
+                 [](const InspectionObserver& self, const std::vector<int>& graph_id,
+                    const std::optional<std::chrono::system_clock::time_point>& after) {
+                     std::vector<std::pair<std::chrono::system_clock::time_point,
+                                 std::map<std::string, double>>> result;
+                     self.get_recent_graph_performance(graph_id, result, after);
+                     return result;
+                 },
+                 "graph_id"_a, "after"_a = std::nullopt,
+                 "Get recent performance data for a specific graph")
+            .def_prop_ro("recent_performance_batch", &InspectionObserver::recent_performance_batch,
+                        "Current performance batch timestamp");
     }
 
 } // namespace hgraph

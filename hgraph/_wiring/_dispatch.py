@@ -1,6 +1,8 @@
+from itertools import product
 from typing import Tuple, Type, Callable
 
 from hgraph._types import HgTSTypeMetaData, HgCompoundScalarType, HgTypeMetaData
+from hgraph._types._ts_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._wiring._wiring_node_class import WiringNodeClass, BaseWiringNodeClass, WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_node_class import extract_resolution_dict, PreResolvedWiringNodeWrapper
 
@@ -126,53 +128,58 @@ def _dispatch_impl(
     dispatch_map = {}
     for o, _ in overloads:
         o_dispatch_types = {
-            k: t.value_scalar_tp
+            k: t
             for k, t in o.signature.input_types.items()
-            if k in dispatch_args and isinstance(t, HgTSTypeMetaData)
+            if k in dispatch_args and (isinstance(t, HgTSTypeMetaData) or (isinstance(t, HgTsTypeVarTypeMetaData) and all(isinstance(i, HgTSTypeMetaData) for i in t.constraints)))
         }
-        if len(o_dispatch_types) != len(dispatch_args):
-            raise CustomMessageWiringError(
-                f"Cannot dispatch with signatures of different lengths:\n{dispatch_args}\n{o_dispatch_types}"
-            )  # not a valid overload
-        if not all(dispatch_args[k].matches(t) for k, t in o_dispatch_types.items()):
-            raise CustomMessageWiringError(
-                f"Cannot dispatch with mis-matched signatures:\n{dispatch_args}\n{o_dispatch_types}"
-            )  # not a valid overload
+        for dispatch_values in product(*((t.value_scalar_tp,) if isinstance(t, HgTSTypeMetaData) else (i.value_scalar_tp for i in t.constraints) for t in o_dispatch_types.values())):
+            ox_dispatch_types = dict(zip(o_dispatch_types.keys(), dispatch_values))
+        
+            if len(o_dispatch_types) != len(dispatch_args):
+                raise CustomMessageWiringError(
+                    f"Cannot dispatch with signatures of different lengths:\n{dispatch_args}\n{o_dispatch_types}"
+                )  # not a valid overload
+            if not all(dispatch_args[k].matches(t) for k, t in ox_dispatch_types.items()):
+                raise CustomMessageWiringError(
+                    f"Cannot dispatch with mis-matched signatures:\n{dispatch_args}\n{o_dispatch_types}"
+                )  # not a valid overload
 
-        def make_dispatch_graph(o, dispatch_types):
-            @graph
-            @with_signature(kwargs=signature.non_autoresolve_inputs, return_annotation=o.signature.output_type)
-            def dispatch(**kwargs):
-                kw = {
-                    k: downcast_ref(dispatch_types[k].py_type, v) if k in dispatch_types else v
-                    for k, v in kwargs.items()
-                }
-                return o(**kw)
+            def make_dispatch_graph(o, dispatch_types):
+                @graph
+                @with_signature(kwargs=signature.non_autoresolve_inputs, return_annotation=o.signature.output_type)
+                def dispatch(**kwargs):
+                    kw = {
+                        k: downcast_ref(dispatch_types[k].py_type, v) if k in dispatch_types else v
+                        for k, v in kwargs.items()
+                    }
+                    return o(**kw)
 
-            return dispatch
+                return dispatch
 
-        from hgraph import create_input_stub
+            from hgraph import create_input_stub
 
-        stub_args = {k: create_input_stub(k, HgTSTypeMetaData(v), False) for k, v in o_dispatch_types.items()}
-        stub_args.update({k: v for k, v in kwargs.items() if k not in dispatch_args and k in o.signature.args})
+            stub_args = {k: create_input_stub(k, HgTSTypeMetaData(v), False) for k, v in ox_dispatch_types.items()}
+            stub_args.update({k: v for k, v in kwargs.items() if k not in dispatch_args and k in o.signature.args})
 
-        from hgraph import RequirementsNotMetWiringError
+            from hgraph import RequirementsNotMetWiringError
 
-        try:
-            o.resolve_signature(**stub_args)
-            if o.signature.type_vars:
-                resolved_dict = o.resolved_types if isinstance(o, PreResolvedWiringNodeWrapper) else {}
-                o = o.resolve_with(
-                    extract_resolution_dict(o.signature, __pre_resolved_types__=resolved_dict, **stub_args)
-                )
-        except RequirementsNotMetWiringError as e:
-            continue
+            try:
+                o.resolve_signature(**stub_args)
+                if o.signature.type_vars:
+                    resolved_dict = o.resolved_types if isinstance(o, PreResolvedWiringNodeWrapper) else {}
+                    ox = o.resolve_with(
+                        extract_resolution_dict(o.signature, __pre_resolved_types__=resolved_dict, **stub_args)
+                    )
+                else:
+                    ox = o
+            except RequirementsNotMetWiringError as e:
+                continue
 
-        key = tuple(t.py_type for t in o_dispatch_types.values())
-        if len(o_dispatch_types) == 1:
-            key = key[0]
+            key = tuple(t.py_type for t in ox_dispatch_types.values())
+            if len(ox_dispatch_types) == 1:
+                key = key[0]
 
-        dispatch_map[key] = make_dispatch_graph(o, o_dispatch_types)
+            dispatch_map[key] = make_dispatch_graph(ox, ox_dispatch_types)
 
     kwargs_ = extract_kwargs(signature, *args, **kwargs)  # process args and kwargs in kwargs so we can build a key
 

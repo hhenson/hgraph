@@ -141,7 +141,7 @@ def convert_tsd_to_frame(
             )
             | {
                 mapping.get(k, k): v if isinstance(v, (bool, int, str, float, date, datetime)) else str(v)
-                for k, v in asdict(v.value).items()
+                for k, v in v.value.to_dict().items()
             }
         )
 

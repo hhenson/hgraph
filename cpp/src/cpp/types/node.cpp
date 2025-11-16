@@ -48,14 +48,16 @@ namespace hgraph
                                  std::optional<std::unordered_set<std::string>>                      context_inputs,
                                  std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs,
                                  size_t injectables, bool capture_exception, int64_t trace_back_depth, std::string wiring_path_name,
-                                 std::optional<std::string> label, bool capture_values, std::optional<std::string> record_replay_id)
+                                 std::optional<std::string> label, bool capture_values, std::optional<std::string> record_replay_id,
+                                 bool has_nested_graphs)
         : intrusive_base(), name{std::move(name)}, node_type{node_type}, args{std::move(args)},
           time_series_inputs{std::move(time_series_inputs)}, time_series_output{std::move(time_series_output)},
           scalars{std::move(scalars)}, src_location{std::move(src_location)}, active_inputs{std::move(active_inputs)},
           valid_inputs{std::move(valid_inputs)}, all_valid_inputs{std::move(all_valid_inputs)},
           context_inputs{std::move(context_inputs)}, injectable_inputs{std::move(injectable_inputs)}, injectables{injectables},
           capture_exception{capture_exception}, trace_back_depth{trace_back_depth}, wiring_path_name{std::move(wiring_path_name)},
-          label{std::move(label)}, capture_values{capture_values}, record_replay_id{std::move(record_replay_id)} {}
+          label{std::move(label)}, capture_values{capture_values}, record_replay_id{std::move(record_replay_id)} ,
+          has_nested_graphs{has_nested_graphs} {}
 
     void NodeSignature::register_with_nanobind(nb::module_ &m) {
         nb::class_<NodeSignature, intrusive_base>(m, "NodeSignature")
@@ -92,8 +94,10 @@ namespace hgraph
                          kwargs.contains("label") ? nb::cast<std::optional<std::string>>(kwargs["label"]) : std::nullopt,
                          nb::cast<bool>(kwargs["capture_values"]),
                          kwargs.contains("record_replay_id") ? nb::cast<std::optional<std::string>>(kwargs["record_replay_id"])
-                                                             : std::nullopt);
-                 })
+                                                             : std::nullopt,
+                 kwargs.contains("has_nested_graphs")
+                                 ? nb::cast<bool>(kwargs["has_nested_graphs"])
+                                 : false);})
             // For some reason doing this does not work, and need to use the lambda form above, very annoying.
             // .def(nb::init<std::string, NodeTypeEnum, std::vector<std::string>,
             //               std::optional<std::unordered_map<std::string, nb::object>>, std::optional<nb::object>,
@@ -126,6 +130,7 @@ namespace hgraph
             .def_ro("capture_values", &NodeSignature::capture_values)
             .def_ro("capture_exception", &NodeSignature::capture_exception)
             .def_ro("trace_back_depth", &NodeSignature::trace_back_depth)
+                .def_ro("has_nested_graphs", &NodeSignature::has_nested_graphs)
 
             .def_prop_ro("signature", &NodeSignature::signature)
             .def_prop_ro("uses_scheduler", &NodeSignature::uses_scheduler)
@@ -436,6 +441,7 @@ namespace hgraph
         d["label"]              = label;
         d["capture_values"]     = capture_values;
         d["record_replay_id"]   = record_replay_id;
+        d["has_nested_graphs"] = has_nested_graphs;
         return d;
     }
 
@@ -475,7 +481,8 @@ namespace hgraph
             wiring_path_name_val, kwargs.contains("label") ? nb::cast<std::optional<std::string>>(kwargs["label"]) : this->label,
             kwargs.contains("capture_values") ? nb::cast<bool>(kwargs["capture_values"]) : this->capture_values,
             kwargs.contains("record_replay_id") ? nb::cast<std::optional<std::string>>(kwargs["record_replay_id"])
-                                                : this->record_replay_id);
+                                                : this->record_replay_id,
+            kwargs.contains("has_nested_graphs") ? nb::cast<bool>(kwargs["has_nested_graphs"]) : this->has_nested_graphs);
         // Wrap into a nanobind intrusive ref explicitly to ensure correct refcount semantics
         return nb::ref<NodeSignature>(raw);
     }

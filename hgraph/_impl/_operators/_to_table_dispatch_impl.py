@@ -24,6 +24,7 @@ from hgraph._types import (
     HgDataFrameScalarTypeMetaData,
     CompoundScalar,
 )
+from hgraph._types._scalar_type_meta_data import HgTupleFixedScalarType
 
 __all__ = ("PartialSchema", "extract_table_schema", "extract_table_schema_raw_type")
 
@@ -59,7 +60,7 @@ def _(tp: HgCompoundScalarType) -> PartialSchema:
     from_table = []
     to_table = []
     for k, v in tp.meta_data_schema.items():
-        if type(v) is HgCompoundScalarType:
+        if type(v) in (HgCompoundScalarType, HgTupleFixedScalarType):
             schema = extract_table_schema(v)
             keys.extend(f"{k}.{k_}" for k_ in schema.keys)
             types.extend(schema.types)
@@ -83,13 +84,44 @@ def _(tp: HgCompoundScalarType) -> PartialSchema:
     )
 
 
+@extract_table_schema.register(HgTupleFixedScalarType)
+def _(tp: HgTupleFixedScalarType) -> PartialSchema:
+    keys = []
+    types = []
+    from_table = []
+    to_table = []
+    for k, v in enumerate(tp.element_types):
+        if type(v) in (HgCompoundScalarType, HgTupleFixedScalarType):
+            schema = extract_table_schema(v)
+            keys.extend(f"{k}.{k_}" for k_ in schema.keys)
+            types.extend(schema.types)
+            to_table.append(lambda value, k=k: schema.to_table(value[k]))
+            from_table.append(schema.from_table)
+        else:
+            keys.append(k)
+            types.append(v.py_type)
+            to_table.append(lambda value, k=k: (value[k],))
+            from_table.append(lambda it: next(it))
+    return PartialSchema(
+        tp,
+        keys=tuple(keys),
+        types=tuple(types),
+        partition_keys=tuple(),
+        remove_partition_keys=tuple(),
+        to_table=lambda v: tuple(i for fn in to_table for i in fn(v)),
+        to_table_sample=lambda v: tuple(i for fn in to_table for i in fn(v)),
+        to_table_snap=lambda v: tuple(i for fn in to_table for i in fn(v)),
+        from_table=lambda it: tp.py_type(*[v(it) for v in from_table]),
+    )
+
+
 @extract_table_schema.register(HgTSTypeMetaData)
 def _(tp: HgTSTypeMetaData) -> PartialSchema:
     item_tp = tp.value_scalar_tp
     if type(item_tp) in (HgCompoundScalarType, HgDataFrameScalarTypeMetaData):
         schema = extract_table_schema(item_tp)
         return PartialSchema(
-            tp.py_type,
+            tp,
             keys=tuple(schema.keys),
             types=tuple(schema.types),
             partition_keys=tuple(),
@@ -107,7 +139,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
         )
     else:
         return PartialSchema(
-            tp.py_type,
+            tp,
             keys=("value",),
             types=(item_tp.py_type,),
             partition_keys=tuple(),
@@ -130,8 +162,12 @@ def _(tp: HgTSWTypeMetaData) -> PartialSchema:
 def _(tp: HgREFTypeMetaData) -> PartialSchema:
     item_tp = tp.value_tp
     schema = extract_table_schema(item_tp)
+    return ref_schema_from_schema(tp, schema)
+
+    
+def ref_schema_from_schema(tp, schema: PartialSchema) -> PartialSchema:
     return PartialSchema(
-        tp.py_type,
+        tp,
         keys=schema.keys,
         types=schema.types,
         partition_keys=schema.partition_keys,
@@ -227,8 +263,8 @@ def _(tp: HgTSDTypeMetaData) -> PartialSchema:
         if key_type in (bool, int, str, date, datetime, time, timedelta):
             key_names = (f"__key_{PartitionKeyCounter.count}__",)
             key_schema = PartialSchema(
-                tp,
-                keys=("",),
+                tp.key_tp,
+                keys=('',),
                 types=(key_type,),
                 partition_keys=tuple(),
                 remove_partition_keys=tuple(),
@@ -237,13 +273,9 @@ def _(tp: HgTSDTypeMetaData) -> PartialSchema:
                 to_table_snap=lambda v, k=key_names[0]: (v,),
                 from_table=lambda it: next(it),
             )
-        elif issubclass(key_type, CompoundScalar):
-            key_schema = extract_table_schema(HgTypeMetaData.parse_type(key_type))
-            key_names = tuple(f"__key_{PartitionKeyCounter.count}_{k}__" for k in key_schema.keys)
         else:
-            raise ValueError(
-                f"Cannot extract table schema from '{tp}' as {key_type} is not supported as a keyable column"
-            )
+            key_schema = extract_table_schema(tp.key_tp)
+            key_names = tuple(f"__key_{PartitionKeyCounter.count}_{k}__" for k in key_schema.keys)
 
         removed_name = f"__key_{PartitionKeyCounter.count}_removed__"
         schema = extract_table_schema(tp.value_tp)
@@ -265,6 +297,17 @@ def _(tp: HgTSDTypeMetaData) -> PartialSchema:
 
 
 def _tsd_to_table(tsd: TSD[K, V], key_schema, schema: PartialSchema, snap=False, sample=False) -> TABLE:
+    # the below stoppred working with the C++ engine as the types are not available on the API anymore
+    # leave the code commented for future reference hoping to find a better way to do this check
+
+    # if tsd.__value_tp__ != schema.tp:
+    #     # this can happen when we have a REF[TSD] and the inner TSD type is different from the outer TSD type in references
+    #     # like TSD[int, REF[TS[int]]] vs TSD[int, TS[int]]
+    #     if isinstance(tsd.__value_tp__, HgREFTypeMetaData) and tsd.__value_tp__.value_tp == schema.tp:
+    #         schema = ref_schema_from_schema(tsd.__value_tp__, schema)
+    #     else:
+    #         raise RuntimeError(f"TSD value type '{tsd.__value_tp__}' does not match schema type '{schema.tp}'")
+        
     if schema.partition_keys:
         # If there are partial keys in the value, then we will potentially get multiple rows
         out = []

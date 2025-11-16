@@ -155,7 +155,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         gi = GraphInfo(
             graph=graph,
-            id=graph.graph_id,
+            id=tuple(graph.graph_id),
             label=graph.label,
             parent_graph=id(graph.parent_node.graph) if graph.parent_node else 0,
             node_count=node_count,

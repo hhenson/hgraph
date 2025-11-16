@@ -1,11 +1,12 @@
 from collections.abc import Mapping as Mapping_, Set as Set_
 from datetime import time, datetime, date, timedelta
 from enum import Enum
-from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict
+from typing import Type, Tuple, FrozenSet, Set, Mapping, Dict, TypeVar, Union
 
 import pytest
 from frozendict import frozendict
 
+from hgraph import TIME_SERIES_TYPE, HgTsTypeVarTypeMetaData, TimeSeries
 from hgraph._runtime import EvaluationClock
 from hgraph._types import TSL, TSL_OUT, TSD, TSD_OUT, TSS, TSS_OUT
 from hgraph._types._tsw_meta_data import HgTSWTypeMetaData, HgTSWOutTypeMetaData
@@ -200,6 +201,24 @@ def test_collection_scalars(value, expected: HgScalarTypeMetaData):
     assert meta_type == expected
     assert meta_type.matches(expected)
 
+
+TEST_TS_TYPE = TypeVar("TEST_TS_TYPE", TS[int], TS[str])
+
+@pytest.mark.parametrize(
+    ["value", "expected"],
+    [
+        (TIME_SERIES_TYPE, HgTsTypeVarTypeMetaData(TIME_SERIES_TYPE, TimeSeries)),
+        (TEST_TS_TYPE, HgTsTypeVarTypeMetaData(TEST_TS_TYPE, (HgTimeSeriesTypeMetaData.parse_type(TS[int]), HgTimeSeriesTypeMetaData.parse_type(TS[str])))),
+        (Union[TS[int], TS[str]], HgTsTypeVarTypeMetaData(TEST_TS_TYPE, (HgTimeSeriesTypeMetaData.parse_type(TS[int]), HgTimeSeriesTypeMetaData.parse_type(TS[str])))),
+        # (TS[int], HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(int))),
+        # (TS[str], HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(str))),
+    ],
+)
+def test_type_var_parse(value, expected):
+    tp_meta = HgTypeMetaData.parse_type(value)
+    assert tp_meta is not None
+    assert isinstance(tp_meta, HgTsTypeVarTypeMetaData)
+    assert tp_meta.matches(expected)
 
 @pytest.mark.parametrize(
     "tp",

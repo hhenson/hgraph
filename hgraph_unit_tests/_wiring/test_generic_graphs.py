@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TypeVar, ContextManager
+from typing import TypeVar, ContextManager, Union
 
 from polars.testing import assert_frame_equal
 
@@ -38,7 +38,7 @@ def test_constraint_typevar_wiring():
     ST = TypeVar("ST", TS[ScalarType], TS[Frame[ScalarItemType]], TSB[OneAndMany])
 
     @operator
-    def add(x: TS[ScalarType], y: TS[float]) -> TS[ScalarType]: ...
+    def add(x: ST, y: TS[float]) -> ST: ...
 
     @compute_node(overloads=add)
     def add_default(x: TS[ScalarType], y: TS[float]) -> TS[ScalarType]:
@@ -99,3 +99,20 @@ def test_constraint_typevar_wiring():
         outputs = eval_node(addition, [None])
         assert outputs[0]["one"] == ScalarType(2.0)
         assert_frame_equal(outputs[0]["many"], pl.DataFrame({"name": ["a", "b"], "value": [2.0, 3.0]}))
+
+
+def test_union_wiring():
+    @compute_node
+    def union_fn(x: Union[TS[int], TS[str]]) -> TS[str]:
+        return str(x.value)
+    
+    @graph
+    def g(i: TS[int]) -> TS[str]:
+        return union_fn(i)
+    
+    @graph
+    def h(s: TS[str]) -> TS[str]:
+        return union_fn(s)
+    
+    assert eval_node(g, [None, 1, 2, 3]) == [None, "1", "2", "3"]
+    assert eval_node(h, [None, "a", "b", "c"]) == [None, "a", "b", "c"]    

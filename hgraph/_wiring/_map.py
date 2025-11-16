@@ -545,6 +545,7 @@ def _create_tsd_map_wiring_node(
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         # label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+        has_nested_graphs=True,
     )
 
     if resolved_signature.var_arg:
@@ -622,6 +623,7 @@ def _create_tsl_map_signature(
         unresolved_args=frozenset(),
         time_series_args=frozenset(k for k, v in input_types.items() if not v.is_scalar),
         label=f"map('{resolved_signature.signature}', {', '.join(input_types.keys())})",
+        has_nested_graphs=True,
     )
 
     graph, reassignables = wire_nested_graph(

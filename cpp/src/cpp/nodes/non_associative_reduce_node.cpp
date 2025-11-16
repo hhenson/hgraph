@@ -215,7 +215,14 @@ namespace hgraph {
         return graphs;
     }
 
+    void TsdNonAssociativeReduceNode::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+        if (nested_graph_) {
+            callback(nested_graph_);
+        }
+    }
+
     void register_non_associative_reduce_node_with_nanobind(nb::module_ &m) {
-        nb::class_ < TsdNonAssociativeReduceNode, NestedNode > (m, "TsdNonAssociativeReduceNode");
+        nb::class_ < TsdNonAssociativeReduceNode, NestedNode > (m, "TsdNonAssociativeReduceNode")
+                .def_prop_ro("nested_graphs", &TsdNonAssociativeReduceNode::nested_graphs);
     }
 } // namespace hgraph

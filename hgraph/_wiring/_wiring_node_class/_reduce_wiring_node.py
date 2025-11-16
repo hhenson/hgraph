@@ -21,6 +21,7 @@ __all__ = ("TsdReduceWiringNodeClass", "TsdNonAssociativeReduceWiringNodeClass")
 @dataclass(frozen=True)
 class ReduceWiringSignature(WiringNodeSignature):
     inner_graph: Optional["GraphBuilder"] = field(default=None, hash=False, compare=False)
+    has_nested_graphs: bool = True
 
 
 class TsdReduceWiringNodeClass(BaseWiringNodeClass):

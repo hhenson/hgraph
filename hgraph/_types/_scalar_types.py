@@ -413,6 +413,18 @@ class STATE(Generic[COMPOUND_SCALAR]):
             else:
                 setattr(value_, key, value)
 
+    def __delattr__(self, key):
+        if key in ["_value", "__schema__", "_updated"]:
+            pass # can't remove those
+        else:
+            value_ = self.__dict__["_value"]
+            schema = self.__dict__["__schema__"]
+            self.__dict__["_updated"] = True
+            if schema is None:
+                del value_[key]
+            else:
+                delattr(value_, key)
+
     def reset_updated(self) -> None:
         """Resets the updated state back to false"""
         self.__dict__["_updated"] = False

@@ -12,6 +12,7 @@ from hgraph import (
     Node,
     PythonNestedNodeImpl,
     TimeSeriesInput,
+    TimeSeriesOutput,
     PythonTimeSeriesReferenceOutput,
     TimeSeriesReference,
     PythonTimeSeriesReferenceInput,
@@ -192,12 +193,47 @@ def inspector_pin_item(state, item_id):
     return "", []
 
 
-def inspector_follow_ref(state, item_id):
+def find_output(item_id, value):
+    if isinstance(value, TimeSeriesInput):
+        if value._reference_output is not None:
+            item_id = InspectorItemId.from_object(value._reference_output)
+        elif value.output is not None:
+            item_id = InspectorItemId.from_object(value.output)
+        elif isinstance(value, PythonTimeSeriesReferenceInput):
+            if value.valid and value.value.has_output:
+                item_id = InspectorItemId.from_object(value.value.output)
+            else:
+                raise ValueError(f"Reference input {item_id} has no output and no value")
+        else:
+            raise ValueError(f"Input {item_id} has no output")
+    else:
+        raise ValueError(f"Item {item_id} is not a bound input")
+    
+    return item_id
+
+
+def inspector_find_output(state, item_id):
     graph, value = graph_object_from_id(state, item_id)
 
-    if isinstance(value, Node) and value.output:
-        value = value.output
+    item_id = find_output(item_id, value)
 
+    if item_id is None:
+        raise ValueError(f"Referenced item not found")
+
+    commands = [("show", i) for i in item_id.parent_item_ids()] + [("show", item_id)]
+    
+    node_id = InspectorItemId(graph=item_id.graph, node=item_id.node)
+    commands.append(("expand", node_id))
+    
+    _, node = graph_object_from_id(state, node_id)
+    if node.input:
+        inputs = InspectorItemId(graph=item_id.graph, node=item_id.node, value_type=NodeValueType.Inputs)
+        commands.append(("expand", inputs))
+
+    return item_id.to_str(), commands
+
+
+def find_ref_output(item_id, value):
     if isinstance(value, TimeSeriesInput):
         if value.output is not None:
             item_id = InspectorItemId.from_object(value.output)
@@ -220,11 +256,89 @@ def inspector_follow_ref(state, item_id):
             raise ValueError(f"TimeSeriesReference {item_id} references no output")
     else:
         raise ValueError(f"Item {item_id} is not a reference or bound inputs")
+    
+    return item_id
+
+
+def inspector_follow_ref(state, item_id):
+    graph, value = graph_object_from_id(state, item_id)
+
+    item_id = find_ref_output(item_id, value)
 
     if item_id is None:
         raise ValueError(f"Referenced item not found")
 
     commands = [("show", i) for i in item_id.parent_item_ids()] + [("show", item_id)]
+    
+    node_id = InspectorItemId(graph=item_id.graph, node=item_id.node)
+    commands.append(("expand", node_id))
+    
+    _, node = graph_object_from_id(state, node_id)
+    if node.input:
+        inputs = InspectorItemId(graph=item_id.graph, node=item_id.node, value_type=NodeValueType.Inputs)
+        commands.append(("expand", inputs))
+
+    return item_id.to_str(), commands
+
+
+def inspector_follow_refs(state, item_id):
+    graph, value = graph_object_from_id(state, item_id)
+
+    if isinstance(value, Node) and value.output:
+        value = value.output
+
+    while True:
+        item_id = find_ref_output(item_id, value)
+        if value.value is None:
+            break
+        if item_id.value_type != NodeValueType.Output:
+            break
+
+        node_id = InspectorItemId(graph=item_id.graph, node=item_id.node)
+        graph, node = graph_object_from_id(state, node_id)
+        if not isinstance(node, Node):
+            break
+
+        _, value = graph_object_from_id(state, item_id)
+        if isinstance(value, (TimeSeriesOutput, TimeSeriesOutput)) and value.valid and value.value is not None:
+            value = value.value
+        
+        for k, v in node.inputs.items():
+            in_id = InspectorItemId(graph=item_id.graph, node=item_id.node, value_type=NodeValueType.Inputs, value_path=(k,) + item_id.value_path)
+            _, inp = graph_object_from_id(state, in_id)
+                
+            if isinstance(inp, (TimeSeriesInput)) and inp.value is not None:
+                in_value = inp.value
+                if in_value is value:
+                    value = inp
+                    break
+            else:
+                if inp is value:
+                    while inp is not None and not isinstance(inp, TimeSeriesInput):
+                        in_id = InspectorItemId(graph=in_id.graph, node=in_id.node, value_type=NodeValueType.Inputs, value_path=in_id.value_path[:-1])
+                        try:
+                            _, inp = graph_object_from_id(state, )
+                        except ValueError:
+                            inp = None
+                            break
+                    value = inp
+                    break
+        else:
+            break
+        
+        
+    if item_id is None:
+        raise ValueError(f"Referenced item not found")
+
+    commands = [("show", i) for i in item_id.parent_item_ids()] + [("show", item_id)]
+    
+    node_id = InspectorItemId(graph=item_id.graph, node=item_id.node)
+    commands.append(("expand", node_id))
+    
+    _, node = graph_object_from_id(state, node_id)
+    if node.input:
+        inputs = InspectorItemId(graph=item_id.graph, node=item_id.node, value_type=NodeValueType.Inputs)
+        commands.append(("expand", inputs))
 
     return item_id.to_str(), commands
 
@@ -413,8 +527,12 @@ def handle_inspector_request(state: InspectorState, request: HttpGetRequest, f: 
                     response, new_commands = inspector_collapse_item(state, item_id)
                 case "pin":
                     response, new_commands = inspector_pin_item(state, item_id)
+                case "output":
+                    response, new_commands = inspector_find_output(state, item_id)
                 case "ref":
                     response, new_commands = inspector_follow_ref(state, item_id)
+                case "refs":
+                    response, new_commands = inspector_follow_refs(state, item_id)
                 case "pin_ref":
                     response, new_commands = inspector_pin_ref(state, item_id)
                 case "unpin":

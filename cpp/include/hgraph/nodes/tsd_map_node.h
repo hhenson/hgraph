@@ -38,6 +38,8 @@ namespace hgraph {
 
         std::unordered_map<K, graph_ptr> &nested_graphs();
 
+        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+
     protected:
         void initialise() override;
 

@@ -141,6 +141,7 @@ def switch_(
             unresolved_args=frozenset(),
             time_series_args=time_series_args,
             # label=f"switch_({{{', '.join(f'{k}: ...' for k in cases)}}}, ...)",
+            has_nested_graphs=True,
         )
 
         nested_graphs = {}
