@@ -6,6 +6,7 @@
 #define TS_H
 
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     template<typename T>
@@ -39,6 +40,19 @@ namespace hgraph {
 
         void reset_value();
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesValueOutput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesValueOutput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
     private:
         T _value{};
     };
@@ -57,6 +71,19 @@ namespace hgraph {
         [[nodiscard]] const T &value() const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesValueInput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesValueInput<T>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
     };
 
     void register_ts_with_nanobind(nb::module_ & m);

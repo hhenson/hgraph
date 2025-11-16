@@ -5,6 +5,28 @@
 #include <hgraph/util/reference_count_subscriber.h>
 #include <variant>
 
+// Forward declare visitor interfaces
+namespace hgraph {
+    struct TimeSeriesVisitor;
+
+    // Forward declarations for visitable interfaces
+    struct HGRAPH_EXPORT TimeSeriesOutputVisitable {
+        // Acyclic visitor support (runtime dispatch) - implemented by concrete types
+        virtual void accept(TimeSeriesVisitor& visitor) = 0;
+        virtual void accept(TimeSeriesVisitor& visitor) const = 0;
+
+        virtual ~TimeSeriesOutputVisitable() = default;
+    };
+
+    struct HGRAPH_EXPORT TimeSeriesInputVisitable {
+        // Acyclic visitor support (runtime dispatch) - implemented by concrete types
+        virtual void accept(TimeSeriesVisitor& visitor) = 0;
+        virtual void accept(TimeSeriesVisitor& visitor) const = 0;
+
+        virtual ~TimeSeriesInputVisitable() = default;
+    };
+}
+
 namespace hgraph
 {
     struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base
@@ -71,7 +93,7 @@ namespace hgraph
     struct TimeSeriesInput;
     struct OutputBuilder;
 
-    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType
+    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType, TimeSeriesOutputVisitable
     {
         using ptr          = nb::ref<TimeSeriesOutput>;
         TimeSeriesOutput() = default;
@@ -120,7 +142,7 @@ namespace hgraph
         virtual bool can_apply_result(nb::object value) = 0;
     };
 
-    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable
+    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable
     {
         using ptr         = nb::ref<TimeSeriesInput>;
         TimeSeriesInput() = default;

@@ -6,6 +6,7 @@
 #define TS_SIGNAL_H
 
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     struct TimeSeriesSignalInputBuilder;
@@ -35,6 +36,19 @@ namespace hgraph {
         void make_passive() override;
 
         void do_un_bind_output(bool unbind_refs) override;
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesSignalInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesSignalInput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
         static void register_with_nanobind(nb::module_ &m);
 

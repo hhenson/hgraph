@@ -11,6 +11,7 @@
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/types/time_series_visitor.h>
 #include <ranges>
 
 namespace hgraph {
@@ -295,6 +296,19 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesDictOutput_T<T_Key>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesDictOutput_T<T_Key>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
     protected:
         friend TSDOutBuilder<T_Key>;
 
@@ -479,6 +493,19 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesDictOutput_T<key_type> &output_t();
 
         [[nodiscard]] const TimeSeriesDictOutput_T<key_type> &output_t() const;
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesDictInput_T<T_Key>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesDictInput_T<T_Key>>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
 
     protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
