@@ -3,6 +3,7 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
+#include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/schema_type.h>
@@ -29,42 +30,38 @@ void export_types(nb::module_ &m) {
     BacktraceSignature::register_with_nanobind(m);
     NodeError::register_with_nanobind(m);
 
-    TimeSeriesType::register_with_nanobind(m);
-    TimeSeriesOutput::register_with_nanobind(m);
-    TimeSeriesInput::register_with_nanobind(m);
-    
-    // Register concrete base classes
-    BaseTimeSeriesOutput::register_with_nanobind(m);
-    BaseTimeSeriesInput::register_with_nanobind(m);
+    PyTimeSeriesType::register_with_nanobind(m);
+    PyTimeSeriesOutput::register_with_nanobind(m);
+    PyTimeSeriesInput::register_with_nanobind(m);
 
     TimeSeriesReference::register_with_nanobind(m);
     TimeSeriesReferenceOutput::register_with_nanobind(m);
     TimeSeriesReferenceInput::register_with_nanobind(m);
-
-    // Specialized reference input types
-    TimeSeriesValueReferenceInput::register_with_nanobind(m);
-    TimeSeriesListReferenceInput::register_with_nanobind(m);
-    TimeSeriesBundleReferenceInput::register_with_nanobind(m);
-    TimeSeriesDictReferenceInput::register_with_nanobind(m);
-    TimeSeriesSetReferenceInput::register_with_nanobind(m);
-    TimeSeriesWindowReferenceInput::register_with_nanobind(m);
-
-    // Specialized reference output types
-    TimeSeriesValueReferenceOutput::register_with_nanobind(m);
-    TimeSeriesListReferenceOutput::register_with_nanobind(m);
-    TimeSeriesBundleReferenceOutput::register_with_nanobind(m);
-    TimeSeriesDictReferenceOutput::register_with_nanobind(m);
-    TimeSeriesSetReferenceOutput::register_with_nanobind(m);
-    TimeSeriesWindowReferenceOutput::register_with_nanobind(m);
-
-    IndexedTimeSeriesOutput::register_with_nanobind(m);
-    IndexedTimeSeriesInput::register_with_nanobind(m);
-
-    TimeSeriesListOutput::register_with_nanobind(m);
-    TimeSeriesListInput::register_with_nanobind(m);
-
-    TimeSeriesBundleInput::register_with_nanobind(m);
-    TimeSeriesBundleOutput::register_with_nanobind(m);
+    //
+    // // Specialized reference input types
+    // TimeSeriesValueReferenceInput::register_with_nanobind(m);
+    // TimeSeriesListReferenceInput::register_with_nanobind(m);
+    // TimeSeriesBundleReferenceInput::register_with_nanobind(m);
+    // TimeSeriesDictReferenceInput::register_with_nanobind(m);
+    // TimeSeriesSetReferenceInput::register_with_nanobind(m);
+    // TimeSeriesWindowReferenceInput::register_with_nanobind(m);
+    //
+    // // Specialized reference output types
+    // TimeSeriesValueReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesListReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesBundleReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesDictReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesSetReferenceOutput::register_with_nanobind(m);
+    // TimeSeriesWindowReferenceOutput::register_with_nanobind(m);
+    //
+    // IndexedTimeSeriesOutput::register_with_nanobind(m);
+    // IndexedTimeSeriesInput::register_with_nanobind(m);
+    //
+    // TimeSeriesListOutput::register_with_nanobind(m);
+    // TimeSeriesListInput::register_with_nanobind(m);
+    //
+    // TimeSeriesBundleInput::register_with_nanobind(m);
+    // TimeSeriesBundleOutput::register_with_nanobind(m);
 
     SetDelta::register_with_nanobind(m);
     tss_register_with_nanobind(m);

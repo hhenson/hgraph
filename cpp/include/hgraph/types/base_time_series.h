@@ -65,8 +65,6 @@ namespace hgraph {
         void invalidate() override;
         void mark_modified(engine_time_t modified_time) override;
 
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         // State and helpers moved from TimeSeriesType
         TimeSeriesType::ptr &_parent_time_series() const;
@@ -139,8 +137,6 @@ namespace hgraph {
 
         [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
-
-        static void register_with_nanobind(nb::module_ &m);
 
     protected:
         // State and helpers moved from TimeSeriesType
