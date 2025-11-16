@@ -68,21 +68,6 @@ namespace hgraph {
         void invalidate() override;
         void mark_modified(engine_time_t modified_time) override;
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         // State and helpers moved from TimeSeriesType
         TimeSeriesType::ptr &_parent_time_series() const;
@@ -155,21 +140,6 @@ namespace hgraph {
 
         [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
 
     protected:
         // State and helpers moved from TimeSeriesType

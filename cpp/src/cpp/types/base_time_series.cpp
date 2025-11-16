@@ -96,11 +96,6 @@ namespace hgraph {
 
     void BaseTimeSeriesOutput::invalidate() { mark_invalid(); }
 
-    void BaseTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
-        // Register just for type hierarchy - methods are defined on interface
-        nb::class_<BaseTimeSeriesOutput, TimeSeriesOutput>(m, "BaseTimeSeriesOutput");
-    }
-
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() const {
         return static_cast<TimeSeriesOutput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
     }
@@ -387,11 +382,6 @@ namespace hgraph {
         } else {
             return nb::none();
         }
-    }
-
-    void BaseTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
-        // Register just for type hierarchy - methods are defined on interface
-        nb::class_<BaseTimeSeriesInput, TimeSeriesInput>(m, "BaseTimeSeriesInput");
     }
 
     bool BaseTimeSeriesInput::do_bind_output(time_series_output_ptr &output_) {

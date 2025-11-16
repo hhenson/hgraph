@@ -107,8 +107,6 @@ namespace hgraph
         [[nodiscard]] virtual bool is_reference() const                            = 0;
         [[nodiscard]] virtual bool has_reference() const                           = 0;
 
-        static void register_with_nanobind(nb::module_ &m);
-
         static inline time_series_type_ptr null_ptr{};
     };
 
@@ -162,8 +160,6 @@ namespace hgraph
         // It could be moved into the queuing logic and implemented as a visitor, this would allow us to peek
         // The queue and perform the change, if the change is successful, we then pop the queue.
         virtual bool can_apply_result(nb::object value) = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable
@@ -193,13 +189,11 @@ namespace hgraph
         // This is a feature used by the BackTrace tooling, this is not something that is generally
         // Useful, it could be handled through a visitor, or some other means of extraction.
         // This exposes internal implementation logic.
-        [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const            = 0;
+        [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const = 0;
 
         // This is a hack to support REF time-series binding, this definitely needs to be revisited.
         [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
         [[nodiscard]] virtual TimeSeriesInput       *get_input(size_t index)       = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 }  // namespace hgraph
 
