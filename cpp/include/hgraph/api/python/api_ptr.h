@@ -79,6 +79,20 @@ namespace hgraph {
             return *_impl;
         }
 
+        // Perform a static cast on the result.
+        template<typename U>
+        U* static_cast_() const {
+            validate();
+            return static_cast<U*>(_impl);
+        }
+
+        // Perform a dynamic cast on the result.
+        template<typename U>
+        U* dynamic_cast_() const {
+            validate();
+            return dynamic_cast<U*>(_impl);
+        }
+
         // Get raw pointer (for internal use - does not validate)
         [[nodiscard]] T* get() const noexcept {
             return _impl;
