@@ -104,6 +104,8 @@ namespace hgraph
         [[nodiscard]] virtual nb::object get_input(size_t index) const = 0;
 
         static void register_with_nanobind(nb::module_ &m);
+    private:
+        friend TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_);
     };
 
 }  // namespace hgraph

@@ -1,3 +1,4 @@
+#include "hgraph/api/python/py_ref.h"
 #include "hgraph/types/tsd.h"
 
 #include <hgraph/types/error_type.h>
@@ -34,9 +35,9 @@ void export_types(nb::module_ &m) {
     PyTimeSeriesOutput::register_with_nanobind(m);
     PyTimeSeriesInput::register_with_nanobind(m);
 
-    TimeSeriesReference::register_with_nanobind(m);
-    TimeSeriesReferenceOutput::register_with_nanobind(m);
-    TimeSeriesReferenceInput::register_with_nanobind(m);
+    register_time_series_reference_with_nanobind(m);
+    PyTimeSeriesReferenceOutput::register_with_nanobind(m);
+    PyTimeSeriesReferenceInput::register_with_nanobind(m);
     //
     // // Specialized reference input types
     // TimeSeriesValueReferenceInput::register_with_nanobind(m);
