@@ -25,10 +25,10 @@ namespace hgraph {
         // Check if it's a TimeSeriesReference using nanobind's isinstance
         // In Python: TimeSeriesReference.is_instance(value)
         try {
-            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference> >(value);
-            return ref->has_output() && ref->output()->valid();
+            auto ref = nb::cast<TimeSeriesReference>(value);
+            return ref.is_bound() && ref.output()->valid();
         } catch (const nb::cast_error &) {
-            // Not a BoundTimeSeriesReference, that's fine
+            // Not a TimeSeriesReference, that's fine
             return true;
         }
     }
@@ -38,11 +38,14 @@ namespace hgraph {
 
         // Check if it's a TimeSeriesReference
         try {
-            auto ref = nb::cast<nb::ref<BoundTimeSeriesReference> >(value);
+            auto ref = nb::cast<TimeSeriesReference>(value);
             // Must have output and it must be valid
-            return ref->output()->py_value();
+            if (ref.is_bound()) {
+                return ref.output()->py_value();
+            }
+            return value;
         } catch (const nb::cast_error &) {
-            // Not a BoundTimeSeriesReference, return value as-is
+            // Not a TimeSeriesReference, return value as-is
             return value;
         }
     }

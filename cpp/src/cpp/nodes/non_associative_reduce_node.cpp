@@ -157,7 +157,7 @@ namespace hgraph {
             // No nodes: output should reference the zero input
             auto zero = (*input())["zero"];
             auto zero_ref = dynamic_cast<TimeSeriesReferenceInput *>(zero.get());
-            if (!out->valid() || out->value().get() != zero_ref->value().get()) {
+            if (!out->valid() || !out->has_value() || !(out->value() == zero_ref->value())) {
                 out->set_value(zero_ref->value());
             }
         } else {
@@ -167,7 +167,7 @@ namespace hgraph {
             auto last_out = last_out_node->output();
             auto last_ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(last_out.get());
 
-            if (!out->valid() || out->value().get() != last_ref_out->value().get()) {
+            if (!out->valid() || !out->has_value() || !(out->value() == last_ref_out->value())) {
                 out->set_value(last_ref_out->value());
             }
         }
@@ -185,7 +185,7 @@ namespace hgraph {
         auto sub_graph = get_node(nc - 1);
         auto out_node = sub_graph[output_node_id_];
         auto ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(out_node->output().get());
-        return nb::cast(ref_out->value().get());
+        return nb::cast(ref_out->value());
     }
 
     int64_t TsdNonAssociativeReduceNode::node_size() const {

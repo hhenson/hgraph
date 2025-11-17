@@ -131,8 +131,8 @@ namespace hgraph {
         auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
 
         // Since l is the last output and o is the main output, they are different TimeSeriesReferenceOutput objects
-        // We need to compare their values (both are TimeSeriesReference::ptr)
-        bool values_equal = o->valid() && l->valid() && (o->value().get() == l->value().get());
+        // We need to compare their values (both are TimeSeriesReference values)
+        bool values_equal = o->valid() && l->valid() && o->has_value() && l->has_value() && (o->value() == l->value());
         // Python reference (reference/hgraph/src/hgraph/_impl/_runtime/_reduce_node.py lines 109-112):
         // if (not o.valid and l.valid) or (l.valid and o.value != l.value): o.value = l.value
         // Do not propagate solely on l->modified(); only propagate when pointer changes or initial assignment.
